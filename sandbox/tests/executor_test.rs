@@ -184,6 +184,7 @@ fn test_config() -> Config {
         use_tmux: false,
         default_model: None,
         default_codex_model: None,
+        use_tmux: false,
     }
 }
 

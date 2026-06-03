@@ -137,7 +137,7 @@ pub async fn query_tmux(prompt: &str, mut options: ClaudeOptions) -> Result<Quer
     let init_timeout = options
         .init_timeout
         .unwrap_or(DEFAULT_SESSION_START_TIMEOUT);
-    let wait_result = wait_for_session_start(state_rx.clone(), init_timeout).await;
+    let wait_result = wait_for_session_start(state_rx.clone(), &session, init_timeout).await;
     trust_token.cancel();
     let _ = trust_handle.await;
 
@@ -265,7 +265,7 @@ pub async fn query_tmux_streaming(mut options: ClaudeOptions) -> Result<QueryHan
     let init_timeout = options
         .init_timeout
         .unwrap_or(DEFAULT_SESSION_START_TIMEOUT);
-    let wait_result = wait_for_session_start(state_rx.clone(), init_timeout).await;
+    let wait_result = wait_for_session_start(state_rx.clone(), &session, init_timeout).await;
     trust_token.cancel();
     let _ = trust_handle.await;
     if let Err(e) = wait_result {
@@ -327,12 +327,27 @@ fn anchor_harness(harness: Arc<HookHarness>, cancellation_token: CancellationTok
     });
 }
 
+/// Interval at which [`wait_for_session_start`] polls the tmux session's
+/// liveness while waiting for the `SessionStart` hook.
+const LIVENESS_POLL_INTERVAL: Duration = Duration::from_millis(250);
+
 /// Wait until [`HookState::SessionStarted`] is observed on the watch channel,
 /// or until `timeout` elapses.
+///
+/// While waiting, the tmux session's liveness is polled every
+/// [`LIVENESS_POLL_INTERVAL`]. If the session dies before `SessionStart` fires
+/// — e.g. `claude --continue` prints "No conversation found to continue" and
+/// exits immediately — this returns [`SdkError::TmuxSessionDied`] within one
+/// poll interval instead of blocking for the full `timeout`. Callers (and the
+/// sandbox's fresh-session fallback) can then retry quickly.
 async fn wait_for_session_start(
     mut state_rx: watch::Receiver<HookState>,
+    session: &TmuxSession,
     timeout: Duration,
 ) -> Result<()> {
+    let timeout_err = || SdkError::SessionStartTimeout {
+        timeout_ms: u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX),
+    };
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         if matches!(*state_rx.borrow(), HookState::SessionStarted { .. }) {
@@ -340,22 +355,21 @@ async fn wait_for_session_start(
         }
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         if remaining.is_zero() {
-            return Err(SdkError::SessionStartTimeout {
-                timeout_ms: u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX),
-            });
+            return Err(timeout_err());
         }
-        match tokio::time::timeout(remaining, state_rx.changed()).await {
+        // Wake on a hook-state change, but no later than the next liveness poll
+        // (and never past the overall deadline).
+        let wait = remaining.min(LIVENESS_POLL_INTERVAL);
+        match tokio::time::timeout(wait, state_rx.changed()).await {
+            // State changed — re-check at the top of the loop.
             Ok(Ok(())) => continue,
-            Ok(Err(_)) => {
-                // Sender dropped — listener exited before SessionStart fired.
-                return Err(SdkError::SessionStartTimeout {
-                    timeout_ms: u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX),
-                });
-            }
+            // Sender dropped — listener exited before SessionStart fired.
+            Ok(Err(_)) => return Err(timeout_err()),
+            // Poll tick (or final slice) elapsed — check the session is still up.
             Err(_) => {
-                return Err(SdkError::SessionStartTimeout {
-                    timeout_ms: u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX),
-                });
+                if !session.is_alive().await {
+                    return Err(SdkError::TmuxSessionDied);
+                }
             }
         }
     }

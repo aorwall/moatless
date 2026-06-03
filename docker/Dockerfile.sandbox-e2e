@@ -1,0 +1,38 @@
+# Dockerfile for running pre-compiled moatless-sandbox E2E test binaries inside
+# the real sandbox base image — which ships the exact pinned `claude` CLI, `tmux`,
+# and the non-root `moatless` user. This is what makes the both-transports agent
+# test (subprocess + tmux) runnable hermetically against production tooling.
+#
+# Test binaries are cross-compiled on the host and passed via --build-context,
+# mirroring crates/claude-agent-sdk/Dockerfile.test.
+#
+# Build (via crates/claude-agent-sdk/scripts/test-docker.sh sandbox-transport):
+#   docker build -f docker/Dockerfile.sandbox-e2e \
+#     --build-context binaries=/tmp/sdk-test-bins -t moatless-sandbox-e2e .
+# Run:
+#   docker run --rm -e CLAUDE_CODE_OAUTH_TOKEN -e CLAUDE_SDK_E2E=1 -e CLAUDE_TMUX_E2E=1 \
+#     moatless-sandbox-e2e
+
+ARG SANDBOX_BASE=aorwall/moatless-sandbox-base:latest
+FROM ${SANDBOX_BASE}
+
+# Pre-compiled (cross-compiled for linux) test binaries from the host.
+ARG TARGETARCH
+COPY --from=binaries ${TARGETARCH}/ /test-bins/
+RUN chmod +x /test-bins/*
+
+# The agent path resolves the CLI from this env (default /usr/local/bin/claude).
+ENV CLAUDE_CLI_PATH=/usr/local/bin/claude
+ENV HOME=/home/moatless
+
+# Claude CLI rejects running as root with certain flags; run as the same
+# non-root user the sandbox uses in production.
+USER moatless
+WORKDIR /home/moatless
+
+RUN claude --version && tmux -V
+
+ENTRYPOINT ["sh", "-c"]
+# Default: run both transports. The test bodies self-skip unless the matching
+# CLAUDE_SDK_E2E / CLAUDE_TMUX_E2E gate is set.
+CMD ["CLAUDE_SDK_E2E=1 CLAUDE_TMUX_E2E=1 /test-bins/agent-transport-e2e --ignored --nocapture"]
