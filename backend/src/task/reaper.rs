@@ -23,12 +23,23 @@ use tracing::{debug, info, warn};
 use super::dao::{TaskPatch, TaskRepository};
 use super::models::TaskStatus;
 use crate::config::Config;
+use crate::event_handler::agent_handlers;
+use crate::event_handler::models::AgentEvent;
 use crate::events::EventPublisher;
-use moatless_events::{SandboxEventPayload, SandboxSubType};
+use moatless_events::{EventType, SandboxEventPayload, SandboxSubType};
 use crate::message::dao::MessageRepository;
 use crate::sandbox::k8s::client::K8sClient;
 use crate::sandbox::k8s::leader_election::LeaderElection;
 use crate::sandbox::provider::SandboxProvider;
+use crate::state::AppState;
+use crate::task_event::dao::UnclosedTurn;
+
+/// Minimum age of a stuck `active` turn before the reaper reconciles it.
+///
+/// Sits comfortably above normal turn latency so a slow-but-live turn is never
+/// force-closed; only a turn whose terminal event was genuinely lost (e.g.
+/// dropped during a Redis outage) survives past this floor.
+const RECONCILE_STUCK_TURN_THRESHOLD_SECS: i64 = 5 * 60;
 
 /// Errors that can occur during a reap cycle.
 #[derive(Debug, thiserror::Error)]
@@ -45,7 +56,9 @@ enum ReaperError {
 /// 1. Try to acquire leadership via K8s Lease (`"moatless-task-reaper"`).
 /// 2. If leader, run a reap cycle (idle-sandbox stop + inactive-task close).
 /// 3. Sleep for `config.sandbox.idle_check_interval_secs` before the next cycle.
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_task_reaper(
+    app_state: AppState,
     k8s: K8sClient,
     messages: Arc<dyn MessageRepository>,
     tasks: Arc<dyn TaskRepository>,
@@ -54,6 +67,10 @@ pub fn spawn_task_reaper(
     config: Arc<Config>,
     cancel: CancellationToken,
 ) -> JoinHandle<()> {
+    metrics::describe_counter!(
+        "task_turns_reconciled_total",
+        "Active task turns force-closed by the reaper after a lost terminal event"
+    );
     let identity = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
     let interval = Duration::from_secs(config.sandbox.idle_check_interval_secs);
     let default_ttl_minutes = config.sandbox.idle_timeout_minutes as i32;
@@ -80,6 +97,7 @@ pub fn spawn_task_reaper(
                 Ok(true) => {
                     debug!(identity = %identity, "Task reaper is leader, running reap cycle");
                     if let Err(e) = run_reap_cycle(
+                        &app_state,
                         &k8s,
                         &messages,
                         &tasks,
@@ -115,6 +133,7 @@ pub fn spawn_task_reaper(
 /// Run one reap cycle: stop idle sandboxes, then close inactive Open tasks.
 #[allow(clippy::too_many_arguments)]
 async fn run_reap_cycle(
+    app_state: &AppState,
     k8s: &K8sClient,
     messages: &Arc<dyn MessageRepository>,
     tasks: &Arc<dyn TaskRepository>,
@@ -124,6 +143,11 @@ async fn run_reap_cycle(
     default_inactive_ttl_days: i32,
 ) -> Result<(), ReaperError> {
     let sandbox_ids = list_running_sandbox_task_ids(k8s).await?;
+
+    // Third pass: close turns left stuck `active` by a lost terminal event.
+    // Independent of the idle/close passes below and best-effort, so a failure
+    // here never blocks them.
+    reconcile_orphaned_turns(app_state, &sandbox_ids).await;
 
     let open_ids = match tasks.list_open_task_ids().await {
         Ok(ids) => ids,
@@ -290,6 +314,110 @@ async fn run_reap_cycle(
     }
 
     Ok(())
+}
+
+/// Reconcile turns stuck `active` because their terminal event was lost.
+///
+/// A turn is closed only once confirmed genuinely orphaned: either its sandbox
+/// Deployment is gone (not in `running_sandbox_ids`) or its agent reports
+/// `idle`/`stopped`. A turn whose agent is still `running`, or whose status
+/// can't be determined, is left alone so a slow-but-live turn is never killed.
+async fn reconcile_orphaned_turns(app_state: &AppState, running_sandbox_ids: &[String]) {
+    let cutoff = Utc::now() - chrono::Duration::seconds(RECONCILE_STUCK_TURN_THRESHOLD_SECS);
+    let stuck = match app_state
+        .task_events
+        .list_tasks_with_unclosed_active_turn(cutoff)
+        .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            warn!(error = %e, "reconcile: failed to list unclosed active turns");
+            return;
+        }
+    };
+
+    if stuck.is_empty() {
+        return;
+    }
+
+    let running: HashSet<&str> = running_sandbox_ids.iter().map(String::as_str).collect();
+
+    for turn in stuck {
+        let orphaned = if running.contains(turn.task_id.as_str()) {
+            // Sandbox is up — only orphaned if the agent has gone terminal.
+            // Unknown status ⇒ conservative skip (treat as possibly live).
+            matches!(agent_is_terminal(app_state, &turn.task_id).await, Some(true))
+        } else {
+            // No running Deployment ⇒ nothing can still be driving the turn.
+            true
+        };
+
+        if !orphaned {
+            debug!(task_id = %turn.task_id, "reconcile: turn still live, skipping");
+            continue;
+        }
+
+        close_orphaned_turn(app_state, &turn).await;
+    }
+}
+
+/// Returns `Some(true)` if the sandbox agent is `idle`/`stopped`, `Some(false)`
+/// if it's still `running`, and `None` when the status can't be read (no client,
+/// gRPC error) — the caller treats `None` conservatively as "possibly live".
+async fn agent_is_terminal(app_state: &AppState, task_id: &str) -> Option<bool> {
+    let client = match app_state.sandbox.sandbox_client(task_id).await {
+        Ok(c) => c,
+        Err(e) => {
+            debug!(task_id, error = %e, "reconcile: no sandbox client for status check");
+            return None;
+        }
+    };
+    match client.get_agent_status().await {
+        Ok(resp) => Some(matches!(resp.status.as_str(), "idle" | "stopped")),
+        Err(e) => {
+            debug!(task_id, error = %e, "reconcile: get_agent_status failed");
+            None
+        }
+    }
+}
+
+/// Force a stuck turn to a terminal state by driving the same close path a real
+/// `agent.error` takes: appends an error result message, flips the task back to
+/// Open, and publishes `taskTurn/error` so the UI unblocks.
+///
+/// The synthetic event id is deterministic per `(task, turn)` so repeated
+/// reconcile cycles (e.g. while Redis is still down and the terminal event
+/// hasn't yet round-tripped into `task_events`) upsert the same message row
+/// instead of stacking duplicates.
+async fn close_orphaned_turn(app_state: &AppState, turn: &UnclosedTurn) {
+    let turn_label = turn
+        .turn_number
+        .map_or_else(|| "unknown".to_string(), |n| n.to_string());
+    let event_id = format!("reconcile-{}-{}", turn.task_id, turn_label);
+    let timestamp = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+
+    let event = AgentEvent {
+        event_id,
+        event_type: EventType::Agent,
+        sub_type: "error".to_string(),
+        task_id: turn.task_id.clone(),
+        timestamp,
+        is_error: true,
+        agent_type: turn.agent_type.clone(),
+        turn_number: turn.turn_number,
+        payload: serde_json::json!({
+            "error": "The agent stopped without reporting a result. The backend closed this turn so you can continue.",
+            "reason": "reconciled_orphaned_turn",
+        }),
+    };
+
+    agent_handlers::handle_agent_error(app_state, &event).await;
+    metrics::counter!("task_turns_reconciled_total").increment(1);
+    info!(
+        task_id = %turn.task_id,
+        turn_number = ?turn.turn_number,
+        "Reconciled orphaned active turn"
+    );
 }
 
 /// Outcome of evaluating a sandbox for the idle-stop branch.

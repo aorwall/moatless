@@ -646,12 +646,45 @@ async fn agent_loop(
     // Tracks per-prompt credential-recovery retries so a stuck-loop credential
     // can't drive infinite re-tries.
     let mut credential_recovery_attempts: u32 = 0;
+    // True while a Codex turn is in flight: set once a Codex session starts
+    // (after `taskTurn/active` is published) and cleared by any terminal Codex
+    // path (`TurnCompleted`/`TurnFailed`/`Error`, stream error, stop). Codex
+    // runs one turn per process, so if the handle is cleared while this is still
+    // set the turn ended without a terminal event — the loop reports that as
+    // `codex_incomplete` rather than letting it pass in silence.
+    let mut codex_turn_active = false;
     // Agent-lifetime cancel token: survives individual sessions, cancelled on Stop.
     let agent_run_cancel = CancellationToken::new();
 
     info!(task_id = %task_id, "Agent actor started");
 
     loop {
+        // Turn-level invariant for Codex: a cleared handle with no terminal
+        // event published means the turn ended silently. Surface it as an
+        // explicit error so the backend can close the turn. Normal terminal
+        // paths clear `codex_turn_active` in the same step they clear the
+        // handle, so this never fires on a clean completion.
+        if codex_turn_active && handle.is_none() && retry_state.is_none() {
+            warn!(
+                task_id = %task_id,
+                "Codex turn handle cleared without a terminal event; reporting incomplete"
+            );
+            codex_turn_active = false;
+            let error_text = "Codex agent stopped without reporting a result \
+                (turn ended without a terminal event).";
+            agent_state.set_error(error_text.to_string()).await;
+            events
+                .publish_agent_event(
+                    &task_id,
+                    AgentSubType::Error,
+                    serde_json::json!({
+                        "error": error_text,
+                        "reason": "codex_incomplete",
+                    }),
+                )
+                .await;
+        }
+
         if handle.is_none() && retry_state.is_none() {
             if let Some(send) = queued_sends.pop_front() {
                 last_prompt = Some(send.text.clone());
@@ -676,6 +709,7 @@ async fn agent_loop(
                 .await
                 {
                     Ok(new_handle) => {
+                        codex_turn_active = matches!(new_handle, ActiveHandle::Codex(_));
                         handle = Some(new_handle);
                     }
                     Err(error) => {
@@ -862,6 +896,10 @@ async fn agent_loop(
                             event,
                             CodexExecEvent::TurnFailed(_) | CodexExecEvent::Error(_)
                         );
+                        // Any of the three terminal events publishes a terminal
+                        // agent event and clears the handle, ending the turn.
+                        let was_terminal = was_terminal_error
+                            || matches!(event, CodexExecEvent::TurnCompleted(_));
                         process_codex_message(
                             event,
                             last_model.as_deref(),
@@ -875,6 +913,9 @@ async fn agent_loop(
                             &mut consecutive_errors,
                             &mut codex_turn_output,
                         ).await;
+                        if was_terminal {
+                            codex_turn_active = false;
+                        }
                         retry_state = None;
                         if was_terminal_error {
                             try_credential_recovery_retry(
@@ -908,6 +949,7 @@ async fn agent_loop(
                             &mut consecutive_errors,
                             &mut codex_turn_output,
                         ).await;
+                        codex_turn_active = false;
                         retry_state = None;
                         try_credential_recovery_retry(
                             &credential_failures,
@@ -943,6 +985,9 @@ async fn agent_loop(
                                 "Agent transport closed without a result; turn ended unexpectedly"
                             );
                             handle = None;
+                            // This arm itself publishes the terminal event, so the
+                            // top-of-loop incomplete guard must not double-report.
+                            codex_turn_active = false;
                             let error_text = "Agent process exited unexpectedly without \
                                 completing the turn (no result received — likely a crash, \
                                 out-of-memory, or terminated subprocess).";
@@ -991,6 +1036,7 @@ async fn agent_loop(
                     Arc::clone(&system_prompt_cache),
                 ).await {
                     Ok(new_handle) => {
+                        codex_turn_active = matches!(new_handle, ActiveHandle::Codex(_));
                         handle = Some(new_handle);
                     }
                     Err(error) => {
@@ -1633,14 +1679,23 @@ async fn process_codex_message(
             }
         }
         CodexExecEvent::TurnCompleted(event) => {
-            let payload = codex_result_payload(
+            let result_text = turn_output.trim().to_string();
+            // Codex can complete a turn without emitting any agent message
+            // (`last_agent_message: null`). Tag that on the payload — the analog
+            // of the Claude `stop_reason` — so the UI renders "stopped: empty
+            // turn" instead of a silent, contentless completion.
+            let empty_turn = result_text.is_empty();
+            let mut payload = codex_result_payload(
                 Some(session_id.as_str()),
                 false,
                 "completed",
-                turn_output.trim().to_string(),
+                result_text,
                 Some(&event.usage),
                 requested_model,
             );
+            if let Some(obj) = payload.as_object_mut() {
+                obj.insert("empty_turn".to_string(), serde_json::json!(empty_turn));
+            }
 
             agent_state.set_idle().await;
             *consecutive_errors = 0;

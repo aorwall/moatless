@@ -23,6 +23,19 @@ pub struct RedisStreamConsumer {
     consumer_group: String,
     tx: broadcast::Sender<String>,
     cancel: CancellationToken,
+    /// When set, the next cycle first re-broadcasts this consumer's pending
+    /// (delivered-but-unacked) entries before reading new ones, so a payload
+    /// dropped mid-cycle during Redis flapping still reaches SSE clients.
+    recover_pending: bool,
+}
+
+/// Which slice of a stream a `XREADGROUP` should read.
+#[derive(Clone, Copy)]
+enum ReadMode {
+    /// New, never-delivered entries (`>`), blocking briefly for arrivals.
+    New,
+    /// This consumer's pending (delivered-but-unacked) entries (`0`).
+    Pending,
 }
 
 impl RedisStreamConsumer {
@@ -40,6 +53,7 @@ impl RedisStreamConsumer {
             consumer_group,
             tx,
             cancel,
+            recover_pending: true,
         }
     }
 
@@ -47,20 +61,32 @@ impl RedisStreamConsumer {
     pub async fn run(mut self) {
         info!(consumer_id = %self.consumer_id, group = %self.consumer_group, "SSE Redis consumer started");
 
+        let mut failures: u32 = 0;
         loop {
             if self.cancel.is_cancelled() {
                 info!("SSE Redis consumer shutting down");
                 break;
             }
 
-            if let Err(e) = self.consume_cycle().await {
-                if self.cancel.is_cancelled() {
-                    break;
-                }
-                warn!(error = %e, "Redis connection lost in SSE consumer, retrying in 2s");
-                tokio::select! {
-                    () = tokio::time::sleep(std::time::Duration::from_secs(2)) => {}
-                    () = self.cancel.cancelled() => { break; }
+            match self.consume_cycle().await {
+                Ok(()) => failures = 0,
+                Err(e) => {
+                    if self.cancel.is_cancelled() {
+                        break;
+                    }
+                    failures = failures.saturating_add(1);
+                    self.recover_pending = true;
+                    let delay = crate::events::reconnect_backoff_delay(failures);
+                    warn!(
+                        error = %e,
+                        failures,
+                        delay_ms = delay.as_millis() as u64,
+                        "Redis connection lost in SSE consumer, backing off"
+                    );
+                    tokio::select! {
+                        () = tokio::time::sleep(delay) => {}
+                        () = self.cancel.cancelled() => { break; }
+                    }
                 }
             }
         }
@@ -68,7 +94,8 @@ impl RedisStreamConsumer {
         info!("SSE Redis consumer stopped");
     }
 
-    /// One consume cycle: discover streams, ensure groups, read + broadcast + ACK.
+    /// One consume cycle: discover streams, ensure groups, re-broadcast pending,
+    /// then read + broadcast + ACK new entries.
     async fn consume_cycle(&mut self) -> Result<(), redis::RedisError> {
         // Discover all task-events:* streams
         let streams = self.scan_streams().await?;
@@ -87,31 +114,73 @@ impl RedisStreamConsumer {
             self.ensure_group(stream).await;
         }
 
-        // Build XREADGROUP command
-        // XREADGROUP GROUP sse-consumers {id} BLOCK 2000 COUNT 50 STREAMS s1 s2 ... > > ...
-        let mut cmd = redis::cmd("XREADGROUP");
-        cmd.arg("GROUP")
-            .arg(&self.consumer_group)
-            .arg(&self.consumer_id)
-            .arg("BLOCK")
-            .arg(2000_u64)
-            .arg("COUNT")
-            .arg(50_u64)
-            .arg("STREAMS");
-
-        for stream in &streams {
-            cmd.arg(stream);
-        }
-        for _ in &streams {
-            cmd.arg(">");
+        // Re-broadcast entries delivered to this group but not ACKed before a
+        // disconnect, so SSE clients don't miss a payload lost mid-cycle.
+        if self.recover_pending {
+            self.recover_pending_entries(&streams).await?;
+            self.recover_pending = false;
         }
 
-        let result: Value = cmd.query_async(&mut self.conn).await?;
-
-        // Parse XREADGROUP response
+        let result = self.read_group(&streams, ReadMode::New).await?;
         self.process_xreadgroup_response(&result, &streams).await;
 
         Ok(())
+    }
+
+    /// Drain this consumer's Pending Entries List across all streams,
+    /// re-broadcasting and ACKing until empty. Reading with id `0` returns the
+    /// PEL from the start; each pass ACKs what it broadcasts, so successive
+    /// reads shrink to nothing. Capped to bound the loop.
+    async fn recover_pending_entries(
+        &mut self,
+        streams: &[String],
+    ) -> Result<(), redis::RedisError> {
+        let mut total = 0usize;
+        for _ in 0..100 {
+            let result = self.read_group(streams, ReadMode::Pending).await?;
+            let count = self.process_xreadgroup_response(&result, streams).await;
+            total += count;
+            if count == 0 {
+                break;
+            }
+        }
+        if total > 0 {
+            info!(
+                group = %self.consumer_group,
+                recovered = total,
+                "Re-broadcast pending Redis entries after reconnect"
+            );
+        }
+        Ok(())
+    }
+
+    /// Issue one `XREADGROUP` for the given streams in the given mode.
+    async fn read_group(
+        &mut self,
+        streams: &[String],
+        mode: ReadMode,
+    ) -> Result<Value, redis::RedisError> {
+        let mut cmd = redis::cmd("XREADGROUP");
+        cmd.arg("GROUP")
+            .arg(&self.consumer_group)
+            .arg(&self.consumer_id);
+        if matches!(mode, ReadMode::New) {
+            cmd.arg("BLOCK").arg(2000_u64);
+        }
+        cmd.arg("COUNT").arg(50_u64).arg("STREAMS");
+
+        for stream in streams {
+            cmd.arg(stream);
+        }
+        let id = match mode {
+            ReadMode::New => ">",
+            ReadMode::Pending => "0",
+        };
+        for _ in streams {
+            cmd.arg(id);
+        }
+
+        cmd.query_async(&mut self.conn).await
     }
 
     /// SCAN for keys matching `task-events:*`.
@@ -165,17 +234,20 @@ impl RedisStreamConsumer {
         }
     }
 
-    /// Parse the XREADGROUP response and broadcast payloads.
-    async fn process_xreadgroup_response(&mut self, value: &Value, streams: &[String]) {
+    /// Parse the XREADGROUP response and broadcast payloads. Returns the number
+    /// of entries ACKed, letting the PEL drain loop detect an empty read.
+    async fn process_xreadgroup_response(&mut self, value: &Value, streams: &[String]) -> usize {
         // Response format: Array of [stream_name, Array of [entry_id, [field, value, ...]]]
         let stream_results = match value {
             Value::Array(arr) => arr,
-            Value::Nil => return, // Timeout with no data
+            Value::Nil => return 0, // Timeout with no data
             _ => {
                 warn!("Unexpected XREADGROUP response format");
-                return;
+                return 0;
             }
         };
+
+        let mut processed = 0usize;
 
         for stream_result in stream_results {
             let (stream_name, entries) = match stream_result {
@@ -216,6 +288,7 @@ impl RedisStreamConsumer {
 
             // ACK all processed entries
             if !entry_ids.is_empty() {
+                processed += entry_ids.len();
                 let ack_result: Result<i64, redis::RedisError> = {
                     let mut cmd = redis::cmd("XACK");
                     cmd.arg(&stream_name).arg(&self.consumer_group);
@@ -238,6 +311,8 @@ impl RedisStreamConsumer {
             // Find matching stream name for logging (ignore if not found)
             let _ = streams.iter().find(|s| **s == stream_name);
         }
+
+        processed
     }
 }
 

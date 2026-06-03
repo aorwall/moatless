@@ -191,7 +191,6 @@ mod tests {
             use_tmux: false,
             default_model: None,
             default_codex_model: None,
-            use_tmux: false,
             home_dir: home.display().to_string(),
             codex_home_dir: home.join(".codex").display().to_string(),
             claude_config_dir: home.join(".claude").display().to_string(),

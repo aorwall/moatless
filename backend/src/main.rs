@@ -466,6 +466,7 @@ fn spawn_task_reaper(
         return;
     }
     task::reaper::spawn_task_reaper(
+        app_state.clone(),
         k8s,
         app_state.messages.clone(),
         app_state.tasks.clone(),
