@@ -42,7 +42,7 @@ use codex_app_server_protocol::{
 const TEST_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// Default model for E2E tests.
-const TEST_MODEL: &str = "gpt-5.3-codex";
+const TEST_MODEL: &str = "gpt-5.5";
 
 /// Model for E2E tests. Uses CODEX_TEST_MODEL env var if set,
 /// otherwise falls back to TEST_MODEL.
@@ -74,7 +74,7 @@ fn init_tracing() {
         .try_init();
 }
 
-/// Default options for E2E tests: gpt-5.3-codex with high reasoning, ephemeral, auto-approve.
+/// Default options for E2E tests: gpt-5.5 with high reasoning, ephemeral, auto-approve.
 fn e2e_options() -> CodexOptions {
     CodexOptions {
         model: test_model(),

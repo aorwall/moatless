@@ -24,7 +24,7 @@ use tokio::time::timeout;
 
 use codex_sdk::{AskForApproval, CodexClient, CodexMessage, CodexOptions, query};
 
-const TEST_MODEL: &str = "gpt-5.3-codex";
+const TEST_MODEL: &str = "gpt-5.5";
 const TEST_TIMEOUT: Duration = Duration::from_secs(90);
 const MULTI_TURN_TIMEOUT: Duration = Duration::from_secs(120);
 const RESUME_TIMEOUT: Duration = Duration::from_secs(120);
@@ -37,7 +37,7 @@ fn skip_unless_e2e() -> bool {
     false
 }
 
-/// Options mirroring `e2e.rs::e2e_options()` — gpt-5.3-codex, high reasoning,
+/// Options mirroring `e2e.rs::e2e_options()` — gpt-5.5, high reasoning,
 /// auto-approve. Toggle `ephemeral` for the resume test.
 fn smoke_options(ephemeral: bool) -> CodexOptions {
     CodexOptions {
