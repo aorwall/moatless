@@ -46,6 +46,7 @@
 //! ```
 
 pub mod client;
+pub mod config_dir;
 pub mod error;
 pub mod mcp;
 pub mod query;
@@ -57,6 +58,7 @@ mod transport;
 
 // Top-level re-exports for convenience
 pub use client::ClaudeClient;
+pub use config_dir::resolve_claude_config_dir;
 pub use error::{Result, SdkError};
 pub use query::{query, query_streaming, QueryHandle};
 pub use tmux::{query_tmux, query_tmux_streaming};

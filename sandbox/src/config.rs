@@ -174,8 +174,12 @@ impl Config {
 
         let home_dir = env::var("HOME").unwrap_or_else(|_| "/home/moatless".to_string());
 
-        let claude_config_dir =
-            env::var("CLAUDE_CONFIG_DIR").unwrap_or_else(|_| format!("{home_dir}/.claude"));
+        // Resolve via the shared helper so the sandbox mirrors the Claude CLI
+        // and SDK: `CLAUDE_CONFIG_DIR`, then its `CLAUDE_HOME` alias, then
+        // `{home_dir}/.claude` (home_dir keeps the `/home/moatless` fallback).
+        let claude_config_dir = claude_agent_sdk::resolve_claude_config_dir(&home_dir)
+            .display()
+            .to_string();
         let codex_home_dir =
             env::var("CODEX_HOME").unwrap_or_else(|_| format!("{home_dir}/.codex"));
 

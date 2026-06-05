@@ -172,7 +172,11 @@ fn test_config(tmp: &TempDir, use_tmux: bool) -> Config {
         use_tmux,
         home_dir: home.display().to_string(),
         codex_home_dir: home.join(".codex").display().to_string(),
-        claude_config_dir: home.join(".claude").display().to_string(),
+        // Deliberately OUTSIDE `home/.claude` to mirror the cluster, where
+        // CLAUDE_CONFIG_DIR=/opt/moatless/.claude but HOME=/home/moatless. This
+        // is what makes the tmux JSONL-discovery path bug reproducible: the SDK
+        // must resolve the transcript dir from CLAUDE_CONFIG_DIR, not $HOME.
+        claude_config_dir: tmp.path().join("claude-config").display().to_string(),
         git_clone_url: None,
         git_branch: None,
         git_provider: "github".to_string(),
@@ -189,8 +193,16 @@ fn spawn_test_agent(use_tmux: bool) -> (AgentHandle, Arc<AgentState>, TempDir) {
     use moatless_sandbox::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
 
     let tmp = TempDir::new().expect("create tempdir");
-    // start_session persists credential files under these dirs.
-    for sub in ["workspace", "data", "uploads", "home/.claude", "home/.codex"] {
+    // start_session persists credential files under these dirs. `claude-config`
+    // is the cold CLAUDE_CONFIG_DIR (outside HOME) — see `test_config`.
+    for sub in [
+        "workspace",
+        "data",
+        "uploads",
+        "home/.claude",
+        "home/.codex",
+        "claude-config",
+    ] {
         std::fs::create_dir_all(tmp.path().join(sub)).expect("create test dir");
     }
 
@@ -200,6 +212,13 @@ fn spawn_test_agent(use_tmux: bool) -> (AgentHandle, Arc<AgentState>, TempDir) {
 
     let events = GrpcEventPublisher::new(Arc::clone(&backend));
     let config = Arc::new(test_config(&tmp, use_tmux));
+
+    // Mirror the cluster: the `claude` child inherits CLAUDE_CONFIG_DIR from the
+    // process env (the sandbox does NOT pass it through `options.env`), and the
+    // SDK's tmux JSONL discovery must resolve the same dir. Setting it here so it
+    // differs from $HOME/.claude is what reproduces the cold-config-dir bug — the
+    // old SDK polled $HOME/.claude/projects and timed out with JsonlNotFound.
+    std::env::set_var("CLAUDE_CONFIG_DIR", &config.claude_config_dir);
     let agent_state = Arc::new(AgentState::new());
     let credentials = Arc::new(RwLock::new(HashMap::new()));
 

@@ -637,3 +637,72 @@ pub(crate) fn synth_system_init(session_id: &str, options: &ClaudeOptions) -> Sy
 
 #[allow(dead_code)]
 fn _path_unused(_p: &Path) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The snapshot-diff fallback is what the cluster relied on when the first
+    /// turn outran the discovery timeout (the Stop hook had not fired yet). It
+    /// must find a freshly-written transcript *in the polled `project_dir`*.
+    #[tokio::test]
+    async fn snapshot_diff_fallback_finds_new_transcript() {
+        let base = std::env::temp_dir().join("tmux-discover-test-found");
+        let _ = std::fs::remove_dir_all(&base);
+        let project_dir = base.join("projects").join("-w-x");
+        std::fs::create_dir_all(&project_dir).expect("mkdir");
+
+        // No Stop hook → forces snapshot-diff against `project_dir`.
+        let (_tx, state_rx) = watch::channel(HookState::Pending);
+        let before = HashSet::new();
+
+        // The transcript appears shortly after discovery starts, mirroring the
+        // TUI writing it once the session is up.
+        let jsonl = project_dir.join("724f6d06-deadbeef.jsonl");
+        let writer = {
+            let jsonl = jsonl.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(120)).await;
+                std::fs::write(&jsonl, b"{\"type\":\"mode\"}\n").expect("write jsonl");
+            })
+        };
+
+        let found =
+            discover_transcript_path(state_rx, project_dir, before, Duration::from_secs(3))
+                .await
+                .expect("snapshot-diff should discover the new transcript");
+        writer.await.expect("writer task");
+        assert_eq!(found, jsonl);
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Regression for the cold-config-dir bug: when the transcript lands in a
+    /// DIFFERENT directory than the one discovery polls — exactly what happened
+    /// in the cluster, where `resolve_project_dir` returned `$HOME/.claude`
+    /// (`/home/moatless/.claude`) while claude wrote under `CLAUDE_CONFIG_DIR`
+    /// (`/opt/moatless/.claude`) — discovery never sees it and fails with
+    /// `JsonlNotFound`. The fix is in `resolve_project_dir`; this asserts the
+    /// failure mode it prevents.
+    #[tokio::test]
+    async fn snapshot_diff_times_out_when_transcript_is_elsewhere() {
+        let base = std::env::temp_dir().join("tmux-discover-test-elsewhere");
+        let _ = std::fs::remove_dir_all(&base);
+        let polled_dir = base.join("home-claude").join("projects").join("-w-x");
+        let claude_writes = base.join("config-claude").join("projects").join("-w-x");
+        std::fs::create_dir_all(&polled_dir).expect("mkdir polled");
+        std::fs::create_dir_all(&claude_writes).expect("mkdir writes");
+        // The transcript exists — but not where discovery is looking.
+        std::fs::write(claude_writes.join("724f6d06-deadbeef.jsonl"), b"{}\n").expect("write");
+
+        let (_tx, state_rx) = watch::channel(HookState::Pending);
+        let before = HashSet::new();
+        let err =
+            discover_transcript_path(state_rx, polled_dir, before, Duration::from_millis(400))
+                .await
+                .expect_err("discovery must fail when polling the wrong directory");
+        assert!(matches!(err, SdkError::JsonlNotFound { .. }));
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+}

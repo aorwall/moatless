@@ -225,10 +225,12 @@ fn resolve_cli_path(options: &ClaudeOptions) -> String {
     "claude".to_string()
 }
 
-/// Resolve `~/.claude/projects/<dashed-cwd>/`.
+/// Resolve `<claude-config-dir>/projects/<dashed-cwd>/`.
 ///
-/// The TUI encodes a cwd by replacing `/` with `-` (e.g. `/Users/x/y`
-/// becomes `-Users-x-y`).
+/// The config dir is resolved by the shared [`crate::resolve_claude_config_dir`]
+/// helper, which mirrors the Claude CLI's precedence: `CLAUDE_CONFIG_DIR`, then
+/// its documented `CLAUDE_HOME` alias, then `$HOME/.claude`. The TUI encodes a
+/// cwd by replacing `/` with `-` (e.g. `/Users/x/y` becomes `-Users-x-y`).
 pub(crate) fn resolve_project_dir(options: &ClaudeOptions) -> Result<PathBuf> {
     let cwd_str = if let Some(c) = &options.cwd {
         std::path::PathBuf::from(c)
@@ -245,11 +247,16 @@ pub(crate) fn resolve_project_dir(options: &ClaudeOptions) -> Result<PathBuf> {
 
     let dashed = cwd_str.replace('/', "-");
 
+    // Claude writes transcripts under its config dir. We resolve it via the
+    // shared helper that mirrors the CLI (`CLAUDE_CONFIG_DIR`, then its
+    // `CLAUDE_HOME` alias, then `$HOME/.claude`). The sandbox sets
+    // `CLAUDE_CONFIG_DIR` (e.g. `/opt/moatless/.claude`) while `$HOME` is a
+    // different path, so honouring it here keeps JSONL discovery pointed at the
+    // directory the CLI actually writes to.
     let home = std::env::var("HOME").unwrap_or_default();
-    let claude_home = std::env::var("CLAUDE_HOME")
-        .map_or_else(|_| PathBuf::from(home).join(".claude"), PathBuf::from);
+    let config_dir = crate::config_dir::resolve_claude_config_dir(&home);
 
-    Ok(claude_home.join("projects").join(dashed))
+    Ok(config_dir.join("projects").join(dashed))
 }
 
 pub(crate) async fn list_jsonl_stems(dir: &Path) -> Result<HashSet<String>> {
@@ -283,26 +290,28 @@ pub(crate) async fn list_jsonl_stems(dir: &Path) -> Result<HashSet<String>> {
 mod tests {
     use super::*;
 
+    // The env-var precedence itself is covered by `crate::config_dir` tests;
+    // here we only assert that `resolve_project_dir` joins `projects/<dashed-cwd>`
+    // under the resolved config dir. Mutating process-global env vars must run
+    // serially, so this is a single test.
     #[test]
-    fn project_dir_uses_dashed_cwd() {
-        // Set CLAUDE_HOME to a predictable value to make the test deterministic.
-        let claude_home = std::env::temp_dir().join("tmux-test-home");
-        std::env::set_var("CLAUDE_HOME", &claude_home);
-
+    fn project_dir_joins_projects_under_config_dir() {
+        let _guard = crate::config_dir::ENV_LOCK.lock().expect("env lock");
         // Use an existing directory so canonicalize() succeeds — tempdir works.
         let tmp = std::env::temp_dir();
         let canonical = tmp.canonicalize().expect("temp_dir should canonicalize");
         let cwd_str = canonical.to_string_lossy().into_owned();
-
+        let dashed = cwd_str.replace('/', "-");
         let options = ClaudeOptions {
             cwd: Some(cwd_str.clone()),
             ..Default::default()
         };
-        let resolved = resolve_project_dir(&options).expect("resolve");
-        let dashed = cwd_str.replace('/', "-");
-        let expected = claude_home.join("projects").join(dashed);
-        assert_eq!(resolved, expected);
 
-        std::env::remove_var("CLAUDE_HOME");
+        let config_dir = tmp.join("tmux-test-config");
+        std::env::set_var("CLAUDE_CONFIG_DIR", &config_dir);
+        let resolved = resolve_project_dir(&options).expect("resolve");
+        assert_eq!(resolved, config_dir.join("projects").join(&dashed));
+
+        std::env::remove_var("CLAUDE_CONFIG_DIR");
     }
 }
