@@ -109,70 +109,88 @@ impl TmuxPasteWriter {
             )));
         }
 
-        // Small gap before submit. Ink applies a bracketed-paste / burst-input
-        // heuristic: if Enter arrives in the same burst as the prompt body it
-        // lands in the input buffer instead of triggering submit. 120ms is
-        // enough for Ink to separate the events (claude-p uses the same gap).
-        tokio::time::sleep(std::time::Duration::from_millis(120)).await;
-
-        // 3. Send Enter to submit.
-        let status = Command::new("tmux")
-            .args(["send-keys", "-t", target, "Enter"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .await
-            .map_err(SdkError::SpawnError)?;
-        if !status.success() {
-            return Err(SdkError::Internal(format!(
-                "tmux send-keys Enter exited with status {status:?}"
-            )));
-        }
-
-        // 4. Confirm the prompt actually submitted. The fixed gap above is a
-        // best-effort guess; under load (observed on the cluster) the submit
-        // Enter can still be absorbed into the bracketed-paste burst, leaving
-        // the prompt sitting in the input box. claude then never runs a turn —
-        // no transcript records, no Stop hook — and JSONL discovery times out
-        // with JsonlNotFound. Poll the pane and re-send Enter until the input
-        // region clears (or we exhaust the budget).
-        self.confirm_submission(target, text).await;
+        // 3. Submit. We deliberately do NOT press Enter on a fixed delay here:
+        // Ink applies a bracketed-paste / burst-input heuristic, so an Enter
+        // that arrives before the paste has rendered into the input box is
+        // absorbed as input instead of submitting — leaving the prompt unsent
+        // (claude never runs a turn, no transcript, no Stop hook → JSONL
+        // discovery times out with JsonlNotFound). Instead, wait for the pasted
+        // text to actually appear in the input box, THEN press Enter and confirm
+        // the box clears.
+        self.submit_pasted_text(target, text).await;
 
         debug!(target = %target, bytes = text.len(), "Pasted user message into tmux");
         Ok(())
     }
 
-    /// Re-send Enter until the pasted `text` is no longer sitting in the TUI
-    /// input box. Best-effort: capture failures or an unlocatable input marker
-    /// fall back to assuming the prompt submitted, so behaviour never regresses
-    /// below the single-Enter path.
-    async fn confirm_submission(&self, target: &str, text: &str) {
-        // `needle` is the literal-prompt match (used when the TUI shows the text
-        // inline). It may be None for very short prompts — the collapsed-paste
-        // placeholder check below still applies, so we don't early-return.
+    /// Submit a freshly-pasted prompt: wait for the paste to render into the
+    /// input box, then press Enter and confirm the box clears.
+    ///
+    /// Two phases:
+    /// 1. **Land** — poll the pane until the pasted text is visible in the input
+    ///    region. Pressing Enter only after the paste has rendered keeps the
+    ///    keypress out of Ink's bracketed-paste burst (where it would be
+    ///    absorbed) and makes the post-submit "input cleared" check unambiguous
+    ///    (empty == submitted, not == still-rendering).
+    /// 2. **Submit** — press Enter, then re-send it while the prompt is still
+    ///    sitting in the input box (Ink can still occasionally swallow a
+    ///    keypress). Re-sending Enter on an already-empty input is a no-op, so
+    ///    the budget only costs latency on a genuinely wedged prompt.
+    ///
+    /// Best-effort: a prompt too short to produce a needle can't be detected in
+    /// the pane, so it falls back to a fixed settle + single Enter — behaviour
+    /// never regresses below the original single-Enter path.
+    async fn submit_pasted_text(&self, target: &str, text: &str) {
         let needle = submit_needle(text);
 
-        // Let the initial Enter land before the first check, so a prompt that
-        // submitted on the first try doesn't trigger a spurious re-send.
-        tokio::time::sleep(SUBMIT_SETTLE).await;
+        // Undetectable (very short) prompt: legacy best-effort path.
+        let Some(needle) = needle else {
+            tokio::time::sleep(SUBMIT_SETTLE).await;
+            if let Err(e) = self.send_enter().await {
+                warn!(error = %e, "Enter during submit failed");
+            }
+            return;
+        };
 
+        // Phase 1 — wait for the paste to land in the input box.
+        let mut landed = false;
+        for _ in 0..SUBMIT_LAND_ATTEMPTS {
+            tokio::time::sleep(SUBMIT_LAND_GAP).await;
+            if self.prompt_pending(target, Some(&needle)).await {
+                landed = true;
+                break;
+            }
+        }
+        if !landed {
+            // Never positively saw it render. Don't re-paste (risks a doubled
+            // message); fall through and try to submit anyway in case it landed
+            // just below detection — Phase 2 will catch a late render.
+            debug!(
+                target = %target,
+                "paste not detected in input box within land budget — submitting anyway"
+            );
+        }
+
+        // Phase 2 — submit and confirm the input box clears.
         for attempt in 0..SUBMIT_CONFIRM_ATTEMPTS {
-            if !self.prompt_pending(target, needle.as_deref()).await {
+            if let Err(e) = self.send_enter().await {
+                warn!(error = %e, "Enter during submit confirmation failed");
+            }
+            tokio::time::sleep(SUBMIT_CONFIRM_GAP).await;
+            if !self.prompt_pending(target, Some(&needle)).await {
                 return; // input region clear — submitted.
             }
             debug!(
                 target = %target,
                 attempt,
+                landed,
                 "prompt still in input box — re-sending Enter"
             );
-            if let Err(e) = self.send_enter().await {
-                warn!(error = %e, "re-send Enter during submit confirmation failed");
-            }
-            tokio::time::sleep(SUBMIT_CONFIRM_GAP).await;
         }
 
         warn!(
             target = %target,
+            landed,
             attempts = SUBMIT_CONFIRM_ATTEMPTS,
             "prompt may not have submitted — input box still non-empty after \
              confirmation budget"
@@ -205,18 +223,22 @@ impl TmuxPasteWriter {
     }
 }
 
-/// Settle delay after the first Enter before checking the input box. Slightly
-/// longer than the keypress round-trip so a prompt that submits on the first
-/// try doesn't trigger a spurious re-send.
+/// Poll gap while waiting for a freshly-pasted prompt to render into the input
+/// box (Phase 1 of submission).
+const SUBMIT_LAND_GAP: std::time::Duration = std::time::Duration::from_millis(100);
+/// Max polls waiting for the paste to render before submitting anyway
+/// (best-effort). ~4 s budget — paste render is sub-second in practice; this
+/// only guards a badly lagging TUI and stays far under the 120 s discovery
+/// `init_timeout` that follows.
+const SUBMIT_LAND_ATTEMPTS: usize = 40;
+/// Fixed settle before the single best-effort Enter, used only for prompts too
+/// short to detect in the pane.
 const SUBMIT_SETTLE: std::time::Duration = std::time::Duration::from_millis(200);
-/// Gap between submit-confirmation retries.
+/// Gap between submit-confirmation retries (Phase 2).
 const SUBMIT_CONFIRM_GAP: std::time::Duration = std::time::Duration::from_millis(250);
-/// Max number of confirmation re-sends before giving up (best-effort). Re-sending
-/// Enter on an already-submitted (empty) input is a no-op, so a generous budget
-/// only costs latency on a genuinely wedged prompt — ~3 s of retries here, far
-/// under the 120 s discovery `init_timeout` that follows. Sized to outlast a TUI
-/// that settles slowly right after the prior turn (the intermittent miss this
-/// guards against).
+/// Max number of Enter re-sends before giving up (best-effort). Re-sending Enter
+/// on an already-submitted (empty) input is a no-op, so a generous budget only
+/// costs latency on a genuinely wedged prompt — ~3 s of retries here.
 const SUBMIT_CONFIRM_ATTEMPTS: usize = 12;
 /// Max needle length taken from the prompt for input-region matching.
 const SUBMIT_NEEDLE_LEN: usize = 32;
@@ -432,6 +454,36 @@ mod tests {
         assert!(!input_region_contains(pane.as_bytes(), &needle));
         // ...but the collapsed-paste placeholder is detected.
         assert!(input_region_contains(pane.as_bytes(), PASTE_PLACEHOLDER));
+    }
+
+    #[test]
+    fn input_region_pending_with_prior_marker_in_history() {
+        // Exact shape of a wedge captured on the cluster (0.1.62): a previous
+        // turn's prompt (with its own `❯`) sits in the scrollback ABOVE the
+        // active input box, which holds the still-unsent prompt. `last_index_of`
+        // must lock onto the active (last) `❯`, and the needle must match there
+        // despite the box borders + footer that follow it.
+        let pane = "\
+● STRESS-3-OK
+✻ Worked for 1s
+❯ <sent_by>aorwall-frankpenny</sent_by>Reply with exactly: STRESS-4-OK
+  Reply with exactly: STRESS-5-OK
+● STRESS-5-OK
+✻ Worked for 1s
+────────────────────────────────
+❯ <sent_by>aorwall-frankpenny</sent_by>
+  Reply with exactly: DIAGN-A-OK
+────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle)               60531 tokens";
+        // Note: the 32-char needle is dominated by the `<sent_by>…</sent_by>`
+        // wrapper (the cluster prepends it to every message), so it matches on
+        // the wrapper's presence in the active input region — a reliable
+        // "input box non-empty" signal, which is all submit-confirmation needs.
+        let needle = submit_needle(
+            "<sent_by>aorwall-frankpenny</sent_by>\nReply with exactly: DIAGN-A-OK",
+        )
+        .expect("needle");
+        assert!(input_region_contains(pane.as_bytes(), &needle));
     }
 
     #[test]
