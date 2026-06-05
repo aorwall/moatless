@@ -294,6 +294,55 @@ pub(crate) fn resolve_project_dir(options: &ClaudeOptions) -> Result<PathBuf> {
     Ok(config_dir.join("projects").join(dashed))
 }
 
+/// Resolve the transcript the SDK should target on disk directly, ahead of
+/// snapshot-diff and the Stop hook. Two resume shapes append to an EXISTING
+/// transcript (so snapshot-diff never sees a new file):
+///
+/// - `--resume <id>` → `<id>.jsonl`.
+/// - `--continue`    → the most-recently-modified existing transcript, i.e. the
+///   one `claude --continue` reopens. Without targeting it directly, discovery
+///   falls back to the Stop hook, which only fires at turn-end and so times out
+///   with `JsonlNotFound` on long first turns.
+///
+/// The fork case (`--resume <id> --fork-session`) writes a NEW transcript, so
+/// snapshot-diff / Stop handle it — return None there. Returns None when no
+/// matching transcript exists (e.g. `--continue` with an empty project dir),
+/// leaving discovery to its snapshot-diff / Stop fallbacks.
+pub(crate) async fn resolve_resume_target(
+    options: &ClaudeOptions,
+    project_dir: &Path,
+) -> Option<PathBuf> {
+    if options.fork_session == Some(true) {
+        return None;
+    }
+    if let Some(id) = options.resume.as_ref() {
+        return Some(project_dir.join(format!("{id}.jsonl")));
+    }
+    if options.continue_conversation == Some(true) {
+        return newest_transcript(project_dir).await;
+    }
+    None
+}
+
+/// The most-recently-modified `*.jsonl` in `dir`, or None if there are none.
+async fn newest_transcript(dir: &Path) -> Option<PathBuf> {
+    let mut read = tokio::fs::read_dir(dir).await.ok()?;
+    let mut newest: Option<(std::time::SystemTime, PathBuf)> = None;
+    while let Ok(Some(entry)) = read.next_entry().await {
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) != Some("jsonl") {
+            continue;
+        }
+        let Ok(mtime) = entry.metadata().await.and_then(|m| m.modified()) else {
+            continue;
+        };
+        if newest.as_ref().is_none_or(|(t, _)| mtime > *t) {
+            newest = Some((mtime, path));
+        }
+    }
+    newest.map(|(_, p)| p)
+}
+
 pub(crate) async fn list_jsonl_stems(dir: &Path) -> Result<HashSet<String>> {
     let mut set = HashSet::new();
     let mut read = match tokio::fs::read_dir(dir).await {
@@ -399,5 +448,86 @@ mod tests {
             Some(h) => std::env::set_var("HOME", h),
             None => std::env::remove_var("HOME"),
         }
+    }
+
+    #[tokio::test]
+    async fn resume_target_resume_id_points_at_id_jsonl() {
+        let dir = std::env::temp_dir();
+        let options = ClaudeOptions {
+            resume: Some("abc-123".to_string()),
+            ..Default::default()
+        };
+        let target = resolve_resume_target(&options, &dir).await;
+        assert_eq!(target, Some(dir.join("abc-123.jsonl")));
+    }
+
+    #[tokio::test]
+    async fn resume_target_fork_is_none() {
+        let dir = std::env::temp_dir();
+        let options = ClaudeOptions {
+            resume: Some("abc-123".to_string()),
+            fork_session: Some(true),
+            ..Default::default()
+        };
+        assert_eq!(resolve_resume_target(&options, &dir).await, None);
+    }
+
+    #[tokio::test]
+    async fn resume_target_plain_query_is_none() {
+        let dir = std::env::temp_dir();
+        assert_eq!(
+            resolve_resume_target(&ClaudeOptions::default(), &dir).await,
+            None
+        );
+    }
+
+    /// Create a unique empty temp subdir (no `tempfile` dev-dep in this crate).
+    fn unique_tmp_dir() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "sdk-resume-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    #[tokio::test]
+    async fn resume_target_continue_picks_newest_existing_transcript() {
+        let dir = unique_tmp_dir();
+        // Two transcripts with explicit, distinct mtimes; --continue must pick
+        // the newest (the one claude reopens).
+        let older = dir.join("older.jsonl");
+        let newer = dir.join("newer.jsonl");
+        std::fs::write(&older, b"{}\n").expect("write older");
+        std::fs::write(&newer, b"{}\n").expect("write newer");
+        let base = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
+        std::fs::File::open(&older)
+            .unwrap()
+            .set_modified(base)
+            .expect("set older mtime");
+        std::fs::File::open(&newer)
+            .unwrap()
+            .set_modified(base + std::time::Duration::from_secs(60))
+            .expect("set newer mtime");
+        // A non-jsonl file must be ignored.
+        std::fs::write(dir.join("notes.txt"), b"x").expect("write txt");
+
+        let options = ClaudeOptions {
+            continue_conversation: Some(true),
+            ..Default::default()
+        };
+        assert_eq!(resolve_resume_target(&options, &dir).await, Some(newer));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn resume_target_continue_empty_dir_is_none() {
+        let dir = unique_tmp_dir();
+        let options = ClaudeOptions {
+            continue_conversation: Some(true),
+            ..Default::default()
+        };
+        assert_eq!(resolve_resume_target(&options, &dir).await, None);
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

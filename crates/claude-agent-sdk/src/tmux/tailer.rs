@@ -230,15 +230,12 @@ pub(crate) fn spawn_lazy_supervisor(
             .init_timeout
             .unwrap_or(Duration::from_secs(3600));
 
-        // Resume to a known session id: claude appends to the existing
-        // <id>.jsonl (no new file), so snapshot-diff never fires — target the
-        // known transcript directly. Skip the fork case (a forked resume writes
-        // a new transcript, which snapshot-diff/Stop will catch).
-        let resume_target = options
-            .resume
-            .as_ref()
-            .filter(|_| options.fork_session != Some(true))
-            .map(|id| project_dir.join(format!("{id}.jsonl")));
+        // Resume (`--resume <id>`) and `--continue` both append to an EXISTING
+        // transcript, so snapshot-diff never sees a new file — target it
+        // directly instead of waiting on the turn-end Stop hook. See
+        // [`super::session::resolve_resume_target`].
+        let resume_target =
+            super::session::resolve_resume_target(&options, &project_dir).await;
 
         let discover_rx = state_rx.clone();
         let before_for_discover = before.clone();

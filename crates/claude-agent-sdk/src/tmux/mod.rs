@@ -51,7 +51,9 @@ use crate::types::messages::SdkMessage;
 use crate::types::options::ClaudeOptions;
 
 use self::hooks::{spawn_reader, HookHarness, HookLine};
-use self::session::{list_jsonl_stems, resolve_project_dir, TmuxSession};
+use self::session::{
+    list_jsonl_stems, resolve_project_dir, resolve_resume_target, TmuxSession,
+};
 use self::tailer::{
     discover_transcript_path, spawn_hook_listener, spawn_lazy_supervisor, spawn_supervisor,
     synth_system_init, HookState, TailTarget,
@@ -152,15 +154,11 @@ pub async fn query_tmux(prompt: &str, mut options: ClaudeOptions) -> Result<Quer
         return Err(e);
     }
 
-    // Resume to a known session id: claude appends to the existing <id>.jsonl
-    // (no new file), so snapshot-diff never fires — target the known transcript
-    // directly. Skip the fork case (a forked resume writes a new transcript,
-    // which snapshot-diff/Stop will catch).
-    let resume_target = options
-        .resume
-        .as_ref()
-        .filter(|_| options.fork_session != Some(true))
-        .map(|id| project_dir.join(format!("{id}.jsonl")));
+    // Resume (`--resume <id>`) and `--continue` both append to an EXISTING
+    // transcript, so snapshot-diff never sees a new file — target it directly
+    // instead of waiting on the turn-end Stop hook (which times out on long
+    // first turns). See [`resolve_resume_target`].
+    let resume_target = resolve_resume_target(&options, &project_dir).await;
 
     let jsonl_path =
         match discover_transcript_path(
