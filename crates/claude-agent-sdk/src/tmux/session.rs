@@ -76,10 +76,12 @@ impl TmuxSession {
         // `env -u CLAUDECODE` mirrors transport/subprocess.rs:46 — claude
         // refuses to start when it sees CLAUDECODE set.
         cmd.arg("env").arg("-u").arg("CLAUDECODE");
-        if let Some(env) = &options.env {
-            for (k, v) in env {
-                cmd.arg(format!("{k}={v}"));
-            }
+        // Pin claude's config dir + HOME to exactly what the SDK polls, then
+        // layer `options.env` after (caller overrides win). See
+        // [`child_env_prefix`] for why this can't rely on tmux-server env
+        // inheritance.
+        for kv in child_env_prefix(options) {
+            cmd.arg(kv);
         }
         cmd.arg(&cli_path);
         for a in &args {
@@ -203,6 +205,39 @@ impl Drop for TmuxSession {
     }
 }
 
+/// Build the `KEY=VAL` env assignments handed to `env` ahead of `claude` in the
+/// tmux child.
+///
+/// The tmux child only inherits whatever the (possibly stale, possibly
+/// pre-existing) tmux server's environment provides — the SDK passes nothing
+/// else through except `options.env`. Meanwhile JSONL discovery
+/// ([`resolve_project_dir`]) computes the polled transcript dir from the *SDK
+/// process's* env. If the child's `CLAUDE_CONFIG_DIR`/`HOME` don't match, claude
+/// writes its transcript somewhere the SDK never looks → `JsonlNotFound`.
+///
+/// Pinning both here — using the exact resolver discovery uses
+/// ([`crate::config_dir::resolve_claude_config_dir`]) — makes "SDK polls X ⟺
+/// claude writes X" an invariant by construction. `options.env` is layered
+/// after so callers can still override.
+fn child_env_prefix(options: &ClaudeOptions) -> Vec<String> {
+    let mut prefix = Vec::new();
+
+    let home = std::env::var("HOME").unwrap_or_default();
+    let config_dir = crate::config_dir::resolve_claude_config_dir(&home);
+    prefix.push(format!("CLAUDE_CONFIG_DIR={}", config_dir.display()));
+    if !home.is_empty() {
+        prefix.push(format!("HOME={home}"));
+    }
+
+    if let Some(env) = &options.env {
+        for (k, v) in env {
+            prefix.push(format!("{k}={v}"));
+        }
+    }
+
+    prefix
+}
+
 /// Resolve the `claude` CLI binary path the same way the subprocess backend
 /// does.
 fn resolve_cli_path(options: &ClaudeOptions) -> String {
@@ -313,5 +348,56 @@ mod tests {
         assert_eq!(resolved, config_dir.join("projects").join(&dashed));
 
         std::env::remove_var("CLAUDE_CONFIG_DIR");
+    }
+
+    // The tmux child env prefix must pin `CLAUDE_CONFIG_DIR` (resolved by the
+    // SAME helper discovery uses) and `HOME`, so claude writes its transcript to
+    // the dir the SDK polls instead of relying on tmux-server env inheritance.
+    #[test]
+    fn child_env_prefix_pins_config_dir_and_home() {
+        let _guard = crate::config_dir::ENV_LOCK.lock().expect("env lock");
+        let saved_home = std::env::var("HOME").ok();
+
+        std::env::set_var("HOME", "/home/tester");
+        std::env::set_var("CLAUDE_CONFIG_DIR", "/opt/moatless/.claude");
+
+        // No options.env: prefix is exactly the two pinned assignments.
+        let prefix = child_env_prefix(&ClaudeOptions::default());
+        assert!(
+            prefix.contains(&"CLAUDE_CONFIG_DIR=/opt/moatless/.claude".to_string()),
+            "prefix should pin CLAUDE_CONFIG_DIR: {prefix:?}"
+        );
+        assert!(
+            prefix.contains(&"HOME=/home/tester".to_string()),
+            "prefix should pin HOME: {prefix:?}"
+        );
+
+        // options.env is layered AFTER the pins so caller overrides win — verify
+        // both that the entry is present and that it follows the pinned value.
+        let mut env = std::collections::HashMap::new();
+        env.insert("CLAUDE_CONFIG_DIR".to_string(), "/caller/override".to_string());
+        let options = ClaudeOptions {
+            env: Some(env),
+            ..Default::default()
+        };
+        let prefix = child_env_prefix(&options);
+        let pinned = prefix
+            .iter()
+            .position(|s| s == "CLAUDE_CONFIG_DIR=/opt/moatless/.claude")
+            .expect("pinned config dir present");
+        let override_pos = prefix
+            .iter()
+            .position(|s| s == "CLAUDE_CONFIG_DIR=/caller/override")
+            .expect("caller override present");
+        assert!(
+            override_pos > pinned,
+            "caller override must come after the pin (env: later wins): {prefix:?}"
+        );
+
+        std::env::remove_var("CLAUDE_CONFIG_DIR");
+        match saved_home {
+            Some(h) => std::env::set_var("HOME", h),
+            None => std::env::remove_var("HOME"),
+        }
     }
 }
