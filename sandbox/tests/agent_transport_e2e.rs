@@ -299,6 +299,76 @@ async fn run_agent_roundtrip(use_tmux: bool) {
     handle.stop();
 }
 
+/// Two-turn resume body: turn 1 starts a fresh session, turn 2 resumes it by
+/// `session_id`. This exercises the tmux JSONL-discovery resume path — on
+/// `claude --resume <id>` claude appends to the existing `<id>.jsonl` (no new
+/// file), so discovery must target the known transcript directly instead of
+/// waiting for a new file (which previously timed out with `JsonlNotFound`).
+async fn run_agent_resume(use_tmux: bool) {
+    init_tracing();
+    let (handle, agent_state, _tmp) = spawn_test_agent(use_tmux);
+
+    // ── Turn 1: fresh session ────────────────────────────────────────────────
+    let ack = handle.send(
+        TEST_PROMPT.to_string(),
+        Some(TEST_MODEL.to_string()),
+        None, // agent_type → claude-code
+        None, // agent_mode
+        None, // resume_session_id → fresh
+    );
+    let session_id = tokio::time::timeout(Duration::from_secs(90), ack)
+        .await
+        .expect("turn 1: timed out waiting for session start")
+        .expect("turn 1: session failed to start (ack sender dropped)");
+    assert!(!session_id.is_empty(), "expected a non-empty session id");
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
+    loop {
+        if !matches!(agent_state.status().await, AgentStatus::Running) {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "turn 1: agent did not finish within timeout"
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    let error = agent_state.last_error().await;
+    assert!(error.is_none(), "turn 1 finished with error: {error:?}");
+
+    // ── Turn 2: resume the same session by id ─────────────────────────────────
+    let ack = handle.send(
+        "What is 3+3? Reply with only the number.".to_string(),
+        Some(TEST_MODEL.to_string()),
+        None,                    // agent_type → claude-code
+        None,                    // agent_mode
+        Some(session_id.clone()), // resume_session_id → resume turn 1
+    );
+    let resumed_id = tokio::time::timeout(Duration::from_secs(90), ack)
+        .await
+        .expect("turn 2: timed out waiting for session start")
+        .expect("turn 2: session failed to start (ack sender dropped)");
+    assert!(!resumed_id.is_empty(), "expected a non-empty resumed session id");
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
+    loop {
+        if !matches!(agent_state.status().await, AgentStatus::Running) {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "turn 2: agent did not finish within timeout"
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+
+    let error = agent_state.last_error().await;
+    assert!(error.is_none(), "turn 2 (resume) finished with error: {error:?}");
+    assert_eq!(agent_state.status().await, AgentStatus::Idle);
+
+    handle.stop();
+}
+
 // ── Tests ───────────────────────────────────────────────────────────────────
 
 /// Subprocess transport (`-p` / NDJSON). Gated on `CLAUDE_SDK_E2E=1`.
@@ -329,4 +399,25 @@ async fn test_spawn_agent_tmux() {
         return;
     }
     run_agent_roundtrip(true).await;
+}
+
+/// Tmux resume transport. Gated on `CLAUDE_TMUX_E2E=1` and requires `tmux` on
+/// PATH. Drives two turns where turn 2 resumes turn 1 by `session_id`, guarding
+/// against the `JsonlNotFound` resume-discovery regression.
+#[tokio::test]
+#[ignore]
+async fn test_resume_agent_tmux() {
+    if std::env::var("CLAUDE_TMUX_E2E").as_deref() != Ok("1") {
+        eprintln!("Skipping tmux resume E2E test (set CLAUDE_TMUX_E2E=1 to run)");
+        return;
+    }
+    if std::process::Command::new("tmux")
+        .arg("-V")
+        .output()
+        .is_err()
+    {
+        eprintln!("Skipping tmux resume E2E test (tmux binary not found on PATH)");
+        return;
+    }
+    run_agent_resume(true).await;
 }

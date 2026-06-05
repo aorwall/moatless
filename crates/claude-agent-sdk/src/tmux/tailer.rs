@@ -72,17 +72,22 @@ pub(crate) struct TailTarget {
 ///
 /// - The most recent `transcript_path` reported by a `Stop` hook (newer
 ///   Claude versions);
+/// - `resume_target`, once it exists on disk (resume to a known session id);
 /// - A newly-appeared `*.jsonl` in `project_dir` (legacy fallback);
 /// - Timeout → [`SdkError::JsonlNotFound`].
 ///
 /// Stop is preferred (it's authoritative; works under `--continue` where
 /// claude appends to an existing transcript file and snapshot-diff sees no
-/// new file). Snapshot-diff stays as a defensive fallback for older Claude
-/// versions whose Stop payload doesn't carry `transcript_path`.
+/// new file). `resume_target` covers `claude --resume <id>`, where claude
+/// appends to the existing `<id>.jsonl` already present in the pre-spawn
+/// snapshot — so snapshot-diff never sees a new file. Snapshot-diff stays as a
+/// defensive fallback for older Claude versions whose Stop payload doesn't
+/// carry `transcript_path` and for fresh sessions.
 pub(crate) async fn discover_transcript_path(
     mut state_rx: watch::Receiver<HookState>,
     project_dir: PathBuf,
     before: HashSet<String>,
+    resume_target: Option<PathBuf>,
     timeout: Duration,
 ) -> Result<PathBuf> {
     let deadline = tokio::time::Instant::now() + timeout;
@@ -121,6 +126,14 @@ pub(crate) async fn discover_transcript_path(
                 // Loop back: re-check state for transcript_path.
             }
             () = &mut sleep => {
+                // Resume: claude appends to the existing <session_id>.jsonl (no
+                // new file), so snapshot-diff never fires. Target the known
+                // transcript directly before falling back to snapshot-diff.
+                if let Some(target) = &resume_target {
+                    if tokio::fs::try_exists(target).await.unwrap_or(false) {
+                        return Ok(target.clone());
+                    }
+                }
                 // Fallback: snapshot-diff to catch the new JSONL even when
                 // Stop hasn't fired yet (typical first-turn case).
                 if let Some(path) = snapshot_diff_for_new(&project_dir, &before).await? {
@@ -217,6 +230,16 @@ pub(crate) fn spawn_lazy_supervisor(
             .init_timeout
             .unwrap_or(Duration::from_secs(3600));
 
+        // Resume to a known session id: claude appends to the existing
+        // <id>.jsonl (no new file), so snapshot-diff never fires — target the
+        // known transcript directly. Skip the fork case (a forked resume writes
+        // a new transcript, which snapshot-diff/Stop will catch).
+        let resume_target = options
+            .resume
+            .as_ref()
+            .filter(|_| options.fork_session != Some(true))
+            .map(|id| project_dir.join(format!("{id}.jsonl")));
+
         let discover_rx = state_rx.clone();
         let before_for_discover = before.clone();
         let discover = tokio::select! {
@@ -225,7 +248,7 @@ pub(crate) fn spawn_lazy_supervisor(
                 session.kill().await;
                 return;
             }
-            res = discover_transcript_path(discover_rx, project_dir.clone(), before_for_discover, timeout) => res,
+            res = discover_transcript_path(discover_rx, project_dir.clone(), before_for_discover, resume_target, timeout) => res,
         };
 
         let jsonl_path = match discover {
@@ -668,7 +691,7 @@ mod tests {
         };
 
         let found =
-            discover_transcript_path(state_rx, project_dir, before, Duration::from_secs(3))
+            discover_transcript_path(state_rx, project_dir, before, None, Duration::from_secs(3))
                 .await
                 .expect("snapshot-diff should discover the new transcript");
         writer.await.expect("writer task");
@@ -698,9 +721,74 @@ mod tests {
         let (_tx, state_rx) = watch::channel(HookState::Pending);
         let before = HashSet::new();
         let err =
-            discover_transcript_path(state_rx, polled_dir, before, Duration::from_millis(400))
+            discover_transcript_path(state_rx, polled_dir, before, None, Duration::from_millis(400))
                 .await
                 .expect_err("discovery must fail when polling the wrong directory");
+        assert!(matches!(err, SdkError::JsonlNotFound { .. }));
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// The resume case: `claude --resume <id>` appends to the existing
+    /// `<id>.jsonl` — already present in the pre-spawn snapshot (`before`) — so
+    /// snapshot-diff never sees a new file and the Stop hook may not fire within
+    /// the window. Targeting the known transcript directly must discover it
+    /// quickly even though no new file is ever written.
+    #[tokio::test]
+    async fn discover_returns_existing_resume_target() {
+        let base = std::env::temp_dir().join("tmux-discover-test-resume-target");
+        let _ = std::fs::remove_dir_all(&base);
+        let project_dir = base.join("projects").join("-w-x");
+        std::fs::create_dir_all(&project_dir).expect("mkdir");
+
+        // The transcript already exists (resume appends to it) and its stem is
+        // in the pre-spawn snapshot — so snapshot-diff is blind to it.
+        let session_id = "2bf52364-deadbeef";
+        let jsonl = project_dir.join(format!("{session_id}.jsonl"));
+        std::fs::write(&jsonl, b"{\"type\":\"mode\"}\n").expect("write jsonl");
+        let mut before = HashSet::new();
+        before.insert(session_id.to_string());
+
+        // No Stop hook fires.
+        let (_tx, state_rx) = watch::channel(HookState::Pending);
+
+        let found = discover_transcript_path(
+            state_rx,
+            project_dir,
+            before,
+            Some(jsonl.clone()),
+            Duration::from_secs(3),
+        )
+        .await
+        .expect("resume target should be discovered directly");
+        assert_eq!(found, jsonl);
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// If the resume target never appears (wrong id / config dir didn't persist)
+    /// and no new file shows up either, discovery must still time out with
+    /// `JsonlNotFound` rather than hang — the WithId no-fallback contract.
+    #[tokio::test]
+    async fn resume_target_missing_falls_through_to_timeout() {
+        let base = std::env::temp_dir().join("tmux-discover-test-resume-missing");
+        let _ = std::fs::remove_dir_all(&base);
+        let project_dir = base.join("projects").join("-w-x");
+        std::fs::create_dir_all(&project_dir).expect("mkdir");
+
+        let missing = project_dir.join("does-not-exist.jsonl");
+        let (_tx, state_rx) = watch::channel(HookState::Pending);
+        let before = HashSet::new();
+
+        let err = discover_transcript_path(
+            state_rx,
+            project_dir,
+            before,
+            Some(missing),
+            Duration::from_millis(400),
+        )
+        .await
+        .expect_err("discovery must time out when the resume target never exists");
         assert!(matches!(err, SdkError::JsonlNotFound { .. }));
 
         let _ = std::fs::remove_dir_all(&base);

@@ -152,9 +152,25 @@ pub async fn query_tmux(prompt: &str, mut options: ClaudeOptions) -> Result<Quer
         return Err(e);
     }
 
+    // Resume to a known session id: claude appends to the existing <id>.jsonl
+    // (no new file), so snapshot-diff never fires — target the known transcript
+    // directly. Skip the fork case (a forked resume writes a new transcript,
+    // which snapshot-diff/Stop will catch).
+    let resume_target = options
+        .resume
+        .as_ref()
+        .filter(|_| options.fork_session != Some(true))
+        .map(|id| project_dir.join(format!("{id}.jsonl")));
+
     let jsonl_path =
-        match discover_transcript_path(state_rx.clone(), project_dir.clone(), before, init_timeout)
-            .await
+        match discover_transcript_path(
+            state_rx.clone(),
+            project_dir.clone(),
+            before,
+            resume_target,
+            init_timeout,
+        )
+        .await
         {
             Ok(p) => p,
             Err(e) => {
