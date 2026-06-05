@@ -147,16 +147,17 @@ impl TmuxPasteWriter {
     /// fall back to assuming the prompt submitted, so behaviour never regresses
     /// below the single-Enter path.
     async fn confirm_submission(&self, target: &str, text: &str) {
-        let Some(needle) = submit_needle(text) else {
-            return; // prompt too short to match reliably — leave as-is.
-        };
+        // `needle` is the literal-prompt match (used when the TUI shows the text
+        // inline). It may be None for very short prompts — the collapsed-paste
+        // placeholder check below still applies, so we don't early-return.
+        let needle = submit_needle(text);
 
         // Let the initial Enter land before the first check, so a prompt that
         // submitted on the first try doesn't trigger a spurious re-send.
         tokio::time::sleep(SUBMIT_SETTLE).await;
 
         for attempt in 0..SUBMIT_CONFIRM_ATTEMPTS {
-            if !self.prompt_pending(target, &needle).await {
+            if !self.prompt_pending(target, needle.as_deref()).await {
                 return; // input region clear — submitted.
             }
             debug!(
@@ -178,9 +179,13 @@ impl TmuxPasteWriter {
         );
     }
 
-    /// Capture the pane and report whether `needle` still appears in the input
-    /// region (after the last `❯` marker). Returns false on any capture issue.
-    async fn prompt_pending(&self, target: &str, needle: &[u8]) -> bool {
+    /// Capture the pane and report whether a prompt is still sitting unsent in
+    /// the input region (after the last `❯` marker). Returns true when either
+    /// the literal prompt `needle` OR the collapsed-paste placeholder
+    /// (`[Pasted text #N +M lines]`, which the TUI shows for multi-line pastes
+    /// instead of the literal text) is present. Returns false on any capture
+    /// issue, so behaviour never regresses below the single-Enter path.
+    async fn prompt_pending(&self, target: &str, needle: Option<&[u8]>) -> bool {
         let output = Command::new("tmux")
             .args(["capture-pane", "-t", target, "-p"])
             .stderr(Stdio::null())
@@ -193,7 +198,10 @@ impl TmuxPasteWriter {
             return false;
         }
         let stripped = super::trust::strip_csi(&out.stdout);
-        input_region_contains(&stripped, needle)
+        if input_region_contains(&stripped, PASTE_PLACEHOLDER) {
+            return true;
+        }
+        needle.is_some_and(|n| input_region_contains(&stripped, n))
     }
 }
 
@@ -209,6 +217,11 @@ const SUBMIT_NEEDLE_LEN: usize = 32;
 const SUBMIT_NEEDLE_MIN: usize = 8;
 /// The `❯` input-prompt marker (U+276F) preceding the claude TUI readline.
 const INPUT_MARKER: &[u8] = "❯".as_bytes();
+/// Whitespace-stripped, lowercased form of the TUI's collapsed-paste hint
+/// (`[Pasted text #1 +5 lines]`). The TUI renders this instead of the literal
+/// text for multi-line pastes, so the literal-prompt needle won't match while
+/// the paste sits unsent — this does.
+const PASTE_PLACEHOLDER: &[u8] = b"[pastedtext";
 
 /// Build a whitespace-stripped, lowercased needle from the start of the prompt.
 /// Whitespace is removed entirely so terminal line-wrapping in the captured
@@ -389,6 +402,29 @@ mod tests {
 ────────────────────────────────";
         let needle = submit_needle("Reply with just OK to confirm").expect("needle");
         assert!(input_region_contains(pane.as_bytes(), &needle));
+    }
+
+    #[test]
+    fn input_region_detects_collapsed_paste_placeholder() {
+        // Real pane captured on the cluster (0.1.59): the TUI collapses a
+        // multi-line paste into `[Pasted text #1 +5 lines]` instead of showing
+        // the literal text, so the prompt needle won't match — but the
+        // placeholder check must still flag the input as pending. `0 tokens`
+        // confirms no turn ran.
+        let pane = "\
+ ▝▜█████▛▘  Opus 4.8 · Claude API
+────────────────────────────────
+❯ [Pasted text #1 +5 lines]
+────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle)                0 tokens";
+        // Literal needle is absent from the collapsed pane...
+        let needle = submit_needle(
+            "<sent_by>aorwall-frankpenny</sent_by>\nVERIFY59: reply with exactly the token OK-59.",
+        )
+        .expect("needle");
+        assert!(!input_region_contains(pane.as_bytes(), &needle));
+        // ...but the collapsed-paste placeholder is detected.
+        assert!(input_region_contains(pane.as_bytes(), PASTE_PLACEHOLDER));
     }
 
     #[test]
