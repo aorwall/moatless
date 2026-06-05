@@ -205,12 +205,19 @@ impl TmuxPasteWriter {
     }
 }
 
-/// Settle delay after the first Enter before checking the input box.
-const SUBMIT_SETTLE: std::time::Duration = std::time::Duration::from_millis(150);
+/// Settle delay after the first Enter before checking the input box. Slightly
+/// longer than the keypress round-trip so a prompt that submits on the first
+/// try doesn't trigger a spurious re-send.
+const SUBMIT_SETTLE: std::time::Duration = std::time::Duration::from_millis(200);
 /// Gap between submit-confirmation retries.
 const SUBMIT_CONFIRM_GAP: std::time::Duration = std::time::Duration::from_millis(250);
-/// Max number of confirmation re-sends before giving up (best-effort).
-const SUBMIT_CONFIRM_ATTEMPTS: usize = 5;
+/// Max number of confirmation re-sends before giving up (best-effort). Re-sending
+/// Enter on an already-submitted (empty) input is a no-op, so a generous budget
+/// only costs latency on a genuinely wedged prompt — ~3 s of retries here, far
+/// under the 120 s discovery `init_timeout` that follows. Sized to outlast a TUI
+/// that settles slowly right after the prior turn (the intermittent miss this
+/// guards against).
+const SUBMIT_CONFIRM_ATTEMPTS: usize = 12;
 /// Max needle length taken from the prompt for input-region matching.
 const SUBMIT_NEEDLE_LEN: usize = 32;
 /// Minimum needle length; below this the prompt is too short to match reliably.
