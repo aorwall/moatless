@@ -54,6 +54,7 @@ jobs:
       build-backend: ${{ steps.compute.outputs.backend }}
       build-sandbox: ${{ steps.compute.outputs.sandbox }}
       publish-helm: ${{ steps.compute.outputs.helm }}
+      cli-changed: ${{ steps.compute.outputs.cli-changed }}
     steps:
       # fetch-depth: 0 so `git describe --tags` can see the v* release history
       # used to compute the next monotonic semver on push-to-main.
@@ -65,6 +66,7 @@ jobs:
           INPUT_TAG: ${{ inputs.tag }}
           INPUT_CHART_VERSION: ${{ inputs.chart-version }}
           INPUT_IMAGES: ${{ inputs.images }}
+          EVENT_BEFORE: ${{ github.event.before }}
         run: |
           # Image tag:
           #   explicit input            → as given
@@ -124,6 +126,26 @@ jobs:
           else
             echo "helm=false" >> "$GITHUB_OUTPUT"
           fi
+
+          # CLI changed? Gates the runner rebuild (trigger-runners) — there's
+          # no point rebuilding the ARC/E2E runner images unless the `moat`
+          # binary they bake in actually changed.
+          #   push to main → diff the push range, true iff crates/cli/ changed
+          #   fp-v* tag / dispatch → always true (deliberate release / manual run)
+          #   anything else → false (trigger-runners doesn't run there anyway)
+          CLI_CHANGED=false
+          if [[ "$GITHUB_REF" == refs/tags/fp-v* || "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            CLI_CHANGED=true
+          elif [[ "$GITHUB_REF" == refs/heads/main && "$GITHUB_EVENT_NAME" == push ]]; then
+            # New branch / force push / missing base → can't diff, rebuild to be safe.
+            if [[ -z "$EVENT_BEFORE" || "$EVENT_BEFORE" == 0000000000000000000000000000000000000000 ]] \
+               || ! git cat-file -e "${EVENT_BEFORE}^{commit}" 2>/dev/null; then
+              CLI_CHANGED=true
+            elif git diff --name-only "$EVENT_BEFORE" "$GITHUB_SHA" -- crates/cli/ | grep -q .; then
+              CLI_CHANGED=true
+            fi
+          fi
+          echo "cli-changed=$CLI_CHANGED" >> "$GITHUB_OUTPUT"
 
   # ── Build Rust binaries + dump OpenAPI spec ──
   # Uses rust:1.91-bookworm to link against GLIBC 2.36, matching distroless/cc
@@ -464,9 +486,13 @@ jobs:
   # Fires `repository_dispatch` to soap-platform-ci. The receiver workflows
   # (.github/workflows/build-arc-runner.yml + build-e2e-runner.yml) consume
   # `client_payload.moatVersion` as the MOAT_VERSION build-arg.
+  #
+  # Gated on `cli-changed`: on push-to-main this only fires when crates/cli/
+  # actually changed (no point rebuilding runners otherwise). fp-v* tags and
+  # workflow_dispatch always fire — see the setup job's cli-changed compute.
   trigger-runners:
-    needs: [release-moat]
-    if: needs.release-moat.outputs.moat-version != ''
+    needs: [setup, release-moat]
+    if: needs.release-moat.outputs.moat-version != '' && needs.setup.outputs.cli-changed == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Generate App token
