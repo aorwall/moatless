@@ -1,4 +1,5 @@
 import type { SandboxStatusFullResponse, TaskResponse } from '@moatless/api-client'
+import { GitBranch } from 'lucide-react'
 import { formatRelativeTime } from '@/features/tasks/utils/format-relative-time'
 import { getAutoCloseDeadlineMs, getIdleStopDeadlineMs } from '@/features/tasks/utils/task-ttl'
 import { Badge } from '@/lib/components/ui/badge'
@@ -16,6 +17,17 @@ export function TaskInfoSection({ task, sandbox }: TaskInfoSectionProps) {
 
   return (
     <div className="space-y-2 px-2 py-2 text-xs">
+      {task.branch && (
+        <Row label="Branch">
+          <span
+            className="flex items-center gap-1 font-mono truncate max-w-[180px]"
+            title={task.branch}
+          >
+            <GitBranch className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
+            <span className="truncate">{task.branch}</span>
+          </span>
+        </Row>
+      )}
       <Row label="Total cost">
         <span className="tabular-nums">${totalCost.toFixed(4)}</span>
       </Row>
