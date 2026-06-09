@@ -80,12 +80,18 @@ pub fn build_options(
         max_turns: config.agent_config.timeout.map(|t| t as u32),
         init_timeout: Some(init_timeout),
         env,
-        // The CLI's built-in Monitor tool only delivers events while its own
-        // subprocess is alive. Our per-turn `--resume` model kills that
-        // subprocess at turn end, so the Monitor watcher dies before any
-        // events reach the agent. Disallow it so the agent gets a loud
-        // "tool not allowed" error and falls back to Bash background.
-        disallowed_tools: Some(vec!["Monitor".to_string()]),
+        // Disallowed tools are removed from the CLI's context entirely (a bare
+        // tool name in the deny list), so the agent never sees or calls them.
+        //
+        // - Monitor: the CLI's built-in Monitor tool only delivers events while
+        //   its own subprocess is alive. Our per-turn `--resume` model kills
+        //   that subprocess at turn end, so the Monitor watcher dies before any
+        //   events reach the agent. Disallow it so the agent gets a loud
+        //   "tool not allowed" error and falls back to Bash background.
+        // - AskUserQuestion: we don't surface the CLI's multiple-choice
+        //   question UI; the agent should ask in plain text instead. Removing
+        //   the tool keeps it from offering choice prompts we can't render.
+        disallowed_tools: Some(vec!["Monitor".to_string(), "AskUserQuestion".to_string()]),
         ..ClaudeOptions::default()
     }
 }
