@@ -51,6 +51,9 @@ const AGENT_TYPE_CLAUDE_CODE: &str = "claude-code";
 /// subprocess/NDJSON transport. Treated as the claude-code family for everything
 /// except the transport selection in `start_session`.
 const AGENT_TYPE_CLAUDE_CODE_TMUX: &str = "claude-code-tmux";
+/// Claude Code pinned to the `fable` model. Same executor family as claude-code;
+/// the model is forced backend-side when the message carries none.
+const AGENT_TYPE_CLAUDE_CODE_FABLE: &str = "claude-code-fable";
 const AGENT_TYPE_CODEX: &str = "codex";
 
 enum ActiveHandle {
@@ -493,9 +496,10 @@ fn is_retryable_runtime_error(error: &AgentRuntimeError) -> bool {
 fn normalize_agent_type(agent_type: Option<&str>) -> &'static str {
     match agent_type {
         Some(AGENT_TYPE_CODEX) => AGENT_TYPE_CODEX,
-        Some(AGENT_TYPE_CLAUDE_CODE) | Some(AGENT_TYPE_CLAUDE_CODE_TMUX) | None => {
-            AGENT_TYPE_CLAUDE_CODE
-        }
+        Some(AGENT_TYPE_CLAUDE_CODE)
+        | Some(AGENT_TYPE_CLAUDE_CODE_TMUX)
+        | Some(AGENT_TYPE_CLAUDE_CODE_FABLE)
+        | None => AGENT_TYPE_CLAUDE_CODE,
         Some(other) => {
             warn!(
                 agent_type = other,

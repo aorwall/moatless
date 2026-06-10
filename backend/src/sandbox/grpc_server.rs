@@ -351,7 +351,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
 
                 Some(sandbox_proto::PendingMessage {
                     content,
-                    model: row.model.clone(),
+                    model: effective_model(row.model.clone(), &task_agent_type),
                     system_prompt: None,
                     resume,
                     agent_type: Some(task_agent_type.clone()),
@@ -895,6 +895,19 @@ fn credential_key_to_provider(key: &str) -> Option<&'static str> {
 /// Returns an empty string when there's nothing to emit (internal row with no
 /// resolvable `sent_by`). Callers must guard against the empty case before
 /// prepending.
+/// Resolve the model to deliver for a pending message.
+///
+/// An explicit per-message model is always preserved. When the message carries
+/// no model, agents that pin a model (e.g. `claude-code-fable` → `fable`) get it
+/// forced here, since the catalog `default_model` is only a UI hint and is not
+/// otherwise applied at runtime.
+fn effective_model(row_model: Option<String>, agent_type: &str) -> Option<String> {
+    row_model.or_else(|| match agent_type {
+        "claude-code-fable" => Some("fable".to_string()),
+        _ => None,
+    })
+}
+
 fn build_message_header(
     uuid: &str,
     external_event_id: Option<&str>,
@@ -1043,6 +1056,31 @@ mod tests {
             Some(sandbox_proto::content_block::Block::Text(ref t)) => &t.text,
             _ => panic!("expected text block"),
         }
+    }
+
+    #[test]
+    fn effective_model_forces_fable_when_unset() {
+        // Fable agent with no per-message model is pinned to "fable".
+        assert_eq!(
+            effective_model(None, "claude-code-fable"),
+            Some("fable".to_string())
+        );
+    }
+
+    #[test]
+    fn effective_model_preserves_explicit_model() {
+        // An explicit per-message model always wins, even for the fable agent.
+        assert_eq!(
+            effective_model(Some("claude-opus-4-6".to_string()), "claude-code-fable"),
+            Some("claude-opus-4-6".to_string())
+        );
+    }
+
+    #[test]
+    fn effective_model_leaves_other_agents_unset() {
+        // Non-pinned agents keep their None (falls back to deployment default).
+        assert_eq!(effective_model(None, "claude-code"), None);
+        assert_eq!(effective_model(None, "codex"), None);
     }
 
     #[test]
