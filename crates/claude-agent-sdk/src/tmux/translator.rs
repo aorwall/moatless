@@ -35,6 +35,10 @@ pub(crate) struct TurnAccumulator {
     pub(crate) last_text: String,
     pub(crate) last_assistant_uuid: Option<String>,
     pub(crate) accumulated_usage: Usage,
+    /// Set when the turn contained an API-error assistant record (e.g. a 404
+    /// `model_not_found`). Makes the synthesized `Result` a loud failure
+    /// instead of a phantom empty success.
+    pub(crate) api_error: bool,
 }
 
 fn zero_usage() -> Usage {
@@ -57,6 +61,7 @@ impl TurnAccumulator {
             last_text: String::new(),
             last_assistant_uuid: None,
             accumulated_usage: zero_usage(),
+            api_error: false,
         }
     }
 
@@ -103,6 +108,7 @@ impl TurnAccumulator {
         self.last_text.clear();
         self.last_assistant_uuid = None;
         self.accumulated_usage = zero_usage();
+        self.api_error = false;
     }
 }
 
@@ -149,6 +155,12 @@ fn translate_assistant(mut value: Value, acc: &mut TurnAccumulator) -> Translate
 
     match serde_json::from_value::<crate::types::messages::AssistantMessage>(value.clone()) {
         Ok(msg) => {
+            // An API error (e.g. 404 model_not_found) must surface as a failed
+            // turn, not a silent empty success. Flag it so the synthesized
+            // Result is marked is_error.
+            if msg.is_api_error_message == Some(true) || msg.error.is_some() {
+                acc.api_error = true;
+            }
             // Pull out the most recent text block for the synthesized Result
             // and accumulate usage.
             let last_text = msg
@@ -175,10 +187,48 @@ fn translate_assistant(mut value: Value, acc: &mut TurnAccumulator) -> Translate
             Translated::One(Box::new(SdkMessage::Assistant(msg)))
         }
         Err(e) => {
-            warn!(error = %e, raw = %value, "Failed to deserialize JSONL assistant record");
+            // Last-resort guard: even if the record shape is unrecognized, an
+            // API-error record must never be silently dropped. Mark the turn as
+            // errored and salvage the error text so the run fails loudly.
+            if value.get("isApiErrorMessage").and_then(Value::as_bool) == Some(true) {
+                acc.api_error = true;
+                if let Some(text) = first_text_block(&value) {
+                    if !text.is_empty() {
+                        acc.last_text = text;
+                    }
+                }
+                warn!(
+                    error = %e,
+                    raw = %value,
+                    "API-error assistant record failed to deserialize — marking turn as error"
+                );
+            } else {
+                warn!(error = %e, raw = %value, "Failed to deserialize JSONL assistant record");
+            }
             Translated::Skip
         }
     }
+}
+
+/// Extract the first text block from a raw JSONL assistant record's
+/// `message.content` array. Used to salvage error text when full
+/// deserialization fails.
+fn first_text_block(value: &Value) -> Option<String> {
+    value
+        .get("message")?
+        .get("content")?
+        .as_array()?
+        .iter()
+        .find_map(|block| {
+            if block.get("type").and_then(Value::as_str) == Some("text") {
+                block
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string)
+            } else {
+                None
+            }
+        })
 }
 
 fn translate_user(mut value: Value) -> Translated {
@@ -343,7 +393,7 @@ fn translate_turn_duration(value: &Value, acc: &mut TurnAccumulator) -> Translat
         session_id,
         duration_ms,
         duration_api_ms: 0,
-        is_error: false,
+        is_error: acc.api_error,
         num_turns: acc.turn_number.saturating_add(1),
         result: acc.last_text.clone(),
         total_cost_usd: 0.0,
@@ -451,6 +501,73 @@ mod tests {
         assert_eq!(a.last_text, "Hello!");
         assert_eq!(a.accumulated_usage.input_tokens, 10);
         assert_eq!(a.accumulated_usage.output_tokens, 5);
+    }
+
+    #[test]
+    fn api_error_assistant_record_marks_turn_errored_and_surfaces_text() {
+        // Mirrors the real 404 model_not_found record: an unknown `error` code
+        // plus `isApiErrorMessage: true`. Must parse (not get dropped) and flag
+        // the turn as errored.
+        let mut a = acc();
+        let value = json!({
+            "type": "assistant",
+            "uuid": "asst-err",
+            "sessionId": "sess-1",
+            "isApiErrorMessage": true,
+            "apiErrorStatus": 404,
+            "error": "model_not_found",
+            "message": {
+                "role": "assistant",
+                "model": "<synthetic>",
+                "id": "msg_err",
+                "content": [{"type": "text", "text": "There's an issue with the selected model (fable)."}],
+                "stop_reason": "stop_sequence",
+                "usage": {"input_tokens": 0, "output_tokens": 0}
+            }
+        });
+
+        match translate_record(value, &mut a) {
+            Translated::One(boxed) => match *boxed {
+                SdkMessage::Assistant(_) => {}
+                other => panic!("Expected Assistant, got {other:?}"),
+            },
+            Translated::Skip => panic!("API-error record was dropped instead of surfaced"),
+        }
+        assert!(a.api_error, "api_error flag must be set");
+        assert_eq!(a.last_text, "There's an issue with the selected model (fable).");
+
+        // The synthesized turn_duration Result must be a loud failure.
+        let td = json!({"type": "system", "subtype": "turn_duration", "durationMs": 731});
+        match translate_record(td, &mut a) {
+            Translated::One(boxed) => match *boxed {
+                SdkMessage::Result(ResultMessage::Success(s)) => {
+                    assert!(s.is_error, "synthesized Result must have is_error=true");
+                    assert!(s.result.contains("fable"));
+                }
+                other => panic!("Expected Result::Success, got {other:?}"),
+            },
+            Translated::Skip => panic!("Expected synthesized Result"),
+        }
+    }
+
+    #[test]
+    fn unparseable_api_error_record_still_marks_turn_errored() {
+        // Even when the record can't be deserialized at all, an API-error record
+        // must not be silently skipped — the turn is flagged and text salvaged.
+        let mut a = acc();
+        let value = json!({
+            "type": "assistant",
+            // Missing required fields (uuid/session_id) → deserialization fails.
+            "isApiErrorMessage": true,
+            "message": {
+                "content": [{"type": "text", "text": "Overloaded, try again."}]
+            }
+        });
+
+        // Record itself is skipped (unparseable) but the flag/text are captured.
+        matches!(translate_record(value, &mut a), Translated::Skip);
+        assert!(a.api_error, "api_error flag must be set even on parse failure");
+        assert_eq!(a.last_text, "Overloaded, try again.");
     }
 
     #[test]

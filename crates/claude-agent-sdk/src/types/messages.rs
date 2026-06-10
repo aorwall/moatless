@@ -288,6 +288,11 @@ pub enum AssistantMessageError {
     RateLimit,
     InvalidRequest,
     ServerError,
+    /// Catch-all for error codes the CLI introduces faster than this enum is
+    /// updated (e.g. `model_not_found`). Without `#[serde(other)]` an unknown
+    /// code fails deserialization of the whole `AssistantMessage`, which would
+    /// cause the record — and the API error it carries — to be silently dropped.
+    #[serde(other)]
     Unknown,
 }
 
