@@ -50,6 +50,20 @@ ARG CODEX_CLI_VERSION=0.131.0
 RUN npm install -g "@openai/codex@${CODEX_CLI_VERSION}" \
     && (codex --version 2>/dev/null || echo "unknown") > /opt/moatless/.codex-cli-version
 
+# Override the Claude Code CLI version baked into the upstream sandbox-base.
+# Bump this when a newer model alias (e.g. `fable`, added in 2.1.170) needs a
+# CLI past what upstream has shipped — avoids waiting on an upstream base
+# rebuild. The fork does not build sandbox-base itself (that workflow is gated
+# to the aorwall repo), so without this the deployed CLI stays at the base's
+# pinned version.
+#
+# Do NOT re-run `ln -sf "$(which claude)" /usr/local/bin/claude` here — same
+# self-loop/ELOOP hazard as the Codex note above; npm replaces the binary at the
+# existing symlink target.
+ARG CLAUDE_CLI_VERSION=2.1.170
+RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}" \
+    && (claude --version 2>/dev/null || echo "unknown") > /opt/moatless/.claude-cli-version
+
 # Entrypoint scripts come from the sandbox-tools image so script edits don't
 # invalidate the binary COPY layer below (and vice versa).
 COPY --from=aorwall/moatless-sandbox-tools:latest /tools/docker-entrypoint-sandbox.sh /usr/local/bin/docker-entrypoint-sandbox.sh
