@@ -104,6 +104,22 @@ pub const CLAUDE_CODE_TMUX: AgentEntry = AgentEntry {
         "Add CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in Settings \u{2192} Secrets",
 };
 
+pub const CLAUDE_CODE_FABLE: AgentEntry = AgentEntry {
+    id: "claude-code-fable",
+    label: "Claude Code (Fable)",
+    kind: AgentKind::ClaudeCode,
+    params: AgentParams { use_tmux: true },
+    credential_keys: &[CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY],
+    provider_token_providers: &["claude"],
+    default_model: "fable",
+    models: &[ModelEntry {
+        id: "fable",
+        label: "Fable",
+    }],
+    missing_credential_hint:
+        "Add CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in Settings \u{2192} Secrets",
+};
+
 pub const CODEX: AgentEntry = AgentEntry {
     id: "codex",
     label: "Codex",
@@ -121,7 +137,7 @@ pub const CODEX: AgentEntry = AgentEntry {
 
 /// All supported agents in display order.
 pub fn catalog() -> &'static [AgentEntry] {
-    &[CLAUDE_CODE, CLAUDE_CODE_TMUX, CODEX]
+    &[CLAUDE_CODE, CLAUDE_CODE_TMUX, CLAUDE_CODE_FABLE, CODEX]
 }
 
 /// Look up a catalog entry by its `agent_type` id.

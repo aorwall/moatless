@@ -87,7 +87,7 @@ RUN mkdir -p /home/$USERNAME/.cache \
 
 # Claude/Codex CLIs (pinned versions). Bump these args to upgrade the CLIs —
 # this is the only frequent reason this image will rebuild.
-ARG CLAUDE_CLI_VERSION=2.1.159
+ARG CLAUDE_CLI_VERSION=2.1.170
 ARG CODEX_CLI_VERSION=0.124.0
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}" "@openai/codex@${CODEX_CLI_VERSION}" \
     && ln -sf "$(which claude)" /usr/local/bin/claude \

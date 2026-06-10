@@ -31,7 +31,7 @@ SANDBOX_IMAGE_NAME="moatless-sandbox"
 SANDBOX_JS_ALIAS_NAME="moatless-sandbox-js"
 
 # Pinned CLI versions (kept in sync with .github/workflows/build-sandbox-images.yml)
-CLAUDE_CLI_VERSION="${CLAUDE_CLI_VERSION:-2.1.159}"
+CLAUDE_CLI_VERSION="${CLAUDE_CLI_VERSION:-2.1.170}"
 CODEX_CLI_VERSION="${CODEX_CLI_VERSION:-0.121.0}"
 
 # Parse command line arguments
