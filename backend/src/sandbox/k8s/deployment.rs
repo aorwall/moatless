@@ -254,10 +254,82 @@ pub async fn get_deployment_replicas(
     }
 }
 
+/// Extract the image of the `sandbox` container from a Deployment's pod template.
+///
+/// Returns `None` if the template, container list, or the `sandbox` container's
+/// image are absent. Used by the start path to detect whether a stopped
+/// Deployment is pinned to a stale image tag.
+pub fn deployment_sandbox_image(dep: &Deployment) -> Option<String> {
+    dep.spec
+        .as_ref()?
+        .template
+        .spec
+        .as_ref()?
+        .containers
+        .iter()
+        .find(|c| c.name == "sandbox")
+        .and_then(|c| c.image.clone())
+}
+
 /// Generate a deterministic Deployment name from a task ID.
 ///
 /// Uses the same base as the service name for consistency.
 fn generate_deployment_name(task_id: &str) -> String {
     // Service name is already "moatless-ws-{task_id}", reuse it for the deployment
     generate_service_name(task_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use k8s_openapi::api::apps::v1::DeploymentSpec;
+    use k8s_openapi::api::core::v1::{Container, PodSpec, PodTemplateSpec};
+
+    fn deployment_with_containers(containers: Vec<Container>) -> Deployment {
+        Deployment {
+            spec: Some(DeploymentSpec {
+                template: PodTemplateSpec {
+                    spec: Some(PodSpec {
+                        containers,
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    fn container(name: &str, image: Option<&str>) -> Container {
+        Container {
+            name: name.to_string(),
+            image: image.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn deployment_sandbox_image_extracts_sandbox_container() {
+        let dep = deployment_with_containers(vec![
+            container("web-server", Some("server:latest")),
+            container("sandbox", Some("sandbox:v2")),
+        ]);
+        assert_eq!(deployment_sandbox_image(&dep).as_deref(), Some("sandbox:v2"));
+    }
+
+    #[test]
+    fn deployment_sandbox_image_none_when_no_sandbox_container() {
+        let dep = deployment_with_containers(vec![container(
+            "web-server",
+            Some("server:latest"),
+        )]);
+        assert_eq!(deployment_sandbox_image(&dep), None);
+    }
+
+    #[test]
+    fn deployment_sandbox_image_none_when_spec_absent() {
+        let dep = Deployment::default();
+        assert_eq!(deployment_sandbox_image(&dep), None);
+    }
 }

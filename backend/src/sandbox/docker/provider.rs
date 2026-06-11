@@ -61,23 +61,37 @@ impl SandboxProvider for DockerSandboxProvider {
                     status: SandboxStatus::Ready,
                 });
             }
-            ExistingContainerResult::Exists => {
-                // Container exists but not running — start it
-                info!(task_id = %task_id, "Starting existing stopped container");
-                self.publish_initializing(task_id).await;
-                self.client
-                    .docker
-                    .start_container(&container_name, None::<StartContainerOptions<String>>)
-                    .await
-                    .map_err(|e| {
-                        SandboxError::DockerError(format!("Failed to start container: {e}"))
-                    })?;
+            ExistingContainerResult::Exists { current_image } => {
+                let expected = container_builder::resolve_sandbox_image(&self.config, plan);
+                if current_image.as_deref() == Some(expected.as_str()) {
+                    // Tag unchanged — fast path: start the existing container.
+                    info!(task_id = %task_id, image = %expected, "Starting existing stopped container (image unchanged)");
+                    self.publish_initializing(task_id).await;
+                    self.client
+                        .docker
+                        .start_container(&container_name, None::<StartContainerOptions<String>>)
+                        .await
+                        .map_err(|e| {
+                            SandboxError::DockerError(format!("Failed to start container: {e}"))
+                        })?;
 
-                self.publish_ready(task_id).await;
+                    self.publish_ready(task_id).await;
 
-                return Ok(ProvisionResponse {
-                    status: SandboxStatus::Ready,
-                });
+                    return Ok(ProvisionResponse {
+                        status: SandboxStatus::Ready,
+                    });
+                }
+
+                // Tag changed — remove the stale container (and its servers) and
+                // fall through to recreate from the fresh plan with the new image.
+                info!(
+                    task_id = %task_id,
+                    old_image = ?current_image,
+                    new_image = %expected,
+                    "Sandbox image changed since stop, recreating container"
+                );
+                self.force_remove_container(&container_name, task_id).await;
+                self.remove_server_containers(task_id).await;
             }
             ExistingContainerResult::NotFound => {} // Continue provisioning
         }
@@ -380,8 +394,10 @@ impl SandboxProvider for DockerSandboxProvider {
 enum ExistingContainerResult {
     /// Container is running.
     Running,
-    /// Container exists but is not running (created, paused, exited, etc.)
-    Exists,
+    /// Container exists but is not running (created, paused, exited, etc.).
+    /// Carries the image the container was created with so the start path can
+    /// decide whether to start it (tag unchanged) or recreate it (tag changed).
+    Exists { current_image: Option<String> },
     /// No container found (404).
     NotFound,
 }
@@ -479,7 +495,7 @@ impl DockerSandboxProvider {
                 info!(task_id = %task_id, server = %server.name, "Reusing existing server container");
                 return Ok(());
             }
-            ExistingContainerResult::Exists => {
+            ExistingContainerResult::Exists { .. } => {
                 info!(task_id = %task_id, server = %server.name, "Starting existing server container");
                 self.client
                     .docker
@@ -665,7 +681,8 @@ impl DockerSandboxProvider {
                 if status_str == "running" {
                     ExistingContainerResult::Running
                 } else {
-                    ExistingContainerResult::Exists
+                    let current_image = info.config.and_then(|c| c.image);
+                    ExistingContainerResult::Exists { current_image }
                 }
             }
             Err(bollard::errors::Error::DockerResponseServerError {

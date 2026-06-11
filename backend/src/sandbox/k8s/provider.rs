@@ -51,7 +51,7 @@ impl SandboxProvider for K8sSandboxProvider {
 
         let plan = &request.plan;
 
-        // 1. Check for existing pod — never destroy, only reuse or wait
+        // 1. Check for existing pod — never destroy, only reuse, wait, or rebuild on tag change
         match self.check_existing_pod(task_id).await {
             ExistingPodResult::Ready => {
                 info!(task_id = %task_id, "Reusing existing healthy pod");
@@ -65,21 +65,42 @@ impl SandboxProvider for K8sSandboxProvider {
                     status: SandboxStatus::Initializing,
                 });
             }
+            ExistingPodResult::Stopped { current_image } => {
+                let expected = pod_builder::resolve_sandbox_image(&self.config, plan);
+                if current_image.as_deref() == Some(expected.as_str()) {
+                    // Tag unchanged — fast path: scale back up.
+                    info!(task_id = %task_id, image = %expected, "Starting stopped sandbox (image unchanged), scaling up");
+                    deployment::scale_deployment(&self.k8s, task_id, 1)
+                        .await
+                        .map_err(SandboxError::KubeError)?;
+                } else {
+                    // Tag changed — rebuild the Deployment from the fresh plan.
+                    info!(
+                        task_id = %task_id,
+                        old_image = ?current_image,
+                        new_image = %expected,
+                        "Sandbox image changed since stop, rebuilding deployment"
+                    );
+                    let token = self.generate_user_auth_token(&request.user_id)?;
+                    deployment::redeploy_with_plan(
+                        &self.k8s,
+                        &self.config,
+                        task_id,
+                        request,
+                        &token,
+                    )
+                    .await?;
+                }
+                self.publish_initializing(task_id).await;
+                return Ok(ProvisionResponse {
+                    status: SandboxStatus::Initializing,
+                });
+            }
             ExistingPodResult::NotFound => {} // Continue provisioning
         }
 
         // 2. Generate JWT using user_id directly (no DB lookup)
-        let task_token_secret = self
-            .config
-            .sandbox
-            .task_token_secret
-            .as_ref()
-            .ok_or_else(|| SandboxError::ConfigMissing("TASK_TOKEN_SECRET".to_string()))?
-            .clone();
-
-        let user_auth_token =
-            jwt::generate_user_auth_token(&request.user_id, &request.user_id, &task_token_secret)
-                .map_err(|e| SandboxError::JwtError(e.to_string()))?;
+        let user_auth_token = self.generate_user_auth_token(&request.user_id)?;
 
         // 3. Create PVC
         let pvc_name = match self.create_or_find_pvc(task_id).await {
@@ -314,6 +335,10 @@ enum ExistingPodResult {
     Ready,
     /// Exists but not yet ready (pending, starting, scaling up).
     Initializing,
+    /// Deployment exists but is scaled to 0. Carries the image currently baked
+    /// into the `sandbox` container so the start path can decide whether to
+    /// scale up (tag unchanged) or rebuild (tag changed).
+    Stopped { current_image: Option<String> },
     /// No deployment/pod found.
     NotFound,
 }
@@ -351,6 +376,19 @@ impl K8sSandboxProvider {
         }
     }
 
+    /// Generate the user auth JWT a sandbox pod uses to call back to the backend.
+    fn generate_user_auth_token(&self, user_id: &str) -> Result<String, SandboxError> {
+        let task_token_secret = self
+            .config
+            .sandbox
+            .task_token_secret
+            .as_ref()
+            .ok_or_else(|| SandboxError::ConfigMissing("TASK_TOKEN_SECRET".to_string()))?;
+
+        jwt::generate_user_auth_token(user_id, user_id, task_token_secret)
+            .map_err(|e| SandboxError::JwtError(e.to_string()))
+    }
+
     /// Create or find existing PVC.
     async fn create_or_find_pvc(&self, task_id: &str) -> Result<String, String> {
         if let Some(name) = pvc::find_task_pvc(&self.k8s, task_id).await {
@@ -366,7 +404,8 @@ impl K8sSandboxProvider {
     /// Check for existing pod — returns richer result for idempotent provisioning.
     ///
     /// - `Ready`: Running pod with sandbox container ready
-    /// - `Initializing`: Deployment exists but pod not ready yet (including scaled-to-0 that we scale back up)
+    /// - `Initializing`: Deployment exists but pod not ready yet
+    /// - `Stopped`: Deployment scaled to 0 (carries current sandbox image)
     /// - `NotFound`: No Deployment exists
     async fn check_existing_pod(&self, task_id: &str) -> ExistingPodResult {
         // Check if a Deployment already exists
@@ -379,15 +418,14 @@ impl K8sSandboxProvider {
             }
         };
 
-        let _ = dep; // Deployment exists
-
-        // If Deployment is scaled to 0, scale it back up
+        // If Deployment is scaled to 0, report it as Stopped along with the
+        // image currently baked into the pod template. The caller decides
+        // whether to scale up (tag unchanged) or rebuild (tag changed).
         if let Ok((desired, _)) = deployment::get_deployment_replicas(&self.k8s, task_id).await {
             if desired == 0 {
-                if let Err(e) = deployment::scale_deployment(&self.k8s, task_id, 1).await {
-                    tracing::warn!(task_id, error = %e, "Failed to scale deployment back up");
-                }
-                return ExistingPodResult::Initializing;
+                return ExistingPodResult::Stopped {
+                    current_image: deployment::deployment_sandbox_image(&dep),
+                };
             }
         }
 

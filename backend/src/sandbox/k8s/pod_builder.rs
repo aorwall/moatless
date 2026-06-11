@@ -170,6 +170,20 @@ pub fn build_pod(
     Ok(pod)
 }
 
+/// Resolve the sandbox image for a plan: per-repo override → default sandbox image.
+///
+/// An empty override string is treated as unset. This is the single source of
+/// truth for the "expected" image, so the start path can diff it against the
+/// image baked into a stopped Deployment.
+pub fn resolve_sandbox_image(config: &Config, plan: &ProvisionPlan) -> String {
+    plan.repo_config
+        .docker_image
+        .as_ref()
+        .filter(|s| !s.is_empty())
+        .cloned()
+        .unwrap_or_else(|| config.sandbox.image.clone())
+}
+
 /// Build the main sandbox container.
 #[allow(clippy::unnecessary_wraps)] // Result for consistency with build_server_containers
 fn build_sandbox_container(
@@ -180,13 +194,7 @@ fn build_sandbox_container(
     user_auth_token: Option<&str>,
 ) -> Result<Container, String> {
     // Resolve image: repo config override → default sandbox image
-    let image = plan
-        .repo_config
-        .docker_image
-        .as_ref()
-        .filter(|s| !s.is_empty())
-        .cloned()
-        .unwrap_or_else(|| config.sandbox.image.clone());
+    let image = resolve_sandbox_image(config, plan);
 
     // Build env vars
     let mut env = vec![
@@ -883,6 +891,25 @@ mod tests {
             .find(|container| container.name == "web-server")
             .unwrap();
         assert_eq!(web.image.as_deref(), Some("sandbox:latest"));
+    }
+
+    #[test]
+    fn resolve_sandbox_image_prefers_repo_override() {
+        let config = test_config();
+
+        // case: no override → config default
+        let plan = test_plan();
+        assert_eq!(resolve_sandbox_image(&config, &plan), "sandbox:latest");
+
+        // case: empty override → treated as unset → config default
+        let mut plan = test_plan();
+        plan.repo_config.docker_image = Some(String::new());
+        assert_eq!(resolve_sandbox_image(&config, &plan), "sandbox:latest");
+
+        // case: non-empty override → wins over config default
+        let mut plan = test_plan();
+        plan.repo_config.docker_image = Some("custom:v2".into());
+        assert_eq!(resolve_sandbox_image(&config, &plan), "custom:v2");
     }
 
     #[test]

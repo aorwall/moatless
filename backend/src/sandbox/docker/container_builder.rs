@@ -24,6 +24,20 @@ use crate::sandbox::models::{ProvisionPlan, ServerConfig};
 /// The sandbox container runs all servers inside it (unlike K8s which uses
 /// sidecar containers). Environment variables tell the sandbox binary how
 /// to start servers, clone the repo, and connect back to the backend.
+/// Resolve the sandbox image for a plan: per-repo override → default docker image.
+///
+/// An empty override string is treated as unset. This is the single source of
+/// truth for the "expected" image, so the start path can diff it against the
+/// image baked into a stopped container.
+pub fn resolve_sandbox_image(config: &Config, plan: &ProvisionPlan) -> String {
+    plan.repo_config
+        .docker_image
+        .as_ref()
+        .filter(|s| !s.is_empty())
+        .cloned()
+        .unwrap_or_else(|| config.docker.image.clone())
+}
+
 pub fn build_container_config(
     config: &Config,
     task_id: &str,
@@ -33,13 +47,7 @@ pub fn build_container_config(
     let container_name = generate_container_name(task_id);
 
     // ── Image ──────────────────────────────────────────────────────
-    let image = plan
-        .repo_config
-        .docker_image
-        .as_ref()
-        .filter(|s| !s.is_empty())
-        .cloned()
-        .unwrap_or_else(|| config.docker.image.clone());
+    let image = resolve_sandbox_image(config, plan);
 
     // ── Environment variables ─────────────────────────────────────
     let mut env = vec![
