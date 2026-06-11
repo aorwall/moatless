@@ -7,7 +7,7 @@ use tracing::warn;
 use crate::adapters::error::AdapterError;
 
 /// Maximum comment length for GitHub's API (64 KB).
-const MAX_COMMENT_LENGTH: usize = 65_536;
+pub(crate) const MAX_COMMENT_LENGTH: usize = 65_536;
 
 /// GitHub PR comment from the API.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -74,10 +74,25 @@ pub struct PrRef {
     pub sha: String,
 }
 
+/// Default GitHub REST API base URL.
+const DEFAULT_API_BASE: &str = "https://api.github.com";
+
+/// Resolve the GitHub API base URL. `GITHUB_API_BASE_URL` overrides the
+/// default — used by E2E tests to point the backend at a mock server (and
+/// usable for GitHub Enterprise hosts). Empty values are treated as unset.
+fn api_base() -> String {
+    std::env::var("GITHUB_API_BASE_URL")
+        .ok()
+        .map(|v| v.trim().trim_end_matches('/').to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| DEFAULT_API_BASE.to_string())
+}
+
 /// GitHub REST API client for PR operations.
 pub struct GithubPrApi {
     client: Client,
     token: String,
+    base_url: String,
 }
 
 impl GithubPrApi {
@@ -85,6 +100,7 @@ impl GithubPrApi {
         Self {
             client: Client::new(),
             token: token.to_string(),
+            base_url: api_base(),
         }
     }
 
@@ -106,7 +122,7 @@ impl GithubPrApi {
         body: &str,
     ) -> Result<u64, AdapterError> {
         let url =
-            format!("https://api.github.com/repos/{owner}/{repo}/issues/{pr_number}/comments");
+            format!("{}/repos/{owner}/{repo}/issues/{pr_number}/comments", self.base_url);
 
         // Truncate if needed
         let body = if body.len() > MAX_COMMENT_LENGTH {
@@ -142,6 +158,80 @@ impl GithubPrApi {
         Ok(comment_id)
     }
 
+    /// Create a pull request. Returns the raw GitHub PR payload so callers
+    /// can extract the fields they need (`number`, `html_url`, ...).
+    #[allow(clippy::too_many_arguments)] // reason: mirrors the GitHub create-PR parameter set
+    pub async fn create_pr(
+        &self,
+        owner: &str,
+        repo: &str,
+        title: &str,
+        body: &str,
+        head: &str,
+        base: &str,
+        draft: bool,
+    ) -> Result<serde_json::Value, AdapterError> {
+        let url = format!("{}/repos/{owner}/{repo}/pulls", self.base_url);
+
+        let resp = self
+            .request(reqwest::Method::POST, &url)
+            .json(&serde_json::json!({
+                "title": title,
+                "body": body,
+                "head": head,
+                "base": base,
+                "draft": draft,
+            }))
+            .send()
+            .await
+            .map_err(|e| AdapterError::AdapterApi(format!("GitHub create_pr failed: {e}")))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            warn!(status = %status, body = %text, "GitHub create_pr error");
+            return Err(AdapterError::AdapterApi(format!(
+                "GitHub create_pr returned {status}: {text}"
+            )));
+        }
+
+        resp.json()
+            .await
+            .map_err(|e| AdapterError::AdapterApi(format!("GitHub create_pr parse error: {e}")))
+    }
+
+    /// Fetch a repository's default branch name.
+    pub async fn get_repo_default_branch(
+        &self,
+        owner: &str,
+        repo: &str,
+    ) -> Result<String, AdapterError> {
+        let url = format!("{}/repos/{owner}/{repo}", self.base_url);
+
+        let resp = self
+            .request(reqwest::Method::GET, &url)
+            .send()
+            .await
+            .map_err(|e| AdapterError::AdapterApi(format!("GitHub get_repo failed: {e}")))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(AdapterError::AdapterApi(format!(
+                "GitHub get_repo returned {status}: {text}"
+            )));
+        }
+
+        let data: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| AdapterError::AdapterApi(format!("GitHub get_repo parse error: {e}")))?;
+        data.get("default_branch")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| AdapterError::AdapterApi("GitHub get_repo: missing default_branch".into()))
+    }
+
     /// Reply to a PR review comment (threaded review reply).
     ///
     /// Calls `POST /repos/{owner}/{repo}/pulls/{pr}/comments/{cid}/replies` and
@@ -155,7 +245,7 @@ impl GithubPrApi {
         body: &str,
     ) -> Result<u64, AdapterError> {
         let url = format!(
-            "https://api.github.com/repos/{owner}/{repo}/pulls/{pull_number}/comments/{comment_id}/replies"
+            "{}/repos/{owner}/{repo}/pulls/{pull_number}/comments/{comment_id}/replies", self.base_url
         );
 
         let body = if body.len() > MAX_COMMENT_LENGTH {
@@ -202,7 +292,7 @@ impl GithubPrApi {
         limit: usize,
     ) -> Result<Vec<PrComment>, AdapterError> {
         let url =
-            format!("https://api.github.com/repos/{owner}/{repo}/issues/{pr_number}/comments");
+            format!("{}/repos/{owner}/{repo}/issues/{pr_number}/comments", self.base_url);
 
         let resp = self
             .request(reqwest::Method::GET, &url)
@@ -236,7 +326,7 @@ impl GithubPrApi {
         repo: &str,
         pr_number: u64,
     ) -> Result<PrInfo, AdapterError> {
-        let url = format!("https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}");
+        let url = format!("{}/repos/{owner}/{repo}/pulls/{pr_number}", self.base_url);
 
         let resp = self
             .request(reqwest::Method::GET, &url)
@@ -269,7 +359,7 @@ impl GithubPrApi {
         content: &str,
     ) -> Result<u64, AdapterError> {
         let url = format!(
-            "https://api.github.com/repos/{owner}/{repo}/issues/comments/{comment_id}/reactions"
+            "{}/repos/{owner}/{repo}/issues/comments/{comment_id}/reactions", self.base_url
         );
         self.create_reaction(&url, content).await
     }
@@ -283,7 +373,7 @@ impl GithubPrApi {
         content: &str,
     ) -> Result<u64, AdapterError> {
         let url = format!(
-            "https://api.github.com/repos/{owner}/{repo}/pulls/comments/{comment_id}/reactions"
+            "{}/repos/{owner}/{repo}/pulls/comments/{comment_id}/reactions", self.base_url
         );
         self.create_reaction(&url, content).await
     }
@@ -328,7 +418,7 @@ impl GithubPrApi {
         comment_id: u64,
     ) -> Result<Vec<ReactionInfo>, AdapterError> {
         let url = format!(
-            "https://api.github.com/repos/{owner}/{repo}/issues/comments/{comment_id}/reactions"
+            "{}/repos/{owner}/{repo}/issues/comments/{comment_id}/reactions", self.base_url
         );
         self.list_reactions(&url).await
     }
@@ -341,7 +431,7 @@ impl GithubPrApi {
         comment_id: u64,
     ) -> Result<Vec<ReactionInfo>, AdapterError> {
         let url = format!(
-            "https://api.github.com/repos/{owner}/{repo}/pulls/comments/{comment_id}/reactions"
+            "{}/repos/{owner}/{repo}/pulls/comments/{comment_id}/reactions", self.base_url
         );
         self.list_reactions(&url).await
     }
@@ -376,7 +466,7 @@ impl GithubPrApi {
         reaction_id: u64,
     ) -> Result<(), AdapterError> {
         let url = format!(
-            "https://api.github.com/repos/{owner}/{repo}/issues/comments/{comment_id}/reactions/{reaction_id}"
+            "{}/repos/{owner}/{repo}/issues/comments/{comment_id}/reactions/{reaction_id}", self.base_url
         );
         self.delete_reaction(&url).await
     }
@@ -390,7 +480,7 @@ impl GithubPrApi {
         reaction_id: u64,
     ) -> Result<(), AdapterError> {
         let url = format!(
-            "https://api.github.com/repos/{owner}/{repo}/pulls/comments/{comment_id}/reactions/{reaction_id}"
+            "{}/repos/{owner}/{repo}/pulls/comments/{comment_id}/reactions/{reaction_id}", self.base_url
         );
         self.delete_reaction(&url).await
     }
@@ -417,7 +507,7 @@ impl GithubPrApi {
     /// when removing.
     pub async fn authenticated_login(&self) -> Result<String, AdapterError> {
         let resp = self
-            .request(reqwest::Method::GET, "https://api.github.com/user")
+            .request(reqwest::Method::GET, &format!("{}/user", self.base_url))
             .send()
             .await
             .map_err(|e| AdapterError::AdapterApi(format!("GitHub user failed: {e}")))?;
@@ -446,7 +536,7 @@ impl GithubPrApi {
         pr_number: u64,
         body: &str,
     ) -> Result<(), AdapterError> {
-        let url = format!("https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}");
+        let url = format!("{}/repos/{owner}/{repo}/pulls/{pr_number}", self.base_url);
 
         let resp = self
             .request(reqwest::Method::PATCH, &url)

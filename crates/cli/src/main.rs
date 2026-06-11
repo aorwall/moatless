@@ -60,6 +60,14 @@ enum SharedCommands {
         #[command(subcommand)]
         action: Box<commands::linear::LinearAction>,
     },
+    /// GitHub operations — `pr create`, `pr comment`, and `issue comment` are
+    /// proxied through the backend (typed task binding + webhook dedup);
+    /// everything else passes through to the local `gh` CLI verbatim.
+    Gh {
+        /// Arguments as you would pass them to `gh` (e.g. `pr create --title …`)
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// Trigger management
     Triggers {
         #[command(subcommand)]
@@ -378,6 +386,9 @@ async fn run_shared(
         }
         SharedCommands::Linear { action } => {
             commands::linear::run(moat, cfg, *action, json).await?;
+        }
+        SharedCommands::Gh { args } => {
+            commands::gh::run(moat, cfg, args, json).await?;
         }
         SharedCommands::Triggers { action } => {
             commands::adapters::run_triggers(moat, *action, json).await?;

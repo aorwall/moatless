@@ -32,7 +32,7 @@ fn insert_scheduled_task_row(task_id: &str, repository_id: &str, trigger_id: &st
         INSERT INTO tasks (
             task_id, short_id, created_at, last_message_at, agent_type,
             repository_id, status, total_cost_usd, visibility, scope,
-            headless, ttl_minutes, inactive_ttl_days, trigger_id
+            team_id, headless, ttl_minutes, inactive_ttl_days, trigger_id
         ) VALUES (
             '{task_id}',
             '{short}',
@@ -44,6 +44,7 @@ fn insert_scheduled_task_row(task_id: &str, repository_id: &str, trigger_id: &st
             0,
             'private',
             'global',
+            'system',
             true,
             15,
             7,

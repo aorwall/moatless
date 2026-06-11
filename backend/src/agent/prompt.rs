@@ -31,13 +31,27 @@ pub struct PromptInputs<'a> {
     pub proxy_protocol: &'a str,
 }
 
-/// Steers the agent away from the (broken) hosted GitHub MCP tools and toward
-/// the `gh` CLI, which the sandbox already authenticates from `GITHUB_TOKEN`.
+/// Steers the agent toward `moat gh` (the backend-proxied GitHub wrapper) and
+/// away from the (broken) hosted GitHub MCP tools. `moat gh` proxies the
+/// mutations that need backend side effects and passes everything else
+/// through to the authenticated `gh` CLI.
 const GITHUB_CLI_HINT: &str = "\
 # GitHub Access
 
-The `gh` CLI is authenticated and is the only way to access GitHub from this sandbox.
-Use it via bash for all GitHub operations — do not rely on GitHub MCP tools.";
+All GitHub access goes through `moat gh`, run via bash — do not rely on GitHub
+MCP tools. For these four operations you MUST use `moat gh` (the backend
+proxies them and binds the PR/issue to this task, so review comments and
+replies route back here automatically):
+
+- `moat gh pr create --title \"<title>\" --body \"<body>\"`
+- `moat gh pr comment <number> --body \"<text>\"`
+- `moat gh pr reply <pr_number> <comment_id> --body \"<text>\"`
+- `moat gh issue comment <number> --body \"<text>\"`
+
+`-R owner/repo` and `--head` are inferred from the current git repository when
+omitted. Every other gh subcommand (`pr view`, `api`, `run watch`, …) passes
+through to the local authenticated `gh` CLI unchanged, so `moat gh <anything>`
+is always safe to use.";
 
 /// CLI reference appended at the end of the system prompt.
 const SANDBOX_TOOLS_PROMPT: &str = "\
@@ -101,6 +115,13 @@ Available `moat` commands:
   as a full-text transcript (newest 50 by default; `--limit <n>` up to 200,
   `--before-id <id>` for older pages). Use it to recover context when prior
   conversation is missing from your session.
+- `moat gh pr create --title \"<t>\" --body \"<b>\"` — Create a GitHub PR via the
+  backend (binds the PR to this task; `-R`/`--head` inferred from the cwd repo)
+- `moat gh pr comment <n> --body \"<text>\"` — Comment on a PR via the backend
+- `moat gh pr reply <n> <comment_id> --body \"<text>\"` — Threaded reply to a PR
+  review comment via the backend (moat-only; ids appear in delivered messages)
+- `moat gh issue comment <n> --body \"<text>\"` — Comment on an issue via the backend
+- `moat gh <any other gh args>` — Passthrough to the authenticated `gh` CLI
 - `moat tasks status $TASK_ID` — Show sandbox status including server states
 - `moat tasks logs $TASK_ID --server <name>` — Stream server logs (e.g., `--server preview`)
 - `moat tasks diagnose $TASK_ID` — Diagnose sandbox issues (status + container diagnostics + recent errors)
@@ -444,6 +465,18 @@ mod tests {
         // tacked on per-adapter.
         assert!(prompt.contains("Internal"));
         assert!(prompt.contains("External"));
+    }
+
+    #[test]
+    fn github_access_mandates_moat_gh_proxy() {
+        let inputs = base_inputs("task-123");
+        let prompt = build_append_system_prompt(&inputs);
+        assert!(prompt.contains("`moat gh pr create"));
+        assert!(prompt.contains("moat gh pr comment <number> --body"));
+        assert!(prompt.contains("moat gh pr reply <pr_number> <comment_id> --body"));
+        assert!(prompt.contains("moat gh issue comment <number> --body"));
+        // Passthrough escape hatch is documented so agents never get stuck.
+        assert!(prompt.contains("passes\nthrough"));
     }
 
     #[test]

@@ -17,6 +17,7 @@ use crate::{bindings, triggers};
         (name = "task-bindings", description = "Task-to-external-subject bindings"),
         (name = "users", description = "Users"),
         (name = "linear", description = "Linear issue/comment CRUD via workspace OAuth"),
+        (name = "github", description = "GitHub PR/issue mutations proxied for sandbox agents"),
     ),
     paths(
         handlers::list_adapters,
@@ -40,6 +41,9 @@ use crate::{bindings, triggers};
         slack::handlers::slack_slash_command,
         telegram::handlers::telegram_webhook,
         github_pr::handlers::github_webhook,
+        github_pr::api_routes::create_pr,
+        github_pr::api_routes::post_comment,
+        github_pr::api_routes::reply_to_review_comment,
         linear::handlers::linear_webhook,
         linear::api_routes::get_issue,
         linear::api_routes::create_issue,
@@ -85,6 +89,9 @@ pub fn adapter_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenAp
         .routes(routes!(slack::handlers::slack_slash_command))
         .routes(routes!(telegram::handlers::telegram_webhook))
         .routes(routes!(github_pr::handlers::github_webhook))
+        .routes(routes!(github_pr::api_routes::create_pr))
+        .routes(routes!(github_pr::api_routes::post_comment))
+        .routes(routes!(github_pr::api_routes::reply_to_review_comment))
         .routes(routes!(linear::handlers::linear_webhook))
         .routes(routes!(linear::api_routes::get_issue))
         .routes(routes!(linear::api_routes::create_issue))

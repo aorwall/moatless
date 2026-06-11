@@ -11,6 +11,7 @@
 //!   will produce) so the originating task does not receive its own push back
 //!   as a sync notification.
 
+use std::borrow::Cow;
 use std::fmt::Write;
 
 use serde_json::json;
@@ -23,8 +24,9 @@ use crate::bindings::dao::PgTaskBindingRepository;
 use crate::state::AppState;
 
 /// Footer marker so we can detect if the URL was already appended (and skip
-/// re-appending on retries). Stable across runs.
-const FOOTER_MARKER: &str = "Moatless task:";
+/// re-appending on retries). Stable across runs. Shared with the typed
+/// `/api/v1/github/*` endpoints which embed the same footer at PR creation.
+pub(crate) const FOOTER_MARKER: &str = "Moatless task:";
 
 /// Identity of a PR parsed from `gh pr create` output.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,6 +108,10 @@ pub async fn on_agent_message_persisted(
             "codex.shell" => unwrap_shell_wrapper(raw_cmd),
             _ => continue,
         };
+        // Backslash-newline continuations (`cd x && \⏎gh pr create …`) defeat
+        // the whitespace tokenizers below — join them before dispatch.
+        let cmd = normalize_line_continuations(cmd);
+        let cmd = cmd.as_ref();
 
         let result_text = block.get("content").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -270,7 +276,10 @@ async fn try_append_task_footer(state: &AppState, task_id: &str, pr: &ParsedPr) 
     );
 }
 
-fn compose_footer(existing: &str, task_url: &str) -> String {
+/// Append the `Moatless task: <url>` footer to a PR body. Also used by the
+/// typed `POST /api/v1/github/.../pulls` endpoint to bake the footer into the
+/// body at creation time.
+pub(crate) fn compose_footer(existing: &str, task_url: &str) -> String {
     let trimmed = existing.trim_end_matches('\n').to_string();
     if trimmed.is_empty() {
         format!("{FOOTER_MARKER} {task_url}\n")
@@ -616,6 +625,16 @@ fn is_git_push(cmd: &str) -> bool {
     false
 }
 
+/// Join shell line continuations (`\` followed by a newline) into a single
+/// space so the whitespace tokenizers see one logical command line.
+fn normalize_line_continuations(cmd: &str) -> Cow<'_, str> {
+    if cmd.contains("\\\n") || cmd.contains("\\\r\n") {
+        Cow::Owned(cmd.replace("\\\r\n", " ").replace("\\\n", " "))
+    } else {
+        Cow::Borrowed(cmd)
+    }
+}
+
 /// Shell tokens that separate one command from the next on the same line.
 /// We treat tokens before the last such separator as "a preceding command we
 /// don't care about" (e.g. `cd /tmp && gh pr create`).
@@ -626,7 +645,8 @@ const SHELL_SEPARATORS: &[&str] = &["&&", "||", ";", "|"];
 ///
 /// Tolerates leading env-var assignments (`GH_REPO=owner/repo gh pr create …`),
 /// preceding shell commands chained with `&&` / `||` / `;` / `|`
-/// (`cd /tmp && gh …`), and global flags like `-R owner/repo` /
+/// (`cd /tmp && gh …`), a `moat` proxy token immediately before `gh`
+/// (`moat gh pr create …`), and global flags like `-R owner/repo` /
 /// `--repo owner/repo` before, between, and after the positionals.
 ///
 /// Matching across shell separators is safe because the post-persist hooks
@@ -638,15 +658,15 @@ fn matches_gh_subcommand(cmd: &str, expected: &[&str; 2]) -> bool {
         return false;
     };
     // Anything before the last shell separator is a preceding command we
-    // ignore; tokens between that separator and `gh` must still be
-    // env-var assignments.
+    // ignore; tokens between that separator and `gh` must be env-var
+    // assignments or the `moat` proxy token (`moat gh pr create …`).
     let prefix_start = tokens[..gh_idx]
         .iter()
         .rposition(|t| SHELL_SEPARATORS.contains(t))
         .map_or(0, |i| i + 1);
     if !tokens[prefix_start..gh_idx]
         .iter()
-        .all(|t| is_env_assignment(t))
+        .all(|t| is_env_assignment(t) || *t == "moat")
     {
         return false;
     }
@@ -889,6 +909,46 @@ mod tests {
         assert!(is_gh_pr_create("git push && gh pr create"));
         assert!(is_gh_pr_create("git push || gh pr create"));
         assert!(is_gh_pr_create("cd /tmp ; gh pr create"));
+    }
+
+    #[test]
+    fn is_gh_pr_create_with_line_continuation() {
+        // The PR #787 incident shape: backslash-newline continuation between
+        // the chained `cd` and the `gh` invocation.
+        let raw = "cd /opt/moatless/soap-backend && \\\ngh pr create --head feat/x --title \"fix\"";
+        let cmd = normalize_line_continuations(raw);
+        assert!(is_gh_pr_create(cmd.as_ref()));
+    }
+
+    #[test]
+    fn is_git_push_with_line_continuation() {
+        let raw = "cd /opt/moatless/soap-backend && \\\ngit push -u origin feat/x";
+        let cmd = normalize_line_continuations(raw);
+        assert!(is_git_push(cmd.as_ref()));
+    }
+
+    #[test]
+    fn normalize_line_continuations_passthrough_when_absent() {
+        let raw = "gh pr create --title x";
+        assert!(matches!(
+            normalize_line_continuations(raw),
+            Cow::Borrowed(_)
+        ));
+        // CRLF continuations are joined too.
+        let crlf = "cd /tmp && \\\r\ngh pr create";
+        assert!(is_gh_pr_create(normalize_line_continuations(crlf).as_ref()));
+    }
+
+    #[test]
+    fn is_gh_mutation_with_moat_proxy_prefix() {
+        assert!(is_gh_pr_create("moat gh pr create --title t"));
+        assert!(is_gh_pr_create("cd /x && moat gh pr create --title t"));
+        assert!(is_gh_pr_comment("moat gh pr comment 42 --body hi"));
+        assert!(is_gh_issue_comment("moat gh issue comment 7 --body hi"));
+        // `moat` plus env assignment combinations still match.
+        assert!(is_gh_pr_create("GH_REPO=o/r moat gh pr create --title t"));
+        // Unrelated leading words still do not match.
+        assert!(!is_gh_pr_create("echo gh pr create"));
     }
 
     #[test]

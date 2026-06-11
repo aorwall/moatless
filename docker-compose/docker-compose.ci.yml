@@ -18,6 +18,11 @@ services:
       DOCKER_SANDBOX_IMAGE: ${SANDBOX_IMAGE}
       # GitHub token for cloning repositories
       GITHUB_PAT: ${GITHUB_PAT}
+      # GitHub proxy E2E (github_proxy test): point GithubPrApi at the
+      # in-process mock (e.g. http://host.docker.internal:18092) and provide
+      # a token so resolution succeeds. Empty values are treated as unset.
+      GITHUB_API_BASE_URL: ${GITHUB_API_BASE_URL:-}
+      GITHUB_CHANNEL_TOKEN: ${GITHUB_CHANNEL_TOKEN:-}
     volumes:
       # Override data volume mount to use CI workspace
       - ${DATA_DIR}:/data

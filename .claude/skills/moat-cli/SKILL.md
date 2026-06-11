@@ -70,6 +70,11 @@ Activated automatically when `USER_AUTH_TOKEN` env var is set. Exchanges token f
 | `moat tasks files <id> list` | List files in workspace | `--path`, `--recursive` |
 | `moat messages list <id>` | List messages for a task | — |
 | `moat messages send <id>` | Send message to a task | `--text` |
+| `moat gh pr create` | Create a GitHub PR via the backend (auto task binding + footer) | `--title`/`-t`, `--body`/`-b`, `--head`, `--base`, `--draft`, `-R owner/repo`, `--task` |
+| `moat gh pr comment <n>` | Comment on a PR via the backend | `--body`/`-b`, `-R`, `--task` |
+| `moat gh pr reply <n> <comment_id>` | Threaded reply to a PR review comment via the backend (moat-only) | `--body`/`-b`, `-R`, `--task` |
+| `moat gh issue comment <n>` | Comment on an issue via the backend | `--body`/`-b`, `-R`, `--task` |
+| `moat gh <anything else>` | Passthrough to the local `gh` CLI (exit code propagated) | any gh flags |
 | `moat adapters list` | List supported adapter kinds | — |
 | `moat adapters connections list` | List adapter connections | `--adapter` |
 | `moat adapters connections create` | Create/upsert an adapter connection | `--adapter`, `--external-account-id`, `--connection-kind`, `--webhook-secret`, `--transport-config`, `--team-id` |
@@ -129,6 +134,30 @@ moat tasks status <task-id>      # Check current state (environment, agent, serv
 moat tasks stop <task-id>        # Pause (scale to 0, preserves state)
 moat tasks start <task-id>       # Resume task (provisions sandbox if needed)
 moat tasks restart <task-id>     # Recreate pod (keeps PVC)
+```
+
+### GitHub operations (`moat gh`)
+
+`moat gh` proxies `pr create`, `pr comment`, `pr reply`, and `issue comment`
+through typed backend endpoints (`/api/v1/github/*`) so the task↔PR binding,
+the `Moatless task:` PR-body footer, and webhook echo dedup happen as part of
+the API call instead of being reconstructed from shell-command parsing. Every
+other gh subcommand — or one of the typed mutations with flags the typed
+parser doesn't know (`--fill`, `--body-file`, …) — passes through verbatim to
+the local `gh` binary, so `moat gh` is never a dead end. (`pr reply` is
+moat-only: real `gh` has no such subcommand, so its fallthrough just errors.)
+
+```bash
+# Typed (backend-proxied): -R and --head are inferred from the cwd git repo,
+# --task defaults to $TASK_ID inside a sandbox
+moat gh pr create --title "fix: x" --body "…"
+moat gh pr comment 42 --body "Done — see latest push."
+moat gh pr reply 42 123456789 --body "Good catch — fixed."
+moat gh issue comment 7 --body "Triaged." -R owner/repo --task <task-id>
+
+# Passthrough (local gh, unchanged)
+moat gh pr view 42
+moat gh api /user
 ```
 
 ### Configure adapter & trigger integrations
@@ -292,6 +321,7 @@ CLI source lives at `crates/cli/src/`:
 | `commands/messages.rs` | Message subcommands |
 | `commands/events.rs` | Event subcommands (list, follow) |
 | `commands/adapters.rs` | Adapter, trigger, and binding subcommands |
+| `commands/gh.rs` | GitHub proxy (`gh pr create`/`comment`/`reply` typed, rest passthrough) |
 | `commands/settings.rs` | User settings subcommands |
 | `commands/teams.rs` | Team subcommands |
 | `commands/info.rs` | `whoami`, `commands`, `tags` |

@@ -2,6 +2,7 @@
 
 pub mod adapter;
 pub mod api;
+pub mod api_routes;
 pub mod config;
 pub mod external_id;
 pub mod handlers;

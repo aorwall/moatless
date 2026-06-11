@@ -1066,6 +1066,58 @@ impl ApiClient {
         }
         self.get(&format!("/api/v1/linear/lookup{qs}")).await
     }
+
+    // ========================================================================
+    // GitHub (typed proxy for sandbox agents — `moat gh`)
+    // ========================================================================
+
+    /// POST /api/v1/github/repos/{owner}/{repo}/pulls
+    pub async fn github_create_pr(
+        &self,
+        owner: &str,
+        repo: &str,
+        req: &moatless_api_schemas::github::GithubCreatePrRequest,
+    ) -> Result<moatless_api_schemas::github::GithubCreatePrResponse, ApiError> {
+        self.post(&format!("/api/v1/github/repos/{owner}/{repo}/pulls"), req)
+            .await
+    }
+
+    /// POST /api/v1/github/repos/{owner}/{repo}/issues/{number}/comments
+    ///
+    /// Serves both PR and issue comments (GitHub's issues API covers both).
+    pub async fn github_post_issue_comment(
+        &self,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        req: &moatless_api_schemas::github::GithubCommentRequest,
+    ) -> Result<moatless_api_schemas::github::GithubCommentResponse, ApiError> {
+        self.post(
+            &format!("/api/v1/github/repos/{owner}/{repo}/issues/{number}/comments"),
+            req,
+        )
+        .await
+    }
+
+    /// POST /api/v1/github/repos/{owner}/{repo}/pulls/{number}/comments/{comment_id}/replies
+    ///
+    /// Threaded reply to a PR review (inline) comment.
+    pub async fn github_reply_review_comment(
+        &self,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        comment_id: u64,
+        req: &moatless_api_schemas::github::GithubReplyRequest,
+    ) -> Result<moatless_api_schemas::github::GithubCommentResponse, ApiError> {
+        self.post(
+            &format!(
+                "/api/v1/github/repos/{owner}/{repo}/pulls/{number}/comments/{comment_id}/replies"
+            ),
+            req,
+        )
+        .await
+    }
 }
 
 /// Build the `?connectionId=...` query string fragment (or empty).

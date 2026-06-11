@@ -251,8 +251,10 @@ run_tests() {
 }
 
 if [ -n "$SINGLE_TEST" ]; then
-  # Single test file
-  run_tests "$SINGLE_TEST" cargo test -p moatless-integration-tests --test "$SINGLE_TEST" -- --nocapture
+  # Single test file. Ignored (env-gated) tests are included — every gated
+  # test self-skips when its env gate (SANDBOX_E2E / CLAUDE_SDK_E2E /
+  # GITHUB_PROXY_E2E / CHANNEL_CALLBACK_E2E) is not set.
+  run_tests "$SINGLE_TEST" cargo test -p moatless-integration-tests --test "$SINGLE_TEST" -- --nocapture --include-ignored
 else
   case $TIER in
     db)

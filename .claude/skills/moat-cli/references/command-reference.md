@@ -527,6 +527,89 @@ many triggers as long as they share that secret.
 
 ---
 
+## GitHub Commands
+
+`moat gh` is a proxy for the `gh` CLI. Four mutations are intercepted and
+routed through typed backend endpoints so the side effects (task↔PR binding,
+`Moatless task:` PR-body footer, webhook echo dedup) happen as part of the API
+call. **Every other invocation passes through verbatim to the local `gh`
+binary** (exit code propagated), so `moat gh <anything>` is always safe.
+
+If one of the typed mutations carries flags the typed parser doesn't
+understand (`--fill`, `--body-file`, …), it also falls through to the local
+`gh` (the backend's post-persist hooks still catch the side effects
+best-effort). Exception: `pr reply` is moat-only — real `gh` has no such
+subcommand, so a fallthrough there just errors in `gh`.
+
+### `moat gh pr create`
+
+Create a pull request via the backend.
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--title` / `-t` | Yes | PR title |
+| `--body` / `-b` | No | PR body (a `Moatless task: <url>` footer is appended when a task is bound) |
+| `--head` / `-H` | No | Head branch — defaults to the current git branch |
+| `--base` / `-B` | No | Base branch — defaults to the repo's default branch |
+| `--draft` / `-d` | No | Create as draft |
+| `--repo` / `-R` | No | `owner/repo` — inferred from `git remote get-url origin` |
+| `--task` | No | Task to bind the PR to — defaults to `$TASK_ID` |
+
+- **API**: `POST /api/v1/github/repos/{owner}/{repo}/pulls`
+
+```bash
+moat gh pr create --title "fix: handle line continuations" --body "…"
+moat gh pr create -t "feat: x" -R soaplabs/soap-backend --head feat/x --base main
+```
+
+### `moat gh pr comment <number>` / `moat gh issue comment <number>`
+
+Post a comment on a PR or issue via the backend (same endpoint — GitHub's
+issues API covers both).
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--body` / `-b` | Yes | Comment body |
+| `--repo` / `-R` | No | `owner/repo` — inferred from the origin remote |
+| `--task` | No | Task to bind/dedup against — defaults to `$TASK_ID` |
+
+- **API**: `POST /api/v1/github/repos/{owner}/{repo}/issues/{number}/comments`
+
+```bash
+moat gh pr comment 42 --body "Fixed in the latest push."
+moat gh issue comment 7 -b "Triaged — duplicate of #5" -R soaplabs/soap-backend
+```
+
+### `moat gh pr reply <pr_number> <comment_id>`
+
+Post a threaded reply to a specific PR review (inline) comment via the
+backend. **Moat-only** — the real `gh` CLI has no `pr reply` subcommand, so
+this never falls through usefully; a parse failure errors in `gh`. Comment
+ids appear in delivered review-comment messages (`Comment id: …`) and in
+`moat gh api repos/{owner}/{repo}/pulls/{n}/comments` output.
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--body` / `-b` | Yes | Reply body |
+| `--repo` / `-R` | No | `owner/repo` — inferred from the origin remote |
+| `--task` | No | Task to bind/dedup against — defaults to `$TASK_ID` |
+
+- **API**: `POST /api/v1/github/repos/{owner}/{repo}/pulls/{number}/comments/{comment_id}/replies`
+
+```bash
+moat gh pr reply 42 123456789 --body "Good catch — fixed in abc1234."
+```
+
+### Passthrough
+
+```bash
+moat gh pr view 42 -R soaplabs/soap-backend   # → local gh
+moat gh api /user                             # → local gh
+moat gh run watch 12345                       # → local gh
+```
+
+---
+
 ## Team Commands
 
 ### `moat teams list`
@@ -662,6 +745,10 @@ List available tags.
 | `triggers delete` | DELETE | `/api/v1/triggers/{id}` |
 | `bindings list` | GET | `/api/v1/tasks/{task_id}/bindings` |
 | `bindings create` | POST | `/api/v1/tasks/{task_id}/bindings` |
+| `gh pr create` | POST | `/api/v1/github/repos/{owner}/{repo}/pulls` |
+| `gh pr comment` / `gh issue comment` | POST | `/api/v1/github/repos/{owner}/{repo}/issues/{number}/comments` |
+| `gh pr reply` | POST | `/api/v1/github/repos/{owner}/{repo}/pulls/{number}/comments/{comment_id}/replies` |
+| `gh <other>` | — | Passthrough to the local `gh` binary |
 | `teams list` | GET | `/api/v1/teams` |
 | `teams get` | GET | `/api/v1/teams/{id}` |
 | `teams settings get` | GET | `/api/v1/teams/{id}/settings` |

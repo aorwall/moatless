@@ -4,6 +4,7 @@
 //! the same client the CLI uses — so tests exercise the real client code path.
 
 pub mod callback_server;
+pub mod mock_github;
 pub mod raw_api;
 pub mod sandbox_helpers;
 

@@ -72,6 +72,120 @@ pub(crate) fn parse_agent_marker(body: &str) -> Option<AgentMarker> {
     None
 }
 
+/// Inputs for [`pr_opened_text`] — grouped to keep the signature small.
+struct PrOpenedText<'a> {
+    pr_number: u64,
+    title: &'a str,
+    sender: &'a str,
+    head_ref: &'a str,
+    base_ref: &'a str,
+    html_url: &'a str,
+    owner: &'a str,
+    repo: &'a str,
+}
+
+/// Initial task message for a newly opened PR. Deliberately minimal — the PR
+/// description and comments evolve after task creation, so instead of
+/// inlining them (they'd go stale) the agent is pointed at the `moat gh`
+/// commands that read the live state.
+fn pr_opened_text(p: &PrOpenedText<'_>) -> String {
+    let mut text = format!(
+        "## New Pull Request: #{}\n\n\
+         **Title:** {}\n\
+         **Author:** @{}\n\
+         **Branch:** {} → {}\n",
+        p.pr_number, p.title, p.sender, p.head_ref, p.base_ref,
+    );
+
+    if !p.html_url.is_empty() {
+        let _ = writeln!(text, "**Link:** {}", p.html_url);
+    }
+
+    let (pr_number, owner, repo) = (p.pr_number, p.owner, p.repo);
+    let _ = write!(
+        text,
+        "\nBefore working on this PR, fetch the current state — the description \
+         and comments evolve and must be read live, not from this message:\n\n\
+         - Overview and description: `moat gh pr view {pr_number} --comments`\n\
+         - Unified diff: `moat gh pr diff {pr_number}`\n\
+         - Review/inline comments (with ids): `moat gh api repos/{owner}/{repo}/pulls/{pr_number}/comments`\n\
+         - Conversation comments (with ids): `moat gh api repos/{owner}/{repo}/issues/{pr_number}/comments`\n"
+    );
+
+    text
+}
+
+/// Task message for an `issue_comment` webhook. Carries the PR/issue number
+/// and the numeric comment id so the agent can reply via
+/// `moat gh pr reply` / the GitHub API without guessing ids.
+fn issue_comment_text(sender: &str, number: u64, comment_id: u64, body: &str) -> String {
+    format!("**@{sender}** commented on #{number} (comment id: {comment_id}):\n\n{body}")
+}
+
+/// Inputs for [`review_comment_text`] — grouped to keep the signature small.
+struct ReviewCommentText<'a> {
+    sender: &'a str,
+    path: &'a str,
+    start_line: Option<u64>,
+    line: Option<u64>,
+    html_url: &'a str,
+    comment_id: u64,
+    in_reply_to_id: Option<u64>,
+    diff_hunk: &'a str,
+    body: &'a str,
+}
+
+/// Task message for a `pull_request_review_comment` webhook (inline comment).
+fn review_comment_text(p: &ReviewCommentText<'_>) -> String {
+    let mut text = format!("**@{}** commented on `{}`", p.sender, p.path);
+
+    match (p.start_line, p.line) {
+        (Some(start), Some(end)) if start != end => {
+            let _ = write!(text, " (lines {start}-{end})");
+        }
+        (_, Some(ln)) => {
+            let _ = write!(text, " (line {ln})");
+        }
+        _ => {}
+    }
+    text.push_str(":\n");
+
+    if !p.html_url.is_empty() {
+        let _ = writeln!(text, "{}", p.html_url);
+    }
+    let _ = writeln!(text, "Comment id: {}", p.comment_id);
+
+    if let Some(reply_id) = p.in_reply_to_id {
+        let _ = write!(text, "\n> In reply to comment {reply_id}\n");
+    }
+
+    if !p.diff_hunk.is_empty() {
+        let _ = write!(text, "\n```diff\n{}\n```\n", p.diff_hunk);
+    }
+
+    let _ = write!(text, "\n{}", p.body);
+    text
+}
+
+/// Task message for a submitted `pull_request_review`. The review's inline
+/// comments arrive as separate review-comment events; the trailing hint tells
+/// the agent how to list them together by review id.
+fn review_text(
+    sender: &str,
+    state_label: &str,
+    review_id: u64,
+    body: &str,
+    owner: &str,
+    repo: &str,
+    pr_number: u64,
+) -> String {
+    format!(
+        "**@{sender}** — {state_label} (review id: {review_id}):\n\n{body}\n\n\
+         Inline comments on this review: \
+         `moat gh api repos/{owner}/{repo}/pulls/{pr_number}/reviews/{review_id}/comments`"
+    )
+}
+
 /// Map a user-supplied emoji name to GitHub's reaction content enum.
 ///
 /// GitHub accepts only these eight values:
@@ -205,7 +319,7 @@ impl GithubPrAdapter {
     ///
     /// `repo_owner` is required to mint installation tokens for bot users
     /// because installations are scoped per-org.
-    async fn resolve_token_for_user(
+    pub(crate) async fn resolve_token_for_user(
         &self,
         user_id: &str,
         repo_owner: Option<&str>,
@@ -229,8 +343,12 @@ impl GithubPrAdapter {
             }
         }
 
+        // Empty global tokens are treated as missing (e.g. compose files
+        // passing `GITHUB_CHANNEL_TOKEN: ${GITHUB_CHANNEL_TOKEN:-}`).
         if let Some(ref token) = self.global_bot_token {
-            return Ok(token.clone());
+            if !token.is_empty() {
+                return Ok(token.clone());
+            }
         }
 
         Err(AdapterError::AdapterApi(format!(
@@ -481,10 +599,6 @@ impl GithubPrAdapter {
             .get("title")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("");
-        let body = pr
-            .get("body")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("");
         let html_url = pr
             .get("html_url")
             .and_then(serde_json::Value::as_str)
@@ -498,21 +612,16 @@ impl GithubPrAdapter {
             .and_then(serde_json::Value::as_str)
             .unwrap_or("");
 
-        let mut text = format!(
-            "## New Pull Request: #{pr_number}\n\n\
-             **Title:** {title}\n\
-             **Author:** @{}\n\
-             **Branch:** {head_ref} → {base_ref}\n",
-            ctx.sender_login,
-        );
-
-        if !html_url.is_empty() {
-            let _ = writeln!(text, "**Link:** {html_url}");
-        }
-
-        if !body.is_empty() {
-            let _ = write!(text, "\n### Description\n{body}\n");
-        }
+        let text = pr_opened_text(&PrOpenedText {
+            pr_number,
+            title,
+            sender: ctx.sender_login,
+            head_ref,
+            base_ref,
+            html_url,
+            owner: ctx.owner,
+            repo: ctx.repo,
+        });
 
         let user_id = self
             .resolve_user_or_fallback(ctx.sender_login, ctx.rule, ctx.db)
@@ -669,7 +778,7 @@ impl GithubPrAdapter {
             thread_id: Some(pr_number.to_string()),
             message_thread_id: pr_number.to_string(),
             user_id,
-            text: format!("**@{}** commented:\n\n{}", ctx.sender_login, comment_body),
+            text: issue_comment_text(ctx.sender_login, pr_number, comment_id, comment_body),
             file_ids: vec![],
             thread_properties: serde_json::json!({
                 "owner": ctx.owner,
@@ -747,32 +856,17 @@ impl GithubPrAdapter {
             .get("in_reply_to_id")
             .and_then(serde_json::Value::as_u64);
 
-        let mut text = format!("**@{}** commented on `{path}`", ctx.sender_login);
-
-        match (start_line, line) {
-            (Some(start), Some(end)) if start != end => {
-                let _ = write!(text, " (lines {start}-{end})");
-            }
-            (_, Some(ln)) => {
-                let _ = write!(text, " (line {ln})");
-            }
-            _ => {}
-        }
-        text.push_str(":\n");
-
-        if !html_url.is_empty() {
-            let _ = writeln!(text, "{html_url}");
-        }
-
-        if let Some(reply_id) = in_reply_to_id {
-            let _ = write!(text, "\n> In reply to comment {reply_id}\n");
-        }
-
-        if !diff_hunk.is_empty() {
-            let _ = write!(text, "\n```diff\n{diff_hunk}\n```\n");
-        }
-
-        let _ = write!(text, "\n{comment_body}");
+        let text = review_comment_text(&ReviewCommentText {
+            sender: ctx.sender_login,
+            path,
+            start_line,
+            line,
+            html_url,
+            comment_id,
+            in_reply_to_id,
+            diff_hunk,
+            body: comment_body,
+        });
 
         let user_id = self
             .resolve_user_or_fallback(ctx.sender_login, ctx.rule, ctx.db)
@@ -846,9 +940,14 @@ impl GithubPrAdapter {
             _ => "Review",
         };
 
-        let text = format!(
-            "**@{}** — {state_label}:\n\n{review_body}",
-            ctx.sender_login
+        let text = review_text(
+            ctx.sender_login,
+            state_label,
+            review_id,
+            review_body,
+            ctx.owner,
+            ctx.repo,
+            pr_number,
         );
 
         let user_id = self
@@ -1181,6 +1280,29 @@ impl Adapter for GithubPrAdapter {
     /// `send_reply_for_binding` prepends/appends.
     fn max_message_length(&self) -> usize {
         65_000
+    }
+
+    fn reply_instructions(&self) -> Option<String> {
+        Some(
+            "## GitHub PR Agent Notes\n\
+             - Always read the live PR state via the `moat gh` commands from the \
+               initial message (`pr view`, `pr diff`, `api …/comments`) — the \
+               description and comments evolve after task creation.\n\
+             - `moat gh pr reply <pr_number> <comment_id> --body \"…\"` — post a \
+               threaded reply to a specific review/inline comment by its numeric \
+               id (shown as `comment id:` in delivered messages and in \
+               `moat gh api …/pulls/<pr>/comments` output).\n\
+             - `moat gh pr comment <pr_number> --body \"…\"` — post a top-level \
+               conversation comment.\n\
+             - `moat messages reply --message <message_id> --text \"…\"` — reply \
+               to a delivered message; routes as a threaded reply when the \
+               message came from an inline review comment, top-level otherwise.\n\
+             - Task completion does NOT auto-post anything to GitHub — when you \
+               finish, post your final summary explicitly via \
+               `moat gh pr comment`.\n\
+             - Markdown is supported in all comment bodies."
+                .to_string(),
+        )
     }
 
     async fn resolve_user(
@@ -1661,6 +1783,102 @@ mod tests {
         assert_eq!(destination.destination_config["pr_number"], 42);
         assert_eq!(destination.destination_config["filter_user_id"], "user-1");
         assert_eq!(destination.last_external_event_id, None);
+    }
+
+    #[test]
+    fn pr_opened_text_is_minimal_with_live_read_instructions() {
+        let text = pr_opened_text(&PrOpenedText {
+            pr_number: 42,
+            title: "feat: x",
+            sender: "alice",
+            head_ref: "feat/x",
+            base_ref: "main",
+            html_url: "https://github.com/o/r/pull/42",
+            owner: "o",
+            repo: "r",
+        });
+        assert!(text.contains("## New Pull Request: #42"));
+        assert!(text.contains("**Title:** feat: x"));
+        assert!(text.contains("**Author:** @alice"));
+        assert!(text.contains("**Branch:** feat/x → main"));
+        assert!(text.contains("**Link:** https://github.com/o/r/pull/42"));
+        // The stale-prone description is no longer inlined…
+        assert!(!text.contains("### Description"));
+        // …replaced by live-read CLI instructions.
+        assert!(text.contains("`moat gh pr view 42 --comments`"));
+        assert!(text.contains("`moat gh pr diff 42`"));
+        assert!(text.contains("`moat gh api repos/o/r/pulls/42/comments`"));
+        assert!(text.contains("`moat gh api repos/o/r/issues/42/comments`"));
+    }
+
+    #[test]
+    fn pr_opened_text_omits_link_line_when_url_missing() {
+        let text = pr_opened_text(&PrOpenedText {
+            pr_number: 7,
+            title: "t",
+            sender: "bob",
+            head_ref: "h",
+            base_ref: "b",
+            html_url: "",
+            owner: "o",
+            repo: "r",
+        });
+        assert!(!text.contains("**Link:**"));
+    }
+
+    #[test]
+    fn issue_comment_text_carries_number_and_comment_id() {
+        let text = issue_comment_text("alice", 42, 123_456, "looks good");
+        assert_eq!(
+            text,
+            "**@alice** commented on #42 (comment id: 123456):\n\nlooks good"
+        );
+    }
+
+    #[test]
+    fn review_comment_text_carries_comment_id() {
+        let text = review_comment_text(&ReviewCommentText {
+            sender: "alice",
+            path: "src/lib.rs",
+            start_line: None,
+            line: Some(10),
+            html_url: "https://github.com/o/r/pull/42#discussion_r777",
+            comment_id: 777,
+            in_reply_to_id: None,
+            diff_hunk: "+ let x = 1;",
+            body: "rename this",
+        });
+        assert!(text.contains("**@alice** commented on `src/lib.rs` (line 10):"));
+        assert!(text.contains("https://github.com/o/r/pull/42#discussion_r777"));
+        assert!(text.contains("Comment id: 777"));
+        assert!(text.contains("```diff\n+ let x = 1;\n```"));
+        assert!(text.ends_with("rename this"));
+    }
+
+    #[test]
+    fn review_text_carries_review_id_and_inline_comments_hint() {
+        let text = review_text("alice", "Changes Requested", 555, "see notes", "o", "r", 42);
+        assert!(text.starts_with("**@alice** — Changes Requested (review id: 555):\n\nsee notes"));
+        assert!(text.contains("`moat gh api repos/o/r/pulls/42/reviews/555/comments`"));
+    }
+
+    #[tokio::test]
+    async fn reply_instructions_cover_reply_paths_and_completion_behavior() {
+        let provider = GithubPrAdapter::new(
+            None,
+            None,
+            fake_db_pool(),
+            fake_provider_tokens(),
+            None,
+            None,
+            fake_github_apps(),
+        );
+        let notes = provider.reply_instructions().expect("instructions");
+        assert!(notes.contains("## GitHub PR Agent Notes"));
+        assert!(notes.contains("moat gh pr reply <pr_number> <comment_id>"));
+        assert!(notes.contains("moat gh pr comment <pr_number>"));
+        assert!(notes.contains("moat messages reply --message"));
+        assert!(notes.contains("does NOT auto-post"));
     }
 
     #[test]

@@ -31,6 +31,22 @@ Tests are organized into three tiers with environment variable gates:
 | **agent** | `CLAUDE_SDK_E2E=1` | `-- --ignored --nocapture` | agent_execution_flow, agent_plan_mode, agent_stop_recovery, message_acknowledgment, plugin_repos_e2e |
 
 The sandbox and agent tier tests use `#[ignore]` and only run with `-- --ignored`.
+Single-test mode (`--test <name>`) passes `--include-ignored` automatically — every gated test self-skips when its env gate is missing.
+
+**Special gated tests** (also `#[ignore]` + self-skip):
+
+| Test | Env Gate | Extra backend env | What it covers |
+|------|----------|-------------------|----------------|
+| `github_proxy` | `GITHUB_PROXY_E2E=1` | `GITHUB_API_BASE_URL=http://host.docker.internal:18092`, `GITHUB_CHANNEL_TOKEN=<any>` | `moat gh` typed proxy: PR create + comments against an in-process mock GitHub (`src/mock_github.rs`) — verifies task binding, `Moatless task:` footer, default-branch fallback |
+| `webhook_callback` | `CHANNEL_CALLBACK_E2E=1` | `CALLBACK_HOST=host.docker.internal` (test-side) | Outbound webhook callbacks to an in-process server |
+
+```bash
+# moat gh proxy E2E (mock GitHub on host port 18092):
+GITHUB_PROXY_E2E=1 \
+GITHUB_API_BASE_URL=http://host.docker.internal:18092 \
+GITHUB_CHANNEL_TOKEN=mock-token \
+  docker-compose/test-runner.sh --test github_proxy
+```
 
 ### Shared Utilities (`crates/integration-tests/src/`)
 
