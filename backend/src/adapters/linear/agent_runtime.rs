@@ -12,7 +12,6 @@
 use std::fmt::Write as _;
 
 use chrono::Utc;
-use moatless_api_schemas::linear::LinearIssueComment;
 use tracing::{debug, info, warn};
 
 use crate::adapters::dao::PgAdapterConnectionRepository;
@@ -751,31 +750,9 @@ async fn provision_session_task(
         }
     }
 
-    // Forward the inbound prompt. On the mention path (real user comment),
-    // fetch prior comments on the issue so the agent has the full thread
-    // context.
-    let prior_comments = if let (Some(issue), Some(comment)) =
-        (session.issue.as_ref(), session.comment.as_ref())
-    {
-        if comment.user.is_some() {
-            match api.fetch_issue_comments(&issue.id, 50).await {
-                Ok(c) => c,
-                Err(e) => {
-                    warn!(
-                        error = %e,
-                        issue_id = %issue.id,
-                        "Failed to fetch prior Linear comments — proceeding without"
-                    );
-                    Vec::new()
-                }
-            }
-        } else {
-            Vec::new()
-        }
-    } else {
-        Vec::new()
-    };
-    let inbound_text = build_inbound_text(session, &prior_comments);
+    // Forward the inbound prompt: issue link + instructions to read the
+    // ticket and its comments via the `moat` CLI.
+    let inbound_text = build_inbound_text(session);
     let external_event_id = format!("linear:session:created:{}", session.id);
     if let Err(e) = crate::message::send::send_message_flow(
         state,
@@ -809,65 +786,26 @@ async fn provision_session_task(
     Ok(())
 }
 
-fn build_inbound_text(
-    session: &AgentSession,
-    prior_comments: &[LinearIssueComment],
-) -> String {
-    // 1. Linear's pre-built XML wins when present.
-    if let Some(ctx) = session.prompt_context.as_deref().filter(|s| !s.is_empty()) {
-        return ctx.to_string();
-    }
-
+fn build_inbound_text(session: &AgentSession) -> String {
+    // Intentionally minimal: the issue description, comments, and Linear's
+    // pre-built promptContext are NOT inlined — they go stale as the ticket
+    // evolves. The agent reads the live ticket via the `moat` CLI instead.
     let mut text = String::new();
-
-    // 2. Issue block.
     if let Some(issue) = session.issue.as_ref() {
         let _ = write!(text, "## Linear issue {} — {}", issue.identifier, issue.title);
-        if let Some(desc) = issue.description.as_deref().filter(|s| !s.is_empty()) {
-            let _ = write!(text, "\n\n{desc}");
-        }
         if let Some(url) = issue.url.as_deref().filter(|s| !s.is_empty()) {
             let _ = write!(text, "\n\n{url}");
         }
+        let id = &issue.identifier;
+        let _ = write!(
+            text,
+            "\n\nBefore working on this task, read the Linear issue and all of its \
+             comments using the `moat` CLI:\n\n\
+             - Issue details and description: `moat linear issue get {id} --json`\n\
+             - All comments: `moat linear graphql 'query {{ issue(id: \"{id}\") {{ \
+             comments {{ nodes {{ body createdAt user {{ displayName }} }} }} }} }}'`"
+        );
     }
-
-    // 3. Prior comments (mention path only — caller decides; this fn just
-    //    renders whatever it's handed).
-    let trigger_id = session.comment.as_ref().map(|c| c.id.as_str());
-    let prior: Vec<&LinearIssueComment> = prior_comments
-        .iter()
-        .filter(|c| Some(c.id.as_str()) != trigger_id)
-        .collect();
-    if !prior.is_empty() {
-        text.push_str("\n\n### Previous comments\n");
-        for c in prior {
-            let name = c.user.as_ref().map_or("user", |u| u.name.as_str());
-            let _ = write!(text, "\n**@{name}:**\n\n{}\n", c.body);
-        }
-    }
-
-    // 4. Triggering @mention — only when the comment has a real user
-    //    (system auto-greeting has `comment.user == None`).
-    if let Some(comment) = session.comment.as_ref() {
-        if let Some(user) = comment.user.as_ref() {
-            if !comment.body.is_empty() {
-                let author = if user.name.is_empty() {
-                    "user"
-                } else {
-                    user.name.as_str()
-                };
-                if !text.is_empty() {
-                    text.push_str("\n\n---\n\n");
-                }
-                let _ = write!(
-                    text,
-                    "**@{author} just mentioned the agent:**\n\n{}",
-                    comment.body
-                );
-            }
-        }
-    }
-
     text
 }
 
@@ -883,7 +821,7 @@ async fn create_provider_event_task(
     let issue = session.issue.as_ref().ok_or_else(|| {
         AdapterError::BadRequest("AgentSession missing issue".into())
     })?;
-    let preview = build_inbound_text(session, &[]);
+    let preview = build_inbound_text(session);
 
     let row = Task {
         task_id: task_id.clone(),
@@ -1484,7 +1422,6 @@ mod tests {
     use crate::adapters::linear::webhook_payloads::{
         AgentSessionComment, AgentSessionIssue, LinearActor,
     };
-    use moatless_api_schemas::linear::{LinearCommentUser, LinearIssueComment};
 
     fn issue() -> AgentSessionIssue {
         AgentSessionIssue {
@@ -1521,87 +1458,46 @@ mod tests {
         }
     }
 
-    fn prior(id: &str, body: &str, user_name: &str) -> LinearIssueComment {
-        LinearIssueComment {
-            id: id.into(),
-            body: body.into(),
-            created_at: chrono::Utc::now(),
-            user: Some(LinearCommentUser {
-                id: "u".into(),
-                name: user_name.into(),
-            }),
-        }
-    }
-
     #[test]
-    fn build_inbound_text_prefers_prompt_context() {
-        let session = session_with(
-            Some(user_comment("c-1", "ignored", "Alice")),
-            Some("<context>winner</context>".into()),
-        );
-        let prior_comments = vec![prior("c-0", "ignored too", "Bob")];
-        let text = build_inbound_text(&session, &prior_comments);
-        assert_eq!(text, "<context>winner</context>");
-    }
-
-    #[test]
-    fn build_inbound_text_falls_back_to_issue_fields() {
+    fn build_inbound_text_links_issue_with_read_instructions() {
         let session = session_with(None, None);
-        let text = build_inbound_text(&session, &[]);
+        let text = build_inbound_text(&session);
         assert!(text.contains("## Linear issue SP-1 — Bug"));
-        assert!(text.contains("Long description here."));
         assert!(text.contains("https://linear.app/acme/issue/SP-1"));
-        assert!(!text.contains("### Previous comments"));
-        assert!(!text.contains("just mentioned the agent"));
+        assert!(text.contains("read the Linear issue and all of its comments"));
+        assert!(text.contains("moat linear issue get SP-1 --json"));
+        assert!(text.contains(
+            "moat linear graphql 'query { issue(id: \"SP-1\") { \
+             comments { nodes { body createdAt user { displayName } } } } }'"
+        ));
+        // The issue description is not inlined — the agent reads the live ticket.
+        assert!(!text.contains("Long description here."));
     }
 
     #[test]
-    fn build_inbound_text_skips_system_comment() {
-        let system_comment = AgentSessionComment {
-            id: "sys-1".into(),
-            body: "This thread is for an agent session with moatless.".into(),
-            user: None,
-        };
-        let session = session_with(Some(system_comment), None);
-        let text = build_inbound_text(&session, &[]);
-        assert!(text.contains("## Linear issue SP-1 — Bug"));
-        assert!(!text.contains("This thread is for an agent session"));
-        assert!(!text.contains("just mentioned the agent"));
+    fn build_inbound_text_ignores_prompt_context() {
+        let session = session_with(None, Some("<context>stale snapshot</context>".into()));
+        let text = build_inbound_text(&session);
+        assert!(!text.contains("stale snapshot"));
+        assert!(text.contains("moat linear issue get SP-1 --json"));
     }
 
     #[test]
-    fn build_inbound_text_appends_user_mention() {
-        let session = session_with(
-            Some(user_comment("c-1", "please look at this", "Alice")),
-            None,
-        );
-        let text = build_inbound_text(&session, &[]);
-        assert!(text.contains("## Linear issue SP-1 — Bug"));
-        assert!(text.contains("\n\n---\n\n**@Alice just mentioned the agent:**\n\nplease look at this"));
-    }
-
-    #[test]
-    fn build_inbound_text_renders_prior_comments() {
-        let trigger = user_comment("c-trigger", "please fix this", "Alice");
-        let session = session_with(Some(trigger), None);
-        let prior_comments = vec![
-            prior("c-1", "first thought", "Bob"),
-            prior("c-trigger", "duplicate of trigger — must be excluded", "Alice"),
-            prior("c-2", "second thought", "Carol"),
-        ];
-        let text = build_inbound_text(&session, &prior_comments);
-
-        assert!(text.contains("## Linear issue SP-1 — Bug"));
-        assert!(text.contains("### Previous comments"));
-        assert!(text.contains("**@Bob:**\n\nfirst thought"));
-        assert!(text.contains("**@Carol:**\n\nsecond thought"));
-        assert!(!text.contains("duplicate of trigger"));
-
-        // Trigger mention rendered last, after a separator.
-        let prev_idx = text.find("### Previous comments").unwrap();
-        let trigger_idx = text.find("just mentioned the agent").unwrap();
-        assert!(prev_idx < trigger_idx);
-        assert!(text.contains("\n\n---\n\n**@Alice just mentioned the agent:**\n\nplease fix this"));
+    fn build_inbound_text_never_inlines_comment_bodies() {
+        for comment in [
+            AgentSessionComment {
+                id: "sys-1".into(),
+                body: "This thread is for an agent session with moatless.".into(),
+                user: None,
+            },
+            user_comment("c-1", "please look at this", "Alice"),
+        ] {
+            let session = session_with(Some(comment.clone()), None);
+            let text = build_inbound_text(&session);
+            assert!(text.contains("## Linear issue SP-1 — Bug"));
+            assert!(!text.contains(&comment.body));
+            assert!(!text.contains("just mentioned the agent"));
+        }
     }
 
     #[test]
@@ -1709,12 +1605,8 @@ mod tests {
             creator: None,
             prompt_context: None,
         };
-        let text = build_inbound_text(&session, &[]);
-        assert!(!text.contains("## Linear issue"));
-        assert_eq!(
-            text,
-            "**@Alice just mentioned the agent:**\n\nhey"
-        );
+        let text = build_inbound_text(&session);
+        assert!(text.is_empty());
     }
 
     #[test]

@@ -15,7 +15,6 @@
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use moatless_api_schemas::linear::LinearIssueComment;
 use reqwest::Client;
 use serde::Deserialize;
 use tracing::{info, warn};
@@ -448,35 +447,6 @@ impl LinearAgentApi {
             ));
         }
         Ok(())
-    }
-
-    /// Fetch comments on a Linear issue (oldest first). Used to assemble
-    /// prior conversation context when the agent is mentioned on an issue
-    /// that already has a thread.
-    pub async fn fetch_issue_comments(
-        &self,
-        issue_id: &str,
-        limit: u32,
-    ) -> Result<Vec<LinearIssueComment>, AdapterError> {
-        let value = self
-            .graphql(serde_json::json!({
-                "query": "query($id: String!, $first: Int!) { \
-                            issue(id: $id) { \
-                              comments(first: $first, orderBy: createdAt) { \
-                                nodes { id body createdAt user { id name } } \
-                              } \
-                            } \
-                          }",
-                "variables": { "id": issue_id, "first": limit as i64 }
-            }))
-            .await?;
-        let nodes = value
-            .pointer("/data/issue/comments/nodes")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default();
-        serde_json::from_value(serde_json::Value::Array(nodes))
-            .map_err(|e| AdapterError::AdapterApi(format!("parse Linear comments: {e}")))
     }
 
     /// Fetch the authenticated viewer (used at OAuth install time to record
