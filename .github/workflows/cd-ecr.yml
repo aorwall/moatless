@@ -380,6 +380,13 @@ jobs:
       binary-artifact-name: frontend-dist
       binary-context-name: dist
       binary-artifact-path: apps/frontend/dist
+    # Authenticated docker.io base-image pulls (nginx). The ARC runners share
+    # one NAT egress IP, so anonymous pulls hit Docker Hub's unauthenticated
+    # rate limit (429 toomanyrequests). Login is skipped gracefully when the
+    # secrets are unset.
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
   # ── Publish: backend ──
   publish-backend:
@@ -394,6 +401,9 @@ jobs:
       tag-latest: true
       binary-artifact-name: backend-binary
       binary-context-name: binary
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
   # ── Publish: sandbox ──
   publish-sandbox:
@@ -408,6 +418,11 @@ jobs:
       tag-latest: true
       binary-artifact-name: sandbox-binaries
       binary-context-name: binaries
+    # Sandbox base (aorwall/moatless-sandbox-base) + golang build stages all
+    # pull from docker.io — the most rate-limit-exposed of the three images.
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
   # ── Publish: helm chart (every push to main + fp-v* tags) ──
   # The reusable workflow's `image-tag` input is used as the chart version
