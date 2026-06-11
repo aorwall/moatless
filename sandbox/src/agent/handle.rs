@@ -493,6 +493,38 @@ fn is_retryable_runtime_error(error: &AgentRuntimeError) -> bool {
     }
 }
 
+/// Check if a startup error indicates the resume-target session transcript is
+/// unavailable — the case where falling back to a fresh session is safe and
+/// useful (e.g. a stale session id after a pod restart). Credential/config/
+/// cancellation failures are excluded: a fresh session would not fix those.
+fn is_session_unavailable_error(error: &SdkError) -> bool {
+    matches!(
+        error,
+        SdkError::TmuxSessionDied
+            | SdkError::SessionStartTimeout { .. }
+            | SdkError::ProcessExit { .. }
+            | SdkError::JsonlNotFound { .. }
+    )
+}
+
+/// Wrap a prompt with instructions to recover lost conversation context via
+/// the moat CLI. Used by the fresh-session fallback: the new session starts
+/// without the prior conversation in context, but the full history is still
+/// readable through `moat messages list` (the `moat` binary ships in the
+/// sandbox image and authenticates automatically).
+fn context_recovery_prompt(task_id: &str, prompt: &str) -> String {
+    format!(
+        "<context-recovery>\n\
+         Your previous session for this task could not be resumed, so the prior \
+         conversation is not in your context. Before acting, recover it by running:\n\
+         \x20 moat messages list {task_id} --full --limit 100\n\
+         (if it reports older messages, rerun with the suggested --before-id to page back)\n\
+         Treat that transcript as the conversation so far and continue from it.\n\
+         </context-recovery>\n\n\
+         {prompt}"
+    )
+}
+
 fn normalize_agent_type(agent_type: Option<&str>) -> &'static str {
     match agent_type {
         Some(AGENT_TYPE_CODEX) => AGENT_TYPE_CODEX,
@@ -1343,8 +1375,39 @@ async fn start_session(
 
     match sdk_query(prompt, options).await {
         Ok(handle) => Ok(ActiveHandle::Claude(handle)),
-        Err(error) if request.resume == Some(ResumeSession::Last) => {
-            warn!(error = %error, "Resume with --continue failed, starting fresh session");
+        // Fall back to a fresh session when resume can't load its target:
+        // - `--continue` (ResumeSession::Last): any startup error, as before.
+        // - `--resume <id>` (ResumeSession::WithId): only when the error says
+        //   the session transcript is unavailable (e.g. stale session id after
+        //   a pod restart) — see [`is_session_unavailable_error`]. Without this
+        //   arm a stale id was a terminal agent error and the user's message
+        //   sat unacknowledged until the next pod restart.
+        Err(error)
+            if request.resume == Some(ResumeSession::Last)
+                || (request.resume.is_some() && is_session_unavailable_error(&error)) =>
+        {
+            let stale_session_id = match &request.resume {
+                Some(ResumeSession::WithId(id)) => id.clone(),
+                _ => String::new(),
+            };
+            warn!(
+                error = %error,
+                stale_session_id = %stale_session_id,
+                "Resume failed, starting fresh session (previous context lost)"
+            );
+            // Surface the context loss: the backend persists this as an inline
+            // conversation notice so the user sees it in the message history.
+            events
+                .publish_agent_event(
+                    task_id,
+                    AgentSubType::SessionContextLost,
+                    serde_json::json!({
+                        "stale_session_id": stale_session_id,
+                        "error": error.to_string(),
+                        "reason": "transcript_unavailable",
+                    }),
+                )
+                .await;
             let fresh_request = AgentRunRequest {
                 resume: None,
                 ..request
@@ -1356,7 +1419,9 @@ async fn start_session(
                 agent_state,
                 env,
             );
-            sdk_query(prompt, fresh_options)
+            // The fresh session starts without the prior conversation —
+            // instruct the agent to recover it via the moat CLI first.
+            sdk_query(&context_recovery_prompt(task_id, prompt), fresh_options)
                 .await
                 .map(ActiveHandle::Claude)
                 .map_err(AgentRuntimeError::from)
@@ -2627,6 +2692,51 @@ mod tests {
     use super::*;
     use claude_agent_sdk::types::content::Usage as ClaudeUsage;
     use claude_agent_sdk::types::messages::{ResultError, ResultSuccess};
+
+    #[test]
+    fn session_unavailable_errors_trigger_fresh_session_fallback() {
+        // Transcript-unavailable startup failures → fallback is safe.
+        assert!(is_session_unavailable_error(&SdkError::TmuxSessionDied));
+        assert!(is_session_unavailable_error(&SdkError::SessionStartTimeout {
+            timeout_ms: 5000
+        }));
+        assert!(is_session_unavailable_error(&SdkError::ProcessExit {
+            code: Some(1),
+            signal: None
+        }));
+        assert!(is_session_unavailable_error(&SdkError::JsonlNotFound {
+            project_dir: "/tmp/projects".to_string(),
+            timeout_ms: 5000
+        }));
+    }
+
+    #[test]
+    fn context_recovery_prompt_wraps_original_prompt() {
+        let out = context_recovery_prompt("task-abc", "fix the login bug");
+        assert!(
+            out.contains("moat messages list task-abc --full --limit 100"),
+            "must reference the moat CLI recovery command: {out}"
+        );
+        assert!(out.starts_with("<context-recovery>"));
+        assert!(
+            out.ends_with("fix the login bug"),
+            "original prompt must come last, unmodified: {out}"
+        );
+    }
+
+    #[test]
+    fn non_session_errors_do_not_trigger_fresh_session_fallback() {
+        // A fresh session would not fix these — they must stay terminal.
+        assert!(!is_session_unavailable_error(&SdkError::InvalidConfig {
+            message: "bad config".to_string()
+        }));
+        assert!(!is_session_unavailable_error(&SdkError::CliNotFound {
+            path: "/bin/claude".to_string()
+        }));
+        assert!(!is_session_unavailable_error(&SdkError::TmuxNotFound));
+        assert!(!is_session_unavailable_error(&SdkError::Cancelled));
+        assert!(!is_session_unavailable_error(&SdkError::TransportClosed));
+    }
 
     fn test_config_with_codex_dir(codex_home_dir: String) -> Config {
         use crate::config::{AgentConfig, ProxyConfig};

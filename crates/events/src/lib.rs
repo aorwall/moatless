@@ -184,6 +184,10 @@ pub enum AgentSubType {
     /// Recovery attempts exhausted for an interrupted turn — the run has been
     /// abandoned and an Aborted Result row was inserted in its place.
     RecoveryExhausted,
+    /// A session resume failed because the transcript is unavailable (e.g.
+    /// stale session id after a pod restart); the agent fell back to a fresh
+    /// session. Previous conversation context is lost. Warning, not an error.
+    SessionContextLost,
 }
 
 impl AgentSubType {
@@ -200,6 +204,7 @@ impl AgentSubType {
             Self::Scheduled => "scheduled",
             Self::RecoveryStarted => "recovery_started",
             Self::RecoveryExhausted => "recovery_exhausted",
+            Self::SessionContextLost => "session_context_lost",
         }
     }
 
@@ -230,6 +235,7 @@ impl TryFrom<&str> for AgentSubType {
             "scheduled" => Ok(Self::Scheduled),
             "recovery_started" => Ok(Self::RecoveryStarted),
             "recovery_exhausted" => Ok(Self::RecoveryExhausted),
+            "session_context_lost" => Ok(Self::SessionContextLost),
             other => Err(format!("unknown AgentSubType: {other}")),
         }
     }
@@ -578,6 +584,24 @@ mod tests {
             serde_json::to_string(&AgentSubType::PendingResponse).unwrap(),
             "\"pending_response\""
         );
+    }
+
+    #[test]
+    fn agent_sub_type_session_context_lost_round_trips() {
+        assert_eq!(
+            AgentSubType::SessionContextLost.as_str(),
+            "session_context_lost"
+        );
+        assert_eq!(
+            serde_json::to_string(&AgentSubType::SessionContextLost).unwrap(),
+            "\"session_context_lost\""
+        );
+        assert_eq!(
+            AgentSubType::try_from("session_context_lost"),
+            Ok(AgentSubType::SessionContextLost)
+        );
+        // A warning, not an error: the agent continues with a fresh session.
+        assert!(!AgentSubType::SessionContextLost.is_error());
     }
 
     #[test]

@@ -409,6 +409,80 @@ pub async fn handle_sandbox_fatal(state: &AppState, event: &AgentEvent) {
     handle_agent_error(state, event).await;
 }
 
+/// Handle `agent.session_context_lost` event — a session resume failed because
+/// the transcript was unavailable (e.g. stale session id after a pod restart)
+/// and the agent fell back to a fresh session.
+///
+/// Persists an inline `MessageType::Error` row so the context loss is clearly
+/// visible in the conversation history. Unlike [`handle_agent_error`], the run
+/// CONTINUES (the fresh session is starting), so this must not flip the task
+/// status, publish `task_turn.error`, or close the Linear turn gate.
+pub async fn handle_agent_session_context_lost(state: &AppState, event: &AgentEvent) {
+    let resume_error = event
+        .payload
+        .get("error")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown resume error");
+
+    let notice = format!(
+        "Previous session could not be resumed — conversation context was lost. \
+         Continuing with a fresh session.\n\nResume error: {resume_error}"
+    );
+
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let msg_uuid = message_uuid_for_event(&event.event_id);
+
+    let content = serde_json::json!([{
+        "type": "text",
+        "text": notice
+    }]);
+
+    // Inherit agent_mode from the last user message (mirrors handle_agent_error)
+    let agent_mode = match state.messages.get_last_user_message(&event.task_id).await {
+        Ok(Some(user_msg)) => user_msg.agent_mode,
+        _ => None,
+    };
+
+    let turn_number = resolve_turn_number(state, &event.task_id, event.turn_number).await;
+
+    // will_not_resume=false: the fresh session is valid and running.
+    let msg_row = build_result_message_row(
+        &event.task_id,
+        &msg_uuid,
+        &now,
+        content,
+        MessageType::Error,
+        false,
+        None,
+        agent_mode,
+        None,
+        turn_number,
+    );
+    let contexts: Vec<TaskMessageContext> = vec![];
+    let blocks = vec![TaskMessageContentBlock {
+        id: 0,
+        task_message_id: 0,
+        sort_order: 0,
+        block_type: ContentBlockType::Text,
+        show_in_ui: true,
+        text_content: Some(notice.clone()),
+        tool_use_id: None,
+        tool_result_content: None,
+        tool_result_is_error: None,
+        image_media_type: None,
+        image_data: None,
+        created_at: None,
+    }];
+
+    if let Err(e) = state.messages.append(&msg_row, &contexts, &blocks).await {
+        tracing::warn!(
+            task_id = %event.task_id,
+            error = %e,
+            "Failed to append session-context-lost notice"
+        );
+    }
+}
+
 /// Handle `agent.message` event — persist SDK messages and auto-tag skills.
 ///
 /// Persists both assistant messages (text + tool_use blocks) and SDK user messages
