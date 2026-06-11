@@ -58,7 +58,7 @@ use self::tailer::{
     discover_transcript_path, spawn_hook_listener, spawn_lazy_supervisor, spawn_supervisor,
     synth_system_init, HookState, TailTarget,
 };
-use self::trust::{scan_for_bypass_dialog, scan_for_trust_dialog, strip_csi};
+use self::trust::{scan_for_bypass_dialog, scan_for_trust_dialog};
 use self::writer::TmuxPasteWriter;
 
 /// Channel capacity for the message stream. Matches the subprocess path.
@@ -124,14 +124,18 @@ pub async fn query_tmux(prompt: &str, mut options: ClaudeOptions) -> Result<Quer
     });
 
     // Trust-dialog watcher: tmux pane → strip CSI → match "trust"+"folder".
-    // Auto-stops once `SessionStart` fires (cancellation token below).
+    // Auto-stops once `SessionStart` fires (cancellation token below). It also
+    // publishes each pane capture on `pane_rx` so startup failures can log the
+    // last thing claude printed before dying.
     let trust_token = CancellationToken::new();
     let trust_writer = Arc::clone(&writer);
     let trust_session = Arc::clone(&session);
+    let (pane_tx, pane_rx) = watch::channel(Vec::new());
     let trust_handle = tokio::spawn(startup_dialog_watcher(
         trust_session,
         trust_writer,
         trust_token.clone(),
+        pane_tx,
     ));
 
     // Wait for SessionStart (TUI is up + readline accepting input). Honors
@@ -145,6 +149,7 @@ pub async fn query_tmux(prompt: &str, mut options: ClaudeOptions) -> Result<Quer
     let _ = trust_handle.await;
 
     if let Err(e) = wait_result {
+        log_startup_failure(&session, &pane_rx, &e).await;
         session.kill().await;
         return Err(e);
     }
@@ -272,10 +277,12 @@ pub async fn query_tmux_streaming(mut options: ClaudeOptions) -> Result<QueryHan
     let trust_token = CancellationToken::new();
     let trust_writer = Arc::clone(&writer);
     let trust_session = Arc::clone(&session);
+    let (pane_tx, pane_rx) = watch::channel(Vec::new());
     let trust_handle = tokio::spawn(startup_dialog_watcher(
         trust_session,
         trust_writer,
         trust_token.clone(),
+        pane_tx,
     ));
     let init_timeout = options
         .init_timeout
@@ -284,6 +291,7 @@ pub async fn query_tmux_streaming(mut options: ClaudeOptions) -> Result<QueryHan
     trust_token.cancel();
     let _ = trust_handle.await;
     if let Err(e) = wait_result {
+        log_startup_failure(&session, &pane_rx, &e).await;
         session.kill().await;
         return Err(e);
     }
@@ -340,6 +348,60 @@ fn anchor_harness(harness: Arc<HookHarness>, cancellation_token: CancellationTok
         cancellation_token.cancelled().await;
         drop(harness);
     });
+}
+
+/// Upper bound on pane output included in startup-failure logs.
+const PANE_CAPTURE_MAX_BYTES: usize = 2048;
+
+/// Log the tmux pane contents when the session fails to reach `SessionStart`,
+/// so the reason claude exited (e.g. "No conversation found with session ID
+/// …") lands in the logs instead of being lost with the pane.
+///
+/// Tries a live capture first — that works for [`SdkError::SessionStartTimeout`],
+/// where the session is still alive but stuck. For [`SdkError::TmuxSessionDied`]
+/// the session is already gone, so this falls back to the last snapshot taken
+/// by [`startup_dialog_watcher`]'s 250ms capture loop.
+async fn log_startup_failure(
+    session: &TmuxSession,
+    last_pane: &watch::Receiver<Vec<u8>>,
+    error: &SdkError,
+) {
+    let live = session
+        .capture_pane_stripped()
+        .await
+        .filter(|b| !b.iter().all(u8::is_ascii_whitespace));
+    let (bytes, capture) = match live {
+        Some(bytes) => (bytes, "live"),
+        None => (last_pane.borrow().clone(), "snapshot"),
+    };
+    if bytes.iter().all(u8::is_ascii_whitespace) {
+        warn!(
+            session_name = %session.session_name,
+            error = %error,
+            "tmux session failed to start; no pane output captured"
+        );
+    } else {
+        warn!(
+            session_name = %session.session_name,
+            error = %error,
+            capture,
+            pane_output = %pane_tail_lossy(&bytes, PANE_CAPTURE_MAX_BYTES),
+            "tmux session failed to start — captured pane output"
+        );
+    }
+}
+
+/// Render the tail of captured pane bytes as lossy UTF-8, capped at
+/// `max_bytes` (the most recent output is the most useful part).
+fn pane_tail_lossy(bytes: &[u8], max_bytes: usize) -> String {
+    let start = bytes.len().saturating_sub(max_bytes);
+    let text = String::from_utf8_lossy(&bytes[start..]);
+    let trimmed = text.trim();
+    if start > 0 {
+        format!("…{trimmed}")
+    } else {
+        trimmed.to_string()
+    }
 }
 
 /// Interval at which [`wait_for_session_start`] polls the tmux session's
@@ -401,6 +463,7 @@ async fn startup_dialog_watcher(
     session: Arc<TmuxSession>,
     writer: Arc<TmuxPasteWriter>,
     cancellation_token: CancellationToken,
+    pane_tx: watch::Sender<Vec<u8>>,
 ) {
     // Two distinct blocking dialogs can appear before SessionStart, in order:
     //   1. workspace-trust ("…trust the files in this folder?") — default is
@@ -423,19 +486,17 @@ async fn startup_dialog_watcher(
             () = tokio::time::sleep(TRUST_POLL_INTERVAL) => {}
         }
 
-        let output = tokio::process::Command::new("tmux")
-            .args(["capture-pane", "-t", session.session_name.as_str(), "-p"])
-            .stderr(std::process::Stdio::null())
-            .output()
-            .await;
-        let Ok(out) = output else {
-            // tmux command failed (session might be dying). Don't spam logs.
+        // capture_pane_stripped returns None when the session is dying —
+        // don't spam logs, just retry on the next tick.
+        let Some(stripped) = session.capture_pane_stripped().await else {
             continue;
         };
-        if !out.status.success() {
-            continue;
+        // Keep the last non-empty capture around: when the session dies before
+        // SessionStart, the pane is unrecoverable afterwards, so this snapshot
+        // is the only record of what claude printed before exiting.
+        if !stripped.iter().all(u8::is_ascii_whitespace) {
+            let _ = pane_tx.send(stripped.clone());
         }
-        let stripped = strip_csi(&out.stdout);
 
         if !trust_dismissed && scan_for_trust_dialog(&stripped) {
             debug!("startup_dialog_watcher: trust dialog detected — pressing Enter");
@@ -457,5 +518,28 @@ async fn startup_dialog_watcher(
             bypass_dismissed = true;
             continue;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pane_tail_lossy_short_input_passes_through_trimmed() {
+        assert_eq!(pane_tail_lossy(b"  hello world \n", 2048), "hello world");
+    }
+
+    #[test]
+    fn pane_tail_lossy_truncates_to_tail_with_ellipsis() {
+        let bytes = [b"x".repeat(100), b"recent output".to_vec()].concat();
+        let out = pane_tail_lossy(&bytes, 13);
+        assert_eq!(out, "…recent output");
+    }
+
+    #[test]
+    fn pane_tail_lossy_handles_invalid_utf8() {
+        let out = pane_tail_lossy(&[0xff, 0xfe, b'o', b'k'], 2048);
+        assert!(out.ends_with("ok"), "lossy conversion should keep ascii tail: {out}");
     }
 }

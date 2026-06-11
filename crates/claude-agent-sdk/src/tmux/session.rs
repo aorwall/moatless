@@ -180,6 +180,21 @@ impl TmuxSession {
         s.parse::<u32>().ok()
     }
 
+    /// Capture the current pane contents, CSI-stripped. Returns `None` if the
+    /// session is already gone or the tmux command fails.
+    pub(crate) async fn capture_pane_stripped(&self) -> Option<Vec<u8>> {
+        let out = tokio::process::Command::new("tmux")
+            .args(["capture-pane", "-t", &self.session_name, "-p"])
+            .stderr(std::process::Stdio::null())
+            .output()
+            .await
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        Some(super::trust::strip_csi(&out.stdout))
+    }
+
     /// Return true if the tmux session is still alive.
     pub(crate) async fn is_alive(&self) -> bool {
         tokio::process::Command::new("tmux")
@@ -448,6 +463,18 @@ mod tests {
             Some(h) => std::env::set_var("HOME", h),
             None => std::env::remove_var("HOME"),
         }
+    }
+
+    // Works whether or not tmux is installed: a missing binary and a missing
+    // session both surface as `None`.
+    #[tokio::test]
+    async fn capture_pane_stripped_nonexistent_session_is_none() {
+        let session = TmuxSession {
+            session_name: "claude-sdk-test-no-such-session".to_string(),
+        };
+        assert_eq!(session.capture_pane_stripped().await, None);
+        // Prevent Drop from running `tmux kill-session` against a live server.
+        std::mem::forget(session);
     }
 
     #[tokio::test]
