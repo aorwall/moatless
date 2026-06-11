@@ -1,6 +1,7 @@
-import { Figma, Paperclip } from 'lucide-react'
+import { Paperclip } from 'lucide-react'
 import type React from 'react'
 import { useRef } from 'react'
+import { Figma } from '@/lib/components/ui/brand-icons'
 import { Button } from '@/lib/components/ui/button.tsx'
 
 interface AttachmentPopoverContentProps {

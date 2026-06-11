@@ -1,6 +1,7 @@
 //! Persistence for unified triggers.
 
 use chrono::{DateTime, Utc};
+use sqlx::AssertSqlSafe;
 
 use crate::db::DbPool;
 use crate::scope::{Scope, ScopeContext, ScopedEntity};
@@ -226,9 +227,9 @@ const TRIGGER_RECORD_SELECT: &str = r#"
 
 impl PgTriggerRepository {
     pub async fn find_by_id(&self, id: &str) -> Result<Option<TriggerRecord>, sqlx::Error> {
-        let row = sqlx::query_as::<_, JoinedTriggerRecordRow>(&format!(
+        let row = sqlx::query_as::<_, JoinedTriggerRecordRow>(AssertSqlSafe(format!(
             "{TRIGGER_RECORD_SELECT} WHERE t.id = $1"
-        ))
+        )))
         .bind(id)
         .fetch_optional(&self.0)
         .await?;
@@ -255,7 +256,7 @@ impl PgTriggerRepository {
         }
         sql.push_str(" ORDER BY t.created_at DESC");
 
-        let mut query = sqlx::query_as::<_, JoinedTriggerRecordRow>(&sql)
+        let mut query = sqlx::query_as::<_, JoinedTriggerRecordRow>(AssertSqlSafe(sql))
             .bind(ctx.is_admin)
             .bind(&ctx.team_ids)
             .bind(&ctx.user_id);

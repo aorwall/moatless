@@ -1,6 +1,7 @@
 //! Task template DAO — queries for task template data access.
 
 use async_trait::async_trait;
+use sqlx::AssertSqlSafe;
 
 use super::models::TaskTemplate;
 use crate::db::DbPool;
@@ -91,7 +92,7 @@ impl TaskTemplateRepository for PgTaskTemplateRepository {
              FROM task_templates WHERE id = $1 AND {}",
             access.sql()
         );
-        sqlx::query_as::<_, TaskTemplate>(&sql)
+        sqlx::query_as::<_, TaskTemplate>(AssertSqlSafe(sql))
             .bind(id)
             .bind(ctx.is_admin)
             .bind(&ctx.team_ids)
@@ -110,7 +111,7 @@ impl TaskTemplateRepository for PgTaskTemplateRepository {
              ORDER BY display_order ASC, name ASC",
             access.sql()
         );
-        sqlx::query_as::<_, TaskTemplate>(&sql)
+        sqlx::query_as::<_, TaskTemplate>(AssertSqlSafe(sql))
             .bind(ctx.is_admin)
             .bind(&ctx.team_ids)
             .bind(&ctx.user_id)
@@ -147,7 +148,7 @@ impl TaskTemplateRepository for PgTaskTemplateRepository {
              LIMIT $5",
             access.sql()
         );
-        sqlx::query_as::<_, TaskTemplate>(&sql)
+        sqlx::query_as::<_, TaskTemplate>(AssertSqlSafe(sql))
             .bind(&ctx.user_id) // $1  — recent-used filter
             .bind(ctx.is_admin) // $2  — access_filter $1
             .bind(&ctx.team_ids) // $3  — access_filter $2
@@ -234,7 +235,7 @@ impl TaskTemplateRepository for PgTaskTemplateRepository {
         );
 
         let now = chrono::Utc::now();
-        let mut q = sqlx::query(&sql).bind(id);
+        let mut q = sqlx::query(AssertSqlSafe(sql)).bind(id);
 
         macro_rules! bind_opt {
             ($field:ident) => {

@@ -42,7 +42,7 @@ metrics-exporter-prometheus = "0.16"
 dotenvy = "0.15"
 
 # Database
-sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "migrate"] }
+sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "migrate"] }
 
 # Redis
 redis = { version = "1.2", features = ["tokio-comp", "connection-manager"] }
@@ -93,7 +93,7 @@ aws-sdk-s3 = "1"
 aws-config = "1"
 
 # Multipart uploads
-axum-extra = { version = "0.10", features = ["multipart"] }
+axum-extra = { version = "0.12", features = ["multipart"] }
 
 # Cron scheduling
 cron = "0.13"
@@ -136,7 +136,7 @@ workspace = true
 
 [dev-dependencies]
 tokio-test = "0.4"
-sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "migrate"] }
+sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "migrate"] }
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
 mockall = "0.13"

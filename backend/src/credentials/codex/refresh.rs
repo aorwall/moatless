@@ -8,6 +8,7 @@
 //! the method lives in.
 
 use chrono::Utc;
+use sqlx::AssertSqlSafe;
 use tracing::{debug, info, warn};
 
 use crate::credentials::codex::oauth;
@@ -340,7 +341,7 @@ pub(super) async fn codex_refresh_inner(
         let read_sql = format!(
             "SELECT access_token FROM provider_tokens WHERE {scope_where}",
         );
-        let row: Option<(String,)> = sqlx::query_as(&read_sql)
+        let row: Option<(String,)> = sqlx::query_as(AssertSqlSafe(read_sql))
             .bind(scope_bind)
             .fetch_optional(db)
             .await?;
@@ -356,7 +357,7 @@ pub(super) async fn codex_refresh_inner(
     let lock_sql = format!(
         "SELECT access_token FROM provider_tokens WHERE {scope_where} FOR UPDATE",
     );
-    let row: Option<(String,)> = sqlx::query_as(&lock_sql)
+    let row: Option<(String,)> = sqlx::query_as(AssertSqlSafe(lock_sql))
         .bind(scope_bind)
         .fetch_optional(&mut *tx)
         .await?;
@@ -420,7 +421,7 @@ pub(super) async fn codex_refresh_inner(
                      updated_at = NOW() \
                  WHERE {cas_where} AND access_token = $3",
             );
-            let updated = sqlx::query(&cas_sql)
+            let updated = sqlx::query(AssertSqlSafe(cas_sql))
                 .bind(&new_blob_str)
                 .bind(new_refresh_inner.as_deref())
                 .bind(&existing_blob_str)
@@ -435,7 +436,7 @@ pub(super) async fn codex_refresh_inner(
                 let read_sql = format!(
                     "SELECT access_token FROM provider_tokens WHERE {scope_where}",
                 );
-                let row: Option<(String,)> = sqlx::query_as(&read_sql)
+                let row: Option<(String,)> = sqlx::query_as(AssertSqlSafe(read_sql))
                     .bind(scope_bind)
                     .fetch_optional(db)
                     .await?;
@@ -474,7 +475,7 @@ pub(super) async fn codex_refresh_inner(
                      updated_at = NOW() \
                  WHERE {fail_where}",
             );
-            sqlx::query(&fail_sql)
+            sqlx::query(AssertSqlSafe(fail_sql))
                 .bind(&failure)
                 .bind(scope_bind)
                 .execute(&mut *tx)

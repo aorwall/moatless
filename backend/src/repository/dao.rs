@@ -1,6 +1,7 @@
 //! Repository DAO — queries for repository data access.
 
 use async_trait::async_trait;
+use sqlx::AssertSqlSafe;
 
 use super::models::{Repository, RepositoryKind, RepositoryProvider};
 use crate::db::DbPool;
@@ -88,7 +89,7 @@ impl RepoRepository for PgRepoRepository {
              AND {}",
             access.sql()
         );
-        sqlx::query_as::<_, Repository>(&sql)
+        sqlx::query_as::<_, Repository>(AssertSqlSafe(sql))
             .bind(id)
             .bind(ctx.is_admin)
             .bind(&ctx.team_ids)
@@ -106,7 +107,7 @@ impl RepoRepository for PgRepoRepository {
              ORDER BY name ASC",
             access.sql()
         );
-        sqlx::query_as::<_, Repository>(&sql)
+        sqlx::query_as::<_, Repository>(AssertSqlSafe(sql))
             .bind(ctx.is_admin)
             .bind(&ctx.team_ids)
             .bind(&ctx.user_id)
@@ -215,7 +216,7 @@ impl RepoRepository for PgRepoRepository {
         );
 
         let now = chrono::Utc::now();
-        let mut q = sqlx::query(&sql).bind(id);
+        let mut q = sqlx::query(AssertSqlSafe(sql)).bind(id);
 
         macro_rules! bind_opt {
             ($field:ident) => {

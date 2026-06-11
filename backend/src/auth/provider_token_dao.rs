@@ -1,6 +1,7 @@
 //! Provider token DAO — queries for credential resolution.
 
 use async_trait::async_trait;
+use sqlx::AssertSqlSafe;
 
 use super::models::{ProviderAccessToken, ProviderToken};
 use crate::credentials::codex::scope::CodexScope;
@@ -310,7 +311,7 @@ impl ProviderTokenRepository for PgProviderTokenRepository {
                FROM provider_tokens
                WHERE {where_clause}"#,
         );
-        sqlx::query_as::<_, ProviderToken>(&sql)
+        sqlx::query_as::<_, ProviderToken>(AssertSqlSafe(sql))
             .bind(scope.bind_value())
             .fetch_optional(&self.0)
             .await
@@ -385,7 +386,7 @@ impl ProviderTokenRepository for PgProviderTokenRepository {
     async fn delete_codex_blob(&self, scope: &CodexScope) -> Result<(), sqlx::Error> {
         let where_clause = scope.where_clause("$1");
         let sql = format!("DELETE FROM provider_tokens WHERE {where_clause}");
-        sqlx::query(&sql)
+        sqlx::query(AssertSqlSafe(sql))
             .bind(scope.bind_value())
             .execute(&self.0)
             .await?;

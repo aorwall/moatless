@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use sqlx::AssertSqlSafe;
 
 use super::models::{Task, TaskStatus, Visibility};
 use crate::db::DbPool;
@@ -104,7 +105,7 @@ impl TaskRepository for PgTaskRepository {
             "SELECT * FROM tasks WHERE task_id = $1 AND {}",
             access.sql(),
         );
-        sqlx::query_as::<_, Task>(&sql)
+        sqlx::query_as::<_, Task>(AssertSqlSafe(sql))
             .bind(task_id)
             .bind(ctx.is_admin)
             .bind(&ctx.team_ids)
@@ -233,7 +234,7 @@ impl TaskRepository for PgTaskRepository {
             LIMIT $9 OFFSET $10"#,
             access.sql(),
         );
-        let rows = sqlx::query_as::<_, TaskWithCount>(&sql)
+        let rows = sqlx::query_as::<_, TaskWithCount>(AssertSqlSafe(sql))
             .bind(filter.scope.is_admin)
             .bind(&filter.scope.team_ids)
             .bind(&filter.scope.user_id)

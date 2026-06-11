@@ -1,5 +1,6 @@
 import type { RepositoryResponse } from '@moatless/api-client'
-import { ExternalLink, Github } from 'lucide-react'
+import { ExternalLink } from 'lucide-react'
+import { Github } from '@/lib/components/ui/brand-icons'
 import { Button } from '@/lib/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/popover'
 

@@ -6,6 +6,7 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use sqlx::AssertSqlSafe;
 use tracing::warn;
 
 use crate::db::DbPool;
@@ -120,9 +121,9 @@ impl TaskRelationRepository for PgTaskRelationRepository {
     }
 
     async fn list_outgoing(&self, from_task_id: &str) -> Result<Vec<TaskRelation>, sqlx::Error> {
-        sqlx::query_as::<_, TaskRelation>(&format!(
+        sqlx::query_as::<_, TaskRelation>(AssertSqlSafe(format!(
             "{TASK_RELATION_SELECT} WHERE from_task_id = $1 ORDER BY created_at ASC"
-        ))
+        )))
         .bind(from_task_id)
         .fetch_all(&self.0)
         .await
@@ -138,7 +139,7 @@ impl TaskRelationRepository for PgTaskRelationRepository {
               AND ($2::text IS NULL OR relation_type = $2) \
             ORDER BY created_at ASC"
         );
-        sqlx::query_as::<_, TaskRelation>(&sql)
+        sqlx::query_as::<_, TaskRelation>(AssertSqlSafe(sql))
             .bind(to_task_id)
             .bind(kind.map(|k| k.as_str()))
             .fetch_all(&self.0)
@@ -149,10 +150,10 @@ impl TaskRelationRepository for PgTaskRelationRepository {
         &self,
         from_task_id: &str,
     ) -> Result<Option<TaskRelation>, sqlx::Error> {
-        sqlx::query_as::<_, TaskRelation>(&format!(
+        sqlx::query_as::<_, TaskRelation>(AssertSqlSafe(format!(
             "{TASK_RELATION_SELECT} WHERE from_task_id = $1 AND relation_type = 'created_by' \
             ORDER BY created_at ASC LIMIT 1"
-        ))
+        )))
         .bind(from_task_id)
         .fetch_optional(&self.0)
         .await

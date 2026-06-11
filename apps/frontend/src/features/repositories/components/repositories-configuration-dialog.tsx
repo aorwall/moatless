@@ -1,5 +1,5 @@
 import type { RepositoryResponse } from '@moatless/api-client'
-import { FileCode, Github, Plus } from 'lucide-react'
+import { FileCode, Plus } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import {
   getRepositoryLocation,
@@ -7,6 +7,7 @@ import {
   RepositoryConfigEditSection,
   useRepositoriesList,
 } from '@/features/repositories'
+import { Github } from '@/lib/components/ui/brand-icons'
 import { Button } from '@/lib/components/ui/button'
 import { SidebarDialog } from '@/lib/components/ui/sidebar-dialog'
 

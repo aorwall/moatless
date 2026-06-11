@@ -7,7 +7,7 @@
 # the workspace Cargo.toml is needed for workspace-level lint configs.
 
 # --- Chef stage: install cargo-chef (runs on build host natively) ---
-FROM --platform=$BUILDPLATFORM rust:1.91-slim-bookworm AS chef
+FROM --platform=$BUILDPLATFORM rust:1.94-slim-bookworm AS chef
 RUN cargo install cargo-chef
 WORKDIR /app
 

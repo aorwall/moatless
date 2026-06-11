@@ -42,7 +42,7 @@
 		"highlight.js": "^11.11.1"
 	},
 	"devDependencies": {
-		"@types/diff": "^7.0.2",
+		"@types/diff": "^8.0.0",
 		"@types/react": "^19.1.8",
 		"react": "^19.1.0",
 		"typescript": "^5.8.3",

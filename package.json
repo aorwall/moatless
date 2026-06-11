@@ -72,7 +72,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.1.1",
     "@chromatic-com/storybook": "^5.2.1",
-    "@commitlint/cli": "^19.8.1",
+    "@commitlint/cli": "^21.0.2",
     "@commitlint/config-conventional": "^19.8.1",
     "@playwright/test": "^1.56.1",
     "@storybook/addon-a11y": "^10.0.6",
@@ -96,7 +96,7 @@
     "husky": "^9.1.7",
     "knip": "^5.68.0",
     "likec4": "^1.43.0",
-    "lint-staged": "^16.2.6",
+    "lint-staged": "^17.0.7",
     "storybook": "^10.0.6",
     "tsx": "^4.20.6",
     "turbo": "^2.6.0",

@@ -1,5 +1,7 @@
 //! Persistence helpers for canonical trigger+route views.
 
+use sqlx::AssertSqlSafe;
+
 use crate::db::DbPool;
 
 use crate::adapters::models::TaskTriggerRoute;
@@ -70,9 +72,9 @@ const TASK_TRIGGER_ROUTE_SELECT: &str = r#"
 
 impl PgTaskTriggerRouteRepository {
     pub async fn find_by_id(&self, id: &str) -> Result<Option<TaskTriggerRoute>, sqlx::Error> {
-        sqlx::query_as::<_, TaskTriggerRoute>(&format!(
+        sqlx::query_as::<_, TaskTriggerRoute>(AssertSqlSafe(format!(
             "{TASK_TRIGGER_ROUTE_SELECT} WHERE t.id = $1"
-        ))
+        )))
         .bind(id)
         .fetch_optional(&self.0)
         .await
@@ -83,9 +85,9 @@ impl PgTaskTriggerRouteRepository {
         provider: &str,
         source_matcher: &str,
     ) -> Result<Option<TaskTriggerRoute>, sqlx::Error> {
-        sqlx::query_as::<_, TaskTriggerRoute>(&format!(
+        sqlx::query_as::<_, TaskTriggerRoute>(AssertSqlSafe(format!(
             "{TASK_TRIGGER_ROUTE_SELECT} WHERE aes.adapter_kind = $1 AND aes.source_matcher = $2 AND t.active = true ORDER BY t.created_at ASC LIMIT 1"
-        ))
+        )))
         .bind(provider)
         .bind(source_matcher)
         .fetch_optional(&self.0)
@@ -99,9 +101,9 @@ impl PgTaskTriggerRouteRepository {
         provider: &str,
         source_matcher: &str,
     ) -> Result<Vec<TaskTriggerRoute>, sqlx::Error> {
-        sqlx::query_as::<_, TaskTriggerRoute>(&format!(
+        sqlx::query_as::<_, TaskTriggerRoute>(AssertSqlSafe(format!(
             "{TASK_TRIGGER_ROUTE_SELECT} WHERE aes.adapter_kind = $1 AND aes.source_matcher = $2 AND t.active = true ORDER BY t.created_at ASC"
-        ))
+        )))
         .bind(provider)
         .bind(source_matcher)
         .fetch_all(&self.0)
@@ -112,9 +114,9 @@ impl PgTaskTriggerRouteRepository {
         &self,
         provider: &str,
     ) -> Result<Option<TaskTriggerRoute>, sqlx::Error> {
-        sqlx::query_as::<_, TaskTriggerRoute>(&format!(
+        sqlx::query_as::<_, TaskTriggerRoute>(AssertSqlSafe(format!(
             "{TASK_TRIGGER_ROUTE_SELECT} WHERE aes.adapter_kind = $1 AND aes.source_matcher = '*' AND t.active = true LIMIT 1"
-        ))
+        )))
         .bind(provider)
         .fetch_optional(&self.0)
         .await
@@ -124,9 +126,9 @@ impl PgTaskTriggerRouteRepository {
         &self,
         connection_id: &str,
     ) -> Result<Vec<TaskTriggerRoute>, sqlx::Error> {
-        sqlx::query_as::<_, TaskTriggerRoute>(&format!(
+        sqlx::query_as::<_, TaskTriggerRoute>(AssertSqlSafe(format!(
             "{TASK_TRIGGER_ROUTE_SELECT} WHERE aes.connection_id = $1 ORDER BY t.created_at ASC"
-        ))
+        )))
         .bind(connection_id)
         .fetch_all(&self.0)
         .await
@@ -136,9 +138,9 @@ impl PgTaskTriggerRouteRepository {
         &self,
         provider: &str,
     ) -> Result<Vec<TaskTriggerRoute>, sqlx::Error> {
-        sqlx::query_as::<_, TaskTriggerRoute>(&format!(
+        sqlx::query_as::<_, TaskTriggerRoute>(AssertSqlSafe(format!(
             "{TASK_TRIGGER_ROUTE_SELECT} WHERE aes.adapter_kind = $1 AND t.active = true ORDER BY t.created_at ASC"
-        ))
+        )))
         .bind(provider)
         .fetch_all(&self.0)
         .await

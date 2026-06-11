@@ -14,11 +14,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
     container:
-      image: rust:1.91-bookworm
+      image: rust:1.94-bookworm
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install protoc
         run: apt-get update && apt-get install -y protobuf-compiler

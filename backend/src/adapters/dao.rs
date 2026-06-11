@@ -1,5 +1,7 @@
 //! Persistence helpers for `integration_connections`.
 
+use sqlx::AssertSqlSafe;
+
 use crate::db::DbPool;
 use crate::scope::{ScopeContext, ScopedEntity};
 
@@ -47,9 +49,9 @@ const PROVIDER_CONNECTION_SELECT: &str = r#"
 
 impl PgAdapterConnectionRepository {
     pub async fn find_by_id(&self, id: &str) -> Result<Option<AdapterConnection>, sqlx::Error> {
-        sqlx::query_as::<_, AdapterConnection>(&format!(
+        sqlx::query_as::<_, AdapterConnection>(AssertSqlSafe(format!(
             "{PROVIDER_CONNECTION_SELECT} WHERE id = $1"
-        ))
+        )))
         .bind(id)
         .fetch_optional(&self.0)
         .await
@@ -68,9 +70,9 @@ impl PgAdapterConnectionRepository {
         provider: &str,
         external_account_id: &str,
     ) -> Result<Option<AdapterConnection>, sqlx::Error> {
-        sqlx::query_as::<_, AdapterConnection>(&format!(
+        sqlx::query_as::<_, AdapterConnection>(AssertSqlSafe(format!(
             "{PROVIDER_CONNECTION_SELECT} WHERE adapter_kind = $1 AND external_account_id = $2 LIMIT 1"
-        ))
+        )))
         .bind(provider)
         .bind(external_account_id)
         .fetch_optional(&self.0)
@@ -81,9 +83,9 @@ impl PgAdapterConnectionRepository {
         &self,
         provider: &str,
     ) -> Result<Vec<AdapterConnection>, sqlx::Error> {
-        sqlx::query_as::<_, AdapterConnection>(&format!(
+        sqlx::query_as::<_, AdapterConnection>(AssertSqlSafe(format!(
             "{PROVIDER_CONNECTION_SELECT} WHERE adapter_kind = $1 ORDER BY created_at ASC"
-        ))
+        )))
         .bind(provider)
         .fetch_all(&self.0)
         .await
@@ -102,7 +104,7 @@ impl PgAdapterConnectionRepository {
                  ORDER BY created_at ASC",
                 access.sql()
             );
-            return sqlx::query_as::<_, AdapterConnection>(&sql)
+            return sqlx::query_as::<_, AdapterConnection>(AssertSqlSafe(sql))
                 .bind(provider)
                 .bind(ctx.is_admin)
                 .bind(&ctx.team_ids)
@@ -117,7 +119,7 @@ impl PgAdapterConnectionRepository {
              ORDER BY created_at ASC",
             access.sql()
         );
-        sqlx::query_as::<_, AdapterConnection>(&sql)
+        sqlx::query_as::<_, AdapterConnection>(AssertSqlSafe(sql))
             .bind(ctx.is_admin)
             .bind(&ctx.team_ids)
             .bind(&ctx.user_id)

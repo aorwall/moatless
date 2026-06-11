@@ -57,7 +57,7 @@ jobs:
     steps:
       # fetch-depth: 0 so `git describe --tags` can see the v* release history
       # used to compute the next monotonic semver on push-to-main.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - id: compute
@@ -126,7 +126,7 @@ jobs:
           fi
 
   # ── Build Rust binaries + dump OpenAPI spec ──
-  # Uses rust:1.91-bookworm to link against GLIBC 2.36, matching distroless/cc
+  # Uses rust:1.94-bookworm to link against GLIBC 2.36, matching distroless/cc
   # in Dockerfile.backend-cross and the sandbox-base bookworm baseline.
   #
   # Always builds with --release so cache hits reuse target/release/. For
@@ -146,14 +146,14 @@ jobs:
       needs.setup.outputs.build-backend == 'true' ||
       needs.setup.outputs.build-sandbox == 'true'
     # 16-core: GitHub-hosted larger runner configured at the soaplabs org
-    # level. Hosted (not ARC) so JS actions inside the rust:1.91-bookworm
+    # level. Hosted (not ARC) so JS actions inside the rust:1.94-bookworm
     # container Just Work, unlike staging-runners-large which hit the
     # /__e/node20/bin/node problem.
     runs-on: 16-core
     container:
-      image: rust:1.91-bookworm
+      image: rust:1.94-bookworm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install protoc + mold
         run: apt-get update && apt-get install -y --no-install-recommends protobuf-compiler mold
@@ -268,7 +268,7 @@ jobs:
     needs: setup
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -287,7 +287,7 @@ jobs:
     if: needs.build-binaries.result == 'success'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -327,7 +327,7 @@ jobs:
       needs.generate-ts-client.result != 'failure'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -436,7 +436,7 @@ jobs:
     outputs:
       moat-version: ${{ steps.release.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/download-artifact@v4
         with:
           name: moat-cli
@@ -477,7 +477,7 @@ jobs:
           private-key: ${{ secrets.GITOPS_APP_PRIVATE_KEY }}
           owner: soaplabs
 
-      - uses: peter-evans/repository-dispatch@v3
+      - uses: peter-evans/repository-dispatch@v4
         with:
           token: ${{ steps.app-token.outputs.token }}
           repository: soaplabs/soap-platform-ci
@@ -526,7 +526,7 @@ jobs:
           owner: soaplabs
 
       - name: Dispatch promote-to-staging
-        uses: peter-evans/repository-dispatch@v3
+        uses: peter-evans/repository-dispatch@v4
         with:
           token: ${{ steps.app-token.outputs.token }}
           repository: soaplabs/soap-platform-gitops
@@ -569,7 +569,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - name: Create and push vX.Y.Z tag

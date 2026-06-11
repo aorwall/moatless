@@ -1,4 +1,4 @@
-import { Bot, Figma, GitBranch, Github, Gitlab, Key, Sparkles, User } from 'lucide-react'
+import { Bot, GitBranch, Key, Sparkles, User } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import {
   ApiKeyConfigurationSection,
@@ -10,6 +10,7 @@ import {
   GitnessConfigurationSection,
   ProfileConfigurationSection,
 } from '@/features/settings'
+import { Figma, Github, Gitlab } from '@/lib/components/ui/brand-icons'
 import { SidebarDialog } from '@/lib/components/ui/sidebar-dialog'
 import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
 
