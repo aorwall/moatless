@@ -330,7 +330,13 @@ pub fn build_server_container_config(
     // ── Command ──────────────────────────────────────────────────
     // Wait for workspace-ready sentinel, source the shared server.env
     // file written by the sandbox init, then run start commands.
-    let cmd = match &server.start_commands {
+    //
+    // This must be set as the container *entrypoint*: Docker `Cmd` only
+    // supplies arguments to the image ENTRYPOINT, and the sandbox image's
+    // docker-entrypoint-sandbox.sh ignores its args and execs the sandbox
+    // binary (which crash-loops without BACKEND_GRPC_URL). K8s `command:`
+    // overrides the entrypoint — mirror that here with `entrypoint`.
+    let entrypoint = match &server.start_commands {
         Some(cmds) if !cmds.is_empty() => {
             let joined_cmd = cmds.join(" && ");
             Some(vec![
@@ -414,7 +420,7 @@ pub fn build_server_container_config(
         labels: Some(labels),
         exposed_ports: Some(exposed_ports),
         host_config: Some(host_config),
-        cmd,
+        entrypoint,
         ..Default::default()
     }
 }
@@ -739,11 +745,14 @@ mod tests {
         let config = test_config();
         let server = test_server_config();
         let cc = build_server_container_config(&config, "task-1", &server, TEST_SANDBOX_IMAGE);
-        let cmd = cc.cmd.unwrap();
-        assert_eq!(cmd[0], "bash");
-        assert_eq!(cmd[1], "-c");
-        assert!(cmd[2].contains(".workspace-ready"));
-        assert!(cmd[2].contains("bun run dev"));
+        // Start commands must land in `entrypoint` (not `cmd`): Docker Cmd
+        // only feeds args to the image ENTRYPOINT, which ignores them.
+        assert!(cc.cmd.is_none());
+        let entrypoint = cc.entrypoint.unwrap();
+        assert_eq!(entrypoint[0], "bash");
+        assert_eq!(entrypoint[1], "-c");
+        assert!(entrypoint[2].contains(".workspace-ready"));
+        assert!(entrypoint[2].contains("bun run dev"));
     }
 
     #[test]
@@ -757,9 +766,9 @@ mod tests {
             .any(|e| e.starts_with("MOATLESS_SERVER_ENV_FILE=")));
         assert!(!env.iter().any(|e| e.starts_with("BASH_ENV=")));
 
-        let cmd = cc.cmd.unwrap();
-        assert!(cmd[2].contains(". /opt/moatless/data/server.env"));
-        assert!(cmd[2].contains("bun run dev"));
+        let entrypoint = cc.entrypoint.unwrap();
+        assert!(entrypoint[2].contains(". /opt/moatless/data/server.env"));
+        assert!(entrypoint[2].contains("bun run dev"));
     }
 
     #[test]

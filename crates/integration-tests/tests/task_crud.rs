@@ -73,7 +73,7 @@ async fn task_crud_chain() {
     let tags = SetTagsRequest {
         tags: vec!["e2e".into(), "crud-test".into()],
     };
-    let _ = client.api().set_task_tags(&task_id, &tags).await.unwrap();
+    client.api().set_task_tags(&task_id, &tags).await.unwrap();
 
     let task = client.api().get_task(&task_id).await.unwrap();
     assert!(task.tags.len() >= 2);
@@ -83,7 +83,7 @@ async fn task_crud_chain() {
 
     // TASK-05.1: Clear tags
     let empty_tags = SetTagsRequest { tags: vec![] };
-    let _ = client
+    client
         .api()
         .set_task_tags(&task_id, &empty_tags)
         .await

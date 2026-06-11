@@ -88,7 +88,7 @@ async fn agent_ask_user_question() {
         branch: None,
         description: None,
         agent_mode: None,
-        agent_type: None,
+        agent_type: integration_tests::e2e_agent_type(),
         contexts: vec![],
         file_ids: vec![],
         model: None,

@@ -42,6 +42,28 @@ pub fn base_url() -> String {
     std::env::var("MOATLESS_API_URL").unwrap_or_else(|_| "http://localhost:8080".into())
 }
 
+/// Agent type override for agent-tier tests (env: `E2E_AGENT_TYPE`).
+///
+/// Lets the whole agent tier run against an alternate agent transport, e.g.
+/// `E2E_AGENT_TYPE=claude-code-tmux` to exercise the sandbox's persistent
+/// tmux session (`SANDBOX_USE_TMUX=true` is set by the backend's agent
+/// catalog for that agent type). Unset → `None` → backend default
+/// (claude-code over the subprocess transport).
+pub fn e2e_agent_type() -> Option<moatless_api_schemas::shared::AgentType> {
+    std::env::var("E2E_AGENT_TYPE")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(moatless_api_schemas::shared::AgentType)
+}
+
+/// Whether the agent transport under test reports real cost data.
+///
+/// The tmux/TUI transport has no machine-readable cost stream, so
+/// `total_cost_usd` stays `0.0` — cost assertions must be skipped there.
+pub fn e2e_agent_reports_cost() -> bool {
+    e2e_agent_type().is_none_or(|t| t.as_str() != "claude-code-tmux")
+}
+
 /// Build a raw reqwest client with ForwardAuth headers for a specific user.
 pub fn raw_client_as_user(user_id: &str, login: &str, role: &str) -> reqwest::Client {
     let mut headers = reqwest::header::HeaderMap::new();

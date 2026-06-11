@@ -140,10 +140,7 @@ mod tests {
         assert_eq!(job.id(), "toolu_123");
         assert_eq!(job.reason, "waiting for build to complete");
         assert_eq!(job.prompt, "check build status");
-        let snap = match job.snapshot() {
-            JobSnapshot::Wakeup(s) => s,
-            other => panic!("expected wakeup snapshot, got {other:?}"),
-        };
+        let JobSnapshot::Wakeup(snap) = job.snapshot();
         assert_eq!(snap.prompt_preview, "check build status");
         assert!(snap.wakeup_at_unix_ms > snap.registered_at_unix_ms);
     }

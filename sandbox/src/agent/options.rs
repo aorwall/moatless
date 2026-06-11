@@ -47,6 +47,19 @@ pub fn build_options(
     let (resume, continue_conversation) = resolve_resume(request);
     let init_timeout = std::time::Duration::from_secs(120);
 
+    // tmux mode always launches the TUI with --dangerously-skip-permissions,
+    // which the CLI refuses under root unless IS_SANDBOX=1. The cluster sets
+    // it via gitops extra env; Docker mode doesn't — set it for the child
+    // unconditionally so the transport works in both runtimes.
+    let env = if config.use_tmux {
+        let mut env = env.unwrap_or_default();
+        env.entry("IS_SANDBOX".to_string())
+            .or_insert_with(|| "1".to_string());
+        Some(env)
+    } else {
+        env
+    };
+
     info!(
         task_id = %config.task_id,
         model = ?model,
@@ -83,15 +96,23 @@ pub fn build_options(
         // Disallowed tools are removed from the CLI's context entirely (a bare
         // tool name in the deny list), so the agent never sees or calls them.
         //
-        // - Monitor: the CLI's built-in Monitor tool only delivers events while
-        //   its own subprocess is alive. Our per-turn `--resume` model kills
-        //   that subprocess at turn end, so the Monitor watcher dies before any
-        //   events reach the agent. Disallow it so the agent gets a loud
-        //   "tool not allowed" error and falls back to Bash background.
-        // - AskUserQuestion: we don't surface the CLI's multiple-choice
-        //   question UI; the agent should ask in plain text instead. Removing
-        //   the tool keeps it from offering choice prompts we can't render.
-        disallowed_tools: Some(vec!["Monitor".to_string(), "AskUserQuestion".to_string()]),
+        // - AskUserQuestion (both modes): we don't surface the CLI's
+        //   multiple-choice question UI; the agent should ask in plain text
+        //   instead. Removing the tool keeps it from offering choice prompts
+        //   we can't render.
+        // - Monitor (subprocess mode only): the CLI's built-in Monitor tool
+        //   only delivers events while its own process is alive. The
+        //   subprocess per-turn `--resume` model kills that process at turn
+        //   end, so the Monitor watcher dies before any events reach the
+        //   agent. Disallow it so the agent gets a loud "tool not allowed"
+        //   error and falls back to Bash background. In tmux mode the TUI
+        //   process persists across turns, so Monitor (and the CLI's internal
+        //   ScheduleWakeup timer) work natively and Monitor stays allowed.
+        disallowed_tools: Some(if config.use_tmux {
+            vec!["AskUserQuestion".to_string()]
+        } else {
+            vec!["Monitor".to_string(), "AskUserQuestion".to_string()]
+        }),
         ..ClaudeOptions::default()
     }
 }
@@ -165,5 +186,97 @@ fn resolve_resume(request: &AgentRunRequest) -> (Option<String>, Option<bool>) {
         Some(ResumeSession::WithId(session_id)) => (Some(session_id.clone()), None),
         Some(ResumeSession::Last) => (None, Some(true)),
         None => (None, None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{AgentConfig, ProxyConfig};
+
+    fn test_config(use_tmux: bool) -> Config {
+        Config {
+            port: 0,
+            grpc_port: 0,
+            task_id: "task-test".to_string(),
+            workspace_dir: "/tmp/workspace".to_string(),
+            data_dir: "/tmp/data".to_string(),
+            upload_dir: "/tmp/uploads".to_string(),
+            log_level: "info".to_string(),
+            backend_grpc_url: "http://localhost:50051".to_string(),
+            backend_api_url: None,
+            user_auth_token: None,
+            agent_config: AgentConfig::default(),
+            claude_cli_path: "/usr/bin/claude".to_string(),
+            codex_cli_path: "/usr/bin/codex".to_string(),
+            proxy: ProxyConfig::default(),
+            servers: vec![],
+            frontend_url: None,
+            default_model: None,
+            default_codex_model: None,
+            use_tmux,
+            home_dir: "/tmp/home".to_string(),
+            codex_home_dir: "/tmp/home/.codex".to_string(),
+            claude_config_dir: "/tmp/home/.claude".to_string(),
+            git_clone_url: None,
+            git_branch: None,
+            git_provider: "github".to_string(),
+            repo_config_raw: None,
+            setup_commands: vec![],
+            plugin_ids: vec![],
+            plugin_repos: vec![],
+        }
+    }
+
+    fn test_request() -> AgentRunRequest {
+        AgentRunRequest {
+            content: Vec::new(),
+            model: None,
+            system_prompt: None,
+            resume: None,
+            agent_type: None,
+            agent_mode: None,
+        }
+    }
+
+    fn build_test_options(use_tmux: bool) -> ClaudeOptions {
+        build_options(
+            &test_config(use_tmux),
+            &test_request(),
+            CancellationToken::new(),
+            Arc::new(AgentState::new()),
+            None,
+        )
+    }
+
+    #[test]
+    fn disallowed_tools_subprocess_mode_blocks_monitor() {
+        let options = build_test_options(false);
+        let disallowed = options.disallowed_tools.expect("disallowed_tools set");
+        assert!(disallowed.contains(&"Monitor".to_string()));
+        assert!(disallowed.contains(&"AskUserQuestion".to_string()));
+    }
+
+    #[test]
+    fn disallowed_tools_tmux_mode_allows_monitor() {
+        let options = build_test_options(true);
+        let disallowed = options.disallowed_tools.expect("disallowed_tools set");
+        assert!(!disallowed.contains(&"Monitor".to_string()));
+        assert!(disallowed.contains(&"AskUserQuestion".to_string()));
+    }
+
+    #[test]
+    fn tmux_mode_sets_is_sandbox_env() {
+        // The TUI refuses --dangerously-skip-permissions under root unless
+        // IS_SANDBOX=1 — tmux mode must always set it for the child.
+        let options = build_test_options(true);
+        let env = options.env.expect("env set in tmux mode");
+        assert_eq!(env.get("IS_SANDBOX").map(String::as_str), Some("1"));
+    }
+
+    #[test]
+    fn subprocess_mode_leaves_env_untouched() {
+        let options = build_test_options(false);
+        assert!(options.env.is_none());
     }
 }

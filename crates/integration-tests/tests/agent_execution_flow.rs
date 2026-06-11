@@ -8,9 +8,7 @@
 use std::time::Duration;
 
 use integration_tests::{ensure_template_repo, sandbox_helpers, test_client};
-use moatless_api_schemas::{
-    message::SendMessageRequest, sandbox::SearchFilesRequest, task::CreateTaskRequest,
-};
+use moatless_api_schemas::{message::SendMessageRequest, task::CreateTaskRequest};
 use moatless_cli::events::EventCollector;
 
 // =============================================================================
@@ -43,7 +41,7 @@ async fn agent_execution_and_multi_turn() {
         branch: None,
         description: None,
         agent_mode: None,
-        agent_type: None,
+        agent_type: integration_tests::e2e_agent_type(),
         contexts: vec![],
         file_ids: vec![],
         model: None,
@@ -81,14 +79,17 @@ async fn agent_execution_and_multi_turn() {
         "Agent should be idle after turn completion"
     );
 
-    // AGENT-01.2b: Verify cost was recorded on the task
+    // AGENT-01.2b: Verify cost was recorded on the task (skipped for the
+    // tmux transport, which has no machine-readable cost stream).
     let task = client.api().get_task(task_id).await.unwrap();
     println!("AGENT-01.2b: total_cost_usd = {}", task.total_cost_usd);
-    assert!(
-        task.total_cost_usd > 0.0,
-        "Expected non-zero total_cost_usd after agent execution, got: {}",
-        task.total_cost_usd
-    );
+    if integration_tests::e2e_agent_reports_cost() {
+        assert!(
+            task.total_cost_usd > 0.0,
+            "Expected non-zero total_cost_usd after agent execution, got: {}",
+            task.total_cost_usd
+        );
+    }
 
     // AGENT-01.3: Verify SSE events were received
     let agent_started = collector
@@ -104,19 +105,18 @@ async fn agent_execution_and_multi_turn() {
         messages.messages.len()
     );
 
-    // AGENT-02.1: Search files for "E2E Test Success"
-    let search_req = SearchFilesRequest {
-        query: "E2E Test Success".into(),
-        limit: None,
-    };
-    let search_results = client
+    // AGENT-02.1: Read the created file and verify its content. (The old
+    // `/search-files` content-search endpoint was removed in 143bba2e0;
+    // reading the file asserts the agent's work directly.)
+    let file = client
         .api()
-        .search_files(task_id, &search_req)
+        .read_file(task_id, "e2e-success.txt")
         .await
         .unwrap();
     assert!(
-        !search_results.is_empty(),
-        "Expected to find 'E2E Test Success' in files"
+        file.content.contains("E2E Test Success"),
+        "Expected e2e-success.txt to contain 'E2E Test Success', got: {}",
+        file.content
     );
 
     // AGENT-02.2: Send follow-up message (multi-turn)
@@ -154,19 +154,16 @@ async fn agent_execution_and_multi_turn() {
         .await;
     assert!(turn2.is_some(), "Expected 2nd taskTurn.completed event");
 
-    // AGENT-02.3: Search files for "Multi-Turn Success"
-    let search_req2 = SearchFilesRequest {
-        query: "Multi-Turn Success".into(),
-        limit: None,
-    };
-    let search_results2 = client
+    // AGENT-02.3: Read the second file and verify its content.
+    let file2 = client
         .api()
-        .search_files(task_id, &search_req2)
+        .read_file(task_id, "e2e-multiturn.txt")
         .await
         .unwrap();
     assert!(
-        !search_results2.is_empty(),
-        "Expected to find 'Multi-Turn Success' in files"
+        file2.content.contains("Multi-Turn Success"),
+        "Expected e2e-multiturn.txt to contain 'Multi-Turn Success', got: {}",
+        file2.content
     );
 
     // Cleanup

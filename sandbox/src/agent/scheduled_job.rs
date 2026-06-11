@@ -366,13 +366,9 @@ mod tests {
 
         let snapshots = registry.list().await;
         assert_eq!(snapshots.len(), 1);
-        match &snapshots[0] {
-            JobSnapshot::Wakeup(snap) => {
-                assert_eq!(snap.id, "toolu_wake_6");
-                assert_eq!(snap.reason, "second");
-            }
-            other => panic!("expected wakeup snapshot, got {other:?}"),
-        }
+        let JobSnapshot::Wakeup(snap) = &snapshots[0];
+        assert_eq!(snap.id, "toolu_wake_6");
+        assert_eq!(snap.reason, "second");
 
         run_cancel.cancel();
     }

@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use integration_tests::{ensure_template_repo, sandbox_helpers, test_client};
 use moatless_api_schemas::{
-    message::SendMessageRequest, sandbox::SearchFilesRequest, task::CreateTaskRequest,
+    message::SendMessageRequest, task::CreateTaskRequest,
 };
 use moatless_cli::events::EventCollector;
 
@@ -46,7 +46,7 @@ async fn agent_stop_and_recovery() {
         branch: None,
         description: None,
         agent_mode: None,
-        agent_type: None,
+        agent_type: integration_tests::e2e_agent_type(),
         contexts: vec![],
         file_ids: vec![],
         model: None,
@@ -153,18 +153,13 @@ async fn agent_stop_and_recovery() {
         messages.messages.len()
     );
 
-    let search_req = SearchFilesRequest {
-        query: "Resumed Session Works".into(),
-        limit: None,
-    };
-    let search_results = client
-        .api()
-        .search_files(task_id, &search_req)
-        .await
-        .unwrap();
+    // (The old `/search-files` content-search endpoint was removed in
+    // 143bba2e0; reading the file asserts the agent's work directly.)
+    let file = client.api().read_file(task_id, "resumed.txt").await.unwrap();
     assert!(
-        !search_results.is_empty(),
-        "Expected to find 'Resumed Session Works' in files"
+        file.content.contains("Resumed Session Works"),
+        "Expected resumed.txt to contain 'Resumed Session Works', got: {}",
+        file.content
     );
 
     // Cleanup

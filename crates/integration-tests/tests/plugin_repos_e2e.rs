@@ -89,7 +89,7 @@ async fn plugin_repos_e2e_chain() {
         branch: None,
         description: None,
         agent_mode: None,
-        agent_type: None,
+        agent_type: integration_tests::e2e_agent_type(),
         contexts: vec![],
         file_ids: vec![],
         model: None,

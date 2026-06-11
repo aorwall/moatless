@@ -3,9 +3,11 @@
 //! The live agent runtime is the actor spawned by
 //! `moatless_sandbox::agent::handle::spawn_agent`. The transport switch lives in
 //! its `start_session` → `sdk_query` closure, driven by `Config.use_tmux`:
-//! `use_tmux = false` → `claude_agent_sdk::query()` (subprocess / NDJSON `-p`);
-//! `use_tmux = true` → `claude_agent_sdk::query_tmux()` (tmux / TUI). Both
-//! branches share the same `build_options()`.
+//! `use_tmux = false` → `claude_agent_sdk::query()` (subprocess / NDJSON `-p`,
+//! one process per turn); `use_tmux = true` → `claude_agent_sdk::query_tmux_streaming()`
+//! (tmux / TUI, persistent session — the TUI survives turn ends and follow-up
+//! sends are pasted into the live session). Both branches share the same
+//! `build_options()`.
 //!
 //! These tests drive the actor end-to-end with a no-op `BackendClient` and a
 //! real `claude` CLI, asserting the agent reaches `Idle` with no error.
@@ -82,13 +84,23 @@ fn auth_credentials() -> HashMap<String, String> {
 
 /// Minimal `BackendClient` for driving the actor without a real backend.
 /// `get_credentials` returns the host auth token so it reaches the agent env.
+/// Published events are recorded as `"<event_type>/<sub_type>"` strings so
+/// tests can assert on the emitted event sequence (poll-based status checks
+/// can miss sub-millisecond Running windows when the tmux tailer delivers a
+/// whole turn in one batch).
 struct NoopBackend {
     credentials: HashMap<String, String>,
+    events: Arc<std::sync::Mutex<Vec<String>>>,
 }
 
 #[async_trait::async_trait]
 impl BackendClient for NoopBackend {
-    async fn publish_event(&self, _req: PublishEventRequest) {}
+    async fn publish_event(&self, req: PublishEventRequest) {
+        self.events
+            .lock()
+            .expect("event log poisoned")
+            .push(format!("{}/{}", req.event_type().as_str_name(), req.sub_type));
+    }
 
     async fn get_pending_messages(
         &self,
@@ -187,11 +199,13 @@ fn test_config(tmp: &TempDir, use_tmux: bool) -> Config {
     }
 }
 
-/// Spawn the production agent actor wired with a no-op backend. Returns the
-/// handle, the shared agent state, and the `TempDir` (kept alive by the caller).
-fn spawn_test_agent(use_tmux: bool) -> (AgentHandle, Arc<AgentState>, TempDir) {
-    use moatless_sandbox::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
+/// Event log recorded by the no-op backend: `"<EVENT_TYPE>/<sub_type>"`.
+type EventLog = Arc<std::sync::Mutex<Vec<String>>>;
 
+/// Spawn the production agent actor wired with a no-op backend. Returns the
+/// handle, the shared agent state, the published-event log, and the `TempDir`
+/// (kept alive by the caller).
+fn spawn_test_agent(use_tmux: bool) -> (AgentHandle, Arc<AgentState>, EventLog, TempDir) {
     let tmp = TempDir::new().expect("create tempdir");
     // start_session persists credential files under these dirs. `claude-config`
     // is the cold CLAUDE_CONFIG_DIR (outside HOME) — see `test_config`.
@@ -205,13 +219,24 @@ fn spawn_test_agent(use_tmux: bool) -> (AgentHandle, Arc<AgentState>, TempDir) {
     ] {
         std::fs::create_dir_all(tmp.path().join(sub)).expect("create test dir");
     }
+    let (handle, agent_state, events) = spawn_test_agent_in(&tmp, use_tmux);
+    (handle, agent_state, events, tmp)
+}
+
+/// Spawn a fresh actor against an EXISTING test dir — used by the restart-
+/// resume test to simulate a pod restart (new actor, same on-disk transcripts).
+fn spawn_test_agent_in(tmp: &TempDir, use_tmux: bool) -> (AgentHandle, Arc<AgentState>, EventLog) {
+    use moatless_sandbox::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
+
+    let event_log: EventLog = Arc::new(std::sync::Mutex::new(Vec::new()));
 
     let backend: Arc<dyn BackendClient> = Arc::new(NoopBackend {
         credentials: auth_credentials(),
+        events: Arc::clone(&event_log),
     });
 
     let events = GrpcEventPublisher::new(Arc::clone(&backend));
-    let config = Arc::new(test_config(&tmp, use_tmux));
+    let config = Arc::new(test_config(tmp, use_tmux));
 
     // Mirror the cluster: the `claude` child inherits CLAUDE_CONFIG_DIR from the
     // process env (the sandbox does NOT pass it through `options.env`), and the
@@ -242,7 +267,7 @@ fn spawn_test_agent(use_tmux: bool) -> (AgentHandle, Arc<AgentState>, TempDir) {
     );
     late_injector.set(Box::new(handle.clone()));
 
-    (handle, agent_state, tmp)
+    (handle, agent_state, event_log)
 }
 
 // ── Shared run body ─────────────────────────────────────────────────────────
@@ -259,9 +284,27 @@ fn init_tracing() {
         .try_init();
 }
 
+/// Poll until the agent leaves `Running` (turn finished). Completion is
+/// observed via state polling — `AgentHandle` has no completion oneshot. The
+/// actor sets Idle (success) or Idle+last_error (failure) after the SDK
+/// `Result` message.
+async fn wait_until_not_running(agent_state: &AgentState, timeout: Duration, what: &str) {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        if !matches!(agent_state.status().await, AgentStatus::Running) {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "{what}: agent did not finish within timeout"
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+}
+
 async fn run_agent_roundtrip(use_tmux: bool) {
     init_tracing();
-    let (handle, agent_state, _tmp) = spawn_test_agent(use_tmux);
+    let (handle, agent_state, _events, _tmp) = spawn_test_agent(use_tmux);
 
     // `send` resolves on SessionInit (session started), not on completion.
     let ack = handle.send(
@@ -277,20 +320,7 @@ async fn run_agent_roundtrip(use_tmux: bool) {
         .expect("session failed to start (ack sender dropped)");
     assert!(!session_id.is_empty(), "expected a non-empty session id");
 
-    // Completion is observed via state polling — `AgentHandle` has no
-    // completion oneshot. The actor sets Idle (success) or Idle+last_error
-    // (failure) after the SDK `Result` message.
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
-    loop {
-        if !matches!(agent_state.status().await, AgentStatus::Running) {
-            break;
-        }
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "agent did not finish within timeout"
-        );
-        tokio::time::sleep(Duration::from_millis(200)).await;
-    }
+    wait_until_not_running(&agent_state, Duration::from_secs(120), "roundtrip").await;
 
     let error = agent_state.last_error().await;
     assert!(error.is_none(), "agent finished with error: {error:?}");
@@ -299,16 +329,18 @@ async fn run_agent_roundtrip(use_tmux: bool) {
     handle.stop();
 }
 
-/// Two-turn resume body: turn 1 starts a fresh session, turn 2 resumes it by
-/// `session_id`. This exercises the tmux JSONL-discovery resume path — on
-/// `claude --resume <id>` claude appends to the existing `<id>.jsonl` (no new
-/// file), so discovery must target the known transcript directly instead of
-/// waiting for a new file (which previously timed out with `JsonlNotFound`).
+/// Restart-resume body: turn 1 runs on actor A, then A is stopped (killing the
+/// CLI session — the pod-restart analogue) and turn 2 runs on a FRESH actor B
+/// with `resume_session_id`. This exercises the tmux JSONL-discovery resume
+/// path — on `claude --resume <id>` claude appends to the existing
+/// `<id>.jsonl` (no new file), so discovery must target the known transcript
+/// directly instead of waiting for a new file (which previously timed out
+/// with `JsonlNotFound`).
 async fn run_agent_resume(use_tmux: bool) {
     init_tracing();
-    let (handle, agent_state, _tmp) = spawn_test_agent(use_tmux);
+    let (handle, agent_state, _events, tmp) = spawn_test_agent(use_tmux);
 
-    // ── Turn 1: fresh session ────────────────────────────────────────────────
+    // ── Turn 1: fresh session on actor A ────────────────────────────────────
     let ack = handle.send(
         TEST_PROMPT.to_string(),
         Some(TEST_MODEL.to_string()),
@@ -322,26 +354,20 @@ async fn run_agent_resume(use_tmux: bool) {
         .expect("turn 1: session failed to start (ack sender dropped)");
     assert!(!session_id.is_empty(), "expected a non-empty session id");
 
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
-    loop {
-        if !matches!(agent_state.status().await, AgentStatus::Running) {
-            break;
-        }
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "turn 1: agent did not finish within timeout"
-        );
-        tokio::time::sleep(Duration::from_millis(200)).await;
-    }
+    wait_until_not_running(&agent_state, Duration::from_secs(120), "turn 1").await;
     let error = agent_state.last_error().await;
     assert!(error.is_none(), "turn 1 finished with error: {error:?}");
 
-    // ── Turn 2: resume the same session by id ─────────────────────────────────
+    // ── Simulated pod restart: stop actor A, spawn actor B on the same dirs ──
+    handle.stop();
+    let (handle, agent_state, _events2) = spawn_test_agent_in(&tmp, use_tmux);
+
+    // ── Turn 2: resume the turn-1 session by id on actor B ───────────────────
     let ack = handle.send(
         "What is 3+3? Reply with only the number.".to_string(),
         Some(TEST_MODEL.to_string()),
-        None,                    // agent_type → claude-code
-        None,                    // agent_mode
+        None,                     // agent_type → claude-code
+        None,                     // agent_mode
         Some(session_id.clone()), // resume_session_id → resume turn 1
     );
     let resumed_id = tokio::time::timeout(Duration::from_secs(90), ack)
@@ -350,17 +376,7 @@ async fn run_agent_resume(use_tmux: bool) {
         .expect("turn 2: session failed to start (ack sender dropped)");
     assert!(!resumed_id.is_empty(), "expected a non-empty resumed session id");
 
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
-    loop {
-        if !matches!(agent_state.status().await, AgentStatus::Running) {
-            break;
-        }
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "turn 2: agent did not finish within timeout"
-        );
-        tokio::time::sleep(Duration::from_millis(200)).await;
-    }
+    wait_until_not_running(&agent_state, Duration::from_secs(120), "turn 2").await;
 
     let error = agent_state.last_error().await;
     assert!(error.is_none(), "turn 2 (resume) finished with error: {error:?}");
@@ -369,7 +385,157 @@ async fn run_agent_resume(use_tmux: bool) {
     handle.stop();
 }
 
+/// Multi-turn persistent-session body (tmux): one actor, two sends. Turn 1
+/// spawns the persistent TUI; turn 2 must be pasted into the SAME live session
+/// (same `session_id`, no respawn) — the actor keeps the handle alive across
+/// the turn boundary.
+async fn run_agent_multi_turn(use_tmux: bool) {
+    init_tracing();
+    let (handle, agent_state, _events, _tmp) = spawn_test_agent(use_tmux);
+
+    // ── Turn 1 ───────────────────────────────────────────────────────────────
+    let ack = handle.send(
+        TEST_PROMPT.to_string(),
+        Some(TEST_MODEL.to_string()),
+        None,
+        None,
+        None,
+    );
+    let session_id = tokio::time::timeout(Duration::from_secs(90), ack)
+        .await
+        .expect("turn 1: timed out waiting for session start")
+        .expect("turn 1: session failed to start (ack sender dropped)");
+    assert!(!session_id.is_empty(), "expected a non-empty session id");
+
+    wait_until_not_running(&agent_state, Duration::from_secs(120), "turn 1").await;
+    let error = agent_state.last_error().await;
+    assert!(error.is_none(), "turn 1 finished with error: {error:?}");
+
+    // ── Turn 2: pasted into the live session ─────────────────────────────────
+    let ack = handle.send(
+        "What is 3+3? Reply with only the number.".to_string(),
+        Some(TEST_MODEL.to_string()),
+        None,
+        None,
+        None,
+    );
+    let second_id = tokio::time::timeout(Duration::from_secs(90), ack)
+        .await
+        .expect("turn 2: timed out waiting for ack")
+        .expect("turn 2: ack sender dropped");
+    assert_eq!(
+        second_id, session_id,
+        "turn 2 must run in the same persistent session"
+    );
+
+    wait_until_not_running(&agent_state, Duration::from_secs(120), "turn 2").await;
+    let error = agent_state.last_error().await;
+    assert!(error.is_none(), "turn 2 finished with error: {error:?}");
+    assert_eq!(agent_state.status().await, AgentStatus::Idle);
+
+    handle.stop();
+}
+
+/// CLI-internal wakeup body (tmux): the agent is told to call ScheduleWakeup
+/// with a short delay. In tmux mode the sandbox does NOT arm its own wakeup
+/// job — the CLI's internal timer fires inside the persistent TUI and starts
+/// a turn on its own. The actor must detect that turn and publish a full
+/// turn cycle (`agent/started` + `taskTurn/active` + `agent/completed`).
+///
+/// Completion is asserted on the published-event log rather than status
+/// polling: the tmux tailer can deliver the whole internal turn in one batch,
+/// making the `Running` window sub-millisecond and unpollable.
+async fn run_agent_internal_wakeup(use_tmux: bool) {
+    init_tracing();
+    let (handle, agent_state, events, _tmp) = spawn_test_agent(use_tmux);
+
+    let count = |needle: &str| {
+        events
+            .lock()
+            .expect("event log poisoned")
+            .iter()
+            .filter(|e| e.as_str() == needle)
+            .count()
+    };
+
+    let ack = handle.send(
+        "Call the ScheduleWakeup tool exactly once with delaySeconds=5, \
+         prompt=\"Reply with only the word DONE\", reason=\"e2e test\". \
+         After calling it, reply with only the word SCHEDULED."
+            .to_string(),
+        Some(TEST_MODEL.to_string()),
+        None,
+        None,
+        None,
+    );
+    let session_id = tokio::time::timeout(Duration::from_secs(90), ack)
+        .await
+        .expect("turn 1: timed out waiting for session start")
+        .expect("turn 1: session failed to start (ack sender dropped)");
+    assert!(!session_id.is_empty(), "expected a non-empty session id");
+
+    wait_until_not_running(&agent_state, Duration::from_secs(120), "turn 1").await;
+    let error = agent_state.last_error().await;
+    assert!(error.is_none(), "turn 1 finished with error: {error:?}");
+    assert_eq!(count("EVENT_TYPE_AGENT/completed"), 1, "turn 1 completed");
+
+    // The CLI clamps `delaySeconds` to a 60s minimum (next minute boundary,
+    // so up to ~2min), then fires the wakeup turn inside the live TUI. Wait
+    // for the actor to surface it as a full second turn cycle.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(240);
+    loop {
+        if count("EVENT_TYPE_AGENT/completed") >= 2 {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "internal wakeup turn never completed; events: {:?}",
+            events.lock().expect("event log poisoned")
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+
+    // The internally-started turn must have published its own turn-start pair.
+    assert!(
+        count("EVENT_TYPE_AGENT/started") >= 2,
+        "expected a second agent/started for the CLI-internal turn; events: {:?}",
+        events.lock().expect("event log poisoned")
+    );
+    assert!(
+        count("EVENT_TYPE_TASK_TURN/active") >= 2,
+        "expected a second taskTurn/active for the CLI-internal turn; events: {:?}",
+        events.lock().expect("event log poisoned")
+    );
+
+    let error = agent_state.last_error().await;
+    assert!(
+        error.is_none(),
+        "internal wakeup turn finished with error: {error:?}"
+    );
+    assert_eq!(agent_state.status().await, AgentStatus::Idle);
+
+    handle.stop();
+}
+
 // ── Tests ───────────────────────────────────────────────────────────────────
+
+/// True when the tmux E2E tier is enabled (`CLAUDE_TMUX_E2E=1`) AND a `tmux`
+/// binary is available on PATH. Prints the skip reason otherwise.
+fn tmux_e2e_enabled(what: &str) -> bool {
+    if std::env::var("CLAUDE_TMUX_E2E").as_deref() != Ok("1") {
+        eprintln!("Skipping {what} (set CLAUDE_TMUX_E2E=1 to run)");
+        return false;
+    }
+    if std::process::Command::new("tmux")
+        .arg("-V")
+        .output()
+        .is_err()
+    {
+        eprintln!("Skipping {what} (tmux binary not found on PATH)");
+        return false;
+    }
+    true
+}
 
 /// Subprocess transport (`-p` / NDJSON). Gated on `CLAUDE_SDK_E2E=1`.
 #[tokio::test]
@@ -386,38 +552,43 @@ async fn test_spawn_agent_subprocess() {
 #[tokio::test]
 #[ignore]
 async fn test_spawn_agent_tmux() {
-    if std::env::var("CLAUDE_TMUX_E2E").as_deref() != Ok("1") {
-        eprintln!("Skipping tmux E2E test (set CLAUDE_TMUX_E2E=1 to run)");
-        return;
-    }
-    if std::process::Command::new("tmux")
-        .arg("-V")
-        .output()
-        .is_err()
-    {
-        eprintln!("Skipping tmux E2E test (tmux binary not found on PATH)");
+    if !tmux_e2e_enabled("tmux E2E test") {
         return;
     }
     run_agent_roundtrip(true).await;
 }
 
-/// Tmux resume transport. Gated on `CLAUDE_TMUX_E2E=1` and requires `tmux` on
-/// PATH. Drives two turns where turn 2 resumes turn 1 by `session_id`, guarding
+/// Tmux restart-resume. Turn 1 on actor A; A is stopped (pod-restart
+/// analogue); turn 2 on a fresh actor B resumes by `session_id`, guarding
 /// against the `JsonlNotFound` resume-discovery regression.
 #[tokio::test]
 #[ignore]
 async fn test_resume_agent_tmux() {
-    if std::env::var("CLAUDE_TMUX_E2E").as_deref() != Ok("1") {
-        eprintln!("Skipping tmux resume E2E test (set CLAUDE_TMUX_E2E=1 to run)");
-        return;
-    }
-    if std::process::Command::new("tmux")
-        .arg("-V")
-        .output()
-        .is_err()
-    {
-        eprintln!("Skipping tmux resume E2E test (tmux binary not found on PATH)");
+    if !tmux_e2e_enabled("tmux resume E2E test") {
         return;
     }
     run_agent_resume(true).await;
+}
+
+/// Tmux persistent multi-turn: two sends on one actor must share the same
+/// live session (turn 2 is pasted into the running TUI, not respawned).
+#[tokio::test]
+#[ignore]
+async fn test_multi_turn_agent_tmux() {
+    if !tmux_e2e_enabled("tmux multi-turn E2E test") {
+        return;
+    }
+    run_agent_multi_turn(true).await;
+}
+
+/// Tmux CLI-internal wakeup: the CLI's own ScheduleWakeup timer fires inside
+/// the persistent TUI and starts a turn with no sandbox send; the actor must
+/// surface and complete it.
+#[tokio::test]
+#[ignore]
+async fn test_internal_wakeup_agent_tmux() {
+    if !tmux_e2e_enabled("tmux internal-wakeup E2E test") {
+        return;
+    }
+    run_agent_internal_wakeup(true).await;
 }
