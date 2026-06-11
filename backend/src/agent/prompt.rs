@@ -97,6 +97,10 @@ Available `moat` commands:
   destination automatically.
 - `moat messages react --message <id> --emoji <name>` — React to a specific
   external message with an emoji. Pass `--remove` to undo.
+- `moat messages list $TASK_ID --full` — Read this task's conversation history
+  as a full-text transcript (newest 50 by default; `--limit <n>` up to 200,
+  `--before-id <id>` for older pages). Use it to recover context when prior
+  conversation is missing from your session.
 - `moat tasks status $TASK_ID` — Show sandbox status including server states
 - `moat tasks logs $TASK_ID --server <name>` — Stream server logs (e.g., `--server preview`)
 - `moat tasks diagnose $TASK_ID` — Diagnose sandbox issues (status + container diagnostics + recent errors)

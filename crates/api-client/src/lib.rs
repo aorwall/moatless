@@ -512,7 +512,7 @@ impl ApiClient {
         &self,
         task_id: &str,
     ) -> Result<moatless_api_schemas::message::GetMessagesResponse, ApiError> {
-        self.get(&format!("/api/v1/tasks/{task_id}/messages")).await
+        self.get_messages_page(task_id, false, None, None).await
     }
 
     /// GET /api/v1/tasks/{task_id}/messages?summary=true
@@ -523,8 +523,31 @@ impl ApiClient {
         &self,
         task_id: &str,
     ) -> Result<moatless_api_schemas::message::GetMessagesResponse, ApiError> {
-        self.get(&format!("/api/v1/tasks/{task_id}/messages?summary=true"))
-            .await
+        self.get_messages_page(task_id, true, None, None).await
+    }
+
+    /// GET /api/v1/tasks/{task_id}/messages with explicit pagination.
+    ///
+    /// `limit` defaults to 50 server-side (clamped to 1..=200). `before_id`
+    /// is the cursor from a previous page's `next_before_id` — pass it to
+    /// fetch the next older page.
+    pub async fn get_messages_page(
+        &self,
+        task_id: &str,
+        summary: bool,
+        limit: Option<i32>,
+        before_id: Option<i32>,
+    ) -> Result<moatless_api_schemas::message::GetMessagesResponse, ApiError> {
+        use std::fmt::Write as _;
+        let mut url = format!("/api/v1/tasks/{task_id}/messages?summary={summary}");
+        if let Some(limit) = limit {
+            // write! to a String is infallible
+            let _ = write!(url, "&limit={limit}");
+        }
+        if let Some(before_id) = before_id {
+            let _ = write!(url, "&before_id={before_id}");
+        }
+        self.get(&url).await
     }
 
     /// POST /api/v1/tasks/{task_id}/messages
