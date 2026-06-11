@@ -799,10 +799,12 @@ fn build_inbound_text(session: &AgentSession) -> String {
         let id = &issue.identifier;
         let _ = write!(
             text,
-            "\n\nBefore working on this task, read the Linear issue and all of its \
-             comments using the `moat` CLI:\n\n\
+            "\n\nBefore working on this task, read the Linear issue, all of its \
+             comments, and its linked PRs and agent tasks using the `moat` CLI:\n\n\
              - Issue details and description: `moat linear issue get {id} --json`\n\
-             - All comments: `moat linear graphql 'query {{ issue(id: \"{id}\") {{ \
+             - Comments, linked PRs, and related agent tasks: \
+             `moat linear graphql 'query {{ issue(id: \"{id}\") {{ \
+             attachments {{ nodes {{ title url sourceType }} }} \
              comments {{ nodes {{ body createdAt user {{ displayName }} }} }} }} }}'`"
         );
     }
@@ -1464,10 +1466,13 @@ mod tests {
         let text = build_inbound_text(&session);
         assert!(text.contains("## Linear issue SP-1 — Bug"));
         assert!(text.contains("https://linear.app/acme/issue/SP-1"));
-        assert!(text.contains("read the Linear issue and all of its comments"));
+        assert!(text.contains(
+            "read the Linear issue, all of its comments, and its linked PRs and agent tasks"
+        ));
         assert!(text.contains("moat linear issue get SP-1 --json"));
         assert!(text.contains(
             "moat linear graphql 'query { issue(id: \"SP-1\") { \
+             attachments { nodes { title url sourceType } } \
              comments { nodes { body createdAt user { displayName } } } } }'"
         ));
         // The issue description is not inlined — the agent reads the live ticket.
