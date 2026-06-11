@@ -37,6 +37,7 @@ struct MockBackendClient {
     message_batches: Mutex<Vec<Vec<PendingMessage>>>,
     publish_count: AtomicUsize,
     ack_count: AtomicUsize,
+    get_pending_count: AtomicUsize,
 }
 
 impl MockBackendClient {
@@ -45,6 +46,7 @@ impl MockBackendClient {
             message_batches: Mutex::new(batches),
             publish_count: AtomicUsize::new(0),
             ack_count: AtomicUsize::new(0),
+            get_pending_count: AtomicUsize::new(0),
         }
     }
 
@@ -55,6 +57,10 @@ impl MockBackendClient {
 
     fn ack_count(&self) -> usize {
         self.ack_count.load(Ordering::SeqCst)
+    }
+
+    fn get_pending_count(&self) -> usize {
+        self.get_pending_count.load(Ordering::SeqCst)
     }
 }
 
@@ -68,6 +74,7 @@ impl BackendClient for MockBackendClient {
         &self,
         _task_id: &str,
     ) -> Result<Vec<PendingMessage>, tonic::Status> {
+        self.get_pending_count.fetch_add(1, Ordering::SeqCst);
         let mut batches = self.message_batches.lock().unwrap();
         if batches.is_empty() {
             Ok(vec![])
@@ -267,6 +274,66 @@ async fn dispatch_does_not_ack_when_agent_fails_to_start() {
         backend.ack_count(),
         0,
         "Should not acknowledge when agent fails to start"
+    );
+}
+
+// Paused-time runtime: the 15s redispatch backoff auto-advances as soon as
+// all tasks are otherwise idle, so this completes in milliseconds.
+#[tokio::test(start_paused = true)]
+async fn dropped_ack_schedules_redispatch_of_pending_messages() {
+    // The agent has no real CLI, so each dispatch fails before SessionInit and
+    // drops the ack. The dispatcher must then re-fetch pending messages after
+    // the backoff instead of stranding them until the next sandbox startup.
+    let backend = Arc::new(MockBackendClient::new(vec![
+        vec![make_text_message("hello", Some("uuid-1"))],
+        vec![make_text_message("hello", Some("uuid-1"))],
+    ]));
+    let state = test_state(Arc::clone(&backend) as _);
+
+    moatless_sandbox::agent::dispatcher::dispatch_pending_messages(state.clone()).await;
+
+    // Wait (in paused time) for: agent failure → ack drop → 15s backoff →
+    // re-dispatch. Poll because the agent failure path does real (non-timer)
+    // work between the fetches.
+    let mut waited_secs = 0;
+    while backend.get_pending_count() < 2 && waited_secs < 120 {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        waited_secs += 1;
+    }
+
+    assert!(
+        backend.get_pending_count() >= 2,
+        "dropped ack should trigger a pending-message re-fetch (got {})",
+        backend.get_pending_count()
+    );
+    assert_eq!(backend.ack_count(), 0, "agent never started — no acks");
+}
+
+#[tokio::test(start_paused = true)]
+async fn redispatch_skipped_when_circuit_breaker_active() {
+    let backend = Arc::new(MockBackendClient::new(vec![vec![make_text_message(
+        "hello",
+        Some("uuid-1"),
+    )]]));
+    let state = test_state(Arc::clone(&backend) as _);
+
+    // Prime the agent state past the circuit-breaker threshold so the
+    // re-dispatch gate trips regardless of when the actor's own failure
+    // increments the counter.
+    for _ in 0..3 {
+        state.agent.set_error("induced failure".to_string()).await;
+    }
+
+    moatless_sandbox::agent::dispatcher::dispatch_pending_messages(state.clone()).await;
+
+    // Advance well past the redispatch backoff. The gate must skip the
+    // re-fetch, so the count stays at the initial dispatch's single fetch.
+    tokio::time::sleep(Duration::from_secs(60)).await;
+
+    assert_eq!(
+        backend.get_pending_count(),
+        1,
+        "circuit breaker active — no re-fetch should happen"
     );
 }
 

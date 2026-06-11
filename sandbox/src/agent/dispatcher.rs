@@ -10,6 +10,7 @@
 //! The agent handles whether to start a new session or inject mid-turn.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use tracing::{info, warn};
 
@@ -92,22 +93,65 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
     if !uuids.is_empty() {
         let task_id = task_id.to_string();
         let backend = Arc::clone(&state.backend_client);
+        let redelivery_state = state.clone();
         tokio::spawn(async move {
-            match ack_rx.await {
-                Ok(session_id) => {
-                    if let Err(e) = backend
-                        .acknowledge_messages(&task_id, uuids, &session_id)
-                        .await
-                    {
-                        warn!(error = %e, "Failed to acknowledge messages");
-                    }
-                }
-                Err(_) => {
-                    warn!("Agent ack channel dropped — messages not acknowledged");
-                }
+            let Ok(session_id) = ack_rx.await else {
+                warn!("Agent ack channel dropped — messages not acknowledged");
+                schedule_redispatch(redelivery_state).await;
+                return;
+            };
+            if let Err(e) = backend
+                .acknowledge_messages(&task_id, uuids, &session_id)
+                .await
+            {
+                warn!(error = %e, "Failed to acknowledge messages");
             }
         });
     }
+}
+
+/// How long to wait before re-fetching pending messages after a dropped ack —
+/// enough for a follow-up agent start attempt to succeed (and ack) or fail
+/// definitively, without hammering `GetPendingMessages` in a tight loop.
+const REDISPATCH_BACKOFF: Duration = Duration::from_secs(15);
+
+/// Skip re-dispatch once the agent has accumulated this many consecutive
+/// errors — mirrors the agent actor's `MAX_CONSECUTIVE_ERRORS` circuit
+/// breaker so a persistently failing agent can't loop dispatch → drop →
+/// re-dispatch forever.
+const MAX_REDISPATCH_CONSECUTIVE_ERRORS: u32 = 3;
+
+/// Re-fetch and re-dispatch pending messages after the agent dropped an ack.
+///
+/// A dropped ack means the agent died before `SessionInit`, so the messages
+/// were never acknowledged (`agent_session_id` stays NULL on the backend).
+/// Without this, nothing re-delivers them until the next sandbox startup —
+/// in production that meant a ~10 minute gap. Bounded: each re-dispatch only
+/// schedules another retry if its own ack drops again, and the consecutive-
+/// error gate stops the cycle once the agent is persistently failing.
+///
+/// Safe against double-delivery: the backend only returns messages that are
+/// still unacknowledged, so if a later attempt acked them this fetch is empty.
+///
+/// Not an `async fn`: the recursion (`dispatch_pending_messages` → ack task →
+/// here → `dispatch_pending_messages`) must go through a type-erased boxed
+/// future, otherwise the compiler cannot resolve the futures' `Send` bounds
+/// through the cycle.
+fn schedule_redispatch(
+    state: SandboxState,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>> {
+    Box::pin(async move {
+        let consecutive_errors = state.agent.consecutive_errors().await;
+        if consecutive_errors >= MAX_REDISPATCH_CONSECUTIVE_ERRORS {
+            warn!(
+                consecutive_errors,
+                "Skipping pending-message re-dispatch — agent circuit breaker active"
+            );
+            return;
+        }
+        tokio::time::sleep(REDISPATCH_BACKOFF).await;
+        dispatch_pending_messages(state).await;
+    })
 }
 
 /// Resolve a pending interactive prompt with the first pending message.
