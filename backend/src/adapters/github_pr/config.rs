@@ -2,6 +2,12 @@
 
 use crate::adapters::models::TaskTriggerRoute;
 
+/// Senders ignored by default when `provider_config.ignored_senders` is not
+/// set. `linear-code[bot]` is Linear's GitHub App: their servers post
+/// `<!-- linear-linkback -->` metadata comments on any PR referencing a
+/// Linear issue — pure noise that no bound task ever wants delivered.
+const DEFAULT_IGNORED_SENDERS: &[&str] = &["linear-code[bot]"];
+
 /// Extracted GitHub-specific knobs from an `TaskTriggerRoute`.
 #[derive(Debug, Clone)]
 pub struct GithubPrRuleConfig {
@@ -15,11 +21,21 @@ pub struct GithubPrRuleConfig {
     /// Emit an inbound message when a check_suite completes successfully.
     /// Failures are always reported via check_run regardless of this flag.
     pub notify_on_success: bool,
+    /// Sender logins whose webhook events are dropped entirely (compared
+    /// case-insensitively against `sender.login`). Applies to ALL event
+    /// types — including `pull_request` opened/closed, so an ignored sender
+    /// can neither create nor close tasks.
+    ///
+    /// Defaults to `DEFAULT_IGNORED_SENDERS` when the key is absent from
+    /// `provider_config`. An explicit array replaces the default verbatim:
+    /// opt out with `{"ignored_senders": []}`, extend by listing the full
+    /// set, e.g. `["linear-code[bot]", "dependabot[bot]"]`.
+    pub ignored_senders: Vec<String>,
 }
 
 impl GithubPrRuleConfig {
-    /// Parse from an `TaskTriggerRoute`'s `event_filter` JSONB column plus
-    /// scalar boolean columns.
+    /// Parse from an `TaskTriggerRoute`'s `event_filter` and `provider_config`
+    /// JSONB columns plus scalar boolean columns.
     pub fn from_rule(rule: &TaskTriggerRoute) -> Self {
         let events_filter = rule
             .event_filter
@@ -30,10 +46,32 @@ impl GithubPrRuleConfig {
                     .collect()
             })
             .unwrap_or_default();
+        // `provider_config` may be null when no GitHub-specific config was
+        // supplied — treat as empty.
+        let empty = serde_json::Value::Object(serde_json::Map::new());
+        let provider_config = rule.provider_config.as_ref().unwrap_or(&empty);
+        let ignored_senders = provider_config
+            .get("ignored_senders")
+            .and_then(|v| v.as_array())
+            .map_or_else(
+                || {
+                    DEFAULT_IGNORED_SENDERS
+                        .iter()
+                        .copied()
+                        .map(String::from)
+                        .collect()
+                },
+                |arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                },
+            );
         Self {
             events_filter,
             close_task_on_close: rule.close_task_on_close,
             notify_on_success: rule.notify_on_success,
+            ignored_senders,
         }
     }
 }
@@ -48,6 +86,15 @@ mod tests {
         events_filter: serde_json::Value,
         close_task_on_close: bool,
         notify_on_success: bool,
+    ) -> TaskTriggerRoute {
+        rule_with_provider_config(events_filter, close_task_on_close, notify_on_success, None)
+    }
+
+    fn rule_with_provider_config(
+        events_filter: serde_json::Value,
+        close_task_on_close: bool,
+        notify_on_success: bool,
+        provider_config: Option<serde_json::Value>,
     ) -> TaskTriggerRoute {
         TaskTriggerRoute {
             id: "ir_test".into(),
@@ -65,7 +112,7 @@ mod tests {
             agent_type: "claude-code".into(),
             inactive_ttl_days: None,
             allow_direct_send: false,
-            provider_config: None,
+            provider_config,
             ongoing_task_id: None,
             close_task_on_close,
             notify_on_success,
@@ -112,5 +159,48 @@ mod tests {
         let cfg = GithubPrRuleConfig::from_rule(&rule);
         assert!(!cfg.close_task_on_close);
         assert!(cfg.notify_on_success);
+    }
+
+    #[test]
+    fn null_provider_config_uses_default_ignored_senders() {
+        let rule = rule_with(serde_json::json!([]), true, false);
+        let cfg = GithubPrRuleConfig::from_rule(&rule);
+        assert_eq!(cfg.ignored_senders, vec!["linear-code[bot]"]);
+    }
+
+    #[test]
+    fn empty_ignored_senders_opts_out_of_default() {
+        let rule = rule_with_provider_config(
+            serde_json::json!([]),
+            true,
+            false,
+            Some(serde_json::json!({"ignored_senders": []})),
+        );
+        let cfg = GithubPrRuleConfig::from_rule(&rule);
+        assert!(cfg.ignored_senders.is_empty());
+    }
+
+    #[test]
+    fn explicit_ignored_senders_replace_default() {
+        let rule = rule_with_provider_config(
+            serde_json::json!([]),
+            true,
+            false,
+            Some(serde_json::json!({"ignored_senders": ["dependabot[bot]"]})),
+        );
+        let cfg = GithubPrRuleConfig::from_rule(&rule);
+        assert_eq!(cfg.ignored_senders, vec!["dependabot[bot]"]);
+    }
+
+    #[test]
+    fn non_array_ignored_senders_falls_back_to_default() {
+        let rule = rule_with_provider_config(
+            serde_json::json!([]),
+            true,
+            false,
+            Some(serde_json::json!({"ignored_senders": "linear-code[bot]"})),
+        );
+        let cfg = GithubPrRuleConfig::from_rule(&rule);
+        assert_eq!(cfg.ignored_senders, vec!["linear-code[bot]"]);
     }
 }

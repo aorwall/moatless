@@ -497,6 +497,23 @@ impl GithubPrAdapter {
         // per-task in `send_message_flow` via `has_external_event_id`, so sibling
         // watcher tasks connected to the same PR still receive events.)
 
+        // Drop events from ignored senders (`linear-code[bot]` by default;
+        // override per trigger via `provider_config.ignored_senders`). Applies
+        // to ALL event types, including `pull_request` opened/closed — ignored
+        // means ignored.
+        if !sender_login.is_empty()
+            && rule_config
+                .ignored_senders
+                .iter()
+                .any(|s| s.eq_ignore_ascii_case(sender_login))
+        {
+            debug!(
+                sender_login,
+                event_type, "GitHub event dropped: sender in ignored_senders"
+            );
+            return Ok(GithubPrWebhookResult::Ignore);
+        }
+
         let repo_full_name = payload
             .pointer("/repository/full_name")
             .and_then(serde_json::Value::as_str)
@@ -2061,6 +2078,120 @@ mod tests {
             .unwrap();
 
         assert!(matches!(result, GithubPrWebhookResult::Ignore));
+    }
+
+    /// Full issue_comment payload from a given sender, suitable for
+    /// `parse_webhook` (includes `repository.full_name` and `sender.login`).
+    fn issue_comment_payload(sender: &str) -> serde_json::Value {
+        serde_json::json!({
+            "action": "created",
+            "repository": { "full_name": "soaplabs/repo" },
+            "sender": { "login": sender },
+            "issue": {
+                "number": 42,
+                "pull_request": { "url": "https://api.github.com/repos/soaplabs/repo/pulls/42" }
+            },
+            "comment": {
+                "id": 123_456_u64,
+                "body": "<!-- linear-linkback -->\nSP-1529 linked",
+            }
+        })
+    }
+
+    #[tokio::test]
+    async fn ignored_sender_comment_is_dropped_at_ingress() {
+        let provider = GithubPrAdapter::new(
+            None,
+            None,
+            fake_db_pool(),
+            fake_provider_tokens(),
+            None,
+            None,
+            fake_github_apps(),
+        );
+        let mut rule = fake_rule();
+        // Mixed case in config vs payload — match must be case-insensitive.
+        rule.provider_config =
+            Some(serde_json::json!({"ignored_senders": ["Linear-Code[bot]"]}));
+        let db = fake_db_pool();
+
+        let result = provider
+            .parse_webhook(
+                "delivery-ignored-sender",
+                "issue_comment",
+                &issue_comment_payload("linear-code[bot]"),
+                &rule,
+                &db,
+            )
+            .await
+            .unwrap();
+
+        assert!(matches!(result, GithubPrWebhookResult::Ignore));
+    }
+
+    #[tokio::test]
+    async fn linear_code_bot_dropped_by_default() {
+        let provider = GithubPrAdapter::new(
+            None,
+            None,
+            fake_db_pool(),
+            fake_provider_tokens(),
+            None,
+            None,
+            fake_github_apps(),
+        );
+        // No provider_config at all — the built-in default ignore list applies.
+        let rule = fake_rule();
+        let db = fake_db_pool();
+
+        let result = provider
+            .parse_webhook(
+                "delivery-default-ignored-sender",
+                "issue_comment",
+                &issue_comment_payload("linear-code[bot]"),
+                &rule,
+                &db,
+            )
+            .await
+            .unwrap();
+
+        assert!(matches!(result, GithubPrWebhookResult::Ignore));
+    }
+
+    #[tokio::test]
+    async fn empty_ignored_senders_opt_out_delivers() {
+        let provider = GithubPrAdapter::new(
+            None,
+            None,
+            fake_db_pool(),
+            fake_provider_tokens(),
+            None,
+            None,
+            fake_github_apps(),
+        );
+        // Explicit empty list opts out of the default — the same bot comment
+        // goes through.
+        let mut rule = fake_rule();
+        rule.provider_config = Some(serde_json::json!({"ignored_senders": []}));
+        let db = fake_db_pool();
+
+        let result = provider
+            .parse_webhook(
+                "delivery-opt-out-sender",
+                "issue_comment",
+                &issue_comment_payload("linear-code[bot]"),
+                &rule,
+                &db,
+            )
+            .await
+            .unwrap();
+
+        match result {
+            GithubPrWebhookResult::Message(msg) => {
+                assert!(msg.text.contains("@linear-code[bot]"));
+            }
+            _ => panic!("expected Message for opted-out sender filter"),
+        }
     }
 
     #[tokio::test]
