@@ -1,5 +1,7 @@
 import type { UiMessage } from '@moatless/api-client'
-import { Bot } from 'lucide-react'
+import { Bot, ChevronDown, ChevronUp } from 'lucide-react'
+import { useState } from 'react'
+import { cn } from '@/lib/utils'
 import { getAdapterIcon, getAdapterLabel } from './external-source-meta'
 
 interface ExternalSourceMessageProps {
@@ -7,11 +9,53 @@ interface ExternalSourceMessageProps {
   variant?: 'external-source' | 'task'
 }
 
+const COLLAPSED_LINES = 4
+const COLLAPSED_CHAR_THRESHOLD = 400
+
 function getTextContent(message: UiMessage): string {
   return message.content
     .filter((c) => c.type === 'text')
     .map((c) => c.text ?? '')
     .join('\n')
+}
+
+function CollapsibleBody({ textContent }: { textContent: string }) {
+  const [isExpanded, setIsExpanded] = useState(false)
+  const isLong =
+    textContent.split('\n').length > COLLAPSED_LINES ||
+    textContent.length > COLLAPSED_CHAR_THRESHOLD
+
+  return (
+    <>
+      <pre
+        className={cn(
+          'px-3 py-2 text-sm font-mono whitespace-pre-wrap break-words overflow-x-auto text-foreground/90',
+          isLong && !isExpanded && 'line-clamp-4',
+        )}
+      >
+        {textContent}
+      </pre>
+      {isLong && (
+        <button
+          type="button"
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="w-full flex items-center gap-1 px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted/30 transition-colors"
+        >
+          {isExpanded ? (
+            <>
+              <ChevronUp className="h-3 w-3 flex-shrink-0" />
+              Show less
+            </>
+          ) : (
+            <>
+              <ChevronDown className="h-3 w-3 flex-shrink-0" />
+              Show more
+            </>
+          )}
+        </button>
+      )}
+    </>
+  )
 }
 
 export function ExternalSourceMessageComponent({
@@ -34,9 +78,7 @@ export function ExternalSourceMessageComponent({
             </span>
           )}
         </div>
-        <pre className="px-3 py-2 text-sm font-mono whitespace-pre-wrap break-words overflow-x-auto text-foreground/90">
-          {textContent}
-        </pre>
+        <CollapsibleBody textContent={textContent} />
       </div>
     )
   }
@@ -62,9 +104,7 @@ export function ExternalSourceMessageComponent({
           </span>
         )}
       </div>
-      <pre className="px-3 py-2 text-sm font-mono whitespace-pre-wrap break-words overflow-x-auto text-foreground/90">
-        {textContent}
-      </pre>
+      <CollapsibleBody textContent={textContent} />
     </div>
   )
 }

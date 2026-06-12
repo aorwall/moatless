@@ -24,6 +24,7 @@ const adapterLabels: Record<string, string> = {
   webhook: 'Webhook',
   telegram: 'Telegram',
   github: 'GitHub',
+  github_pr: 'GitHub PR',
   linear: 'Linear',
 }
 

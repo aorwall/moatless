@@ -1,4 +1,4 @@
-import { GitPullRequest, Hash, Mail, Radio, Send, Zap } from 'lucide-react'
+import { GitPullRequest, Hash, ListTodo, Mail, Radio, Send, Zap } from 'lucide-react'
 
 export function getAdapterIcon(adapterKind: string) {
   switch (adapterKind) {
@@ -7,7 +7,10 @@ export function getAdapterIcon(adapterKind: string) {
     case 'webhook':
       return <Zap className="h-3.5 w-3.5" />
     case 'github':
+    case 'github_pr':
       return <GitPullRequest className="h-3.5 w-3.5" />
+    case 'linear':
+      return <ListTodo className="h-3.5 w-3.5" />
     case 'telegram':
       return <Send className="h-3.5 w-3.5" />
     case 'email':
@@ -25,6 +28,10 @@ export function getAdapterLabel(adapterKind: string): string {
       return 'Webhook'
     case 'github':
       return 'GitHub'
+    case 'github_pr':
+      return 'GitHub PR'
+    case 'linear':
+      return 'Linear'
     case 'telegram':
       return 'Telegram'
     case 'email':
