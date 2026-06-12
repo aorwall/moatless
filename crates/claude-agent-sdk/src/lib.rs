@@ -61,7 +61,7 @@ pub use client::ClaudeClient;
 pub use config_dir::resolve_claude_config_dir;
 pub use error::{Result, SdkError};
 pub use query::{query, query_streaming, QueryHandle};
-pub use tmux::{query_tmux, query_tmux_streaming};
+pub use tmux::{has_resumable_transcript, query_tmux, query_tmux_streaming};
 pub use types::agents::AgentDefinition;
 pub use types::content::{ApiMessage, ContentBlock};
 pub use types::hooks::{HookDefinition, HookEvent, HookHandler, HookOutput, SyncHookOutput};

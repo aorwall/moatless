@@ -50,6 +50,8 @@ use crate::transport::StdinWriter;
 use crate::types::messages::SdkMessage;
 use crate::types::options::ClaudeOptions;
 
+pub use self::session::has_resumable_transcript;
+
 use self::hooks::{spawn_reader, HookHarness, HookLine};
 use self::session::{
     list_jsonl_stems, resolve_project_dir, resolve_resume_target, TmuxSession,

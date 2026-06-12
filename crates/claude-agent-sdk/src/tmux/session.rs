@@ -385,6 +385,34 @@ pub(crate) async fn list_jsonl_stems(dir: &Path) -> Result<HashSet<String>> {
     Ok(set)
 }
 
+/// True if `dir` contains at least one `*.jsonl` transcript. NotFound → false
+/// (mirrors [`list_jsonl_stems`]).
+pub(crate) async fn has_transcript_in(dir: &Path) -> bool {
+    let Ok(mut read) = tokio::fs::read_dir(dir).await else {
+        return false;
+    };
+    while let Ok(Some(entry)) = read.next_entry().await {
+        if entry.path().extension().and_then(|s| s.to_str()) == Some("jsonl") {
+            return true;
+        }
+    }
+    false
+}
+
+/// True when the Claude project dir for `cwd` contains a transcript —
+/// i.e. `--continue` has something to reopen. Resolves the dir the same way
+/// the tmux transport does (`CLAUDE_CONFIG_DIR` → `CLAUDE_HOME` →
+/// `$HOME/.claude`, then `projects/<dashed-cwd>`). Errors (cwd canonicalize
+/// failure) propagate so the caller can keep `--continue` as the fail-safe.
+pub async fn has_resumable_transcript(cwd: Option<&str>) -> Result<bool> {
+    let options = ClaudeOptions {
+        cwd: cwd.map(ToString::to_string),
+        ..Default::default()
+    };
+    let project_dir = resolve_project_dir(&options)?;
+    Ok(has_transcript_in(&project_dir).await)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -410,6 +438,62 @@ mod tests {
         std::env::set_var("CLAUDE_CONFIG_DIR", &config_dir);
         let resolved = resolve_project_dir(&options).expect("resolve");
         assert_eq!(resolved, config_dir.join("projects").join(&dashed));
+
+        std::env::remove_var("CLAUDE_CONFIG_DIR");
+    }
+
+    #[tokio::test]
+    async fn has_transcript_in_empty_dir_is_false() {
+        let tmp = tempfile::tempdir().expect("create tempdir");
+        assert!(!has_transcript_in(tmp.path()).await);
+    }
+
+    #[tokio::test]
+    async fn has_transcript_in_dir_with_jsonl_is_true() {
+        let tmp = tempfile::tempdir().expect("create tempdir");
+        // Non-jsonl files must not count as transcripts.
+        std::fs::write(tmp.path().join("notes.txt"), "x").expect("write notes.txt");
+        assert!(!has_transcript_in(tmp.path()).await);
+        std::fs::write(tmp.path().join("x.jsonl"), "{}").expect("write x.jsonl");
+        assert!(has_transcript_in(tmp.path()).await);
+    }
+
+    #[tokio::test]
+    async fn has_transcript_in_missing_dir_is_false() {
+        let tmp = tempfile::tempdir().expect("create tempdir");
+        assert!(!has_transcript_in(&tmp.path().join("does-not-exist")).await);
+    }
+
+    // Asserts the probe resolves the same `projects/<dashed-cwd>` dir under
+    // `CLAUDE_CONFIG_DIR` that the tmux transport polls. Mutates process-global
+    // env, so it runs under the shared env lock — a sync test with `block_on`
+    // rather than `#[tokio::test]`, to avoid holding the guard across awaits.
+    #[test]
+    fn has_resumable_transcript_resolves_env_config_dir() {
+        let _guard = crate::config_dir::ENV_LOCK.lock().expect("env lock");
+        // Use an existing directory so canonicalize() succeeds — tempdir works.
+        let cwd = std::env::temp_dir();
+        let canonical = cwd.canonicalize().expect("temp_dir should canonicalize");
+        let dashed = canonical.to_string_lossy().replace('/', "-");
+
+        let config_dir = tempfile::tempdir().expect("create tempdir");
+        std::env::set_var("CLAUDE_CONFIG_DIR", config_dir.path());
+
+        let project_dir = config_dir.path().join("projects").join(&dashed);
+        std::fs::create_dir_all(&project_dir).expect("create project dir");
+        let transcript = project_dir.join("s.jsonl");
+        std::fs::write(&transcript, "{}").expect("write transcript");
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build runtime");
+        let cwd_str = cwd.to_string_lossy().into_owned();
+        let probe = |cwd: &str| rt.block_on(has_resumable_transcript(Some(cwd)));
+        assert!(probe(&cwd_str).expect("probe"));
+
+        std::fs::remove_file(&transcript).expect("remove transcript");
+        assert!(!probe(&cwd_str).expect("probe"));
 
         std::env::remove_var("CLAUDE_CONFIG_DIR");
     }

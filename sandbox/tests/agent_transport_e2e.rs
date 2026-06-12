@@ -304,7 +304,7 @@ async fn wait_until_not_running(agent_state: &AgentState, timeout: Duration, wha
 
 async fn run_agent_roundtrip(use_tmux: bool) {
     init_tracing();
-    let (handle, agent_state, _events, _tmp) = spawn_test_agent(use_tmux);
+    let (handle, agent_state, events, _tmp) = spawn_test_agent(use_tmux);
 
     // `send` resolves on SessionInit (session started), not on completion.
     let ack = handle.send(
@@ -325,6 +325,15 @@ async fn run_agent_roundtrip(use_tmux: bool) {
     let error = agent_state.last_error().await;
     assert!(error.is_none(), "agent finished with error: {error:?}");
     assert_eq!(agent_state.status().await, AgentStatus::Idle);
+
+    // Regression guard: a first turn on a brand-new task must be a clean single
+    // spawn — no `--continue` fallback failing and retrying fresh (which would
+    // publish `session_context_lost` and wrap the prompt in context recovery).
+    let published = events.lock().expect("event log poisoned").clone();
+    assert!(
+        !published.iter().any(|e| e.contains("session_context_lost")),
+        "first turn must not report lost session context: {published:?}"
+    );
 
     handle.stop();
 }

@@ -248,6 +248,27 @@ pub(super) async fn start_session(
         agent_type,
     );
 
+    // `--continue` with an empty project dir makes the CLI exit immediately
+    // (tmux TUI dies before SessionStart; subprocess exits non-zero), tripping
+    // the SessionContextLost fallback on every brand-new task. Keep the Last
+    // fallback only when a transcript actually exists on disk. Probe errors
+    // keep Last — the existing fallback still handles a failed spawn.
+    let resume = if resume == Some(ResumeSession::Last) {
+        match claude_agent_sdk::has_resumable_transcript(Some(&config.workspace_dir)).await {
+            Ok(false) => {
+                info!("No transcript on disk — starting fresh instead of --continue");
+                None
+            }
+            Ok(true) => resume,
+            Err(error) => {
+                warn!(error = %error, "Transcript probe failed; keeping --continue");
+                resume
+            }
+        }
+    } else {
+        resume
+    };
+
     let request = AgentRunRequest {
         content: Vec::new(),
         model: model.map(std::string::ToString::to_string),
