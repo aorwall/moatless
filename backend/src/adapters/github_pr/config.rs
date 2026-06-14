@@ -46,34 +46,40 @@ impl GithubPrRuleConfig {
                     .collect()
             })
             .unwrap_or_default();
-        // `provider_config` may be null when no GitHub-specific config was
-        // supplied — treat as empty.
-        let empty = serde_json::Value::Object(serde_json::Map::new());
-        let provider_config = rule.provider_config.as_ref().unwrap_or(&empty);
-        let ignored_senders = provider_config
-            .get("ignored_senders")
-            .and_then(|v| v.as_array())
-            .map_or_else(
-                || {
-                    DEFAULT_IGNORED_SENDERS
-                        .iter()
-                        .copied()
-                        .map(String::from)
-                        .collect()
-                },
-                |arr| {
-                    arr.iter()
-                        .filter_map(|v| v.as_str().map(String::from))
-                        .collect()
-                },
-            );
         Self {
             events_filter,
             close_task_on_close: rule.close_task_on_close,
             notify_on_success: rule.notify_on_success,
-            ignored_senders,
+            ignored_senders: ignored_senders(rule.provider_config.as_ref()),
         }
     }
+}
+
+/// Parse `ignored_senders` from a `provider_config` JSONB value. Key absent,
+/// null config, or non-array value → `DEFAULT_IGNORED_SENDERS`; an explicit
+/// array replaces the default verbatim (`[]` opts out).
+///
+/// Shared by webhook ingress (`GithubPrRuleConfig::from_rule`) and the
+/// `fetch_context` comment backfill, which has a `TriggerContext` rather than
+/// a full `TaskTriggerRoute`.
+pub(crate) fn ignored_senders(provider_config: Option<&serde_json::Value>) -> Vec<String> {
+    provider_config
+        .and_then(|pc| pc.get("ignored_senders"))
+        .and_then(|v| v.as_array())
+        .map_or_else(
+            || {
+                DEFAULT_IGNORED_SENDERS
+                    .iter()
+                    .copied()
+                    .map(String::from)
+                    .collect()
+            },
+            |arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            },
+        )
 }
 
 #[cfg(test)]

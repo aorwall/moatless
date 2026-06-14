@@ -142,8 +142,15 @@ pub struct UpdateVisibilityRequest {
 #[serde(rename_all = "camelCase")]
 pub struct UpdateTaskTtlRequest {
     /// New idle TTL in minutes. Must be `>= 0`. `0` disables the idle reaper
-    /// for this task (sandbox stays alive until explicitly stopped).
-    pub ttl_minutes: i32,
+    /// for this task (sandbox stays alive until explicitly stopped). Omit to
+    /// leave the current idle TTL unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ttl_minutes: Option<i32>,
+    /// New inactivity TTL in days. Must be `>= 0`. `0` disables auto-close for
+    /// this task (it stays Open until closed explicitly). Omit to leave the
+    /// current inactivity TTL unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inactive_ttl_days: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

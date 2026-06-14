@@ -269,6 +269,15 @@ impl ApiClient {
             .await
     }
 
+    /// PUT /api/v1/tasks/{task_id}/ttl
+    pub async fn update_ttl(
+        &self,
+        task_id: &str,
+        req: &moatless_api_schemas::task::UpdateTaskTtlRequest,
+    ) -> Result<moatless_api_schemas::task::TaskResponse, ApiError> {
+        self.put(&format!("/api/v1/tasks/{task_id}/ttl"), req).await
+    }
+
     /// PUT /api/v1/tasks/{task_id}/visibility
     pub async fn update_visibility(
         &self,

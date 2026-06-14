@@ -1584,31 +1584,56 @@ impl Adapter for GithubPrAdapter {
             return Ok(None);
         }
 
-        let context = comments
-            .iter()
-            .filter(|c| match c.body.as_deref().and_then(parse_agent_marker) {
-                // Hide this task's own outbound comments — they're already in
-                // its message log and would only echo back as context.
-                Some(AgentMarker::Tagged(ref tid)) => tid != &thread.task_id,
-                // Legacy bare markers: source task unknown, drop to match
-                // pre-tagged behavior.
-                Some(AgentMarker::Bare) => false,
-                None => true,
-            })
-            .filter(|c| {
-                let prefixed = super::external_id::issue_comment(c.id);
-                let bare = c.id.to_string();
-                !exclude_external_ids.contains(&prefixed) && !exclude_external_ids.contains(&bare)
-            })
-            .map(|c| format!("@{}: {}", c.author(), c.body.as_deref().unwrap_or("")))
-            .collect::<Vec<_>>()
-            .join("\n\n");
+        let ignored_senders = super::config::ignored_senders(config.provider_config.as_ref());
+        Ok(pr_comments_context(
+            &comments,
+            &thread.task_id,
+            exclude_external_ids,
+            &ignored_senders,
+        ))
+    }
+}
 
-        if context.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(format!("## PR Comments\n\n{context}")))
-        }
+/// Build the "## PR Comments" context block from fetched PR comments.
+/// Mirrors the webhook ingress filters: drops this task's own agent comments,
+/// already-delivered comment ids, and ignored senders (so e.g.
+/// `linear-code[bot]` linkback noise doesn't leak in via context backfill
+/// even though it never arrives as a webhook delivery).
+fn pr_comments_context(
+    comments: &[super::api::PrComment],
+    task_id: &str,
+    exclude_external_ids: &[String],
+    ignored_senders: &[String],
+) -> Option<String> {
+    let context = comments
+        .iter()
+        .filter(|c| match c.body.as_deref().and_then(parse_agent_marker) {
+            // Hide this task's own outbound comments — they're already in
+            // its message log and would only echo back as context.
+            Some(AgentMarker::Tagged(ref tid)) => tid != task_id,
+            // Legacy bare markers: source task unknown, drop to match
+            // pre-tagged behavior.
+            Some(AgentMarker::Bare) => false,
+            None => true,
+        })
+        .filter(|c| {
+            let prefixed = super::external_id::issue_comment(c.id);
+            let bare = c.id.to_string();
+            !exclude_external_ids.contains(&prefixed) && !exclude_external_ids.contains(&bare)
+        })
+        .filter(|c| {
+            !ignored_senders
+                .iter()
+                .any(|s| s.eq_ignore_ascii_case(c.author()))
+        })
+        .map(|c| format!("@{}: {}", c.author(), c.body.as_deref().unwrap_or("")))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
+    if context.is_empty() {
+        None
+    } else {
+        Some(format!("## PR Comments\n\n{context}"))
     }
 }
 
@@ -2127,6 +2152,55 @@ mod tests {
             .unwrap();
 
         assert!(matches!(result, GithubPrWebhookResult::Ignore));
+    }
+
+    fn pr_comment(id: u64, login: &str, body: &str) -> crate::adapters::github_pr::api::PrComment {
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "user": {"login": login},
+            "body": body,
+            "created_at": "2026-06-12T00:00:00Z",
+        }))
+        .expect("valid PrComment json")
+    }
+
+    #[test]
+    fn context_backfill_drops_default_ignored_senders() {
+        let comments = vec![
+            pr_comment(1, "linear-code[bot]", "<!-- linear-linkback -->\nSP-1529 linked"),
+            pr_comment(2, "alice", "looks good"),
+        ];
+        let ignored = crate::adapters::github_pr::config::ignored_senders(None);
+
+        let context = pr_comments_context(&comments, "task-1", &[], &ignored).unwrap();
+
+        assert!(context.contains("@alice: looks good"));
+        assert!(!context.contains("linear-code[bot]"));
+    }
+
+    #[test]
+    fn context_backfill_keeps_ignored_sender_when_opted_out() {
+        let comments = vec![pr_comment(
+            1,
+            "linear-code[bot]",
+            "<!-- linear-linkback -->\nSP-1529 linked",
+        )];
+
+        let context = pr_comments_context(&comments, "task-1", &[], &[]).unwrap();
+
+        assert!(context.contains("@linear-code[bot]"));
+    }
+
+    #[test]
+    fn context_backfill_returns_none_when_all_comments_ignored() {
+        let comments = vec![pr_comment(
+            1,
+            "linear-code[bot]",
+            "<!-- linear-linkback -->\nSP-1529 linked",
+        )];
+        let ignored = crate::adapters::github_pr::config::ignored_senders(None);
+
+        assert!(pr_comments_context(&comments, "task-1", &[], &ignored).is_none());
     }
 
     #[tokio::test]

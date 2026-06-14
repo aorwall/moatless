@@ -977,8 +977,10 @@ pub async fn update_visibility(
     Ok(Json(resp))
 }
 
-/// Update a task's idle TTL (in minutes). `0` disables the idle reaper for
-/// this task — the sandbox stays alive until it's explicitly stopped.
+/// Update a task's TTLs. `ttl_minutes` is the idle TTL (`0` disables the idle
+/// reaper — the sandbox stays alive until explicitly stopped). `inactive_ttl_days`
+/// is the inactivity TTL (`0` disables auto-close). Both fields are optional;
+/// omit a field to leave that TTL unchanged. At least one must be provided.
 #[utoipa::path(
     put,
     path = "/api/v1/tasks/{task_id}/ttl",
@@ -999,9 +1001,19 @@ pub async fn update_ttl(
     Path(task_id): Path<String>,
     Json(req): Json<UpdateTaskTtlRequest>,
 ) -> Result<Json<TaskResponse>, TaskError> {
-    if req.ttl_minutes < 0 {
+    if req.ttl_minutes.is_none() && req.inactive_ttl_days.is_none() {
+        return Err(TaskError::BadRequest(
+            "provide ttl_minutes and/or inactive_ttl_days".to_string(),
+        ));
+    }
+    if req.ttl_minutes.is_some_and(|v| v < 0) {
         return Err(TaskError::BadRequest(
             "ttl_minutes must be >= 0".to_string(),
+        ));
+    }
+    if req.inactive_ttl_days.is_some_and(|v| v < 0) {
+        return Err(TaskError::BadRequest(
+            "inactive_ttl_days must be >= 0".to_string(),
         ));
     }
 
@@ -1017,7 +1029,8 @@ pub async fn update_ttl(
         .update_task(
             &task_id,
             &TaskPatch {
-                ttl_minutes: Some(req.ttl_minutes),
+                ttl_minutes: req.ttl_minutes,
+                inactive_ttl_days: req.inactive_ttl_days,
                 ..Default::default()
             },
         )
@@ -1025,7 +1038,8 @@ pub async fn update_ttl(
     tracing::info!(
         task_id = %task_id,
         user_id = %auth.user_id,
-        ttl_minutes = req.ttl_minutes,
+        ttl_minutes = ?req.ttl_minutes,
+        inactive_ttl_days = ?req.inactive_ttl_days,
         "Task TTL updated"
     );
 
