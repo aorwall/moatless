@@ -281,7 +281,7 @@ export function useAgentModeSelector(
   )
 }
 
-export type AgentType = 'claude-code' | 'codex' | 'claude-code-tmux' | 'claude-code-fable'
+export type AgentType = 'claude-code' | 'codex' | 'claude-code-cli' | 'claude-code-fable'
 export const DEFAULT_AGENT_TYPE: AgentType = 'claude-code'
 
 const DISCONNECTED_DESCRIPTION = 'Not connected — open Settings to add a token'

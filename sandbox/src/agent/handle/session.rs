@@ -22,14 +22,14 @@ use super::claude::make_user_message;
 use super::retry::is_session_unavailable_error;
 use super::{
     ActiveHandle, AgentRuntimeError, QueuedSend, AGENT_TYPE_CLAUDE_CODE,
-    AGENT_TYPE_CLAUDE_CODE_FABLE, AGENT_TYPE_CLAUDE_CODE_TMUX, AGENT_TYPE_CODEX,
+    AGENT_TYPE_CLAUDE_CODE_CLI, AGENT_TYPE_CLAUDE_CODE_FABLE, AGENT_TYPE_CODEX,
 };
 
 pub(super) fn normalize_agent_type(agent_type: Option<&str>) -> &'static str {
     match agent_type {
         Some(AGENT_TYPE_CODEX) => AGENT_TYPE_CODEX,
         Some(AGENT_TYPE_CLAUDE_CODE)
-        | Some(AGENT_TYPE_CLAUDE_CODE_TMUX)
+        | Some(AGENT_TYPE_CLAUDE_CODE_CLI)
         | Some(AGENT_TYPE_CLAUDE_CODE_FABLE)
         | None => AGENT_TYPE_CLAUDE_CODE,
         Some(other) => {
@@ -435,7 +435,7 @@ mod tests {
     #[test]
     fn normalize_claude_code_tmux_is_claude_family() {
         assert_eq!(
-            normalize_agent_type(Some(AGENT_TYPE_CLAUDE_CODE_TMUX)),
+            normalize_agent_type(Some(AGENT_TYPE_CLAUDE_CODE_CLI)),
             AGENT_TYPE_CLAUDE_CODE
         );
     }
@@ -497,11 +497,11 @@ mod tests {
 
     #[test]
     fn needs_restart_false_for_agent_type_alias() {
-        // claude-code-tmux / claude-code-fable normalize to the claude-code
+        // claude-code-cli / claude-code-fable normalize to the claude-code
         // family — not a session-incompatible change.
         let info = test_tmux_session_info();
         let mut send = test_queued_send();
-        send.agent_type = Some("claude-code-tmux".to_string());
+        send.agent_type = Some("claude-code-cli".to_string());
         assert!(!info.needs_restart(&send, Some("base prompt"), "session-1"));
     }
 

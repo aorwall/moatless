@@ -46,10 +46,10 @@ pub fn base_url() -> String {
 /// Agent type override for agent-tier tests (env: `E2E_AGENT_TYPE`).
 ///
 /// Lets the whole agent tier run against an alternate agent transport, e.g.
-/// `E2E_AGENT_TYPE=claude-code-tmux` to exercise the sandbox's persistent
-/// tmux session (`SANDBOX_USE_TMUX=true` is set by the backend's agent
-/// catalog for that agent type). Unset → `None` → backend default
-/// (claude-code over the subprocess transport).
+/// `E2E_AGENT_TYPE=claude-code-cli` to exercise the sandbox's subprocess/NDJSON
+/// transport (`SANDBOX_USE_TMUX` is left unset by the backend's agent catalog
+/// for that agent type). Unset → `None` → backend default (`claude-code`, which
+/// now runs over the persistent tmux session).
 pub fn e2e_agent_type() -> Option<moatless_api_schemas::shared::AgentType> {
     std::env::var("E2E_AGENT_TYPE")
         .ok()
@@ -59,10 +59,15 @@ pub fn e2e_agent_type() -> Option<moatless_api_schemas::shared::AgentType> {
 
 /// Whether the agent transport under test reports real cost data.
 ///
-/// The tmux/TUI transport has no machine-readable cost stream, so
-/// `total_cost_usd` stays `0.0` — cost assertions must be skipped there.
+/// The tmux transport has no machine-readable cost stream, so `total_cost_usd`
+/// stays `0.0` — cost assertions must be skipped there. Only the subprocess/NDJSON
+/// transports report cost: `claude-code-cli` and `codex`. The default
+/// (`claude-code`, i.e. `None`) and `claude-code-fable` now run over tmux.
 pub fn e2e_agent_reports_cost() -> bool {
-    e2e_agent_type().is_none_or(|t| t.as_str() != "claude-code-tmux")
+    matches!(
+        e2e_agent_type().as_ref().map(|t| t.as_str()),
+        Some("claude-code-cli") | Some("codex")
+    )
 }
 
 /// Build a raw reqwest client with ForwardAuth headers for a specific user.

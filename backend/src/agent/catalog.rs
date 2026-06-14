@@ -48,7 +48,7 @@ pub const CLAUDE_CODE: AgentEntry = AgentEntry {
     id: "claude-code",
     label: "Claude Code",
     kind: AgentKind::ClaudeCode,
-    params: AgentParams { use_tmux: false },
+    params: AgentParams { use_tmux: true },
     credential_keys: &[CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY],
     provider_token_providers: &["claude"],
     default_model: "default",
@@ -74,11 +74,11 @@ pub const CLAUDE_CODE: AgentEntry = AgentEntry {
         "Add CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in Settings \u{2192} Secrets",
 };
 
-pub const CLAUDE_CODE_TMUX: AgentEntry = AgentEntry {
-    id: "claude-code-tmux",
-    label: "Claude Code (TUI)",
+pub const CLAUDE_CODE_CLI: AgentEntry = AgentEntry {
+    id: "claude-code-cli",
+    label: "Claude Code (CLI)",
     kind: AgentKind::ClaudeCode,
-    params: AgentParams { use_tmux: true },
+    params: AgentParams { use_tmux: false },
     credential_keys: &[CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY],
     provider_token_providers: &["claude"],
     default_model: "default",
@@ -137,7 +137,7 @@ pub const CODEX: AgentEntry = AgentEntry {
 
 /// All supported agents in display order.
 pub fn catalog() -> &'static [AgentEntry] {
-    &[CLAUDE_CODE, CLAUDE_CODE_TMUX, CLAUDE_CODE_FABLE, CODEX]
+    &[CLAUDE_CODE, CLAUDE_CODE_CLI, CLAUDE_CODE_FABLE, CODEX]
 }
 
 /// Look up a catalog entry by its `agent_type` id.

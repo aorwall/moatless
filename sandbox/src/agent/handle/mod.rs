@@ -40,10 +40,10 @@ use super::codex_exec::CodexCliSession;
 use super::scheduled_job::ScheduledJobRegistry;
 
 const AGENT_TYPE_CLAUDE_CODE: &str = "claude-code";
-/// Claude Code running over the tmux transport (interactive TUI) instead of the
-/// subprocess/NDJSON transport. Treated as the claude-code family for everything
-/// except the transport selection in `start_session`.
-const AGENT_TYPE_CLAUDE_CODE_TMUX: &str = "claude-code-tmux";
+/// Claude Code over the subprocess/NDJSON transport (the explicit non-tmux CLI
+/// variant). Treated as the claude-code family for everything except the
+/// transport selection in `start_session`.
+const AGENT_TYPE_CLAUDE_CODE_CLI: &str = "claude-code-cli";
 /// Claude Code pinned to the `fable` model. Same executor family as claude-code;
 /// the model is forced backend-side when the message carries none.
 const AGENT_TYPE_CLAUDE_CODE_FABLE: &str = "claude-code-fable";
