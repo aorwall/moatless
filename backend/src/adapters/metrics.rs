@@ -17,6 +17,11 @@
 
 pub(crate) const ADAPTER_WEBHOOK_TOTAL: &str = "moatless_adapter_webhook_total";
 
+/// Outbound adapter API call outcomes. Low cardinality: adapter × outcome,
+/// where outcome is one of `success` / `auth_error` / `error`. Safe per the
+/// module doc's cardinality note.
+pub(crate) const ADAPTER_API_TOTAL: &str = "moatless_adapter_api_total";
+
 /// Register adapter metric descriptions with the Prometheus recorder.
 ///
 /// Call once at startup after the recorder is installed.
@@ -24,6 +29,10 @@ pub fn describe_adapter_metrics() {
     metrics::describe_counter!(
         ADAPTER_WEBHOOK_TOTAL,
         "Adapter webhook outcomes (success | ignored | error) by adapter, trigger, connection, reason, and event_type"
+    );
+    metrics::describe_counter!(
+        ADAPTER_API_TOTAL,
+        "Outbound adapter API call outcomes (success | auth_error | error) by adapter and outcome"
     );
 }
 
@@ -52,6 +61,20 @@ pub(crate) fn record_webhook(
         "event_type" => event_type.to_string(),
         "trigger_id" => trigger_id.to_string(),
         "connection_id" => connection_id.to_string(),
+    )
+    .increment(1);
+}
+
+/// Record one outbound adapter API call outcome.
+///
+/// `outcome` must be one of `"success"`, `"auth_error"`, `"error"`. A 401 that
+/// is healed by a reactive token refresh records `auth_error` then `success` —
+/// exactly the signal the auth-failure alert keys off.
+pub(crate) fn record_api_call(adapter: &'static str, outcome: &'static str) {
+    metrics::counter!(
+        ADAPTER_API_TOTAL,
+        "adapter" => adapter,
+        "outcome" => outcome,
     )
     .increment(1);
 }

@@ -184,6 +184,11 @@ impl OAuthProvider for LinearOAuthProvider {
             ("redirect_uri", self.callback_url.as_str()),
             ("state", state),
             ("scope", LINEAR_OAUTH_SCOPE),
+            // Always show the consent screen so re-install issues a fresh
+            // `code` even when the app is already installed — otherwise Linear
+            // skips consent and a revoked/invalidated token can't be replaced
+            // without a manual revoke first.
+            ("prompt", "consent"),
         ];
         let query = serde_urlencoded::to_string(params).ok()?;
         Some(format!("{LINEAR_AUTHORIZE_URL}?{query}"))

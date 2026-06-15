@@ -20,6 +20,7 @@ use serde::Deserialize;
 use tracing::{info, warn};
 
 use crate::adapters::error::AdapterError;
+use crate::adapters::metrics::record_api_call;
 use crate::auth::provider_token_dao::{PgProviderTokenRepository, ProviderTokenRepository};
 use crate::db::DbPool;
 
@@ -99,8 +100,6 @@ impl LinearAgentApi {
     /// Resolve a fresh access token for this organization, refreshing if the
     /// stored token is within `REFRESH_LEEWAY_SECS` of expiry.
     pub async fn resolve_access_token(&self) -> Result<String, AdapterError> {
-        let token_dao = PgProviderTokenRepository(self.db.clone());
-
         let full = sqlx::query_as::<
             _,
             (
@@ -145,6 +144,24 @@ impl LinearAgentApi {
 
         info!(org_id = %self.org_id, "Refreshing Linear OAuth access token");
         let refreshed = self.refresh_tokens(&refresh_token).await?;
+        self.store_refreshed(refreshed, &refresh_token, metadata)
+            .await
+    }
+
+    /// Persist a freshly-refreshed token set: upsert the access/refresh token
+    /// and metadata, then update `expires_at`. Returns the new access token.
+    ///
+    /// Shared by the proactive (`resolve_access_token`) and forced
+    /// (`force_refresh_access_token`) refresh paths. `prev_refresh` is the
+    /// refresh token that was used, kept as a fallback when Linear's response
+    /// rotates no new one.
+    async fn store_refreshed(
+        &self,
+        refreshed: TokenResponse,
+        prev_refresh: &str,
+        prev_metadata: Option<serde_json::Value>,
+    ) -> Result<String, AdapterError> {
+        let token_dao = PgProviderTokenRepository(self.db.clone());
 
         let new_expires_at = refreshed
             .expires_in
@@ -153,9 +170,9 @@ impl LinearAgentApi {
         let new_refresh = refreshed
             .refresh_token
             .clone()
-            .or(Some(refresh_token.clone()));
+            .or_else(|| Some(prev_refresh.to_string()));
 
-        let new_metadata = metadata
+        let new_metadata = prev_metadata
             .or_else(|| Some(serde_json::json!({})))
             .map(|mut v| {
                 if let Some(obj) = v.as_object_mut() {
@@ -193,6 +210,34 @@ impl LinearAgentApi {
         }
 
         Ok(refreshed.access_token)
+    }
+
+    /// Force a token refresh regardless of the recorded expiry, for the
+    /// reactive 401 path: Linear can invalidate a token server-side without
+    /// touching our `expires_at`, so `needs_refresh` never trips. Re-SELECT
+    /// the current refresh token + metadata and exchange it.
+    ///
+    /// Returns [`AdapterError::Unauthorized`] when no refresh token is stored
+    /// — that case is unrecoverable and surfaces to the auth-failure alert,
+    /// prompting a re-install.
+    async fn force_refresh_access_token(&self) -> Result<String, AdapterError> {
+        let row = sqlx::query_as::<_, (Option<String>, Option<serde_json::Value>)>(
+            "SELECT refresh_token, metadata \
+             FROM provider_tokens \
+             WHERE team_id = 'system' AND provider = $1 AND user_id IS NULL \
+             LIMIT 1",
+        )
+        .bind(PROVIDER)
+        .fetch_optional(&self.db)
+        .await
+        .map_err(AdapterError::Db)?;
+
+        let (refresh_token, metadata) = refresh_token_from_row(row)?;
+
+        info!(org_id = %self.org_id, "Force-refreshing Linear OAuth access token after 401");
+        let refreshed = self.refresh_tokens(&refresh_token).await?;
+        self.store_refreshed(refreshed, &refresh_token, metadata)
+            .await
     }
 
     /// Exchange a refresh token for a new access token.
@@ -273,7 +318,14 @@ impl LinearAgentApi {
         body: serde_json::Value,
     ) -> Result<serde_json::Value, AdapterError> {
         let token = self.resolve_access_token().await?;
-        self.graphql_raw_with_token(&token, body).await
+        match self.graphql_raw_with_token(&token, body.clone()).await {
+            Err(AdapterError::Unauthorized(_)) => {
+                warn!(org_id = %self.org_id, "Linear 401 — forcing token refresh and retrying once");
+                let fresh = self.force_refresh_access_token().await?;
+                self.graphql_raw_with_token(&fresh, body).await
+            }
+            other => other,
+        }
     }
 
     async fn graphql_raw_with_token(
@@ -290,23 +342,45 @@ impl LinearAgentApi {
             .json(&body)
             .send()
             .await
-            .map_err(|e| AdapterError::AdapterApi(format!("Linear request failed: {e}")))?;
+            .map_err(|e| {
+                record_api_call(PROVIDER, "error");
+                AdapterError::AdapterApi(format!("Linear request failed: {e}"))
+            })?;
 
         let status = resp.status();
-        let text = resp
-            .text()
-            .await
-            .map_err(|e| AdapterError::AdapterApi(format!("Linear response read failed: {e}")))?;
+        let text = resp.text().await.map_err(|e| {
+            record_api_call(PROVIDER, "error");
+            AdapterError::AdapterApi(format!("Linear response read failed: {e}"))
+        })?;
+
+        if status == reqwest::StatusCode::UNAUTHORIZED {
+            warn!(status = %status, body = %text, "Linear GraphQL 401 unauthorized");
+            record_api_call(PROVIDER, "auth_error");
+            return Err(AdapterError::Unauthorized(format!(
+                "Linear API returned {status}: {text}"
+            )));
+        }
 
         if !status.is_success() {
             warn!(status = %status, body = %text, "Linear GraphQL HTTP error");
+            record_api_call(PROVIDER, "error");
             return Err(AdapterError::AdapterApi(format!(
                 "Linear API returned {status}: {text}"
             )));
         }
 
-        serde_json::from_str(&text)
-            .map_err(|e| AdapterError::AdapterApi(format!("Linear JSON parse error: {e}")))
+        match serde_json::from_str(&text) {
+            Ok(value) => {
+                record_api_call(PROVIDER, "success");
+                Ok(value)
+            }
+            Err(e) => {
+                record_api_call(PROVIDER, "error");
+                Err(AdapterError::AdapterApi(format!(
+                    "Linear JSON parse error: {e}"
+                )))
+            }
+        }
     }
 
     /// Emit an activity on a session. Linear infers the session state from
@@ -812,6 +886,34 @@ fn parse_viewer(value: &serde_json::Value) -> Result<ViewerInfo, AdapterError> {
         .map_err(|e| AdapterError::AdapterApi(format!("Linear viewer parse error: {e}")))
 }
 
+/// Decide whether a force-refresh can proceed from the stored token row.
+/// Returns the refresh token + metadata to exchange, or
+/// [`AdapterError::Unauthorized`] when the row is missing or has no refresh
+/// token — the unrecoverable case that must surface to the auth-failure alert.
+type TokenRow = Option<(Option<String>, Option<serde_json::Value>)>;
+
+fn refresh_token_from_row(
+    row: TokenRow,
+) -> Result<(String, Option<serde_json::Value>), AdapterError> {
+    let (refresh_token, metadata) = row.ok_or_else(|| {
+        AdapterError::Unauthorized(
+            "No Linear OAuth token registered — \
+             run `moat adapters install --adapter linear` first"
+                .to_string(),
+        )
+    })?;
+
+    let Some(refresh_token) = refresh_token else {
+        return Err(AdapterError::Unauthorized(
+            "Linear access token rejected (401) and no refresh token stored — \
+             re-install with `moat adapters install --adapter linear`"
+                .to_string(),
+        ));
+    };
+
+    Ok((refresh_token, metadata))
+}
+
 fn needs_refresh(expires_at: Option<DateTime<Utc>>) -> bool {
     let Some(expires_at) = expires_at else {
         return false; // No expiry recorded — leave as-is.
@@ -861,6 +963,29 @@ mod tests {
     #[test]
     fn does_not_refresh_when_no_expiry() {
         assert!(!needs_refresh(None));
+    }
+
+    #[test]
+    fn force_refresh_unauthorized_when_no_row() {
+        // No stored token row at all → unrecoverable, surfaces to the alert.
+        let err = refresh_token_from_row(None).unwrap_err();
+        assert!(matches!(err, AdapterError::Unauthorized(_)));
+    }
+
+    #[test]
+    fn force_refresh_unauthorized_when_no_refresh_token() {
+        // Row exists but refresh_token is NULL → still unrecoverable.
+        let err = refresh_token_from_row(Some((None, None))).unwrap_err();
+        assert!(matches!(err, AdapterError::Unauthorized(_)));
+    }
+
+    #[test]
+    fn force_refresh_returns_token_when_present() {
+        let meta = Some(serde_json::json!({"scope": "read"}));
+        let (token, returned_meta) =
+            refresh_token_from_row(Some((Some("refresh-abc".to_string()), meta.clone()))).unwrap();
+        assert_eq!(token, "refresh-abc");
+        assert_eq!(returned_meta, meta);
     }
 
     #[test]

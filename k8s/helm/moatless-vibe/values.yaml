@@ -816,3 +816,9 @@ monitoring:
     # Standard Prometheus Operator: monitoring.coreos.com/v1
     # Azure Managed Prometheus: azmonitoring.coreos.com/v1
     apiVersion: "monitoring.coreos.com/v1"
+    # -- PrometheusRule alerting rules (requires monitoring.prometheus.enabled).
+    # Off by default so installs without an Alertmanager don't get a dangling
+    # PrometheusRule. Enable to ship the bundled alerts (e.g. Linear adapter
+    # auth failures).
+    alerting:
+      enabled: false

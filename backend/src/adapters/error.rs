@@ -31,6 +31,9 @@ pub enum AdapterError {
     #[error("Adapter API error: {0}")]
     AdapterApi(String),
 
+    #[error("Adapter API error: {0}")]
+    Unauthorized(String),
+
     #[error("Access denied: {0}")]
     AccessDenied(String),
 
@@ -71,7 +74,9 @@ impl IntoResponse for AdapterError {
                 )
             }
             AdapterError::AccessDenied(_) => (StatusCode::FORBIDDEN, self.to_string()),
-            AdapterError::AdapterApi(_) => (StatusCode::BAD_GATEWAY, self.to_string()),
+            AdapterError::AdapterApi(_) | AdapterError::Unauthorized(_) => {
+                (StatusCode::BAD_GATEWAY, self.to_string())
+            }
             AdapterError::MultipleTargets { targets } => {
                 let body = MultipleTargetsErrorBody {
                     error: self.to_string(),
