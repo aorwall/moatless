@@ -320,22 +320,29 @@ impl SlackAdapter {
                 return Ok(SlackWebhookResult::Ignore("own_bot"));
             }
         }
-        // Also check for bot_id field (different from user field)
-        if let Some(bot_id_value) = event.get("bot_id") {
-            debug!(
-                reason = "bot_id_field_present",
-                event_type = %event_type,
-                event_subtype = %event_subtype,
-                user = %user,
-                bot_id = %bot_id_value,
-                source_id = %channel,
-                "Slack event ignored"
-            );
-            return Ok(SlackWebhookResult::Ignore("bot_account"));
-        }
-
-        // 8. Parse typed provider config and apply trigger filter
+        // 8. Parse typed provider config (needed for the bot filter and trigger filter)
         let slack_config = SlackAdapterConfig::from_config(config);
+
+        // Also check for bot_id field (different from user field).
+        // When `allow_bot_messages` is on, foreign-bot messages (e.g. a CI notifier)
+        // are allowed through; the agent's own posts are still suppressed at the
+        // binding layer via self_echo (message ts match), so this is not a loop.
+        let mut is_bot_message = false;
+        if let Some(bot_id_value) = event.get("bot_id") {
+            if !slack_config.allow_bot_messages {
+                debug!(
+                    reason = "bot_id_field_present",
+                    event_type = %event_type,
+                    event_subtype = %event_subtype,
+                    user = %user,
+                    bot_id = %bot_id_value,
+                    source_id = %channel,
+                    "Slack event ignored"
+                );
+                return Ok(SlackWebhookResult::Ignore("bot_account"));
+            }
+            is_bot_message = true;
+        }
 
         // DM channels (starting with "D") are always directed at the bot —
         // bypass trigger filter for them.
@@ -436,27 +443,40 @@ impl SlackAdapter {
         // and — critically — they share emails across deployments so the email-based
         // user resolution is unsafe for them. This catches external deployment bots
         // that slip past the earlier `bot_id` field filter.
+        //
+        // When `allow_bot_messages` is on we skip this drop AND treat the sender as a
+        // bot for the remainder of the pipeline (`is_bot_message`), so we never resolve
+        // it by email or persist a `user_provider_ids` row (bots share emails across
+        // deployments — that resolution is unsafe for them).
         if let Some(ref info) = slack_user_info {
             if info.is_bot || info.is_app_user {
-                let is_own_bot = self.bot_user_id.as_deref() == Some(user);
-                debug!(
-                    slack_user = %user,
-                    source_id = %channel,
-                    is_own_bot,
-                    handle = %info.handle.as_deref().unwrap_or(""),
-                    "Ignoring Slack message from bot/app account"
-                );
-                return Ok(SlackWebhookResult::Ignore("bot_account"));
+                if !slack_config.allow_bot_messages {
+                    let is_own_bot = self.bot_user_id.as_deref() == Some(user);
+                    debug!(
+                        slack_user = %user,
+                        source_id = %channel,
+                        is_own_bot,
+                        handle = %info.handle.as_deref().unwrap_or(""),
+                        "Ignoring Slack message from bot/app account"
+                    );
+                    return Ok(SlackWebhookResult::Ignore("bot_account"));
+                }
+                is_bot_message = true;
             }
         }
 
         // Try provider ID lookup first (fast, avoids extra Slack API call), then email.
-        let mapped_user = self.resolve_user_by_slack_id(user, db).await?.or({
-            match slack_user_info.as_ref().and_then(|i| i.email.clone()) {
-                Some(ref email) => self.resolve_user_by_email(user, email, db).await?,
-                None => None,
-            }
-        });
+        // Never resolve a bot by email — bots share emails across deployments.
+        let mapped_user = if is_bot_message {
+            None
+        } else {
+            self.resolve_user_by_slack_id(user, db).await?.or({
+                match slack_user_info.as_ref().and_then(|i| i.email.clone()) {
+                    Some(ref email) => self.resolve_user_by_email(user, email, db).await?,
+                    None => None,
+                }
+            })
+        };
 
         // Opportunistically cache the Slack user ID for future provider ID lookups.
         if let Some(ref uid) = mapped_user {
@@ -491,6 +511,16 @@ impl SlackAdapter {
 
         let user_id = match mapped_user {
             Some(uid) => uid,
+            None if is_bot_message => {
+                // Foreign bot (e.g. CI notifier): attribute to trigger owner, no error reply.
+                info!(
+                    slack_user = %user,
+                    source_id = %channel,
+                    fallback_user = %config.effective_user_id(),
+                    "Bot message attributed to trigger owner"
+                );
+                config.effective_user_id().to_string()
+            }
             None if thread_ts.is_some() => {
                 // Thread reply from unmapped human — fall back to config owner
                 // (user identity only matters for task creation)
@@ -600,6 +630,31 @@ fn parse_slack_destination(destination: &str) -> Result<(String, Option<String>)
     }
     // Raw fallback — accept a bare channel ID for backward compatibility.
     Ok((raw.to_string(), None))
+}
+
+/// Re-anchor a Slack binding so a reply threads under a *specific* message
+/// rather than the binding's stored thread.
+///
+/// In ongoing-mode tasks a single task accumulates many `slack_thread`
+/// bindings (one per channel thread), and the reply handler hands the adapter
+/// the first one it finds — not necessarily the thread the replied-to message
+/// lives in. `moat messages reply --message <id>` carries that message's own
+/// external id, so override the binding's `thread_ts`/`ts` with the ts parsed
+/// from it. Channel/team stay as-is (every binding on the task shares the
+/// channel). Returns the binding unchanged when `target_external_id` isn't a
+/// recognizable Slack message id, falling back to the binding's thread.
+fn rethread_binding_to_message(binding: &TaskBinding, target_external_id: &str) -> TaskBinding {
+    let mut out = binding.clone();
+    if let Some(ts) = super::external_id::ts_from_message_id(target_external_id) {
+        if let Some(obj) = out.destination_config.as_object_mut() {
+            obj.insert(
+                "thread_ts".to_string(),
+                serde_json::Value::String(ts.to_string()),
+            );
+            obj.insert("ts".to_string(), serde_json::Value::String(ts.to_string()));
+        }
+    }
+    out
 }
 
 /// Strip leading/trailing `:` characters and validate that the result is a
@@ -862,6 +917,22 @@ impl Adapter for SlackAdapter {
             |r| crate::bindings::runtime::trigger_context(r, "slack"),
         );
         self.send_reply(&thread, &config, message).await
+    }
+
+    async fn reply_to_message(
+        &self,
+        binding: &TaskBinding,
+        connection: &AdapterConnection,
+        rule: Option<&TaskTriggerRoute>,
+        target_external_id: &str,
+        message: &OutboundReply,
+    ) -> Result<Option<String>, AdapterError> {
+        // Thread the reply under the message being replied to, not the
+        // (possibly arbitrary) binding's stored thread — see
+        // `rethread_binding_to_message`.
+        let threaded = rethread_binding_to_message(binding, target_external_id);
+        self.send_reply_for_binding(&threaded, connection, rule, message)
+            .await
     }
 
     async fn post_to_destination(

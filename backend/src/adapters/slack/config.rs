@@ -22,6 +22,11 @@ pub struct SlackAdapterConfig {
     /// Max thread messages to fetch for agent context.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_context_limit: Option<u64>,
+    /// Allow messages from OTHER bots (e.g. a CI notifier) to be processed.
+    /// The agent's own posts are still suppressed at the binding layer (self_echo
+    /// by message ts), so enabling this does not create echo loops.
+    #[serde(default)]
+    pub allow_bot_messages: bool,
 }
 
 impl Default for SlackAdapterConfig {
@@ -32,6 +37,7 @@ impl Default for SlackAdapterConfig {
             channel_allowlist: Vec::new(),
             user_allowlist: Vec::new(),
             thread_context_limit: None,
+            allow_bot_messages: false,
         }
     }
 }
@@ -62,6 +68,7 @@ mod tests {
         assert!(cfg.channel_allowlist.is_empty());
         assert!(cfg.user_allowlist.is_empty());
         assert!(cfg.thread_context_limit.is_none());
+        assert!(!cfg.allow_bot_messages);
     }
 
     #[test]
@@ -81,7 +88,8 @@ mod tests {
             "access_policy": "allowlist",
             "channel_allowlist": ["C123", "C456"],
             "user_allowlist": ["U789"],
-            "thread_context_limit": 50
+            "thread_context_limit": 50,
+            "allow_bot_messages": true
         });
         let cfg: SlackAdapterConfig = serde_json::from_value(json).unwrap();
         assert_eq!(cfg.trigger, MessageTrigger::MentionOnly);
@@ -89,6 +97,7 @@ mod tests {
         assert_eq!(cfg.channel_allowlist, vec!["C123", "C456"]);
         assert_eq!(cfg.user_allowlist, vec!["U789"]);
         assert_eq!(cfg.thread_context_limit, Some(50));
+        assert!(cfg.allow_bot_messages);
     }
 
     #[test]
