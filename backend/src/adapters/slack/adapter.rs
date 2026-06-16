@@ -399,16 +399,14 @@ impl SlackAdapter {
         }
 
         // 8. Extract message details
-        let text = event.get("text").and_then(|v| v.as_str()).unwrap_or("");
+        let raw_text = event.get("text").and_then(|v| v.as_str()).unwrap_or("");
         let ts = event.get("ts").and_then(|v| v.as_str()).unwrap_or("");
         let thread_ts = event.get("thread_ts").and_then(|v| v.as_str());
 
-        if text.is_empty() || ts.is_empty() {
+        if ts.is_empty() {
             debug!(
-                reason = "empty_text_or_ts",
+                reason = "empty_ts",
                 event_type = %event_type,
-                text_empty = text.is_empty(),
-                ts_empty = ts.is_empty(),
                 user = %user,
                 source_id = %channel,
                 "Slack event ignored"
@@ -421,20 +419,37 @@ impl SlackAdapter {
             || self
                 .bot_user_id
                 .as_ref()
-                .is_some_and(|bid| text.contains(&format!("<@{bid}>")));
+                .is_some_and(|bid| raw_text.contains(&format!("<@{bid}>")));
 
-        // Convert Slack mrkdwn to readable text. We deliberately do NOT strip
-        // the bot's own `<@bot_id>` mention — the agent's system prompt
-        // (`build_slack_reply_instructions`) already explains that token.
-        // Stripping previously caused bare `@bot` replies to be silently
-        // dropped because the post-strip text was empty.
-        let clean_text = super::format::format_slack_text(text);
+        // Resolve the message text. The top-level `text` is empty for app/bot
+        // posts that carry their content in Block Kit `blocks` or legacy
+        // `attachments` (e.g. CI notifiers posting via incoming webhooks).
+        // Mirror the thread-history precedence (blocks → attachments → text) so
+        // such messages aren't dropped as empty. The block/attachment helpers
+        // already run `format_slack_text` internally; the plain-text branch
+        // formats explicitly. We deliberately do NOT strip the bot's own
+        // `<@bot_id>` mention — the agent's system prompt explains that token.
+        let clean_text = event
+            .get("blocks")
+            .and_then(|b| b.as_array())
+            .map(|b| super::format::extract_text_from_blocks(b))
+            .filter(|t| !t.trim().is_empty())
+            .or_else(|| {
+                event
+                    .get("attachments")
+                    .and_then(|a| a.as_array())
+                    .map(|a| super::format::extract_text_from_attachments(a))
+                    .filter(|t| !t.trim().is_empty())
+            })
+            .unwrap_or_else(|| super::format::format_slack_text(raw_text));
 
         if clean_text.trim().is_empty() {
             debug!(
                 reason = "empty_text_after_format",
                 event_type = %event_type,
-                raw_text_len = text.len(),
+                raw_text_len = raw_text.len(),
+                has_blocks = event.get("blocks").is_some(),
+                has_attachments = event.get("attachments").is_some(),
                 is_bot_mentioned,
                 user = %user,
                 source_id = %channel,
