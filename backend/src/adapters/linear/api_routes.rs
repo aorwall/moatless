@@ -5,9 +5,11 @@
 //! `LINEAR_API_KEY`. All operations are attributed to the installed Linear
 //! agent (the `actor=app` OAuth viewer), not the calling user.
 //!
-//! The handlers also auto-create `task_bindings` rows when a `task_id` is
-//! provided on issue create / comment so subsequent `POST /tasks/{id}/reply`
-//! routes back to the same Linear issue via `commentCreate`.
+//! When a `task_id` is provided the handlers record a Moatless attachment on
+//! the issue for traceability. They create a reply `task_bindings` row only on
+//! explicit opt-in (`bind = true`) — or, for a comment, when the issue is
+//! already bound — so that merely filing a ticket does not silently turn it
+//! into a permanent reply channel.
 //!
 //! A raw GraphQL passthrough (`POST /api/v1/linear/graphql`) exists as the
 //! safety valve for operations not yet wrapped by a typed endpoint.
@@ -27,6 +29,7 @@ use crate::adapters::common::{ensure_task_access, resolve_connection};
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::AdapterConnection;
 use crate::adapters::AdapterKind;
+use crate::bindings::dao::PgTaskBindingRepository;
 use crate::bindings::runtime::upsert_binding;
 use crate::extractors::AuthUser;
 use crate::scope::ScopeContext;
@@ -180,8 +183,15 @@ pub async fn create_issue(
 
     let issue = api.create_issue(input).await?;
 
+    // Filing an issue records a traceability attachment but does not make it a
+    // reply target unless the caller explicitly opts in with `bind = true`.
     let binding_id = if let Some(task_id) = req.task_id.as_deref() {
-        Some(create_issue_binding(&state, &connection, task_id, &issue).await?)
+        attach_moatless_task(&state, &api, &issue, task_id).await;
+        if req.bind == Some(true) {
+            Some(create_issue_binding(&state, &connection, task_id, &issue).await?)
+        } else {
+            None
+        }
     } else {
         None
     };
@@ -332,9 +342,24 @@ pub async fn create_comment(
     let comment = api.create_comment(&issue_uuid, &req.body).await?;
 
     let binding_id = if let Some(task_id) = req.task_id.as_deref() {
-        let bid = create_issue_binding(&state, &connection, task_id, &issue).await?;
         attach_moatless_task(&state, &api, &issue, task_id).await;
-        Some(bid)
+
+        // A comment refreshes the binding when the issue is already a reply
+        // target (the agent is continuing an established thread). A proactive
+        // comment on an unbound issue only binds when the caller opts in.
+        let already_bound = PgTaskBindingRepository(state.db.clone())
+            .find_by_task_id_and_subject(task_id, LINEAR_PROVIDER, SUBJECT_KIND_ISSUE, &issue_uuid)
+            .await
+            .map_err(|e| {
+                AdapterError::AdapterApi(format!("Failed to look up existing binding: {e}"))
+            })?
+            .is_some();
+
+        if req.bind == Some(true) || already_bound {
+            Some(create_issue_binding(&state, &connection, task_id, &issue).await?)
+        } else {
+            None
+        }
     } else {
         None
     };

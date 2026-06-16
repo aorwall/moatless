@@ -15,7 +15,7 @@ use crate::adapters::common::{
 };
 use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::error::AdapterError;
-use crate::adapters::models::{OutboundReply, TaskBinding};
+use crate::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, OutboundReply, TaskBinding};
 use crate::bindings::dao::PgTaskBindingRepository;
 use crate::bindings::outbound::resolve_files;
 use crate::bindings::reply::ReplyService;
@@ -425,8 +425,11 @@ async fn load_binding_for_message_and_adapter(
 ///
 /// A single ongoing task accumulates many bindings (one per thread). When the
 /// message carries its thread's `subject_key`, select that exact binding so the
-/// reply threads correctly. Legacy rows (NULL `external_subject_key`) and
-/// single-binding tasks fall back to the first provider match.
+/// reply threads correctly. When the subject_key is absent (legacy rows with a
+/// NULL `external_subject_key`) or matches no binding, prefer the unique
+/// `ingress` binding — the thread that spawned the task — over an arbitrary
+/// first-match across the task's agent-owned bindings. Only then degrade to the
+/// first provider match.
 fn select_binding_for_reply<'a>(
     rows: &'a [TaskBinding],
     candidates: &[String],
@@ -441,7 +444,24 @@ fn select_binding_for_reply<'a>(
         }
     }
 
-    rows.iter().find(|b| candidates.contains(&b.provider))
+    let provider_rows: Vec<&TaskBinding> = rows
+        .iter()
+        .filter(|b| candidates.contains(&b.provider))
+        .collect();
+
+    // A single spawning (ingress) thread is the safe default when we can't
+    // resolve the exact thread; ambiguity across multiple ingress bindings
+    // falls through to first-match rather than guessing.
+    let ingress: Vec<&TaskBinding> = provider_rows
+        .iter()
+        .copied()
+        .filter(|b| b.origin == ADAPTER_EVENT_BINDING_ORIGIN)
+        .collect();
+    if ingress.len() == 1 {
+        return Some(ingress[0]);
+    }
+
+    provider_rows.into_iter().next()
 }
 
 #[cfg(test)]
@@ -449,6 +469,10 @@ mod tests {
     use super::*;
 
     fn binding(id: &str, provider: &str, subject_key: &str) -> TaskBinding {
+        binding_origin(id, provider, subject_key, "test")
+    }
+
+    fn binding_origin(id: &str, provider: &str, subject_key: &str, origin: &str) -> TaskBinding {
         let now = chrono::Utc::now();
         TaskBinding {
             id: id.to_string(),
@@ -461,7 +485,7 @@ mod tests {
             destination_config: serde_json::json!({}),
             metadata: serde_json::json!({}),
             last_external_event_id: None,
-            origin: "test".to_string(),
+            origin: origin.to_string(),
             created_at: now,
             last_event_at: now,
         }
@@ -511,6 +535,37 @@ mod tests {
         let selected =
             select_binding_for_reply(&rows, &candidates, Some("T06:C0A:thread_unknown"))
                 .expect("fallback to first slack binding");
+        assert_eq!(selected.id, "bind_a");
+    }
+
+    #[test]
+    fn no_subject_key_prefers_unique_ingress_binding() {
+        // The task spawned from thread_a (ingress) and later opened thread_b
+        // itself. A reply with no resolvable subject_key must thread back to
+        // the spawning ingress binding, not the first agent-owned row.
+        let rows = vec![
+            binding_origin("bind_owned", "slack", "T06:C0A:thread_b", "task_owned"),
+            binding_origin("bind_ingress", "slack", "T06:C0A:thread_a", ADAPTER_EVENT_BINDING_ORIGIN),
+        ];
+        let candidates = vec!["slack".to_string()];
+
+        let selected = select_binding_for_reply(&rows, &candidates, None)
+            .expect("ingress binding should be selected");
+        assert_eq!(selected.id, "bind_ingress");
+    }
+
+    #[test]
+    fn multiple_ingress_bindings_fall_back_to_first_match() {
+        // Ambiguous: two ingress bindings and no subject_key — don't guess
+        // between them, degrade to first provider match.
+        let rows = vec![
+            binding_origin("bind_a", "slack", "T06:C0A:thread_a", ADAPTER_EVENT_BINDING_ORIGIN),
+            binding_origin("bind_b", "slack", "T06:C0A:thread_b", ADAPTER_EVENT_BINDING_ORIGIN),
+        ];
+        let candidates = vec!["slack".to_string()];
+
+        let selected = select_binding_for_reply(&rows, &candidates, None)
+            .expect("first slack binding should be selected");
         assert_eq!(selected.id, "bind_a");
     }
 }

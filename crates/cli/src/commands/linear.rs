@@ -98,9 +98,16 @@ pub enum IssueAction {
         /// Optional template UUID
         #[arg(long)]
         template_id: Option<String>,
-        /// Task to auto-bind the new issue to (defaults to $TASK_ID)
+        /// Task to associate the new issue with (defaults to $TASK_ID).
+        /// Records a traceability attachment; does NOT make the issue a reply
+        /// target unless `--bind` is also passed.
         #[arg(long = "task")]
         task: Option<String>,
+        /// Make the created issue a reply target (creates a task binding so
+        /// future comments route back to the task). Off by default — a filed
+        /// ticket is a work artifact, not a conversation channel.
+        #[arg(long)]
+        bind: bool,
         #[arg(long)]
         connection: Option<String>,
     },
@@ -144,9 +151,14 @@ pub enum IssueAction {
         id: String,
         /// Comment body. Reads from stdin if omitted.
         body: Option<String>,
-        /// Task to auto-bind to (defaults to $TASK_ID)
+        /// Task to associate with (defaults to $TASK_ID). A comment on an
+        /// already-bound issue refreshes its binding automatically.
         #[arg(long = "task")]
         task: Option<String>,
+        /// Force a reply binding even when the issue isn't already bound (for
+        /// a proactive comment on an issue you intend to keep following).
+        #[arg(long)]
+        bind: bool,
         #[arg(long)]
         connection: Option<String>,
     },
@@ -225,6 +237,7 @@ async fn run_issue(
             cycle,
             template_id,
             task,
+            bind,
             connection,
         } => {
             let task_id = task.or_else(|| cfg.task_id().map(str::to_string));
@@ -244,6 +257,7 @@ async fn run_issue(
                 cycle,
                 template_id,
                 task_id,
+                bind: bind.then_some(true),
             };
             let resp = client
                 .api()
@@ -312,11 +326,16 @@ async fn run_issue(
             id,
             body,
             task,
+            bind,
             connection,
         } => {
             let body = read_text_or_stdin(body)?;
             let task_id = task.or_else(|| cfg.task_id().map(str::to_string));
-            let req = LinearCommentCreateRequest { body, task_id };
+            let req = LinearCommentCreateRequest {
+                body,
+                task_id,
+                bind: bind.then_some(true),
+            };
             let resp = client
                 .api()
                 .linear_create_comment(&id, &req, connection.as_deref())

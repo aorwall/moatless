@@ -54,11 +54,17 @@ pub struct LinearIssueCreateRequest {
     /// Optional template UUID applied before the explicit fields.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub template_id: Option<String>,
-    /// Task to bind the created issue to. When provided, a `task_bindings`
-    /// row is inserted with `subject_kind = "linear_issue"` so subsequent
-    /// `POST /tasks/{id}/reply` posts a comment on this issue.
+    /// Task to associate the created issue with (records a clickable Moatless
+    /// attachment on the issue for traceability).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_id: Option<String>,
+    /// Opt the created issue into being a reply target: when `true` (and
+    /// `task_id` is set) a `task_bindings` row with `subject_kind =
+    /// "linear_issue"` is inserted so future comments on the issue route back
+    /// to the task and `moat messages reply` can post here. Filing alone does
+    /// NOT bind — this defaults to `false`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind: Option<bool>,
 }
 
 /// `PATCH /api/v1/linear/issues/:id` — update an issue.
@@ -96,9 +102,16 @@ pub struct LinearIssueUpdateRequest {
 #[serde(rename_all = "camelCase")]
 pub struct LinearCommentCreateRequest {
     pub body: String,
-    /// Task to bind the parent issue to. See [`LinearIssueCreateRequest::task_id`].
+    /// Task to associate the parent issue with. See
+    /// [`LinearIssueCreateRequest::task_id`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_id: Option<String>,
+    /// Force the parent issue into a reply target even when no binding exists
+    /// yet. A comment on an already-bound issue refreshes its binding
+    /// regardless; this flag covers a proactive comment on an unbound issue.
+    /// Defaults to `false`. See [`LinearIssueCreateRequest::bind`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind: Option<bool>,
 }
 
 /// `POST /api/v1/linear/issues/:id/labels` — non-destructive add/remove.
