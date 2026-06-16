@@ -31,6 +31,11 @@ pub struct GithubPrRuleConfig {
     /// opt out with `{"ignored_senders": []}`, extend by listing the full
     /// set, e.g. `["linear-code[bot]", "dependabot[bot]"]`.
     pub ignored_senders: Vec<String>,
+    /// Regex patterns matched case-insensitively against the PR title. A PR
+    /// whose title matches any pattern never creates a review task (applies to
+    /// `pull_request` opened/reopened only). Empty/absent = no title filtering,
+    /// e.g. `["^chore\\(deps", "^deps[:(]", "^build\\(deps"]`.
+    pub ignored_title_patterns: Vec<String>,
 }
 
 impl GithubPrRuleConfig {
@@ -51,6 +56,7 @@ impl GithubPrRuleConfig {
             close_task_on_close: rule.close_task_on_close,
             notify_on_success: rule.notify_on_success,
             ignored_senders: ignored_senders(rule.provider_config.as_ref()),
+            ignored_title_patterns: ignored_title_patterns(rule.provider_config.as_ref()),
         }
     }
 }
@@ -80,6 +86,22 @@ pub(crate) fn ignored_senders(provider_config: Option<&serde_json::Value>) -> Ve
                     .collect()
             },
         )
+}
+
+/// Parse `ignored_title_patterns` from a `provider_config` JSONB value. Unlike
+/// `ignored_senders`, title filtering is opt-in: an absent key, null config, or
+/// non-array value all yield an empty list (no filtering). An explicit array of
+/// strings is used verbatim as case-insensitive regexes.
+pub(crate) fn ignored_title_patterns(provider_config: Option<&serde_json::Value>) -> Vec<String> {
+    provider_config
+        .and_then(|pc| pc.get("ignored_title_patterns"))
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -208,5 +230,36 @@ mod tests {
         );
         let cfg = GithubPrRuleConfig::from_rule(&rule);
         assert_eq!(cfg.ignored_senders, vec!["linear-code[bot]"]);
+    }
+
+    #[test]
+    fn absent_ignored_title_patterns_is_empty() {
+        let rule = rule_with(serde_json::json!([]), true, false);
+        let cfg = GithubPrRuleConfig::from_rule(&rule);
+        assert!(cfg.ignored_title_patterns.is_empty());
+    }
+
+    #[test]
+    fn explicit_ignored_title_patterns_parsed() {
+        let rule = rule_with_provider_config(
+            serde_json::json!([]),
+            true,
+            false,
+            Some(serde_json::json!({"ignored_title_patterns": ["^chore\\(deps", "^deps[:(]"]})),
+        );
+        let cfg = GithubPrRuleConfig::from_rule(&rule);
+        assert_eq!(cfg.ignored_title_patterns, vec!["^chore\\(deps", "^deps[:(]"]);
+    }
+
+    #[test]
+    fn non_array_ignored_title_patterns_is_empty() {
+        let rule = rule_with_provider_config(
+            serde_json::json!([]),
+            true,
+            false,
+            Some(serde_json::json!({"ignored_title_patterns": "^chore"})),
+        );
+        let cfg = GithubPrRuleConfig::from_rule(&rule);
+        assert!(cfg.ignored_title_patterns.is_empty());
     }
 }

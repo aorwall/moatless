@@ -115,6 +115,21 @@ fn pr_opened_text(p: &PrOpenedText<'_>) -> String {
     text
 }
 
+/// Whether a PR title matches any of the configured ignore regexes. Patterns
+/// are compiled case-insensitively; an invalid regex is logged and treated as
+/// non-matching so one bad user-supplied pattern can't drop every event.
+fn title_is_ignored(title: &str, patterns: &[String]) -> bool {
+    patterns.iter().any(|p| {
+        match regex::RegexBuilder::new(p).case_insensitive(true).build() {
+            Ok(re) => re.is_match(title),
+            Err(e) => {
+                warn!(pattern = %p, error = %e, "Invalid ignored_title_patterns regex; skipping");
+                false
+            }
+        }
+    })
+}
+
 /// Task message for an `issue_comment` webhook. Carries the PR/issue number
 /// and the numeric comment id so the agent can reply via
 /// `moat gh pr reply` / the GitHub API without guessing ids.
@@ -616,6 +631,16 @@ impl GithubPrAdapter {
             .get("title")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("");
+
+        // Skip dependency/automation PRs whose title matches an ignore regex
+        // (e.g. `chore(deps): …`). A match means no review task is created.
+        if !rule_config.ignored_title_patterns.is_empty()
+            && title_is_ignored(title, &rule_config.ignored_title_patterns)
+        {
+            info!(title, "GitHub PR skipped: title matches ignored_title_patterns");
+            return Ok(GithubPrWebhookResult::Ignore);
+        }
+
         let html_url = pr
             .get("html_url")
             .and_then(serde_json::Value::as_str)
@@ -2266,6 +2291,125 @@ mod tests {
             }
             _ => panic!("expected Message for opted-out sender filter"),
         }
+    }
+
+    fn pr_opened_payload(title: &str) -> serde_json::Value {
+        serde_json::json!({
+            "action": "opened",
+            "sender": { "login": "alice" },
+            "repository": { "full_name": "soaplabs/repo" },
+            "pull_request": {
+                "number": 42,
+                "title": title,
+                "html_url": "https://github.com/soaplabs/repo/pull/42",
+                "head": { "ref": "feature" },
+                "base": { "ref": "main" },
+            }
+        })
+    }
+
+    #[test]
+    fn title_is_ignored_matches_case_insensitively_and_skips_bad_regex() {
+        let patterns = vec!["^chore\\(deps".to_string(), "^deps[:(]".to_string()];
+        assert!(title_is_ignored("chore(deps): bump x", &patterns));
+        assert!(title_is_ignored("CHORE(deps): bump x", &patterns));
+        assert!(title_is_ignored("deps(frontend): bump y", &patterns));
+        assert!(!title_is_ignored("feat: real feature", &patterns));
+        // An invalid regex is skipped, not fatal — and matches nothing.
+        assert!(!title_is_ignored("anything", &["(".to_string()]));
+    }
+
+    #[tokio::test]
+    async fn pr_opened_with_matching_title_is_ignored() {
+        let provider = GithubPrAdapter::new(
+            None,
+            None,
+            fake_db_pool(),
+            fake_provider_tokens(),
+            None,
+            None,
+            fake_github_apps(),
+        );
+        let mut rule = fake_rule();
+        rule.provider_config =
+            Some(serde_json::json!({"ignored_title_patterns": ["^chore\\(deps", "^deps[:(]"]}));
+        let db = fake_db_pool();
+
+        for title in ["chore(deps): bump serde", "deps(frontend): bump vite"] {
+            let result = provider
+                .parse_webhook(
+                    "delivery-pr-title-ignored",
+                    "pull_request",
+                    &pr_opened_payload(title),
+                    &rule,
+                    &db,
+                )
+                .await
+                .unwrap();
+            assert!(
+                matches!(result, GithubPrWebhookResult::Ignore),
+                "expected Ignore for title {title:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn pr_opened_with_non_matching_title_delivers() {
+        let provider = GithubPrAdapter::new(
+            None,
+            None,
+            fake_db_pool(),
+            fake_provider_tokens(),
+            None,
+            None,
+            fake_github_apps(),
+        );
+        let mut rule = fake_rule();
+        rule.provider_config =
+            Some(serde_json::json!({"ignored_title_patterns": ["^chore\\(deps"]}));
+        let db = fake_db_pool();
+
+        let result = provider
+            .parse_webhook(
+                "delivery-pr-title-real",
+                "pull_request",
+                &pr_opened_payload("feat: add a real feature"),
+                &rule,
+                &db,
+            )
+            .await
+            .unwrap();
+
+        assert!(matches!(result, GithubPrWebhookResult::Message(_)));
+    }
+
+    #[tokio::test]
+    async fn pr_opened_without_patterns_delivers() {
+        let provider = GithubPrAdapter::new(
+            None,
+            None,
+            fake_db_pool(),
+            fake_provider_tokens(),
+            None,
+            None,
+            fake_github_apps(),
+        );
+        // No provider_config — title filtering is opt-in, so this is delivered.
+        let rule = fake_rule();
+        let db = fake_db_pool();
+
+        let result = provider
+            .parse_webhook(
+                "delivery-pr-no-patterns",
+                "pull_request",
+                &pr_opened_payload("chore(deps): bump serde"),
+                &rule,
+                &db,
+            )
+            .await
+            .unwrap();
+
+        assert!(matches!(result, GithubPrWebhookResult::Message(_)));
     }
 
     #[tokio::test]
