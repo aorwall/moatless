@@ -247,7 +247,13 @@ pub async fn reply_to_message(
         .external_adapter
         .clone()
         .ok_or_else(|| AdapterError::BadRequest("Message has no external_adapter".into()))?;
-    let binding = load_binding_for_message_and_adapter(&state, &msg.task_id, &provider_key).await?;
+    let binding = load_binding_for_message_and_adapter(
+        &state,
+        &msg.task_id,
+        &provider_key,
+        msg.external_subject_key.as_deref(),
+    )
+    .await?;
 
     let providers = state
         .adapters
@@ -367,7 +373,13 @@ async fn resolve_message_target(
         .external_adapter
         .clone()
         .ok_or_else(|| AdapterError::BadRequest("Message has no external_adapter".into()))?;
-    let binding = load_binding_for_message_and_adapter(state, &msg.task_id, &provider_key).await?;
+    let binding = load_binding_for_message_and_adapter(
+        state,
+        &msg.task_id,
+        &provider_key,
+        msg.external_subject_key.as_deref(),
+    )
+    .await?;
     Ok((binding, ext_id, provider_key))
 }
 
@@ -382,6 +394,7 @@ async fn load_binding_for_message_and_adapter(
     state: &AppState,
     task_id: &str,
     adapter_key: &str,
+    subject_key: Option<&str>,
 ) -> Result<TaskBinding, AdapterError> {
     let mut candidates: Vec<String> = vec![adapter_key.to_string()];
     if let Some(providers) = state.adapters.as_ref() {
@@ -400,9 +413,104 @@ async fn load_binding_for_message_and_adapter(
     let rows = PgTaskBindingRepository(state.db.clone())
         .find_by_task_id(task_id)
         .await?;
-    rows.into_iter()
-        .find(|b| candidates.contains(&b.provider))
+
+    select_binding_for_reply(&rows, &candidates, subject_key)
+        .cloned()
         .ok_or_else(|| {
             AdapterError::NotFound(format!("No {adapter_key} binding for task {task_id}"))
         })
+}
+
+/// Pick which of a task's bindings a reply should target.
+///
+/// A single ongoing task accumulates many bindings (one per thread). When the
+/// message carries its thread's `subject_key`, select that exact binding so the
+/// reply threads correctly. Legacy rows (NULL `external_subject_key`) and
+/// single-binding tasks fall back to the first provider match.
+fn select_binding_for_reply<'a>(
+    rows: &'a [TaskBinding],
+    candidates: &[String],
+    subject_key: Option<&str>,
+) -> Option<&'a TaskBinding> {
+    if let Some(sk) = subject_key {
+        if let Some(binding) = rows
+            .iter()
+            .find(|b| candidates.contains(&b.provider) && b.subject_key == sk)
+        {
+            return Some(binding);
+        }
+    }
+
+    rows.iter().find(|b| candidates.contains(&b.provider))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn binding(id: &str, provider: &str, subject_key: &str) -> TaskBinding {
+        let now = chrono::Utc::now();
+        TaskBinding {
+            id: id.to_string(),
+            task_id: "task_1".to_string(),
+            provider: provider.to_string(),
+            subject_kind: "slack_thread".to_string(),
+            subject_key: subject_key.to_string(),
+            connection_id: "conn_1".to_string(),
+            trigger_id: None,
+            destination_config: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+            last_external_event_id: None,
+            origin: "test".to_string(),
+            created_at: now,
+            last_event_at: now,
+        }
+    }
+
+    #[test]
+    fn subject_key_selects_the_exact_thread_binding() {
+        // Two slack_thread bindings on one ongoing task. A reply carrying
+        // thread B's subject_key must select binding B, not the first row.
+        let rows = vec![
+            binding("bind_a", "slack", "T06:C0A:thread_a"),
+            binding("bind_b", "slack", "T06:C0A:thread_b"),
+        ];
+        let candidates = vec!["slack".to_string()];
+
+        let selected =
+            select_binding_for_reply(&rows, &candidates, Some("T06:C0A:thread_b"))
+                .expect("binding B should be selected");
+        assert_eq!(selected.id, "bind_b");
+    }
+
+    #[test]
+    fn missing_subject_key_falls_back_to_first_provider_match() {
+        // Legacy rows (NULL external_subject_key) carry no subject_key — the
+        // selection degenerates to the previous first-match behaviour.
+        let rows = vec![
+            binding("bind_a", "slack", "T06:C0A:thread_a"),
+            binding("bind_b", "slack", "T06:C0A:thread_b"),
+        ];
+        let candidates = vec!["slack".to_string()];
+
+        let selected = select_binding_for_reply(&rows, &candidates, None)
+            .expect("first slack binding should be selected");
+        assert_eq!(selected.id, "bind_a");
+    }
+
+    #[test]
+    fn unknown_subject_key_falls_back_to_first_provider_match() {
+        // A subject_key that matches no binding (stale/foreign) falls back to
+        // the first provider match rather than failing the reply.
+        let rows = vec![
+            binding("bind_a", "slack", "T06:C0A:thread_a"),
+            binding("bind_b", "slack", "T06:C0A:thread_b"),
+        ];
+        let candidates = vec!["slack".to_string()];
+
+        let selected =
+            select_binding_for_reply(&rows, &candidates, Some("T06:C0A:thread_unknown"))
+                .expect("fallback to first slack binding");
+        assert_eq!(selected.id, "bind_a");
+    }
 }

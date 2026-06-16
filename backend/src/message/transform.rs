@@ -729,6 +729,7 @@ mod tests {
             created_at: None,
             external_event_id: None,
             external_adapter: None,
+            external_subject_key: None,
             external_source_name: None,
             command_name: None,
             source_task_id: None,

@@ -324,6 +324,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                     &row.uuid,
                     row.external_event_id.as_deref(),
                     row.external_adapter.as_deref(),
+                    row.external_subject_key.as_deref(),
                     row.sent_by.as_deref(),
                     &login_cache,
                 );
@@ -912,6 +913,7 @@ fn build_message_header(
     uuid: &str,
     external_event_id: Option<&str>,
     external_adapter: Option<&str>,
+    subject_key: Option<&str>,
     sent_by: Option<&str>,
     login_cache: &std::collections::HashMap<String, String>,
 ) -> String {
@@ -921,6 +923,11 @@ fn build_message_header(
         if let Some(source) = external_adapter {
             // Infallible: writing to String never errors.
             let _ = writeln!(header, "<source>{source}</source>");
+        }
+        // Stable per-thread identity so the agent can tell concurrent threads
+        // apart and recognise continuations within the same ongoing task.
+        if let Some(thread) = subject_key {
+            let _ = writeln!(header, "<thread>{thread}</thread>");
         }
         header.push('\n');
         return header;
@@ -1093,6 +1100,7 @@ mod tests {
             "msg_abc",
             Some("slack:ts:1700"),
             Some("slack"),
+            None,
             Some("u1"),
             &cache,
         );
@@ -1103,10 +1111,31 @@ mod tests {
     }
 
     #[test]
+    fn external_row_with_subject_key_emits_thread_tag() {
+        // When the inbound row carries its thread's subject_key, the header
+        // surfaces it as a stable <thread> id so the agent can distinguish
+        // concurrent threads on the same ongoing task.
+        let cache = HashMap::new();
+        let header = build_message_header(
+            "msg_abc",
+            Some("slack:ts:1700"),
+            Some("slack"),
+            Some("T06:C0A:1781593153.718929"),
+            None,
+            &cache,
+        );
+        assert_eq!(
+            header,
+            "<message_id>msg_abc</message_id>\n<source>slack</source>\n\
+             <thread>T06:C0A:1781593153.718929</thread>\n\n"
+        );
+    }
+
+    #[test]
     fn external_row_without_adapter_drops_source_tag() {
         let cache = HashMap::new();
         let header =
-            build_message_header("msg_abc", Some("ext-id"), None, None, &cache);
+            build_message_header("msg_abc", Some("ext-id"), None, None, None, &cache);
         assert_eq!(header, "<message_id>msg_abc</message_id>\n\n");
     }
 
@@ -1114,17 +1143,17 @@ mod tests {
     fn internal_row_with_resolved_sent_by_emits_sent_by_only() {
         let mut cache = HashMap::new();
         cache.insert("u1".to_string(), "alice".to_string());
-        let header = build_message_header("msg_abc", None, None, Some("u1"), &cache);
+        let header = build_message_header("msg_abc", None, None, None, Some("u1"), &cache);
         assert_eq!(header, "<sent_by>alice</sent_by>\n\n");
     }
 
     #[test]
     fn internal_row_without_resolvable_sent_by_emits_nothing() {
         let cache = HashMap::new();
-        let header = build_message_header("msg_abc", None, None, Some("u-missing"), &cache);
+        let header = build_message_header("msg_abc", None, None, None, Some("u-missing"), &cache);
         assert_eq!(header, "");
 
-        let header = build_message_header("msg_abc", None, None, None, &cache);
+        let header = build_message_header("msg_abc", None, None, None, None, &cache);
         assert_eq!(header, "");
     }
 

@@ -275,6 +275,7 @@ async fn execute_job(
         true,
         msg.external_event_id.as_deref(),
         Some("scheduled"),
+        None,
         Some(&job.id),
         None,
         None,

@@ -268,12 +268,13 @@ impl MessageRepository for PgMessageRepository {
                 will_not_resume, run_metrics,
                 agent_mode, model, resume, external_event_id,
                 external_adapter, external_source_name, command_name, source_task_id,
-                start_fresh, sent_by
+                start_fresh, sent_by, external_subject_key
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
                 $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
-                $31, $32, $33, $34, $35, $36, $37, $38, $39, $40
+                $31, $32, $33, $34, $35, $36, $37, $38, $39, $40,
+                $41
             )
             ON CONFLICT (uuid) DO UPDATE SET
                 message_type = EXCLUDED.message_type,
@@ -281,7 +282,8 @@ impl MessageRepository for PgMessageRepository {
                 agent_session_id = COALESCE(EXCLUDED.agent_session_id, task_messages.agent_session_id),
                 will_not_resume = COALESCE(EXCLUDED.will_not_resume, task_messages.will_not_resume),
                 run_metrics = COALESCE(EXCLUDED.run_metrics, task_messages.run_metrics),
-                sdk_metadata = COALESCE(EXCLUDED.sdk_metadata, task_messages.sdk_metadata)
+                sdk_metadata = COALESCE(EXCLUDED.sdk_metadata, task_messages.sdk_metadata),
+                external_subject_key = COALESCE(EXCLUDED.external_subject_key, task_messages.external_subject_key)
             RETURNING id"#,
         )
         .bind(&msg.task_id)
@@ -324,6 +326,7 @@ impl MessageRepository for PgMessageRepository {
         .bind(&msg.source_task_id)
         .bind(msg.start_fresh)
         .bind(&msg.sent_by)
+        .bind(&msg.external_subject_key)
         .fetch_one(&mut *tx)
         .await?;
 

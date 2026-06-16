@@ -748,6 +748,7 @@ async fn deliver_to_binding(
         resume,
         msg.external_event_id.as_deref(),
         Some(ADAPTER_LABEL),
+        Some(&binding.subject_key),
         Some(rule.source_matcher.as_str()),
         None,
         None,

@@ -51,9 +51,16 @@ Inbound messages carry the sender's moatless login in a `<sent_by>...</sent_by>`
 header. To @-mention a Slack user in your reply, use their Slack user id with the \
 format `<@U12345>`.
 
+### Telling threads apart
+Each inbound message also carries a `<thread>...</thread>` header identifying \
+the Slack thread it belongs to. Messages sharing the same `<thread>` value are \
+the same conversation; different values are separate threads. Use it to keep \
+concurrent conversations distinct and to recognise a continuation of an earlier thread.
+
 ### Replying to a specific message
 Every inbound message has a `<message_id>...</message_id>` header. Pass that id \
-to `moat messages reply` so the reply lands in the right Slack thread:
+to `moat messages reply` so the reply lands in the right Slack thread \
+(it threads to the right place automatically):
 - `moat messages reply --message <id> --text \"Here are the results\"`
 
 ### Attaching files
@@ -632,31 +639,6 @@ fn parse_slack_destination(destination: &str) -> Result<(String, Option<String>)
     Ok((raw.to_string(), None))
 }
 
-/// Re-anchor a Slack binding so a reply threads under a *specific* message
-/// rather than the binding's stored thread.
-///
-/// In ongoing-mode tasks a single task accumulates many `slack_thread`
-/// bindings (one per channel thread), and the reply handler hands the adapter
-/// the first one it finds — not necessarily the thread the replied-to message
-/// lives in. `moat messages reply --message <id>` carries that message's own
-/// external id, so override the binding's `thread_ts`/`ts` with the ts parsed
-/// from it. Channel/team stay as-is (every binding on the task shares the
-/// channel). Returns the binding unchanged when `target_external_id` isn't a
-/// recognizable Slack message id, falling back to the binding's thread.
-fn rethread_binding_to_message(binding: &TaskBinding, target_external_id: &str) -> TaskBinding {
-    let mut out = binding.clone();
-    if let Some(ts) = super::external_id::ts_from_message_id(target_external_id) {
-        if let Some(obj) = out.destination_config.as_object_mut() {
-            obj.insert(
-                "thread_ts".to_string(),
-                serde_json::Value::String(ts.to_string()),
-            );
-            obj.insert("ts".to_string(), serde_json::Value::String(ts.to_string()));
-        }
-    }
-    out
-}
-
 /// Strip leading/trailing `:` characters and validate that the result is a
 /// non-empty Slack-compatible bare reaction name.
 ///
@@ -917,22 +899,6 @@ impl Adapter for SlackAdapter {
             |r| crate::bindings::runtime::trigger_context(r, "slack"),
         );
         self.send_reply(&thread, &config, message).await
-    }
-
-    async fn reply_to_message(
-        &self,
-        binding: &TaskBinding,
-        connection: &AdapterConnection,
-        rule: Option<&TaskTriggerRoute>,
-        target_external_id: &str,
-        message: &OutboundReply,
-    ) -> Result<Option<String>, AdapterError> {
-        // Thread the reply under the message being replied to, not the
-        // (possibly arbitrary) binding's stored thread — see
-        // `rethread_binding_to_message`.
-        let threaded = rethread_binding_to_message(binding, target_external_id);
-        self.send_reply_for_binding(&threaded, connection, rule, message)
-            .await
     }
 
     async fn post_to_destination(

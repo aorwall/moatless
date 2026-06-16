@@ -525,6 +525,7 @@ async fn deliver_to_binding(
         cmd_resume,
         msg.external_event_id.as_deref(),
         Some(provider_label),
+        Some(&binding.subject_key),
         config.source_name.as_deref(),
         cmd_name,
         None,

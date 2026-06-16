@@ -118,6 +118,11 @@ pub struct TaskMessage {
     pub created_at: Option<DateTime<Utc>>,
     pub external_event_id: Option<String>,
     pub external_adapter: Option<String>,
+    /// Thread/binding identity this inbound message belongs to (the binding's
+    /// `subject_key`, e.g. `T06…:C0A…:1781593153.718929`). Lets a reply select
+    /// the exact binding and lets the agent tell concurrent threads apart.
+    /// `None` for non-binding-sourced rows (user sends, schedulers, replies).
+    pub external_subject_key: Option<String>,
     pub external_source_name: Option<String>,
     pub command_name: Option<String>,
     pub source_task_id: Option<String>,
@@ -176,6 +181,7 @@ impl TaskMessage {
             created_at: None,
             external_event_id: None,
             external_adapter: None,
+            external_subject_key: None,
             external_source_name: None,
             command_name: None,
             source_task_id: None,
