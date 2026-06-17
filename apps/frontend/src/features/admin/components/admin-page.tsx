@@ -9,11 +9,24 @@ interface AdminPageProps {
   backTo?: { to: LinkProps['to']; params?: LinkProps['params']; label: string }
   actions?: ReactNode
   children: ReactNode
+  /** Span the full page width instead of the default `max-w-4xl` container. */
+  fullWidth?: boolean
 }
 
-export function AdminPage({ title, description, backTo, actions, children }: AdminPageProps) {
+export function AdminPage({
+  title,
+  description,
+  backTo,
+  actions,
+  children,
+  fullWidth,
+}: AdminPageProps) {
   return (
-    <div className="container mx-auto max-w-4xl px-6 py-6 space-y-6">
+    <div
+      className={
+        fullWidth ? 'w-full px-6 py-6 space-y-6' : 'container mx-auto max-w-4xl px-6 py-6 space-y-6'
+      }
+    >
       {backTo && (
         <Button variant="ghost" size="sm" asChild>
           <Link to={backTo.to} params={backTo.params}>

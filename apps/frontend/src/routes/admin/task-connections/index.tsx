@@ -28,6 +28,7 @@ function TaskConnectionsPage() {
 
   return (
     <AdminPage
+      fullWidth
       title="Task Connections"
       description="Tasks and the external GitHub PRs, Linear issues, and Slack threads they're wired to — with live status and per-connection message counts."
       actions={

@@ -39,6 +39,8 @@ pub struct TaskConnectionRow {
     pub title: String,
     pub status: TaskStatus,
     pub repository_name: Option<String>,
+    /// Display name of the task's creator (`None` when unresolved).
+    pub owner: Option<String>,
     pub connections: Vec<Connection>,
 }
 

@@ -12403,6 +12403,13 @@
               "$ref": "#/components/schemas/Connection"
             }
           },
+          "owner": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Display name of the task's creator (`None` when unresolved)."
+          },
           "repositoryName": {
             "type": [
               "string",

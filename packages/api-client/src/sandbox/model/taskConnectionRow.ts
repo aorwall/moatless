@@ -13,6 +13,11 @@ import type { TaskStatus } from './taskStatus';
  */
 export interface TaskConnectionRow {
   connections: Connection[];
+  /**
+   * Display name of the task's creator (`None` when unresolved).
+   * @nullable
+   */
+  owner?: string | null;
   /** @nullable */
   repositoryName?: string | null;
   /** @nullable */

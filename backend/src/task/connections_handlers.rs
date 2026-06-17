@@ -76,6 +76,30 @@ pub async fn list_task_connections(
     let (rows, total) = state.tasks.list_tasks(&filter).await?;
     let task_ids: Vec<String> = rows.iter().map(|r| r.task_id.clone()).collect();
 
+    // Batch resolve owner display names (mirrors `list_tasks`'
+    // `resolve_user_display_names_batch`, inlined to keep this module
+    // self-contained).
+    let owner_ids: Vec<String> = rows
+        .iter()
+        .filter_map(|r| r.created_by.clone())
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    let owner_names: HashMap<String, String> = if owner_ids.is_empty() {
+        HashMap::new()
+    } else {
+        match state.users.get_users_by_ids(&owner_ids).await {
+            Ok(users) => users
+                .into_iter()
+                .map(|u| (u.id, u.name.unwrap_or(u.login)))
+                .collect(),
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to batch resolve owner display names");
+                HashMap::new()
+            }
+        }
+    };
+
     // Batch resolve repository names.
     let repo_ids: Vec<String> = rows
         .iter()
@@ -146,6 +170,10 @@ pub async fn list_task_connections(
                     .unwrap_or_else(|| task.task_id.clone()),
                 status: task.status,
                 repository_name: repo_names.get(&task.repository_id).cloned(),
+                owner: task
+                    .created_by
+                    .as_ref()
+                    .and_then(|id| owner_names.get(id).cloned()),
                 connections,
             }
         })

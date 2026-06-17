@@ -127,9 +127,11 @@ export function TaskConnectionsTable({ rows }: { rows: TaskConnectionRow[] }) {
                 params={{ 'task-id': row.taskId }}
                 className="font-medium hover:underline"
               >
-                {row.title}
+                <span className="block max-w-[24rem] truncate" title={row.title}>
+                  {row.title}
+                </span>
               </Link>
-              {row.shortId && <div className="text-xs text-muted-foreground">{row.shortId}</div>}
+              {row.owner && <div className="text-xs text-muted-foreground">{row.owner}</div>}
             </TableCell>
             <TableCell className="py-3 text-sm text-muted-foreground">
               {row.repositoryName ?? '-'}
