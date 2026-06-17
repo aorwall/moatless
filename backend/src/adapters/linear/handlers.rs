@@ -140,21 +140,19 @@ async fn dispatch_webhook(
         return Err(e);
     }
 
-    if let Some(ref webhook_id) = envelope.webhook_id {
-        // Linear reuses a single `webhookId` across related events delivered
-        // in the same fan-out (e.g. Comment.create + AgentSessionEvent.created
-        // share one id). Key dedup on (webhook_id, event_type) so the second
-        // event isn't dropped as a duplicate of the first.
-        let dedup_key = format!("{}:{}", webhook_id, envelope.event_type);
-        if !provider.mark_seen_for_dispatch(&dedup_key).await {
-            info!(
-                webhook_id,
-                event_type = %envelope.event_type,
-                org_id,
-                "Linear webhook deduplicated"
-            );
-            return Ok(envelope.event_type.clone());
-        }
+    // Dedup on the specific resource/event identity, NOT Linear's `webhookId`
+    // (which is the stable webhook-config id, identical on every delivery — see
+    // `dedup_key`). Compute unconditionally: a resource id can exist even when
+    // `webhook_id` is absent.
+    let key = dedup_key(&envelope);
+    if !provider.mark_seen_for_dispatch(&key).await {
+        info!(
+            webhook_id = envelope.webhook_id.as_deref().unwrap_or(""),
+            event_type = %envelope.event_type,
+            org_id,
+            "Linear webhook deduplicated"
+        );
+        return Ok(envelope.event_type.clone());
     }
 
     let event_type = envelope.event_type.clone();
@@ -197,6 +195,52 @@ async fn dispatch_webhook(
         }
     };
     result.map(|()| event_type)
+}
+
+/// Derive a stable dedup identity for a Linear webhook delivery.
+///
+/// Linear's `webhookId` is the *webhook-configuration* id — it is identical on
+/// every delivery, not unique per event — so keying dedup on it (alone or with
+/// `event_type`) silently drops distinct events delivered within the cache TTL.
+/// Instead we key on the most specific stable *resource* identity available,
+/// plus the action (so e.g. `created` vs `prompted` on one session don't
+/// collide).
+///
+/// Resource id by event type:
+/// - `AgentSessionEvent` → `agentSession.id`
+/// - `Comment` / `Issue`  → `data.id` (resource UUID)
+/// - `AppUserNotification` → `notification.id`
+/// - fallback (unknown / missing) → `webhook_id:webhook_timestamp`
+///   (Linear resends the same `webhookTimestamp` on genuine retries).
+///
+/// Key format: `"{event_type}:{action}:{resource_id}"`.
+fn dedup_key(envelope: &LinearWebhookEnvelope) -> String {
+    let resource_id = match envelope.event_type.as_str() {
+        "AgentSessionEvent" => envelope.agent_session.as_ref().map(|s| s.id.clone()),
+        "Comment" | "Issue" => envelope
+            .data
+            .as_ref()
+            .and_then(|d| d.get("id"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string),
+        "AppUserNotification" => envelope
+            .notification
+            .as_ref()
+            .and_then(|n| n.get("id"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string),
+        _ => None,
+    };
+
+    let resource_id = resource_id.unwrap_or_else(|| {
+        format!(
+            "{}:{}",
+            envelope.webhook_id.as_deref().unwrap_or(""),
+            envelope.webhook_timestamp.unwrap_or(0)
+        )
+    });
+
+    format!("{}:{}:{}", envelope.event_type, envelope.action, resource_id)
 }
 
 async fn handle_issue_event(
@@ -383,4 +427,117 @@ fn build_agent_api(state: &AppState, org_id: &str) -> LinearAgentApi {
         state.config.linear.oauth_client_id.clone(),
         state.config.linear.oauth_client_secret.clone(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn envelope(raw: serde_json::Value) -> LinearWebhookEnvelope {
+        serde_json::from_value(raw).expect("parse envelope")
+    }
+
+    #[test]
+    fn distinct_agent_sessions_sharing_a_webhook_id_get_distinct_keys() {
+        // The bug: Linear reuses one stable `webhookId` across every delivery.
+        // Two distinct sessions must NOT collide — previously the second was
+        // dropped as a "duplicate" within the 5-minute TTL.
+        let a = envelope(serde_json::json!({
+            "action": "created",
+            "type": "AgentSessionEvent",
+            "webhookId": "9628c862-stable",
+            "agentSession": {"id": "session-A"}
+        }));
+        let b = envelope(serde_json::json!({
+            "action": "created",
+            "type": "AgentSessionEvent",
+            "webhookId": "9628c862-stable",
+            "agentSession": {"id": "session-B"}
+        }));
+        assert_ne!(dedup_key(&a), dedup_key(&b));
+    }
+
+    #[test]
+    fn same_session_and_action_collapses_retries() {
+        let first = envelope(serde_json::json!({
+            "action": "created",
+            "type": "AgentSessionEvent",
+            "webhookId": "9628c862-stable",
+            "agentSession": {"id": "session-A"}
+        }));
+        let retry = envelope(serde_json::json!({
+            "action": "created",
+            "type": "AgentSessionEvent",
+            "webhookId": "9628c862-stable",
+            "agentSession": {"id": "session-A"}
+        }));
+        assert_eq!(dedup_key(&first), dedup_key(&retry));
+    }
+
+    #[test]
+    fn same_session_created_vs_prompted_get_distinct_keys() {
+        let created = envelope(serde_json::json!({
+            "action": "created",
+            "type": "AgentSessionEvent",
+            "agentSession": {"id": "session-A"}
+        }));
+        let prompted = envelope(serde_json::json!({
+            "action": "prompted",
+            "type": "AgentSessionEvent",
+            "agentSession": {"id": "session-A"}
+        }));
+        assert_ne!(dedup_key(&created), dedup_key(&prompted));
+    }
+
+    #[test]
+    fn comment_and_agent_session_sharing_a_webhook_id_get_distinct_keys() {
+        // Comment.create and AgentSessionEvent.created in one fan-out share a
+        // `webhookId` but have different resource ids *and* event types.
+        let comment = envelope(serde_json::json!({
+            "action": "create",
+            "type": "Comment",
+            "webhookId": "shared-id",
+            "data": {"id": "comment-1", "body": "hi"}
+        }));
+        let session = envelope(serde_json::json!({
+            "action": "created",
+            "type": "AgentSessionEvent",
+            "webhookId": "shared-id",
+            "agentSession": {"id": "session-1"}
+        }));
+        assert_ne!(dedup_key(&comment), dedup_key(&session));
+    }
+
+    #[test]
+    fn unknown_event_without_resource_id_falls_back_to_webhook_id_and_timestamp() {
+        let a = envelope(serde_json::json!({
+            "action": "something",
+            "type": "UnknownThing",
+            "webhookId": "wh-1",
+            "webhookTimestamp": 1_700_000_000_000i64
+        }));
+        let b = envelope(serde_json::json!({
+            "action": "something",
+            "type": "UnknownThing",
+            "webhookId": "wh-1",
+            "webhookTimestamp": 1_700_000_000_001i64
+        }));
+        // Distinct deliveries (different timestamps) → distinct keys.
+        assert_ne!(dedup_key(&a), dedup_key(&b));
+        // The fallback key embeds both the webhook id and the timestamp.
+        let key = dedup_key(&a);
+        assert!(key.contains("wh-1"), "key should contain webhook_id: {key}");
+        assert!(
+            key.contains("1700000000000"),
+            "key should contain webhook_timestamp: {key}"
+        );
+        // A genuine retry resends the same timestamp → same key (collapses).
+        let retry = envelope(serde_json::json!({
+            "action": "something",
+            "type": "UnknownThing",
+            "webhookId": "wh-1",
+            "webhookTimestamp": 1_700_000_000_000i64
+        }));
+        assert_eq!(dedup_key(&a), dedup_key(&retry));
+    }
 }

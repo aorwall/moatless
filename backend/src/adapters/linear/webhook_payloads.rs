@@ -37,9 +37,18 @@ pub struct LinearWebhookEnvelope {
     #[serde(default, rename = "organizationId")]
     pub organization_id: Option<String>,
 
-    /// Webhook delivery id — keyed for 5-minute dedup.
+    /// Webhook-configuration id. NOTE: this is the *stable* id of the webhook
+    /// config in Linear — it is identical on every delivery, not unique per
+    /// event — so it must NOT be used alone as a dedup key. See
+    /// `handlers::dedup_key`.
     #[serde(default, rename = "webhookId")]
     pub webhook_id: Option<String>,
+
+    /// Delivery timestamp (ms since epoch). Linear resends the *same* value on
+    /// retries, making it a correct last-resort dedup discriminator when no
+    /// resource id is present.
+    #[serde(default, rename = "webhookTimestamp")]
+    pub webhook_timestamp: Option<i64>,
 
     /// Issue payloads embed the issue here.
     #[serde(default)]

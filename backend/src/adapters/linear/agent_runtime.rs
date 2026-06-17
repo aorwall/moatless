@@ -717,6 +717,33 @@ async fn provision_session_task(
         AdapterError::BadRequest("AgentSession missing issue".into())
     })?;
 
+    // Idempotency guard: if a binding already exists for this session id, a
+    // retry is re-delivering `created` (e.g. cross-pod, where the per-pod
+    // in-memory dedup cache doesn't apply). Return early rather than creating
+    // a second task. Keyed on session id, so multiple *distinct* sessions on
+    // the same issue still each get their own task.
+    match PgTaskBindingRepository(state.db.clone())
+        .find_by_subject(ADAPTER, SUBJECT_KIND, &session.id)
+        .await
+    {
+        Ok(existing) if !existing.is_empty() => {
+            info!(
+                session_id = %session.id,
+                task_id = %existing[0].task_id,
+                "Linear AgentSession already provisioned — skipping duplicate task creation"
+            );
+            return Ok(());
+        }
+        Ok(_) => {}
+        Err(e) => {
+            warn!(
+                error = %e,
+                session_id = %session.id,
+                "Failed to check for existing Linear session binding — proceeding"
+            );
+        }
+    }
+
     // Find an earlier task already bound to this Linear issue, if any. The
     // first row by created_at is the peer that touched this issue earlier.
     // The lookup uses destination_config.issue_id so it matches both

@@ -31,7 +31,13 @@ pub struct LinearAdapter {
     oauth_client_secret: Option<String>,
     /// Database pool for looking up workspace tokens.
     db: DbPool,
-    /// Deduplication cache: webhookId → () with 5-minute TTL.
+    /// Deduplication cache with a 5-minute TTL, keyed on a per-event resource
+    /// identity (`{event_type}:{action}:{resource_id}` — see
+    /// `handlers::dedup_key`), NOT Linear's stable `webhookId`. This collapses
+    /// genuine Linear retries while never dropping distinct events. Per-pod and
+    /// in-memory, so cross-pod retries can still pass through — the
+    /// session-binding guard in `provision_session_task` covers the
+    /// resulting duplicate-task risk.
     dedup_cache: Cache<String, ()>,
 }
 
@@ -97,18 +103,19 @@ impl LinearAdapter {
         self.global_webhook_secret.as_deref()
     }
 
-    /// Exposed wrapper for the new dispatcher in `handlers.rs`.
-    pub(crate) async fn mark_seen_for_dispatch(&self, webhook_id: &str) -> bool {
-        self.mark_seen(webhook_id).await
+    /// Exposed wrapper for the new dispatcher in `handlers.rs`. `key` is the
+    /// per-event dedup identity from `handlers::dedup_key`.
+    pub(crate) async fn mark_seen_for_dispatch(&self, key: &str) -> bool {
+        self.mark_seen(key).await
     }
 
-    /// Mark a `webhookId` as processed; returns `true` if this is the first
+    /// Mark a dedup `key` as processed; returns `true` if this is the first
     /// time we see it (caller should proceed), or `false` if it's a dup.
-    pub(crate) async fn mark_seen(&self, webhook_id: &str) -> bool {
-        if self.dedup_cache.get(webhook_id).await.is_some() {
+    pub(crate) async fn mark_seen(&self, key: &str) -> bool {
+        if self.dedup_cache.get(key).await.is_some() {
             return false;
         }
-        self.dedup_cache.insert(webhook_id.to_string(), ()).await;
+        self.dedup_cache.insert(key.to_string(), ()).await;
         true
     }
 
