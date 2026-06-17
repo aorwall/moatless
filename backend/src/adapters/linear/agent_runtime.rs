@@ -359,6 +359,10 @@ pub async fn handle_issue_update(
         return Ok(());
     }
 
+    // Persist the new workflow state onto every binding for this issue — for
+    // every transition, not just terminal ones. Best-effort.
+    persist_issue_status(state, connection, issue).await;
+
     let Some(rule) = rules.first() else {
         debug!(issue = %issue.identifier, "No Linear rule found for team — ignoring update");
         return Ok(());
@@ -429,6 +433,61 @@ pub async fn handle_issue_status_notification(
     }
 
     Ok(())
+}
+
+/// Persist the issue's workflow state onto every binding tied to it (both
+/// `linear_agent_session` and `linear_issue` subject kinds). Writes the
+/// dedicated `external_status*` columns. Best-effort: failures are logged.
+async fn persist_issue_status(
+    state: &AppState,
+    connection: &AdapterConnection,
+    issue: &IssuePayload,
+) {
+    let repo = PgTaskBindingRepository(state.db.clone());
+    let status = crate::bindings::status_service::linear_external_status(
+        issue.state_name(),
+        issue.state_kind(),
+        Some(issue.title.as_str()),
+        issue.url.as_deref(),
+    );
+
+    for subject_kind in [SUBJECT_KIND, super::SUBJECT_KIND_ISSUE] {
+        let bindings = match repo
+            .find_active_by_destination_field(ADAPTER, subject_kind, "issue_id", &issue.id)
+            .await
+        {
+            Ok(rows) => rows,
+            Err(e) => {
+                warn!(
+                    issue = %issue.identifier,
+                    subject_kind,
+                    error = %e,
+                    "Failed to look up bindings for Linear status persistence"
+                );
+                continue;
+            }
+        };
+        for binding in bindings
+            .into_iter()
+            .filter(|b| b.connection_id == connection.id)
+        {
+            if let Err(e) = repo
+                .update_external_status(
+                    &binding.id,
+                    status.status.as_deref(),
+                    status.state_kind.as_deref(),
+                    &status.raw,
+                )
+                .await
+            {
+                warn!(
+                    binding_id = %binding.id,
+                    error = %e,
+                    "Failed to persist Linear status onto binding"
+                );
+            }
+        }
+    }
 }
 
 /// Post a state-change message to every active agent-session binding for the
@@ -724,6 +783,10 @@ async fn provision_session_task(
         origin: ADAPTER_EVENT_BINDING_ORIGIN.to_string(),
         created_at: now,
         last_event_at: now,
+        external_status: None,
+        external_state_kind: None,
+        external_status_raw: None,
+        external_status_updated_at: None,
     };
 
     PgTaskBindingRepository(state.db.clone())

@@ -9,6 +9,7 @@ import type { AgentType } from './agentType';
 import type { Scope } from './scope';
 import type { TagResponse } from './tagResponse';
 import type { TaskBindingSummary } from './taskBindingSummary';
+import type { TaskRelationDto } from './taskRelationDto';
 import type { TaskStatus } from './taskStatus';
 import type { Visibility } from './visibility';
 
@@ -40,8 +41,14 @@ has occurred for this many days. `0` means "never auto-close". */
   name?: string | null;
   /** @nullable */
   ownerUserId?: string | null;
-  /** @nullable */
+  /**
+   * Derived from the `created_by` relation in `relations`. Kept for
+backward compatibility with clients that pre-date the relations field.
+   * @nullable
+   */
   parentTaskId?: string | null;
+  /** Typed relations this task has to other tasks (currently `created_by`). */
+  relations?: TaskRelationDto[];
   repositoryId: string;
   /** @nullable */
   repositoryName?: string | null;

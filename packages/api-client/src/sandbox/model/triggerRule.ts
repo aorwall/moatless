@@ -9,6 +9,13 @@ import type { RoutingMode } from './routingMode';
 
 export interface TriggerRule {
   agentType: string;
+  /**
+   * Per-trigger inactivity TTL in days. `None` means "inherit the global
+default" (`TASK_INACTIVE_TIMEOUT_DAYS`). Flows into `tasks.inactive_ttl_days`
+when this trigger spawns a task.
+   * @nullable
+   */
+  inactiveTtlDays?: number | null;
   /** @nullable */
   ongoingTaskId?: string | null;
   /** @nullable */

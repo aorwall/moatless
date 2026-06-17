@@ -53,6 +53,201 @@ type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 
 /**
+ * Sits at the bottom of the precedence chain: any user with their own row
+or a member of a team with a team row will shadow this. Useful for
+seeding bots (e.g. `bot:reviewer`) without per-bot upserts.
+ * @summary Save the instance-wide (global) Codex blob. Admin only.
+ */
+export type adminSaveGlobalCodexAuthResponse200 = {
+  data: CodexConfigResponse
+  status: 200
+}
+
+export type adminSaveGlobalCodexAuthResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type adminSaveGlobalCodexAuthResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+
+export type adminSaveGlobalCodexAuthResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+    
+export type adminSaveGlobalCodexAuthResponseSuccess = (adminSaveGlobalCodexAuthResponse200) & {
+  headers: Headers;
+};
+export type adminSaveGlobalCodexAuthResponseError = (adminSaveGlobalCodexAuthResponse400 | adminSaveGlobalCodexAuthResponse401 | adminSaveGlobalCodexAuthResponse403) & {
+  headers: Headers;
+};
+
+export type adminSaveGlobalCodexAuthResponse = (adminSaveGlobalCodexAuthResponseSuccess | adminSaveGlobalCodexAuthResponseError)
+
+export const getAdminSaveGlobalCodexAuthUrl = () => {
+
+
+  
+
+  return `/api/v1/admin/settings/codex/config`
+}
+
+export const adminSaveGlobalCodexAuth = async (saveCodexAuthRequest: SaveCodexAuthRequest, options?: RequestInit): Promise<adminSaveGlobalCodexAuthResponse> => {
+  
+  return customInstance<adminSaveGlobalCodexAuthResponse>(getAdminSaveGlobalCodexAuthUrl(),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      saveCodexAuthRequest,)
+  }
+);}
+
+
+
+
+export const getAdminSaveGlobalCodexAuthMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSaveGlobalCodexAuth>>, TError,{data: SaveCodexAuthRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminSaveGlobalCodexAuth>>, TError,{data: SaveCodexAuthRequest}, TContext> => {
+
+const mutationKey = ['adminSaveGlobalCodexAuth'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminSaveGlobalCodexAuth>>, {data: SaveCodexAuthRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminSaveGlobalCodexAuth(data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminSaveGlobalCodexAuthMutationResult = NonNullable<Awaited<ReturnType<typeof adminSaveGlobalCodexAuth>>>
+    export type AdminSaveGlobalCodexAuthMutationBody = SaveCodexAuthRequest
+    export type AdminSaveGlobalCodexAuthMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Save the instance-wide (global) Codex blob. Admin only.
+ */
+export const useAdminSaveGlobalCodexAuth = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSaveGlobalCodexAuth>>, TError,{data: SaveCodexAuthRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof adminSaveGlobalCodexAuth>>,
+        TError,
+        {data: SaveCodexAuthRequest},
+        TContext
+      > => {
+      return useMutation(getAdminSaveGlobalCodexAuthMutationOptions(options), queryClient);
+    }
+    /**
+ * @summary Delete the instance-wide (global) Codex blob. Admin only.
+ */
+export type adminDeleteGlobalCodexConfigResponse200 = {
+  data: CodexConfigResponse
+  status: 200
+}
+
+export type adminDeleteGlobalCodexConfigResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+
+export type adminDeleteGlobalCodexConfigResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+    
+export type adminDeleteGlobalCodexConfigResponseSuccess = (adminDeleteGlobalCodexConfigResponse200) & {
+  headers: Headers;
+};
+export type adminDeleteGlobalCodexConfigResponseError = (adminDeleteGlobalCodexConfigResponse401 | adminDeleteGlobalCodexConfigResponse403) & {
+  headers: Headers;
+};
+
+export type adminDeleteGlobalCodexConfigResponse = (adminDeleteGlobalCodexConfigResponseSuccess | adminDeleteGlobalCodexConfigResponseError)
+
+export const getAdminDeleteGlobalCodexConfigUrl = () => {
+
+
+  
+
+  return `/api/v1/admin/settings/codex/config`
+}
+
+export const adminDeleteGlobalCodexConfig = async ( options?: RequestInit): Promise<adminDeleteGlobalCodexConfigResponse> => {
+  
+  return customInstance<adminDeleteGlobalCodexConfigResponse>(getAdminDeleteGlobalCodexConfigUrl(),
+  {      
+    ...options,
+    method: 'DELETE'
+    
+    
+  }
+);}
+
+
+
+
+export const getAdminDeleteGlobalCodexConfigMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminDeleteGlobalCodexConfig>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminDeleteGlobalCodexConfig>>, TError,void, TContext> => {
+
+const mutationKey = ['adminDeleteGlobalCodexConfig'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminDeleteGlobalCodexConfig>>, void> = () => {
+          
+
+          return  adminDeleteGlobalCodexConfig(requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminDeleteGlobalCodexConfigMutationResult = NonNullable<Awaited<ReturnType<typeof adminDeleteGlobalCodexConfig>>>
+    
+    export type AdminDeleteGlobalCodexConfigMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Delete the instance-wide (global) Codex blob. Admin only.
+ */
+export const useAdminDeleteGlobalCodexConfig = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminDeleteGlobalCodexConfig>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof adminDeleteGlobalCodexConfig>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getAdminDeleteGlobalCodexConfigMutationOptions(options), queryClient);
+    }
+    /**
  * @summary Get current Codex configuration for the user.
  */
 export type getCodexConfigResponse200 = {

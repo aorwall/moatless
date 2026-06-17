@@ -1,5 +1,6 @@
 //! Task CRUD module.
 
+pub mod connections_handlers;
 pub mod dao;
 pub mod error;
 pub mod handlers;

@@ -33,6 +33,7 @@ pub mod shared;
 pub mod skill;
 pub mod tag;
 pub mod task;
+pub mod task_connections;
 pub mod task_event;
 pub mod task_template;
 pub mod team;

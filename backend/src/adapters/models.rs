@@ -212,6 +212,24 @@ pub struct TaskBinding {
     pub origin: String,
     pub created_at: DateTime<Utc>,
     pub last_event_at: DateTime<Utc>,
+    /// Display string for the connected subject's external status (GitHub PR /
+    /// Linear issue). `#[sqlx(default)]` so the many existing `SELECT`s that
+    /// don't project these columns keep deserializing — only the
+    /// task-connections query reads them. Written by webhook handlers and the
+    /// live status service.
+    #[sqlx(default)]
+    pub external_status: Option<String>,
+    /// Normalized status bucket (GitHub: open|merged|closed|draft; Linear:
+    /// state.type).
+    #[sqlx(default)]
+    pub external_state_kind: Option<String>,
+    /// Full status detail (title, url, state id/name, merged flag, …).
+    #[sqlx(default)]
+    pub external_status_raw: Option<serde_json::Value>,
+    /// When [`Self::external_status`] was last refreshed; `None` when never
+    /// persisted.
+    #[sqlx(default)]
+    pub external_status_updated_at: Option<DateTime<Utc>>,
 }
 
 /// Row from the `schedule_trigger_sources` table.

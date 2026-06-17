@@ -51,6 +51,17 @@ pub struct PrInfo {
     pub title: String,
     pub body: Option<String>,
     pub state: String,
+    /// Whether the PR was merged. Distinguishes `merged` from a plain `closed`
+    /// PR (GitHub reports both as `state = "closed"`). Absent on older
+    /// payloads, hence optional.
+    #[serde(default)]
+    pub merged: Option<bool>,
+    /// Whether the PR is a draft.
+    #[serde(default)]
+    pub draft: Option<bool>,
+    /// PR web URL (`html_url`).
+    #[serde(default)]
+    pub html_url: Option<String>,
     pub user: Option<PrInfoUser>,
     pub head: PrRef,
     pub base: PrRef,

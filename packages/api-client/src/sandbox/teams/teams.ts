@@ -26,8 +26,10 @@ import type {
 
 import type {
   AddTeamMemberRequest,
+  CodexConfigResponse,
   CreateTeamRequest,
   ErrorBody,
+  SaveCodexAuthRequest,
   TeamCredentialResponse,
   TeamMemberResponse,
   TeamResponse,
@@ -1185,5 +1187,202 @@ export const useRemoveMember = <TError = ErrorType<ErrorBody>,
         TContext
       > => {
       return useMutation(getRemoveMemberMutationOptions(options), queryClient);
+    }
+    /**
+ * The team blob shadows the global blob but is itself shadowed by any
+member's user-scoped row (precedence: user > team > global). Resolution
++ just-in-time refresh share one code path with the user / global
+endpoints via [`crate::credentials::codex::save_codex_auth_for_scope`].
+ * @summary Save a team-scoped Codex `auth.json`.
+ */
+export type putTeamCodexConfigResponse200 = {
+  data: CodexConfigResponse
+  status: 200
+}
+
+export type putTeamCodexConfigResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type putTeamCodexConfigResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type putTeamCodexConfigResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type putTeamCodexConfigResponseSuccess = (putTeamCodexConfigResponse200) & {
+  headers: Headers;
+};
+export type putTeamCodexConfigResponseError = (putTeamCodexConfigResponse400 | putTeamCodexConfigResponse403 | putTeamCodexConfigResponse404) & {
+  headers: Headers;
+};
+
+export type putTeamCodexConfigResponse = (putTeamCodexConfigResponseSuccess | putTeamCodexConfigResponseError)
+
+export const getPutTeamCodexConfigUrl = (teamId: string,) => {
+
+
+  
+
+  return `/api/v1/teams/${teamId}/settings/codex/config`
+}
+
+export const putTeamCodexConfig = async (teamId: string,
+    saveCodexAuthRequest: SaveCodexAuthRequest, options?: RequestInit): Promise<putTeamCodexConfigResponse> => {
+  
+  return customInstance<putTeamCodexConfigResponse>(getPutTeamCodexConfigUrl(teamId),
+  {      
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      saveCodexAuthRequest,)
+  }
+);}
+
+
+
+
+export const getPutTeamCodexConfigMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof putTeamCodexConfig>>, TError,{teamId: string;data: SaveCodexAuthRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof putTeamCodexConfig>>, TError,{teamId: string;data: SaveCodexAuthRequest}, TContext> => {
+
+const mutationKey = ['putTeamCodexConfig'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof putTeamCodexConfig>>, {teamId: string;data: SaveCodexAuthRequest}> = (props) => {
+          const {teamId,data} = props ?? {};
+
+          return  putTeamCodexConfig(teamId,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PutTeamCodexConfigMutationResult = NonNullable<Awaited<ReturnType<typeof putTeamCodexConfig>>>
+    export type PutTeamCodexConfigMutationBody = SaveCodexAuthRequest
+    export type PutTeamCodexConfigMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Save a team-scoped Codex `auth.json`.
+ */
+export const usePutTeamCodexConfig = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof putTeamCodexConfig>>, TError,{teamId: string;data: SaveCodexAuthRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof putTeamCodexConfig>>,
+        TError,
+        {teamId: string;data: SaveCodexAuthRequest},
+        TContext
+      > => {
+      return useMutation(getPutTeamCodexConfigMutationOptions(options), queryClient);
+    }
+    /**
+ * @summary Delete the team's Codex blob.
+ */
+export type deleteTeamCodexConfigResponse204 = {
+  data: void
+  status: 204
+}
+
+export type deleteTeamCodexConfigResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type deleteTeamCodexConfigResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type deleteTeamCodexConfigResponseSuccess = (deleteTeamCodexConfigResponse204) & {
+  headers: Headers;
+};
+export type deleteTeamCodexConfigResponseError = (deleteTeamCodexConfigResponse403 | deleteTeamCodexConfigResponse404) & {
+  headers: Headers;
+};
+
+export type deleteTeamCodexConfigResponse = (deleteTeamCodexConfigResponseSuccess | deleteTeamCodexConfigResponseError)
+
+export const getDeleteTeamCodexConfigUrl = (teamId: string,) => {
+
+
+  
+
+  return `/api/v1/teams/${teamId}/settings/codex/config`
+}
+
+export const deleteTeamCodexConfig = async (teamId: string, options?: RequestInit): Promise<deleteTeamCodexConfigResponse> => {
+  
+  return customInstance<deleteTeamCodexConfigResponse>(getDeleteTeamCodexConfigUrl(teamId),
+  {      
+    ...options,
+    method: 'DELETE'
+    
+    
+  }
+);}
+
+
+
+
+export const getDeleteTeamCodexConfigMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteTeamCodexConfig>>, TError,{teamId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteTeamCodexConfig>>, TError,{teamId: string}, TContext> => {
+
+const mutationKey = ['deleteTeamCodexConfig'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteTeamCodexConfig>>, {teamId: string}> = (props) => {
+          const {teamId} = props ?? {};
+
+          return  deleteTeamCodexConfig(teamId,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteTeamCodexConfigMutationResult = NonNullable<Awaited<ReturnType<typeof deleteTeamCodexConfig>>>
+    
+    export type DeleteTeamCodexConfigMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Delete the team's Codex blob.
+ */
+export const useDeleteTeamCodexConfig = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteTeamCodexConfig>>, TError,{teamId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteTeamCodexConfig>>,
+        TError,
+        {teamId: string},
+        TContext
+      > => {
+      return useMutation(getDeleteTeamCodexConfigMutationOptions(options), queryClient);
     }
     

@@ -11,6 +11,8 @@ export interface UpdateTriggerRule {
   /** @nullable */
   agentType?: string | null;
   /** @nullable */
+  inactiveTtlDays?: number | null;
+  /** @nullable */
   ongoingTaskId?: string | null;
   /** @nullable */
   prompt?: string | null;

@@ -25,6 +25,7 @@ import { Route as AuthCallbackRouteImport } from './routes/auth/callback'
 import { Route as TasksTaskIdIndexRouteImport } from './routes/tasks/$task-id/index'
 import { Route as SandboxTaskIdIndexRouteImport } from './routes/sandbox/$task-id/index'
 import { Route as AdminTriggersIndexRouteImport } from './routes/admin/triggers/index'
+import { Route as AdminTaskConnectionsIndexRouteImport } from './routes/admin/task-connections/index'
 import { Route as AdminMarketplacesIndexRouteImport } from './routes/admin/marketplaces/index'
 import { Route as AdminCommandsIndexRouteImport } from './routes/admin/commands/index'
 import { Route as TasksTaskIdKioskRouteImport } from './routes/tasks/$task-id/kiosk'
@@ -116,6 +117,12 @@ const AdminTriggersIndexRoute = AdminTriggersIndexRouteImport.update({
   path: '/triggers/',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminTaskConnectionsIndexRoute =
+  AdminTaskConnectionsIndexRouteImport.update({
+    id: '/task-connections/',
+    path: '/task-connections/',
+    getParentRoute: () => AdminRoute,
+  } as any)
 const AdminMarketplacesIndexRoute = AdminMarketplacesIndexRouteImport.update({
   id: '/marketplaces/',
   path: '/marketplaces/',
@@ -191,6 +198,7 @@ export interface FileRoutesByFullPath {
   '/tasks/$task-id/kiosk': typeof TasksTaskIdKioskRoute
   '/admin/commands': typeof AdminCommandsIndexRoute
   '/admin/marketplaces': typeof AdminMarketplacesIndexRoute
+  '/admin/task-connections': typeof AdminTaskConnectionsIndexRoute
   '/admin/triggers': typeof AdminTriggersIndexRoute
   '/sandbox/$task-id': typeof SandboxTaskIdIndexRoute
   '/tasks/$task-id': typeof TasksTaskIdIndexRoute
@@ -216,6 +224,7 @@ export interface FileRoutesByTo {
   '/tasks/$task-id/kiosk': typeof TasksTaskIdKioskRoute
   '/admin/commands': typeof AdminCommandsIndexRoute
   '/admin/marketplaces': typeof AdminMarketplacesIndexRoute
+  '/admin/task-connections': typeof AdminTaskConnectionsIndexRoute
   '/admin/triggers': typeof AdminTriggersIndexRoute
   '/sandbox/$task-id': typeof SandboxTaskIdIndexRoute
   '/tasks/$task-id': typeof TasksTaskIdIndexRoute
@@ -245,6 +254,7 @@ export interface FileRoutesById {
   '/tasks/$task-id/kiosk': typeof TasksTaskIdKioskRoute
   '/admin/commands/': typeof AdminCommandsIndexRoute
   '/admin/marketplaces/': typeof AdminMarketplacesIndexRoute
+  '/admin/task-connections/': typeof AdminTaskConnectionsIndexRoute
   '/admin/triggers/': typeof AdminTriggersIndexRoute
   '/sandbox/$task-id/': typeof SandboxTaskIdIndexRoute
   '/tasks/$task-id/': typeof TasksTaskIdIndexRoute
@@ -275,6 +285,7 @@ export interface FileRouteTypes {
     | '/tasks/$task-id/kiosk'
     | '/admin/commands'
     | '/admin/marketplaces'
+    | '/admin/task-connections'
     | '/admin/triggers'
     | '/sandbox/$task-id'
     | '/tasks/$task-id'
@@ -300,6 +311,7 @@ export interface FileRouteTypes {
     | '/tasks/$task-id/kiosk'
     | '/admin/commands'
     | '/admin/marketplaces'
+    | '/admin/task-connections'
     | '/admin/triggers'
     | '/sandbox/$task-id'
     | '/tasks/$task-id'
@@ -328,6 +340,7 @@ export interface FileRouteTypes {
     | '/tasks/$task-id/kiosk'
     | '/admin/commands/'
     | '/admin/marketplaces/'
+    | '/admin/task-connections/'
     | '/admin/triggers/'
     | '/sandbox/$task-id/'
     | '/tasks/$task-id/'
@@ -466,6 +479,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminTriggersIndexRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/task-connections/': {
+      id: '/admin/task-connections/'
+      path: '/task-connections'
+      fullPath: '/admin/task-connections'
+      preLoaderRoute: typeof AdminTaskConnectionsIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/marketplaces/': {
       id: '/admin/marketplaces/'
       path: '/marketplaces'
@@ -544,6 +564,7 @@ interface AdminRouteChildren {
   AdminTriggersNewRoute: typeof AdminTriggersNewRoute
   AdminCommandsIndexRoute: typeof AdminCommandsIndexRoute
   AdminMarketplacesIndexRoute: typeof AdminMarketplacesIndexRoute
+  AdminTaskConnectionsIndexRoute: typeof AdminTaskConnectionsIndexRoute
   AdminTriggersIndexRoute: typeof AdminTriggersIndexRoute
   AdminTriggersTriggerIdEditRoute: typeof AdminTriggersTriggerIdEditRoute
   AdminIntegrationsConnectionsIndexRoute: typeof AdminIntegrationsConnectionsIndexRoute
@@ -556,6 +577,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminTriggersNewRoute: AdminTriggersNewRoute,
   AdminCommandsIndexRoute: AdminCommandsIndexRoute,
   AdminMarketplacesIndexRoute: AdminMarketplacesIndexRoute,
+  AdminTaskConnectionsIndexRoute: AdminTaskConnectionsIndexRoute,
   AdminTriggersIndexRoute: AdminTriggersIndexRoute,
   AdminTriggersTriggerIdEditRoute: AdminTriggersTriggerIdEditRoute,
   AdminIntegrationsConnectionsIndexRoute:

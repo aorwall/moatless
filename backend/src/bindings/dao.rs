@@ -64,6 +64,26 @@ pub trait TaskBindingRepository: Send + Sync {
 
     async fn touch_cursor(&self, id: &str, last_external_event_id: &str)
         -> Result<(), sqlx::Error>;
+
+    /// Persist the external status of a binding's connected subject (GitHub PR
+    /// / Linear issue). Writes the dedicated `external_status*` columns and
+    /// stamps `external_status_updated_at = now()`. Leaves
+    /// `destination_config` untouched (which `upsert` would clobber).
+    async fn update_external_status(
+        &self,
+        id: &str,
+        status: Option<&str>,
+        state_kind: Option<&str>,
+        raw: &serde_json::Value,
+    ) -> Result<(), sqlx::Error>;
+
+    /// Batch-fetch full binding rows (including `destination_config` and the
+    /// `external_status*` columns) for a set of tasks. Drives the
+    /// task-connections admin view.
+    async fn find_by_task_ids(
+        &self,
+        task_ids: &[String],
+    ) -> Result<Vec<TaskBinding>, sqlx::Error>;
 }
 
 pub struct PgTaskBindingRepository(pub DbPool);
@@ -205,6 +225,23 @@ impl TaskBindingRepository for PgTaskBindingRepository {
         last_external_event_id: &str,
     ) -> Result<(), sqlx::Error> {
         PgTaskBindingRepository::touch_cursor(self, id, last_external_event_id).await
+    }
+
+    async fn update_external_status(
+        &self,
+        id: &str,
+        status: Option<&str>,
+        state_kind: Option<&str>,
+        raw: &serde_json::Value,
+    ) -> Result<(), sqlx::Error> {
+        PgTaskBindingRepository::update_external_status(self, id, status, state_kind, raw).await
+    }
+
+    async fn find_by_task_ids(
+        &self,
+        task_ids: &[String],
+    ) -> Result<Vec<TaskBinding>, sqlx::Error> {
+        PgTaskBindingRepository::find_by_task_ids(self, task_ids).await
     }
 }
 
@@ -485,5 +522,63 @@ impl PgTaskBindingRepository {
         .execute(&self.0)
         .await?;
         Ok(())
+    }
+
+    pub async fn update_external_status(
+        &self,
+        id: &str,
+        status: Option<&str>,
+        state_kind: Option<&str>,
+        raw: &serde_json::Value,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE task_bindings
+               SET external_status            = $2,
+                   external_state_kind        = $3,
+                   external_status_raw        = $4,
+                   external_status_updated_at = now()
+               WHERE id = $1"#,
+        )
+        .bind(id)
+        .bind(status)
+        .bind(state_kind)
+        .bind(raw)
+        .execute(&self.0)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn find_by_task_ids(
+        &self,
+        task_ids: &[String],
+    ) -> Result<Vec<TaskBinding>, sqlx::Error> {
+        if task_ids.is_empty() {
+            return Ok(vec![]);
+        }
+        sqlx::query_as::<_, TaskBinding>(
+            r#"SELECT id,
+                      task_id,
+                      adapter_kind AS provider,
+                      subject_kind,
+                      subject_key,
+                      connection_id,
+                      trigger_id,
+                      destination_config,
+                      metadata,
+                      last_external_event_id,
+                      origin,
+                      created_at,
+                      last_event_at,
+                      external_status,
+                      external_state_kind,
+                      external_status_raw,
+                      external_status_updated_at
+               FROM task_bindings
+               WHERE task_id = ANY($1)
+               ORDER BY created_at ASC"#,
+        )
+        .bind(task_ids)
+        .fetch_all(&self.0)
+        .await
     }
 }

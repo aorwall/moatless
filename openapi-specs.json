@@ -989,6 +989,259 @@
         }
       }
     },
+    "/api/v1/admin/settings/codex/config": {
+      "post": {
+        "tags": [
+          "provider-settings"
+        ],
+        "summary": "Save the instance-wide (global) Codex blob. Admin only.",
+        "description": "Sits at the bottom of the precedence chain: any user with their own row\nor a member of a team with a team row will shadow this. Useful for\nseeding bots (e.g. `bot:reviewer`) without per-bot upserts.",
+        "operationId": "admin_save_global_codex_auth",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveCodexAuthRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Global codex auth saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodexConfigResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid auth JSON",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "provider-settings"
+        ],
+        "summary": "Delete the instance-wide (global) Codex blob. Admin only.",
+        "operationId": "admin_delete_global_codex_config",
+        "responses": {
+          "200": {
+            "description": "Global codex disconnected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodexConfigResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/task-connections": {
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "List tasks with their external connections, statuses, and message counts.",
+        "operationId": "list_task_connections",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "refresh",
+            "in": "query",
+            "description": "When `true`, fill in missing/stale connection statuses with a live\nGitHub / Linear fetch (bounded concurrency). Default is DB-only and\nfast.",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tasks with their external connections",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskConnectionsResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin role required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/users/{user_id}/provider-tokens/codex": {
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Seed (or overwrite) a target user's codex provider_tokens row from an\nalready-minted `auth.json` blob. Admin-only — used to clone a working\nCodex blob onto a bot user (e.g. `bot:reviewer`) that has no way to run\nthe device-code flow itself.",
+        "description": "Body shape mirrors `SaveCodexAuthRequest`. Side effects mirror\n`provider_settings::save_codex_auth`: persists to `provider_tokens` and\nbroadcasts via `CredentialService` to any running sandbox owned by the\ntarget user.",
+        "operationId": "admin_set_codex_provider_token_handler",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "description": "Target user id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveCodexAuthRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Codex provider_token seeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodexConfigResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid Codex auth JSON",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/agents": {
       "get": {
         "tags": [
@@ -1790,6 +2043,279 @@
           },
           "400": {
             "description": "Parse error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/github/repos/{owner}/{repo}/issues/{number}/comments": {
+      "post": {
+        "tags": [
+          "github"
+        ],
+        "operationId": "post_comment",
+        "parameters": [
+          {
+            "name": "owner",
+            "in": "path",
+            "description": "Repository owner (org or user)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "repo",
+            "in": "path",
+            "description": "Repository name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "number",
+            "in": "path",
+            "description": "PR or issue number",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GithubCommentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Comment posted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubCommentResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request / adapter not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "GitHub API error / no usable GitHub token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/github/repos/{owner}/{repo}/pulls": {
+      "post": {
+        "tags": [
+          "github"
+        ],
+        "operationId": "create_pr",
+        "parameters": [
+          {
+            "name": "owner",
+            "in": "path",
+            "description": "Repository owner (org or user)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "repo",
+            "in": "path",
+            "description": "Repository name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GithubCreatePrRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Pull request created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubCreatePrResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request / adapter not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "GitHub API error / no usable GitHub token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/github/repos/{owner}/{repo}/pulls/{number}/comments/{comment_id}/replies": {
+      "post": {
+        "tags": [
+          "github"
+        ],
+        "operationId": "reply_to_review_comment",
+        "parameters": [
+          {
+            "name": "owner",
+            "in": "path",
+            "description": "Repository owner (org or user)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "repo",
+            "in": "path",
+            "description": "Repository name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "number",
+            "in": "path",
+            "description": "PR number",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "comment_id",
+            "in": "path",
+            "description": "Review comment id to reply to",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GithubReplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Threaded reply posted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubCommentResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request / adapter not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "GitHub API error / no usable GitHub token",
             "content": {
               "application/json": {
                 "schema": {
@@ -4855,7 +5381,7 @@
         "tags": [
           "tasks"
         ],
-        "summary": "Update a task's idle TTL (in minutes). `0` disables the idle reaper for\nthis task — the sandbox stays alive until it's explicitly stopped.",
+        "summary": "Update a task's TTLs. `ttl_minutes` is the idle TTL (`0` disables the idle\nreaper — the sandbox stays alive until explicitly stopped). `inactive_ttl_days`\nis the inactivity TTL (`0` disables auto-close). Both fields are optional;\nomit a field to leave that TTL unchanged. At least one must be provided.",
         "operationId": "update_ttl",
         "parameters": [
           {
@@ -5425,6 +5951,122 @@
         }
       }
     },
+    "/api/v1/teams/{team_id}/settings/codex/config": {
+      "put": {
+        "tags": [
+          "teams"
+        ],
+        "summary": "Save a team-scoped Codex `auth.json`.",
+        "description": "The team blob shadows the global blob but is itself shadowed by any\nmember's user-scoped row (precedence: user > team > global). Resolution\n+ just-in-time refresh share one code path with the user / global\nendpoints via [`crate::credentials::codex::save_codex_auth_for_scope`].",
+        "operationId": "put_team_codex_config",
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "description": "Team identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveCodexAuthRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Team codex auth saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodexConfigResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid auth JSON",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a team manager",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Team not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "teams"
+        ],
+        "summary": "Delete the team's Codex blob.",
+        "operationId": "delete_team_codex_config",
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "description": "Team identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Team codex disconnected"
+          },
+          "403": {
+            "description": "Not a team manager",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Team not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/triggers": {
       "get": {
         "tags": [
@@ -5741,6 +6383,149 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Create a bot user backed by a configured GitHub App.",
+        "description": "Resolves the App's `{slug}[bot]` identity via `GitHubAppRegistry`, then\ninserts both the `users` row and a matching `provider_tokens` row with\n`auth_method = 'github_app_installation'` so credential resolution\ntransparently mints installation tokens for tasks that\n`run_as_user_id = <bot id>`.",
+        "operationId": "create_user_handler",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Bot user created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateUserResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown app key or human user request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/{login}": {
+      "patch": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Update a user's profile (name and/or email).",
+        "description": "A user may update their own profile; updating another user requires the\nadmin role. Backs the `moat user <login> set-email` CLI command so emails\ncan be corrected without direct DB access. Only the fields present in the\nbody are changed.",
+        "operationId": "update_user_handler",
+        "parameters": [
+          {
+            "name": "login",
+            "in": "path",
+            "description": "Moatless username",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "User updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserInfo"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "User not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -6385,7 +7170,8 @@
           "retrying",
           "scheduled",
           "recovery_started",
-          "recovery_exhausted"
+          "recovery_exhausted",
+          "session_context_lost"
         ]
       },
       "AgentType": {
@@ -6867,6 +7653,79 @@
               "boolean",
               "null"
             ]
+          }
+        }
+      },
+      "Connection": {
+        "type": "object",
+        "description": "A single external connection (one task binding) with its decoded label,\nexternal status, and message tally.",
+        "required": [
+          "bindingId",
+          "adapterKind",
+          "kind",
+          "label",
+          "incoming",
+          "outgoing"
+        ],
+        "properties": {
+          "adapterKind": {
+            "$ref": "#/components/schemas/AdapterKind"
+          },
+          "bindingId": {
+            "type": "string"
+          },
+          "incoming": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Inbound message count for this connection."
+          },
+          "kind": {
+            "type": "string",
+            "description": "Decoded connection kind: `github_pr` | `linear_issue` | `slack_thread`\n| the raw `subject_kind` for anything else."
+          },
+          "label": {
+            "type": "string",
+            "description": "Human-readable label such as `owner/repo#42` or `SP-1721`."
+          },
+          "lastEventAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC3339 timestamp of the last event seen on the binding."
+          },
+          "outgoing": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Outgoing message count for this connection."
+          },
+          "stateKind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Normalized status bucket for color-coding."
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Display status string (GitHub: open/merged/closed/draft; Linear: state\nname). `None` when no status has been persisted/fetched yet."
+          },
+          "statusUpdatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC3339 timestamp of when the status was last refreshed."
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Web URL for the connected subject, when derivable."
           }
         }
       },
@@ -7888,6 +8747,13 @@
               "null"
             ]
           },
+          "inactiveTtlDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
           "ongoingTaskId": {
             "type": [
               "string",
@@ -7941,6 +8807,58 @@
             "$ref": "#/components/schemas/ManualTriggerSource"
           }
         ]
+      },
+      "CreateUserRequest": {
+        "type": "object",
+        "description": "POST /api/v1/users request.\n\nCreates a bot user backed by a configured GitHub App. The server resolves\nthe App's `{slug}[bot]` identity from `GitHubAppRegistry` and writes both\nthe `users` row and the matching `provider_tokens` row atomically.",
+        "required": [
+          "isBot",
+          "githubAppKey"
+        ],
+        "properties": {
+          "githubAppKey": {
+            "type": "string",
+            "description": "Registry key of a configured GitHub App (e.g. `\"dev-bot\"`)."
+          },
+          "isBot": {
+            "type": "boolean",
+            "description": "Must be `true`. Human users are created via the OAuth callback, not\nthis endpoint. (Reserved as a flag so the schema can be extended later\nwithout a breaking change.)"
+          }
+        }
+      },
+      "CreateUserResponse": {
+        "type": "object",
+        "description": "POST /api/v1/users response.",
+        "required": [
+          "id",
+          "login",
+          "isBot",
+          "provider",
+          "role"
+        ],
+        "properties": {
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "isBot": {
+            "type": "boolean"
+          },
+          "login": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          }
+        }
       },
       "DeleteMessageResponse": {
         "type": "object",
@@ -8577,6 +9495,145 @@
           }
         }
       },
+      "GithubCommentRequest": {
+        "type": "object",
+        "description": "`POST /api/v1/github/repos/{owner}/{repo}/issues/{number}/comments` —\npost a comment on a PR or issue (GitHub's issues API covers both).",
+        "required": [
+          "body"
+        ],
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "taskId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Task to bind the PR/issue to and dedup the comment's webhook echo\nagainst. See [`GithubCreatePrRequest::task_id`]."
+          }
+        }
+      },
+      "GithubCommentResponse": {
+        "type": "object",
+        "description": "Response for comment creation (top-level comments and threaded\nreview-comment replies alike).",
+        "required": [
+          "id",
+          "htmlUrl"
+        ],
+        "properties": {
+          "bindingId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Set only when the request included a `task_id` and the binding upsert\nsucceeded."
+          },
+          "htmlUrl": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "GithubCreatePrRequest": {
+        "type": "object",
+        "description": "`POST /api/v1/github/repos/{owner}/{repo}/pulls` — create a pull request.",
+        "required": [
+          "title",
+          "head"
+        ],
+        "properties": {
+          "base": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Base branch. Defaults to the repository's default branch when omitted."
+          },
+          "body": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "draft": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "head": {
+            "type": "string",
+            "description": "Head branch the PR is created from. The CLI infers this from the\ncurrent git branch when the agent omits `--head`."
+          },
+          "taskId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Task to bind the created PR to. When provided, a `task_bindings` row\nis upserted so inbound PR comments route back to this task, and a\n`Moatless task: <url>` footer is appended to the PR body."
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "GithubCreatePrResponse": {
+        "type": "object",
+        "description": "Response for PR creation.",
+        "required": [
+          "number",
+          "htmlUrl",
+          "title",
+          "state"
+        ],
+        "properties": {
+          "bindingId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Set only when the request included a `task_id` and the binding upsert\nsucceeded."
+          },
+          "htmlUrl": {
+            "type": "string"
+          },
+          "number": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "state": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "GithubReplyRequest": {
+        "type": "object",
+        "description": "`POST /api/v1/github/repos/{owner}/{repo}/pulls/{number}/comments/{comment_id}/replies`\n— threaded reply to a PR review (inline) comment.",
+        "required": [
+          "body"
+        ],
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "taskId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Task to bind the PR to and dedup the reply's webhook echo against.\nSee [`GithubCreatePrRequest::task_id`]."
+          }
+        }
+      },
       "GitnessConfigResponse": {
         "type": "object",
         "required": [
@@ -8665,6 +9722,13 @@
           "body"
         ],
         "properties": {
+          "bind": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Force the parent issue into a reply target even when no binding exists\nyet. A comment on an already-bound issue refreshes its binding\nregardless; this flag covers a proactive comment on an unbound issue.\nDefaults to `false`. See [`LinearIssueCreateRequest::bind`]."
+          },
           "body": {
             "type": "string"
           },
@@ -8673,7 +9737,7 @@
               "string",
               "null"
             ],
-            "description": "Task to bind the parent issue to. See [`LinearIssueCreateRequest::task_id`]."
+            "description": "Task to associate the parent issue with. See\n[`LinearIssueCreateRequest::task_id`]."
           }
         }
       },
@@ -8708,6 +9772,13 @@
               "null"
             ],
             "description": "Assignee email, display name, or UUID. `\"me\"` resolves to the\nauthenticated agent (the workspace OAuth viewer)."
+          },
+          "bind": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Opt the created issue into being a reply target: when `true` (and\n`task_id` is set) a `task_bindings` row with `subject_kind =\n\"linear_issue\"` is inserted so future comments on the issue route back\nto the task and `moat messages reply` can post here. Filing alone does\nNOT bind — this defaults to `false`."
           },
           "cycle": {
             "type": [
@@ -8766,6 +9837,13 @@
             ],
             "description": "Project name or UUID."
           },
+          "reporter": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Real Linear user to record as the issue reporter. Accepts email,\ndisplay name, UUID, or \"me\". Added as a subscriber and mentioned in\nthe description (Linear has no settable creator/reporter field)."
+          },
           "state": {
             "type": [
               "string",
@@ -8778,7 +9856,7 @@
               "string",
               "null"
             ],
-            "description": "Task to bind the created issue to. When provided, a `task_bindings`\nrow is inserted with `subject_kind = \"linear_issue\"` so subsequent\n`POST /tasks/{id}/reply` posts a comment on this issue."
+            "description": "Task to associate the created issue with (records a clickable Moatless\nattachment on the issue for traceability)."
           },
           "team": {
             "type": [
@@ -11309,6 +12387,64 @@
           }
         }
       },
+      "TaskConnectionRow": {
+        "type": "object",
+        "description": "One task and the external connections wired to it.",
+        "required": [
+          "taskId",
+          "title",
+          "status",
+          "connections"
+        ],
+        "properties": {
+          "connections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Connection"
+            }
+          },
+          "repositoryName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shortId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/TaskStatus"
+          },
+          "taskId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "TaskConnectionsResponse": {
+        "type": "object",
+        "description": "Paginated list of tasks with their external connections.",
+        "required": [
+          "items",
+          "pagination"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskConnectionRow"
+            }
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/PaginationResponse"
+          }
+        }
+      },
       "TaskEventPayload": {
         "type": "object",
         "description": "Task event payload — typed shape for `EventType::Task` events.",
@@ -11364,6 +12500,47 @@
             "type": "string"
           }
         }
+      },
+      "TaskRelationDto": {
+        "type": "object",
+        "description": "A typed link from one task to another, with optional JSON context.",
+        "required": [
+          "id",
+          "fromTaskId",
+          "toTaskId",
+          "relationType",
+          "context",
+          "createdAt"
+        ],
+        "properties": {
+          "context": {
+            "type": "object",
+            "description": "Free-form metadata describing why/how the relation was created."
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "fromTaskId": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "relationType": {
+            "$ref": "#/components/schemas/TaskRelationType"
+          },
+          "toTaskId": {
+            "type": "string"
+          }
+        }
+      },
+      "TaskRelationType": {
+        "type": "string",
+        "description": "Type of a directional link between two tasks. The `from` task points at the\n`to` task via this relation (e.g. a child `created_by` its parent).",
+        "enum": [
+          "created_by",
+          "related_to"
+        ]
       },
       "TaskResponse": {
         "type": "object",
@@ -11467,7 +12644,15 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "Derived from the `created_by` relation in `relations`. Kept for\nbackward compatibility with clients that pre-date the relations field."
+          },
+          "relations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskRelationDto"
+            },
+            "description": "Typed relations this task has to other tasks (currently `created_by`)."
           },
           "repositoryId": {
             "type": "string"
@@ -11964,6 +13149,14 @@
         "properties": {
           "agentType": {
             "type": "string"
+          },
+          "inactiveTtlDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Per-trigger inactivity TTL in days. `None` means \"inherit the global\ndefault\" (`TASK_INACTIVE_TIMEOUT_DAYS`). Flows into `tasks.inactive_ttl_days`\nwhen this trigger spawns a task."
           },
           "ongoingTaskId": {
             "type": [
@@ -12731,14 +13924,22 @@
       },
       "UpdateTaskTtlRequest": {
         "type": "object",
-        "required": [
-          "ttlMinutes"
-        ],
         "properties": {
-          "ttlMinutes": {
-            "type": "integer",
+          "inactiveTtlDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
-            "description": "New idle TTL in minutes. Must be `>= 0`. `0` disables the idle reaper\nfor this task (sandbox stays alive until explicitly stopped)."
+            "description": "New inactivity TTL in days. Must be `>= 0`. `0` disables auto-close for\nthis task (it stays Open until closed explicitly). Omit to leave the\ncurrent inactivity TTL unchanged."
+          },
+          "ttlMinutes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "New idle TTL in minutes. Must be `>= 0`. `0` disables the idle reaper\nfor this task (sandbox stays alive until explicitly stopped). Omit to\nleave the current idle TTL unchanged."
           }
         }
       },
@@ -12820,6 +14021,13 @@
               "string",
               "null"
             ]
+          },
+          "inactiveTtlDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
           },
           "ongoingTaskId": {
             "type": [
@@ -13348,6 +14556,10 @@
     {
       "name": "linear",
       "description": "Linear issue/comment CRUD via workspace OAuth"
+    },
+    {
+      "name": "github",
+      "description": "GitHub PR/issue mutations proxied for sandbox agents"
     },
     {
       "name": "teams",

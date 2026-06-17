@@ -25,11 +25,17 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  CodexConfigResponse,
+  CreateUserRequest,
+  CreateUserResponse,
   ErrorBody,
   MessageResponse,
+  SaveCodexAuthRequest,
   SendDmRequest,
   SendDmResponse,
   SetProviderIdRequest,
+  UpdateUserRequest,
+  UserInfo,
   UserListResponse,
   UserProviderIdItem
 } from '.././model';
@@ -47,6 +53,121 @@ type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 
 /**
+ * Body shape mirrors `SaveCodexAuthRequest`. Side effects mirror
+`provider_settings::save_codex_auth`: persists to `provider_tokens` and
+broadcasts via `CredentialService` to any running sandbox owned by the
+target user.
+ * @summary Seed (or overwrite) a target user's codex provider_tokens row from an
+already-minted `auth.json` blob. Admin-only — used to clone a working
+Codex blob onto a bot user (e.g. `bot:reviewer`) that has no way to run
+the device-code flow itself.
+ */
+export type adminSetCodexProviderTokenHandlerResponse200 = {
+  data: CodexConfigResponse
+  status: 200
+}
+
+export type adminSetCodexProviderTokenHandlerResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type adminSetCodexProviderTokenHandlerResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+
+export type adminSetCodexProviderTokenHandlerResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type adminSetCodexProviderTokenHandlerResponse500 = {
+  data: ErrorBody
+  status: 500
+}
+    
+export type adminSetCodexProviderTokenHandlerResponseSuccess = (adminSetCodexProviderTokenHandlerResponse200) & {
+  headers: Headers;
+};
+export type adminSetCodexProviderTokenHandlerResponseError = (adminSetCodexProviderTokenHandlerResponse400 | adminSetCodexProviderTokenHandlerResponse401 | adminSetCodexProviderTokenHandlerResponse403 | adminSetCodexProviderTokenHandlerResponse500) & {
+  headers: Headers;
+};
+
+export type adminSetCodexProviderTokenHandlerResponse = (adminSetCodexProviderTokenHandlerResponseSuccess | adminSetCodexProviderTokenHandlerResponseError)
+
+export const getAdminSetCodexProviderTokenHandlerUrl = (userId: string,) => {
+
+
+  
+
+  return `/api/v1/admin/users/${userId}/provider-tokens/codex`
+}
+
+export const adminSetCodexProviderTokenHandler = async (userId: string,
+    saveCodexAuthRequest: SaveCodexAuthRequest, options?: RequestInit): Promise<adminSetCodexProviderTokenHandlerResponse> => {
+  
+  return customInstance<adminSetCodexProviderTokenHandlerResponse>(getAdminSetCodexProviderTokenHandlerUrl(userId),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      saveCodexAuthRequest,)
+  }
+);}
+
+
+
+
+export const getAdminSetCodexProviderTokenHandlerMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSetCodexProviderTokenHandler>>, TError,{userId: string;data: SaveCodexAuthRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminSetCodexProviderTokenHandler>>, TError,{userId: string;data: SaveCodexAuthRequest}, TContext> => {
+
+const mutationKey = ['adminSetCodexProviderTokenHandler'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminSetCodexProviderTokenHandler>>, {userId: string;data: SaveCodexAuthRequest}> = (props) => {
+          const {userId,data} = props ?? {};
+
+          return  adminSetCodexProviderTokenHandler(userId,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminSetCodexProviderTokenHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof adminSetCodexProviderTokenHandler>>>
+    export type AdminSetCodexProviderTokenHandlerMutationBody = SaveCodexAuthRequest
+    export type AdminSetCodexProviderTokenHandlerMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Seed (or overwrite) a target user's codex provider_tokens row from an
+already-minted `auth.json` blob. Admin-only — used to clone a working
+Codex blob onto a bot user (e.g. `bot:reviewer`) that has no way to run
+the device-code flow itself.
+ */
+export const useAdminSetCodexProviderTokenHandler = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSetCodexProviderTokenHandler>>, TError,{userId: string;data: SaveCodexAuthRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof adminSetCodexProviderTokenHandler>>,
+        TError,
+        {userId: string;data: SaveCodexAuthRequest},
+        TContext
+      > => {
+      return useMutation(getAdminSetCodexProviderTokenHandlerMutationOptions(options), queryClient);
+    }
+    /**
  * @summary List all registered users.
  */
 export type listUsersHandlerResponse200 = {
@@ -177,7 +298,220 @@ export const prefetchListUsersHandlerQuery = async <TData = Awaited<ReturnType<t
 
 
 
-export type sendUserDmResponse200 = {
+/**
+ * Resolves the App's `{slug}[bot]` identity via `GitHubAppRegistry`, then
+inserts both the `users` row and a matching `provider_tokens` row with
+`auth_method = 'github_app_installation'` so credential resolution
+transparently mints installation tokens for tasks that
+`run_as_user_id = <bot id>`.
+ * @summary Create a bot user backed by a configured GitHub App.
+ */
+export type createUserHandlerResponse201 = {
+  data: CreateUserResponse
+  status: 201
+}
+
+export type createUserHandlerResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type createUserHandlerResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+
+export type createUserHandlerResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type createUserHandlerResponse500 = {
+  data: ErrorBody
+  status: 500
+}
+    
+export type createUserHandlerResponseSuccess = (createUserHandlerResponse201) & {
+  headers: Headers;
+};
+export type createUserHandlerResponseError = (createUserHandlerResponse400 | createUserHandlerResponse401 | createUserHandlerResponse403 | createUserHandlerResponse500) & {
+  headers: Headers;
+};
+
+export type createUserHandlerResponse = (createUserHandlerResponseSuccess | createUserHandlerResponseError)
+
+export const getCreateUserHandlerUrl = () => {
+
+
+  
+
+  return `/api/v1/users`
+}
+
+export const createUserHandler = async (createUserRequest: CreateUserRequest, options?: RequestInit): Promise<createUserHandlerResponse> => {
+  
+  return customInstance<createUserHandlerResponse>(getCreateUserHandlerUrl(),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      createUserRequest,)
+  }
+);}
+
+
+
+
+export const getCreateUserHandlerMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createUserHandler>>, TError,{data: CreateUserRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof createUserHandler>>, TError,{data: CreateUserRequest}, TContext> => {
+
+const mutationKey = ['createUserHandler'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createUserHandler>>, {data: CreateUserRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createUserHandler(data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateUserHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof createUserHandler>>>
+    export type CreateUserHandlerMutationBody = CreateUserRequest
+    export type CreateUserHandlerMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Create a bot user backed by a configured GitHub App.
+ */
+export const useCreateUserHandler = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createUserHandler>>, TError,{data: CreateUserRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof createUserHandler>>,
+        TError,
+        {data: CreateUserRequest},
+        TContext
+      > => {
+      return useMutation(getCreateUserHandlerMutationOptions(options), queryClient);
+    }
+    /**
+ * A user may update their own profile; updating another user requires the
+admin role. Backs the `moat user <login> set-email` CLI command so emails
+can be corrected without direct DB access. Only the fields present in the
+body are changed.
+ * @summary Update a user's profile (name and/or email).
+ */
+export type updateUserHandlerResponse200 = {
+  data: UserInfo
+  status: 200
+}
+
+export type updateUserHandlerResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+
+export type updateUserHandlerResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type updateUserHandlerResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type updateUserHandlerResponseSuccess = (updateUserHandlerResponse200) & {
+  headers: Headers;
+};
+export type updateUserHandlerResponseError = (updateUserHandlerResponse401 | updateUserHandlerResponse403 | updateUserHandlerResponse404) & {
+  headers: Headers;
+};
+
+export type updateUserHandlerResponse = (updateUserHandlerResponseSuccess | updateUserHandlerResponseError)
+
+export const getUpdateUserHandlerUrl = (login: string,) => {
+
+
+  
+
+  return `/api/v1/users/${login}`
+}
+
+export const updateUserHandler = async (login: string,
+    updateUserRequest: UpdateUserRequest, options?: RequestInit): Promise<updateUserHandlerResponse> => {
+  
+  return customInstance<updateUserHandlerResponse>(getUpdateUserHandlerUrl(login),
+  {      
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      updateUserRequest,)
+  }
+);}
+
+
+
+
+export const getUpdateUserHandlerMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateUserHandler>>, TError,{login: string;data: UpdateUserRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateUserHandler>>, TError,{login: string;data: UpdateUserRequest}, TContext> => {
+
+const mutationKey = ['updateUserHandler'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateUserHandler>>, {login: string;data: UpdateUserRequest}> = (props) => {
+          const {login,data} = props ?? {};
+
+          return  updateUserHandler(login,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateUserHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof updateUserHandler>>>
+    export type UpdateUserHandlerMutationBody = UpdateUserRequest
+    export type UpdateUserHandlerMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Update a user's profile (name and/or email).
+ */
+export const useUpdateUserHandler = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateUserHandler>>, TError,{login: string;data: UpdateUserRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof updateUserHandler>>,
+        TError,
+        {login: string;data: UpdateUserRequest},
+        TContext
+      > => {
+      return useMutation(getUpdateUserHandlerMutationOptions(options), queryClient);
+    }
+    export type sendUserDmResponse200 = {
   data: SendDmResponse
   status: 200
 }

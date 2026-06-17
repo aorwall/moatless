@@ -18,6 +18,8 @@ use crate::auth::github_app_registry::GitHubAppRegistry;
 use crate::auth::github_app_service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenRepository;
 use crate::auth::provider_tokens::ProviderTokenAuthRepository;
+use crate::bindings::dao::PgTaskBindingRepository;
+use crate::bindings::status_service::github_external_status;
 use crate::db::DbPool;
 use crate::state::AppState;
 
@@ -566,6 +568,89 @@ impl GithubPrAdapter {
         }
     }
 
+    /// Status-relevant `pull_request` actions — those that can change a PR's
+    /// displayed state. Other actions (`labeled`, `assigned`, …) leave status
+    /// untouched.
+    const STATUS_ACTIONS: &'static [&'static str] = &[
+        "opened",
+        "reopened",
+        "closed",
+        "ready_for_review",
+        "converted_to_draft",
+        "edited",
+    ];
+
+    /// Persist the PR's external status onto every binding for its subject.
+    ///
+    /// Derives `open`/`merged`/`closed`/`draft` from
+    /// `pull_request.{state,merged,draft}` and writes it to the dedicated
+    /// `external_status*` columns (which `upsert` does not touch). The DB work
+    /// is spawned so webhook parsing/ack is never blocked on it; best-effort,
+    /// failures are logged.
+    fn persist_pr_status(&self, action: &str, payload: &serde_json::Value, ctx: &EventContext<'_>) {
+        if !Self::STATUS_ACTIONS.contains(&action) {
+            return;
+        }
+        let Some(pr) = payload.get("pull_request") else {
+            return;
+        };
+        let Some(pr_number) = pr.get("number").and_then(serde_json::Value::as_u64) else {
+            return;
+        };
+        let state = pr
+            .get("state")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let merged = pr
+            .get("merged")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        let draft = pr
+            .get("draft")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        let title = pr.get("title").and_then(serde_json::Value::as_str);
+        let html_url = pr.get("html_url").and_then(serde_json::Value::as_str);
+
+        let status = github_external_status(state, merged, draft, title, html_url);
+        // adapter_kind="github", subject_kind="github_pr" — matches
+        // runtime.rs ADAPTER / SUBJECT_KIND.
+        let subject_key = format!("{}/{}#{pr_number}", ctx.owner, ctx.repo);
+        let db = self.db.clone();
+
+        tokio::spawn(async move {
+            let repo = PgTaskBindingRepository(db);
+            let bindings = match repo.find_by_subject("github", "github_pr", &subject_key).await {
+                Ok(rows) => rows,
+                Err(e) => {
+                    warn!(
+                        subject_key = %subject_key,
+                        error = %e,
+                        "Failed to look up bindings for PR status persistence"
+                    );
+                    return;
+                }
+            };
+            for binding in bindings {
+                if let Err(e) = repo
+                    .update_external_status(
+                        &binding.id,
+                        status.status.as_deref(),
+                        status.state_kind.as_deref(),
+                        &status.raw,
+                    )
+                    .await
+                {
+                    warn!(
+                        binding_id = %binding.id,
+                        error = %e,
+                        "Failed to persist PR status onto binding"
+                    );
+                }
+            }
+        });
+    }
+
     async fn handle_pull_request_event(
         &self,
         payload: &serde_json::Value,
@@ -576,6 +661,11 @@ impl GithubPrAdapter {
             .get("action")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("");
+
+        // Persist PR status onto any bindings for this PR, for every
+        // status-relevant action — independent of whether the action also
+        // spawns or closes a task. Spawned; never blocks parsing.
+        self.persist_pr_status(action, payload, ctx);
 
         if action == "synchronize" {
             return self.handle_pull_request_sync(payload, ctx).await;

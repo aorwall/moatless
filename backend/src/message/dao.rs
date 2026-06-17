@@ -32,6 +32,20 @@ pub struct ToolCallRow {
     pub parent_message_uuid: String,
 }
 
+/// Per-connection inbound/outgoing message tally for a task, grouped by the
+/// external adapter + subject key the message was routed through. Drives the
+/// per-connection `↓in / ↑out` counts on the task-connections admin view.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ConnectionMessageCount {
+    pub task_id: String,
+    pub external_adapter: Option<String>,
+    pub external_subject_key: Option<String>,
+    /// Inbound rows (`message_role = 'user'`).
+    pub incoming: i64,
+    /// Outbound rows (`message_role = 'assistant'`).
+    pub outgoing: i64,
+}
+
 /// A user-turn that was acknowledged by the sandbox but never reached a
 /// terminal `agent.completed/error/stopped` event — i.e. the sandbox
 /// crashed/restarted mid-run. Used by the recovery RPC to drive a
@@ -114,6 +128,16 @@ pub trait MessageRepository: Send + Sync {
         &self,
         task_ids: &[String],
     ) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error>;
+
+    /// Per-connection inbound/outgoing message counts for the given tasks,
+    /// grouped by `(task_id, external_adapter, external_subject_key)`. Only
+    /// rows that carry an `external_adapter` (i.e. flowed through an adapter
+    /// binding) are counted.
+    async fn get_connection_message_counts(
+        &self,
+        task_ids: &[String],
+    ) -> Result<Vec<ConnectionMessageCount>, sqlx::Error>;
+
     async fn set_external_source_metadata<'a>(
         &self,
         message_uuid: &'a str,
@@ -582,6 +606,29 @@ impl MessageRepository for PgMessageRepository {
         .await?;
 
         Ok(rows.into_iter().collect())
+    }
+
+    async fn get_connection_message_counts(
+        &self,
+        task_ids: &[String],
+    ) -> Result<Vec<ConnectionMessageCount>, sqlx::Error> {
+        if task_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        sqlx::query_as::<_, ConnectionMessageCount>(
+            r#"SELECT task_id,
+                      external_adapter,
+                      external_subject_key,
+                      COUNT(*) FILTER (WHERE message_role = 'user')      AS incoming,
+                      COUNT(*) FILTER (WHERE message_role = 'assistant') AS outgoing
+               FROM task_messages
+               WHERE task_id = ANY($1) AND external_adapter IS NOT NULL
+               GROUP BY task_id, external_adapter, external_subject_key"#,
+        )
+        .bind(task_ids)
+        .fetch_all(&self.0)
+        .await
     }
 
     async fn set_external_source_metadata<'a>(

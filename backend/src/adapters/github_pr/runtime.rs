@@ -562,6 +562,10 @@ pub async fn upsert_binding(
         origin: origin.to_string(),
         created_at: now,
         last_event_at: now,
+        external_status: None,
+        external_state_kind: None,
+        external_status_raw: None,
+        external_status_updated_at: None,
     };
 
     Ok(PgTaskBindingRepository(state.db.clone())

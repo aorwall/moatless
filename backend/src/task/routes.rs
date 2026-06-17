@@ -3,7 +3,7 @@
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
-use super::handlers;
+use super::{connections_handlers, handlers};
 use crate::state::AppState;
 
 #[derive(OpenApi)]
@@ -23,6 +23,7 @@ use crate::state::AppState;
         handlers::set_task_tags,
         handlers::update_visibility,
         handlers::update_ttl,
+        connections_handlers::list_task_connections,
     )
 )]
 pub struct TaskApiDoc;
@@ -42,6 +43,7 @@ pub fn task_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenApi) 
         .routes(routes!(handlers::set_task_tags))
         .routes(routes!(handlers::update_visibility))
         .routes(routes!(handlers::update_ttl))
+        .routes(routes!(connections_handlers::list_task_connections))
         .with_state(state)
         .split_for_parts();
 

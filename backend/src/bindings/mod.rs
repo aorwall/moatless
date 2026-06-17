@@ -9,3 +9,4 @@ pub mod recently_sent;
 pub mod reply;
 pub mod runtime;
 pub mod schemas;
+pub mod status_service;

@@ -24,4 +24,5 @@ export const AgentSubType = {
   scheduled: 'scheduled',
   recovery_started: 'recovery_started',
   recovery_exhausted: 'recovery_exhausted',
+  session_context_lost: 'session_context_lost',
 } as const;

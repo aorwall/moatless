@@ -25,7 +25,12 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  AddMessageReactionRequest,
   CreateTaskBindingRequest,
+  ErrorBody,
+  MessageReactionResponse,
+  ReplyToMessageRequest,
+  ReplyToMessageResponse,
   SendTaskReplyRequest,
   SendTaskReplyResponse,
   TaskBindingResponse
@@ -43,7 +48,274 @@ type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 
 
-export type listTaskBindingsResponse200 = {
+export type addMessageReactionResponse200 = {
+  data: MessageReactionResponse
+  status: 200
+}
+
+export type addMessageReactionResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type addMessageReactionResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type addMessageReactionResponseSuccess = (addMessageReactionResponse200) & {
+  headers: Headers;
+};
+export type addMessageReactionResponseError = (addMessageReactionResponse400 | addMessageReactionResponse404) & {
+  headers: Headers;
+};
+
+export type addMessageReactionResponse = (addMessageReactionResponseSuccess | addMessageReactionResponseError)
+
+export const getAddMessageReactionUrl = (messageId: string,) => {
+
+
+  
+
+  return `/api/v1/messages/${messageId}/reactions`
+}
+
+export const addMessageReaction = async (messageId: string,
+    addMessageReactionRequest: AddMessageReactionRequest, options?: RequestInit): Promise<addMessageReactionResponse> => {
+  
+  return customInstance<addMessageReactionResponse>(getAddMessageReactionUrl(messageId),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      addMessageReactionRequest,)
+  }
+);}
+
+
+
+
+export const getAddMessageReactionMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addMessageReaction>>, TError,{messageId: string;data: AddMessageReactionRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof addMessageReaction>>, TError,{messageId: string;data: AddMessageReactionRequest}, TContext> => {
+
+const mutationKey = ['addMessageReaction'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof addMessageReaction>>, {messageId: string;data: AddMessageReactionRequest}> = (props) => {
+          const {messageId,data} = props ?? {};
+
+          return  addMessageReaction(messageId,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AddMessageReactionMutationResult = NonNullable<Awaited<ReturnType<typeof addMessageReaction>>>
+    export type AddMessageReactionMutationBody = AddMessageReactionRequest
+    export type AddMessageReactionMutationError = ErrorType<ErrorBody>
+
+    export const useAddMessageReaction = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addMessageReaction>>, TError,{messageId: string;data: AddMessageReactionRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof addMessageReaction>>,
+        TError,
+        {messageId: string;data: AddMessageReactionRequest},
+        TContext
+      > => {
+      return useMutation(getAddMessageReactionMutationOptions(options), queryClient);
+    }
+    export type removeMessageReactionResponse200 = {
+  data: MessageReactionResponse
+  status: 200
+}
+
+export type removeMessageReactionResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type removeMessageReactionResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type removeMessageReactionResponseSuccess = (removeMessageReactionResponse200) & {
+  headers: Headers;
+};
+export type removeMessageReactionResponseError = (removeMessageReactionResponse400 | removeMessageReactionResponse404) & {
+  headers: Headers;
+};
+
+export type removeMessageReactionResponse = (removeMessageReactionResponseSuccess | removeMessageReactionResponseError)
+
+export const getRemoveMessageReactionUrl = (messageId: string,
+    emoji: string,) => {
+
+
+  
+
+  return `/api/v1/messages/${messageId}/reactions/${emoji}`
+}
+
+export const removeMessageReaction = async (messageId: string,
+    emoji: string, options?: RequestInit): Promise<removeMessageReactionResponse> => {
+  
+  return customInstance<removeMessageReactionResponse>(getRemoveMessageReactionUrl(messageId,emoji),
+  {      
+    ...options,
+    method: 'DELETE'
+    
+    
+  }
+);}
+
+
+
+
+export const getRemoveMessageReactionMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeMessageReaction>>, TError,{messageId: string;emoji: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof removeMessageReaction>>, TError,{messageId: string;emoji: string}, TContext> => {
+
+const mutationKey = ['removeMessageReaction'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof removeMessageReaction>>, {messageId: string;emoji: string}> = (props) => {
+          const {messageId,emoji} = props ?? {};
+
+          return  removeMessageReaction(messageId,emoji,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RemoveMessageReactionMutationResult = NonNullable<Awaited<ReturnType<typeof removeMessageReaction>>>
+    
+    export type RemoveMessageReactionMutationError = ErrorType<ErrorBody>
+
+    export const useRemoveMessageReaction = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeMessageReaction>>, TError,{messageId: string;emoji: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof removeMessageReaction>>,
+        TError,
+        {messageId: string;emoji: string},
+        TContext
+      > => {
+      return useMutation(getRemoveMessageReactionMutationOptions(options), queryClient);
+    }
+    export type replyToMessageResponse200 = {
+  data: ReplyToMessageResponse
+  status: 200
+}
+
+export type replyToMessageResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type replyToMessageResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type replyToMessageResponseSuccess = (replyToMessageResponse200) & {
+  headers: Headers;
+};
+export type replyToMessageResponseError = (replyToMessageResponse400 | replyToMessageResponse404) & {
+  headers: Headers;
+};
+
+export type replyToMessageResponse = (replyToMessageResponseSuccess | replyToMessageResponseError)
+
+export const getReplyToMessageUrl = (messageId: string,) => {
+
+
+  
+
+  return `/api/v1/messages/${messageId}/reply`
+}
+
+export const replyToMessage = async (messageId: string,
+    replyToMessageRequest: ReplyToMessageRequest, options?: RequestInit): Promise<replyToMessageResponse> => {
+  
+  return customInstance<replyToMessageResponse>(getReplyToMessageUrl(messageId),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      replyToMessageRequest,)
+  }
+);}
+
+
+
+
+export const getReplyToMessageMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof replyToMessage>>, TError,{messageId: string;data: ReplyToMessageRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof replyToMessage>>, TError,{messageId: string;data: ReplyToMessageRequest}, TContext> => {
+
+const mutationKey = ['replyToMessage'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof replyToMessage>>, {messageId: string;data: ReplyToMessageRequest}> = (props) => {
+          const {messageId,data} = props ?? {};
+
+          return  replyToMessage(messageId,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReplyToMessageMutationResult = NonNullable<Awaited<ReturnType<typeof replyToMessage>>>
+    export type ReplyToMessageMutationBody = ReplyToMessageRequest
+    export type ReplyToMessageMutationError = ErrorType<ErrorBody>
+
+    export const useReplyToMessage = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof replyToMessage>>, TError,{messageId: string;data: ReplyToMessageRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof replyToMessage>>,
+        TError,
+        {messageId: string;data: ReplyToMessageRequest},
+        TContext
+      > => {
+      return useMutation(getReplyToMessageMutationOptions(options), queryClient);
+    }
+    export type listTaskBindingsResponse200 = {
   data: TaskBindingResponse[]
   status: 200
 }

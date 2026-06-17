@@ -28,10 +28,12 @@ import type {
   CreateTaskRequest,
   CreateTaskResponse,
   ErrorBody,
+  ListTaskConnectionsParams,
   ListTasksParams,
   ListTasksResponse,
   SetTagsRequest,
   TagResponse,
+  TaskConnectionsResponse,
   TaskResponse,
   UpdateTaskMetadataRequest,
   UpdateTaskTtlRequest,
@@ -47,6 +49,144 @@ type AwaitedInput<T> = PromiseLike<T> | T;
 
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
+
+
+
+/**
+ * @summary List tasks with their external connections, statuses, and message counts.
+ */
+export type listTaskConnectionsResponse200 = {
+  data: TaskConnectionsResponse
+  status: 200
+}
+
+export type listTaskConnectionsResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+    
+export type listTaskConnectionsResponseSuccess = (listTaskConnectionsResponse200) & {
+  headers: Headers;
+};
+export type listTaskConnectionsResponseError = (listTaskConnectionsResponse403) & {
+  headers: Headers;
+};
+
+export type listTaskConnectionsResponse = (listTaskConnectionsResponseSuccess | listTaskConnectionsResponseError)
+
+export const getListTaskConnectionsUrl = (params?: ListTaskConnectionsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/admin/task-connections?${stringifiedParams}` : `/api/v1/admin/task-connections`
+}
+
+export const listTaskConnections = async (params?: ListTaskConnectionsParams, options?: RequestInit): Promise<listTaskConnectionsResponse> => {
+  
+  return customInstance<listTaskConnectionsResponse>(getListTaskConnectionsUrl(params),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
+
+export const getListTaskConnectionsQueryKey = (params?: ListTaskConnectionsParams,) => {
+    return [
+    `/api/v1/admin/task-connections`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+    
+export const getListTaskConnectionsQueryOptions = <TData = Awaited<ReturnType<typeof listTaskConnections>>, TError = ErrorType<ErrorBody>>(params?: ListTaskConnectionsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTaskConnections>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListTaskConnectionsQueryKey(params);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listTaskConnections>>> = ({ signal }) => listTaskConnections(params, { signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listTaskConnections>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type ListTaskConnectionsQueryResult = NonNullable<Awaited<ReturnType<typeof listTaskConnections>>>
+export type ListTaskConnectionsQueryError = ErrorType<ErrorBody>
+
+
+export function useListTaskConnections<TData = Awaited<ReturnType<typeof listTaskConnections>>, TError = ErrorType<ErrorBody>>(
+ params: undefined |  ListTaskConnectionsParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTaskConnections>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listTaskConnections>>,
+          TError,
+          Awaited<ReturnType<typeof listTaskConnections>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListTaskConnections<TData = Awaited<ReturnType<typeof listTaskConnections>>, TError = ErrorType<ErrorBody>>(
+ params?: ListTaskConnectionsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTaskConnections>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listTaskConnections>>,
+          TError,
+          Awaited<ReturnType<typeof listTaskConnections>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListTaskConnections<TData = Awaited<ReturnType<typeof listTaskConnections>>, TError = ErrorType<ErrorBody>>(
+ params?: ListTaskConnectionsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTaskConnections>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+/**
+ * @summary List tasks with their external connections, statuses, and message counts.
+ */
+
+export function useListTaskConnections<TData = Awaited<ReturnType<typeof listTaskConnections>>, TError = ErrorType<ErrorBody>>(
+ params?: ListTaskConnectionsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTaskConnections>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getListTaskConnectionsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List tasks with their external connections, statuses, and message counts.
+ */
+export const prefetchListTaskConnectionsQuery = async <TData = Awaited<ReturnType<typeof listTaskConnections>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, params?: ListTaskConnectionsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTaskConnections>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getListTaskConnectionsQueryOptions(params,options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
 
 
 
@@ -944,8 +1084,10 @@ export const useSetTaskTags = <TError = ErrorType<ErrorBody>,
       return useMutation(getSetTaskTagsMutationOptions(options), queryClient);
     }
     /**
- * @summary Update a task's idle TTL (in minutes). `0` disables the idle reaper for
-this task — the sandbox stays alive until it's explicitly stopped.
+ * @summary Update a task's TTLs. `ttl_minutes` is the idle TTL (`0` disables the idle
+reaper — the sandbox stays alive until explicitly stopped). `inactive_ttl_days`
+is the inactivity TTL (`0` disables auto-close). Both fields are optional;
+omit a field to leave that TTL unchanged. At least one must be provided.
  */
 export type updateTtlResponse200 = {
   data: TaskResponse
@@ -1027,8 +1169,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type UpdateTtlMutationError = ErrorType<ErrorBody>
 
     /**
- * @summary Update a task's idle TTL (in minutes). `0` disables the idle reaper for
-this task — the sandbox stays alive until it's explicitly stopped.
+ * @summary Update a task's TTLs. `ttl_minutes` is the idle TTL (`0` disables the idle
+reaper — the sandbox stays alive until explicitly stopped). `inactive_ttl_days`
+is the inactivity TTL (`0` disables auto-close). Both fields are optional;
+omit a field to leave that TTL unchanged. At least one must be provided.
  */
 export const useUpdateTtl = <TError = ErrorType<ErrorBody>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateTtl>>, TError,{taskId: string;data: UpdateTaskTtlRequest}, TContext>, request?: SecondParameter<typeof customInstance>}

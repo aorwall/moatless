@@ -85,6 +85,12 @@ export const queryKeys = {
     recentTasks: (id: string) => [...queryKeys.triggers.detail(id), 'recent-tasks'] as const,
   },
 
+  admin: {
+    all: () => [...queryKeys.all, 'admin'] as const,
+    taskConnections: (params?: { limit?: number; offset?: number; refresh?: boolean }) =>
+      [...queryKeys.admin.all(), 'task-connections', params] as const,
+  },
+
   settings: {
     all: () => [...queryKeys.all, 'settings'] as const,
     detail: () => [...queryKeys.settings.all(), 'detail'] as const,

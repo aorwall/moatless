@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { Bell, Package, Plug, Terminal } from 'lucide-react'
+import { Bell, Link2, Package, Plug, Terminal } from 'lucide-react'
 import type { ComponentType, SVGProps } from 'react'
 import {
   Sidebar,
@@ -28,7 +28,10 @@ interface AdminNavGroup {
 const ADMIN_NAV: AdminNavGroup[] = [
   {
     label: 'Integrations',
-    items: [{ label: 'Connections', to: '/admin/integrations/connections', icon: Plug }],
+    items: [
+      { label: 'Connections', to: '/admin/integrations/connections', icon: Plug },
+      { label: 'Task Connections', to: '/admin/task-connections', icon: Link2 },
+    ],
   },
   {
     label: 'Automation',

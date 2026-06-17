@@ -106,6 +106,10 @@ pub async fn create_task_binding(
         origin: req.origin.unwrap_or_else(|| "api".to_string()),
         created_at: now,
         last_event_at: now,
+        external_status: None,
+        external_state_kind: None,
+        external_status_raw: None,
+        external_status_updated_at: None,
     };
     let saved = PgTaskBindingRepository(state.db.clone())
         .upsert(&row)
@@ -488,6 +492,10 @@ mod tests {
             origin: origin.to_string(),
             created_at: now,
             last_event_at: now,
+            external_status: None,
+            external_state_kind: None,
+            external_status_raw: None,
+            external_status_updated_at: None,
         }
     }
 
