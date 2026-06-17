@@ -305,6 +305,11 @@ pub struct OutboundFile {
 pub struct OutboundReply {
     pub text: String,
     pub task_url: Option<String>,
+    /// Footer suffix appended to comment bodies by the Linear/GitHub adapters
+    /// (e.g. `"\n\n---\n[Task name](https://app/tasks/<id>)"`). Built by
+    /// [`crate::adapters::footer::task_comment_footer`]. `None` for providers
+    /// that don't carry a footer.
+    pub footer: Option<String>,
     pub is_error: bool,
     pub files: Vec<OutboundFile>,
 }

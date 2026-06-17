@@ -1,8 +1,10 @@
 //! Adapter trait, registry, connection storage, and webhook routes.
 
+pub mod agent_marker;
 pub mod common;
 pub mod dao;
 pub mod error;
+pub mod footer;
 pub mod github_pr;
 pub mod handlers;
 pub mod linear;
@@ -571,6 +573,7 @@ mod tests {
         let reply = OutboundReply {
             text: "hi".into(),
             task_url: None,
+            footer: None,
             is_error: false,
             files: vec![],
         };

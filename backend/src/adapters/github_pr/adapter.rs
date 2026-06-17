@@ -26,53 +26,9 @@ use crate::state::AppState;
 use super::api::GithubPrApi;
 use super::config::GithubPrRuleConfig;
 
-/// Agent comment marker prefix. Outbound bodies are tagged with the source
-/// task id (`<!-- moatless-agent:TASK_ID -->`) so we can drop only the
-/// authoring task's own echoes on the way back in, while letting other tasks
-/// on the same PR receive the comment as a user message.
-const MARKER_PREFIX: &str = "<!-- moatless-agent";
-
-/// Build the outbound agent marker for a given task id.
-fn agent_marker(task_id: &str) -> String {
-    format!("<!-- moatless-agent:{task_id} -->")
-}
-
-/// Classification of a leading agent marker on a comment body.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum AgentMarker {
-    /// Legacy bare marker `<!-- moatless-agent -->` — no task id embedded.
-    /// Predates per-task tagging; still ignored on inbound for backward compat.
-    Bare,
-    /// New tagged marker `<!-- moatless-agent:TASK_ID -->`.
-    Tagged(String),
-}
-
-/// Parse the leading agent marker (if any) from a comment body.
-///
-/// Matches only at `body.trim_start()`. Returns `None` when the body does not
-/// begin with the marker prefix; `Some(Bare)` for legacy bare markers or any
-/// malformed tagged form (e.g. empty id) — these are treated as
-/// "agent-authored, source unknown" and dropped on inbound; `Some(Tagged(id))`
-/// when an id is present.
-pub(crate) fn parse_agent_marker(body: &str) -> Option<AgentMarker> {
-    let trimmed = body.trim_start();
-    let rest = trimmed.strip_prefix(MARKER_PREFIX)?;
-    // `rest` now begins with either ` -->` (bare) or `:<id> -->` (tagged).
-    if let Some(after_colon) = rest.strip_prefix(':') {
-        if let Some(end) = after_colon.find("-->") {
-            let id = after_colon[..end].trim();
-            if id.is_empty() {
-                return Some(AgentMarker::Bare);
-            }
-            return Some(AgentMarker::Tagged(id.to_string()));
-        }
-        return Some(AgentMarker::Bare);
-    }
-    if rest.trim_start().starts_with("-->") {
-        return Some(AgentMarker::Bare);
-    }
-    None
-}
+// Shared agent-comment marker. Aliased to the historical local names so the
+// existing call sites and tests in this module stay unchanged.
+use crate::adapters::agent_marker::{build as agent_marker, parse as parse_agent_marker, AgentMarker};
 
 /// Inputs for [`pr_opened_text`] — grouped to keep the signature small.
 struct PrOpenedText<'a> {
@@ -1539,8 +1495,8 @@ impl Adapter for GithubPrAdapter {
         let api = GithubPrApi::new(&token);
 
         let mut body = format!("{}\n{}", agent_marker(&binding.task_id), message.text);
-        if let Some(ref url) = message.task_url {
-            let _ = write!(body, "\n\n---\n[View task]({url})");
+        if let Some(ref footer) = message.footer {
+            body.push_str(footer);
         }
 
         let comment_id = api.post_comment(&owner, &repo, pr_number, &body).await?;
@@ -1579,8 +1535,8 @@ impl Adapter for GithubPrAdapter {
                 let api = GithubPrApi::new(&token);
 
                 let mut body = format!("{}\n{}", agent_marker(&binding.task_id), message.text);
-                if let Some(ref url) = message.task_url {
-                    let _ = write!(body, "\n\n---\n[View task]({url})");
+                if let Some(ref footer) = message.footer {
+                    body.push_str(footer);
                 }
 
                 let new_id = api

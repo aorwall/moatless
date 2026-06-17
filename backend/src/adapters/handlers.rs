@@ -167,6 +167,7 @@ pub async fn adapter_send(
     let reply = OutboundReply {
         text: truncate_text(&req.text, provider.max_message_length()),
         task_url: None,
+        footer: None,
         is_error: false,
         files,
     };
@@ -329,6 +330,7 @@ pub async fn send_user_dm(
     let reply = OutboundReply {
         text: truncate_text(&req.text, provider.max_message_length()),
         task_url: None,
+        footer: None,
         is_error: false,
         files: vec![],
     };

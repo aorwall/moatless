@@ -600,7 +600,9 @@ async fn create_provider_event_task(
         site_provider: None,
         branch: None,
         created_by: Some(rule.effective_user_id().to_string()),
-        visibility: Visibility::Private,
+        // Tasks auto-created from a GitHub PR webhook default to public so the
+        // people collaborating in the PR thread can open the task.
+        visibility: Visibility::Public,
         scope: rule.scope,
         team_id: rule.team_id.clone(),
         owner_user_id: (rule.scope == crate::scope::Scope::User)

@@ -72,6 +72,7 @@ pub async fn direct_send_to_rule(
     let reply = OutboundReply {
         text: truncate_text(text, provider.max_message_length()),
         task_url: None,
+        footer: None,
         is_error: false,
         files,
     };
@@ -256,9 +257,19 @@ pub async fn send_to_binding(
         ));
     }
 
+    // GitHub/Linear comments end with a link back to the moatless task. Other
+    // providers don't carry the footer.
+    let footer = match provider.adapter_kind() {
+        crate::adapters::AdapterKind::GithubPr | crate::adapters::AdapterKind::Linear => {
+            crate::adapters::footer::task_comment_footer(state, task_id).await
+        }
+        _ => None,
+    };
+
     let reply = OutboundReply {
         text: truncate_text(text, provider.max_message_length()),
         task_url: None,
+        footer,
         is_error: false,
         files,
     };

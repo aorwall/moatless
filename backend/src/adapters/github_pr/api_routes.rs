@@ -153,8 +153,8 @@ pub async fn post_comment(
 
     let api = resolve_github_api(&state, &auth.user_id, &owner).await?;
 
-    let body = truncate_on_char_boundary(&req.body, MAX_COMMENT_LENGTH);
-    let comment_id = api.post_comment(&owner, &repo, number, body).await?;
+    let body = body_with_task_footer(&state, req.task_id.as_deref(), &req.body).await;
+    let comment_id = api.post_comment(&owner, &repo, number, &body).await?;
 
     let binding_id = if let Some(task_id) = req.task_id.as_deref() {
         // Note the echo dedup BEFORE the (slower) binding upsert so the
@@ -210,9 +210,9 @@ pub async fn reply_to_review_comment(
 
     let api = resolve_github_api(&state, &auth.user_id, &owner).await?;
 
-    let body = truncate_on_char_boundary(&req.body, MAX_COMMENT_LENGTH);
+    let body = body_with_task_footer(&state, req.task_id.as_deref(), &req.body).await;
     let new_id = api
-        .reply_to_review_comment(&owner, &repo, number, comment_id, body)
+        .reply_to_review_comment(&owner, &repo, number, comment_id, &body)
         .await?;
 
     let binding_id = if let Some(task_id) = req.task_id.as_deref() {
@@ -283,6 +283,23 @@ fn build_pr_body(body: &str, task_url: Option<&str>) -> String {
             compose_footer(truncate_on_char_boundary(body, max_body), url)
         }
         _ => truncate_on_char_boundary(body, MAX_COMMENT_LENGTH).to_string(),
+    }
+}
+
+/// Truncate a comment body to GitHub's limit and append the "view task" footer
+/// when a task is associated. The user body is truncated first, reserving room
+/// for the footer so the total stays within `MAX_COMMENT_LENGTH`.
+async fn body_with_task_footer(state: &AppState, task_id: Option<&str>, body: &str) -> String {
+    let footer = match task_id {
+        Some(tid) => crate::adapters::footer::task_comment_footer(state, tid).await,
+        None => None,
+    };
+    match footer {
+        Some(f) => {
+            let max_body = MAX_COMMENT_LENGTH.saturating_sub(f.len());
+            format!("{}{}", truncate_on_char_boundary(body, max_body), f)
+        }
+        None => truncate_on_char_boundary(body, MAX_COMMENT_LENGTH).to_string(),
     }
 }
 

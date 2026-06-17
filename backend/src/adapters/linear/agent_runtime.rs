@@ -237,6 +237,25 @@ pub async fn handle_comment_created(
         return Ok(());
     }
 
+    // Echo filter: our own outbound comments carry an agent marker tagged with
+    // the authoring task id (see `LinearAdapter::send_reply_for_binding`). Drop
+    // the comment for the task that authored it while still delivering it to any
+    // other tasks bound to the same issue. A legacy bare marker (no id) means
+    // agent-authored but source-unknown, so it is dropped entirely.
+    use crate::adapters::agent_marker::AgentMarker;
+    let source_task_id = match crate::adapters::agent_marker::parse(&comment.body) {
+        Some(AgentMarker::Bare) => {
+            debug!(
+                comment_id = %comment.id,
+                "Ignoring self-authored Linear comment (bare agent marker)"
+            );
+            return Ok(());
+        }
+        Some(AgentMarker::Tagged(id)) => Some(id),
+        None => None,
+    };
+    let forwarded_body = crate::adapters::agent_marker::strip(&comment.body);
+
     let binding_repo = PgTaskBindingRepository(state.db.clone());
     let bindings: Vec<TaskBinding> = binding_repo
         .find_active_by_destination_field(
@@ -262,6 +281,17 @@ pub async fn handle_comment_created(
     let rule = rule_for_binding(state, connection, &bindings[0]).await?;
 
     for binding in bindings {
+        // Skip the task that authored this comment — its own webhook echo must
+        // not be fed back to it (other tasks on the same issue still get it).
+        if source_task_id.as_deref() == Some(binding.task_id.as_str()) {
+            debug!(
+                task_id = %binding.task_id,
+                comment_id = %comment.id,
+                "Skipping Linear comment for originating task (self-echo)"
+            );
+            continue;
+        }
+
         // Best-effort heartbeat into the bound agent session so Linear's
         // panel reflects that we're processing the comment. Ephemeral so
         // the next real activity replaces it in the UI.
@@ -291,7 +321,7 @@ pub async fn handle_comment_created(
         if let Err(e) = crate::message::send::send_message_flow(
             state,
             &binding.task_id,
-            &comment.body,
+            forwarded_body,
             None,
             None,
             &[],
@@ -940,7 +970,9 @@ async fn create_provider_event_task(
         site_provider: None,
         branch: None,
         created_by: Some(rule.effective_user_id().to_string()),
-        visibility: Visibility::Private,
+        // Tasks auto-created from a Linear webhook default to public so the
+        // people collaborating on the Linear issue can open the task.
+        visibility: Visibility::Public,
         scope: rule.scope,
         team_id: rule.team_id.clone(),
         owner_user_id: (rule.scope == crate::scope::Scope::User)

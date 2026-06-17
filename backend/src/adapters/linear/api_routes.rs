@@ -339,7 +339,14 @@ pub async fn create_comment(
         .ok_or_else(|| AdapterError::NotFound(format!("Linear issue {id} missing id")))?
         .to_string();
 
-    let comment = api.create_comment(&issue_uuid, &req.body).await?;
+    let body = match req.task_id.as_deref() {
+        Some(task_id) => match crate::adapters::footer::task_comment_footer(&state, task_id).await {
+            Some(footer) => format!("{}{}", req.body, footer),
+            None => req.body.clone(),
+        },
+        None => req.body.clone(),
+    };
+    let comment = api.create_comment(&issue_uuid, &body).await?;
 
     let binding_id = if let Some(task_id) = req.task_id.as_deref() {
         attach_moatless_task(&state, &api, &issue, task_id).await;
