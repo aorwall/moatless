@@ -62,7 +62,9 @@ interface TemplateRepository {
 - `id`: Unique identifier
 - `name`: Display name
 - `description`: Optional description
-- `syncWithRepoConfig`: Sync from `.moatless/config.json`
+- `syncWithRepoConfig`: Sync from `.moatless/config.json` (sandbox/preview
+  config) and `.moatless/loops/<name>/LOOP.md` (agent automations reconciled into
+  the trigger tables — see the `moat-cli` skill for the LOOP.md format)
 - `systemPrompt`: Additional system prompt
 - `codeExecution`: Code execution config
 - `previewConfig`: Preview configuration

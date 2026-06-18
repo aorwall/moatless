@@ -6,8 +6,11 @@ use axum::Json;
 
 use tracing::{debug, info, warn};
 
+use moatless_api_schemas::loops::{LoopSyncSummary, SyncConfigResponse};
+
 use crate::access_control::{ensure_can_write_resource, resolve_scope_for_create};
 use crate::extractors::AuthUser;
+use crate::loops::sync::sync_repo_loops;
 use crate::scope::ScopedResource;
 use crate::secret::models::looks_like_secret_key;
 use crate::state::AppState;
@@ -161,6 +164,30 @@ pub async fn create_repository(
         .find_by_id(&id, &scope_ctx)
         .await?
         .unwrap_or(row);
+
+    // Sync `.moatless/loops/` into the trigger tables. Best-effort and
+    // non-fatal, exactly like the config auto-read above.
+    if final_row.remote_url.is_some() {
+        match sync_repo_loops(&state, &final_row, &auth).await {
+            Ok(summary) => {
+                if summary.created + summary.updated + summary.removed > 0
+                    || !summary.skipped.is_empty()
+                {
+                    info!(
+                        repository_id = %id,
+                        created = summary.created,
+                        updated = summary.updated,
+                        removed = summary.removed,
+                        skipped = summary.skipped.len(),
+                        "Synced repo loops on create"
+                    );
+                }
+            }
+            Err(e) => {
+                warn!(repository_id = %id, error = %e, "Failed to sync repo loops on create");
+            }
+        }
+    }
 
     let resp: RepositoryResponse = final_row.into();
     Ok((StatusCode::CREATED, Json(resp)))
@@ -929,7 +956,8 @@ async fn fetch_gitness_branches(
     })
 }
 
-/// Sync `.moatless/config.json` from the remote repository into the DB.
+/// Sync `.moatless/config.json` and `.moatless/loops/` from the remote
+/// repository into the DB.
 #[utoipa::path(
     post,
     path = "/api/v1/repositories/{repository_id}/sync-config",
@@ -938,7 +966,7 @@ async fn fetch_gitness_branches(
         ("repository_id" = String, Path, description = "Repository identifier")
     ),
     responses(
-        (status = 200, description = "Config synced", body = RepositoryResponse),
+        (status = 200, description = "Config + loops synced", body = SyncConfigResponse),
         (status = 400, description = "Bad request", body = crate::error::ErrorBody),
         (status = 404, description = "Repository not found", body = crate::error::ErrorBody)
     )
@@ -947,7 +975,7 @@ pub async fn sync_config(
     State(state): State<AppState>,
     auth: AuthUser,
     Path(repository_id): Path<String>,
-) -> Result<Json<RepositoryResponse>, RepositoryError> {
+) -> Result<Json<SyncConfigResponse>, RepositoryError> {
     let scope_ctx = auth.scope_context();
     let repo = state
         .repositories
@@ -971,14 +999,18 @@ pub async fn sync_config(
 
     let token_str = token.as_ref().map(|t| t.access_token.as_str());
     let branch = repo.default_branch.as_deref();
-    let config = fetch_moatless_config(remote_url, branch, token_str, provider).await?;
 
-    let config = config.ok_or_else(|| {
-        RepositoryError::NotFound("No .moatless/config.json found in the repository".to_string())
-    })?;
-
-    let patch = config_to_patch(&config)?;
-    state.repositories.update(&repository_id, &patch).await?;
+    // Apply `.moatless/config.json` when present. A missing config is fine — a
+    // repo may ship only loops — so we sync loops regardless.
+    match fetch_moatless_config(remote_url, branch, token_str, provider).await? {
+        Some(config) => {
+            let patch = config_to_patch(&config)?;
+            state.repositories.update(&repository_id, &patch).await?;
+        }
+        None => {
+            debug!(repository_id = %repository_id, "No .moatless/config.json found; syncing loops only");
+        }
+    }
 
     let updated = state
         .repositories
@@ -986,7 +1018,20 @@ pub async fn sync_config(
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id))?;
 
-    Ok(Json(updated.into()))
+    // Reconcile `.moatless/loops/` into the trigger tables. Best-effort: a fetch
+    // failure surfaces an empty summary rather than failing the whole sync.
+    let loops = match sync_repo_loops(&state, &updated, &auth).await {
+        Ok(summary) => summary,
+        Err(e) => {
+            warn!(repository_id = %updated.id, error = %e, "Loop sync failed during sync-config");
+            LoopSyncSummary::default()
+        }
+    };
+
+    Ok(Json(SyncConfigResponse {
+        repository: updated.into(),
+        loops,
+    }))
 }
 
 #[cfg(test)]

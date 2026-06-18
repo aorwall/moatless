@@ -24,6 +24,7 @@ pub mod figma;
 pub mod file_storage;
 pub mod github;
 pub mod linear;
+pub mod loops;
 pub mod message;
 pub mod plugin_repo;
 pub mod provider_settings;

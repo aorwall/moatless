@@ -7,6 +7,7 @@ use axum::response::sse::Event;
 use futures::stream::BoxStream;
 use sqlx::PgPool;
 
+use moatless_vibe_backend::auth::github_app_registry::GitHubAppRegistry;
 use moatless_vibe_backend::command::models::Command;
 use moatless_vibe_backend::config::{
     AuthConfig, CodexOAuthConfig, Config, DatabaseConfig, DockerConfig, GithubPrConfig,
@@ -135,6 +136,7 @@ pub fn test_config() -> Config {
             service_account_name: None,
             default_model: None,
             default_codex_model: None,
+            extra_env: vec![],
         },
         docker: DockerConfig {
             network: "moatless".into(),
@@ -194,6 +196,7 @@ pub fn test_config() -> Config {
             github_app_id: None,
             github_app_private_key: None,
             github_app_default_installation_id: None,
+            github_apps: vec![],
         },
         s3: S3Config {
             bucket_name: None,
@@ -215,7 +218,9 @@ pub fn test_config() -> Config {
         },
         linear: LinearConfig {
             webhook_secret: None,
-            api_token: None,
+            oauth_client_id: None,
+            oauth_client_secret: None,
+            oauth_callback_url: None,
         },
         skill: SkillConfig { cache_ttl_secs: 60 },
         secrets: SecretsConfig {
@@ -226,19 +231,23 @@ pub fn test_config() -> Config {
             issuer: "https://auth.openai.com".into(),
             client_id: "test-client".into(),
         },
+        default_run_as_user_id: None,
     }
 }
 
 /// Build an AppState with a real PgPool and mock sandbox provider.
 #[allow(dead_code)]
 pub fn test_app_state(pool: PgPool) -> AppState {
+    let config = test_config();
+    let github_apps = Arc::new(GitHubAppRegistry::from_config(&config));
     AppState::new(
         pool,
-        Arc::new(test_config()),
+        Arc::new(config),
         Arc::new(MockSandboxProvider),
         None, // events
         None, // s3
-        None, // channel_providers
+        None, // adapters
+        github_apps,
     )
 }
 
@@ -361,9 +370,11 @@ pub fn make_message_row(task_id: &str, uuid: &str) -> TaskMessage {
         resume: true,
         sent_at: None,
         created_at: None,
-        channel_external_id: None,
-        channel_provider: None,
-        channel_source_name: None,
+        external_event_id: None,
+        external_adapter: None,
+        external_subject_key: None,
+        external_source_name: None,
+        sent_by: None,
         command_name: None,
         source_task_id: None,
         start_fresh: false,

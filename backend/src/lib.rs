@@ -29,6 +29,7 @@ pub mod feedback;
 pub mod figma;
 pub mod file_storage;
 pub mod leader;
+pub mod loops;
 pub mod message;
 pub mod metrics;
 pub mod plugin_repo;

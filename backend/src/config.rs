@@ -657,6 +657,10 @@ pub struct Config {
     pub skill: SkillConfig,
     pub secrets: SecretsConfig,
     pub codex_oauth: CodexOAuthConfig,
+    /// Global default user id that synced repo "loops" run as when a loop's
+    /// `LOOP.md` frontmatter omits `runAsUserId` and the repo has no owner.
+    /// Env: `MOATLESS_DEFAULT_RUN_AS_USER_ID`.
+    pub default_run_as_user_id: Option<String>,
 }
 
 /// Configuration validation errors.
@@ -855,6 +859,8 @@ impl Config {
                 issuer: env_str("CODEX_OAUTH_ISSUER", "https://auth.openai.com"),
                 client_id: env_str("CODEX_OAUTH_CLIENT_ID", "app_EMoamEEZ73f0CkXaXp7hrann"),
             },
+
+            default_run_as_user_id: env_opt("MOATLESS_DEFAULT_RUN_AS_USER_ID"),
         };
 
         config.validate()?;
@@ -1203,6 +1209,7 @@ mod tests {
                 issuer: "https://auth.openai.com".into(),
                 client_id: "test-codex-client".into(),
             },
+            default_run_as_user_id: None,
         }
     }
 

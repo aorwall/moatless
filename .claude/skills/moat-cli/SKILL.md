@@ -54,6 +54,7 @@ Activated automatically when `USER_AUTH_TOKEN` env var is set. Exchanges token f
 | `moat repos get <id>` | Get repository details | — |
 | `moat repos create` | Create a repository | `--name`, `--git-url`, `--branch`, `--provider` |
 | `moat repos update <id>` | Update a repository | `--name`, `--branch`, `--git-url`, `--servers-json`, `--env-var`, `--setup-command`, `--startup-timeout` |
+| `moat repos sync-config <id>` | Sync `.moatless/config.json` + `.moatless/loops/` from the repo | — |
 | `moat tasks list` | List tasks | `--status`, `--limit` |
 | `moat tasks get <id>` | Get task details | — |
 | `moat tasks create` | Create a task | `--repo` (name or ID), `--name`, `--message`, `--parent`, `--no-parent`, `--branch` |
@@ -213,6 +214,53 @@ moat bindings list --task <task-id>               # destinations a task is bound
 
 > `routing-mode` defaults to `by_subject`. The old `moat channels defaults`
 > command has no replacement — add a trigger per repo instead.
+
+### Declare automations in the repo ("loops")
+
+Instead of creating triggers by hand, a repo can declare its automations in git
+under `.moatless/loops/<loop-name>/LOOP.md` and have `sync-config` reconcile them
+into the trigger tables. The YAML **frontmatter is the config**; the markdown
+**body is the prompt** (the agent's `append_system_prompt`) — mirroring Claude
+Code's `SKILL.md`.
+
+```markdown
+---
+on: github_pr            # event source; also: schedule
+agentType: claude-code   # optional, default claude-code
+routingMode: by_subject  # optional, default by_subject
+tags: [review]           # optional
+# optional: name, runAsUserId, sourceMatcher, eventFilter, adapterConfig, active
+---
+
+Review this pull request using the java-review skill. Post inline comments.
+```
+
+```markdown
+---
+on: schedule
+schedule:
+  cron: "0 0 6 * * MON-FRI *"     # 7-field cron (sec min hour dom mon dow year)
+  timezone: Europe/Stockholm
+  message: "Run the daily platform health check."
+---
+
+Run the daily-health-check skill and file a Linear ticket for any regressions.
+```
+
+```bash
+moat repos sync-config <repo-id>                  # fetch + reconcile loops
+moat triggers list --repository-id <repo-id>      # synced loops show up here
+```
+
+Notes:
+- Synced loops are tracked as triggers with `managed_by = 'repo_loop'`, keyed by
+  `(repository, loop dir name)`. Re-running `sync-config` upserts them and removes
+  loops whose directory was deleted. Manually-created triggers are never touched.
+- `github_pr` loops need a pre-existing GitHub **connection** for the org (it
+  holds the webhook secret and can't be committed to git). With no connection the
+  loop is **skipped** with a reason, not errored. Schedule loops need no connection.
+- `runAsUserId` resolves: frontmatter → `MOATLESS_DEFAULT_RUN_AS_USER_ID` →
+  repo owner → repo creator.
 
 ### Configure settings
 

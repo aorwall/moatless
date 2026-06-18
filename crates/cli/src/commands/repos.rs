@@ -337,11 +337,19 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             }
         }
         RepoAction::SyncConfig { repo_id } => {
-            let updated = client.api().sync_config(&repo_id).await?;
+            let result = client.api().sync_config(&repo_id).await?;
             if json {
-                output::print_json_typed(&updated);
+                output::print_json_typed(&result);
             } else {
-                println!("Config synced for repository {}.", updated.id);
+                let loops = &result.loops;
+                println!("Config synced for repository {}.", result.repository.id);
+                println!(
+                    "Loops: {} created, {} updated, {} removed.",
+                    loops.created, loops.updated, loops.removed
+                );
+                for skip in &loops.skipped {
+                    println!("  skipped {}: {}", skip.loop_name, skip.reason);
+                }
             }
         }
         RepoAction::Delete { repo_id, yes } => {

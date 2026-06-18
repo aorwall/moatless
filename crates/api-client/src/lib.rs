@@ -455,7 +455,7 @@ impl ApiClient {
     pub async fn sync_config(
         &self,
         repo_id: &str,
-    ) -> Result<moatless_api_schemas::repository::RepositoryResponse, ApiError> {
+    ) -> Result<moatless_api_schemas::loops::SyncConfigResponse, ApiError> {
         self.post_no_body(&format!("/api/v1/repositories/{repo_id}/sync-config"))
             .await
     }
