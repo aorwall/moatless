@@ -41,15 +41,13 @@ pub struct LinearAdapter {
     dedup_cache: Cache<String, ()>,
 }
 
-/// Build an outbound Linear comment body: the agent marker (so the comment's
-/// own webhook echo can be filtered out by task id on the way back in), the
-/// reply text, and the optional task footer linking back to the moatless task.
-fn build_comment_body(task_id: &str, message: &OutboundReply) -> String {
-    let mut body = format!(
-        "{}\n{}",
-        crate::adapters::agent_marker::build(task_id),
-        message.text
-    );
+/// Build an outbound Linear comment body: the reply text followed by the
+/// optional `Moatless task:` footer linking back to the moatless task. The
+/// footer URL doubles as the echo-filter source — when the comment's own
+/// webhook echo arrives, the authoring task id is recovered from that link
+/// (see `agent_runtime::handle_comment_created`).
+fn build_comment_body(message: &OutboundReply) -> String {
+    let mut body = message.text.clone();
     if let Some(ref footer) = message.footer {
         body.push_str(footer);
     }
@@ -147,7 +145,7 @@ impl Adapter for LinearAdapter {
     }
 
     /// Linear comments allow generous bodies; cap well below the documented
-    /// 50k limit to leave headroom for the agent marker and footer.
+    /// 50k limit to leave headroom for the `Moatless task:` footer.
     fn max_message_length(&self) -> usize {
         50_000
     }
@@ -262,7 +260,7 @@ impl Adapter for LinearAdapter {
                 .get("issue_id")
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or(&binding.subject_key);
-            let body = build_comment_body(&binding.task_id, message);
+            let body = build_comment_body(message);
             let comment = api.create_comment(issue_uuid, &body).await?;
             let comment_id = comment
                 .get("id")
@@ -297,7 +295,7 @@ impl Adapter for LinearAdapter {
                 )
             })?;
 
-        let body = build_comment_body(&binding.task_id, message);
+        let body = build_comment_body(message);
         match api.create_comment(issue_uuid, &body).await {
             Ok(comment) => {
                 let comment_id = comment
@@ -349,7 +347,7 @@ impl Adapter for LinearAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapters::agent_marker::{self, AgentMarker};
+    use crate::adapters::footer::parse_task_id_from_body;
 
     fn reply(text: &str, footer: Option<&str>) -> OutboundReply {
         OutboundReply {
@@ -362,24 +360,24 @@ mod tests {
     }
 
     #[test]
-    fn comment_body_carries_marker_and_footer() {
-        let body = build_comment_body("task-42", &reply("hello", Some("\n\n---\n[T](u)")));
-        // Marker leads the body so the inbound echo filter can match by task id.
+    fn comment_body_carries_text_and_footer_without_hidden_marker() {
+        let footer = "\n\n---\nMoatless task: [T](https://app.example.com/tasks/task-42)";
+        let body = build_comment_body(&reply("hello", Some(footer)));
+        // No hidden HTML marker — the body is plain text + the visible footer.
+        assert!(!body.contains("<!-- moatless-agent"));
+        assert!(body.starts_with("hello"));
+        assert!(body.ends_with(footer));
+        // The authoring task id is recoverable from the footer URL on echo-back.
         assert_eq!(
-            agent_marker::parse(&body),
-            Some(AgentMarker::Tagged("task-42".to_string()))
+            parse_task_id_from_body("https://app.example.com", &body),
+            Some("task-42".to_string())
         );
-        assert!(body.contains("hello"));
-        assert!(body.ends_with("\n\n---\n[T](u)"));
     }
 
     #[test]
-    fn comment_body_without_footer_still_has_marker() {
-        let body = build_comment_body("task-42", &reply("hi", None));
-        assert_eq!(
-            agent_marker::parse(&body),
-            Some(AgentMarker::Tagged("task-42".to_string()))
-        );
-        assert_eq!(agent_marker::strip(&body), "hi");
+    fn comment_body_without_footer_is_just_text() {
+        let body = build_comment_body(&reply("hi", None));
+        assert_eq!(body, "hi");
+        assert_eq!(parse_task_id_from_body("https://app.example.com", &body), None);
     }
 }

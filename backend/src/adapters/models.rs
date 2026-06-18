@@ -300,10 +300,10 @@ pub struct InboundMessage {
     /// Must be unique per message — NOT the thread ID.
     pub external_event_id: Option<String>,
     /// Source task id when the inbound event was authored by a moatless task
-    /// (e.g. GitHub PR adapter parses this from the `<!-- moatless-agent:ID -->`
-    /// marker on the comment body). Routing uses this to skip delivery back to
-    /// the authoring task while still fanning out to other bindings on the same
-    /// subject.
+    /// (e.g. the GitHub PR / Linear adapters parse this from the `Moatless task:`
+    /// footer link `<frontend_url>/tasks/<id>` on the comment body). Routing uses
+    /// this to skip delivery back to the authoring task while still fanning out
+    /// to other bindings on the same subject.
     pub source_task_id: Option<String>,
 }
 
@@ -321,9 +321,10 @@ pub struct OutboundReply {
     pub text: String,
     pub task_url: Option<String>,
     /// Footer suffix appended to comment bodies by the Linear/GitHub adapters
-    /// (e.g. `"\n\n---\n[Task name](https://app/tasks/<id>)"`). Built by
-    /// [`crate::adapters::footer::task_comment_footer`]. `None` for providers
-    /// that don't carry a footer.
+    /// (e.g. `"\n\n---\nMoatless task: [Task name](https://app/tasks/<id>)"`).
+    /// Built by [`crate::adapters::footer::task_comment_footer`]. The footer URL
+    /// doubles as the inbound echo-filter source. `None` for providers that
+    /// don't carry a footer.
     pub footer: Option<String>,
     pub is_error: bool,
     pub files: Vec<OutboundFile>,

@@ -146,10 +146,10 @@ pub async fn route_inbound_message(
     let binding_repo = PgTaskBindingRepository(state.db.clone());
 
     // Prefer the source task id carried on the inbound message (parsed from
-    // the `<!-- moatless-agent:TASK_ID -->` marker on the comment body) — it
-    // is authoritative and avoids a DB round-trip. Fall back to the
-    // external_event_id lookup for paths that don't carry the marker
-    // (e.g. legacy comments, PR opened events). These two signals drive both
+    // the `Moatless task:` footer link `<frontend_url>/tasks/<id>` on the
+    // comment body) — it is authoritative and avoids a DB round-trip. Fall back
+    // to the external_event_id lookup for paths that don't carry the footer
+    // (e.g. human comments, PR opened events). These two signals drive both
     // the pre-loop binding upsert and the cheap self-echo skip below.
     //
     // A third self-echo signal — owner-identity match between `msg.user_id`

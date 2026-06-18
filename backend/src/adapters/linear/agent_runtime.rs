@@ -241,24 +241,17 @@ pub async fn handle_comment_created(
         return Ok(());
     }
 
-    // Echo filter: our own outbound comments carry an agent marker tagged with
-    // the authoring task id (see `LinearAdapter::send_reply_for_binding`). Drop
-    // the comment for the task that authored it while still delivering it to any
-    // other tasks bound to the same issue. A legacy bare marker (no id) means
-    // agent-authored but source-unknown, so it is dropped entirely.
-    use crate::adapters::agent_marker::AgentMarker;
-    let source_task_id = match crate::adapters::agent_marker::parse(&comment.body) {
-        Some(AgentMarker::Bare) => {
-            debug!(
-                comment_id = %comment.id,
-                "Ignoring self-authored Linear comment (bare agent marker)"
-            );
-            return Ok(());
-        }
-        Some(AgentMarker::Tagged(id)) => Some(id),
-        None => None,
-    };
-    let forwarded_body = crate::adapters::agent_marker::strip(&comment.body);
+    // Echo filter: our own outbound comments end with a `Moatless task:` footer
+    // link to the authoring task (see `LinearAdapter::send_reply_for_binding`).
+    // Recover that task id so the per-binding loop below can drop the comment
+    // for the task that authored it while still delivering it to any other tasks
+    // bound to the same issue. The footer is visible content — nothing to strip,
+    // so the body is forwarded unchanged.
+    let source_task_id = crate::adapters::footer::parse_task_id_from_body(
+        &state.config.auth.frontend_url,
+        &comment.body,
+    );
+    let forwarded_body = comment.body.as_str();
 
     let binding_repo = PgTaskBindingRepository(state.db.clone());
     let bindings: Vec<TaskBinding> = binding_repo

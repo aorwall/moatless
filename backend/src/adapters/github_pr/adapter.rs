@@ -26,10 +26,6 @@ use crate::state::AppState;
 use super::api::GithubPrApi;
 use super::config::GithubPrRuleConfig;
 
-// Shared agent-comment marker. Aliased to the historical local names so the
-// existing call sites and tests in this module stay unchanged.
-use crate::adapters::agent_marker::{build as agent_marker, parse as parse_agent_marker, AgentMarker};
-
 /// Inputs for [`pr_opened_text`] — grouped to keep the signature small.
 struct PrOpenedText<'a> {
     pr_number: u64,
@@ -231,6 +227,10 @@ pub struct GithubPrAdapter {
     global_webhook_secret: Option<String>,
     /// Global bot token from env (`GITHUB_CHANNEL_TOKEN`).
     global_bot_token: Option<String>,
+    /// Frontend base URL (`config.auth.frontend_url`). Used to render the
+    /// `Moatless task:` footer link on outbound comments and to recover the
+    /// authoring task id from that link on inbound echoes / context backfill.
+    frontend_url: String,
     /// Database pool — currently unused by token resolution (handled by the
     /// canonical resolver via `provider_tokens`), kept for future per-pool DB
     /// needs and to remain wire-compatible with the existing public ctor.
@@ -255,9 +255,14 @@ pub struct GithubPrAdapter {
 }
 
 impl GithubPrAdapter {
+    // reason: wiring ctor — each arg is a distinct injected dependency
+    // (secrets, frontend URL, db pool, token repos, App registry) with no
+    // natural grouping; a params struct would only add indirection.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         global_webhook_secret: Option<String>,
         global_bot_token: Option<String>,
+        frontend_url: String,
         db: DbPool,
         provider_tokens: Arc<dyn ProviderTokenRepository>,
         provider_token_auth: Option<Arc<dyn ProviderTokenAuthRepository>>,
@@ -267,6 +272,7 @@ impl GithubPrAdapter {
         Self {
             global_webhook_secret,
             global_bot_token,
+            frontend_url,
             db,
             provider_tokens,
             provider_token_auth,
@@ -844,17 +850,10 @@ impl GithubPrAdapter {
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(0);
 
-        let source_task_id = match parse_agent_marker(comment_body) {
-            Some(AgentMarker::Bare) => {
-                debug!(
-                    comment_id,
-                    "Ignoring self-authored agent comment (legacy bare marker)"
-                );
-                return Ok(GithubPrWebhookResult::Ignore);
-            }
-            Some(AgentMarker::Tagged(task_id)) => Some(task_id),
-            None => None,
-        };
+        // Recover the authoring task id from our `Moatless task:` footer link, if
+        // present. Used downstream to drop only the authoring task's own echo.
+        let source_task_id =
+            crate::adapters::footer::parse_task_id_from_body(&self.frontend_url, comment_body);
 
         let user_id = self
             .resolve_user_or_fallback(ctx.sender_login, ctx.rule, ctx.db)
@@ -912,17 +911,10 @@ impl GithubPrAdapter {
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(0);
 
-        let source_task_id = match parse_agent_marker(comment_body) {
-            Some(AgentMarker::Bare) => {
-                debug!(
-                    comment_id,
-                    "Ignoring self-authored agent review comment (legacy bare marker)"
-                );
-                return Ok(GithubPrWebhookResult::Ignore);
-            }
-            Some(AgentMarker::Tagged(task_id)) => Some(task_id),
-            None => None,
-        };
+        // Recover the authoring task id from our `Moatless task:` footer link, if
+        // present. Used downstream to drop only the authoring task's own echo.
+        let source_task_id =
+            crate::adapters::footer::parse_task_id_from_body(&self.frontend_url, comment_body);
 
         let diff_hunk = comment
             .get("diff_hunk")
@@ -1364,8 +1356,8 @@ impl Adapter for GithubPrAdapter {
     }
 
     /// GitHub allows up to 65536 chars per issue/PR comment. Leave headroom for
-    /// the agent marker and the optional task-URL footer that
-    /// `send_reply_for_binding` prepends/appends.
+    /// the optional `Moatless task:` footer that `send_reply_for_binding`
+    /// appends.
     fn max_message_length(&self) -> usize {
         65_000
     }
@@ -1494,7 +1486,9 @@ impl Adapter for GithubPrAdapter {
         let token = self.resolve_token_for_user(&user_id, Some(&owner)).await?;
         let api = GithubPrApi::new(&token);
 
-        let mut body = format!("{}\n{}", agent_marker(&binding.task_id), message.text);
+        // The `Moatless task:` footer (carrying the task URL) doubles as the
+        // echo-filter source on the way back in — no hidden marker needed.
+        let mut body = message.text.clone();
         if let Some(ref footer) = message.footer {
             body.push_str(footer);
         }
@@ -1534,7 +1528,8 @@ impl Adapter for GithubPrAdapter {
                 let token = self.resolve_token_for_user(&user_id, Some(&owner)).await?;
                 let api = GithubPrApi::new(&token);
 
-                let mut body = format!("{}\n{}", agent_marker(&binding.task_id), message.text);
+                // The `Moatless task:` footer doubles as the echo-filter source.
+                let mut body = message.text.clone();
                 if let Some(ref footer) = message.footer {
                     body.push_str(footer);
                 }
@@ -1658,6 +1653,7 @@ impl Adapter for GithubPrAdapter {
         let ignored_senders = super::config::ignored_senders(config.provider_config.as_ref());
         Ok(pr_comments_context(
             &comments,
+            &self.frontend_url,
             &thread.task_id,
             exclude_external_ids,
             &ignored_senders,
@@ -1670,22 +1666,31 @@ impl Adapter for GithubPrAdapter {
 /// already-delivered comment ids, and ignored senders (so e.g.
 /// `linear-code[bot]` linkback noise doesn't leak in via context backfill
 /// even though it never arrives as a webhook delivery).
+///
+/// This task's own comments are recognised by the `Moatless task:` footer link
+/// pointing at this task (`<frontend_url>/tasks/<task_id>`); other tasks' and
+/// human comments are kept. When `frontend_url` is empty the link check is a
+/// no-op (echo suppression then relies on the already-delivered id filter).
 fn pr_comments_context(
     comments: &[super::api::PrComment],
+    frontend_url: &str,
     task_id: &str,
     exclude_external_ids: &[String],
     ignored_senders: &[String],
 ) -> Option<String> {
+    let base = frontend_url.trim_end_matches('/');
+    let self_url = if base.is_empty() {
+        String::new()
+    } else {
+        format!("{base}/tasks/{task_id}")
+    };
     let context = comments
         .iter()
-        .filter(|c| match c.body.as_deref().and_then(parse_agent_marker) {
-            // Hide this task's own outbound comments — they're already in
-            // its message log and would only echo back as context.
-            Some(AgentMarker::Tagged(ref tid)) => tid != task_id,
-            // Legacy bare markers: source task unknown, drop to match
-            // pre-tagged behavior.
-            Some(AgentMarker::Bare) => false,
-            None => true,
+        .filter(|c| {
+            // Hide this task's own outbound comments — their footer links back
+            // to this task and they'd only echo into its own context.
+            let body = c.body.as_deref().unwrap_or("");
+            self_url.is_empty() || !body.contains(self_url.as_str())
         })
         .filter(|c| {
             let prefixed = super::external_id::issue_comment(c.id);
@@ -1853,6 +1858,7 @@ mod tests {
         let provider = GithubPrAdapter::new(
             None,
             None,
+            "https://app.example.com".to_string(),
             fake_db_pool(),
             fake_provider_tokens(),
             None,
@@ -1870,6 +1876,7 @@ mod tests {
         let provider = GithubPrAdapter::new(
             None,
             None,
+            "https://app.example.com".to_string(),
             fake_db_pool(),
             fake_provider_tokens(),
             None,
@@ -1980,6 +1987,7 @@ mod tests {
         let provider = GithubPrAdapter::new(
             None,
             None,
+            "https://app.example.com".to_string(),
             fake_db_pool(),
             fake_provider_tokens(),
             None,
@@ -2016,6 +2024,7 @@ mod tests {
         let provider = GithubPrAdapter::new(
             None,
             None,
+            "https://app.example.com".to_string(),
             fake_db_pool(),
             fake_provider_tokens(),
             None,
@@ -2087,95 +2096,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn parse_agent_marker_classifies_bodies() {
-        // No marker.
-        assert!(parse_agent_marker("hello world").is_none());
-        assert!(parse_agent_marker("").is_none());
-
-        // Legacy bare marker (still emitted by old deployments).
-        assert_eq!(
-            parse_agent_marker("<!-- moatless-agent -->\nbody"),
-            Some(AgentMarker::Bare)
-        );
-
-        // Leading whitespace is allowed.
-        assert_eq!(
-            parse_agent_marker("   \n<!-- moatless-agent -->\nbody"),
-            Some(AgentMarker::Bare)
-        );
-
-        // Tagged.
-        assert_eq!(
-            parse_agent_marker("<!-- moatless-agent:task-abc -->\nbody"),
-            Some(AgentMarker::Tagged("task-abc".to_string()))
-        );
-
-        // Tagged with surrounding whitespace around the id (defensive trim).
-        assert_eq!(
-            parse_agent_marker("<!-- moatless-agent: task-abc  -->\nbody"),
-            Some(AgentMarker::Tagged("task-abc".to_string()))
-        );
-
-        // Malformed: empty id falls back to Bare so we still drop legacy-style.
-        assert_eq!(
-            parse_agent_marker("<!-- moatless-agent: -->\nbody"),
-            Some(AgentMarker::Bare)
-        );
-
-        // Marker that does not actually begin at start-after-trim is not matched.
-        assert!(parse_agent_marker("real comment\n<!-- moatless-agent:x -->").is_none());
-    }
-
-    #[test]
-    fn agent_marker_round_trips_through_parser() {
-        let body = format!("{}\nhello", agent_marker("task-42"));
-        assert_eq!(
-            parse_agent_marker(&body),
-            Some(AgentMarker::Tagged("task-42".to_string()))
-        );
-    }
-
-    #[tokio::test]
-    async fn issue_comment_with_legacy_bare_marker_is_ignored() {
-        let provider = GithubPrAdapter::new(
-            None,
-            None,
-            fake_db_pool(),
-            fake_provider_tokens(),
-            None,
-            None,
-            fake_github_apps(),
-        );
-        let rule = fake_rule();
-        let db = fake_db_pool();
-        let ctx = EventContext {
-            rule: &rule,
-            owner: "soaplabs",
-            repo: "repo",
-            sender_login: "SoapLabBot",
-            db: &db,
-        };
-        let payload = serde_json::json!({
-            "action": "created",
-            "issue": {
-                "number": 42,
-                "pull_request": { "url": "https://api.github.com/repos/soaplabs/repo/pulls/42" }
-            },
-            "comment": {
-                "id": 123_456_u64,
-                "body": "<!-- moatless-agent -->\nAcknowledged. Waiting for a fix commit.",
-            }
-        });
-
-        let result = provider
-            .handle_issue_comment_event(&payload, &ctx)
-            .await
-            .unwrap();
-
-        assert!(matches!(result, GithubPrWebhookResult::Ignore));
-    }
-
     /// Full issue_comment payload from a given sender, suitable for
     /// `parse_webhook` (includes `repository.full_name` and `sender.login`).
     fn issue_comment_payload(sender: &str) -> serde_json::Value {
@@ -2199,6 +2119,7 @@ mod tests {
         let provider = GithubPrAdapter::new(
             None,
             None,
+            "https://app.example.com".to_string(),
             fake_db_pool(),
             fake_provider_tokens(),
             None,
@@ -2243,7 +2164,9 @@ mod tests {
         ];
         let ignored = crate::adapters::github_pr::config::ignored_senders(None);
 
-        let context = pr_comments_context(&comments, "task-1", &[], &ignored).unwrap();
+        let context =
+            pr_comments_context(&comments, "https://app.example.com", "task-1", &[], &ignored)
+                .unwrap();
 
         assert!(context.contains("@alice: looks good"));
         assert!(!context.contains("linear-code[bot]"));
@@ -2257,7 +2180,8 @@ mod tests {
             "<!-- linear-linkback -->\nSP-1529 linked",
         )];
 
-        let context = pr_comments_context(&comments, "task-1", &[], &[]).unwrap();
+        let context =
+            pr_comments_context(&comments, "https://app.example.com", "task-1", &[], &[]).unwrap();
 
         assert!(context.contains("@linear-code[bot]"));
     }
@@ -2271,7 +2195,38 @@ mod tests {
         )];
         let ignored = crate::adapters::github_pr::config::ignored_senders(None);
 
-        assert!(pr_comments_context(&comments, "task-1", &[], &ignored).is_none());
+        assert!(
+            pr_comments_context(&comments, "https://app.example.com", "task-1", &[], &ignored)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn context_backfill_drops_listening_tasks_own_footer_comment() {
+        let comments = vec![
+            // This task's own outbound comment — recognised by its footer link.
+            pr_comment(
+                1,
+                "SoapLabBot",
+                "On it.\n\n---\nMoatless task: [n](https://app.example.com/tasks/task-1)",
+            ),
+            // Another task's comment on the same PR — different footer link, kept.
+            pr_comment(
+                2,
+                "SoapLabBot",
+                "Looking too.\n\n---\nMoatless task: [n](https://app.example.com/tasks/task-2)",
+            ),
+            // A human comment — no footer link, kept.
+            pr_comment(3, "alice", "thanks!"),
+        ];
+
+        let context =
+            pr_comments_context(&comments, "https://app.example.com", "task-1", &[], &[]).unwrap();
+
+        // Own comment dropped; the other task's comment and the human comment kept.
+        assert!(!context.contains("On it."));
+        assert!(context.contains("Looking too."));
+        assert!(context.contains("@alice: thanks!"));
     }
 
     #[tokio::test]
@@ -2279,6 +2234,7 @@ mod tests {
         let provider = GithubPrAdapter::new(
             None,
             None,
+            "https://app.example.com".to_string(),
             fake_db_pool(),
             fake_provider_tokens(),
             None,
@@ -2308,6 +2264,7 @@ mod tests {
         let provider = GithubPrAdapter::new(
             None,
             None,
+            "https://app.example.com".to_string(),
             fake_db_pool(),
             fake_provider_tokens(),
             None,
@@ -2370,6 +2327,7 @@ mod tests {
         let provider = GithubPrAdapter::new(
             None,
             None,
+            "https://app.example.com".to_string(),
             fake_db_pool(),
             fake_provider_tokens(),
             None,
@@ -2404,6 +2362,7 @@ mod tests {
         let provider = GithubPrAdapter::new(
             None,
             None,
+            "https://app.example.com".to_string(),
             fake_db_pool(),
             fake_provider_tokens(),
             None,
@@ -2434,6 +2393,7 @@ mod tests {
         let provider = GithubPrAdapter::new(
             None,
             None,
+            "https://app.example.com".to_string(),
             fake_db_pool(),
             fake_provider_tokens(),
             None,
@@ -2459,10 +2419,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn issue_comment_with_tagged_marker_delivers_with_source_task_id() {
+    async fn issue_comment_with_footer_link_delivers_with_source_task_id() {
         let provider = GithubPrAdapter::new(
             None,
             None,
+            "https://app.example.com".to_string(),
             fake_db_pool(),
             fake_provider_tokens(),
             None,
@@ -2486,7 +2447,7 @@ mod tests {
             },
             "comment": {
                 "id": 123_456_u64,
-                "body": format!("{}\nAcknowledged. Waiting for a fix commit.", agent_marker("task-A")),
+                "body": "Acknowledged. Waiting for a fix commit.\n\n---\nMoatless task: [n](https://app.example.com/tasks/task-A)",
             }
         });
 
@@ -2507,6 +2468,7 @@ mod tests {
         let provider = GithubPrAdapter::new(
             None,
             None,
+            "https://app.example.com".to_string(),
             fake_db_pool(),
             fake_provider_tokens(),
             None,
@@ -2547,10 +2509,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn review_comment_with_legacy_bare_marker_is_ignored() {
+    async fn review_comment_with_footer_link_delivers_with_source_task_id() {
         let provider = GithubPrAdapter::new(
             None,
             None,
+            "https://app.example.com".to_string(),
             fake_db_pool(),
             fake_provider_tokens(),
             None,
@@ -2571,47 +2534,7 @@ mod tests {
             "pull_request": { "number": 42 },
             "comment": {
                 "id": 999_u64,
-                "body": "   \n<!-- moatless-agent -->\nAcknowledged on the inline thread.",
-                "path": "src/foo.rs",
-                "diff_hunk": "@@ -1 +1 @@",
-                "html_url": "https://github.com/soaplabs/repo/pull/42#discussion_r999",
-            }
-        });
-
-        let result = provider
-            .handle_review_comment_event(&payload, &ctx)
-            .await
-            .unwrap();
-
-        assert!(matches!(result, GithubPrWebhookResult::Ignore));
-    }
-
-    #[tokio::test]
-    async fn review_comment_with_tagged_marker_delivers_with_source_task_id() {
-        let provider = GithubPrAdapter::new(
-            None,
-            None,
-            fake_db_pool(),
-            fake_provider_tokens(),
-            None,
-            None,
-            fake_github_apps(),
-        );
-        let rule = fake_rule();
-        let db = fake_db_pool();
-        let ctx = EventContext {
-            rule: &rule,
-            owner: "soaplabs",
-            repo: "repo",
-            sender_login: "SoapLabBot",
-            db: &db,
-        };
-        let payload = serde_json::json!({
-            "action": "created",
-            "pull_request": { "number": 42 },
-            "comment": {
-                "id": 999_u64,
-                "body": format!("{}\nAcknowledged on the inline thread.", agent_marker("task-B")),
+                "body": "Acknowledged on the inline thread.\n\n---\nMoatless task: [n](https://app.example.com/tasks/task-B)",
                 "path": "src/foo.rs",
                 "diff_hunk": "@@ -1 +1 @@",
                 "html_url": "https://github.com/soaplabs/repo/pull/42#discussion_r999",

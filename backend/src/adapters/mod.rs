@@ -1,6 +1,5 @@
 //! Adapter trait, registry, connection storage, and webhook routes.
 
-pub mod agent_marker;
 pub mod common;
 pub mod dao;
 pub mod error;
@@ -441,6 +440,7 @@ impl Adapters {
             let github_pr = self::github_pr::adapter::GithubPrAdapter::new(
                 config.github_pr.webhook_secret.clone(),
                 config.github_pr.bot_token.clone(),
+                config.auth.frontend_url.clone(),
                 db.clone(),
                 provider_tokens.clone(),
                 Some(provider_token_auth.clone()),

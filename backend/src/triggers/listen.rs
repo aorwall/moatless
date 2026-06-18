@@ -180,6 +180,7 @@ pub async fn connect_github_binding(
     let provider = crate::adapters::github_pr::adapter::GithubPrAdapter::new(
         state.config.github_pr.webhook_secret.clone(),
         state.config.github_pr.bot_token.clone(),
+        state.config.auth.frontend_url.clone(),
         state.db.clone(),
         state.provider_tokens.clone(),
         Some(state.provider_token_auth.clone()),
