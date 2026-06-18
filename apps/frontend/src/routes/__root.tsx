@@ -1,15 +1,9 @@
-import {
-  createRootRoute,
-  HeadContent,
-  Navigate,
-  Outlet,
-  useRouterState,
-} from '@tanstack/react-router'
-import type { ReactNode } from 'react'
+import { createRootRoute, HeadContent, Outlet, useRouterState } from '@tanstack/react-router'
 
-import { useAuth } from '@/features/auth/hooks/use-auth'
+import { AuthGate } from '@/features/auth/components/auth-gate'
 import { GlobalEventStreamProvider } from '@/features/events'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
+import { ServerDownGate } from '@/lib/components/server-down-gate'
 import { Layout } from '@/lib/layout'
 
 const title = 'Moatless Vibe'
@@ -121,15 +115,15 @@ function RootComponent() {
 
   if (isPublicRoute) {
     return (
-      <>
+      <ServerDownGate>
         <HeadContent />
         <Outlet />
-      </>
+      </ServerDownGate>
     )
   }
 
   return (
-    <>
+    <ServerDownGate>
       <HeadContent />
       <AuthGate>
         <ErrorBoundary>
@@ -140,24 +134,6 @@ function RootComponent() {
           </GlobalEventStreamProvider>
         </ErrorBoundary>
       </AuthGate>
-    </>
+    </ServerDownGate>
   )
-}
-
-function AuthGate({ children }: { children: ReactNode }) {
-  const { isAuthenticated, isLoading } = useAuth()
-
-  if (isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="text-muted-foreground">Loading...</div>
-      </div>
-    )
-  }
-
-  if (!isAuthenticated) {
-    return <Navigate to="/login" />
-  }
-
-  return children
 }

@@ -1,5 +1,7 @@
 import { QueryCache, QueryClient } from '@tanstack/react-query'
 
+import { isServerUnavailable, serverStatusStore } from './server-status'
+
 const AUTH_REDIRECT_KEY = 'auth_redirect_ts'
 const AUTH_REDIRECT_COOLDOWN_MS = 30_000
 
@@ -33,9 +35,27 @@ function handleAuthError(error: Error) {
   }
 }
 
+/**
+ * Mark the backend unreachable when a request fails with a 503 / network
+ * error, surfacing the root-level `ServerDownGate`. A successful request
+ * clears the flag (see the `QueryCache` `onSuccess` below).
+ */
+function handleServerStatusError(error: Error) {
+  if (isServerUnavailable(error)) {
+    serverStatusStore.setUnavailable(true)
+  }
+}
+
 export const queryClient = new QueryClient({
   queryCache: new QueryCache({
-    onError: handleAuthError,
+    onError: (error) => {
+      handleAuthError(error)
+      handleServerStatusError(error)
+    },
+    onSuccess: () => {
+      // Any successful request means the server is reachable again.
+      serverStatusStore.setUnavailable(false)
+    },
   }),
   defaultOptions: {
     queries: {
@@ -46,7 +66,10 @@ export const queryClient = new QueryClient({
     },
     mutations: {
       retry: false,
-      onError: handleAuthError,
+      onError: (error) => {
+        handleAuthError(error)
+        handleServerStatusError(error)
+      },
     },
   },
 })

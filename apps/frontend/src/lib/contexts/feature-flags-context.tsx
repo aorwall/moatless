@@ -1,6 +1,7 @@
 import type { FeatureFlagsResponse } from '@moatless/api-client/sandbox/model'
 import { createContext, type ReactNode, useContext, useEffect, useState } from 'react'
 import { apiClient } from '@/lib/api/client'
+import { isServerUnavailable, serverStatusStore } from '@/lib/api/server-status'
 import type { FeatureFlagKey } from '@/lib/types/feature-flags'
 
 interface SlackConfig {
@@ -33,7 +34,12 @@ export function FeatureFlagsProvider({ children }: FeatureFlagsProviderProps) {
       try {
         const response = await apiClient.get<FeatureFlagsResponse>('/api/v1/feature-flags')
         setFlags(response)
-      } catch {
+      } catch (err) {
+        // This bootstrap call bypasses TanStack Query, so flag the global
+        // server-status store directly when the backend is unreachable.
+        if (isServerUnavailable(err)) {
+          serverStatusStore.setUnavailable(true)
+        }
         // Set default flags object on error so the app continues to work
         setFlags({
           netlify_publish: false,

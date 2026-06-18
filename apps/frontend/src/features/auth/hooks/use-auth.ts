@@ -3,6 +3,8 @@ import { unwrapResponse } from '@moatless/api-client/custom-instance'
 import { meHandler } from '@moatless/api-client/sandbox/auth/auth'
 import { useQuery } from '@tanstack/react-query'
 
+import { isServerUnavailable } from '@/lib/api/server-status'
+
 const API_BASE_URL = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL ?? '')
 
 /**
@@ -10,7 +12,12 @@ const API_BASE_URL = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL ?
  * The root-level AuthGate handles redirecting to /login on 401.
  */
 export function useAuth() {
-  const { data: session, isLoading } = useQuery({
+  const {
+    data: session,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ['auth', 'session'],
     queryFn: () => unwrapResponse<SessionResponse>(meHandler()),
     retry: false,
@@ -40,6 +47,8 @@ export function useAuth() {
     expiresAt: session?.expiresAt ?? null,
     isAuthenticated: !!session,
     isLoading,
+    isServerUnavailable: isServerUnavailable(error),
+    refetch,
     providers,
     githubConnected,
     logout,
