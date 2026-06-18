@@ -79,6 +79,30 @@ pub async fn send_message_flow(
     start_fresh: bool,
     sent_by: Option<&str>,
 ) -> Result<(), MessageError> {
+    // Drop inbound external messages aimed at a closed task. A closed task is
+    // terminal (no reopen path) so an adapter comment must not persist a stray
+    // message or wake the agent. Scoped to `external_adapter.is_some()` so
+    // internal/UI sends are unaffected; `Error` tasks stay resumable to match
+    // `start_task` recovery semantics. Backstop for the close-vs-comment race —
+    // steady state, inactive bindings already keep these out of routing.
+    if external_adapter.is_some() {
+        match state.tasks.find_by_id_internal(task_id).await {
+            Ok(Some(task)) if task.status == crate::task::models::TaskStatus::Closed => {
+                tracing::debug!(
+                    task_id = %task_id,
+                    external_adapter,
+                    "Dropping inbound external message for closed task"
+                );
+                return Ok(());
+            }
+            Ok(_) => {}
+            Err(e) => {
+                // Fail-open: a DB blip must not silently drop a legitimate message.
+                tracing::warn!(task_id = %task_id, error = %e, "Failed to fetch task status for closed-task guard; proceeding");
+            }
+        }
+    }
+
     // Dedup: if this external message was already persisted (or was just sent
     // outbound and is racing the webhook), skip the insert entirely. Prevents
     // duplicates from Slack retries, re-delivered webhooks, and `moat reply`

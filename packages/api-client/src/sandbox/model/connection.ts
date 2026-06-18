@@ -12,8 +12,17 @@ import type { AdapterKind } from './adapterKind';
 external status, and message tally.
  */
 export interface Connection {
+  /** Whether this connection still routes inbound events. `false` once the
+task closes — the binding is kept for history but stops listening. */
+  active: boolean;
   adapterKind: AdapterKind;
   bindingId: string;
+  /**
+   * RFC3339 timestamp of when the connection was deactivated; `None` while
+active.
+   * @nullable
+   */
+  deactivatedAt?: string | null;
   /** Inbound message count for this connection. */
   incoming: number;
   /** Decoded connection kind: `github_pr` | `linear_issue` | `slack_thread`

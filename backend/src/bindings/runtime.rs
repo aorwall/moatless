@@ -170,6 +170,11 @@ pub async fn route_inbound_message(
         .find_by_subject(provider_label, subject_kind, subject_key)
         .await?;
 
+    // Skip bindings whose task has closed — a closed task is terminal and must
+    // not be resurrected by a new inbound message. Fresh bindings for the
+    // originating / ongoing task are re-added active below.
+    bindings.retain(|b| b.active);
+
     if let Some(origin_task_id) = origin_task_id.as_deref() {
         if !bindings.iter().any(|s| s.task_id == origin_task_id) {
             let sub = upsert_binding(
@@ -423,6 +428,8 @@ pub async fn upsert_binding(
         external_state_kind: None,
         external_status_raw: None,
         external_status_updated_at: None,
+        active: true,
+        deactivated_at: None,
     };
     Ok(PgTaskBindingRepository(state.db.clone())
         .upsert(&binding)

@@ -48,6 +48,22 @@ pub async fn notify_sandbox_for_task(state: &AppState, task_id: &str) {
 /// - On failure: logs the error and returns `Err(String)` with a human-readable
 ///   message so callers can decide whether to persist it.
 pub async fn ensure_sandbox_and_notify(state: &AppState, task_id: &str) -> Result<(), String> {
+    // A closed task is terminal — never re-provision its sandbox. This is the
+    // single backstop against resurrection from every caller (adapter inbound
+    // comments, scheduled runs, the UI message handler). `Error` tasks stay
+    // resumable to match `start_task`'s recovery semantics.
+    match state.tasks.find_by_id_internal(task_id).await {
+        Ok(Some(task)) if task.status == crate::task::models::TaskStatus::Closed => {
+            tracing::debug!(task_id, "Task is closed — skipping sandbox provision/notify");
+            return Ok(());
+        }
+        Ok(_) => {}
+        Err(e) => {
+            // Fail-open: a DB blip must not silently drop a legitimate wake-up.
+            tracing::warn!(task_id, error = %e, "Failed to fetch task status before sandbox provision; proceeding");
+        }
+    }
+
     let request = super::auto_provision::build_provision_request(
         state.tasks.as_ref(),
         state.repositories.as_ref(),

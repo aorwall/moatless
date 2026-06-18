@@ -85,8 +85,11 @@ const ROW = 'flex h-7 items-center'
 
 function ConnectionChip({ connection }: { connection: Connection }) {
   const Icon = adapterIcon(connection.adapterKind)
+  // A deactivated connection is kept for history but no longer routes inbound
+  // events (the task closed). Dim it and flag it so admins can tell at a glance.
+  const inactive = connection.active === false
   return (
-    <div className={cn(ROW, 'gap-1.5')}>
+    <div className={cn(ROW, 'gap-1.5', inactive && 'opacity-50')}>
       <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
       {connection.url ? (
         <a
@@ -100,6 +103,14 @@ function ConnectionChip({ connection }: { connection: Connection }) {
         </a>
       ) : (
         <span className="truncate font-medium">{connection.label}</span>
+      )}
+      {inactive && (
+        <Badge
+          variant="outline"
+          className="shrink-0 px-1 py-0 text-[10px] font-normal text-muted-foreground"
+        >
+          inactive
+        </Badge>
       )}
     </div>
   )

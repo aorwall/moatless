@@ -22,7 +22,7 @@ use crate::task::models::{TaskStatus, Visibility};
 
 use crate::repository::models::{RepositoryKind, RepositoryProvider};
 
-use crate::bindings::dao::get_bindings_for_tasks;
+use crate::bindings::dao::{get_bindings_for_tasks, PgTaskBindingRepository};
 use crate::bindings::schemas::TaskBindingSummary;
 
 use super::error::TaskError;
@@ -604,6 +604,27 @@ pub async fn update_task_metadata(
     Ok(Json(resp))
 }
 
+/// Deactivate all of a task's external bindings (best-effort).
+///
+/// Called when a task is closed or deleted. A closed task is terminal, so its
+/// adapter "listeners" (Linear issue / GitHub PR / Slack thread bindings) must
+/// stop routing inbound events — otherwise a new comment would re-provision the
+/// sandbox and resurrect the task. Logs on failure but never blocks the
+/// close/delete; the runtime guards in `ensure_sandbox_and_notify` and
+/// `send_message_flow` are the backstop if this doesn't run.
+async fn deactivate_task_bindings(state: &AppState, task_id: &str) {
+    match PgTaskBindingRepository(state.db.clone())
+        .deactivate_by_task(task_id)
+        .await
+    {
+        Ok(0) => {}
+        Ok(n) => tracing::info!(task_id, deactivated = n, "Deactivated task bindings"),
+        Err(e) => {
+            tracing::warn!(task_id, error = %e, "Failed to deactivate task bindings");
+        }
+    }
+}
+
 /// Delete a task and cleanup its workspace.
 #[utoipa::path(
     delete,
@@ -633,6 +654,10 @@ pub async fn delete_task(
     if let Err(e) = state.sandbox.cleanup(&task_id).await {
         tracing::warn!(task_id = %task_id, error = %e, "Failed to cleanup workspace on delete");
     }
+
+    // Stop external listeners. `task_bindings.task_id` is not an FK, so rows
+    // don't cascade on delete — deactivate them so inbound routing stops.
+    deactivate_task_bindings(&state, &task_id).await;
 
     state.tasks.delete_task(&task_id).await?;
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task deleted");
@@ -681,6 +706,10 @@ pub async fn close_task(
             },
         )
         .await?;
+
+    // A closed task is terminal — stop its external listeners so inbound
+    // comments don't resurrect it.
+    deactivate_task_bindings(&state, &task_id).await;
 
     if let Some(ref events) = state.events {
         events

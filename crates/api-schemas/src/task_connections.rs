@@ -72,4 +72,10 @@ pub struct Connection {
     pub outgoing: i64,
     /// RFC3339 timestamp of the last event seen on the binding.
     pub last_event_at: Option<String>,
+    /// Whether this connection still routes inbound events. `false` once the
+    /// task closes — the binding is kept for history but stops listening.
+    pub active: bool,
+    /// RFC3339 timestamp of when the connection was deactivated; `None` while
+    /// active.
+    pub deactivated_at: Option<String>,
 }

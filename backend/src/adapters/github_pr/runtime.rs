@@ -178,6 +178,11 @@ pub async fn route_inbound_message(
         .find_by_subject(ADAPTER, SUBJECT_KIND, &subject_key)
         .await?;
 
+    // Skip bindings whose task has closed — a closed task is terminal and must
+    // not be resurrected by a new PR comment. (A fresh binding for the
+    // originating task is re-added active just below.)
+    bindings.retain(|b| b.active);
+
     // If the originating task isn't subscribed yet (e.g. agent ran
     // `gh pr comment` from a task that never connected to the PR), attach a
     // binding so future events fan out to it too.
@@ -452,6 +457,12 @@ pub async fn close_tasks_for_pr(
             continue;
         }
 
+        // A closed task is terminal — deactivate its bindings so later comments
+        // on the PR don't resurrect it. Best-effort.
+        if let Err(e) = bindings_repo.deactivate_by_task(task_id).await {
+            warn!(task_id = %task_id, error = %e, "Failed to deactivate bindings on PR close");
+        }
+
         if let Some(ref events) = state.events {
             events
                 .publish_task_event(
@@ -566,6 +577,8 @@ pub async fn upsert_binding(
         external_state_kind: None,
         external_status_raw: None,
         external_status_updated_at: None,
+        active: true,
+        deactivated_at: None,
     };
 
     Ok(PgTaskBindingRepository(state.db.clone())

@@ -230,6 +230,21 @@ pub struct TaskBinding {
     /// persisted.
     #[sqlx(default)]
     pub external_status_updated_at: Option<DateTime<Utc>>,
+    /// Whether this binding still routes inbound events. Flipped to `false`
+    /// when the task closes (a closed task is terminal — see
+    /// `PgTaskBindingRepository::deactivate_by_task`). Inbound routing skips
+    /// inactive bindings; the admin Task Connections view still shows them,
+    /// flagged inactive.
+    ///
+    /// `#[sqlx(default)]` makes this `false` when a query doesn't project the
+    /// column — the fail-safe direction (a forgotten projection drops delivery
+    /// rather than resurrecting a task). The shared `TASK_BINDING_SELECT` and
+    /// `upsert` RETURNING both project it, so live paths see the real value.
+    #[sqlx(default)]
+    pub active: bool,
+    /// When this binding was deactivated; `None` while active.
+    #[sqlx(default)]
+    pub deactivated_at: Option<DateTime<Utc>>,
 }
 
 /// Row from the `schedule_trigger_sources` table.

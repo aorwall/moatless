@@ -147,12 +147,16 @@ pub async fn handle_session_prompted(
     body: &str,
 ) -> Result<(), AdapterError> {
     let binding_repo = PgTaskBindingRepository(state.db.clone());
-    let bindings = binding_repo
+    let bindings: Vec<TaskBinding> = binding_repo
         .find_by_subject(ADAPTER, SUBJECT_KIND, session_id)
-        .await?;
+        .await?
+        .into_iter()
+        // Skip bindings whose task has closed — a closed task is terminal.
+        .filter(|b| b.active)
+        .collect();
 
     if bindings.is_empty() {
-        warn!(session_id, "No Linear binding for prompted session — ignoring");
+        warn!(session_id, "No active Linear binding for prompted session — ignoring");
         return Ok(());
     }
 
@@ -266,7 +270,9 @@ pub async fn handle_comment_created(
         )
         .await?
         .into_iter()
-        .filter(|b| b.connection_id == connection.id)
+        // Skip bindings whose task has closed — a closed task is terminal and
+        // must not be resurrected by a new comment.
+        .filter(|b| b.connection_id == connection.id && b.active)
         .collect();
 
     if bindings.is_empty() {
@@ -710,6 +716,12 @@ async fn close_active_bindings_for_issue(
             continue;
         }
 
+        // A closed task is terminal — deactivate its bindings so later comments
+        // on the issue don't resurrect it. Best-effort.
+        if let Err(e) = binding_repo.deactivate_by_task(&binding.task_id).await {
+            warn!(task_id = %binding.task_id, error = %e, "Failed to deactivate bindings on Linear close");
+        }
+
         if let Some(ref events) = state.events {
             events
                 .publish_task_event(
@@ -844,6 +856,8 @@ async fn provision_session_task(
         external_state_kind: None,
         external_status_raw: None,
         external_status_updated_at: None,
+        active: true,
+        deactivated_at: None,
     };
 
     PgTaskBindingRepository(state.db.clone())

@@ -226,3 +226,78 @@ async fn trigger_by_subject_routing_with_thread() {
     // Cleanup
     cleanup_tasks(&client, &task_ids).await;
 }
+
+/// A closed task is terminal: a later reply in the same thread must not
+/// resurrect it. The close path deactivates the task's binding, so by_subject
+/// routing spawns a fresh task instead of reusing the closed one, and no new
+/// message is persisted onto the closed task.
+#[tokio::test]
+async fn trigger_by_subject_closed_task_not_resurrected() {
+    let client = test_client();
+    let http = reqwest::Client::new();
+    let repo_id = ensure_template_repo(&client).await;
+    let suffix = timestamp_suffix();
+    let mut task_ids = Vec::new();
+
+    let fixture = create_webhook_integration(
+        &client,
+        &repo_id,
+        &format!("closed-{suffix}"),
+        RoutingMode::BySubject,
+        None,
+    )
+    .await;
+    let trigger_id = fixture.trigger.id;
+
+    // First message in the thread creates a task.
+    let thread = format!("thread-closed-{suffix}");
+    let (status, task_id) =
+        send_webhook(&http, &trigger_id, "First message", Some(&thread)).await;
+    assert_eq!(status, 200);
+    let first_task_id = task_id.expect("should return task_id");
+    task_ids.push(first_task_id.clone());
+
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    let msgs_before = client
+        .api()
+        .get_messages(&first_task_id)
+        .await
+        .unwrap()
+        .messages
+        .len();
+
+    // Close the task — this deactivates its binding.
+    client.api().close_task(&first_task_id).await.unwrap();
+    let closed = client.api().get_task(&first_task_id).await.unwrap();
+    assert_eq!(closed.status, TaskStatus::Closed);
+
+    // A reply in the SAME thread must not reuse the closed task.
+    let (status, task_id) =
+        send_webhook(&http, &trigger_id, "Reply after close", Some(&thread)).await;
+    assert_eq!(status, 200);
+    let after_close_task_id = task_id.expect("should return task_id");
+    assert_ne!(
+        after_close_task_id, first_task_id,
+        "reply after close must not resurrect the closed task"
+    );
+    task_ids.push(after_close_task_id);
+
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+    // The closed task stays closed and gains no new message.
+    let still = client.api().get_task(&first_task_id).await.unwrap();
+    assert_eq!(still.status, TaskStatus::Closed);
+    let msgs_after = client
+        .api()
+        .get_messages(&first_task_id)
+        .await
+        .unwrap()
+        .messages
+        .len();
+    assert_eq!(
+        msgs_after, msgs_before,
+        "no message should be persisted onto a closed task"
+    );
+
+    cleanup_tasks(&client, &task_ids).await;
+}

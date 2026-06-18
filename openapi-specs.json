@@ -7665,14 +7665,26 @@
           "kind",
           "label",
           "incoming",
-          "outgoing"
+          "outgoing",
+          "active"
         ],
         "properties": {
+          "active": {
+            "type": "boolean",
+            "description": "Whether this connection still routes inbound events. `false` once the\ntask closes — the binding is kept for history but stops listening."
+          },
           "adapterKind": {
             "$ref": "#/components/schemas/AdapterKind"
           },
           "bindingId": {
             "type": "string"
+          },
+          "deactivatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC3339 timestamp of when the connection was deactivated; `None` while\nactive."
           },
           "incoming": {
             "type": "integer",

@@ -110,6 +110,8 @@ pub async fn create_task_binding(
         external_state_kind: None,
         external_status_raw: None,
         external_status_updated_at: None,
+        active: true,
+        deactivated_at: None,
     };
     let saved = PgTaskBindingRepository(state.db.clone())
         .upsert(&row)
@@ -505,6 +507,8 @@ mod tests {
             external_state_kind: None,
             external_status_raw: None,
             external_status_updated_at: None,
+            active: true,
+            deactivated_at: None,
         }
     }
 

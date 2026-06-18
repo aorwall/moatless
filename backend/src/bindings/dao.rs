@@ -281,7 +281,9 @@ const TASK_BINDING_SELECT: &str = r#"
            last_external_event_id AS last_external_event_id,
            origin AS origin,
            created_at,
-           last_event_at
+           last_event_at,
+           active,
+           deactivated_at
     FROM task_bindings
 "#;
 
@@ -430,7 +432,9 @@ impl PgTaskBindingRepository {
                          last_external_event_id AS last_external_event_id,
                          origin AS origin,
                          created_at,
-                         last_event_at"#,
+                         last_event_at,
+                         active,
+                         deactivated_at"#,
         )
         .bind(&row.id)
         .bind(&row.task_id)
@@ -454,6 +458,22 @@ impl PgTaskBindingRepository {
             .bind(id)
             .execute(&self.0)
             .await?;
+        Ok(result.rows_affected())
+    }
+
+    /// Deactivate every active binding for a task — called when the task closes
+    /// (a closed task is terminal, so its external listeners must stop routing
+    /// inbound events). Rows are kept for the admin Task Connections view.
+    /// Idempotent: the `active = TRUE` predicate makes re-runs no-ops. Returns
+    /// the number of bindings deactivated.
+    pub async fn deactivate_by_task(&self, task_id: &str) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query(
+            "UPDATE task_bindings SET active = FALSE, deactivated_at = now() \
+             WHERE task_id = $1 AND active = TRUE",
+        )
+        .bind(task_id)
+        .execute(&self.0)
+        .await?;
         Ok(result.rows_affected())
     }
 
@@ -572,7 +592,9 @@ impl PgTaskBindingRepository {
                       external_status,
                       external_state_kind,
                       external_status_raw,
-                      external_status_updated_at
+                      external_status_updated_at,
+                      active,
+                      deactivated_at
                FROM task_bindings
                WHERE task_id = ANY($1)
                ORDER BY created_at ASC"#,

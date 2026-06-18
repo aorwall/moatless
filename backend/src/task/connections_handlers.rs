@@ -353,6 +353,8 @@ fn decode_connection(b: &TaskBinding, counts: &HashMap<String, (i64, i64)>) -> C
         incoming,
         outgoing,
         last_event_at: Some(b.last_event_at.to_rfc3339()),
+        active: b.active,
+        deactivated_at: b.deactivated_at.map(|t| t.to_rfc3339()),
     }
 }
 
@@ -439,6 +441,8 @@ mod tests {
             external_state_kind: None,
             external_status_raw: None,
             external_status_updated_at: None,
+            active: true,
+            deactivated_at: None,
         }
     }
 
@@ -525,5 +529,22 @@ mod tests {
 
         let matched = match_counts(&bindings, &rows);
         assert!(matched.is_empty());
+    }
+
+    #[test]
+    fn decode_connection_carries_active_state() {
+        let counts: HashMap<String, (i64, i64)> = HashMap::new();
+
+        let active = binding("b1", "github", "github_pr", "o/r#1");
+        let decoded = decode_connection(&active, &counts);
+        assert!(decoded.active);
+        assert_eq!(decoded.deactivated_at, None);
+
+        let mut closed = binding("b2", "github", "github_pr", "o/r#2");
+        closed.active = false;
+        closed.deactivated_at = Some(Utc::now());
+        let decoded = decode_connection(&closed, &counts);
+        assert!(!decoded.active);
+        assert!(decoded.deactivated_at.is_some());
     }
 }

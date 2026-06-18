@@ -253,7 +253,7 @@ async fn run_reap_cycle(
                 last_activity = ?latest_at,
                 "Auto-closing inactive task"
             );
-            auto_close_task(task_id, tasks, sandbox, events).await;
+            auto_close_task(app_state, task_id, tasks, sandbox, events).await;
             closed_count += 1;
             continue;
         }
@@ -492,6 +492,7 @@ fn decide_close(
 /// Best-effort: every step is logged on failure but never propagates — the
 /// reaper loop must never panic.
 async fn auto_close_task(
+    app_state: &AppState,
     task_id: &str,
     tasks: &Arc<dyn TaskRepository>,
     sandbox: &Arc<dyn SandboxProvider>,
@@ -525,6 +526,15 @@ async fn auto_close_task(
     {
         warn!(task_id, error = %e, "auto-close: update_task failed");
         return;
+    }
+
+    // A closed task is terminal — deactivate its bindings so inbound comments
+    // don't resurrect it. Best-effort; the runtime guards are the backstop.
+    if let Err(e) = crate::bindings::dao::PgTaskBindingRepository(app_state.db.clone())
+        .deactivate_by_task(task_id)
+        .await
+    {
+        warn!(task_id, error = %e, "auto-close: failed to deactivate bindings");
     }
 
     if let (Some(events), Some(at)) = (events, agent_type) {
