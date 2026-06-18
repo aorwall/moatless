@@ -100,7 +100,6 @@ struct ReviewCommentText<'a> {
     html_url: &'a str,
     comment_id: u64,
     in_reply_to_id: Option<u64>,
-    diff_hunk: &'a str,
     body: &'a str,
 }
 
@@ -126,10 +125,6 @@ fn review_comment_text(p: &ReviewCommentText<'_>) -> String {
 
     if let Some(reply_id) = p.in_reply_to_id {
         let _ = write!(text, "\n> In reply to comment {reply_id}\n");
-    }
-
-    if !p.diff_hunk.is_empty() {
-        let _ = write!(text, "\n```diff\n{}\n```\n", p.diff_hunk);
     }
 
     let _ = write!(text, "\n{}", p.body);
@@ -333,31 +328,6 @@ impl GithubPrAdapter {
         Err(AdapterError::AdapterApi(format!(
             "No GitHub token available: user {user_id} has no GitHub provider token and GITHUB_CHANNEL_TOKEN env is not set"
         )))
-    }
-
-    /// Extract owner, repo, and PR number from a `BindingContext`'s properties.
-    /// Used by the synthetic-thread path in `runtime.rs::deliver_to_binding`.
-    fn parse_thread_props(thread: &BindingContext) -> Result<(String, String, u64), AdapterError> {
-        let owner = thread
-            .destination_config
-            .get("owner")
-            .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| AdapterError::Internal("Missing owner in thread properties".into()))?
-            .to_string();
-        let repo = thread
-            .destination_config
-            .get("repo")
-            .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| AdapterError::Internal("Missing repo in thread properties".into()))?
-            .to_string();
-        let pr_number = thread
-            .destination_config
-            .get("pr_number")
-            .and_then(serde_json::Value::as_u64)
-            .ok_or_else(|| {
-                AdapterError::Internal("Missing pr_number in thread properties".into())
-            })?;
-        Ok((owner, repo, pr_number))
     }
 
     /// Extract owner, repo from a `BindingContext` (ignores pr_number — used by
@@ -916,10 +886,6 @@ impl GithubPrAdapter {
         let source_task_id =
             crate::adapters::footer::parse_task_id_from_body(&self.frontend_url, comment_body);
 
-        let diff_hunk = comment
-            .get("diff_hunk")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("");
         let path = comment
             .get("path")
             .and_then(serde_json::Value::as_str)
@@ -944,7 +910,6 @@ impl GithubPrAdapter {
             html_url,
             comment_id,
             in_reply_to_id,
-            diff_hunk,
             body: comment_body,
         });
 
@@ -1627,90 +1592,6 @@ impl Adapter for GithubPrAdapter {
         Ok(())
     }
 
-    async fn fetch_context(
-        &self,
-        thread: &BindingContext,
-        config: &TriggerContext,
-        limit: usize,
-        exclude_external_ids: &[String],
-    ) -> Result<Option<String>, AdapterError> {
-        let (owner, repo, pr_number) = Self::parse_thread_props(thread)?;
-
-        let user_id = config.effective_user_id();
-        let token = match self.resolve_token_for_user(user_id, Some(&owner)).await {
-            Ok(t) => t,
-            Err(_) => return Ok(None),
-        };
-
-        let api = GithubPrApi::new(&token);
-
-        let comments = api.list_comments(&owner, &repo, pr_number, limit).await?;
-
-        if comments.is_empty() {
-            return Ok(None);
-        }
-
-        let ignored_senders = super::config::ignored_senders(config.provider_config.as_ref());
-        Ok(pr_comments_context(
-            &comments,
-            &self.frontend_url,
-            &thread.task_id,
-            exclude_external_ids,
-            &ignored_senders,
-        ))
-    }
-}
-
-/// Build the "## PR Comments" context block from fetched PR comments.
-/// Mirrors the webhook ingress filters: drops this task's own agent comments,
-/// already-delivered comment ids, and ignored senders (so e.g.
-/// `linear-code[bot]` linkback noise doesn't leak in via context backfill
-/// even though it never arrives as a webhook delivery).
-///
-/// This task's own comments are recognised by the `Moatless task:` footer link
-/// pointing at this task (`<frontend_url>/tasks/<task_id>`); other tasks' and
-/// human comments are kept. When `frontend_url` is empty the link check is a
-/// no-op (echo suppression then relies on the already-delivered id filter).
-fn pr_comments_context(
-    comments: &[super::api::PrComment],
-    frontend_url: &str,
-    task_id: &str,
-    exclude_external_ids: &[String],
-    ignored_senders: &[String],
-) -> Option<String> {
-    let base = frontend_url.trim_end_matches('/');
-    let self_url = if base.is_empty() {
-        String::new()
-    } else {
-        format!("{base}/tasks/{task_id}")
-    };
-    let context = comments
-        .iter()
-        .filter(|c| {
-            // Hide this task's own outbound comments — their footer links back
-            // to this task and they'd only echo into its own context.
-            let body = c.body.as_deref().unwrap_or("");
-            self_url.is_empty() || !body.contains(self_url.as_str())
-        })
-        .filter(|c| {
-            let prefixed = super::external_id::issue_comment(c.id);
-            let bare = c.id.to_string();
-            !exclude_external_ids.contains(&prefixed) && !exclude_external_ids.contains(&bare)
-        })
-        .filter(|c| {
-            !ignored_senders
-                .iter()
-                .any(|s| s.eq_ignore_ascii_case(c.author()))
-        })
-        .map(|c| format!("@{}: {}", c.author(), c.body.as_deref().unwrap_or("")))
-        .collect::<Vec<_>>()
-        .join("\n\n");
-
-    if context.is_empty() {
-        None
-    } else {
-        Some(format!("## PR Comments\n\n{context}"))
-    }
 }
 
 /// Process a GitHub webhook: verify signature, parse, and route.
@@ -1965,13 +1846,12 @@ mod tests {
             html_url: "https://github.com/o/r/pull/42#discussion_r777",
             comment_id: 777,
             in_reply_to_id: None,
-            diff_hunk: "+ let x = 1;",
             body: "rename this",
         });
         assert!(text.contains("**@alice** commented on `src/lib.rs` (line 10):"));
         assert!(text.contains("https://github.com/o/r/pull/42#discussion_r777"));
         assert!(text.contains("Comment id: 777"));
-        assert!(text.contains("```diff\n+ let x = 1;\n```"));
+        assert!(!text.contains("```diff"));
         assert!(text.ends_with("rename this"));
     }
 
@@ -2144,89 +2024,6 @@ mod tests {
             .unwrap();
 
         assert!(matches!(result, GithubPrWebhookResult::Ignore));
-    }
-
-    fn pr_comment(id: u64, login: &str, body: &str) -> crate::adapters::github_pr::api::PrComment {
-        serde_json::from_value(serde_json::json!({
-            "id": id,
-            "user": {"login": login},
-            "body": body,
-            "created_at": "2026-06-12T00:00:00Z",
-        }))
-        .expect("valid PrComment json")
-    }
-
-    #[test]
-    fn context_backfill_drops_default_ignored_senders() {
-        let comments = vec![
-            pr_comment(1, "linear-code[bot]", "<!-- linear-linkback -->\nSP-1529 linked"),
-            pr_comment(2, "alice", "looks good"),
-        ];
-        let ignored = crate::adapters::github_pr::config::ignored_senders(None);
-
-        let context =
-            pr_comments_context(&comments, "https://app.example.com", "task-1", &[], &ignored)
-                .unwrap();
-
-        assert!(context.contains("@alice: looks good"));
-        assert!(!context.contains("linear-code[bot]"));
-    }
-
-    #[test]
-    fn context_backfill_keeps_ignored_sender_when_opted_out() {
-        let comments = vec![pr_comment(
-            1,
-            "linear-code[bot]",
-            "<!-- linear-linkback -->\nSP-1529 linked",
-        )];
-
-        let context =
-            pr_comments_context(&comments, "https://app.example.com", "task-1", &[], &[]).unwrap();
-
-        assert!(context.contains("@linear-code[bot]"));
-    }
-
-    #[test]
-    fn context_backfill_returns_none_when_all_comments_ignored() {
-        let comments = vec![pr_comment(
-            1,
-            "linear-code[bot]",
-            "<!-- linear-linkback -->\nSP-1529 linked",
-        )];
-        let ignored = crate::adapters::github_pr::config::ignored_senders(None);
-
-        assert!(
-            pr_comments_context(&comments, "https://app.example.com", "task-1", &[], &ignored)
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn context_backfill_drops_listening_tasks_own_footer_comment() {
-        let comments = vec![
-            // This task's own outbound comment — recognised by its footer link.
-            pr_comment(
-                1,
-                "SoapLabBot",
-                "On it.\n\n---\nMoatless task: [n](https://app.example.com/tasks/task-1)",
-            ),
-            // Another task's comment on the same PR — different footer link, kept.
-            pr_comment(
-                2,
-                "SoapLabBot",
-                "Looking too.\n\n---\nMoatless task: [n](https://app.example.com/tasks/task-2)",
-            ),
-            // A human comment — no footer link, kept.
-            pr_comment(3, "alice", "thanks!"),
-        ];
-
-        let context =
-            pr_comments_context(&comments, "https://app.example.com", "task-1", &[], &[]).unwrap();
-
-        // Own comment dropped; the other task's comment and the human comment kept.
-        assert!(!context.contains("On it."));
-        assert!(context.contains("Looking too."));
-        assert!(context.contains("@alice: thanks!"));
     }
 
     #[tokio::test]

@@ -8,8 +8,8 @@ use tracing::{debug, info, warn};
 use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
-    AdapterConnection, BindingContext, InboundMessage, TaskBinding, TaskTriggerRoute,
-    TriggerContext, ADAPTER_EVENT_BINDING_ORIGIN, CONNECTED_THREAD_BINDING_ORIGIN,
+    AdapterConnection, InboundMessage, TaskBinding, TaskTriggerRoute, ADAPTER_EVENT_BINDING_ORIGIN,
+    CONNECTED_THREAD_BINDING_ORIGIN,
 };
 use crate::adapters::AdapterKind;
 use crate::bindings::dao::PgTaskBindingRepository;
@@ -32,68 +32,6 @@ const ADAPTER_LABEL: &str = "github_pr";
 
 pub(crate) const ORIGIN_ADAPTER_EVENT: &str = ADAPTER_EVENT_BINDING_ORIGIN;
 pub(crate) const ORIGIN_CONNECTED_THREAD: &str = CONNECTED_THREAD_BINDING_ORIGIN;
-
-/// Build a synthetic `TriggerContext` from an `TaskTriggerRoute` so we can call
-/// trait methods (`fetch_context`) that still take a `TriggerContext`.
-pub(crate) fn trigger_context(rule: &TaskTriggerRoute) -> TriggerContext {
-    TriggerContext {
-        id: rule.id.clone(),
-        provider: ADAPTER_LABEL.to_string(),
-        source_id: rule.source_matcher.clone(),
-        source_name: rule
-            .source_name
-            .clone()
-            .or_else(|| Some(rule.source_matcher.clone())),
-        repository_id: rule.repository_id.clone(),
-        routing_mode: rule.routing_mode,
-        prompt_template: rule.prompt_template.clone(),
-        active: rule.active,
-        allow_direct_send: rule.allow_direct_send,
-        provider_config: rule.provider_config.clone(),
-        ongoing_task_id: rule.ongoing_task_id.clone(),
-        scope: rule.scope,
-        team_id: rule.team_id.clone(),
-        task_name: rule.task_name.clone(),
-        tag_ids: rule.tag_ids.clone(),
-        run_as_user_id: rule.run_as_user_id.clone(),
-        agent_type: rule.agent_type.clone(),
-        inactive_ttl_days: rule.inactive_ttl_days,
-        created_by: rule.created_by.clone(),
-        created_at: rule.created_at,
-        updated_at: rule.updated_at,
-    }
-}
-
-/// Build a provider binding context from a `TaskBinding`.
-pub(crate) fn binding_context(binding: &TaskBinding) -> BindingContext {
-    let mut destination_config = binding.destination_config.clone();
-    if let Some(obj) = destination_config.as_object_mut() {
-        if let Some(ext_id) = binding.last_external_event_id.as_ref() {
-            obj.insert("last_external_event_id".into(), serde_json::json!(ext_id));
-        }
-        if let Some(filter_uid) = binding.metadata.get("filter_user_id").cloned() {
-            obj.insert("filter_user_id".into(), filter_uid);
-        }
-    }
-    let pr_number = binding
-        .destination_config
-        .get("pr_number")
-        .and_then(serde_json::Value::as_u64)
-        .map(|n| n.to_string())
-        .unwrap_or_default();
-    BindingContext {
-        binding_id: binding.id.clone(),
-        trigger_id: binding.trigger_id.clone(),
-        task_id: binding.task_id.clone(),
-        subject_kind: binding.subject_kind.clone(),
-        subject_key: pr_number,
-        destination_config,
-        metadata: binding.metadata.clone(),
-        last_external_event_id: binding.last_external_event_id.clone(),
-        last_message_at: binding.last_event_at,
-        created_at: binding.created_at,
-    }
-}
 
 /// Look up the connection + trigger for an inbound provider event.
 pub async fn resolve_provider_event(
@@ -691,49 +629,10 @@ async fn deliver_to_binding(
     is_new_task: bool,
     resume: bool,
 ) -> Result<(), AdapterError> {
-    let synthetic_cfg = trigger_context(rule);
-    let synthetic_thr = binding_context(binding);
-
-    let thread_context = if msg.thread_id.is_some() {
-        if let Some(providers) = state.adapters.as_ref() {
-            if let Some(provider) = providers.get_by_name(ADAPTER_LABEL) {
-                let mut exclude_ids = match state
-                    .messages
-                    .get_external_event_ids(&binding.task_id)
-                    .await
-                {
-                    Ok(ids) => ids,
-                    Err(e) => {
-                        warn!(error = %e, "Failed to fetch external event IDs, fetching full context");
-                        vec![]
-                    }
-                };
-                if let Some(ref ext_id) = msg.external_event_id {
-                    exclude_ids.push(ext_id.clone());
-                }
-
-                match provider
-                    .fetch_context(&synthetic_thr, &synthetic_cfg, 20, &exclude_ids)
-                    .await
-                {
-                    Ok(ctx) => ctx,
-                    Err(e) => {
-                        warn!(error = %e, "Failed to fetch GitHub PR context");
-                        None
-                    }
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    let has_cursor = binding.last_external_event_id.is_some();
-
+    // Each PR comment/review streams in as its own message — we no longer
+    // backfill the prior comment history. The old `fetch_context` backfill
+    // duplicated context and re-sent sibling tasks' comments on every event;
+    // the agent can read earlier discussion via its GitHub tooling when needed.
     let mut message_text = msg.text.clone();
 
     if msg.thread_id.is_some() {
@@ -743,16 +642,6 @@ async fn deliver_to_binding(
                     message_text = format!("{hint}\n\n{message_text}");
                 }
             }
-        }
-    }
-
-    if let Some(ctx) = thread_context {
-        if has_cursor {
-            message_text = format!("{ctx}\n\n---\n\n{message_text}");
-        } else {
-            message_text = format!(
-                "Thread context (previous messages):\n\n{ctx}\n\n---\n\nNew message:\n\n{message_text}"
-            );
         }
     }
 

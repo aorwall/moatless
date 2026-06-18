@@ -1,34 +1,13 @@
 //! GitHub REST API client for PR interactions.
 
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tracing::warn;
 
 use crate::adapters::error::AdapterError;
 
 /// Maximum comment length for GitHub's API (64 KB).
 pub(crate) const MAX_COMMENT_LENGTH: usize = 65_536;
-
-/// GitHub PR comment from the API.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct PrComment {
-    pub id: u64,
-    #[serde(rename = "user")]
-    user: Option<PrUser>,
-    pub body: Option<String>,
-    pub created_at: String,
-}
-
-impl PrComment {
-    pub fn author(&self) -> &str {
-        self.user.as_ref().map_or("unknown", |u| u.login.as_str())
-    }
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-struct PrUser {
-    login: String,
-}
 
 /// A single reaction returned by the GitHub reactions API.
 #[derive(Debug, Clone, Deserialize)]
@@ -292,42 +271,6 @@ impl GithubPrApi {
             .ok_or_else(|| {
                 AdapterError::AdapterApi("GitHub reply_to_review_comment: missing id".into())
             })
-    }
-
-    /// List recent comments on a PR.
-    pub async fn list_comments(
-        &self,
-        owner: &str,
-        repo: &str,
-        pr_number: u64,
-        limit: usize,
-    ) -> Result<Vec<PrComment>, AdapterError> {
-        let url =
-            format!("{}/repos/{owner}/{repo}/issues/{pr_number}/comments", self.base_url);
-
-        let resp = self
-            .request(reqwest::Method::GET, &url)
-            .query(&[
-                ("per_page", limit.to_string()),
-                ("direction", "desc".to_string()),
-            ])
-            .send()
-            .await
-            .map_err(|e| AdapterError::AdapterApi(format!("GitHub list_comments failed: {e}")))?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            return Err(AdapterError::AdapterApi(format!(
-                "GitHub list_comments returned {status}: {text}"
-            )));
-        }
-
-        let comments: Vec<PrComment> = resp.json().await.map_err(|e| {
-            AdapterError::AdapterApi(format!("GitHub list_comments parse error: {e}"))
-        })?;
-
-        Ok(comments)
     }
 
     /// Get PR metadata (title, body, author, state, branches).
