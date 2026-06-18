@@ -58,6 +58,17 @@ RUN install -m 0755 -d /etc/apt/keyrings && \
     apt-get install -y --no-install-recommends docker-ce-cli docker-compose-plugin && \
     rm -rf /var/lib/apt/lists/*
 
+# Install AWS CLI v2 — used by the CodeArtifact bootstrap hook in
+# docker-entrypoint-sandbox.sh to mint a short-lived token (via the
+# moatless-sandbox Pod Identity) so in-task npm/pip/mvn installs resolve over the
+# CodeArtifact VPC endpoints instead of NAT. Arch-aware (amd64 + arm64).
+RUN ARCH=$(dpkg --print-architecture) && \
+    AWS_ARCH=$([ "$ARCH" = "amd64" ] && echo "x86_64" || echo "aarch64") && \
+    curl -sL "https://awscli.amazonaws.com/awscli-exe-linux-${AWS_ARCH}.zip" -o /tmp/awscliv2.zip && \
+    unzip -q /tmp/awscliv2.zip -d /tmp && \
+    /tmp/aws/install && \
+    rm -rf /tmp/aws /tmp/awscliv2.zip
+
 # Install Python build dependencies and pyenv prerequisites (used by sandbox-full)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev \

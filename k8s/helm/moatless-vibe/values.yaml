@@ -465,7 +465,8 @@ kubernetes:
   # -- Create the sandbox ServiceAccount (referenced by sandboxServiceAccount) in
   # the sandbox namespace. Normally left false because sandbox pods don't need
   # k8s API access; enable if you need a dedicated identity for admission
-  # controllers or image pull secrets.
+  # controllers, image pull secrets, or an EKS Pod Identity binding (e.g. to
+  # give sandbox pods read-only CodeArtifact access for in-task package installs).
   createSandboxServiceAccount: false
   # -- Annotations applied to the sandbox ServiceAccount when it is created.
   sandboxServiceAccountAnnotations: {}
