@@ -85,6 +85,15 @@ mod tests {
         assert_eq!(loop_.frontmatter.on, "github_pr");
         assert_eq!(loop_.frontmatter.tags.as_deref(), Some(&["review".to_string()][..]));
         assert_eq!(loop_.prompt_body, "Review this PR.");
+        // Absent inactiveTtlDays inherits the platform default (None).
+        assert_eq!(loop_.frontmatter.inactive_ttl_days, None);
+    }
+
+    #[test]
+    fn parses_inactive_ttl_days() {
+        let content = "---\non: github_pr\ninactiveTtlDays: 1\n---\n\nbody\n";
+        let loop_ = parse_loop(content, "java-review").expect("valid loop parses");
+        assert_eq!(loop_.frontmatter.inactive_ttl_days, Some(1));
     }
 
     #[test]

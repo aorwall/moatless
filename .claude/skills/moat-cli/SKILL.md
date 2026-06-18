@@ -229,7 +229,7 @@ on: github_pr            # event source; also: schedule
 agentType: claude-code   # optional, default claude-code
 routingMode: by_subject  # optional, default by_subject
 tags: [review]           # optional
-# optional: name, runAsUserId, sourceMatcher, eventFilter, adapterConfig, active
+# optional: name, runAsUserId, sourceMatcher, eventFilter, adapterConfig, active, inactiveTtlDays
 ---
 
 Review this pull request using the java-review skill. Post inline comments.

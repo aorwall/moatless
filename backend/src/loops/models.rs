@@ -40,6 +40,10 @@ pub struct LoopFrontmatter {
     /// Whether the trigger is active (default `true`).
     #[serde(default)]
     pub active: Option<bool>,
+    /// Per-trigger task inactivity TTL in days (`trigger_rules.inactive_ttl_days`).
+    /// `None` inherits the platform default (`TASK_INACTIVE_TIMEOUT_DAYS`).
+    #[serde(default)]
+    pub inactive_ttl_days: Option<i32>,
     /// Schedule settings — only meaningful when `on: schedule`.
     #[serde(default)]
     pub schedule: Option<LoopSchedule>,

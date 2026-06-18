@@ -131,6 +131,7 @@ struct ResolvedLoop {
     prompt: Option<String>,
     tag_ids: Vec<String>,
     run_as_user_id: Option<String>,
+    inactive_ttl_days: Option<i32>,
     adapter: Option<ResolvedAdapterSource>,
     schedule: Option<ResolvedScheduleSource>,
 }
@@ -289,6 +290,7 @@ async fn resolve_loop(
         prompt,
         tag_ids,
         run_as_user_id,
+        inactive_ttl_days: fm.inactive_ttl_days,
         adapter,
         schedule,
     })))
@@ -371,14 +373,15 @@ async fn upsert_loop(
         "INSERT INTO trigger_rules \
          (trigger_id, repository_id, routing_mode, ongoing_task_id, prompt, task_name, \
           tag_ids, run_as_user_id, agent_type, inactive_ttl_days) \
-         VALUES ($1, $2, $3, NULL, $4, NULL, $5, $6, $7, NULL) \
+         VALUES ($1, $2, $3, NULL, $4, NULL, $5, $6, $7, $8) \
          ON CONFLICT (trigger_id) DO UPDATE SET \
            repository_id = EXCLUDED.repository_id, \
            routing_mode = EXCLUDED.routing_mode, \
            prompt = EXCLUDED.prompt, \
            tag_ids = EXCLUDED.tag_ids, \
            run_as_user_id = EXCLUDED.run_as_user_id, \
-           agent_type = EXCLUDED.agent_type",
+           agent_type = EXCLUDED.agent_type, \
+           inactive_ttl_days = EXCLUDED.inactive_ttl_days",
     )
     .bind(&trigger_id)
     .bind(&repo.id)
@@ -387,6 +390,7 @@ async fn upsert_loop(
     .bind(&resolved.tag_ids)
     .bind(&resolved.run_as_user_id)
     .bind(&resolved.agent_type)
+    .bind(resolved.inactive_ttl_days)
     .execute(&mut *tx)
     .await?;
 
