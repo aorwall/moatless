@@ -33,6 +33,10 @@ const ADAPTER_LABEL: &str = "github_pr";
 pub(crate) const ORIGIN_ADAPTER_EVENT: &str = ADAPTER_EVENT_BINDING_ORIGIN;
 pub(crate) const ORIGIN_CONNECTED_THREAD: &str = CONNECTED_THREAD_BINDING_ORIGIN;
 
+/// Always prepended to the `append_system_prompt` of tasks created from a
+/// GitHub PR event, so loop/trigger prompts don't have to restate the origin.
+const PR_ORIGIN_CONTEXT: &str = "This task was created from a GitHub Pull Request.";
+
 /// Look up the connection + trigger for an inbound provider event.
 pub async fn resolve_provider_event(
     state: &AppState,
@@ -561,7 +565,9 @@ async fn create_provider_event_task(
         created_at_db: None,
         updated_at: None,
         append_system_prompt: {
-            let mut parts = Vec::new();
+            // Always provide the PR origin context so loop/trigger prompts
+            // don't have to repeat it.
+            let mut parts = vec![PR_ORIGIN_CONTEXT.to_string()];
             if let Some(ref tpl) = rule.prompt_template {
                 parts.push(tpl.to_string());
             }
@@ -573,11 +579,8 @@ async fn create_provider_event_task(
                     }
                 }
             }
-            if parts.is_empty() {
-                None
-            } else {
-                Some(parts.join("\n\n"))
-            }
+            // `parts` always contains at least PR_ORIGIN_CONTEXT.
+            Some(parts.join("\n\n"))
         },
         sandbox_started_at: None,
         headless: true,
