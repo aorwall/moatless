@@ -13,7 +13,7 @@ use axum::extract::{Query, State};
 use axum::Json;
 use futures::stream::{self, StreamExt};
 
-use moatless_api_schemas::enums::AdapterKind;
+use moatless_api_schemas::enums::{AdapterKind, TaskStatus};
 use moatless_api_schemas::task::PaginationResponse;
 use moatless_api_schemas::task_connections::{
     Connection, ListTaskConnectionsQuery, TaskConnectionRow, TaskConnectionsResponse,
@@ -67,6 +67,8 @@ pub async fn list_task_connections(
         limit,
         offset,
         status: None,
+        // Closed tasks are finished work; the operational view shows only live tasks.
+        exclude_status: Some(TaskStatus::Closed),
         repository_id: None,
         created_by: None,
         tag: None,

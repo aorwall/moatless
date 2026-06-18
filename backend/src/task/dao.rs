@@ -17,6 +17,8 @@ pub struct TaskFilter {
     pub limit: i64,
     pub offset: i64,
     pub status: Option<TaskStatus>,
+    /// Exclude tasks with this status (NULL = no exclusion). Complements `status`.
+    pub exclude_status: Option<TaskStatus>,
     pub repository_id: Option<String>,
     pub created_by: Option<String>,
     pub tag: Option<String>,
@@ -221,6 +223,7 @@ impl TaskRepository for PgTaskRepository {
             LEFT JOIN tags tg ON tt.tag_id = tg.tag_id
             WHERE {}
               AND ($4::text IS NULL OR t.status = $4)
+              AND ($11::text IS NULL OR t.status != $11)
               AND ($5::text IS NULL OR t.repository_id = $5)
               AND ($6::text IS NULL OR t.created_by = $6)
               AND ($7::text IS NULL OR tg.name = $7)
@@ -245,6 +248,7 @@ impl TaskRepository for PgTaskRepository {
             .bind(&filter.parent_task_id)
             .bind(filter.limit)
             .bind(filter.offset)
+            .bind(filter.exclude_status)
             .fetch_all(&self.0)
             .await?;
 
@@ -633,6 +637,7 @@ pub async fn list_tasks(
         limit,
         offset,
         status,
+        exclude_status: None,
         repository_id: repository_id.map(String::from),
         created_by: created_by.map(String::from),
         tag: tag.map(String::from),

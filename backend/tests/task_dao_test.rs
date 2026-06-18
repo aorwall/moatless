@@ -10,7 +10,9 @@
 mod common;
 
 use moatless_vibe_backend::scope::ScopeContext;
-use moatless_vibe_backend::task::dao::{self as task_dao, TaskPatch};
+use moatless_vibe_backend::task::dao::{
+    self as task_dao, PgTaskRepository, TaskFilter, TaskPatch, TaskRepository,
+};
 use moatless_vibe_backend::task::models::{TaskStatus, Visibility};
 use sqlx::PgPool;
 
@@ -24,8 +26,25 @@ fn scope_ctx(user_id: &str) -> ScopeContext {
     }
 }
 
+/// Helper: insert the personal team a repository references, satisfying the
+/// `repositories_team_id_fkey` FK. Idempotent so repeated calls within a test
+/// are harmless. `make_repository_row` sets `team_id = personal-{user_id}`.
+async fn seed_team(pool: &PgPool, user_id: &str) {
+    sqlx::query(
+        r#"INSERT INTO teams (id, name, slug)
+           VALUES ($1, $2, $1)
+           ON CONFLICT (id) DO NOTHING"#,
+    )
+    .bind(format!("personal-{user_id}"))
+    .bind(format!("{user_id} Personal"))
+    .execute(pool)
+    .await
+    .expect("seed team");
+}
+
 /// Helper: insert a repository so task FK references are satisfied.
 async fn seed_repo(pool: &PgPool, id: &str, user_id: &str) {
+    seed_team(pool, user_id).await;
     let row = make_repository_row(id, user_id);
     moatless_vibe_backend::repository::dao::insert(pool, &row)
         .await
@@ -145,6 +164,42 @@ async fn list_tasks_status_filter(pool: PgPool) {
 
     assert_eq!(total, 1);
     assert_eq!(rows[0].task_id, "task-open");
+}
+
+#[sqlx::test]
+async fn list_tasks_exclude_status_filter(pool: PgPool) {
+    let user = "user-1";
+    seed_repo(&pool, "repo-1", user).await;
+
+    let open_task = make_task_row("task-open", user);
+    task_dao::insert_task(&pool, &open_task).await.unwrap();
+
+    let mut closed_task = make_task_row("task-closed", user);
+    closed_task.status = TaskStatus::Closed;
+    task_dao::insert_task(&pool, &closed_task).await.unwrap();
+
+    let mut error_task = make_task_row("task-error", user);
+    error_task.status = TaskStatus::Error;
+    task_dao::insert_task(&pool, &error_task).await.unwrap();
+
+    let filter = TaskFilter {
+        scope: scope_ctx(user),
+        limit: 50,
+        offset: 0,
+        status: None,
+        exclude_status: Some(TaskStatus::Closed),
+        repository_id: None,
+        created_by: None,
+        tag: None,
+        parent_task_id: None,
+    };
+    let (rows, total) = PgTaskRepository(pool).list_tasks(&filter).await.unwrap();
+
+    assert_eq!(total, 2);
+    let ids: Vec<&str> = rows.iter().map(|r| r.task_id.as_str()).collect();
+    assert!(ids.contains(&"task-open"));
+    assert!(ids.contains(&"task-error"));
+    assert!(!ids.contains(&"task-closed"));
 }
 
 #[sqlx::test]

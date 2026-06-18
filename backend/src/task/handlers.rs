@@ -405,6 +405,7 @@ pub async fn list_tasks(
         limit,
         offset,
         status: query.status,
+        exclude_status: None,
         repository_id: query.repository_id.clone(),
         created_by: query.created_by.clone(),
         tag: query.tag.clone(),
