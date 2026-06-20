@@ -13,8 +13,15 @@ ARG JAVA_VERSION=25
 ENV LANG="C.UTF-8"
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Cache-bust for OS security patches (OP-51). Bump this date to invalidate the
+# apt layer and force `apt-get upgrade` to re-pull the latest patched packages
+# for a CVE rebuild. 2026-06-20: pull patched vim >= 2:9.1.0016-1ubuntu7.16
+# (CVE-2026-47162, -52859, -52858, -47167, -52860).
+ARG APT_SECURITY_REFRESH=2026-06-20
+
 # Install essential system packages for sandbox operation
-RUN apt-get update && \
+RUN echo "OS security refresh: ${APT_SECURITY_REFRESH}" && \
+    apt-get update && \
     apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
       curl wget git git-lfs gnupg2 ca-certificates \
