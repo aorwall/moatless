@@ -151,9 +151,10 @@ pub async fn query_tmux(prompt: &str, mut options: ClaudeOptions) -> Result<Quer
     let _ = trust_handle.await;
 
     if let Err(e) = wait_result {
-        log_startup_failure(&session, &pane_rx, &e).await;
+        let pane = capture_startup_pane(&session, &pane_rx).await;
+        log_startup_failure(&session, &pane, &e);
         session.kill().await;
-        return Err(e);
+        return Err(e.with_pane_tail(pane));
     }
 
     if let Err(e) = writer.send_text(prompt).await {
@@ -293,9 +294,10 @@ pub async fn query_tmux_streaming(mut options: ClaudeOptions) -> Result<QueryHan
     trust_token.cancel();
     let _ = trust_handle.await;
     if let Err(e) = wait_result {
-        log_startup_failure(&session, &pane_rx, &e).await;
+        let pane = capture_startup_pane(&session, &pane_rx).await;
+        log_startup_failure(&session, &pane, &e);
         session.kill().await;
-        return Err(e);
+        return Err(e.with_pane_tail(pane));
     }
 
     let (tx, rx) = mpsc::channel(CHANNEL_CAPACITY);
@@ -355,40 +357,51 @@ fn anchor_harness(harness: Arc<HookHarness>, cancellation_token: CancellationTok
 /// Upper bound on pane output included in startup-failure logs.
 const PANE_CAPTURE_MAX_BYTES: usize = 2048;
 
-/// Log the tmux pane contents when the session fails to reach `SessionStart`,
-/// so the reason claude exited (e.g. "No conversation found with session ID
-/// …") lands in the logs instead of being lost with the pane.
+/// Capture the tmux pane at startup-failure time, for both the log line and
+/// embedding in the returned error (see [`SdkError::with_pane_tail`]).
 ///
 /// Tries a live capture first — that works for [`SdkError::SessionStartTimeout`],
 /// where the session is still alive but stuck. For [`SdkError::TmuxSessionDied`]
 /// the session is already gone, so this falls back to the last snapshot taken
-/// by [`startup_dialog_watcher`]'s 250ms capture loop.
-async fn log_startup_failure(
+/// by [`startup_dialog_watcher`]'s 250ms capture loop. Returns the lossy tail
+/// (capped at [`PANE_CAPTURE_MAX_BYTES`]), or `None` when only whitespace (or
+/// nothing) was captured.
+async fn capture_startup_pane(
     session: &TmuxSession,
     last_pane: &watch::Receiver<Vec<u8>>,
-    error: &SdkError,
-) {
+) -> Option<String> {
     let live = session
         .capture_pane_stripped()
         .await
         .filter(|b| !b.iter().all(u8::is_ascii_whitespace));
-    let (bytes, capture) = match live {
-        Some(bytes) => (bytes, "live"),
-        None => (last_pane.borrow().clone(), "snapshot"),
+    let bytes = match live {
+        Some(bytes) => bytes,
+        None => last_pane.borrow().clone(),
     };
     if bytes.iter().all(u8::is_ascii_whitespace) {
+        return None;
+    }
+    Some(pane_tail_lossy(&bytes, PANE_CAPTURE_MAX_BYTES))
+}
+
+/// Log the captured tmux pane contents when the session fails to reach
+/// `SessionStart`, so the reason claude exited (e.g. "No conversation found
+/// with session ID …") lands in the logs instead of being lost with the pane.
+/// The same `pane` is attached to the returned error so it also survives in the
+/// task's error event.
+fn log_startup_failure(session: &TmuxSession, pane: &Option<String>, error: &SdkError) {
+    if let Some(tail) = pane {
         warn!(
             session_name = %session.session_name,
             error = %error,
-            "tmux session failed to start; no pane output captured"
+            pane_output = %tail,
+            "tmux session failed to start — captured pane output"
         );
     } else {
         warn!(
             session_name = %session.session_name,
             error = %error,
-            capture,
-            pane_output = %pane_tail_lossy(&bytes, PANE_CAPTURE_MAX_BYTES),
-            "tmux session failed to start — captured pane output"
+            "tmux session failed to start; no pane output captured"
         );
     }
 }
@@ -424,8 +437,11 @@ async fn wait_for_session_start(
     session: &TmuxSession,
     timeout: Duration,
 ) -> Result<()> {
+    // The pane is captured by the caller's failure handler (which has the
+    // watcher's last snapshot); these constructors leave it empty.
     let timeout_err = || SdkError::SessionStartTimeout {
         timeout_ms: u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX),
+        pane_tail: None,
     };
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
@@ -447,7 +463,7 @@ async fn wait_for_session_start(
             // Poll tick (or final slice) elapsed — check the session is still up.
             Err(_) => {
                 if !session.is_alive().await {
-                    return Err(SdkError::TmuxSessionDied);
+                    return Err(SdkError::TmuxSessionDied { pane_tail: None });
                 }
             }
         }

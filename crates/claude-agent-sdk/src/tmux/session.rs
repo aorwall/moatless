@@ -275,19 +275,48 @@ fn resolve_cli_path(options: &ClaudeOptions) -> String {
     "claude".to_string()
 }
 
+/// Lexically normalise a raw cwd to match `canonicalize`'s no-trailing-slash
+/// form: trim a trailing `/` (preserving root `/`). The dashed encoding in
+/// [`resolve_project_dir`] is just `replace('/', "-")`, so matching the
+/// trailing-slash shape is all that's needed for the names to line up.
+fn lexical_cwd(c: &str) -> String {
+    let trimmed = c.trim_end_matches('/');
+    if trimmed.is_empty() {
+        "/".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
 /// Resolve `<claude-config-dir>/projects/<dashed-cwd>/`.
 ///
 /// The config dir is resolved by the shared [`crate::resolve_claude_config_dir`]
 /// helper, which mirrors the Claude CLI's precedence: `CLAUDE_CONFIG_DIR`, then
 /// its documented `CLAUDE_HOME` alias, then `$HOME/.claude`. The TUI encodes a
 /// cwd by replacing `/` with `-` (e.g. `/Users/x/y` becomes `-Users-x-y`).
+///
+/// `canonicalize(cwd)` is best-effort: it only serves as the cache-key for the
+/// transcript dir, but a transient failure on a known-good absolute path (e.g.
+/// an `EACCES` from a SELinux relabel race while a remounted PVC initialises)
+/// must not be fatal. On failure we fall back to a lexically-normalised form of
+/// the raw cwd and `warn!`. tmux launches claude with the same raw cwd
+/// (`tmux new-session ... -c <cwd>`), and Node resolves symlinks at runtime, so
+/// for a non-symlink path the lexical fallback yields the identical
+/// `projects/<dashed-cwd>` name as canonicalize. In the rare symlink+failure
+/// case, discovery falls back to snapshot-diff / the Stop hook.
 pub(crate) fn resolve_project_dir(options: &ClaudeOptions) -> Result<PathBuf> {
     let cwd_str = if let Some(c) = &options.cwd {
-        std::path::PathBuf::from(c)
-            .canonicalize()
-            .map_err(|e| SdkError::Internal(format!("Failed to canonicalize cwd {c}: {e}")))?
-            .to_string_lossy()
-            .into_owned()
+        match std::path::PathBuf::from(c).canonicalize() {
+            Ok(p) => p.to_string_lossy().into_owned(),
+            Err(e) => {
+                tracing::warn!(
+                    cwd = %c,
+                    error = %e,
+                    "canonicalize(cwd) failed; falling back to lexical path for project-dir resolution"
+                );
+                lexical_cwd(c)
+            }
+        }
     } else {
         std::env::current_dir()
             .map_err(|e| SdkError::Internal(format!("std::env::current_dir failed: {e}")))?
@@ -402,8 +431,11 @@ pub(crate) async fn has_transcript_in(dir: &Path) -> bool {
 /// True when the Claude project dir for `cwd` contains a transcript —
 /// i.e. `--continue` has something to reopen. Resolves the dir the same way
 /// the tmux transport does (`CLAUDE_CONFIG_DIR` → `CLAUDE_HOME` →
-/// `$HOME/.claude`, then `projects/<dashed-cwd>`). Errors (cwd canonicalize
-/// failure) propagate so the caller can keep `--continue` as the fail-safe.
+/// `$HOME/.claude`, then `projects/<dashed-cwd>`). A cwd canonicalize failure
+/// no longer propagates from [`resolve_project_dir`] (it falls back to the
+/// lexical path), so the probe returns `Ok(false)` (start fresh) rather than
+/// `Err`; the soft caller handles `Ok(false)` correctly. The `Result` is kept
+/// for the remaining I/O-error surface.
 pub async fn has_resumable_transcript(cwd: Option<&str>) -> Result<bool> {
     let options = ClaudeOptions {
         cwd: cwd.map(ToString::to_string),
@@ -438,6 +470,29 @@ mod tests {
         std::env::set_var("CLAUDE_CONFIG_DIR", &config_dir);
         let resolved = resolve_project_dir(&options).expect("resolve");
         assert_eq!(resolved, config_dir.join("projects").join(&dashed));
+
+        std::env::remove_var("CLAUDE_CONFIG_DIR");
+    }
+
+    // When `canonicalize(cwd)` fails (here `ENOENT` on a nonexistent path,
+    // exercising the same fallback branch as the `EACCES` SELinux-relabel race),
+    // resolution must NOT error — it falls back to the lexically-normalised raw
+    // cwd so transcript discovery still targets `projects/<dashed-cwd>`.
+    #[test]
+    fn project_dir_falls_back_when_cwd_not_canonicalizable() {
+        let _guard = crate::config_dir::ENV_LOCK.lock().expect("env lock");
+        let options = ClaudeOptions {
+            cwd: Some("/nonexistent/abc".into()),
+            ..Default::default()
+        };
+
+        let config_dir = std::env::temp_dir().join("tmux-test-config-fallback");
+        std::env::set_var("CLAUDE_CONFIG_DIR", &config_dir);
+        let resolved = resolve_project_dir(&options).expect("resolve falls back, not errors");
+        assert_eq!(
+            resolved,
+            config_dir.join("projects").join("-nonexistent-abc")
+        );
 
         std::env::remove_var("CLAUDE_CONFIG_DIR");
     }

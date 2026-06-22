@@ -626,7 +626,7 @@ async fn liveness_loop(
                 session_name = %session.session_name,
                 "tmux session disappeared"
             );
-            let _ = tx.send(Err(SdkError::TmuxSessionDied)).await;
+            let _ = tx.send(Err(SdkError::TmuxSessionDied { pane_tail: None })).await;
             cancellation_token.cancel();
             return;
         }

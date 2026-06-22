@@ -82,7 +82,7 @@ pub(super) fn is_retryable_runtime_error(error: &AgentRuntimeError) -> bool {
 pub(super) fn is_session_unavailable_error(error: &SdkError) -> bool {
     matches!(
         error,
-        SdkError::TmuxSessionDied
+        SdkError::TmuxSessionDied { .. }
             | SdkError::SessionStartTimeout { .. }
             | SdkError::ProcessExit { .. }
             | SdkError::JsonlNotFound { .. }
@@ -207,9 +207,12 @@ mod tests {
     #[test]
     fn session_unavailable_errors_trigger_fresh_session_fallback() {
         // Transcript-unavailable startup failures → fallback is safe.
-        assert!(is_session_unavailable_error(&SdkError::TmuxSessionDied));
+        assert!(is_session_unavailable_error(&SdkError::TmuxSessionDied {
+            pane_tail: None
+        }));
         assert!(is_session_unavailable_error(&SdkError::SessionStartTimeout {
-            timeout_ms: 5000
+            timeout_ms: 5000,
+            pane_tail: None,
         }));
         assert!(is_session_unavailable_error(&SdkError::ProcessExit {
             code: Some(1),
