@@ -123,13 +123,13 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Download sandbox binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: sandbox-binary
           path: /tmp/sandbox-binaries/amd64
 
       - name: Download CLI binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: cli-binary
           path: /tmp/sandbox-binaries/amd64
@@ -230,13 +230,13 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Download sandbox binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: sandbox-binary
           path: /tmp/sandbox-binaries/amd64
 
       - name: Download CLI binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: cli-binary
           path: /tmp/sandbox-binaries/amd64
