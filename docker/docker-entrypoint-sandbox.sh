@@ -42,7 +42,15 @@ if [ -n "$CODEARTIFACT_DOMAIN" ]; then
         if [ -z "$ca_token" ] || [ "$ca_token" = "None" ]; then
             echo "[codeartifact] could not mint a token (no AWS creds?) — skipping" >&2
         else
-            # npm + bun (read ~/.npmrc)
+            # Export for repos whose own .npmrc / settings.xml reference
+            # ${CODEARTIFACT_AUTH_TOKEN} (the documented contract). A project-level
+            # .npmrc shadows ~/.npmrc for the same _authToken key, so writing
+            # ~/.npmrc alone is not enough — the env var must resolve too. The Rust
+            # sandbox binary (exec'd below) inherits this, as do the setup commands
+            # it spawns (`sh -c "… bun install"`).
+            export CODEARTIFACT_AUTH_TOKEN="$ca_token"
+
+            # npm + bun (read ~/.npmrc) — fallback for repos that ship no .npmrc
             {
                 echo "registry=https://${ca_host}/npm/${ca_npm_repo}/"
                 echo "@soaplabs:registry=https://${ca_host}/npm/${ca_npm_repo}/"
