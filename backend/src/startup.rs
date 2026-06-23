@@ -135,7 +135,11 @@ pub async fn init_sse(
 
     let redis_conn = if let Some(ref redis_url) = config.redis.url {
         let client = redis::Client::open(redis_url.as_str())?;
-        let conn = redis::aio::ConnectionManager::new(client).await?;
+        let conn = redis::aio::ConnectionManager::new_with_config(
+            client,
+            crate::events::redis_manager_config(),
+        )
+        .await?;
         let consumer = RedisStreamConsumer::new(
             conn.clone(),
             config.sse.consumer_id.clone(),

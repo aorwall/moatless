@@ -15,7 +15,7 @@ use moatless_events::{
     AgentSubType, EventType, SandboxEventPayload, SandboxSubType, ServerEventPayload,
     ServerSubType, StreamEvent, SubType, TaskSubType, TaskTurnSubType,
 };
-use redis::aio::ConnectionManager;
+use redis::aio::{ConnectionManager, ConnectionManagerConfig};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -59,6 +59,24 @@ pub(crate) fn reconnect_backoff_delay(failures: u32) -> std::time::Duration {
     let half = base / 2;
     let jittered = half + rand::rng().random_range(0..=half);
     std::time::Duration::from_millis(jittered)
+}
+
+/// Shared [`ConnectionManagerConfig`] for every Redis `ConnectionManager` in the
+/// backend (publisher + both stream consumers).
+///
+/// Bounds each Redis round-trip so a vanished/moved server triggers
+/// `ConnectionManager` reconnect — and our app-level backoff — within seconds
+/// instead of hanging on the OS TCP timeout (~22s during the 2026-06-23
+/// Karpenter eviction incident). The response timeout **must exceed** the
+/// consumers' `XREADGROUP ... BLOCK 2000` (2s) idle window, or it would fire on
+/// every idle block; 5s leaves a 3s margin.
+///
+/// `pub` (not `pub(crate)`) because the binary crate's event-handler bootstrap in
+/// `main.rs` builds its own `ConnectionManager` and needs this same config.
+pub fn redis_manager_config() -> ConnectionManagerConfig {
+    ConnectionManagerConfig::new()
+        .set_connection_timeout(Some(std::time::Duration::from_secs(5)))
+        .set_response_timeout(Some(std::time::Duration::from_secs(5)))
 }
 
 /// Register Prometheus metric descriptions for event publishing counters.
@@ -175,7 +193,7 @@ impl RedisEventPublisher {
             }
         };
 
-        match ConnectionManager::new(client).await {
+        match ConnectionManager::new_with_config(client, redis_manager_config()).await {
             Ok(conn) => {
                 info!("Redis event publisher connected");
                 Some(Self {

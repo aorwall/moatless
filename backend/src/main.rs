@@ -442,7 +442,12 @@ async fn spawn_event_handler(config: &Config, app_state: &AppState, cancel: Canc
             return;
         }
     };
-    let conn = match redis::aio::ConnectionManager::new(client).await {
+    let conn = match redis::aio::ConnectionManager::new_with_config(
+        client,
+        moatless_vibe_backend::events::redis_manager_config(),
+    )
+    .await
+    {
         Ok(c) => c,
         Err(e) => {
             tracing::warn!(error = %e, "Failed to connect Redis for event handler");
