@@ -245,6 +245,59 @@ async fn resolve_loop(
                 None,
             )
         }
+        "slack" => {
+            // Resolve the slack connection from `teamId`, or fall back to the
+            // single configured slack connection when unambiguous.
+            let connection = if let Some(team) = fm.team_id.as_deref() {
+                let Some(connection) = PgAdapterConnectionRepository(state.db.clone())
+                    .find_by_external_account("slack", team)
+                    .await?
+                else {
+                    return Ok(ResolveOutcome::Skipped(format!(
+                        "no slack connection for team `{team}`"
+                    )));
+                };
+                connection
+            } else {
+                let conns = PgAdapterConnectionRepository(state.db.clone())
+                    .list_by_provider("slack")
+                    .await?;
+                match conns.as_slice() {
+                    [one] => one.clone(),
+                    [] => {
+                        return Ok(ResolveOutcome::Skipped(
+                            "no slack connection configured".to_string(),
+                        ));
+                    }
+                    _ => {
+                        return Ok(ResolveOutcome::Skipped(
+                            "multiple slack connections — set teamId".to_string(),
+                        ));
+                    }
+                }
+            };
+            // Unlike github there is no `owner/repo` default — the channel id is required.
+            let Some(source_matcher) = fm.source_matcher.clone() else {
+                return Ok(ResolveOutcome::Skipped(
+                    "slack loop missing sourceMatcher (channel id)".to_string(),
+                ));
+            };
+            let event_filter = fm
+                .event_filter
+                .clone()
+                .unwrap_or_else(|| serde_json::json!([]));
+            (
+                TriggerKind::AdapterEvent,
+                Some(ResolvedAdapterSource {
+                    adapter_kind: "slack".to_string(),
+                    connection_id: connection.id,
+                    source_matcher,
+                    event_filter,
+                    adapter_config: fm.adapter_config.clone(),
+                }),
+                None,
+            )
+        }
         "schedule" => {
             let sched = fm.schedule.as_ref();
             let Some(cron) = sched

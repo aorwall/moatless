@@ -11,7 +11,7 @@ use serde::Deserialize;
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LoopFrontmatter {
-    /// Event source: `github_pr` or `schedule`.
+    /// Event source: `github_pr`, `schedule`, or `slack`.
     pub on: String,
     /// Optional override for `triggers.name` (defaults to the loop dir name).
     #[serde(default)]
@@ -31,6 +31,9 @@ pub struct LoopFrontmatter {
     /// Override the adapter-event `source_matcher` (default `owner/repo`).
     #[serde(default)]
     pub source_matcher: Option<String>,
+    /// Slack workspace/team id for resolving the adapter connection (`on: slack`).
+    #[serde(default)]
+    pub team_id: Option<String>,
     /// Adapter-event filter JSON (default `[]`).
     #[serde(default)]
     pub event_filter: Option<serde_json::Value>,

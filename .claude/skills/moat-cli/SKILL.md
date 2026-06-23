@@ -225,11 +225,11 @@ Code's `SKILL.md`.
 
 ```markdown
 ---
-on: github_pr            # event source; also: schedule
+on: github_pr            # event source; also: schedule, slack
 agentType: claude-code   # optional, default claude-code
 routingMode: by_subject  # optional, default by_subject
 tags: [review]           # optional
-# optional: name, runAsUserId, sourceMatcher, eventFilter, adapterConfig, active, inactiveTtlDays
+# optional: name, runAsUserId, sourceMatcher, teamId, eventFilter, adapterConfig, active, inactiveTtlDays
 ---
 
 Review this pull request using the java-review skill. Post inline comments.
@@ -247,6 +247,20 @@ schedule:
 Run the daily-health-check skill and file a Linear ticket for any regressions.
 ```
 
+```markdown
+---
+on: slack
+sourceMatcher: C0000000001      # the channel id to listen on (required for slack)
+teamId: T0000000001             # Slack workspace id; omit if only one slack connection exists
+routingMode: ongoing            # one long-lived task instead of one-per-subject
+adapterConfig:
+  allow_bot_messages: true
+  trigger: all_messages
+---
+
+Monitor this channel for CI failures and triage them in-thread.
+```
+
 ```bash
 moat repos sync-config <repo-id>                  # fetch + reconcile loops
 moat triggers list --repository-id <repo-id>      # synced loops show up here
@@ -259,6 +273,11 @@ Notes:
 - `github_pr` loops need a pre-existing GitHub **connection** for the org (it
   holds the webhook secret and can't be committed to git). With no connection the
   loop is **skipped** with a reason, not errored. Schedule loops need no connection.
+- `slack` loops resolve their **connection** from `teamId` (the Slack workspace id,
+  e.g. `T0000000001`); if `teamId` is omitted and exactly one slack connection
+  exists it's used, otherwise the loop is **skipped** with a reason. `sourceMatcher`
+  (the channel id) is **required** — there's no `owner/repo` default. Pair with
+  `routingMode: ongoing` for a single long-lived triage task.
 - `runAsUserId` resolves: frontmatter → `MOATLESS_DEFAULT_RUN_AS_USER_ID` →
   repo owner → repo creator.
 

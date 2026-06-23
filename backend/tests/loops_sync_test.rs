@@ -35,6 +35,21 @@ fn auth(user_id: &str) -> AuthUser {
     }
 }
 
+/// Insert the personal team a repository references, satisfying the
+/// `repositories_team_id_fkey` FK. Idempotent. `make_repository_row` sets
+/// `team_id = personal-{user_id}`.
+async fn seed_team(pool: &PgPool, user_id: &str) {
+    sqlx::query(
+        "INSERT INTO teams (id, name, slug) VALUES ($1, $2, $1) \
+         ON CONFLICT (id) DO NOTHING",
+    )
+    .bind(format!("personal-{user_id}"))
+    .bind(format!("{user_id} Personal"))
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
 async fn insert_github_connection(pool: &PgPool, owner: &str) {
     sqlx::query(
         "INSERT INTO integration_connections \
@@ -43,6 +58,19 @@ async fn insert_github_connection(pool: &PgPool, owner: &str) {
     )
     .bind(format!("conn_{owner}"))
     .bind(owner)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+async fn insert_slack_connection(pool: &PgPool, team_id: &str) {
+    sqlx::query(
+        "INSERT INTO integration_connections \
+         (id, adapter_kind, connection_kind, external_account_id, created_by, scope) \
+         VALUES ($1, 'slack', 'slack_bot', $2, 'user-1', 'user')",
+    )
+    .bind(format!("conn_{team_id}"))
+    .bind(team_id)
     .execute(pool)
     .await
     .unwrap();
@@ -70,6 +98,7 @@ async fn insert_manual_trigger(pool: &PgPool, repo_id: &str) {
 
 const GITHUB_LOOP: &str = "---\non: github_pr\nagentType: claude-code\ntags: [review]\n---\n\nReview this PR.\n";
 const SCHEDULE_LOOP: &str = "---\non: schedule\nschedule:\n  cron: \"0 0 6 * * MON-FRI *\"\n  timezone: Europe/Stockholm\n  message: \"Run the daily check.\"\n---\n\nDaily health check.\n";
+const SLACK_LOOP: &str = "---\non: slack\nsourceMatcher: C0000000001\nteamId: T0000000001\nroutingMode: ongoing\nadapterConfig:\n  allow_bot_messages: true\n  trigger: all_messages\n---\n\nTriage CI failures posted to #notifications-cicd.\n";
 
 async fn count_manual_triggers(pool: &PgPool) -> i64 {
     sqlx::query_scalar("SELECT count(*) FROM triggers WHERE managed_by IS NULL")
@@ -81,6 +110,7 @@ async fn count_manual_triggers(pool: &PgPool) -> i64 {
 #[sqlx::test]
 async fn sync_creates_then_reconciles_loops(pool: PgPool) {
     let repo = make_repository_row("repo-loops", "user-1");
+    seed_team(&pool, "user-1").await;
     repository_dao::insert(&pool, &repo).await.unwrap();
     // make_repository_row uses https://github.com/test/repo.git -> org "test".
     insert_github_connection(&pool, "test").await;
@@ -159,6 +189,7 @@ async fn sync_creates_then_reconciles_loops(pool: PgPool) {
 #[sqlx::test]
 async fn github_pr_loop_without_connection_is_skipped(pool: PgPool) {
     let repo = make_repository_row("repo-noconn", "user-1");
+    seed_team(&pool, "user-1").await;
     repository_dao::insert(&pool, &repo).await.unwrap();
     // No github connection inserted for org "test".
 
@@ -174,6 +205,85 @@ async fn github_pr_loop_without_connection_is_skipped(pool: PgPool) {
     assert_eq!(summary.skipped[0].loop_name, "java-review");
     assert!(
         summary.skipped[0].reason.contains("no github connection"),
+        "reason: {}",
+        summary.skipped[0].reason
+    );
+
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM triggers WHERE source_repository_id = $1 AND managed_by = 'repo_loop'",
+    )
+    .bind(&repo.id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 0, "no trigger created for skipped loop");
+}
+
+#[sqlx::test]
+async fn sync_creates_slack_loop(pool: PgPool) {
+    let repo = make_repository_row("repo-slack", "user-1");
+    seed_team(&pool, "user-1").await;
+    repository_dao::insert(&pool, &repo).await.unwrap();
+    insert_slack_connection(&pool, "T0000000001").await;
+
+    let state = test_app_state(pool.clone());
+    let auth = auth("user-1");
+
+    let loops = vec![parse_loop(SLACK_LOOP, "e2e-triage").unwrap()];
+    let summary = sync_loops(&state, &repo, &auth, loops).await.unwrap();
+    assert_eq!(summary.created, 1, "slack loop created");
+    assert_eq!(summary.updated, 0);
+    assert!(summary.skipped.is_empty(), "nothing skipped: {:?}", summary.skipped);
+
+    // slack loop -> adapter_event trigger pointed at the channel via the
+    // team's connection, with the ongoing routing mode flowing through.
+    let row = sqlx::query(
+        "SELECT t.kind, r.routing_mode, aes.adapter_kind, aes.source_matcher, \
+                aes.connection_id, aes.adapter_config \
+         FROM triggers t \
+         JOIN trigger_rules r ON r.trigger_id = t.id \
+         JOIN adapter_event_trigger_sources aes ON aes.trigger_id = t.id \
+         WHERE t.source_repository_id = $1 AND t.loop_name = 'e2e-triage' AND t.managed_by = 'repo_loop'",
+    )
+    .bind(&repo.id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(row.get::<String, _>("kind"), "adapter_event");
+    assert_eq!(row.get::<String, _>("routing_mode"), "ongoing");
+    assert_eq!(row.get::<String, _>("adapter_kind"), "slack");
+    assert_eq!(row.get::<String, _>("source_matcher"), "C0000000001");
+    assert_eq!(row.get::<String, _>("connection_id"), "conn_T0000000001");
+    let cfg: serde_json::Value = row.get("adapter_config");
+    assert_eq!(
+        cfg.get("allow_bot_messages").and_then(serde_json::Value::as_bool),
+        Some(true)
+    );
+    assert_eq!(
+        cfg.get("trigger").and_then(serde_json::Value::as_str),
+        Some("all_messages")
+    );
+}
+
+#[sqlx::test]
+async fn slack_loop_without_connection_is_skipped(pool: PgPool) {
+    let repo = make_repository_row("repo-slack-noconn", "user-1");
+    seed_team(&pool, "user-1").await;
+    repository_dao::insert(&pool, &repo).await.unwrap();
+    // No slack connection inserted for team T0000000001.
+
+    let state = test_app_state(pool.clone());
+    let auth = auth("user-1");
+
+    let loops = vec![parse_loop(SLACK_LOOP, "e2e-triage").unwrap()];
+    let summary = sync_loops(&state, &repo, &auth, loops).await.unwrap();
+
+    assert_eq!(summary.created, 0);
+    assert_eq!(summary.updated, 0);
+    assert_eq!(summary.skipped.len(), 1, "slack loop skipped");
+    assert_eq!(summary.skipped[0].loop_name, "e2e-triage");
+    assert!(
+        summary.skipped[0].reason.contains("slack connection"),
         "reason: {}",
         summary.skipped[0].reason
     );

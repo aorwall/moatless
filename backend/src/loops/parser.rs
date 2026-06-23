@@ -109,6 +109,30 @@ mod tests {
     }
 
     #[test]
+    fn parses_slack_loop() {
+        let content = "---\non: slack\nsourceMatcher: C0000000001\nteamId: T0000000001\nroutingMode: ongoing\nadapterConfig:\n  allow_bot_messages: true\n  trigger: all_messages\n---\n\nMonitor CI failures and triage them.\n";
+        let loop_ = parse_loop(content, "e2e-triage").expect("slack loop parses");
+        assert_eq!(loop_.frontmatter.on, "slack");
+        assert_eq!(loop_.frontmatter.source_matcher.as_deref(), Some("C0000000001"));
+        assert_eq!(loop_.frontmatter.team_id.as_deref(), Some("T0000000001"));
+        assert_eq!(loop_.frontmatter.routing_mode.as_deref(), Some("ongoing"));
+        let cfg = loop_
+            .frontmatter
+            .adapter_config
+            .as_ref()
+            .expect("adapterConfig present");
+        assert_eq!(
+            cfg.get("allow_bot_messages").and_then(serde_json::Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            cfg.get("trigger").and_then(serde_json::Value::as_str),
+            Some("all_messages")
+        );
+        assert_eq!(loop_.prompt_body, "Monitor CI failures and triage them.");
+    }
+
+    #[test]
     fn skips_loop_missing_on() {
         // `on` is required by serde — missing key fails deserialization.
         let content = "---\nagentType: claude-code\n---\n\nbody\n";
