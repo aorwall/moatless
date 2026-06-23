@@ -382,6 +382,36 @@ impl GithubPrAdapter {
         })
     }
 
+    /// Resolve the system user whose GitHub credentials should author an outbound
+    /// reply. Prefers the owning task's `author_user_id` (passed from the task's
+    /// `owner_user_id`), then the binding's connect-time `filter_user_id`, then the
+    /// trigger's run-as user. A human-owned task connected to a PR governed by a
+    /// separate review trigger thus replies under the human's identity rather than
+    /// the bot's; a trigger-created automation task (no owner/filter) still replies
+    /// under its `runAsUserId`.
+    fn outbound_user_id(
+        author_user_id: Option<&str>,
+        binding: &TaskBinding,
+        rule: Option<&TaskTriggerRoute>,
+    ) -> Option<String> {
+        author_user_id
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                binding
+                    .destination_config
+                    .get("filter_user_id")
+                    .or_else(|| binding.metadata.get("filter_user_id"))
+                    .and_then(serde_json::Value::as_str)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
+            })
+            .or_else(|| {
+                rule.map(|r| r.effective_user_id().to_string())
+                    .filter(|s| !s.is_empty())
+            })
+    }
+
     /// Extract owner, repo, pr_number from a `TaskBinding`'s `destination_config`.
     fn parse_binding_target(binding: &TaskBinding) -> Result<(String, String, u64), AdapterError> {
         let owner = binding
@@ -1434,20 +1464,14 @@ impl Adapter for GithubPrAdapter {
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
         let (owner, repo, pr_number) = Self::parse_binding_target(binding)?;
-        let user_id = match rule {
-            Some(r) => r.effective_user_id().to_string(),
-            None => binding
-                .metadata
-                .get("filter_user_id")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("")
-                .to_string(),
-        };
-        if user_id.is_empty() {
-            return Err(AdapterError::AdapterApi(
-                "Cannot resolve GitHub token: no task trigger attached to binding".into(),
-            ));
-        }
+        let user_id = Self::outbound_user_id(message.author_user_id.as_deref(), binding, rule)
+            .ok_or_else(|| {
+                AdapterError::AdapterApi(
+                    "Cannot resolve GitHub token: no task owner, binding filter_user_id, \
+                     or task trigger attached"
+                        .into(),
+                )
+            })?;
         let token = self.resolve_token_for_user(&user_id, Some(&owner)).await?;
         let api = GithubPrApi::new(&token);
 
@@ -1476,20 +1500,15 @@ impl Adapter for GithubPrAdapter {
         match super::external_id::comment_target_from_id(target_external_id) {
             Some(super::external_id::CommentTarget::Review(comment_id)) => {
                 let (owner, repo, pr_number) = Self::parse_binding_target(binding)?;
-                let user_id = match rule {
-                    Some(r) => r.effective_user_id().to_string(),
-                    None => binding
-                        .metadata
-                        .get("filter_user_id")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or("")
-                        .to_string(),
-                };
-                if user_id.is_empty() {
-                    return Err(AdapterError::AdapterApi(
-                        "Cannot resolve GitHub token: no task trigger attached to binding".into(),
-                    ));
-                }
+                let user_id =
+                    Self::outbound_user_id(message.author_user_id.as_deref(), binding, rule)
+                        .ok_or_else(|| {
+                            AdapterError::AdapterApi(
+                                "Cannot resolve GitHub token: no task owner, binding \
+                                 filter_user_id, or task trigger attached"
+                                    .into(),
+                            )
+                        })?;
                 let token = self.resolve_token_for_user(&user_id, Some(&owner)).await?;
                 let api = GithubPrApi::new(&token);
 
@@ -1974,6 +1993,74 @@ mod tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
+    }
+
+    /// Build a `TaskBinding` whose `filter_user_id` is `filter` (stored as JSON
+    /// `null` when `None`), written into both `destination_config` and `metadata`
+    /// to mirror `upsert_binding` (`backend/src/bindings/runtime.rs`).
+    fn binding_with_filter(filter: Option<&str>) -> TaskBinding {
+        use chrono::Utc;
+        let filter_json = serde_json::json!({ "filter_user_id": filter });
+        TaskBinding {
+            id: "tb_test".into(),
+            task_id: "task_test".into(),
+            provider: "github_pr".into(),
+            subject_kind: "github_pr".into(),
+            subject_key: "soaplabs/repo#42".into(),
+            connection_id: "pc_test".into(),
+            trigger_id: None,
+            destination_config: filter_json.clone(),
+            metadata: filter_json,
+            last_external_event_id: None,
+            origin: "connect".into(),
+            created_at: Utc::now(),
+            last_event_at: Utc::now(),
+            external_status: None,
+            external_state_kind: None,
+            external_status_raw: None,
+            external_status_updated_at: None,
+            active: true,
+            deactivated_at: None,
+        }
+    }
+
+    #[test]
+    fn outbound_user_id_prefers_task_owner_over_filter_and_rule() {
+        let binding = binding_with_filter(Some("someone-else"));
+        let mut rule = fake_rule();
+        rule.run_as_user_id = Some("bot:reviewer".into());
+        assert_eq!(
+            GithubPrAdapter::outbound_user_id(Some("195784656"), &binding, Some(&rule)),
+            Some("195784656".to_string())
+        );
+    }
+
+    #[test]
+    fn outbound_user_id_falls_back_to_binding_filter_when_no_owner() {
+        let binding = binding_with_filter(Some("195784656"));
+        let mut rule = fake_rule();
+        rule.run_as_user_id = Some("bot:reviewer".into());
+        assert_eq!(
+            GithubPrAdapter::outbound_user_id(None, &binding, Some(&rule)),
+            Some("195784656".to_string())
+        );
+    }
+
+    #[test]
+    fn outbound_user_id_falls_back_to_rule_when_no_owner_or_filter() {
+        let binding = binding_with_filter(None);
+        let mut rule = fake_rule();
+        rule.run_as_user_id = Some("bot:reviewer".into());
+        assert_eq!(
+            GithubPrAdapter::outbound_user_id(None, &binding, Some(&rule)),
+            Some("bot:reviewer".to_string())
+        );
+    }
+
+    #[test]
+    fn outbound_user_id_none_when_nothing_present() {
+        let binding = binding_with_filter(None);
+        assert_eq!(GithubPrAdapter::outbound_user_id(None, &binding, None), None);
     }
 
     /// Full issue_comment payload from a given sender, suitable for

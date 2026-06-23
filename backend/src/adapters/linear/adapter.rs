@@ -354,6 +354,7 @@ mod tests {
             text: text.to_string(),
             task_url: None,
             footer: footer.map(str::to_string),
+            author_user_id: None,
             is_error: false,
             files: vec![],
         }

@@ -326,6 +326,14 @@ pub struct OutboundReply {
     /// doubles as the inbound echo-filter source. `None` for providers that
     /// don't carry a footer.
     pub footer: Option<String>,
+    /// Preferred system user whose provider credentials should author this
+    /// reply — the owning task's `owner_user_id`. Providers that resolve a
+    /// per-user credential (currently GitHub) prefer this over binding/trigger
+    /// identities so a human-owned task replies under the human, and a
+    /// trigger-created automation task replies under its run-as bot. `None`
+    /// when no task owner is in scope (non-reply sends) or for providers that
+    /// don't use it.
+    pub author_user_id: Option<String>,
     pub is_error: bool,
     pub files: Vec<OutboundFile>,
 }

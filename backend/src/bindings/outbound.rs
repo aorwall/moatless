@@ -73,6 +73,7 @@ pub async fn direct_send_to_rule(
         text: truncate_text(text, provider.max_message_length()),
         task_url: None,
         footer: None,
+        author_user_id: None,
         is_error: false,
         files,
     };
@@ -266,10 +267,21 @@ pub async fn send_to_binding(
         _ => None,
     };
 
+    // Author the reply under the owning task's identity (preferred by the GitHub
+    // adapter over binding/trigger-derived identities).
+    let author_user_id = state
+        .tasks
+        .find_by_id_internal(task_id)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|t| t.owner_user_id);
+
     let reply = OutboundReply {
         text: truncate_text(text, provider.max_message_length()),
         task_url: None,
         footer,
+        author_user_id,
         is_error: false,
         files,
     };

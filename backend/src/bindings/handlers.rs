@@ -237,7 +237,7 @@ pub async fn reply_to_message(
         .find_by_uuid(&message_id)
         .await?
         .ok_or_else(|| AdapterError::NotFound(format!("message {message_id}")))?;
-    ensure_task_access(&state, &ctx, &msg.task_id).await?;
+    let task = ensure_task_access(&state, &ctx, &msg.task_id).await?;
 
     // Internal-only branch: the message wasn't sourced from an external
     // adapter, so there's no provider thread to reply to. Persist the reply
@@ -306,6 +306,7 @@ pub async fn reply_to_message(
         text: req.text,
         task_url: None,
         footer,
+        author_user_id: task.owner_user_id,
         is_error: false,
         files,
     };

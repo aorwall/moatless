@@ -574,6 +574,7 @@ mod tests {
             text: "hi".into(),
             task_url: None,
             footer: None,
+            author_user_id: None,
             is_error: false,
             files: vec![],
         };

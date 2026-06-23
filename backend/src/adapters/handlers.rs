@@ -168,6 +168,7 @@ pub async fn adapter_send(
         text: truncate_text(&req.text, provider.max_message_length()),
         task_url: None,
         footer: None,
+        author_user_id: None,
         is_error: false,
         files,
     };
@@ -331,6 +332,7 @@ pub async fn send_user_dm(
         text: truncate_text(&req.text, provider.max_message_length()),
         task_url: None,
         footer: None,
+        author_user_id: None,
         is_error: false,
         files: vec![],
     };
