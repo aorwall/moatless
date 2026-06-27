@@ -27,7 +27,7 @@ use crate::task::models::{Task, TaskStatus, Visibility};
 use crate::triggers::rule_dao::PgTaskTriggerRouteRepository;
 
 use super::agent_api::{default_http_client, ActivityKind, LinearAgentApi};
-use super::config::LinearRuleConfig;
+use super::config::{rules_need_issue_fetch, select_spawn_rule, LinearRuleConfig};
 use super::webhook_payloads::{
     AgentSession, AppUserNotificationData, CommentPayloadData, IssuePayload,
 };
@@ -79,15 +79,6 @@ pub async fn handle_session_created(
         AdapterError::BadRequest("AgentSession missing issue payload".into())
     })?;
 
-    // Resolve the rule by team. The first active rule wins for spawning;
-    // multi-listener fan-out is limited to Issue.update close paths.
-    let team_id = issue
-        .team_id
-        .clone()
-        .or_else(|| issue.team.as_ref().map(|t| t.id.clone()))
-        .unwrap_or_default();
-    let rule = rules.first().cloned();
-
     // Emit an ephemeral heartbeat thought synchronously so Linear sees
     // activity within the 10s window. Marked ephemeral so the next
     // activity (e.g. the `Provisioned sandbox` action) replaces it in
@@ -104,25 +95,53 @@ pub async fn handle_session_created(
         warn!(session_id = %session.id, error = %e, "Failed to emit Linear thought activity");
     }
 
-    let Some(rule) = rule else {
+    // Cheap guard only. The actual rule SELECTION — which may need a `get_issue`
+    // round-trip to learn the issue's project/labels — happens inside the spawn
+    // below so it never delays Linear's webhook ack.
+    if rules.is_empty() {
+        let team_id = issue
+            .team_id
+            .clone()
+            .or_else(|| issue.team.as_ref().map(|t| t.id.clone()))
+            .unwrap_or_default();
         warn!(
             team_id = %team_id,
             "Linear session created but no active rule found for team — emitting heartbeat only"
         );
         return Ok(());
-    };
+    }
 
     let state_clone = state.clone();
     let connection_clone = connection.clone();
-    let rule_clone = rule.clone();
+    let rules_clone = rules.to_vec();
     let session_clone = session.clone();
     let api_clone = api.clone();
     tokio::spawn(async move {
+        // Project/label-aware rule selection. A mention/assignment on a
+        // Vuln-Mgmt issue routes to the project-scoped `vulnerability-fix` rule;
+        // anything else falls back to the unscoped `soap-specs` catch-all. The
+        // `get_issue` round-trip this may make is kept off Linear's ack path by
+        // running here, inside the spawn.
+        let (issue_id, issue_identifier) = session_clone
+            .issue
+            .as_ref()
+            .map(|i| (i.id.as_str(), i.identifier.as_str()))
+            .unwrap_or_default();
+        let Some(rule) =
+            select_session_spawn_rule(&api_clone, &rules_clone, issue_id, issue_identifier).await
+        else {
+            warn!(
+                session_id = %session_clone.id,
+                "Linear session created but no spawn rule selected — skipping task creation"
+            );
+            return;
+        };
+
         if let Err(e) = provision_session_task(
             &state_clone,
             &api_clone,
             &connection_clone,
-            &rule_clone,
+            &rule,
             &session_clone,
         )
         .await
@@ -136,6 +155,55 @@ pub async fn handle_session_created(
     });
 
     Ok(())
+}
+
+/// Project/label-aware spawn-rule selection for a mention/assignment session.
+///
+/// Skips the Linear API entirely when no rule is project-scoped
+/// ([`rules_need_issue_fetch`] is false) — all-unscoped teams keep the cheap
+/// `rules.first()` path and pay nothing. Otherwise fetches the issue once to
+/// learn its project + labels (mirroring the extraction in
+/// [`create_tasks_for_status_entry`]); a fetch failure degrades to `(None, &[])`,
+/// which the selector routes to the unscoped catch-all / oldest rule.
+async fn select_session_spawn_rule(
+    api: &LinearAgentApi,
+    rules: &[TaskTriggerRoute],
+    issue_id: &str,
+    issue_identifier: &str,
+) -> Option<TaskTriggerRoute> {
+    if !rules_need_issue_fetch(rules) {
+        return rules.first().cloned();
+    }
+
+    let (project_id, labels): (Option<String>, Vec<String>) = match api.get_issue(issue_id).await {
+        Ok(detail) => {
+            let project_id = detail
+                .pointer("/project/id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string);
+            let labels = detail
+                .pointer("/labels/nodes")
+                .and_then(serde_json::Value::as_array)
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|n| n.get("name").and_then(serde_json::Value::as_str))
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default();
+            (project_id, labels)
+        }
+        Err(e) => {
+            warn!(
+                issue = %issue_identifier,
+                error = %e,
+                "Failed to fetch Linear issue for mention rule selection; using fallback rule"
+            );
+            (None, Vec::new())
+        }
+    };
+
+    select_spawn_rule(rules, project_id.as_deref(), &labels).cloned()
 }
 
 /// Route an `AgentSessionEvent.prompted` payload to the bound task.
@@ -643,7 +711,7 @@ async fn provision_issue_task(
     // whose `start_state` overlaps `trigger_states` doesn't thrash.
     if let Some(start_state) = cfg.start_state.as_deref() {
         if !issue.state_name().eq_ignore_ascii_case(start_state) {
-            transition_issue_to_start_state(api, issue, &team_id, start_state).await;
+            transition_issue_state(api, &team_id, &issue.id, &issue.identifier, start_state).await;
         }
     }
 
@@ -657,18 +725,23 @@ async fn provision_issue_task(
 }
 
 /// Best-effort: resolve `start_state` to a team-scoped workflow-state id and
-/// move the issue into it via `issueUpdate`. Failures (unresolved state name,
-/// API error) are logged and swallowed — the task is already created, so a
-/// missed board transition must not fail the pickup.
-async fn transition_issue_to_start_state(
+/// move the issue into it via `issueUpdate`. Primitive-arg form shared by the
+/// status-entry path (`IssuePayload`) and the mention/assignment pickup path
+/// (`AgentSessionIssue`) — the two carry different issue payload types, so the
+/// shared move logic takes plain ids. Failures (missing team, unresolved state
+/// name, API error) are logged and swallowed — the task is already created, so
+/// a missed board transition must not fail the pickup. Callers guard against
+/// no-op transitions (issue already in the target state) before invoking.
+async fn transition_issue_state(
     api: &LinearAgentApi,
-    issue: &IssuePayload,
     team_id: &str,
+    issue_id: &str,
+    issue_identifier: &str,
     start_state: &str,
 ) {
     if team_id.is_empty() {
         warn!(
-            issue = %issue.identifier,
+            issue = %issue_identifier,
             "Cannot move Linear issue to start state: missing team id"
         );
         return;
@@ -676,16 +749,16 @@ async fn transition_issue_to_start_state(
     match api.find_team_state_id(team_id, start_state).await {
         Ok(Some(state_id)) => {
             match api
-                .update_issue(&issue.id, serde_json::json!({ "stateId": state_id }))
+                .update_issue(issue_id, serde_json::json!({ "stateId": state_id }))
                 .await
             {
                 Ok(_) => info!(
-                    issue = %issue.identifier,
+                    issue = %issue_identifier,
                     start_state,
                     "Moved Linear issue to start state on pickup"
                 ),
                 Err(e) => warn!(
-                    issue = %issue.identifier,
+                    issue = %issue_identifier,
                     start_state,
                     error = %e,
                     "Failed to move Linear issue to start state"
@@ -693,13 +766,13 @@ async fn transition_issue_to_start_state(
             }
         }
         Ok(None) => warn!(
-            issue = %issue.identifier,
+            issue = %issue_identifier,
             start_state,
             team_id,
             "Start state not found in the issue's team — leaving issue state unchanged"
         ),
         Err(e) => warn!(
-            issue = %issue.identifier,
+            issue = %issue_identifier,
             start_state,
             error = %e,
             "Failed to resolve Linear start state"
@@ -1213,6 +1286,21 @@ async fn provision_session_task(
             "Failed to forward Linear prompt to task"
         );
     }
+
+    // Move the issue into the rule's configured "started" state (e.g. In
+    // Progress) on mention/assignment pickup, so the Linear board reflects that
+    // the agent picked it up. Reuses the same team-scoped transition as the
+    // status-entry path. Best-effort and idempotent: skipped when the issue is
+    // already in the target state. No self-retrigger risk — this loop's
+    // status-entry path is off, and the resulting `→ In Progress` Issue.update
+    // doesn't feed the mention path.
+    if let Some(start_state) = LinearRuleConfig::from_rule(rule).start_state.as_deref() {
+        let current_state = issue.state.as_ref().map_or("", |s| s.name.as_str());
+        if !current_state.eq_ignore_ascii_case(start_state) {
+            transition_issue_state(api, &team_id, &issue.id, &issue.identifier, start_state).await;
+        }
+    }
+
     Ok(())
 }
 

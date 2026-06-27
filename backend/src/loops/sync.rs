@@ -633,16 +633,26 @@ pub(crate) fn default_schedule_message(loop_name: &str) -> String {
 
 /// Build the `provider_config` (stored as `adapter_config`) for an `on: linear`
 /// loop: start from any user-provided `adapterConfig` object, layer the loop's
-/// first-class status/project/label knobs on top, and force
-/// `create_on_status_entry` on unless the user explicitly set it — the whole
-/// point of a Linear loop is to spawn tasks on status entry.
+/// first-class status/project/label knobs on top, and default
+/// `create_on_status_entry` on unless the user set it — the original Linear loop
+/// use case is spawning tasks on status entry. A loop can opt out
+/// (`createOnStatusEntry: false`) to run mention-mode only.
 pub(crate) fn build_linear_adapter_config(fm: &LoopFrontmatter) -> serde_json::Value {
     let mut obj = match fm.adapter_config.clone() {
         Some(serde_json::Value::Object(m)) => m,
         _ => serde_json::Map::new(),
     };
-    obj.entry("create_on_status_entry".to_string())
-        .or_insert(serde_json::Value::Bool(true));
+    if let Some(create) = fm.create_on_status_entry {
+        // First-class field wins (consistent with trigger_states/project_ids).
+        obj.insert(
+            "create_on_status_entry".to_string(),
+            serde_json::Value::Bool(create),
+        );
+    } else {
+        // Preserve the `adapterConfig` escape hatch and the default-on behavior.
+        obj.entry("create_on_status_entry".to_string())
+            .or_insert(serde_json::Value::Bool(true));
+    }
     if let Some(states) = fm.trigger_states.as_ref() {
         obj.insert("trigger_states".to_string(), serde_json::json!(states));
     }
@@ -735,6 +745,7 @@ mod tests {
             project_ids,
             require_labels: None,
             start_state: Some("In Progress".to_string()),
+            create_on_status_entry: None,
             event_filter: None,
             adapter_config,
             active: None,
@@ -778,5 +789,27 @@ mod tests {
         assert_eq!(cfg["trigger_states"], serde_json::json!(["Ready"]));
         // Untouched adapterConfig keys are preserved.
         assert_eq!(cfg["require_labels"], serde_json::json!(["x"]));
+    }
+
+    #[test]
+    fn linear_config_create_on_status_entry_first_class_false() {
+        // createOnStatusEntry: false authors a mention-mode loop (status-entry off).
+        let mut fm = linear_fm(Some(vec!["Ready".to_string()]), None, None);
+        fm.create_on_status_entry = Some(false);
+        let cfg = build_linear_adapter_config(&fm);
+        assert_eq!(cfg["create_on_status_entry"], serde_json::json!(false));
+    }
+
+    #[test]
+    fn linear_config_first_class_create_overrides_adapter_config() {
+        // First-class createOnStatusEntry wins over a value nested in adapterConfig.
+        let mut fm = linear_fm(
+            None,
+            None,
+            Some(serde_json::json!({ "create_on_status_entry": true })),
+        );
+        fm.create_on_status_entry = Some(false);
+        let cfg = build_linear_adapter_config(&fm);
+        assert_eq!(cfg["create_on_status_entry"], serde_json::json!(false));
     }
 }

@@ -145,6 +145,64 @@ fn string_list(value: &serde_json::Value, key: &str) -> Option<Vec<String>> {
     })
 }
 
+/// Pick the trigger that should spawn a task for a mention/assignment, given the
+/// issue's `project_id` and `labels`. Several Linear rules can share one team
+/// (e.g. an unscoped `soap-specs` rule plus a project-scoped `vulnerability-fix`
+/// rule); team alone can't disambiguate, so we route by project + labels:
+///
+/// - **Tier 1 — scoped match:** the first rule that is project-scoped
+///   (`project_ids` non-empty) AND whose project allowlist admits `project_id`
+///   AND whose `require_labels` are all present. A mention on a project that a
+///   scoped rule targets routes to that rule.
+/// - **Tier 2 — fallback:** the first rule with an EMPTY `project_ids` — the
+///   unscoped catch-all. Labels are intentionally NOT consulted here: the
+///   catch-all is the default lane for everything not claimed by a scoped rule.
+/// - **Tier 3 — legacy:** no scoped match and no unscoped rule → `rules.first()`,
+///   preserving the previous "oldest rule wins" behavior for teams that predate
+///   project scoping.
+///
+/// Returns `None` only when `rules` is empty. A failed issue fetch is modeled by
+/// the caller as `(None, &[])`, which naturally degrades through Tier 2/3 — no
+/// special-casing needed here.
+pub fn select_spawn_rule<'a>(
+    rules: &'a [TaskTriggerRoute],
+    project_id: Option<&str>,
+    labels: &[String],
+) -> Option<&'a TaskTriggerRoute> {
+    // Tier 1 — first project-scoped rule that admits this issue's project + labels.
+    if let Some(scoped) = rules.iter().find(|r| {
+        let cfg = LinearRuleConfig::from_rule(r);
+        !cfg.project_ids.is_empty()
+            && cfg.project_allowed(project_id)
+            && cfg.labels_allowed(labels)
+    }) {
+        return Some(scoped);
+    }
+
+    // Tier 2 — first unscoped (empty project_ids) catch-all rule. Labels are
+    // not consulted for the catch-all.
+    if let Some(fallback) = rules
+        .iter()
+        .find(|r| LinearRuleConfig::from_rule(r).project_ids.is_empty())
+    {
+        return Some(fallback);
+    }
+
+    // Tier 3 — no scoped match, no catch-all: oldest rule wins (legacy).
+    rules.first()
+}
+
+/// Whether selecting a spawn rule requires fetching the full issue (to learn its
+/// project + labels). True iff any rule is project-scoped (`project_ids`
+/// non-empty). When every rule is unscoped, [`select_spawn_rule`] can't be
+/// influenced by the project/labels, so the caller skips the extra API round-trip
+/// entirely — all-unscoped teams pay nothing, preserving the pre-scoping path.
+pub fn rules_need_issue_fetch(rules: &[TaskTriggerRoute]) -> bool {
+    rules
+        .iter()
+        .any(|r| !LinearRuleConfig::from_rule(r).project_ids.is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -346,5 +404,113 @@ mod tests {
         assert_eq!(listener_a.trigger_states, vec!["Todo"]);
         assert_eq!(listener_b.trigger_states, vec!["In Progress"]);
         assert_ne!(listener_a.require_labels, listener_b.require_labels);
+    }
+
+    // ---- select_spawn_rule / rules_need_issue_fetch ----------------------
+
+    /// A project-scoped rule (`project_ids = ["vuln"]`).
+    fn scoped_rule() -> TaskTriggerRoute {
+        rule_with(serde_json::json!({ "project_ids": ["vuln"] }), false)
+    }
+
+    /// The unscoped catch-all (empty `project_ids`), e.g. soap-specs.
+    fn unscoped_rule() -> TaskTriggerRoute {
+        rule_with(serde_json::json!({}), false)
+    }
+
+    /// Parsed `project_ids` of the picked rule — used to assert which rule the
+    /// selector returned (the `rule_with` helper gives every rule the same id,
+    /// so we distinguish by parsed config rather than identity).
+    fn picked_projects(rule: &TaskTriggerRoute) -> Vec<String> {
+        LinearRuleConfig::from_rule(rule).project_ids
+    }
+
+    #[test]
+    fn select_spawn_rule_scoped_wins() {
+        // Unscoped catch-all listed first, scoped rule second — the scoped rule
+        // must still win when the issue's project matches it.
+        let rules = vec![unscoped_rule(), scoped_rule()];
+        let picked = select_spawn_rule(&rules, Some("vuln"), &[]).unwrap();
+        assert_eq!(picked_projects(picked), vec!["vuln"]);
+    }
+
+    #[test]
+    fn select_spawn_rule_project_mismatch_falls_back() {
+        // Scoped rule targets "vuln"; the issue is in another project → the
+        // unscoped catch-all wins.
+        let rules = vec![scoped_rule(), unscoped_rule()];
+        let picked = select_spawn_rule(&rules, Some("other"), &[]).unwrap();
+        assert!(picked_projects(picked).is_empty());
+    }
+
+    #[test]
+    fn select_spawn_rule_label_mismatch_falls_back() {
+        // Scoped rule requires a label the issue lacks → falls back to the
+        // unscoped catch-all (whose labels are not consulted).
+        let scoped = rule_with(
+            serde_json::json!({ "project_ids": ["vuln"], "require_labels": ["security"] }),
+            false,
+        );
+        let rules = vec![scoped, unscoped_rule()];
+        let picked = select_spawn_rule(&rules, Some("vuln"), &[]).unwrap();
+        assert!(picked_projects(picked).is_empty());
+    }
+
+    #[test]
+    fn select_spawn_rule_fetch_failure_falls_back() {
+        // A failed issue fetch is modeled as (None, &[]) — the scoped rule can't
+        // match a project-less issue, so the catch-all wins.
+        let rules = vec![scoped_rule(), unscoped_rule()];
+        let picked = select_spawn_rule(&rules, None, &[]).unwrap();
+        assert!(picked_projects(picked).is_empty());
+    }
+
+    #[test]
+    fn select_spawn_rule_no_fallback_uses_oldest() {
+        // Two scoped rules, neither matching the issue's project, and no
+        // unscoped catch-all → Tier 3: oldest (first) rule wins.
+        let first = rule_with(serde_json::json!({ "project_ids": ["a"] }), false);
+        let second = rule_with(serde_json::json!({ "project_ids": ["b"] }), false);
+        let rules = vec![first, second];
+        let picked = select_spawn_rule(&rules, Some("other"), &[]).unwrap();
+        assert_eq!(picked_projects(picked), vec!["a"]);
+    }
+
+    #[test]
+    fn select_spawn_rule_first_of_several_scoped_wins() {
+        // Two scoped rules both admit the issue — the first listed wins. They
+        // share a project but carry distinct require_labels (both satisfied), so
+        // the picked rule is identifiable by its labels.
+        let first = rule_with(
+            serde_json::json!({ "project_ids": ["vuln"], "require_labels": ["a"] }),
+            false,
+        );
+        let second = rule_with(
+            serde_json::json!({ "project_ids": ["vuln"], "require_labels": ["b"] }),
+            false,
+        );
+        let rules = vec![first, second];
+        let picked =
+            select_spawn_rule(&rules, Some("vuln"), &["a".to_string(), "b".to_string()]).unwrap();
+        assert_eq!(LinearRuleConfig::from_rule(picked).require_labels, vec!["a"]);
+    }
+
+    #[test]
+    fn select_spawn_rule_empty_rules_is_none() {
+        assert!(select_spawn_rule(&[], Some("vuln"), &[]).is_none());
+    }
+
+    #[test]
+    fn rules_need_issue_fetch_true_when_any_scoped() {
+        let rules = vec![unscoped_rule(), scoped_rule()];
+        assert!(rules_need_issue_fetch(&rules));
+    }
+
+    #[test]
+    fn rules_need_issue_fetch_false_when_all_unscoped() {
+        // All-unscoped teams skip the get_issue round-trip entirely.
+        let rules = vec![unscoped_rule(), unscoped_rule()];
+        assert!(!rules_need_issue_fetch(&rules));
+        assert!(!rules_need_issue_fetch(&[]));
     }
 }

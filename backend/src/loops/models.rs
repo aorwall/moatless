@@ -54,6 +54,13 @@ pub struct LoopFrontmatter {
     /// `provider_config.start_state`.
     #[serde(default)]
     pub start_state: Option<String>,
+    /// `on: linear` only — whether an `Issue.update` that moves the issue into a
+    /// `trigger_states` value spawns a task. Maps to
+    /// `provider_config.create_on_status_entry`. `None` keeps the default-on
+    /// behavior (and the `adapterConfig` escape hatch); set `false` to author a
+    /// mention-mode loop where only `@mention`/assignment spawns tasks.
+    #[serde(default)]
+    pub create_on_status_entry: Option<bool>,
     /// Adapter-event filter JSON (default `[]`).
     #[serde(default)]
     pub event_filter: Option<serde_json::Value>,
