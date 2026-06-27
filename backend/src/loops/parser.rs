@@ -133,6 +133,27 @@ mod tests {
     }
 
     #[test]
+    fn parses_linear_loop() {
+        let content = "---\non: linear\nsourceMatcher: team-uuid-123\ntriggerStates: [Ready]\nprojectIds: [proj-abc]\nrequireLabels: [agent]\n---\n\nPick up the ticket and implement it.\n";
+        let loop_ = parse_loop(content, "ready-pool").expect("linear loop parses");
+        assert_eq!(loop_.frontmatter.on, "linear");
+        assert_eq!(loop_.frontmatter.source_matcher.as_deref(), Some("team-uuid-123"));
+        assert_eq!(
+            loop_.frontmatter.trigger_states.as_deref(),
+            Some(&["Ready".to_string()][..])
+        );
+        assert_eq!(
+            loop_.frontmatter.project_ids.as_deref(),
+            Some(&["proj-abc".to_string()][..])
+        );
+        assert_eq!(
+            loop_.frontmatter.require_labels.as_deref(),
+            Some(&["agent".to_string()][..])
+        );
+        assert_eq!(loop_.prompt_body, "Pick up the ticket and implement it.");
+    }
+
+    #[test]
     fn skips_loop_missing_on() {
         // `on` is required by serde — missing key fails deserialization.
         let content = "---\nagentType: claude-code\n---\n\nbody\n";

@@ -413,7 +413,298 @@ pub async fn handle_issue_update(
         close_active_bindings_for_issue(state, api, connection, rule, issue).await?;
     }
 
+    // Status-entry creation: spawn a fresh task for every rule opted into
+    // `create_on_status_entry` whose `trigger_states` include the new state.
+    // Independent of the notify/close paths above (which only touch already-
+    // bound tasks). Best-effort — failures are logged per rule.
+    create_tasks_for_status_entry(state, api, connection, rules, issue).await;
+
     Ok(())
+}
+
+/// Spawn new tasks for rules opted into `create_on_status_entry` whose
+/// `trigger_states` include the issue's new workflow state. Applies each rule's
+/// project + label filters and is idempotent per `(issue, trigger)`.
+///
+/// Project + label filtering needs data the `Issue.update` webhook may omit, so
+/// when a matching rule filters on them we fetch the full issue once via
+/// `get_issue` (skipped when the webhook already carries the project id and no
+/// rule filters on labels). A fetch failure logs and falls back to the
+/// webhook-carried project id with empty labels.
+async fn create_tasks_for_status_entry(
+    state: &AppState,
+    api: &LinearAgentApi,
+    connection: &AdapterConnection,
+    rules: &[TaskTriggerRoute],
+    issue: &IssuePayload,
+) {
+    let state_name = issue.state_name();
+    let candidates: Vec<(&TaskTriggerRoute, LinearRuleConfig)> = rules
+        .iter()
+        .map(|r| (r, LinearRuleConfig::from_rule(r)))
+        .filter(|(_, cfg)| cfg.creates_on_status(state_name))
+        .collect();
+    if candidates.is_empty() {
+        return;
+    }
+
+    let webhook_project = issue.resolved_project_id().map(str::to_string);
+    let needs_labels = candidates
+        .iter()
+        .any(|(_, cfg)| !cfg.require_labels.is_empty());
+    let needs_project_fetch = webhook_project.is_none()
+        && candidates
+            .iter()
+            .any(|(_, cfg)| !cfg.project_ids.is_empty());
+
+    let detail = if needs_labels || needs_project_fetch {
+        match api.get_issue(&issue.id).await {
+            Ok(v) => Some(v),
+            Err(e) => {
+                warn!(
+                    issue = %issue.identifier,
+                    error = %e,
+                    "Failed to fetch Linear issue for status-entry filtering; using webhook payload"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    let project_id: Option<String> = detail
+        .as_ref()
+        .and_then(|d| d.pointer("/project/id"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+        .or(webhook_project);
+
+    let labels: Vec<String> = detail
+        .as_ref()
+        .and_then(|d| d.pointer("/labels/nodes"))
+        .and_then(serde_json::Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|n| n.get("name").and_then(serde_json::Value::as_str))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+
+    for (rule, cfg) in candidates {
+        if !cfg.project_allowed(project_id.as_deref()) {
+            debug!(
+                issue = %issue.identifier,
+                rule_id = %rule.id,
+                "Linear status-entry skipped: issue project not in allowlist"
+            );
+            continue;
+        }
+        if !cfg.labels_allowed(&labels) {
+            debug!(
+                issue = %issue.identifier,
+                rule_id = %rule.id,
+                "Linear status-entry skipped: required labels missing"
+            );
+            continue;
+        }
+        if let Err(e) = provision_issue_task(state, api, connection, rule, &cfg, issue).await {
+            warn!(
+                issue = %issue.identifier,
+                rule_id = %rule.id,
+                error = %e,
+                "Failed to provision Linear status-entry task"
+            );
+        }
+    }
+}
+
+/// Create + provision a task for an `Issue.update` status-entry match, bind it
+/// to the issue via `linear_issue`, link it back on the Linear issue, and
+/// forward the inbound "read the ticket" prompt.
+///
+/// Idempotent per `(issue, trigger)`: if an active `linear_issue` binding for
+/// this issue already exists for this trigger+connection, returns early so a
+/// re-entry into the same state doesn't double-create.
+async fn provision_issue_task(
+    state: &AppState,
+    api: &LinearAgentApi,
+    connection: &AdapterConnection,
+    rule: &TaskTriggerRoute,
+    cfg: &LinearRuleConfig,
+    issue: &IssuePayload,
+) -> Result<(), AdapterError> {
+    let existing = PgTaskBindingRepository(state.db.clone())
+        .find_active_by_destination_field(ADAPTER, super::SUBJECT_KIND_ISSUE, "issue_id", &issue.id)
+        .await?;
+    if existing.iter().any(|b| {
+        b.connection_id == connection.id && b.trigger_id.as_deref() == Some(rule.id.as_str())
+    }) {
+        info!(
+            issue = %issue.identifier,
+            rule_id = %rule.id,
+            "Linear issue already has an active task for this trigger — skipping status-entry creation"
+        );
+        return Ok(());
+    }
+
+    let task_id = create_issue_event_task(state, rule, issue).await?;
+    // Open the Linear turn gate before provisioning so sandbox/agent events on
+    // this task surface in Linear's UI.
+    state.linear_active_turns.open(&task_id);
+    provision_task(state, &task_id).await;
+
+    let team_id = issue.resolved_team_id().unwrap_or_default().to_string();
+    let destination_config = serde_json::json!({
+        "issue_id": issue.id,
+        "issue_identifier": issue.identifier,
+        "identifier": issue.identifier,
+        "team_id": team_id,
+        "project_id": issue.resolved_project_id(),
+        "issue_url": issue.url,
+    });
+    let now = Utc::now();
+    let binding = TaskBinding {
+        id: format!("ts_{}", uuid::Uuid::new_v4()),
+        task_id: task_id.clone(),
+        provider: ADAPTER.to_string(),
+        subject_kind: super::SUBJECT_KIND_ISSUE.to_string(),
+        subject_key: issue.id.clone(),
+        connection_id: connection.id.clone(),
+        trigger_id: Some(rule.id.clone()),
+        destination_config,
+        metadata: serde_json::json!({}),
+        last_external_event_id: None,
+        origin: ADAPTER_EVENT_BINDING_ORIGIN.to_string(),
+        created_at: now,
+        last_event_at: now,
+        external_status: None,
+        external_state_kind: None,
+        external_status_raw: None,
+        external_status_updated_at: None,
+        active: true,
+        deactivated_at: None,
+    };
+    PgTaskBindingRepository(state.db.clone())
+        .upsert(&binding)
+        .await?;
+
+    // Link the Moatless task back onto the Linear issue.
+    let task_url = task_url(state, &task_id);
+    let attachment_title = task_attachment_title(state, &task_id, ATTACHMENT_TITLE_CHILD).await;
+    if let Err(e) = api
+        .attachment_link_url(&issue.id, &task_url, &attachment_title)
+        .await
+    {
+        warn!(
+            issue = %issue.identifier,
+            error = %e,
+            "Failed to attach Moatless task URL to Linear issue"
+        );
+    }
+
+    // Forward the inbound prompt: issue link + read-the-ticket instructions.
+    let inbound_text = build_issue_inbound_text(issue);
+    let external_event_id = format!("linear:issue:created:{}", issue.id);
+    if let Err(e) = crate::message::send::send_message_flow(
+        state,
+        &task_id,
+        &inbound_text,
+        None,
+        None,
+        &[],
+        &[],
+        false,
+        Some(&external_event_id),
+        Some(ADAPTER_LABEL),
+        Some(&binding.subject_key),
+        Some(rule.source_matcher.as_str()),
+        None,
+        None,
+        false,
+        None,
+    )
+    .await
+    {
+        warn!(
+            task_id = %task_id,
+            issue = %issue.identifier,
+            error = %e,
+            "Failed to forward Linear issue prompt to task"
+        );
+    }
+
+    // Move the issue into the configured "started" state (e.g. In Progress) so
+    // the Linear board reflects that the agent picked it up. Best-effort, and
+    // safe against self-retrigger: the resulting `Issue.update` re-enters this
+    // path but the binding created above trips the idempotency guard. We only
+    // transition when the issue isn't already in the target state, so a loop
+    // whose `start_state` overlaps `trigger_states` doesn't thrash.
+    if let Some(start_state) = cfg.start_state.as_deref() {
+        if !issue.state_name().eq_ignore_ascii_case(start_state) {
+            transition_issue_to_start_state(api, issue, &team_id, start_state).await;
+        }
+    }
+
+    info!(
+        task_id = %task_id,
+        issue = %issue.identifier,
+        rule_id = %rule.id,
+        "Created task from Linear issue status entry"
+    );
+    Ok(())
+}
+
+/// Best-effort: resolve `start_state` to a team-scoped workflow-state id and
+/// move the issue into it via `issueUpdate`. Failures (unresolved state name,
+/// API error) are logged and swallowed — the task is already created, so a
+/// missed board transition must not fail the pickup.
+async fn transition_issue_to_start_state(
+    api: &LinearAgentApi,
+    issue: &IssuePayload,
+    team_id: &str,
+    start_state: &str,
+) {
+    if team_id.is_empty() {
+        warn!(
+            issue = %issue.identifier,
+            "Cannot move Linear issue to start state: missing team id"
+        );
+        return;
+    }
+    match api.find_team_state_id(team_id, start_state).await {
+        Ok(Some(state_id)) => {
+            match api
+                .update_issue(&issue.id, serde_json::json!({ "stateId": state_id }))
+                .await
+            {
+                Ok(_) => info!(
+                    issue = %issue.identifier,
+                    start_state,
+                    "Moved Linear issue to start state on pickup"
+                ),
+                Err(e) => warn!(
+                    issue = %issue.identifier,
+                    start_state,
+                    error = %e,
+                    "Failed to move Linear issue to start state"
+                ),
+            }
+        }
+        Ok(None) => warn!(
+            issue = %issue.identifier,
+            start_state,
+            team_id,
+            "Start state not found in the issue's team — leaving issue state unchanged"
+        ),
+        Err(e) => warn!(
+            issue = %issue.identifier,
+            start_state,
+            error = %e,
+            "Failed to resolve Linear start state"
+        ),
+    }
 }
 
 /// Close active bindings when an `AppUserNotification.issueStatusChanged`
@@ -596,19 +887,22 @@ async fn close_active_bindings_for_issue(
     issue: &IssuePayload,
 ) -> Result<(), AdapterError> {
     let binding_repo = PgTaskBindingRepository(state.db.clone());
-    // Look up every active binding tied to this issue.
+    // Look up every active binding tied to this issue — both `@mention`/
+    // assignment sessions (`linear_agent_session`) and status-entry tasks
+    // (`linear_issue`), so either kind auto-closes when the issue goes terminal.
+    let subject_kinds = vec![SUBJECT_KIND.to_string(), super::SUBJECT_KIND_ISSUE.to_string()];
     let rows = sqlx::query_as::<_, TaskBinding>(
         "SELECT id, task_id, adapter_kind AS provider, subject_kind, subject_key, connection_id, \
                 trigger_id, destination_config, metadata, last_external_event_id, \
                 origin, created_at, last_event_at \
          FROM task_bindings \
          WHERE adapter_kind = $1 \
-           AND subject_kind = $2 \
+           AND subject_kind = ANY($2) \
            AND destination_config->>'issue_id' = $3 \
            AND COALESCE(destination_config->>'pending', 'false') <> 'true'",
     )
     .bind(ADAPTER)
-    .bind(SUBJECT_KIND)
+    .bind(&subject_kinds)
     .bind(&issue.id)
     .fetch_all(&state.db)
     .await
@@ -926,24 +1220,39 @@ fn build_inbound_text(session: &AgentSession) -> String {
     // Intentionally minimal: the issue description, comments, and Linear's
     // pre-built promptContext are NOT inlined — they go stale as the ticket
     // evolves. The agent reads the live ticket via the `moat` CLI instead.
-    let mut text = String::new();
-    if let Some(issue) = session.issue.as_ref() {
-        let _ = write!(text, "## Linear issue {} — {}", issue.identifier, issue.title);
-        if let Some(url) = issue.url.as_deref().filter(|s| !s.is_empty()) {
-            let _ = write!(text, "\n\n{url}");
-        }
-        let id = &issue.identifier;
-        let _ = write!(
-            text,
-            "\n\nBefore working on this task, read the Linear issue, all of its \
-             comments, and its linked PRs and agent tasks using the `moat` CLI:\n\n\
-             - Issue details and description: `moat linear issue get {id} --json`\n\
-             - Comments, linked PRs, and related agent tasks: \
-             `moat linear graphql 'query {{ issue(id: \"{id}\") {{ \
-             attachments {{ nodes {{ title url sourceType }} }} \
-             comments {{ nodes {{ body createdAt user {{ displayName }} }} }} }} }}'`"
-        );
+    match session.issue.as_ref() {
+        Some(issue) => issue_read_block(&issue.identifier, &issue.title, issue.url.as_deref()),
+        None => String::new(),
     }
+}
+
+/// Inbound prompt for a task spawned from an `Issue.update` status entry.
+/// Mirrors [`build_inbound_text`] — the agent reads the live ticket rather than
+/// receiving an inlined (and quickly-stale) snapshot.
+fn build_issue_inbound_text(issue: &IssuePayload) -> String {
+    issue_read_block(&issue.identifier, &issue.title, issue.url.as_deref())
+}
+
+/// Shared issue-link + "read the live ticket via `moat`" instruction block used
+/// by both the session- and issue-initiated creation paths. Keeping it in one
+/// place prevents the two prompts from drifting apart.
+fn issue_read_block(identifier: &str, title: &str, url: Option<&str>) -> String {
+    let mut text = String::new();
+    let _ = write!(text, "## Linear issue {identifier} — {title}");
+    if let Some(url) = url.filter(|s| !s.is_empty()) {
+        let _ = write!(text, "\n\n{url}");
+    }
+    let id = identifier;
+    let _ = write!(
+        text,
+        "\n\nBefore working on this task, read the Linear issue, all of its \
+         comments, and its linked PRs and agent tasks using the `moat` CLI:\n\n\
+         - Issue details and description: `moat linear issue get {id} --json`\n\
+         - Comments, linked PRs, and related agent tasks: \
+         `moat linear graphql 'query {{ issue(id: \"{id}\") {{ \
+         attachments {{ nodes {{ title url sourceType }} }} \
+         comments {{ nodes {{ body createdAt user {{ displayName }} }} }} }} }}'`"
+    );
     text
 }
 
@@ -952,14 +1261,40 @@ async fn create_provider_event_task(
     rule: &TaskTriggerRoute,
     session: &AgentSession,
 ) -> Result<String, AdapterError> {
-    let task_id = uuid::Uuid::new_v4().to_string();
-    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    let short_id = generate_short_id(state).await?;
-
     let issue = session.issue.as_ref().ok_or_else(|| {
         AdapterError::BadRequest("AgentSession missing issue".into())
     })?;
     let preview = build_inbound_text(session);
+    let task_id =
+        insert_event_task(state, rule, &issue.identifier, &issue.title, &preview).await?;
+    info!(task_id = %task_id, rule_id = %rule.id, "Created task from Linear AgentSession");
+    Ok(task_id)
+}
+
+/// Create a task from an `Issue.update` status-entry match.
+async fn create_issue_event_task(
+    state: &AppState,
+    rule: &TaskTriggerRoute,
+    issue: &IssuePayload,
+) -> Result<String, AdapterError> {
+    let preview = build_issue_inbound_text(issue);
+    insert_event_task(state, rule, &issue.identifier, &issue.title, &preview).await
+}
+
+/// Build + insert the Task row shared by the session- and issue-initiated
+/// Linear creation paths, assign the trigger's tags, and publish the `Open`
+/// event. Returns the new task id. Callers own subsequent provisioning,
+/// binding, and inbound-message delivery.
+async fn insert_event_task(
+    state: &AppState,
+    rule: &TaskTriggerRoute,
+    identifier: &str,
+    title: &str,
+    preview: &str,
+) -> Result<String, AdapterError> {
+    let task_id = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let short_id = generate_short_id(state).await?;
 
     let row = Task {
         task_id: task_id.clone(),
@@ -976,8 +1311,8 @@ async fn create_provider_event_task(
         name: rule
             .task_name
             .clone()
-            .or_else(|| Some(format!("{} — {}", issue.identifier, issue.title))),
-        description: Some(truncate(&preview, 200)),
+            .or_else(|| Some(format!("{identifier} — {title}"))),
+        description: Some(truncate(preview, 200)),
         site_id: None,
         site_provider: None,
         branch: None,
@@ -1046,7 +1381,6 @@ async fn create_provider_event_task(
             .await;
     }
 
-    info!(task_id = %task_id, rule_id = %rule.id, "Created task from Linear AgentSession");
     Ok(task_id)
 }
 
@@ -1615,6 +1949,28 @@ mod tests {
         ));
         // The issue description is not inlined — the agent reads the live ticket.
         assert!(!text.contains("Long description here."));
+    }
+
+    #[test]
+    fn build_issue_inbound_text_matches_session_variant() {
+        use crate::adapters::linear::webhook_payloads::IssuePayload;
+        let issue = IssuePayload {
+            id: "issue-1".into(),
+            identifier: "SP-1".into(),
+            title: "Bug".into(),
+            url: Some("https://linear.app/acme/issue/SP-1".into()),
+            team_id: Some("team-1".into()),
+            team: None,
+            project_id: Some("proj-1".into()),
+            project: None,
+            state: None,
+        };
+        let from_issue = build_issue_inbound_text(&issue);
+        // Identical to the session-initiated prompt for the same issue identity.
+        let from_session = build_inbound_text(&session_with(None, None));
+        assert_eq!(from_issue, from_session);
+        assert!(from_issue.contains("## Linear issue SP-1 — Bug"));
+        assert!(from_issue.contains("moat linear issue get SP-1 --json"));
     }
 
     #[test]

@@ -15,7 +15,7 @@ use tracing::{debug, warn};
 
 use super::error::LoopError;
 use super::fetcher::{GitHubLoopFetcher, LoopFetcher};
-use super::models::ParsedLoop;
+use super::models::{LoopFrontmatter, ParsedLoop};
 use super::parser::parse_loop;
 use crate::adapters::common::next_fire_at;
 use crate::adapters::dao::PgAdapterConnectionRepository;
@@ -298,6 +298,61 @@ async fn resolve_loop(
                 None,
             )
         }
+        "linear" => {
+            // Resolve the Linear connection from `teamId` (the Linear
+            // workspace/organization id), or fall back to the single configured
+            // Linear connection when unambiguous.
+            let connection = if let Some(org) = fm.team_id.as_deref() {
+                let Some(connection) = PgAdapterConnectionRepository(state.db.clone())
+                    .find_by_external_account("linear", org)
+                    .await?
+                else {
+                    return Ok(ResolveOutcome::Skipped(format!(
+                        "no linear connection for workspace `{org}`"
+                    )));
+                };
+                connection
+            } else {
+                let conns = PgAdapterConnectionRepository(state.db.clone())
+                    .list_by_provider("linear")
+                    .await?;
+                match conns.as_slice() {
+                    [one] => one.clone(),
+                    [] => {
+                        return Ok(ResolveOutcome::Skipped(
+                            "no linear connection configured".to_string(),
+                        ));
+                    }
+                    _ => {
+                        return Ok(ResolveOutcome::Skipped(
+                            "multiple linear connections — set teamId (workspace id)".to_string(),
+                        ));
+                    }
+                }
+            };
+            // The listen scope is the Linear TEAM uuid — required, no
+            // `owner/repo` default (issue events are routed by team).
+            let Some(source_matcher) = fm.source_matcher.clone() else {
+                return Ok(ResolveOutcome::Skipped(
+                    "linear loop missing sourceMatcher (team id)".to_string(),
+                ));
+            };
+            let event_filter = fm
+                .event_filter
+                .clone()
+                .unwrap_or_else(|| serde_json::json!([]));
+            (
+                TriggerKind::AdapterEvent,
+                Some(ResolvedAdapterSource {
+                    adapter_kind: "linear".to_string(),
+                    connection_id: connection.id,
+                    source_matcher,
+                    event_filter,
+                    adapter_config: Some(build_linear_adapter_config(fm)),
+                }),
+                None,
+            )
+        }
         "schedule" => {
             let sched = fm.schedule.as_ref();
             let Some(cron) = sched
@@ -576,6 +631,33 @@ pub(crate) fn default_schedule_message(loop_name: &str) -> String {
     format!("Run the `{loop_name}` loop.")
 }
 
+/// Build the `provider_config` (stored as `adapter_config`) for an `on: linear`
+/// loop: start from any user-provided `adapterConfig` object, layer the loop's
+/// first-class status/project/label knobs on top, and force
+/// `create_on_status_entry` on unless the user explicitly set it — the whole
+/// point of a Linear loop is to spawn tasks on status entry.
+pub(crate) fn build_linear_adapter_config(fm: &LoopFrontmatter) -> serde_json::Value {
+    let mut obj = match fm.adapter_config.clone() {
+        Some(serde_json::Value::Object(m)) => m,
+        _ => serde_json::Map::new(),
+    };
+    obj.entry("create_on_status_entry".to_string())
+        .or_insert(serde_json::Value::Bool(true));
+    if let Some(states) = fm.trigger_states.as_ref() {
+        obj.insert("trigger_states".to_string(), serde_json::json!(states));
+    }
+    if let Some(projects) = fm.project_ids.as_ref() {
+        obj.insert("project_ids".to_string(), serde_json::json!(projects));
+    }
+    if let Some(labels) = fm.require_labels.as_ref() {
+        obj.insert("require_labels".to_string(), serde_json::json!(labels));
+    }
+    if let Some(start) = fm.start_state.as_ref() {
+        obj.insert("start_state".to_string(), serde_json::json!(start));
+    }
+    serde_json::Value::Object(obj)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -633,5 +715,68 @@ mod tests {
             default_schedule_message("daily-health-check"),
             "Run the `daily-health-check` loop."
         );
+    }
+
+    fn linear_fm(
+        trigger_states: Option<Vec<String>>,
+        project_ids: Option<Vec<String>>,
+        adapter_config: Option<serde_json::Value>,
+    ) -> LoopFrontmatter {
+        LoopFrontmatter {
+            on: "linear".to_string(),
+            name: None,
+            agent_type: None,
+            routing_mode: None,
+            tags: None,
+            run_as_user_id: None,
+            source_matcher: Some("team-uuid".to_string()),
+            team_id: None,
+            trigger_states,
+            project_ids,
+            require_labels: None,
+            start_state: Some("In Progress".to_string()),
+            event_filter: None,
+            adapter_config,
+            active: None,
+            inactive_ttl_days: None,
+            schedule: None,
+        }
+    }
+
+    #[test]
+    fn linear_config_defaults_to_create_on_status_entry() {
+        let cfg = build_linear_adapter_config(&linear_fm(
+            Some(vec!["Ready".to_string()]),
+            Some(vec!["proj-1".to_string()]),
+            None,
+        ));
+        assert_eq!(cfg["create_on_status_entry"], serde_json::json!(true));
+        assert_eq!(cfg["trigger_states"], serde_json::json!(["Ready"]));
+        assert_eq!(cfg["project_ids"], serde_json::json!(["proj-1"]));
+        assert_eq!(cfg["start_state"], serde_json::json!("In Progress"));
+    }
+
+    #[test]
+    fn linear_config_respects_explicit_opt_out() {
+        // A user who sets create_on_status_entry:false in adapterConfig keeps it.
+        let cfg = build_linear_adapter_config(&linear_fm(
+            None,
+            None,
+            Some(serde_json::json!({ "create_on_status_entry": false })),
+        ));
+        assert_eq!(cfg["create_on_status_entry"], serde_json::json!(false));
+    }
+
+    #[test]
+    fn linear_config_frontmatter_overrides_adapter_config_states() {
+        // First-class triggerStates wins over a value nested in adapterConfig.
+        let cfg = build_linear_adapter_config(&linear_fm(
+            Some(vec!["Ready".to_string()]),
+            None,
+            Some(serde_json::json!({ "trigger_states": ["Todo"], "require_labels": ["x"] })),
+        ));
+        assert_eq!(cfg["trigger_states"], serde_json::json!(["Ready"]));
+        // Untouched adapterConfig keys are preserved.
+        assert_eq!(cfg["require_labels"], serde_json::json!(["x"]));
     }
 }

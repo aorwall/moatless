@@ -143,6 +143,13 @@ pub struct LinearTeamRef {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct LinearProjectRef {
+    pub id: String,
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct LinearWorkflowState {
     #[serde(default)]
     pub id: String,
@@ -227,6 +234,12 @@ pub struct IssuePayload {
     pub team_id: Option<String>,
     #[serde(default)]
     pub team: Option<LinearTeamRef>,
+    /// Project the issue belongs to (scalar id on the webhook payload).
+    #[serde(default, rename = "projectId")]
+    pub project_id: Option<String>,
+    /// Nested project object, when the webhook embeds it.
+    #[serde(default)]
+    pub project: Option<LinearProjectRef>,
     #[serde(default)]
     pub state: Option<LinearWorkflowState>,
 }
@@ -238,6 +251,15 @@ impl IssuePayload {
             return Some(id);
         }
         self.team.as_ref().map(|t| t.id.as_str())
+    }
+
+    /// Resolve the project uuid from either `projectId` or the nested
+    /// `project.id`. `None` when the issue has no project.
+    pub fn resolved_project_id(&self) -> Option<&str> {
+        if let Some(id) = self.project_id.as_deref() {
+            return Some(id);
+        }
+        self.project.as_ref().map(|p| p.id.as_str())
     }
 
     /// Resolve the state name (empty string when missing).
@@ -390,6 +412,40 @@ mod tests {
         assert_eq!(issue.resolved_team_id(), Some("team-1"));
         assert_eq!(issue.state_name(), "In Progress");
         assert_eq!(issue.state_kind(), "started");
+    }
+
+    #[test]
+    fn parses_issue_update_with_project_scalar_and_nested() {
+        // Scalar `projectId` wins; nested `project.id` is the fallback.
+        let scalar: IssuePayload = serde_json::from_value(serde_json::json!({
+            "id": "issue-p1",
+            "identifier": "ENG-P1",
+            "title": "Scoped",
+            "teamId": "team-1",
+            "projectId": "proj-123",
+            "state": {"id": "st", "name": "Ready", "type": "unstarted"}
+        }))
+        .expect("parse");
+        assert_eq!(scalar.resolved_project_id(), Some("proj-123"));
+
+        let nested: IssuePayload = serde_json::from_value(serde_json::json!({
+            "id": "issue-p2",
+            "identifier": "ENG-P2",
+            "title": "Scoped",
+            "teamId": "team-1",
+            "project": {"id": "proj-456", "name": "Launch"},
+        }))
+        .expect("parse");
+        assert_eq!(nested.resolved_project_id(), Some("proj-456"));
+
+        let none: IssuePayload = serde_json::from_value(serde_json::json!({
+            "id": "issue-p3",
+            "identifier": "ENG-P3",
+            "title": "Unscoped",
+            "teamId": "team-1"
+        }))
+        .expect("parse");
+        assert_eq!(none.resolved_project_id(), None);
     }
 
     #[test]

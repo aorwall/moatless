@@ -11,7 +11,7 @@ use serde::Deserialize;
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LoopFrontmatter {
-    /// Event source: `github_pr`, `schedule`, or `slack`.
+    /// Event source: `github_pr`, `schedule`, `slack`, or `linear`.
     pub on: String,
     /// Optional override for `triggers.name` (defaults to the loop dir name).
     #[serde(default)]
@@ -32,8 +32,28 @@ pub struct LoopFrontmatter {
     #[serde(default)]
     pub source_matcher: Option<String>,
     /// Slack workspace/team id for resolving the adapter connection (`on: slack`).
+    /// For `on: linear` this is the Linear **workspace/organization id** used to
+    /// resolve the Linear connection when more than one is installed; omit it
+    /// when there's exactly one Linear connection.
     #[serde(default)]
     pub team_id: Option<String>,
+    /// `on: linear` only — Linear workflow state NAMES whose ENTRY spawns a task
+    /// (e.g. `["Ready"]`). Maps to `provider_config.trigger_states`.
+    #[serde(default)]
+    pub trigger_states: Option<Vec<String>>,
+    /// `on: linear` only — Linear project UUIDs to restrict task creation to.
+    /// Maps to `provider_config.project_ids`. Empty/absent = any project.
+    #[serde(default)]
+    pub project_ids: Option<Vec<String>>,
+    /// `on: linear` only — issue must carry every label here to spawn a task.
+    /// Maps to `provider_config.require_labels`.
+    #[serde(default)]
+    pub require_labels: Option<Vec<String>>,
+    /// `on: linear` only — workflow-state NAME to move the issue into when a
+    /// task is created (e.g. `"In Progress"`). Maps to
+    /// `provider_config.start_state`.
+    #[serde(default)]
+    pub start_state: Option<String>,
     /// Adapter-event filter JSON (default `[]`).
     #[serde(default)]
     pub event_filter: Option<serde_json::Value>,

@@ -76,6 +76,19 @@ async fn insert_slack_connection(pool: &PgPool, team_id: &str) {
     .unwrap();
 }
 
+async fn insert_linear_connection(pool: &PgPool, org_id: &str) {
+    sqlx::query(
+        "INSERT INTO integration_connections \
+         (id, adapter_kind, connection_kind, external_account_id, created_by, scope) \
+         VALUES ($1, 'linear', 'linear_oauth', $2, 'user-1', 'user')",
+    )
+    .bind(format!("conn_{org_id}"))
+    .bind(org_id)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
 /// Insert a manual (non-loop) trigger on a repo so we can assert reconcile
 /// never touches it.
 async fn insert_manual_trigger(pool: &PgPool, repo_id: &str) {
@@ -99,6 +112,7 @@ async fn insert_manual_trigger(pool: &PgPool, repo_id: &str) {
 const GITHUB_LOOP: &str = "---\non: github_pr\nagentType: claude-code\ntags: [review]\n---\n\nReview this PR.\n";
 const SCHEDULE_LOOP: &str = "---\non: schedule\nschedule:\n  cron: \"0 0 6 * * MON-FRI *\"\n  timezone: Europe/Stockholm\n  message: \"Run the daily check.\"\n---\n\nDaily health check.\n";
 const SLACK_LOOP: &str = "---\non: slack\nsourceMatcher: C0000000001\nteamId: T0000000001\nroutingMode: ongoing\nadapterConfig:\n  allow_bot_messages: true\n  trigger: all_messages\n---\n\nTriage CI failures posted to #notifications-cicd.\n";
+const LINEAR_LOOP: &str = "---\non: linear\nsourceMatcher: team-uuid-eng\ntriggerStates: [Ready]\nprojectIds: [proj-launch]\nstartState: In Progress\n---\n\nPick up the Linear ticket and implement it.\n";
 
 async fn count_manual_triggers(pool: &PgPool) -> i64 {
     sqlx::query_scalar("SELECT count(*) FROM triggers WHERE managed_by IS NULL")
@@ -262,6 +276,72 @@ async fn sync_creates_slack_loop(pool: PgPool) {
     assert_eq!(
         cfg.get("trigger").and_then(serde_json::Value::as_str),
         Some("all_messages")
+    );
+}
+
+#[sqlx::test]
+async fn sync_creates_linear_loop(pool: PgPool) {
+    let repo = make_repository_row("repo-linear", "user-1");
+    seed_team(&pool, "user-1").await;
+    repository_dao::insert(&pool, &repo).await.unwrap();
+    // Single linear connection — resolved without an explicit teamId.
+    insert_linear_connection(&pool, "org-acme").await;
+
+    let state = test_app_state(pool.clone());
+    let auth = auth("user-1");
+
+    let loops = vec![parse_loop(LINEAR_LOOP, "ready-pool").unwrap()];
+    let summary = sync_loops(&state, &repo, &auth, loops).await.unwrap();
+    assert_eq!(summary.created, 1, "linear loop created");
+    assert!(summary.skipped.is_empty(), "nothing skipped: {:?}", summary.skipped);
+
+    // linear loop -> adapter_event trigger pointed at the team uuid via the
+    // single linear connection, with status/project filters in adapter_config
+    // and create_on_status_entry forced on.
+    let row = sqlx::query(
+        "SELECT t.kind, aes.adapter_kind, aes.source_matcher, \
+                aes.connection_id, aes.adapter_config \
+         FROM triggers t \
+         JOIN adapter_event_trigger_sources aes ON aes.trigger_id = t.id \
+         WHERE t.source_repository_id = $1 AND t.loop_name = 'ready-pool' AND t.managed_by = 'repo_loop'",
+    )
+    .bind(&repo.id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(row.get::<String, _>("kind"), "adapter_event");
+    assert_eq!(row.get::<String, _>("adapter_kind"), "linear");
+    assert_eq!(row.get::<String, _>("source_matcher"), "team-uuid-eng");
+    assert_eq!(row.get::<String, _>("connection_id"), "conn_org-acme");
+    let cfg: serde_json::Value = row.get("adapter_config");
+    assert_eq!(
+        cfg.get("create_on_status_entry").and_then(serde_json::Value::as_bool),
+        Some(true)
+    );
+    assert_eq!(cfg.get("trigger_states"), Some(&serde_json::json!(["Ready"])));
+    assert_eq!(cfg.get("project_ids"), Some(&serde_json::json!(["proj-launch"])));
+    assert_eq!(cfg.get("start_state"), Some(&serde_json::json!("In Progress")));
+}
+
+#[sqlx::test]
+async fn linear_loop_without_connection_is_skipped(pool: PgPool) {
+    let repo = make_repository_row("repo-linear-noconn", "user-1");
+    seed_team(&pool, "user-1").await;
+    repository_dao::insert(&pool, &repo).await.unwrap();
+    // No linear connection inserted.
+
+    let state = test_app_state(pool.clone());
+    let auth = auth("user-1");
+
+    let loops = vec![parse_loop(LINEAR_LOOP, "ready-pool").unwrap()];
+    let summary = sync_loops(&state, &repo, &auth, loops).await.unwrap();
+
+    assert_eq!(summary.created, 0);
+    assert_eq!(summary.skipped.len(), 1, "linear loop skipped");
+    assert!(
+        summary.skipped[0].reason.contains("linear connection"),
+        "reason: {}",
+        summary.skipped[0].reason
     );
 }
 

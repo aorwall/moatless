@@ -620,6 +620,34 @@ impl LinearAgentApi {
             .ok_or_else(|| AdapterError::AdapterApi("issueUpdate missing issue subobject".into()))
     }
 
+    /// Resolve a workflow-state NAME to its UUID within a specific team.
+    /// Linear scopes workflow states per team, so a name like "In Progress"
+    /// can exist in several teams — filtering by team guarantees the issue is
+    /// transitioned to the right team's state (an `issueUpdate` with a
+    /// foreign-team state id is rejected). Case-insensitive; returns `None`
+    /// when no state in the team matches.
+    pub async fn find_team_state_id(
+        &self,
+        team_id: &str,
+        state_name: &str,
+    ) -> Result<Option<String>, AdapterError> {
+        let value = self
+            .graphql(serde_json::json!({
+                "query": "query($teamId: ID!, $name: String!) { \
+                    workflowStates(filter: { team: { id: { eq: $teamId } }, \
+                                             name: { eqIgnoreCase: $name } }, first: 1) { \
+                        nodes { id name } \
+                    } \
+                }",
+                "variables": { "teamId": team_id, "name": state_name }
+            }))
+            .await?;
+        Ok(value
+            .pointer("/data/workflowStates/nodes/0/id")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string))
+    }
+
     /// Post a comment on an issue. Returns the created comment subobject
     /// (`id`, `url`, `body`).
     pub async fn create_comment(

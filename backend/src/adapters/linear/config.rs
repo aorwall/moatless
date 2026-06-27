@@ -32,6 +32,21 @@ pub struct LinearRuleConfig {
     pub terminal_states: Vec<String>,
     /// Mirror of the rule's scalar `close_task_on_close` column.
     pub close_task_on_close: bool,
+    /// Opt-in: when `true`, an `Issue.update` that moves the issue INTO one of
+    /// `trigger_states` (and satisfies `require_labels` / `project_ids`) spawns
+    /// a brand-new Moatless task for the issue. Defaults to `false` so the
+    /// pre-existing mention/assignment-only Linear rules are unaffected — they
+    /// carry the legacy non-empty `trigger_states` default but must NOT start
+    /// auto-creating tasks on every status change. `on: linear` loops set this
+    /// to `true` explicitly.
+    pub create_on_status_entry: bool,
+    /// Project allowlist — issue must belong to one of these Linear project
+    /// UUIDs to fire status-entry creation. Empty = any project.
+    pub project_ids: Vec<String>,
+    /// Optional workflow-state NAME to move the issue INTO when a status-entry
+    /// task is created (e.g. `"In Progress"`), so the board reflects that the
+    /// agent picked the ticket up. `None` leaves the issue's state unchanged.
+    pub start_state: Option<String>,
 }
 
 impl LinearRuleConfig {
@@ -65,12 +80,57 @@ impl LinearRuleConfig {
                 .collect()
         });
 
+        let create_on_status_entry = filter
+            .get("create_on_status_entry")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+
+        let project_ids = string_list(filter, "project_ids").unwrap_or_default();
+
+        let start_state = filter
+            .get("start_state")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+            .filter(|s| !s.is_empty());
+
         Self {
             require_labels,
             trigger_states,
             terminal_states,
             close_task_on_close: rule.close_task_on_close,
+            create_on_status_entry,
+            project_ids,
+            start_state,
         }
+    }
+
+    /// Whether this listener should spawn a task when the issue enters
+    /// `state_name`. Requires the opt-in flag AND a non-empty `trigger_states`
+    /// containing the new state. An explicit empty `trigger_states` therefore
+    /// disables status-entry creation even when the flag is set.
+    pub fn creates_on_status(&self, state_name: &str) -> bool {
+        self.create_on_status_entry
+            && self.trigger_states.iter().any(|s| s == state_name)
+    }
+
+    /// Whether `project_id` passes this listener's project allowlist. An empty
+    /// allowlist matches any project (including issues with no project).
+    pub fn project_allowed(&self, project_id: Option<&str>) -> bool {
+        if self.project_ids.is_empty() {
+            return true;
+        }
+        match project_id {
+            Some(id) => self.project_ids.iter().any(|p| p == id),
+            None => false,
+        }
+    }
+
+    /// Whether `labels` satisfy this listener's `require_labels` (every
+    /// required label must be present). An empty requirement matches anything.
+    pub fn labels_allowed(&self, labels: &[String]) -> bool {
+        self.require_labels
+            .iter()
+            .all(|req| labels.iter().any(|l| l == req))
     }
 }
 
@@ -133,6 +193,89 @@ mod tests {
         assert_eq!(cfg.trigger_states, vec!["Todo", "In Progress"]);
         assert_eq!(cfg.terminal_states, vec!["completed", "canceled"]);
         assert!(cfg.close_task_on_close);
+        // Status-entry creation is OFF unless explicitly opted in.
+        assert!(!cfg.create_on_status_entry);
+        assert!(cfg.project_ids.is_empty());
+    }
+
+    #[test]
+    fn create_on_status_requires_opt_in_flag() {
+        // Default config has the legacy non-empty trigger_states but the flag
+        // off — it must NOT create on status entry.
+        let off = LinearRuleConfig::from_rule(&rule_with(serde_json::json!({}), true));
+        assert!(!off.creates_on_status("Todo"));
+
+        let on = LinearRuleConfig::from_rule(&rule_with(
+            serde_json::json!({
+                "create_on_status_entry": true,
+                "trigger_states": ["Ready"],
+            }),
+            true,
+        ));
+        assert!(on.creates_on_status("Ready"));
+        assert!(!on.creates_on_status("Todo"));
+    }
+
+    #[test]
+    fn create_on_status_disabled_by_empty_trigger_states() {
+        // Explicit empty trigger_states opts out even with the flag on.
+        let cfg = LinearRuleConfig::from_rule(&rule_with(
+            serde_json::json!({
+                "create_on_status_entry": true,
+                "trigger_states": [],
+            }),
+            true,
+        ));
+        assert!(!cfg.creates_on_status("Ready"));
+    }
+
+    #[test]
+    fn project_allowlist_filters() {
+        let cfg = LinearRuleConfig::from_rule(&rule_with(
+            serde_json::json!({ "project_ids": ["proj-a", "proj-b"] }),
+            true,
+        ));
+        assert_eq!(cfg.project_ids, vec!["proj-a", "proj-b"]);
+        assert!(cfg.project_allowed(Some("proj-a")));
+        assert!(!cfg.project_allowed(Some("proj-z")));
+        // No project on the issue → rejected when an allowlist is set.
+        assert!(!cfg.project_allowed(None));
+
+        // Empty allowlist accepts anything, including project-less issues.
+        let any = LinearRuleConfig::from_rule(&rule_with(serde_json::json!({}), true));
+        assert!(any.project_allowed(Some("proj-a")));
+        assert!(any.project_allowed(None));
+    }
+
+    #[test]
+    fn parses_start_state() {
+        let cfg = LinearRuleConfig::from_rule(&rule_with(
+            serde_json::json!({ "start_state": "In Progress" }),
+            true,
+        ));
+        assert_eq!(cfg.start_state.as_deref(), Some("In Progress"));
+
+        // Absent or empty → no transition.
+        let none = LinearRuleConfig::from_rule(&rule_with(serde_json::json!({}), true));
+        assert_eq!(none.start_state, None);
+        let empty = LinearRuleConfig::from_rule(&rule_with(
+            serde_json::json!({ "start_state": "" }),
+            true,
+        ));
+        assert_eq!(empty.start_state, None);
+    }
+
+    #[test]
+    fn labels_allowed_requires_all() {
+        let cfg = LinearRuleConfig::from_rule(&rule_with(
+            serde_json::json!({ "require_labels": ["agent", "ready"] }),
+            true,
+        ));
+        assert!(cfg.labels_allowed(&["agent".into(), "ready".into(), "bug".into()]));
+        assert!(!cfg.labels_allowed(&["agent".into()]));
+        // No requirements → anything passes.
+        let any = LinearRuleConfig::from_rule(&rule_with(serde_json::json!({}), true));
+        assert!(any.labels_allowed(&[]));
     }
 
     #[test]
