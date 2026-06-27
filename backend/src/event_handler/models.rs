@@ -80,6 +80,19 @@ pub struct SdkResultMessage {
     pub duration_ms: Option<u64>,
     #[serde(alias = "duration_api_ms")]
     pub duration_api_ms: Option<u64>,
+    /// Tool calls the agent attempted but was denied permission for. Used to
+    /// emit the `moatless_agent_permission_denials_total` metric. Defaults to
+    /// empty when the runtime doesn't report denials.
+    #[serde(default, alias = "permission_denials")]
+    pub permission_denials: Vec<PermissionDenialInfo>,
+}
+
+/// One denied tool call from the SDK result's `permission_denials` array.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionDenialInfo {
+    #[serde(alias = "tool_name")]
+    pub tool_name: Option<String>,
 }
 
 /// Deserialize any JSON value into `Option<String>`.

@@ -51,6 +51,32 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
         return;
     }
 
+    // Prometheus: this is a successful terminal run (error completions
+    // short-circuit above). Record outcome, cost, turn latency, turn count, and
+    // any permission denials from the SDK result. The tmux backend reports
+    // 0-valued durations on some paths — those are filtered out.
+    {
+        let agent_type = event.agent_type.as_deref();
+        super::metrics::record_run("completed", agent_type);
+        if let Some(cost) = sdk_result.total_cost_usd {
+            super::metrics::record_cost(agent_type, cost);
+        }
+        if let Some(ms) = sdk_result.duration_ms.filter(|&ms| ms > 0) {
+            super::metrics::record_turn_duration(agent_type, "completed", ms as f64 / 1000.0);
+        }
+        if let Some(ms) = sdk_result.duration_api_ms.filter(|&ms| ms > 0) {
+            super::metrics::record_turn_api_duration(agent_type, ms as f64 / 1000.0);
+        }
+        if let Some(n) = sdk_result.num_turns {
+            super::metrics::record_turns(agent_type, n);
+        }
+        for denial in &sdk_result.permission_denials {
+            if let Some(name) = denial.tool_name.as_deref() {
+                super::metrics::record_permission_denial(super::metrics::bucket_tool(name));
+            }
+        }
+    }
+
     // Fallback: set real Claude Code session_id on user messages
     // (in case session_init event was missed or arrived before messages were fetched)
     if let Some(ref sid) = sdk_result.session_id {
@@ -239,6 +265,9 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
         }
     }
 
+    // Prometheus: count the stopped run once, after the duplicate-stop guard.
+    super::metrics::record_run("stopped", event.agent_type.as_deref());
+
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let msg_uuid = message_uuid_for_event(&event.event_id);
 
@@ -331,6 +360,12 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
 
 /// Handle `agent.error` or `sandbox.fatal` event.
 pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
+    // Prometheus: count the errored run. Reached both from the `agent.error`
+    // dispatch arm and from `handle_agent_completed`'s `is_error` short-circuit
+    // (which returns before recording a `completed` outcome), so an error run is
+    // never double-counted as completed.
+    super::metrics::record_run("error", event.agent_type.as_deref());
+
     let error_msg = event
         .payload
         .get("error")
@@ -571,6 +606,11 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
     } else {
         content
     };
+
+    // Emit tool-call metrics: cache tool_use_id→tool on the assistant message,
+    // and count the completed call (by tool + status) on the matching user
+    // tool_result message. Fire-and-forget — never blocks persistence.
+    record_tool_call_metrics(state, event, &content, msg_role == "user").await;
 
     let usage = event.payload.get("message").and_then(|m| m.get("usage"));
 
@@ -864,6 +904,97 @@ fn build_content_blocks_from_payload(content: &serde_json::Value) -> Vec<TaskMes
             }
         })
         .collect()
+}
+
+/// Emit per-tool-call Prometheus metrics from an `agent.message` content array.
+///
+/// A `tool_use` block carries the tool `name`; the matching `tool_result` block
+/// (which carries `is_error`) arrives in a *separate* user-role event and has
+/// only `tool_use_id`. So we cache `tool_use_id → bucketed tool` when the
+/// assistant call is seen, and increment the counter (with success/error
+/// status) when the user result lands, recovering the tool label from the cache
+/// (or a DB fallback). See [`super::metrics`].
+async fn record_tool_call_metrics(
+    state: &AppState,
+    event: &AgentEvent,
+    content: &serde_json::Value,
+    is_user: bool,
+) {
+    let Some(blocks) = content.as_array() else {
+        return;
+    };
+
+    if is_user {
+        // tool_result blocks → count the completed call by tool + outcome.
+        for block in blocks {
+            if block.get("type").and_then(|v| v.as_str()) != Some("tool_result") {
+                continue;
+            }
+            let Some(tool_use_id) = block.get("tool_use_id").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            let status = if block.get("is_error").and_then(serde_json::Value::as_bool) == Some(true)
+            {
+                "error"
+            } else {
+                "ok"
+            };
+            let tool = resolve_tool_label(state, &event.task_id, tool_use_id).await;
+            super::metrics::record_tool_call(tool, event.agent_type.as_deref(), status);
+        }
+    } else {
+        // assistant tool_use blocks → cache the bucketed tool name so the later
+        // tool_result event can label its outcome without a DB hit.
+        for block in blocks {
+            if block.get("type").and_then(|v| v.as_str()) != Some("tool_use") {
+                continue;
+            }
+            let (Some(id), Some(name)) = (
+                block.get("id").and_then(|v| v.as_str()),
+                block.get("name").and_then(|v| v.as_str()),
+            ) else {
+                continue;
+            };
+            state
+                .tool_call_names
+                .insert(id.to_string(), super::metrics::bucket_tool(name))
+                .await;
+        }
+    }
+}
+
+/// Resolve the bucketed tool label for a `tool_use_id`: in-memory cache first,
+/// then a persisted-row lookup, finally `"unknown"`. The DB fallback covers
+/// cross-process / post-restart misses where the assistant tool_use block was
+/// never seen by this process.
+async fn resolve_tool_label(
+    state: &AppState,
+    task_id: &str,
+    tool_use_id: &str,
+) -> &'static str {
+    if let Some(label) = state.tool_call_names.get(tool_use_id).await {
+        return label;
+    }
+    match state.messages.find_tool_call(task_id, tool_use_id).await {
+        Ok(Some(row)) => {
+            let label = super::metrics::bucket_tool(&row.tool_name);
+            state
+                .tool_call_names
+                .insert(tool_use_id.to_string(), label)
+                .await;
+            label
+        }
+        Ok(None) => "unknown",
+        Err(e) => {
+            tracing::debug!(
+                task_id,
+                tool_use_id,
+                error = %e,
+                "tool-call metric: tool name lookup failed; labelling as unknown"
+            );
+            "unknown"
+        }
+    }
 }
 
 /// Resolve which turn a result/error/stopped row belongs to.

@@ -49,6 +49,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&config.log_level)),
         )
         .json()
+        // Lift event fields (incl. `message`) to the JSON root so Loki's
+        // `| json | message=…` works directly instead of `fields_message`.
+        .flatten_event(true)
+        // Render the current span's fields under a compact `span` object
+        // (queryable in Loki as `span_<field>`); drop the `spans` array since
+        // JSON arrays aren't field-queryable there.
+        .with_current_span(true)
+        .with_span_list(false)
         .init();
 
     info!(

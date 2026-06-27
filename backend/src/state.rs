@@ -77,6 +77,13 @@ pub struct AppState {
     /// Per-task gate that suppresses stray Linear activity emission after a
     /// turn has terminated. See [`ActiveLinearTurns`].
     pub linear_active_turns: Arc<ActiveLinearTurns>,
+    /// Maps `tool_use_id` → bucketed tool-type label, populated when an
+    /// assistant `tool_use` block is observed so the later (separate)
+    /// `tool_result` event can be labelled by tool type for the
+    /// `moatless_agent_tool_calls_total` metric without a DB round-trip.
+    /// Bounded LRU; a `messages.find_tool_call` lookup covers cross-process /
+    /// post-restart misses, falling back to `unknown`.
+    pub tool_call_names: Arc<moka::future::Cache<String, &'static str>>,
 
     // =========================================================================
     // Repository trait objects
@@ -220,6 +227,12 @@ impl AppState {
             credentials_svc,
             recently_sent: Arc::new(RecentlySent::new()),
             linear_active_turns: Arc::new(ActiveLinearTurns::new()),
+            tool_call_names: Arc::new(
+                moka::future::Cache::builder()
+                    .max_capacity(50_000)
+                    .time_to_live(std::time::Duration::from_secs(1800))
+                    .build(),
+            ),
         }
     }
 }

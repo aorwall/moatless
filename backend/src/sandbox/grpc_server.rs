@@ -159,11 +159,16 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
     /// SSE consumers and event handlers continue to work unchanged.
     ///
     /// No auth verification — fire-and-forget, can't risk event loss.
+    #[tracing::instrument(
+        skip_all,
+        fields(request_id = %uuid::Uuid::new_v4(), task_id = tracing::field::Empty)
+    )]
     async fn publish_event(
         &self,
         request: Request<PublishEventRequest>,
     ) -> Result<Response<PublishEventResponse>, Status> {
         let event = request.into_inner();
+        tracing::Span::current().record("task_id", event.task_id.as_str());
 
         let Some(ref publisher) = self.events else {
             // Redis not configured — accept but discard
@@ -223,16 +228,26 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
     ///
     /// The sandbox polls this instead of the HTTP endpoint. The response
     /// format matches what the sandbox consumer expects.
+    #[tracing::instrument(
+        skip_all,
+        fields(
+            request_id = %uuid::Uuid::new_v4(),
+            task_id = tracing::field::Empty,
+            user_id = tracing::field::Empty
+        )
+    )]
     async fn get_pending_messages(
         &self,
         request: Request<GetPendingMessagesRequest>,
     ) -> Result<Response<GetPendingMessagesResponse>, Status> {
         // Verify auth if secret is configured
         if self.task_token_secret.is_some() {
-            let _claims = self.verify_auth(&request)?;
+            let claims = self.verify_auth(&request)?;
+            tracing::Span::current().record("user_id", claims.user_id.as_str());
         }
 
         let req = request.into_inner();
+        tracing::Span::current().record("task_id", req.task_id.as_str());
 
         let Some(ref messages) = self.messages else {
             return Ok(Response::new(GetPendingMessagesResponse {
@@ -452,12 +467,22 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
     /// 1. Scoped global/team/user secrets.
     /// 2. Team-level provider_tokens compatibility reads.
     /// 3. User-level provider_tokens compatibility reads.
+    #[tracing::instrument(
+        skip_all,
+        fields(
+            request_id = %uuid::Uuid::new_v4(),
+            task_id = tracing::field::Empty,
+            user_id = tracing::field::Empty
+        )
+    )]
     async fn get_credentials(
         &self,
         request: Request<GetCredentialsRequest>,
     ) -> Result<Response<GetCredentialsResponse>, Status> {
         let claims = self.verify_auth(&request)?;
         let req = request.into_inner();
+        tracing::Span::current().record("task_id", req.task_id.as_str());
+        tracing::Span::current().record("user_id", claims.user_id.as_str());
 
         debug!(
             task_id = %req.task_id,
@@ -520,12 +545,22 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
     /// Resolution mirrors `resolve_task_credentials`: if the task has a team
     /// and the team owns a token for the provider, the team-level row is
     /// updated; otherwise the user-level row is updated.
+    #[tracing::instrument(
+        skip_all,
+        fields(
+            request_id = %uuid::Uuid::new_v4(),
+            task_id = tracing::field::Empty,
+            user_id = tracing::field::Empty
+        )
+    )]
     async fn update_credential(
         &self,
         request: Request<UpdateCredentialRequest>,
     ) -> Result<Response<UpdateCredentialResponse>, Status> {
         let claims = self.verify_auth(&request)?;
         let req = request.into_inner();
+        tracing::Span::current().record("task_id", req.task_id.as_str());
+        tracing::Span::current().record("user_id", claims.user_id.as_str());
 
         let Some(provider) = credential_key_to_provider(&req.key) else {
             warn!(

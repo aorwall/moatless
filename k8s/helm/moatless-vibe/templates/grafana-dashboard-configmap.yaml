@@ -12,4 +12,6 @@ metadata:
 data:
   moatless-overview.json: |-
 {{ .Files.Get "dashboards/moatless-overview.json" | indent 4 }}
+  moatless-vibe-live.json: |-
+{{ .Files.Get "dashboards/moatless-vibe-live.json" | indent 4 }}
 {{- end }}

@@ -46,6 +46,14 @@ pub fn init_tracing() {
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .json()
+        // Lift event fields (incl. `message`) to the JSON root so Loki's
+        // `| json | message=…` works directly instead of `fields_message`.
+        .flatten_event(true)
+        // Render the current span's fields under a compact `span` object
+        // (queryable in Loki as `span_<field>`); drop the `spans` array since
+        // JSON arrays aren't field-queryable there.
+        .with_current_span(true)
+        .with_span_list(false)
         .init();
 }
 
@@ -60,6 +68,7 @@ pub fn spawn_metrics_server(port: u16) {
     crate::adapters::metrics::describe_adapter_metrics();
     crate::triggers::metrics::describe_trigger_metrics();
     crate::bindings::metrics::describe_binding_metrics();
+    crate::event_handler::metrics::describe_agent_metrics();
     let router = metrics::metrics_router(handle);
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     tokio::spawn(async move {

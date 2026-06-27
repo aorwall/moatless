@@ -409,7 +409,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         axum::routing::get(move || async move { Json(openapi_json) }),
     );
 
-    // Apply auth middleware (outermost layer — runs first on every request)
+    // Apply auth middleware. Runs inside the request-trace span (added below)
+    // so it can record `user_id` onto the current span.
     let router = if let Some(mw_state) = auth_middleware_state {
         info!("Auth middleware enabled");
         router
@@ -419,6 +420,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("Auth middleware disabled (no database)");
         router
     };
+
+    // Outermost layer — opens one `http_request` span (request_id, method,
+    // path, …) per request so every downstream log line inherits the context,
+    // emits a single access-log line, and echoes `x-request-id` to clients.
+    let router = router.layer(axum::middleware::from_fn(request_trace_middleware));
 
     // ── Serve ───────────────────────────────────────────────────────────
     let addr = SocketAddr::from(([0, 0, 0, 0], config.server.port));
@@ -432,6 +438,58 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 // =========================================================================
 // Small private helpers (kept in main to avoid over-abstracting)
 // =========================================================================
+
+/// Per-request tracing span + access log + `x-request-id` correlation.
+///
+/// As the outermost middleware it opens one `http_request` span carrying a
+/// generated `request_id`, the `method`, and the `path` (with `user_id`,
+/// `status`, and `latency_ms` recorded later), and enters it for the whole
+/// downstream stack so every child log line inherits the context (rendered by
+/// the JSON subscriber under `span` → queryable in Loki as `span_request_id`,
+/// `span_user_id`, …). On completion it records status/latency, emits a single
+/// access-log line (skipped for K8s probes to avoid log spam), and echoes
+/// `x-request-id` back to the client for support correlation.
+async fn request_trace_middleware(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use tracing::Instrument;
+
+    let method = req.method().clone();
+    let path = req.uri().path().to_string();
+    // K8s liveness/readiness probes hit these on a tight interval; access-logging
+    // them would recreate the high-volume probe noise we are trying to remove.
+    let is_probe = matches!(path.as_str(), "/health" | "/healthz" | "/ready");
+    let request_id = uuid::Uuid::new_v4().to_string();
+
+    let span = tracing::info_span!(
+        "http_request",
+        request_id = %request_id,
+        method = %method,
+        path = %path,
+        user_id = tracing::field::Empty,
+        status = tracing::field::Empty,
+        latency_ms = tracing::field::Empty,
+    );
+
+    let start = std::time::Instant::now();
+    async move {
+        let mut res = next.run(req).await;
+        let latency_ms = start.elapsed().as_millis() as u64;
+        let span = tracing::Span::current();
+        span.record("status", res.status().as_u16());
+        span.record("latency_ms", latency_ms);
+        if !is_probe {
+            tracing::info!("request completed");
+        }
+        if let Ok(value) = axum::http::HeaderValue::from_str(&request_id) {
+            res.headers_mut().insert("x-request-id", value);
+        }
+        res
+    }
+    .instrument(span)
+    .await
+}
 
 /// Spawn the Redis event-handler consumer if Redis is configured.
 async fn spawn_event_handler(config: &Config, app_state: &AppState, cancel: CancellationToken) {

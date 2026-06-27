@@ -31,6 +31,7 @@ pub struct SandboxServiceImpl {
 
 #[tonic::async_trait]
 impl SandboxService for SandboxServiceImpl {
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
     async fn execute_agent(
         &self,
         _request: Request<ExecuteAgentRequest>,
@@ -46,6 +47,7 @@ impl SandboxService for SandboxServiceImpl {
         Ok(Response::new(ExecuteAgentResponse {}))
     }
 
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
     async fn stop_agent(
         &self,
         _request: Request<StopAgentRequest>,
@@ -71,6 +73,7 @@ impl SandboxService for SandboxServiceImpl {
         Ok(Response::new(StopAgentResponse {}))
     }
 
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
     async fn get_agent_status(
         &self,
         _request: Request<GetAgentStatusRequest>,
@@ -108,6 +111,7 @@ impl SandboxService for SandboxServiceImpl {
         }))
     }
 
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
     async fn notify_messages(
         &self,
         _request: Request<NotifyMessagesRequest>,
@@ -123,6 +127,7 @@ impl SandboxService for SandboxServiceImpl {
     /// Apply a backend-pushed credential refresh. Routes the value through
     /// the sandbox-wide [`Dispatcher`] which writes files / updates env / etc.
     /// per the sink registered for the credential key.
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
     async fn refresh_credential(
         &self,
         request: Request<RefreshCredentialRequest>,
@@ -147,6 +152,7 @@ impl SandboxService for SandboxServiceImpl {
 
     // ── File operations ──────────────────────────────────────────
 
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
     async fn get_file_tree(
         &self,
         request: Request<GetFileTreeRequest>,
@@ -178,6 +184,7 @@ impl SandboxService for SandboxServiceImpl {
         }))
     }
 
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
     async fn read_file(
         &self,
         request: Request<ReadFileRequest>,
@@ -214,6 +221,7 @@ impl SandboxService for SandboxServiceImpl {
         }
     }
 
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
     async fn write_file(
         &self,
         request: Request<WriteFileRequest>,
@@ -229,6 +237,7 @@ impl SandboxService for SandboxServiceImpl {
         Ok(Response::new(WriteFileResponse {}))
     }
 
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
     async fn list_files(
         &self,
         request: Request<ListFilesRequest>,
@@ -244,6 +253,7 @@ impl SandboxService for SandboxServiceImpl {
         Ok(Response::new(ListFilesResponse { files }))
     }
 
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
     async fn search_files_by_name(
         &self,
         request: Request<SearchFilesByNameRequest>,

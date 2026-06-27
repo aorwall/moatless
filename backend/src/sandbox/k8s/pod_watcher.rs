@@ -101,6 +101,11 @@ struct PodObservedState {
     /// still reporting the crash-looping container. Cleared naturally when a new
     /// pod replaces this map entry.
     auto_disabled_servers: HashSet<String>,
+    /// Whether the `moatless_sandbox_startup_seconds` histogram has already been
+    /// recorded for this pod. Carried over so a pod that goes Ready→NotReady→
+    /// Ready (e.g. after a container restart) is only timed on its *first* ready,
+    /// keeping startup latency from being inflated by re-readies.
+    startup_recorded: bool,
 }
 
 impl PodObservedState {
@@ -141,6 +146,10 @@ pub fn spawn_pod_lifecycle_watcher(
     metrics::describe_counter!(
         "sandbox_container_terminations_total",
         "Non-intentional sandbox container terminations, labelled by lifecycle_event, K8s reason, and exit_code"
+    );
+    metrics::describe_histogram!(
+        "moatless_sandbox_startup_seconds",
+        "Sandbox startup latency in seconds, measured from pod creation to the sandbox container's first Ready"
     );
     let deps = WatcherDeps {
         tasks,
@@ -519,13 +528,20 @@ async fn process_watcher_event(
                     .await;
             }
 
-            // Carry over fatal_published from previous state, then reset on recovery
+            // Carry over fatal_published from previous state, then reset on recovery.
+            // startup_recorded is sticky (never reset) so re-readies aren't re-timed.
             if let Some(prev) = prev_state {
                 new_state.fatal_published = prev.fatal_published;
                 new_state.auto_disabled_servers = prev.auto_disabled_servers.clone();
+                new_state.startup_recorded = prev.startup_recorded;
             }
             if transitions.iter().any(|(sub, _)| sub == "pod_ready") {
                 new_state.fatal_published = false;
+                // Time pod-creation → first Ready once per pod.
+                if !new_state.startup_recorded {
+                    record_sandbox_startup(pod);
+                    new_state.startup_recorded = true;
+                }
             }
 
             // Only truly irrecoverable events are fatal — pod-level failures
@@ -1098,6 +1114,25 @@ fn extract_task_id(pod: &Pod) -> Option<String> {
 }
 
 /// Build the observed state from a pod's current status.
+/// Record sandbox startup latency (pod creation → first sandbox-container Ready)
+/// into the `moatless_sandbox_startup_seconds` histogram.
+///
+/// Uses the pod's `metadata.creationTimestamp` as the start. Skips pods without
+/// a creation timestamp or with a negative (clock-skew) elapsed time.
+fn record_sandbox_startup(pod: &Pod) {
+    // k8s-openapi represents `creationTimestamp` as a jiff `Timestamp`, not
+    // chrono. Compare epoch-millis directly to avoid a cross-crate Sub impl.
+    let Some(created) = pod.metadata.creation_timestamp.as_ref().map(|t| t.0) else {
+        return;
+    };
+    let elapsed_ms =
+        k8s_openapi::jiff::Timestamp::now().as_millisecond() - created.as_millisecond();
+    if elapsed_ms < 0 {
+        return;
+    }
+    metrics::histogram!("moatless_sandbox_startup_seconds").record(elapsed_ms as f64 / 1000.0);
+}
+
 fn extract_pod_observed_state(pod: &Pod, pod_name: &str, task_id: &str) -> PodObservedState {
     let status = pod.status.as_ref();
 
@@ -1220,6 +1255,7 @@ fn extract_pod_observed_state(pod: &Pod, pod_name: &str, task_id: &str) -> PodOb
         server_containers,
         fatal_published: false,
         auto_disabled_servers: HashSet::new(),
+        startup_recorded: false,
     }
 }
 

@@ -5,6 +5,7 @@
 
 pub mod agent_handlers;
 pub mod consumer;
+pub mod metrics;
 pub mod models;
 
 use redis::aio::ConnectionManager;

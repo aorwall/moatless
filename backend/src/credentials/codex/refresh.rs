@@ -353,15 +353,18 @@ pub(super) async fn codex_refresh_inner(
         };
     }
 
-    // Lock the row for the duration of the refresh.
+    // Lock the row for the duration of the refresh. Also read the prior
+    // recorded failure reason so the permanent-failure arm can WARN only on the
+    // *transition* into a terminal state instead of on every retry.
     let lock_sql = format!(
-        "SELECT access_token FROM provider_tokens WHERE {scope_where} FOR UPDATE",
+        "SELECT access_token, metadata->'refresh_failure'->>'reason' AS prev_fail_reason \
+         FROM provider_tokens WHERE {scope_where} FOR UPDATE",
     );
-    let row: Option<(String,)> = sqlx::query_as(AssertSqlSafe(lock_sql))
+    let row: Option<(String, Option<String>)> = sqlx::query_as(AssertSqlSafe(lock_sql))
         .bind(scope_bind)
         .fetch_optional(&mut *tx)
         .await?;
-    let Some((existing_blob_str,)) = row else {
+    let Some((existing_blob_str, prev_fail_reason)) = row else {
         tx.rollback().await?;
         return Err(CredentialError::NotFound(format!(
             "No codex provider_token for {scope}"
@@ -462,8 +465,9 @@ pub(super) async fn codex_refresh_inner(
             })
         }
         Err(oauth::RefreshTokenError::Permanent { reason, .. }) => {
+            let reason_str = format!("{reason:?}");
             let failure = serde_json::json!({
-                "reason": format!("{reason:?}"),
+                "reason": reason_str,
                 "at": Utc::now().to_rfc3339(),
             });
             // SET takes `$1` (the failure payload); the scope predicate's
@@ -481,11 +485,24 @@ pub(super) async fn codex_refresh_inner(
                 .execute(&mut *tx)
                 .await?;
             tx.commit().await?;
-            warn!(
-                scope = %scope.display(),
-                ?reason,
-                "ensure_fresh_codex: refresh failed permanently — user must reconnect"
-            );
+            // WARN only on the transition into (or a change of) the terminal
+            // state — a row already marked with the same reason re-fails on
+            // every `GetCredentials`, so repeat the notice at DEBUG to avoid
+            // flooding the logs. A successful rotation clears the marker
+            // (see the CAS UPDATE above), so a genuine new failure WARNs again.
+            if prev_fail_reason.as_deref() == Some(reason_str.as_str()) {
+                debug!(
+                    scope = %scope.display(),
+                    ?reason,
+                    "ensure_fresh_codex: refresh still failing permanently (repeat WARN suppressed)"
+                );
+            } else {
+                warn!(
+                    scope = %scope.display(),
+                    ?reason,
+                    "ensure_fresh_codex: refresh failed permanently — user must reconnect"
+                );
+            }
             Err(CredentialError::NotFound(format!(
                 "Codex token refresh failed permanently for {scope} ({reason:?})"
             )))

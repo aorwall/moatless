@@ -130,6 +130,9 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
             {
                 Ok(Some(payload)) => {
                     debug!(user_id = %payload.user_id, path = %path, "Auth middleware: API key valid");
+                    // Stamp user_id onto the surrounding request-trace span so
+                    // every downstream log line carries it.
+                    tracing::Span::current().record("user_id", payload.user_id.as_str());
                     req.extensions_mut().insert(AuthIdentity {
                         user_id: payload.user_id,
                         login: payload.user_login,
@@ -164,6 +167,9 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
         match jwt::verify_session_jwt(token, jwt_secret) {
             Ok(claims) => {
                 debug!(user_id = %claims.sub, path = %path, "Auth middleware: session JWT valid");
+                // Stamp user_id onto the surrounding request-trace span so
+                // every downstream log line carries it.
+                tracing::Span::current().record("user_id", claims.sub.as_str());
                 let role = claims.user_role();
                 req.extensions_mut().insert(AuthIdentity {
                     user_id: claims.sub,
