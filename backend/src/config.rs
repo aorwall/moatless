@@ -107,6 +107,47 @@ fn parse_extra_env(key: &str) -> Vec<(String, String)> {
     }
 }
 
+/// Parse the generic sandbox package-manager cache list from an env var.
+///
+/// Shape (JSON): `[{"name":"maven","mountPath":"/maven-cache",
+/// "env":{"MAVEN_OPTS":"-Dmaven.repo.local=/maven-cache"}}]`. Each entry is a
+/// self-describing cache: a name (→ a subdir on the shared NVMe volume), the
+/// in-container mount path, and the env var(s) that point the tool at it.
+/// Adding npm/bun/pnpm later is one more JSON object, no Rust change.
+/// `env` is parsed into a key-sorted `Vec` (via `BTreeMap`) for deterministic
+/// container specs. Returns an empty vec on parse failure with a warning so a
+/// typo can't take down startup.
+fn parse_cache_volumes(key: &str) -> Vec<SandboxCacheVolume> {
+    let raw = match env::var(key) {
+        Ok(v) if !v.is_empty() => v,
+        _ => return vec![],
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Entry {
+        name: String,
+        #[serde(rename = "mountPath")]
+        mount_path: String,
+        #[serde(default)]
+        env: std::collections::BTreeMap<String, String>,
+    }
+
+    match serde_json::from_str::<Vec<Entry>>(&raw) {
+        Ok(entries) => entries
+            .into_iter()
+            .map(|e| SandboxCacheVolume {
+                name: e.name,
+                mount_path: e.mount_path,
+                env: e.env.into_iter().collect(),
+            })
+            .collect(),
+        Err(e) => {
+            tracing::warn!(key, error = %e, "Failed to parse sandbox cache volumes JSON");
+            vec![]
+        }
+    }
+}
+
 /// Read an environment variable as `Option<String>`.
 fn env_opt(key: &str) -> Option<String> {
     env::var(key).ok()
@@ -170,6 +211,28 @@ pub struct ServerConfig {
     pub grpc_port: u16,
 }
 
+/// A node-local package-manager cache mounted into sandbox pods.
+///
+/// Each entry maps to a `subPath` (`<cache_host_root>/<name>`) on the single
+/// shared `pkg-cache` volume, surfaced in the container at `mount_path`, with
+/// `env` pointing the tool at it (e.g.
+/// `MAVEN_OPTS=-Dmaven.repo.local=/maven-cache`). This is backend-agnostic: only
+/// the volume source (node-local hostPath today, EFS later) changes — the
+/// per-entry mount/env logic is reused either way.
+///
+/// Caches each tool's *download cache/store* (maven local repo, npm `_cacache`,
+/// bun cache, pnpm store) — never per-project `node_modules`, which must not be
+/// shared across repos.
+#[derive(Debug, Clone)]
+pub struct SandboxCacheVolume {
+    /// Cache name → subdirectory under the shared cache root (e.g. `maven`).
+    pub name: String,
+    /// In-container mount path (e.g. `/maven-cache`).
+    pub mount_path: String,
+    /// Env vars that point the tool at the cache, sorted by key.
+    pub env: Vec<(String, String)>,
+}
+
 /// Sandbox pod configuration (images, resources, storage, idle reaper).
 #[derive(Debug, Clone)]
 pub struct SandboxConfig {
@@ -199,7 +262,7 @@ pub struct SandboxConfig {
     pub sandbox_resources_memory_limit: String,
     /// Whether PVC storage is enabled for sandbox pods
     pub storage_enabled: bool,
-    /// PVC storage size (e.g., "5Gi")
+    /// PVC storage size (e.g., "3Gi")
     pub storage_size: String,
     /// PVC storage class
     pub storage_class: Option<String>,
@@ -238,6 +301,20 @@ pub struct SandboxConfig {
     pub default_codex_model: Option<String>,
     /// Extra env vars injected into every sandbox pod (parsed from K8S_SANDBOX_EXTRA_ENV JSON)
     pub extra_env: Vec<(String, String)>,
+    /// Generic package-manager caches mounted into sandbox pods (parsed from
+    /// `K8S_SANDBOX_CACHE_VOLUMES` JSON). Empty disables the feature entirely —
+    /// no extra volume, no init container. See [`SandboxCacheVolume`].
+    pub cache_volumes: Vec<SandboxCacheVolume>,
+    /// Host directory the shared `pkg-cache` volume is rooted at; the node-local
+    /// NVMe is formatted and mounted here by the `nvme-setup` init container, and
+    /// each cache lives in a `<root>/<name>` subdir. Env
+    /// `K8S_SANDBOX_CACHE_HOST_ROOT` (default `/mnt/cache`).
+    pub cache_host_root: String,
+    /// Image for the privileged `nvme-setup` init container that formats/mounts
+    /// the instance-store NVMe. Must be an allowlisted ref under the
+    /// `restrict-image-registries` Kyverno policy (the ECR-mirrored dind image).
+    /// Env `K8S_SANDBOX_CACHE_INIT_IMAGE`.
+    pub cache_init_image: String,
 }
 
 /// Proxy / Traefik IngressRoute settings.
@@ -444,6 +521,11 @@ pub struct S3Config {
     pub bucket_name: Option<String>,
     /// S3 key prefix for uploaded files (default: "uploads")
     pub key_prefix: String,
+    /// S3 key prefix for sandbox Claude transcripts, stored under
+    /// `<prefix>/<task_id>/transcripts.tar` (default: "transcripts").
+    /// Reuses the uploads bucket — the backend IRSA already has read/write on it.
+    /// Env: `TRANSCRIPT_S3_PREFIX`.
+    pub transcript_prefix: String,
     /// S3 region (default: "us-east-1")
     pub region: String,
 }
@@ -706,7 +788,7 @@ impl Config {
                 sandbox_resources_memory_request: env_str("K8S_RESOURCE_REQUEST_MEMORY", "2Gi"),
                 sandbox_resources_memory_limit: env_str("K8S_RESOURCE_LIMIT_MEMORY", "8Gi"),
                 storage_enabled: env_bool("K8S_SANDBOX_STORAGE_ENABLED", true),
-                storage_size: env_str("K8S_SANDBOX_STORAGE_SIZE", "5Gi"),
+                storage_size: env_str("K8S_SANDBOX_STORAGE_SIZE", "3Gi"),
                 storage_class: env_opt("K8S_SANDBOX_STORAGE_CLASS"),
                 pod_startup_timeout_secs: env_or("K8S_POD_STARTUP_TIMEOUT_SECS", 120),
                 task_token_secret: env_opt("TASK_TOKEN_SECRET"),
@@ -723,6 +805,12 @@ impl Config {
                 default_model: env_opt("DEFAULT_CLAUDE_CODE_MODEL"),
                 default_codex_model: env_opt("DEFAULT_CODEX_MODEL"),
                 extra_env: parse_extra_env("K8S_SANDBOX_EXTRA_ENV"),
+                cache_volumes: parse_cache_volumes("K8S_SANDBOX_CACHE_VOLUMES"),
+                cache_host_root: env_str("K8S_SANDBOX_CACHE_HOST_ROOT", "/mnt/cache"),
+                cache_init_image: env_str(
+                    "K8S_SANDBOX_CACHE_INIT_IMAGE",
+                    "111111111111.dkr.ecr.eu-north-1.amazonaws.com/mirror/docker.io/library/docker:29-dind",
+                ),
             },
 
             proxy: ProxyConfig {
@@ -820,6 +908,7 @@ impl Config {
             s3: S3Config {
                 bucket_name: env_opt("S3_BUCKET_NAME"),
                 key_prefix: env_str("S3_KEY_PREFIX", "uploads"),
+                transcript_prefix: env_str("TRANSCRIPT_S3_PREFIX", "transcripts"),
                 region: env_str("S3_REGION", "us-east-1"),
             },
 
@@ -1115,6 +1204,9 @@ mod tests {
                 default_model: None,
                 default_codex_model: None,
                 extra_env: vec![],
+                cache_volumes: vec![],
+                cache_host_root: "/mnt/cache".into(),
+                cache_init_image: "docker:dind".into(),
             },
             proxy: ProxyConfig {
                 domain: None,
@@ -1179,6 +1271,7 @@ mod tests {
             s3: S3Config {
                 bucket_name: None,
                 key_prefix: "test".into(),
+                transcript_prefix: "transcripts".into(),
                 region: "us-east-1".into(),
             },
             slack: SlackConfig {

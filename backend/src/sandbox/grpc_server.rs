@@ -3,21 +3,23 @@
 //! Receives events from sandbox pods via gRPC (replaces direct Redis XADD
 //! from the sandbox) and serves pending messages (replaces HTTP polling).
 
+use std::pin::Pin;
 use std::sync::Arc;
 
+use futures::{Stream, StreamExt};
 use serde_json::Value;
-use tonic::{Request, Response, Status};
+use tonic::{Request, Response, Status, Streaming};
 use tracing::{debug, info, warn};
 
 use moatless_events::AgentSubType;
 use sandbox_proto::backend_sandbox_service_server::BackendSandboxService;
 use sandbox_proto::{
-    AcknowledgeMessagesRequest, AcknowledgeMessagesResponse, DownloadUploadRequest,
-    DownloadUploadResponse, GetCredentialsRequest, GetCredentialsResponse,
+    AcknowledgeMessagesRequest, AcknowledgeMessagesResponse, DownloadTranscriptRequest,
+    DownloadUploadRequest, DownloadUploadResponse, GetCredentialsRequest, GetCredentialsResponse,
     GetPendingMessagesRequest, GetPendingMessagesResponse, GetSystemPromptRequest,
     GetSystemPromptResponse, InterruptedTurn as ProtoInterruptedTurn, PublishEventRequest,
     PublishEventResponse, RecoverInterruptedRunRequest, RecoverInterruptedRunResponse,
-    UpdateCredentialRequest, UpdateCredentialResponse,
+    TranscriptChunk, UpdateCredentialRequest, UpdateCredentialResponse, UploadTranscriptResponse,
 };
 
 use crate::agent::prompt;
@@ -60,6 +62,17 @@ impl CredentialKey {
     pub const CLAUDE_CODE_OAUTH_TOKEN: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 }
 
+/// Build the S3 key for a task's transcript archive:
+/// `<prefix>/<task_id>/transcripts.tar`. The `<prefix>/<task_id>/` portion is the
+/// same one `provider.rs::cleanup` deletes, so uploads and cleanup stay aligned.
+fn transcript_key(prefix: &str, task_id: &str) -> String {
+    format!(
+        "{}/{}/transcripts.tar",
+        prefix.trim_end_matches('/'),
+        task_id
+    )
+}
+
 /// gRPC server state — holds event publisher, repository trait objects, and JWT secret.
 pub struct BackendSandboxServiceImpl {
     pub events: Option<Arc<dyn EventPublisher>>,
@@ -100,6 +113,9 @@ pub struct BackendSandboxServiceImpl {
     pub s3_bucket: Option<String>,
     /// S3 key prefix for uploaded files (`config.s3.key_prefix`).
     pub s3_key_prefix: String,
+    /// S3 key prefix for sandbox Claude transcripts (`config.s3.transcript_prefix`).
+    /// Objects land at `<prefix>/<task_id>/transcripts.tar` in the same bucket.
+    pub transcript_s3_prefix: String,
     /// User repository — used to render `<sent_by>` headers on pending
     /// messages so the agent sees the inbound sender's moatless login.
     pub users: Option<Arc<dyn UserRepository>>,
@@ -730,6 +746,105 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             filename: meta.filename,
             mime_type: meta.mime_type,
         }))
+    }
+
+    /// Receive a streamed transcript tar from the sandbox and store it in S3.
+    ///
+    /// The sandbox is AWS-credential-less, so it proxies all transcript I/O
+    /// through here. Client-streaming so a transcript bigger than tonic's unary
+    /// cap still round-trips; the chunks are reassembled in memory (a task's tar
+    /// is a few MB) and `put_object`ed to `<bucket>/<prefix>/<task_id>/transcripts.tar`.
+    ///
+    /// Auth: task-scoped JWT via gRPC metadata, like `download_upload`. The
+    /// `task_id` is taken from the first chunk.
+    async fn upload_transcript(
+        &self,
+        request: Request<Streaming<TranscriptChunk>>,
+    ) -> Result<Response<UploadTranscriptResponse>, Status> {
+        let _claims = self.verify_auth(&request)?;
+
+        let Some(ref s3_client) = self.s3 else {
+            return Err(Status::failed_precondition("S3 not configured"));
+        };
+        let Some(ref bucket) = self.s3_bucket else {
+            return Err(Status::failed_precondition("S3 bucket not configured"));
+        };
+
+        let mut stream = request.into_inner();
+        let mut task_id = String::new();
+        let mut data: Vec<u8> = Vec::new();
+        while let Some(chunk) = stream.message().await? {
+            if task_id.is_empty() && !chunk.task_id.is_empty() {
+                task_id = chunk.task_id;
+            }
+            data.extend_from_slice(&chunk.data);
+        }
+
+        if task_id.is_empty() {
+            return Err(Status::invalid_argument(
+                "task_id missing from transcript stream",
+            ));
+        }
+
+        let bytes_received = data.len() as i64;
+        let key = transcript_key(&self.transcript_s3_prefix, &task_id);
+        file_s3::put_object(s3_client, bucket, &key, data, "application/x-tar")
+            .await
+            .map_err(|e| {
+                warn!(error = %e, task_id = %task_id, "S3 put_object for transcript failed");
+                Status::internal("Failed to store transcript in S3")
+            })?;
+
+        debug!(task_id = %task_id, bytes = bytes_received, key = %key, "Stored transcript in S3");
+        Ok(Response::new(UploadTranscriptResponse { bytes_received }))
+    }
+
+    type DownloadTranscriptStream =
+        Pin<Box<dyn Stream<Item = Result<TranscriptChunk, Status>> + Send>>;
+
+    /// Stream the task's stored transcript tar back to the sandbox.
+    ///
+    /// Returns an empty stream when no transcript has been stored yet (first run,
+    /// or the ephemeral tier's first boot) — the sandbox treats that as "nothing
+    /// to restore". Reuses `AppState.s3` + the uploads bucket like `download_upload`.
+    async fn download_transcript(
+        &self,
+        request: Request<DownloadTranscriptRequest>,
+    ) -> Result<Response<Self::DownloadTranscriptStream>, Status> {
+        let _claims = self.verify_auth(&request)?;
+        let req = request.into_inner();
+
+        let Some(ref s3_client) = self.s3 else {
+            return Err(Status::failed_precondition("S3 not configured"));
+        };
+        let Some(ref bucket) = self.s3_bucket else {
+            return Err(Status::failed_precondition("S3 bucket not configured"));
+        };
+
+        let key = transcript_key(&self.transcript_s3_prefix, &req.task_id);
+        let data = file_s3::get_object_opt(s3_client, bucket, &key)
+            .await
+            .map_err(|e| {
+                warn!(error = %e, task_id = %req.task_id, "S3 get_object for transcript failed");
+                Status::internal("Failed to fetch transcript from S3")
+            })?
+            .unwrap_or_default();
+
+        debug!(task_id = %req.task_id, bytes = data.len(), "Serving transcript to sandbox");
+
+        // Chunk the in-memory tar so each gRPC message stays well under the default
+        // limit. An empty tar yields no chunks → an empty stream.
+        const CHUNK_SIZE: usize = 1024 * 1024; // 1 MiB
+        let chunks: Vec<TranscriptChunk> = data
+            .chunks(CHUNK_SIZE)
+            .map(|c| TranscriptChunk {
+                task_id: String::new(),
+                data: c.to_vec(),
+            })
+            .collect();
+
+        let stream = futures::stream::iter(chunks).map(Ok::<TranscriptChunk, Status>);
+        Ok(Response::new(Box::pin(stream)))
     }
 
     /// Detect an interrupted agent run and return the data needed to replay it.

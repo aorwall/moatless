@@ -38,6 +38,11 @@ pub struct K8sSandboxProvider {
     pub status_resolver: StatusResolver,
     /// Optional event publisher for environment lifecycle events.
     pub event_publisher: Option<Arc<dyn EventPublisher>>,
+    /// Optional S3 client used to delete a task's transcript archive on cleanup.
+    /// The sandbox uploads transcripts via backend-proxied gRPC (no pod creds);
+    /// the backend owns the credentials, so cleanup of `<prefix>/<task_id>/` lives
+    /// here. `None` when S3 isn't configured — cleanup then skips the delete.
+    pub s3: Option<Arc<aws_sdk_s3::Client>>,
 }
 
 #[async_trait]
@@ -103,7 +108,7 @@ impl SandboxProvider for K8sSandboxProvider {
         let user_auth_token = self.generate_user_auth_token(&request.user_id)?;
 
         // 3. Create PVC
-        let pvc_name = match self.create_or_find_pvc(task_id).await {
+        let pvc_name = match self.create_or_find_pvc(task_id, plan).await {
             Ok(name) if !name.is_empty() => Some(name),
             Ok(_) => None,
             Err(e) => {
@@ -266,6 +271,13 @@ impl SandboxProvider for K8sSandboxProvider {
             warn!(task_id = %task_id, error = %e, "Failed to delete PVC");
         }
 
+        // Delete this task's transcript archive from S3 (`<prefix>/<task_id>/...`).
+        // The per-task PVC delete above doesn't cover it — transcripts live in the
+        // uploads bucket, synced there by the sandbox via backend-proxied gRPC.
+        // Best-effort: a leftover object is harmless and the bucket lifecycle rule
+        // eventually expires it. No-op when S3 isn't configured.
+        self.delete_task_transcripts(task_id).await;
+
         if let Some(ref publisher) = self.event_publisher {
             publisher
                 .publish_sandbox_event(
@@ -329,6 +341,17 @@ impl SandboxProvider for K8sSandboxProvider {
 // Private helper methods
 // =============================================================================
 
+/// True when the repo selected the ephemeral (no-EBS) storage tier via
+/// `resources.storage_mode == "ephemeral"` (case-insensitive). Any other value —
+/// including unset, `"ebs"`, or an unknown string — means the default PVC tier.
+fn is_ephemeral_storage(plan: &ProvisionPlan) -> bool {
+    plan.repo_config
+        .resources
+        .as_ref()
+        .and_then(|r| r.storage_mode.as_deref())
+        .is_some_and(|m| m.trim().eq_ignore_ascii_case("ephemeral"))
+}
+
 /// Result of checking for an existing pod.
 enum ExistingPodResult {
     /// Running and ready — can be reused immediately.
@@ -389,16 +412,61 @@ impl K8sSandboxProvider {
             .map_err(|e| SandboxError::JwtError(e.to_string()))
     }
 
-    /// Create or find existing PVC.
-    async fn create_or_find_pvc(&self, task_id: &str) -> Result<String, String> {
+    /// Create or find existing PVC. A per-repo `resources.storage` override
+    /// (if set) sizes a freshly created PVC; existing PVCs are reused as-is.
+    ///
+    /// Returns an empty string (→ no PVC) for the ephemeral tier
+    /// (`resources.storage_mode == "ephemeral"`): `build_pod` then mounts a
+    /// node-local emptyDir at `/opt/moatless` instead. The check runs *before*
+    /// `find_task_pvc` so a repo flipped to ephemeral stops reusing any stale PVC.
+    async fn create_or_find_pvc(
+        &self,
+        task_id: &str,
+        plan: &ProvisionPlan,
+    ) -> Result<String, String> {
+        if is_ephemeral_storage(plan) {
+            info!(task_id, "Ephemeral storage tier — skipping PVC creation");
+            return Ok(String::new());
+        }
+
         if let Some(name) = pvc::find_task_pvc(&self.k8s, task_id).await {
             info!(task_id, pvc_name = %name, "Found existing PVC, reusing");
             return Ok(name);
         }
 
-        pvc::create_task_pvc(&self.k8s, &self.config, task_id)
+        let storage_override = plan
+            .repo_config
+            .resources
+            .as_ref()
+            .and_then(|r| r.storage.as_deref());
+
+        pvc::create_task_pvc(&self.k8s, &self.config, task_id, storage_override)
             .await
             .map_err(|e| e.to_string())
+    }
+
+    /// Best-effort delete of a task's transcript archive from S3.
+    ///
+    /// Removes every object under `<transcript_prefix>/<task_id>/` in the uploads
+    /// bucket. No-op when S3 or the bucket isn't configured. Errors are logged,
+    /// never propagated — cleanup must not fail on a stray transcript object.
+    async fn delete_task_transcripts(&self, task_id: &str) {
+        let (Some(s3), Some(bucket)) = (self.s3.as_ref(), self.config.s3.bucket_name.as_deref())
+        else {
+            return;
+        };
+        let prefix = format!(
+            "{}/{}/",
+            self.config.s3.transcript_prefix.trim_end_matches('/'),
+            task_id
+        );
+        match crate::file_storage::s3::delete_objects_by_prefix(s3, bucket, &prefix).await {
+            Ok(0) => {}
+            Ok(n) => info!(task_id, deleted = n, prefix = %prefix, "Deleted task transcripts from S3"),
+            Err(e) => {
+                warn!(task_id, error = %e, prefix = %prefix, "Failed to delete task transcripts from S3");
+            }
+        }
     }
 
     /// Check for existing pod — returns richer result for idempotent provisioning.

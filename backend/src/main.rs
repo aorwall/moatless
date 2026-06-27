@@ -104,8 +104,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             info!("K8s client initialized");
 
             reaper_k8s = Some(k8s.clone());
-            sandbox_provider =
-                startup::build_sandbox_provider(&config, k8s.clone(), event_publisher.clone());
+            sandbox_provider = startup::build_sandbox_provider(
+                &config,
+                k8s.clone(),
+                event_publisher.clone(),
+                s3_client.clone().map(std::sync::Arc::new),
+            );
 
             // The K8s pod lifecycle watcher is spawned after the DB repos are
             // built (it needs them to auto-disable crash-looping servers).

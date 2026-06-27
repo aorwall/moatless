@@ -21,6 +21,7 @@ mod git;
 mod plugin_skills;
 pub(crate) mod refresher;
 pub(crate) mod server_env;
+pub(crate) mod transcript_sync;
 mod workspace;
 
 use moatless_events::SandboxSubType;
@@ -188,6 +189,21 @@ pub async fn run_init(state: SandboxState) {
         refresher_cancel,
         refresher_interval,
     ));
+
+    // Spawn the periodic transcript uploader. Every interval it tars
+    // `projects/<dashed-cwd>/` and ships it to S3 via the backend, so transcripts
+    // persist off the per-task PVC (and are the *only* durability for the
+    // ephemeral tier). `TRANSCRIPT_SYNC_INTERVAL_SECS=0` disables the loop;
+    // sync-on-shutdown still flushes the final delta.
+    if let Some(interval) = transcript_sync::read_interval_from_env() {
+        let transcript_state = state.clone();
+        let transcript_cancel = state.lifecycle_cancel.clone();
+        tokio::spawn(transcript_sync::run_transcript_sync(
+            transcript_state,
+            transcript_cancel,
+            interval,
+        ));
+    }
 
     // Watch ~/.codex/auth.json for rotations. Codex rewrites this file every
     // time it refreshes its OAuth token; the watcher pushes the rotated blob
@@ -406,6 +422,13 @@ async fn run_core_init(state: &SandboxState) -> Result<(), InitError> {
             .await;
         }
     }
+
+    // 9. Restore the Claude transcript from S3 (via backend-proxied gRPC) into
+    //    `projects/<dashed-cwd>/`. Runs here — after the clone, before the sandbox
+    //    is marked Ready — so `recover_interrupted_run` and pending-message
+    //    dispatch see restored `--resume` history. Tier-agnostic and best-effort:
+    //    a missing transcript (or a disabled feature) is non-fatal.
+    transcript_sync::download_on_start(state).await;
 
     Ok(())
 }

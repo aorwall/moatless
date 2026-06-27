@@ -9,10 +9,10 @@ use std::time::Duration;
 
 use sandbox_proto::backend_sandbox_service_client::BackendSandboxServiceClient;
 use sandbox_proto::{
-    AcknowledgeMessagesRequest, DownloadUploadRequest, DownloadUploadResponse,
-    GetCredentialsRequest, GetCredentialsResponse, GetPendingMessagesRequest,
-    GetSystemPromptRequest, InterruptedTurn, PendingMessage, PublishEventRequest,
-    RecoverInterruptedRunRequest, UpdateCredentialRequest,
+    AcknowledgeMessagesRequest, DownloadTranscriptRequest, DownloadUploadRequest,
+    DownloadUploadResponse, GetCredentialsRequest, GetCredentialsResponse,
+    GetPendingMessagesRequest, GetSystemPromptRequest, InterruptedTurn, PendingMessage,
+    PublishEventRequest, RecoverInterruptedRunRequest, TranscriptChunk, UpdateCredentialRequest,
 };
 use tonic::service::interceptor::InterceptedService;
 use tonic::transport::Channel;
@@ -83,6 +83,19 @@ pub trait BackendClient: Send + Sync {
         &self,
         task_id: &str,
     ) -> Result<Option<InterruptedTurn>, tonic::Status>;
+
+    /// Upload the task's transcript tar to S3 via the backend (the sandbox has no
+    /// AWS credentials). The bytes are streamed in chunks. Best-effort at the call
+    /// site — failures are logged, never fatal.
+    async fn upload_transcript(
+        &self,
+        task_id: &str,
+        tar_data: Vec<u8>,
+    ) -> Result<(), tonic::Status>;
+
+    /// Download the task's transcript tar from S3 via the backend, reassembling the
+    /// streamed chunks. Returns an empty `Vec` when no transcript is stored yet.
+    async fn download_transcript(&self, task_id: &str) -> Result<Vec<u8>, tonic::Status>;
 }
 
 /// Auth interceptor that injects a Bearer token on every outbound gRPC call.
@@ -257,5 +270,56 @@ impl BackendClient for BackendGrpcClient {
             })
             .await?;
         Ok(resp.into_inner().turn)
+    }
+
+    async fn upload_transcript(
+        &self,
+        task_id: &str,
+        tar_data: Vec<u8>,
+    ) -> Result<(), tonic::Status> {
+        // 1 MiB chunks keep each message well under tonic's default cap. The
+        // first chunk carries the task_id; the backend reads it once and
+        // ignores it on later chunks.
+        const CHUNK_SIZE: usize = 1024 * 1024;
+        let task_id = task_id.to_string();
+        let chunks: Vec<TranscriptChunk> = if tar_data.is_empty() {
+            vec![TranscriptChunk {
+                task_id,
+                data: Vec::new(),
+            }]
+        } else {
+            tar_data
+                .chunks(CHUNK_SIZE)
+                .enumerate()
+                .map(|(i, c)| TranscriptChunk {
+                    task_id: if i == 0 { task_id.clone() } else { String::new() },
+                    data: c.to_vec(),
+                })
+                .collect()
+        };
+
+        let mut client = self.client.clone();
+        client
+            .upload_transcript(futures::stream::iter(chunks))
+            .await?;
+        Ok(())
+    }
+
+    async fn download_transcript(&self, task_id: &str) -> Result<Vec<u8>, tonic::Status> {
+        use futures::StreamExt;
+
+        let mut client = self.client.clone();
+        let resp = client
+            .download_transcript(DownloadTranscriptRequest {
+                task_id: task_id.to_string(),
+            })
+            .await?;
+
+        let mut stream = resp.into_inner();
+        let mut data = Vec::new();
+        while let Some(chunk) = stream.next().await {
+            data.extend_from_slice(&chunk?.data);
+        }
+        Ok(data)
     }
 }

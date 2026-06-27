@@ -52,3 +52,77 @@ pub async fn get_object(
 
     Ok((bytes, content_type))
 }
+
+/// Download a file from S3, returning `Ok(None)` when the key does not exist.
+///
+/// Distinguishes a missing object (expected — e.g. a task with no transcript yet)
+/// from a real error, so callers can treat "not found" as an empty result instead
+/// of logging a spurious failure.
+pub async fn get_object_opt(
+    client: &aws_sdk_s3::Client,
+    bucket: &str,
+    key: &str,
+) -> Result<Option<Vec<u8>>, String> {
+    match client.get_object().bucket(bucket).key(key).send().await {
+        Ok(resp) => {
+            let bytes = resp
+                .body
+                .collect()
+                .await
+                .map_err(|e| format!("Failed to read S3 body: {e}"))?
+                .into_bytes()
+                .to_vec();
+            Ok(Some(bytes))
+        }
+        Err(e) => match e.as_service_error() {
+            Some(se) if se.is_no_such_key() => Ok(None),
+            _ => Err(format!("S3 get_object failed: {e}")),
+        },
+    }
+}
+
+/// Delete every object under `prefix` in `bucket`. Returns the count deleted.
+///
+/// Paginates `list_objects_v2` and deletes each key individually (a task's
+/// transcript prefix holds a single object today, so batching buys nothing).
+pub async fn delete_objects_by_prefix(
+    client: &aws_sdk_s3::Client,
+    bucket: &str,
+    prefix: &str,
+) -> Result<usize, String> {
+    let mut deleted = 0usize;
+    let mut continuation: Option<String> = None;
+
+    loop {
+        let mut req = client.list_objects_v2().bucket(bucket).prefix(prefix);
+        if let Some(token) = &continuation {
+            req = req.continuation_token(token);
+        }
+        let resp = req
+            .send()
+            .await
+            .map_err(|e| format!("S3 list_objects_v2 failed: {e}"))?;
+
+        for obj in resp.contents() {
+            if let Some(key) = obj.key() {
+                client
+                    .delete_object()
+                    .bucket(bucket)
+                    .key(key)
+                    .send()
+                    .await
+                    .map_err(|e| format!("S3 delete_object failed: {e}"))?;
+                deleted += 1;
+            }
+        }
+
+        match resp.next_continuation_token() {
+            Some(token) if resp.is_truncated().unwrap_or(false) => {
+                continuation = Some(token.to_string());
+            }
+            _ => break,
+        }
+    }
+
+    Ok(deleted)
+}

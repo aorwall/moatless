@@ -213,6 +213,7 @@ pub fn spawn_grpc_server(
     let token_secret = config.sandbox.task_token_secret.clone();
     let s3_bucket = config.s3.bucket_name.clone();
     let s3_key_prefix = config.s3.key_prefix.clone();
+    let transcript_s3_prefix = config.s3.transcript_prefix.clone();
     let github_apps = Arc::new(GitHubAppRegistry::from_config(config));
     let github_app_service = github_apps.default_service();
     let provider_token_auth: Option<Arc<dyn ProviderTokenAuthRepository>> =
@@ -278,6 +279,7 @@ pub fn spawn_grpc_server(
             files,
             s3_bucket,
             s3_key_prefix,
+            transcript_s3_prefix,
             users,
         };
         let addr = SocketAddr::from(([0, 0, 0, 0], port));
@@ -321,6 +323,7 @@ pub fn build_sandbox_provider(
     config: &Config,
     k8s: K8sClient,
     event_publisher: Option<Arc<dyn EventPublisher>>,
+    s3: Option<Arc<aws_sdk_s3::Client>>,
 ) -> Arc<dyn crate::sandbox::provider::SandboxProvider> {
     use crate::sandbox::k8s::provider::K8sSandboxProvider;
     use crate::sandbox::k8s::status_resolver::StatusResolver;
@@ -332,6 +335,7 @@ pub fn build_sandbox_provider(
         k8s,
         status_resolver,
         event_publisher,
+        s3,
     })
 }
 

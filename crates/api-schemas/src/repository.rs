@@ -16,6 +16,18 @@ use crate::enums::{RepositoryKind, RepositoryProvider, Scope};
 pub struct ResourceConfig {
     pub requests: Option<HashMap<String, String>>,
     pub limits: Option<HashMap<String, String>>,
+    /// Per-repository workspace storage size override (e.g. "8Gi"). Sizes both
+    /// tiers: the per-task PVC (`ebs`) and the node-local emptyDir (`ephemeral`).
+    /// When unset, the global `K8S_SANDBOX_STORAGE_SIZE` default applies. Never
+    /// copied into container resource specs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage: Option<String>,
+    /// Per-repository storage tier: `"ebs"` (default — a per-task EBS PVC mounted
+    /// at `/opt/moatless`, surviving pod restarts) or `"ephemeral"` (a node-local
+    /// emptyDir, no PVC; transcripts persist only via the S3 sync). Unset / unknown
+    /// values are treated as `"ebs"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage_mode: Option<String>,
 }
 
 // =============================================================================

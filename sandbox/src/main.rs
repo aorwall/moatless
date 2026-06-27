@@ -201,7 +201,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // teardown (idle-down, node drain, eviction, PR-close). On signal we stop the
     // agent and cancel the lifecycle token, which both servers and background
     // tasks observe to wind down.
-    shutdown::spawn_shutdown_driver(Arc::clone(&state.agent), state.lifecycle_cancel.clone());
+    shutdown::spawn_shutdown_driver(state.clone());
 
     // Start HTTP server (K8s health probes only)
     let addr = SocketAddr::from(([0, 0, 0, 0], config.port));

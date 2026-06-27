@@ -13,14 +13,20 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
 use crate::agent::agent_state::AgentState;
+use crate::state::SandboxState;
 
 /// Side effects to run when a shutdown signal arrives: stop the running agent
-/// (best-effort) and cancel the lifecycle token so background tasks and both
-/// servers wind down.
+/// (best-effort), flush the Claude transcript to S3, then cancel the lifecycle
+/// token so background tasks and both servers wind down.
 ///
 /// Extracted from the signal handler so it can be unit-tested without raising a
-/// real OS signal: it takes only the [`AgentState`] and [`CancellationToken`].
-pub async fn perform_shutdown(agent: &AgentState, lifecycle_cancel: &CancellationToken) {
+/// real OS signal. `state` is optional purely so the agent-stop/token-cancel
+/// behavior can be exercised in isolation; production always passes `Some`.
+pub async fn perform_shutdown(
+    agent: &AgentState,
+    lifecycle_cancel: &CancellationToken,
+    state: Option<&SandboxState>,
+) {
     // Cancel the in-flight turn so the Claude CLI subprocess is killed and the
     // turn ends now, instead of being SIGKILLed at grace-period end.
     // `AgentNotRunning` (an idle agent) is expected on a routine idle-down and
@@ -29,6 +35,16 @@ pub async fn perform_shutdown(agent: &AgentState, lifecycle_cancel: &Cancellatio
         Ok(()) => info!("Shutdown: stopped running agent"),
         Err(e) => info!(error = %e, "Shutdown: no running agent to stop (continuing)"),
     }
+
+    // Flush the transcript AFTER the agent has stopped (so the active `.jsonl` is
+    // flushed by the CLI) and BEFORE cancelling the lifecycle token (which stops
+    // the periodic sync). On a graceful kill — including a spot reclaim's 2-min
+    // drain → SIGTERM — this persists the final delta with no loss. Bounded
+    // internally so it can't blow the pod's 30s grace period.
+    if let Some(state) = state {
+        crate::init::transcript_sync::flush_on_shutdown(state).await;
+    }
+
     lifecycle_cancel.cancel();
 }
 
@@ -64,13 +80,16 @@ pub async fn await_shutdown_signal() {
 
 /// Spawn the shutdown driver: wait for a signal, then run [`perform_shutdown`].
 ///
-/// Cloning the `Arc<AgentState>` and the token keeps `main`'s `state` intact for
-/// the servers, which observe the same token via graceful shutdown.
-pub fn spawn_shutdown_driver(agent: Arc<AgentState>, lifecycle_cancel: CancellationToken) {
+/// Takes a clone of the whole [`SandboxState`] so the transcript flush can reach
+/// the backend client and config. `main`'s `state` stays intact for the servers,
+/// which observe the same lifecycle token via graceful shutdown.
+pub fn spawn_shutdown_driver(state: SandboxState) {
     tokio::spawn(async move {
         await_shutdown_signal().await;
         info!("Shutdown signal received — stopping agent and winding down");
-        perform_shutdown(&agent, &lifecycle_cancel).await;
+        let agent = Arc::clone(&state.agent);
+        let lifecycle_cancel = state.lifecycle_cancel.clone();
+        perform_shutdown(&agent, &lifecycle_cancel, Some(&state)).await;
     });
 }
 
@@ -86,7 +105,7 @@ mod tests {
 
         // Idle agent → stop() errors (AgentNotRunning), but shutdown still
         // cancels the lifecycle token so the servers and background tasks drain.
-        perform_shutdown(&agent, &token).await;
+        perform_shutdown(&agent, &token, None).await;
         assert!(token.is_cancelled());
     }
 
@@ -98,7 +117,7 @@ mod tests {
         assert!(!agent_cancel.is_cancelled());
 
         let token = CancellationToken::new();
-        perform_shutdown(&agent, &token).await;
+        perform_shutdown(&agent, &token, None).await;
 
         // The agent's in-flight turn was cancelled...
         assert!(agent_cancel.is_cancelled());

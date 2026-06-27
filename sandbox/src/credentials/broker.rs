@@ -194,6 +194,18 @@ mod tests {
         ) -> Result<Option<sandbox_proto::InterruptedTurn>, tonic::Status> {
             Ok(None)
         }
+
+        async fn upload_transcript(
+            &self,
+            _: &str,
+            _: Vec<u8>,
+        ) -> Result<(), tonic::Status> {
+            Ok(())
+        }
+
+        async fn download_transcript(&self, _: &str) -> Result<Vec<u8>, tonic::Status> {
+            Ok(Vec::new())
+        }
     }
 
     fn make_state(creds: HashMap<String, String>) -> BrokerState {

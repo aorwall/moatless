@@ -5,8 +5,8 @@
 
 use k8s_openapi::api::core::v1::{
     Capabilities, Container, ContainerPort, EmptyDirVolumeSource, EnvVar, HTTPGetAction,
-    PersistentVolumeClaimVolumeSource, Pod, PodSpec, Probe, ResourceRequirements, SecurityContext,
-    TCPSocketAction, Toleration, Volume, VolumeMount,
+    HostPathVolumeSource, PersistentVolumeClaimVolumeSource, Pod, PodSpec, Probe,
+    ResourceRequirements, SecurityContext, TCPSocketAction, Toleration, Volume, VolumeMount,
 };
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
@@ -62,11 +62,12 @@ pub fn build_pod(
 
     // ── Volumes ─────────────────────────────────────────────────────
     //
-    // `/tmp` is served from a subPath of the `workspace-data` PVC when available —
-    // this stops it from eating the pod's memory budget and lets it share the full
-    // PVC headroom with the rest of the workspace. When the PVC is disabled (docker /
-    // dev), we fall back to a disk-backed emptyDir (no `medium: Memory`) so we still
-    // never charge `/tmp` against container memory.
+    // `/opt/moatless` (the workspace) is backed by the `workspace-data` volume:
+    // a per-task EBS PVC for the default tier, or a node-local emptyDir for the
+    // ephemeral tier (and any time the PVC is unavailable). Either way it is a
+    // single volume shared across the sandbox and server containers, with `/tmp`
+    // served from its `tmp` subPath so `/tmp` never charges against the pod's
+    // memory budget.
     let mut volumes = vec![
         Volume {
             name: "build-cache".to_string(),
@@ -93,22 +94,59 @@ pub fn build_pod(
             ..Default::default()
         });
     } else {
+        // Ephemeral (no-EBS) tier — a node-local emptyDir capped at the repo's
+        // workspace size (`resources.storage`, default `K8S_SANDBOX_STORAGE_SIZE`).
+        // No `medium: Memory`, so it lives on node disk, not the pod memory budget.
+        // This also replaces the old uncapped rootfs `/opt/moatless`, so the
+        // workspace is bounded and shared with server containers like the PVC tier.
         volumes.push(Volume {
-            name: "tmp".to_string(),
+            name: "workspace-data".to_string(),
             empty_dir: Some(EmptyDirVolumeSource {
-                size_limit: Some(Quantity("2Gi".to_string())),
+                size_limit: Some(Quantity(resolve_workspace_size(config, plan))),
                 ..Default::default()
             }),
             ..Default::default()
         });
     }
 
+    // ── Package-manager caches (node-local NVMe) ────────────────────
+    //
+    // When `cache_volumes` is configured, all caches share ONE node-local
+    // hostPath volume rooted at `cache_host_root` (`/mnt/cache`), mounted
+    // per-entry via subPath in the sandbox container. A privileged `nvme-setup`
+    // init container formats and mounts the instance-store NVMe under it (and
+    // ensures a world-writable subdir per cache) — see `build_nvme_setup_container`.
+    // The whole block is gated on a non-empty list, so default sandboxes stay
+    // hardened (no privileged init container, no hostPath).
+    let mut init_containers: Vec<Container> = Vec::new();
+    if !config.sandbox.cache_volumes.is_empty() {
+        volumes.push(Volume {
+            name: "pkg-cache".to_string(),
+            host_path: Some(HostPathVolumeSource {
+                path: config.sandbox.cache_host_root.clone(),
+                type_: Some("DirectoryOrCreate".to_string()),
+            }),
+            ..Default::default()
+        });
+        // The init container needs the PARENT of the cache root so its NVMe
+        // mount propagates back to the host namespace (bidirectional), where
+        // the sibling `pkg-cache` hostPath mount then picks it up.
+        volumes.push(Volume {
+            name: "host-mnt".to_string(),
+            host_path: Some(HostPathVolumeSource {
+                path: cache_host_parent(&config.sandbox.cache_host_root).to_string(),
+                type_: Some("DirectoryOrCreate".to_string()),
+            }),
+            ..Default::default()
+        });
+        init_containers.push(build_nvme_setup_container(config));
+    }
+
     // ── Sandbox container ───────────────────────────────────────────
-    let sandbox_container =
-        build_sandbox_container(config, task_id, plan, pvc_name, user_auth_token)?;
+    let sandbox_container = build_sandbox_container(config, task_id, plan, user_auth_token)?;
 
     // ── Server containers ───────────────────────────────────────────
-    let server_containers = build_server_containers(config, plan, pvc_name)?;
+    let server_containers = build_server_containers(config, plan)?;
 
     // ── Assemble Pod ────────────────────────────────────────────────
     let mut all_containers = vec![sandbox_container];
@@ -135,6 +173,7 @@ pub fn build_pod(
                 .and_then(|json| serde_json::from_str::<BTreeMap<String, String>>(json).ok());
             PodSpec {
                 containers: all_containers,
+                init_containers: (!init_containers.is_empty()).then_some(init_containers),
                 volumes: Some(volumes),
                 restart_policy: Some("Always".to_string()),
                 termination_grace_period_seconds: Some(30),
@@ -184,13 +223,107 @@ pub fn resolve_sandbox_image(config: &Config, plan: &ProvisionPlan) -> String {
         .unwrap_or_else(|| config.sandbox.image.clone())
 }
 
+/// Resolve the workspace size for the ephemeral (emptyDir) tier: a per-repo
+/// `resources.storage` override wins over the global `K8S_SANDBOX_STORAGE_SIZE`.
+/// One knob sizes both tiers — the PVC tier reads the same value in `pvc.rs`.
+fn resolve_workspace_size(config: &Config, plan: &ProvisionPlan) -> String {
+    plan.repo_config
+        .resources
+        .as_ref()
+        .and_then(|r| r.storage.as_deref())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map_or_else(|| config.sandbox.storage_size.clone(), ToString::to_string)
+}
+
+/// Parent directory of the package-cache root (e.g. `/mnt` for `/mnt/cache`).
+///
+/// The `nvme-setup` init container bind-mounts this parent with bidirectional
+/// propagation so that the NVMe it mounts at `<parent>/<basename>` propagates
+/// back to the host and is visible to the sibling `pkg-cache` hostPath mount.
+/// Falls back to `/` if the root has no parent component.
+fn cache_host_parent(root: &str) -> &str {
+    let trimmed = root.trim_end_matches('/');
+    match trimmed.rsplit_once('/') {
+        Some(("", _)) => "/",
+        Some((parent, _)) => parent,
+        None => "/",
+    }
+}
+
+/// Build the privileged `nvme-setup` init container.
+///
+/// Formats (idempotently — only when unformatted) and mounts the node-local
+/// instance-store NVMe (`/dev/nvme1n1`) under the package-cache root, then
+/// ensures a world-writable subdir exists for each configured cache. Mirrors the
+/// GitHub Actions runner pattern (soap-platform-gitops `java-build-runner-set`):
+/// mount via bidirectional propagation so the host — and thus the sibling
+/// `pkg-cache` hostPath mounts in the app containers — see the NVMe-backed dirs.
+///
+/// On a node without the NVMe device the format/mount is skipped and the caches
+/// fall back to the node root disk (still node-local) — the feature degrades
+/// gracefully rather than failing the pod.
+///
+/// Deliberately does NOT use `drop_all_security_context()`: `mkfs.ext4` / `mount`
+/// of the raw block device require full privileges. Scoped to this short-lived
+/// init container; the app containers stay hardened.
+fn build_nvme_setup_container(config: &Config) -> Container {
+    // Inside the container the parent is bind-mounted at `/host-mnt`, so the
+    // NVMe mount target is `/host-mnt/<basename-of-cache-root>`.
+    let root = config.sandbox.cache_host_root.trim_end_matches('/');
+    let basename = root.rsplit('/').next().filter(|s| !s.is_empty()).unwrap_or("cache");
+    let cache_dir = format!("/host-mnt/{basename}");
+
+    // mkdir/chmod each cache subdir AFTER the mount block so it runs whether the
+    // cache landed on NVMe or the root-disk fallback.
+    let mkdirs = config
+        .sandbox
+        .cache_volumes
+        .iter()
+        .map(|c| {
+            format!(
+                "mkdir -p {cache_dir}/{name} && chmod 0777 {cache_dir}/{name}",
+                name = c.name
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let script = format!(
+        "if [ -b /dev/nvme1n1 ]; then\n\
+         \x20 if ! blkid /dev/nvme1n1 >/dev/null 2>&1; then\n\
+         \x20   echo \"NVMe unformatted, creating ext4...\"\n\
+         \x20   mkfs.ext4 -F /dev/nvme1n1\n\
+         \x20 fi\n\
+         \x20 mkdir -p {cache_dir}\n\
+         \x20 mountpoint -q {cache_dir} || mount /dev/nvme1n1 {cache_dir}\n\
+         fi\n\
+         mkdir -p {cache_dir}\n\
+         {mkdirs}\n"
+    );
+
+    Container {
+        name: "nvme-setup".to_string(),
+        image: Some(config.sandbox.cache_init_image.clone()),
+        image_pull_policy: Some(config.sandbox.image_pull_policy.clone()),
+        command: Some(vec!["/bin/sh".to_string(), "-c".to_string()]),
+        args: Some(vec![script]),
+        security_context: Some(privileged_security_context()),
+        volume_mounts: Some(vec![VolumeMount {
+            name: "host-mnt".to_string(),
+            mount_path: "/host-mnt".to_string(),
+            mount_propagation: Some("Bidirectional".to_string()),
+            ..Default::default()
+        }]),
+        ..Default::default()
+    }
+}
+
 /// Build the main sandbox container.
 #[allow(clippy::unnecessary_wraps)] // Result for consistency with build_server_containers
 fn build_sandbox_container(
     config: &Config,
     task_id: &str,
     plan: &ProvisionPlan,
-    pvc_name: Option<&str>,
     user_auth_token: Option<&str>,
 ) -> Result<Container, String> {
     // Resolve image: repo config override → default sandbox image
@@ -261,6 +394,14 @@ fn build_sandbox_container(
         }
     }
 
+    // Package-manager cache env — point each tool at its mounted cache dir
+    // (e.g. MAVEN_OPTS=-Dmaven.repo.local=/maven-cache, BUN_INSTALL_CACHE_DIR).
+    for cache in &config.sandbox.cache_volumes {
+        for (key, value) in &cache.env {
+            env.push(env_var(key, value));
+        }
+    }
+
     // Startup probe
     let startup_timeout = config.sandbox.pod_startup_timeout_secs;
     let startup_probe_period: i32 = 5;
@@ -280,9 +421,10 @@ fn build_sandbox_container(
 
     // Volume mounts
     //
-    // When the workspace PVC is present, `/tmp` is backed by a subPath on that PVC —
-    // same volume as `/opt/moatless`, just a separate directory. Otherwise we mount
-    // the disk-backed `tmp` emptyDir defined above.
+    // `workspace-data` (PVC or ephemeral emptyDir) is always present and mounted at
+    // `/opt/moatless`. `/tmp` is backed by its `tmp` subPath — the same volume, a
+    // separate directory — so `/tmp` shares the workspace headroom and never charges
+    // against container memory.
     let mut volume_mounts = vec![
         VolumeMount {
             name: "build-cache".to_string(),
@@ -294,24 +436,26 @@ fn build_sandbox_container(
             mount_path: "/opt/moatless/data".to_string(),
             ..Default::default()
         },
-    ];
-
-    if pvc_name.is_some() {
-        volume_mounts.push(VolumeMount {
+        VolumeMount {
             name: "workspace-data".to_string(),
             mount_path: "/opt/moatless".to_string(),
             ..Default::default()
-        });
-        volume_mounts.push(VolumeMount {
+        },
+        VolumeMount {
             name: "workspace-data".to_string(),
             mount_path: "/tmp".to_string(),
             sub_path: Some("tmp".to_string()),
             ..Default::default()
-        });
-    } else {
+        },
+    ];
+
+    // Package-manager cache mounts — each entry is a subPath (`<name>`) on the
+    // single shared `pkg-cache` hostPath volume, surfaced at its `mount_path`.
+    for cache in &config.sandbox.cache_volumes {
         volume_mounts.push(VolumeMount {
-            name: "tmp".to_string(),
-            mount_path: "/tmp".to_string(),
+            name: "pkg-cache".to_string(),
+            mount_path: cache.mount_path.clone(),
+            sub_path: Some(cache.name.clone()),
             ..Default::default()
         });
     }
@@ -397,7 +541,6 @@ fn build_sandbox_container(
 fn build_server_containers(
     config: &Config,
     plan: &ProvisionPlan,
-    pvc_name: Option<&str>,
 ) -> Result<Vec<Container>, String> {
     let servers = match &plan.repo_config.servers {
         Some(s) if !s.is_empty() => s,
@@ -462,8 +605,10 @@ fn build_server_containers(
             _ => (None, None),
         };
 
-        // Volume mounts — server containers need PVC + shared-data + build-cache
-        let mut volume_mounts = vec![
+        // Volume mounts — server containers share workspace-data + shared-data +
+        // build-cache with the sandbox container. `workspace-data` (PVC or ephemeral
+        // emptyDir) is always present, so the server sees the same `/opt/moatless`.
+        let volume_mounts = vec![
             VolumeMount {
                 name: "shared-data".to_string(),
                 mount_path: "/opt/moatless/data".to_string(),
@@ -474,15 +619,12 @@ fn build_server_containers(
                 mount_path: "/opt/moatless/build-cache".to_string(),
                 ..Default::default()
             },
-        ];
-
-        if pvc_name.is_some() {
-            volume_mounts.push(VolumeMount {
+            VolumeMount {
                 name: "workspace-data".to_string(),
                 mount_path: "/opt/moatless".to_string(),
                 ..Default::default()
-            });
-        }
+            },
+        ];
 
         // Readiness probe — TCP check on server port
         let readiness_probe = Probe {
@@ -642,6 +784,18 @@ fn drop_all_security_context() -> SecurityContext {
     }
 }
 
+/// Privileged security context for the `nvme-setup` init container.
+///
+/// Required to `mkfs.ext4` / `mount` the raw instance-store NVMe device. Used
+/// ONLY by the short-lived init container — never by the agent/server
+/// containers, which keep `drop_all_security_context()`.
+fn privileged_security_context() -> SecurityContext {
+    SecurityContext {
+        privileged: Some(true),
+        ..Default::default()
+    }
+}
+
 /// Create an EnvVar.
 fn env_var(name: &str, value: &str) -> EnvVar {
     EnvVar {
@@ -716,6 +870,9 @@ mod tests {
                 default_model: None,
                 default_codex_model: None,
                 extra_env: vec![],
+                cache_volumes: vec![],
+                cache_host_root: "/mnt/cache".into(),
+                cache_init_image: "docker:dind".into(),
             },
             proxy: ProxyConfig {
                 domain: None,
@@ -780,6 +937,7 @@ mod tests {
             s3: S3Config {
                 bucket_name: None,
                 key_prefix: "test".into(),
+                transcript_prefix: "transcripts".into(),
                 region: "us-east-1".into(),
             },
             slack: SlackConfig {
@@ -846,7 +1004,7 @@ mod tests {
         let config = test_config();
         let plan = test_plan();
 
-        let containers = build_server_containers(&config, &plan, Some("pvc")).unwrap();
+        let containers = build_server_containers(&config, &plan).unwrap();
         let web = containers
             .iter()
             .find(|container| container.name == "web-server")
@@ -870,7 +1028,7 @@ mod tests {
         let mut plan = test_plan();
         plan.repo_config.docker_image = Some(String::new());
 
-        let containers = build_server_containers(&config, &plan, Some("pvc")).unwrap();
+        let containers = build_server_containers(&config, &plan).unwrap();
         let web = containers
             .iter()
             .find(|container| container.name == "web-server")
@@ -886,7 +1044,7 @@ mod tests {
             servers[0].docker_image = Some(String::new());
         }
 
-        let containers = build_server_containers(&config, &plan, Some("pvc")).unwrap();
+        let containers = build_server_containers(&config, &plan).unwrap();
         let web = containers
             .iter()
             .find(|container| container.name == "web-server")
@@ -919,7 +1077,7 @@ mod tests {
         let plan = test_plan();
 
         let container =
-            build_sandbox_container(&config, "task-1", &plan, Some("pvc"), None).unwrap();
+            build_sandbox_container(&config, "task-1", &plan, None).unwrap();
         let resources = container
             .resources
             .as_ref()
@@ -943,10 +1101,12 @@ mod tests {
         plan.repo_config.resources = Some(ResourceConfig {
             requests: Some(HashMap::from([("memory".to_string(), "4Gi".to_string())])),
             limits: Some(HashMap::from([("memory".to_string(), "16Gi".to_string())])),
+            storage: None,
+            storage_mode: None,
         });
 
         let container =
-            build_sandbox_container(&config, "task-1", &plan, Some("pvc"), None).unwrap();
+            build_sandbox_container(&config, "task-1", &plan, None).unwrap();
         let resources = container.resources.as_ref().unwrap();
         assert_eq!(
             resources
@@ -964,5 +1124,238 @@ mod tests {
                 .map(|q| q.0.as_str()),
             Some("16Gi")
         );
+    }
+
+    #[test]
+    fn ephemeral_tier_mounts_capped_workspace_empty_dir() {
+        use crate::repository::models::ResourceConfig;
+
+        // No PVC (ephemeral tier) → workspace-data is a node-local emptyDir sized
+        // from the repo's resources.storage, mounted at /opt/moatless everywhere.
+        let config = test_config();
+        let mut plan = test_plan();
+        plan.repo_config.resources = Some(ResourceConfig {
+            requests: None,
+            limits: None,
+            storage: Some("7Gi".into()),
+            storage_mode: Some("ephemeral".into()),
+        });
+
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        let volumes = pod.spec.as_ref().unwrap().volumes.as_ref().unwrap();
+        let ws = volumes
+            .iter()
+            .find(|v| v.name == "workspace-data")
+            .expect("workspace-data volume present");
+        let empty = ws
+            .empty_dir
+            .as_ref()
+            .expect("workspace-data is an emptyDir in the ephemeral tier");
+        // Node disk, not RAM: medium must be unset (None/empty).
+        assert!(
+            empty.medium.as_deref().unwrap_or("").is_empty(),
+            "ephemeral workspace must live on node disk, not memory"
+        );
+        assert_eq!(empty.size_limit.as_ref().map(|q| q.0.as_str()), Some("7Gi"));
+
+        // No PVC volume should be present.
+        assert!(
+            volumes
+                .iter()
+                .all(|v| v.persistent_volume_claim.is_none()),
+            "ephemeral tier must not reference a PVC"
+        );
+
+        // The sandbox container mounts the workspace emptyDir at /opt/moatless and /tmp.
+        let container = build_sandbox_container(&config, "task-1", &plan, None).unwrap();
+        let mounts = container.volume_mounts.as_ref().unwrap();
+        assert!(
+            mounts
+                .iter()
+                .any(|m| m.name == "workspace-data" && m.mount_path == "/opt/moatless"),
+            "sandbox must mount workspace-data at /opt/moatless"
+        );
+        assert!(
+            mounts.iter().any(|m| m.name == "workspace-data"
+                && m.mount_path == "/tmp"
+                && m.sub_path.as_deref() == Some("tmp")),
+            "/tmp must be a subPath of workspace-data"
+        );
+
+        // Server containers share the same workspace volume.
+        let servers = build_server_containers(&config, &plan).unwrap();
+        let web = servers
+            .iter()
+            .find(|c| c.name == "web-server")
+            .expect("web-server present");
+        assert!(
+            web.volume_mounts
+                .as_ref()
+                .unwrap()
+                .iter()
+                .any(|m| m.name == "workspace-data" && m.mount_path == "/opt/moatless"),
+            "server containers must share workspace-data"
+        );
+    }
+
+    #[test]
+    fn ephemeral_workspace_size_falls_back_to_global_default() {
+        // No per-repo storage override → emptyDir uses the global storage_size.
+        let mut config = test_config();
+        config.sandbox.storage_size = "3Gi".into();
+        let plan = test_plan();
+
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        let volumes = pod.spec.as_ref().unwrap().volumes.as_ref().unwrap();
+        let ws = volumes
+            .iter()
+            .find(|v| v.name == "workspace-data")
+            .expect("workspace-data volume present");
+        assert_eq!(
+            ws.empty_dir
+                .as_ref()
+                .and_then(|e| e.size_limit.as_ref())
+                .map(|q| q.0.as_str()),
+            Some("3Gi")
+        );
+    }
+
+    /// Two cache entries → ONE shared `pkg-cache` hostPath volume + the
+    /// `host-mnt` parent volume + a privileged `nvme-setup` init container + a
+    /// per-entry subPath mount and per-entry env on the sandbox container.
+    #[test]
+    fn cache_volumes_wire_volume_mounts_env_and_init() {
+        use crate::config::SandboxCacheVolume;
+
+        let mut config = test_config();
+        config.sandbox.cache_volumes = vec![
+            SandboxCacheVolume {
+                name: "maven".into(),
+                mount_path: "/maven-cache".into(),
+                env: vec![(
+                    "MAVEN_OPTS".into(),
+                    "-Dmaven.repo.local=/maven-cache".into(),
+                )],
+            },
+            SandboxCacheVolume {
+                name: "bun".into(),
+                mount_path: "/bun-cache".into(),
+                env: vec![("BUN_INSTALL_CACHE_DIR".into(), "/bun-cache".into())],
+            },
+        ];
+        let plan = test_plan();
+
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        let spec = pod.spec.as_ref().unwrap();
+
+        // Exactly one shared pkg-cache hostPath volume rooted at the cache root,
+        // plus the host-mnt parent volume for the init container.
+        let volumes = spec.volumes.as_ref().unwrap();
+        let pkg: Vec<_> = volumes.iter().filter(|v| v.name == "pkg-cache").collect();
+        assert_eq!(pkg.len(), 1, "exactly one shared pkg-cache volume for N caches");
+        let hp = pkg[0]
+            .host_path
+            .as_ref()
+            .expect("pkg-cache must be a hostPath volume");
+        assert_eq!(hp.path, "/mnt/cache");
+        assert_eq!(hp.type_.as_deref(), Some("DirectoryOrCreate"));
+        let host_mnt = volumes
+            .iter()
+            .find(|v| v.name == "host-mnt")
+            .expect("host-mnt parent volume present");
+        assert_eq!(host_mnt.host_path.as_ref().unwrap().path, "/mnt");
+
+        // Privileged nvme-setup init container with a bidirectional host-mnt mount
+        // and a script that formats the NVMe and creates each cache subdir.
+        let inits = spec
+            .init_containers
+            .as_ref()
+            .expect("init containers present when caches configured");
+        let nvme = inits
+            .iter()
+            .find(|c| c.name == "nvme-setup")
+            .expect("nvme-setup init container present");
+        assert_eq!(
+            nvme.security_context.as_ref().and_then(|s| s.privileged),
+            Some(true),
+            "nvme-setup must be privileged"
+        );
+        let init_mount = nvme
+            .volume_mounts
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|m| m.name == "host-mnt")
+            .unwrap();
+        assert_eq!(init_mount.mount_propagation.as_deref(), Some("Bidirectional"));
+        let init_script = nvme.args.as_ref().unwrap().join("\n");
+        assert!(init_script.contains("mkfs.ext4 -F /dev/nvme1n1"));
+        assert!(init_script.contains("/host-mnt/cache/maven"));
+        assert!(init_script.contains("/host-mnt/cache/bun"));
+
+        // Sandbox container: one subPath mount per cache + the matching env.
+        let container = build_sandbox_container(&config, "task-1", &plan, None).unwrap();
+        let mounts = container.volume_mounts.as_ref().unwrap();
+        assert!(
+            mounts.iter().any(|m| m.name == "pkg-cache"
+                && m.mount_path == "/maven-cache"
+                && m.sub_path.as_deref() == Some("maven")),
+            "maven cache must mount via subPath"
+        );
+        assert!(
+            mounts.iter().any(|m| m.name == "pkg-cache"
+                && m.mount_path == "/bun-cache"
+                && m.sub_path.as_deref() == Some("bun")),
+            "bun cache must mount via subPath"
+        );
+        let env = container.env.as_ref().unwrap();
+        assert!(env.iter().any(|e| e.name == "MAVEN_OPTS"
+            && e.value.as_deref() == Some("-Dmaven.repo.local=/maven-cache")));
+        assert!(env.iter().any(|e| e.name == "BUN_INSTALL_CACHE_DIR"
+            && e.value.as_deref() == Some("/bun-cache")));
+
+        // Caches are scoped to the agent container — server containers must not
+        // mount the shared package cache.
+        let servers = build_server_containers(&config, &plan).unwrap();
+        for s in &servers {
+            assert!(
+                s.volume_mounts
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .all(|m| m.name != "pkg-cache"),
+                "server containers must not mount pkg-cache"
+            );
+        }
+    }
+
+    /// No cache list → hardened default: no init container, no hostPath volume.
+    #[test]
+    fn no_cache_volumes_means_no_init_or_hostpath() {
+        let config = test_config(); // cache_volumes empty by default
+        let plan = test_plan();
+
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        let spec = pod.spec.as_ref().unwrap();
+        assert!(
+            spec.init_containers.is_none(),
+            "no init containers without configured caches"
+        );
+        assert!(
+            spec.volumes
+                .as_ref()
+                .unwrap()
+                .iter()
+                .all(|v| v.host_path.is_none()),
+            "no hostPath volumes without configured caches"
+        );
+    }
+
+    #[test]
+    fn cache_host_parent_derives_mount_propagation_root() {
+        assert_eq!(cache_host_parent("/mnt/cache"), "/mnt");
+        assert_eq!(cache_host_parent("/mnt/cache/"), "/mnt");
+        assert_eq!(cache_host_parent("/var/lib/pkg-cache"), "/var/lib");
+        assert_eq!(cache_host_parent("/mnt"), "/");
     }
 }

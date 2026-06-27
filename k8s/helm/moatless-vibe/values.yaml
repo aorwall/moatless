@@ -512,8 +512,19 @@ kubernetes:
     enabled: true
     # -- Storage class for sandbox PVCs (empty = cluster default)
     storageClass: ""
-    # -- Size of each task's PVC
-    size: "10Gi"
+    # -- Default size of each task's workspace (the per-task EBS PVC, or the
+    #    node-local emptyDir for the ephemeral tier). Big repos can opt into more
+    #    via `.moatless/config.json` -> `resources.storage`; a repo can drop the
+    #    PVC entirely with `resources.storageMode: ephemeral`.
+    size: "3Gi"
+  # Sandbox Claude transcript sync to S3.
+  # The sandbox tars `~/.claude/projects/*.jsonl` and ships it to the uploads
+  # bucket via the backend (no pod AWS creds), so transcripts persist off the
+  # per-task PVC and survive pod restarts — the only durability for the ephemeral
+  # tier. Reuses the uploads bucket + backend IRSA; no extra infra.
+  transcriptStorage:
+    # -- S3 key prefix for transcripts: <prefix>/<task_id>/transcripts.tar
+    prefix: "transcripts"
   # Sandbox pod environment configuration
   sandboxEnv:
     # -- Node environment
@@ -560,9 +571,35 @@ kubernetes:
       value: "30"
     - name: net.ipv4.tcp_keepalive_probes
       value: "5"
-  # Extension hooks for environment-specific sandbox pod customization
-  sandboxExtraVolumes: []
-  sandboxExtraVolumeMounts: []
+  # -- Generic node-local package-manager caches mounted into sandbox pods.
+  # Each entry shares ONE node-local NVMe-backed hostPath volume (rooted at
+  # /mnt/cache); a privileged `nvme-setup` init container formats/mounts the
+  # instance-store NVMe and creates a per-cache subdir. Each entry caches a
+  # tool's DOWNLOAD cache/store (maven local repo, npm _cacache, bun cache) —
+  # never per-project node_modules, which must not be shared across repos.
+  # Empty (default) keeps sandbox pods hardened: no privileged init container,
+  # no hostPath. Adding a new package manager is one more entry — no code change.
+  # Requires sandbox nodes with local NVMe (the moatless-egress pool pinned to a
+  # `d`-family instance, e.g. c5d). Example:
+  #   sandboxCacheVolumes:
+  #     - name: maven
+  #       mountPath: /maven-cache
+  #       env:
+  #         MAVEN_OPTS: "-Dmaven.repo.local=/maven-cache"
+  #     - name: bun
+  #       mountPath: /bun-cache
+  #       env:
+  #         BUN_INSTALL_CACHE_DIR: /bun-cache
+  #     - name: npm
+  #       mountPath: /npm-cache
+  #       env:
+  #         npm_config_cache: /npm-cache
+  sandboxCacheVolumes: []
+  # -- Image for the privileged `nvme-setup` init container (only used when
+  # sandboxCacheVolumes is non-empty). Must be allowlisted by the cluster's
+  # restrict-image-registries policy for initContainers (the ECR-mirrored dind
+  # ref). Leave empty to use the backend's built-in default.
+  sandboxCacheInitImage: ""
   # -- Extra environment variables injected into sandbox pods.
   # Example: enable tmux-based Claude SDK transport:
   #   - name: SANDBOX_USE_TMUX

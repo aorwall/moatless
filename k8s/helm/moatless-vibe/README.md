@@ -178,7 +178,27 @@ helm install moatless ./k8s/helm/moatless-vibe \
 | `kubernetes.enabled` | Enable Kubernetes execution mode | `true` |
 | `kubernetes.namespace` | Namespace for sandbox pods | Release namespace |
 | `kubernetes.sandboxStorage.enabled` | Enable per-task PVC | `true` |
-| `kubernetes.sandboxStorage.size` | Size of each task's PVC | `10Gi` |
+| `kubernetes.sandboxStorage.size` | Default workspace size — per-task PVC, or the ephemeral emptyDir (per-repo override via `.moatless/config.json` → `resources.storage`) | `3Gi` |
+| `kubernetes.transcriptStorage.prefix` | S3 key prefix for synced Claude transcripts (`<prefix>/<task_id>/transcripts.tar`) | `transcripts` |
+
+#### Claude transcript persistence on S3
+
+Each task's Claude config dir is regenerated on every boot except the conversation
+transcripts (`~/.claude/projects/*.jsonl`), which Claude appends to across turns and
+which `--resume` reads. The sandbox tars that directory and ships it to S3 **through
+the backend** over the existing JWT-authed gRPC (sandbox pods are AWS-credential-less
+by design), on a timer and on graceful shutdown, and restores it on the next start.
+
+This persists transcripts off the per-task PVC and is the **only** transcript
+durability for the ephemeral (no-EBS) storage tier
+(`resources.storageMode: ephemeral`). It reuses the existing uploads bucket and the
+backend IRSA — no extra bucket, IAM, or cluster infra. Objects land at
+`s3://<uploads-bucket>/<prefix>/<task_id>/transcripts.tar` and are deleted on task
+cleanup. Tune the upload cadence with `TRANSCRIPT_SYNC_INTERVAL_SECS` on the sandbox
+(default 60s; `0` disables the timer but still flushes on shutdown).
+
+> Scope the uploads bucket's lifecycle expiry to the `uploads/` prefix (or add a
+> longer rule for `transcripts/`) so transcripts of long-lived tasks aren't deleted.
 
 ### Ingress Parameters
 

@@ -132,6 +132,18 @@ impl BackendClient for MockBackendClient {
     ) -> Result<Option<sandbox_proto::InterruptedTurn>, tonic::Status> {
         Ok(None)
     }
+
+    async fn upload_transcript(
+        &self,
+        _task_id: &str,
+        _tar_data: Vec<u8>,
+    ) -> Result<(), tonic::Status> {
+        Ok(())
+    }
+
+    async fn download_transcript(&self, _task_id: &str) -> Result<Vec<u8>, tonic::Status> {
+        Ok(Vec::new())
+    }
 }
 
 // =============================================================================

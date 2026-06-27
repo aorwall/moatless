@@ -137,6 +137,9 @@ pub fn test_config() -> Config {
             default_model: None,
             default_codex_model: None,
             extra_env: vec![],
+            cache_volumes: vec![],
+            cache_host_root: "/mnt/cache".into(),
+            cache_init_image: "docker:dind".into(),
         },
         docker: DockerConfig {
             network: "moatless".into(),
@@ -201,6 +204,7 @@ pub fn test_config() -> Config {
         s3: S3Config {
             bucket_name: None,
             key_prefix: "test".into(),
+            transcript_prefix: "transcripts".into(),
             region: "us-east-1".into(),
         },
         slack: SlackConfig {

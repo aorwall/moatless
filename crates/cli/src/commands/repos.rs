@@ -436,6 +436,8 @@ fn build_resource_config(
         } else {
             Some(limits)
         },
+        storage: None,
+        storage_mode: None,
     })
 }
 
