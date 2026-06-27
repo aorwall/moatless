@@ -228,6 +228,19 @@ async fn run_reap_cycle(
             HashMap::new()
         });
 
+    // Latest agent run-state per sandbox task, used to date the idle-stop floor
+    // from when the agent last stopped (and to never reap a running agent).
+    // Only sandbox tasks reach the reap branch, so query just those. Falls back
+    // to the activity floor on error.
+    let agent_lifecycle = app_state
+        .task_events
+        .get_latest_agent_lifecycle(&sandbox_ids)
+        .await
+        .unwrap_or_else(|e| {
+            warn!(error = %e, "Failed to fetch agent lifecycle events, reaper falls back to activity floor");
+            HashMap::new()
+        });
+
     let sandbox_set: HashSet<&str> = sandbox_ids.iter().map(String::as_str).collect();
     let open_set: HashSet<&str> = open_ids.iter().map(String::as_str).collect();
 
@@ -262,8 +275,12 @@ async fn run_reap_cycle(
             continue;
         }
 
+        // Fold the agent run-state into the idle-stop floor so a running agent
+        // is never reaped and a stopped agent's TTL counts from when it stopped.
+        let reap_floor = compute_reap_floor(agent_lifecycle.get(task_id), latest_at, now);
+
         let ttl_minutes = ttl_map.get(task_id).copied().unwrap_or(default_ttl_minutes);
-        match decide_reap(ttl_minutes, latest_at, now) {
+        match decide_reap(ttl_minutes, reap_floor, now) {
             ReapDecision::Skip(reason) => {
                 debug!(task_id = %task_id, reason, "Skipping sandbox reap");
             }
@@ -275,6 +292,11 @@ async fn run_reap_cycle(
                     last_activity = ?latest_at,
                     "Stopping idle sandbox"
                 );
+                // Stop the agent gracefully before scaling the Deployment to 0
+                // so the pod exits promptly instead of riding its full
+                // termination grace until SIGKILL (exit 137). Best-effort; an
+                // already-idle agent makes this a no-op.
+                crate::sandbox::notify::stop_agent_for_task(app_state, task_id).await;
                 match sandbox.stop(task_id).await {
                     Ok(()) => {
                         info!(task_id = %task_id, "Idle sandbox stopped successfully");
@@ -431,6 +453,40 @@ enum ReapDecision {
     Skip(&'static str),
 }
 
+/// Whether an `agent` lifecycle `sub_type` marks the agent's run as ended.
+///
+/// `started` is the only non-terminal run-state marker; `completed`,
+/// `stopped`, and `error` all mean the agent stopped. The DAO query already
+/// restricts to these four sub-types, so anything that isn't terminal here is
+/// `started` (a running agent).
+fn is_terminal_agent_sub_type(sub_type: &str) -> bool {
+    matches!(sub_type, "completed" | "stopped" | "error")
+}
+
+/// Compute the idle-stop floor for a sandbox task, folding the latest agent
+/// run-state (`(sub_type, stopped_at)`) into the raw activity floor.
+///
+/// - running agent (`started`, non-terminal) ⇒ `now` ⇒ `decide_reap` returns
+///   `Keep`; a running agent is never reaped.
+/// - stopped agent (terminal) ⇒ `max(activity_floor, stop_time)` so the TTL
+///   counts from when the agent stopped, not from the last user message.
+/// - no agent event ⇒ the `activity_floor` unchanged (message → sandbox-start →
+///   created fallback).
+fn compute_reap_floor(
+    agent_event: Option<&(String, DateTime<Utc>)>,
+    activity_floor: Option<DateTime<Utc>>,
+    now: DateTime<Utc>,
+) -> Option<DateTime<Utc>> {
+    match agent_event {
+        Some((sub_type, _)) if !is_terminal_agent_sub_type(sub_type) => Some(now),
+        Some((_, stopped_at)) => Some(match activity_floor {
+            Some(existing) if existing > *stopped_at => existing,
+            _ => *stopped_at,
+        }),
+        None => activity_floor,
+    }
+}
+
 /// Pure decision function: decide whether to reap a single sandbox.
 ///
 /// `ttl_minutes == 0` means the task is pinned indefinitely — never reap.
@@ -510,10 +566,10 @@ async fn auto_close_task(
         }
     };
 
-    if let Err(e) = sandbox.cleanup(task_id).await {
-        warn!(task_id, error = %e, "auto-close: sandbox.cleanup failed (continuing)");
-    }
-
+    // Commit `Closed` BEFORE the teardown (the original order cleaned up first,
+    // then wrote the status). With `Closed` persisted first, any concurrent
+    // `auto_provision` / `get_pending_messages` (gated by Fix B) sees `Closed`
+    // and bails. A teardown failure below can't leave the task non-terminal.
     if let Err(e) = tasks
         .update_task(
             task_id,
@@ -526,6 +582,14 @@ async fn auto_close_task(
     {
         warn!(task_id, error = %e, "auto-close: update_task failed");
         return;
+    }
+
+    // Stop the agent gracefully before tearing down K8s resources so the pod
+    // exits promptly instead of riding its full termination grace until SIGKILL
+    // (exit 137). Best-effort — an already-idle agent makes this a no-op.
+    crate::sandbox::notify::stop_agent_for_task(app_state, task_id).await;
+    if let Err(e) = sandbox.cleanup(task_id).await {
+        warn!(task_id, error = %e, "auto-close: sandbox.cleanup failed (continuing)");
     }
 
     // A closed task is terminal — deactivate its bindings so inbound comments
@@ -672,5 +736,96 @@ mod tests {
         let decision =
             decide_close(7, Some(now - chrono::Duration::days(1)), now);
         assert_eq!(decision, CloseDecision::Keep);
+    }
+
+    // =========================================================================
+    // is_terminal_agent_sub_type / compute_reap_floor (Fix E)
+    // =========================================================================
+
+    #[test]
+    fn started_is_not_terminal() {
+        assert!(!is_terminal_agent_sub_type("started"));
+    }
+
+    #[test]
+    fn completed_stopped_error_are_terminal() {
+        assert!(is_terminal_agent_sub_type("completed"));
+        assert!(is_terminal_agent_sub_type("stopped"));
+        assert!(is_terminal_agent_sub_type("error"));
+    }
+
+    #[test]
+    fn running_agent_pins_floor_to_now() {
+        // Latest agent event is `started` ⇒ agent running ⇒ floor is `now`,
+        // regardless of how stale the message/activity floor is.
+        let now = Utc::now();
+        let stale = now - chrono::Duration::hours(5);
+        let event = ("started".to_string(), now - chrono::Duration::hours(3));
+        let floor = compute_reap_floor(Some(&event), Some(stale), now);
+        assert_eq!(floor, Some(now));
+    }
+
+    #[test]
+    fn running_agent_is_never_reaped_even_far_past_ttl() {
+        // End-to-end through decide_reap: a running agent with a very stale
+        // activity floor and a short TTL still Keeps.
+        let now = Utc::now();
+        let stale = now - chrono::Duration::hours(10);
+        let event = ("started".to_string(), now - chrono::Duration::hours(9));
+        let floor = compute_reap_floor(Some(&event), Some(stale), now);
+        assert_eq!(decide_reap(60, floor, now), ReapDecision::Keep);
+    }
+
+    #[test]
+    fn stopped_agent_floor_dates_from_stop_time() {
+        // Terminal latest event, stop more recent than the message floor ⇒
+        // floor = stop time, so the TTL counts from agent-stop.
+        let now = Utc::now();
+        let old_message = now - chrono::Duration::hours(5);
+        let stopped_at = now - chrono::Duration::minutes(30);
+        let event = ("completed".to_string(), stopped_at);
+        let floor = compute_reap_floor(Some(&event), Some(old_message), now);
+        assert_eq!(floor, Some(stopped_at));
+        // 60-min TTL, stopped 30 min ago → still within TTL → Keep.
+        assert_eq!(decide_reap(60, floor, now), ReapDecision::Keep);
+    }
+
+    #[test]
+    fn stopped_agent_reaped_after_ttl_from_stop() {
+        // Terminal latest event, stopped longer ago than the TTL ⇒ Stop.
+        let now = Utc::now();
+        let stopped_at = now - chrono::Duration::minutes(90);
+        let event = ("stopped".to_string(), stopped_at);
+        let floor = compute_reap_floor(Some(&event), None, now);
+        assert_eq!(floor, Some(stopped_at));
+        assert_eq!(decide_reap(60, floor, now), ReapDecision::Stop);
+    }
+
+    #[test]
+    fn stopped_agent_uses_newer_activity_floor() {
+        // A user message AFTER the agent stopped keeps the floor at the message
+        // time (max of the two), so post-stop activity still counts.
+        let now = Utc::now();
+        let stopped_at = now - chrono::Duration::hours(2);
+        let newer_message = now - chrono::Duration::minutes(10);
+        let event = ("error".to_string(), stopped_at);
+        let floor = compute_reap_floor(Some(&event), Some(newer_message), now);
+        assert_eq!(floor, Some(newer_message));
+    }
+
+    #[test]
+    fn no_agent_event_falls_back_to_activity_floor() {
+        let now = Utc::now();
+        let activity = now - chrono::Duration::minutes(45);
+        let floor = compute_reap_floor(None, Some(activity), now);
+        assert_eq!(floor, Some(activity));
+
+        // None activity floor stays None (decide_reap then Skips).
+        let floor_none = compute_reap_floor(None, None, now);
+        assert_eq!(floor_none, None);
+        assert_eq!(
+            decide_reap(60, floor_none, now),
+            ReapDecision::Skip("no activity timestamp")
+        );
     }
 }

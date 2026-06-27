@@ -363,11 +363,12 @@ pub async fn close_tasks_for_pr(
             continue;
         }
 
-        // Append the close notice to the task chat *before* tearing down the
-        // sandbox + flipping status, so the message is the final visible one
-        // and `send_message_flow`'s `last_message_at` write happens while the
-        // task is still `Open`. `resume = false` keeps us from briefly waking
-        // the agent on a sandbox we're about to clean up.
+        // Append the close notice to the task chat while the task is still
+        // `Open`. The `send.rs` closed-task guard drops inbound external
+        // messages on `Closed` tasks, so the notice MUST be delivered before
+        // the status flip below — otherwise it would silently vanish.
+        // `resume = false` only persists the message; it never provisions or
+        // wakes the agent on a sandbox we're about to tear down.
         let close_msg = build_close_inbound_message(state, owner, repo, rule, info).await;
         if let Err(e) =
             deliver_to_binding(state, rule, connection, &binding, &close_msg, false, false).await
@@ -380,10 +381,11 @@ pub async fn close_tasks_for_pr(
             );
         }
 
-        if let Err(e) = state.sandbox.cleanup(task_id).await {
-            warn!(task_id = %task_id, error = %e, "Failed to cleanup sandbox on PR close");
-        }
-
+        // Commit `Closed` BEFORE the slow teardown. The original code wrote the
+        // status last (after `cleanup`), leaving a window where a webhook racing
+        // the close still saw `open` and could re-provision the task. Persisting
+        // `Closed` first means any concurrent `auto_provision` /
+        // `get_pending_messages` (gated by Fix B) sees `Closed` and bails.
         if let Err(e) = state
             .tasks
             .update_task(
@@ -397,6 +399,16 @@ pub async fn close_tasks_for_pr(
         {
             warn!(task_id = %task_id, error = %e, "Failed to close task on PR close");
             continue;
+        }
+
+        // Stop the agent gracefully, then tear down K8s resources. Both
+        // best-effort and run with `Closed` already committed, so a teardown
+        // failure never leaves the task in a non-terminal state. `stop_agent`
+        // cancels an in-flight review promptly instead of riding the pod's full
+        // termination grace until SIGKILL (exit 137).
+        crate::sandbox::notify::stop_agent_for_task(state, task_id).await;
+        if let Err(e) = state.sandbox.cleanup(task_id).await {
+            warn!(task_id = %task_id, error = %e, "Failed to cleanup sandbox on PR close");
         }
 
         // A closed task is terminal — deactivate its bindings so later comments

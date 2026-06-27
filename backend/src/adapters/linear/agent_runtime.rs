@@ -690,6 +690,11 @@ async fn close_active_bindings_for_issue(
             }
         }
 
+        // Stop the agent gracefully before tearing down K8s resources so the
+        // pod exits promptly instead of riding its full termination grace until
+        // SIGKILL (exit 137). Best-effort — never blocks teardown.
+        crate::sandbox::notify::stop_agent_for_task(state, &binding.task_id).await;
+
         if let Err(e) = state.sandbox.cleanup(&binding.task_id).await {
             warn!(task_id = %binding.task_id, error = %e, "Failed to cleanup sandbox on Linear close");
         }

@@ -51,8 +51,6 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
         return;
     }
 
-    let task_status = TaskStatus::Open;
-
     // Fallback: set real Claude Code session_id on user messages
     // (in case session_init event was missed or arrived before messages were fetched)
     if let Some(ref sid) = sdk_result.session_id {
@@ -65,10 +63,11 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
         }
     }
 
-    // Update task
+    // Update task cost / activity timestamp. Status is flipped separately via
+    // `update_status_if_not_closed` so a task closed mid-run (e.g. its PR was
+    // closed) is never resurrected to Open by this automated handler.
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let mut patch = TaskPatch {
-        status: Some(task_status),
         last_message_at: Some(now),
         ..Default::default()
     };
@@ -80,6 +79,21 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
     if let Err(e) = state.tasks.update_task(&event.task_id, &patch).await {
         tracing::warn!(task_id = %event.task_id, error = %e, "Failed to update task after completion");
     }
+
+    // Reopen only if the task isn't already Closed. A Closed task is terminal
+    // against automated re-open — the returned `reopened` gates the
+    // `TaskSubType::Open` SSE event below so a closed task emits no phantom Open.
+    let reopened = match state
+        .tasks
+        .update_status_if_not_closed(&event.task_id, TaskStatus::Open)
+        .await
+    {
+        Ok(changed) => changed,
+        Err(e) => {
+            tracing::warn!(task_id = %event.task_id, error = %e, "Failed to update task status after completion");
+            false
+        }
+    };
 
     // Finalize any active Linear agent session bound to this task by posting a
     // terminal `response` activity with the last assistant message body. The
@@ -104,19 +118,18 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
             )
             .await;
 
-        let task_sub = match task_status {
-            TaskStatus::Open => TaskSubType::Open,
-            TaskStatus::Closed => TaskSubType::Closed,
-            TaskStatus::Error => TaskSubType::Updated,
-        };
-        events
-            .publish_task_event(
-                &event.task_id,
-                task_sub,
-                event.agent_type.as_deref(),
-                serde_json::json!({}),
-            )
-            .await;
+        // Only announce Open when this handler actually (re)opened the task.
+        // A task closed mid-run stays Closed and must not emit a phantom Open.
+        if reopened {
+            events
+                .publish_task_event(
+                    &event.task_id,
+                    TaskSubType::Open,
+                    event.agent_type.as_deref(),
+                    serde_json::json!({}),
+                )
+                .await;
+        }
     }
 }
 
@@ -279,7 +292,6 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
         .update_task(
             &event.task_id,
             &TaskPatch {
-                status: Some(TaskStatus::Open),
                 last_message_at: Some(now),
                 ..Default::default()
             },
@@ -287,6 +299,17 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
         .await
     {
         tracing::warn!(task_id = %event.task_id, error = %e, "Failed to update task after stop");
+    }
+
+    // Reopen only if the task isn't already Closed. A task closed mid-run
+    // (e.g. its PR was closed) stays Closed — this automated handler must
+    // not resurrect it.
+    if let Err(e) = state
+        .tasks
+        .update_status_if_not_closed(&event.task_id, TaskStatus::Open)
+        .await
+    {
+        tracing::warn!(task_id = %event.task_id, error = %e, "Failed to update task status after stop");
     }
 
     if let Some(ref events) = state.events {
@@ -369,7 +392,6 @@ pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
         .update_task(
             &event.task_id,
             &TaskPatch {
-                status: Some(TaskStatus::Open),
                 last_message_at: Some(now),
                 ..Default::default()
             },
@@ -377,6 +399,19 @@ pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
         .await
     {
         tracing::warn!(task_id = %event.task_id, error = %e, "Failed to update task after error");
+    }
+
+    // Reopen only if the task isn't already Closed. This is the path the
+    // orphaned-turn reaper routes through (`close_orphaned_turn`), so this
+    // single guard also keeps the reaper from re-opening a closed task: the
+    // synthetic error still appends its message row + `taskTurn.error` (the UI
+    // unblocks), but the status stays Closed.
+    if let Err(e) = state
+        .tasks
+        .update_status_if_not_closed(&event.task_id, TaskStatus::Open)
+        .await
+    {
+        tracing::warn!(task_id = %event.task_id, error = %e, "Failed to update task status after error");
     }
 
     if let Some(ref events) = state.events {

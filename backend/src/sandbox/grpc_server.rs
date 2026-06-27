@@ -229,6 +229,23 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         } else {
             None
         };
+
+        // Gate: a Closed task is terminal — never start a turn on it. The
+        // sandbox dispatcher no-ops on an empty list, so returning empty here
+        // means no `agent.started`, no turn — even if the pod is still finishing
+        // its termination grace period. Fail open on unknown (None / DB-error,
+        // both collapsed by `.ok().flatten()`): only a confirmed-Closed task is
+        // gated, mirroring `send.rs`.
+        if matches!(
+            task.as_ref().map(|t| t.status),
+            Some(crate::task::models::TaskStatus::Closed)
+        ) {
+            debug!(task_id = %req.task_id, "get_pending_messages: task is Closed, returning no messages");
+            return Ok(Response::new(GetPendingMessagesResponse {
+                messages: vec![],
+            }));
+        }
+
         let task_agent_type = task.as_ref().map_or_else(
             || AgentType::CLAUDE_CODE.to_string(),
             |t| t.agent_type.0.clone(),
@@ -749,6 +766,24 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             return Ok(Response::new(RecoverInterruptedRunResponse { turn: None }));
         };
 
+        // Load the task once: gate Closed tasks (terminal — no replay, and don't
+        // burn a recovery attempt) and reuse the row for `agent_type` below.
+        // Placed before `find_interrupted_turn` / `increment_recovery_attempts`.
+        // Fail open on unknown (None / DB-error): only a confirmed-Closed task
+        // is gated.
+        let task = if let Some(ref tasks) = self.tasks {
+            tasks.find_by_id_internal(&req.task_id).await.ok().flatten()
+        } else {
+            None
+        };
+        if matches!(
+            task.as_ref().map(|t| t.status),
+            Some(crate::task::models::TaskStatus::Closed)
+        ) {
+            debug!(task_id = %req.task_id, "recover_interrupted_run: task is Closed, skipping recovery");
+            return Ok(Response::new(RecoverInterruptedRunResponse { turn: None }));
+        }
+
         let interrupted = match messages.find_interrupted_turn(&req.task_id).await {
             Ok(Some(turn)) => turn,
             Ok(None) => {
@@ -808,16 +843,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             }
         };
 
-        let task_agent_type = if let Some(ref tasks) = self.tasks {
-            tasks
-                .find_by_id_internal(&req.task_id)
-                .await
-                .ok()
-                .flatten()
-                .map(|t| t.agent_type.0)
-        } else {
-            None
-        };
+        let task_agent_type = task.as_ref().map(|t| t.agent_type.0.clone());
 
         if let Some(ref publisher) = self.events {
             publisher

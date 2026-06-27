@@ -44,6 +44,17 @@ pub async fn build_provision_request(
         .map_err(|e| SandboxError::Internal(format!("DB error reading task: {e}")))?
         .ok_or_else(|| SandboxError::Internal(format!("Task '{task_id}' not found in database")))?;
 
+    // Gate: never provision a pod for a Closed task. A webhook racing a close
+    // (Fix D commits `Closed` first) lands here and is rejected, so the close
+    // can no longer be undone by a re-provision — the direct fix for the
+    // "close started it again" race. Only `Closed` is gated: `Error` stays
+    // resumable to match `start_task`.
+    if task.status == crate::task::models::TaskStatus::Closed {
+        return Err(SandboxError::BadRequest(format!(
+            "Task '{task_id}' is closed; refusing to provision a sandbox"
+        )));
+    }
+
     info!(
         task_id = %task_id,
         repository_id = %task.repository_id,

@@ -651,6 +651,11 @@ pub async fn delete_task(
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
     ensure_can_control_task(&state, &auth, &task_resource(&existing)).await?;
 
+    // Stop the agent gracefully before tearing down the workspace so the pod
+    // exits promptly instead of riding its full termination grace until SIGKILL
+    // (exit 137). Best-effort — never blocks teardown.
+    crate::sandbox::notify::stop_agent_for_task(&state, &task_id).await;
+
     // Cleanup workspace (best-effort)
     if let Err(e) = state.sandbox.cleanup(&task_id).await {
         tracing::warn!(task_id = %task_id, error = %e, "Failed to cleanup workspace on delete");
@@ -690,6 +695,11 @@ pub async fn close_task(
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
     ensure_can_control_task(&state, &auth, &task_resource(&row)).await?;
+
+    // Stop the agent gracefully before tearing down the sandbox so the pod
+    // exits promptly instead of riding its full termination grace until SIGKILL
+    // (exit 137). Best-effort — never blocks teardown.
+    crate::sandbox::notify::stop_agent_for_task(&state, &task_id).await;
 
     // Cleanup sandbox (best-effort)
     if let Err(e) = state.sandbox.cleanup(&task_id).await {

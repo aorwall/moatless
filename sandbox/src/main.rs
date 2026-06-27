@@ -30,6 +30,7 @@ use moatless_sandbox::credentials::Dispatcher;
 use moatless_sandbox::events::GrpcEventPublisher;
 use moatless_sandbox::grpc_server::SandboxServiceImpl;
 use moatless_sandbox::init::InitPhase;
+use moatless_sandbox::shutdown;
 use moatless_sandbox::state::SandboxState;
 
 /// Unix socket path for the in-pod credential broker.
@@ -138,10 +139,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Start gRPC server for sandbox service (receives commands from backend)
-    // Available even during init so backend can reach the pod
+    // Available even during init so backend can reach the pod. Drains via the
+    // lifecycle token so a SIGTERM (see shutdown driver below) stops it cleanly.
     let grpc_state = state.clone();
     let grpc_port = config.grpc_port;
     tokio::spawn(async move {
+        let grpc_shutdown = grpc_state.lifecycle_cancel.clone();
         let svc = SandboxServiceImpl { state: grpc_state };
         let addr = SocketAddr::from(([0, 0, 0, 0], grpc_port));
         info!(port = grpc_port, "Starting sandbox gRPC server");
@@ -152,11 +155,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .max_encoding_message_size(MAX_MESSAGE_SIZE);
         if let Err(e) = tonic::transport::Server::builder()
             .add_service(service)
-            .serve(addr)
+            .serve_with_shutdown(addr, async move { grpc_shutdown.cancelled().await })
             .await
         {
             tracing::error!(error = %e, "Sandbox gRPC server failed");
         }
+        info!("Sandbox gRPC server stopped");
     });
 
     // Spawn the credential broker on a unix socket. Git is configured to use
@@ -192,6 +196,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/health", get(health))
         .with_state(health_state);
 
+    // Drive graceful shutdown on SIGTERM/SIGINT. Without this the process rides
+    // the full pod termination grace period and is SIGKILLed (exit 137) on every
+    // teardown (idle-down, node drain, eviction, PR-close). On signal we stop the
+    // agent and cancel the lifecycle token, which both servers and background
+    // tasks observe to wind down.
+    shutdown::spawn_shutdown_driver(Arc::clone(&state.agent), state.lifecycle_cancel.clone());
+
     // Start HTTP server (K8s health probes only)
     let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
     let listener = TcpListener::bind(addr).await?;
@@ -200,8 +211,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Sandbox HTTP server started (health only)"
     );
 
-    axum::serve(listener, router).await?;
+    let http_shutdown = state.lifecycle_cancel.clone();
+    axum::serve(listener, router)
+        .with_graceful_shutdown(async move { http_shutdown.cancelled().await })
+        .await?;
 
+    info!("Sandbox HTTP server stopped — exiting cleanly");
     Ok(())
 }
 

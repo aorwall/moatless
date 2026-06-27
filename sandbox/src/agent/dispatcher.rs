@@ -25,6 +25,14 @@ use super::types::{content_blocks_from_proto, ContentBlock};
 /// If the agent is waiting for user input (AskUserQuestion/ExitPlanMode),
 /// resolves the pending prompt. Otherwise sends text to the agent actor.
 pub async fn dispatch_pending_messages(state: SandboxState) {
+    // The pod is shutting down (SIGTERM mid-boot or between notifications) —
+    // don't start a new turn that would just be torn down. The lifecycle token
+    // is cancelled by the shutdown driver.
+    if state.lifecycle_cancel.is_cancelled() {
+        info!("Dispatch skipped: sandbox is shutting down");
+        return;
+    }
+
     // If agent is waiting for user input, resolve the prompt
     if state.agent.has_pending_prompt().await {
         resolve_pending_prompt(&state).await;

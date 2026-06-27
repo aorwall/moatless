@@ -42,6 +42,19 @@ pub trait TaskRepository: Send + Sync {
     async fn insert_task(&self, row: &Task) -> Result<(), sqlx::Error>;
     async fn list_tasks(&self, filter: &TaskFilter) -> Result<(Vec<Task>, i64), sqlx::Error>;
     async fn update_task(&self, task_id: &str, patch: &TaskPatch) -> Result<(), sqlx::Error>;
+    /// Flip status to `new_status` only if the task is not already `Closed`.
+    ///
+    /// Returns `true` when a row changed (status updated), `false` when the
+    /// task was already `Closed` (no-op). The `WHERE status <> 'closed'` guard
+    /// is evaluated atomically at the DB, so this closes the close-vs-terminal
+    /// TOCTOU a plain read-then-write would lose: a `Closed` task can never be
+    /// resurrected by an automated agent-lifecycle event. `Open`→`Open` and
+    /// `Error`→`Open` still match the predicate, preserving today's behaviour.
+    async fn update_status_if_not_closed(
+        &self,
+        task_id: &str,
+        new_status: TaskStatus,
+    ) -> Result<bool, sqlx::Error>;
     async fn delete_task(&self, task_id: &str) -> Result<(), sqlx::Error>;
     async fn exists_by_short_id(&self, short_id: &str) -> Result<bool, sqlx::Error>;
     async fn get_created_times(
@@ -410,6 +423,22 @@ impl TaskRepository for PgTaskRepository {
             .await?;
         }
         Ok(())
+    }
+
+    async fn update_status_if_not_closed(
+        &self,
+        task_id: &str,
+        new_status: TaskStatus,
+    ) -> Result<bool, sqlx::Error> {
+        let res = sqlx::query(
+            "UPDATE tasks SET status = $2, updated_at = NOW() \
+             WHERE task_id = $1 AND status <> 'closed'",
+        )
+        .bind(task_id)
+        .bind(new_status)
+        .execute(&self.0)
+        .await?;
+        Ok(res.rows_affected() > 0)
     }
 
     async fn delete_task(&self, task_id: &str) -> Result<(), sqlx::Error> {

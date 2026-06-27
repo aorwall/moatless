@@ -1,5 +1,7 @@
 //! Task event DAO — persistence for lifecycle events.
 
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
@@ -55,6 +57,22 @@ pub trait TaskEventRepository: Send + Sync {
         &self,
         older_than: DateTime<Utc>,
     ) -> Result<Vec<UnclosedTurn>, sqlx::Error>;
+
+    /// For each task in `task_ids`, return its single most-recent agent
+    /// lifecycle event as `(sub_type, created_at)`.
+    ///
+    /// Considers only `type = 'agent'` rows whose `sub_type` is a run-state
+    /// marker (`started` | `completed` | `stopped` | `error`); other agent
+    /// sub-types (`message`, `session_init`, …) are ignored. Tasks with no such
+    /// event are omitted from the map.
+    ///
+    /// Drives the reaper's idle-TTL floor: a `started` latest event means the
+    /// agent is still running (never reap); a terminal latest event dates the
+    /// floor from when the agent last stopped.
+    async fn get_latest_agent_lifecycle(
+        &self,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, (String, DateTime<Utc>)>, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`TaskEventRepository`].
@@ -147,6 +165,36 @@ impl TaskEventRepository for PgTaskEventRepository {
                 turn_number,
                 agent_type,
             })
+            .collect())
+    }
+
+    async fn get_latest_agent_lifecycle(
+        &self,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, (String, DateTime<Utc>)>, sqlx::Error> {
+        if task_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        // DISTINCT ON (task_id) ordered by created_at desc takes each task's
+        // single most-recent run-state event. The sub_type filter excludes
+        // non-run-state agent events (message, session_init, recovery_*) so the
+        // floor reflects only start/stop transitions.
+        let rows: Vec<(String, String, DateTime<Utc>)> = sqlx::query_as(
+            r#"SELECT DISTINCT ON (task_id) task_id, sub_type, created_at
+               FROM task_events
+               WHERE type = 'agent'
+                 AND sub_type IN ('started', 'completed', 'stopped', 'error')
+                 AND task_id = ANY($1)
+               ORDER BY task_id, created_at DESC, id DESC"#,
+        )
+        .bind(task_ids)
+        .fetch_all(&self.0)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(task_id, sub_type, ts)| (task_id, (sub_type, ts)))
             .collect())
     }
 }

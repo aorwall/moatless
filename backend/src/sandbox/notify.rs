@@ -40,6 +40,30 @@ pub async fn notify_sandbox_for_task(state: &AppState, task_id: &str) {
     client.notify_messages().await;
 }
 
+/// Best-effort: stop the running agent on `task_id`'s sandbox before teardown.
+///
+/// Drives the same `StopAgent` gRPC the manual stop handler uses, so the agent
+/// cancels its in-flight turn and publishes `agent.stopped` promptly instead of
+/// riding the pod's full ~30s termination grace until SIGKILL (exit 137). Every
+/// failure is swallowed — `AgentNotRunning` (idle agent), an unreachable/gone
+/// pod, and transport errors must never block the teardown that follows. Idle
+/// agents make `stop_agent` a no-op, so this adds no spurious stopped message
+/// on a routine idle-down.
+pub async fn stop_agent_for_task(state: &AppState, task_id: &str) {
+    match state.sandbox.sandbox_client(task_id).await {
+        Ok(client) => {
+            if let Err(e) = client.stop_agent().await {
+                tracing::debug!(task_id, error = %e, "stop_agent before teardown failed (continuing)");
+            } else {
+                tracing::debug!(task_id, "Stopped agent before teardown");
+            }
+        }
+        Err(e) => {
+            tracing::debug!(task_id, error = %e, "No sandbox client for stop_agent before teardown (continuing)");
+        }
+    }
+}
+
 /// Ensure the sandbox for `task_id` is running, then notify it about new messages.
 ///
 /// - If already running (`Ready`): sends a gRPC notification.
