@@ -13,6 +13,7 @@ use crate::enums::{RepositoryKind, RepositoryProvider, Scope};
 /// Per-repository K8s resource requests/limits configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
 pub struct ResourceConfig {
     pub requests: Option<HashMap<String, String>>,
     pub limits: Option<HashMap<String, String>>,
@@ -174,4 +175,31 @@ pub struct BranchListResponse {
 pub struct BranchEntry {
     pub name: String,
     pub is_default: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resource_config_serializes_storage_mode_as_camel_case() {
+        let cfg = ResourceConfig {
+            storage_mode: Some("ephemeral".to_string()),
+            ..Default::default()
+        };
+        let value = serde_json::to_value(&cfg).expect("serialize ResourceConfig");
+        assert_eq!(value.get("storageMode"), Some(&serde_json::json!("ephemeral")));
+        assert!(
+            value.get("storage_mode").is_none(),
+            "snake_case key must not be emitted"
+        );
+    }
+
+    #[test]
+    fn resource_config_deserializes_camel_case_storage_mode() {
+        let cfg: ResourceConfig =
+            serde_json::from_value(serde_json::json!({ "storageMode": "ephemeral" }))
+                .expect("deserialize ResourceConfig");
+        assert_eq!(cfg.storage_mode.as_deref(), Some("ephemeral"));
+    }
 }

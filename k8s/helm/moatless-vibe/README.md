@@ -200,6 +200,37 @@ cleanup. Tune the upload cadence with `TRANSCRIPT_SYNC_INTERVAL_SECS` on the san
 > Scope the uploads bucket's lifecycle expiry to the `uploads/` prefix (or add a
 > longer rule for `transcripts/`) so transcripts of long-lived tasks aren't deleted.
 
+#### Enabling the ephemeral storage tier per repository
+
+Storage tier is a per-repository setting stored in the repo's `resources` config.
+Set `storageMode` to `ephemeral` to skip the per-task EBS PVC and run the workspace
+on a node-local `emptyDir` (optionally cap its size with `storage`). New tasks for
+that repo then provision with **no PVC**; transcripts persist only via the S3 sync
+described above.
+
+Declaratively via `.moatless/config.json`, then sync:
+
+```json
+{ "resources": { "storageMode": "ephemeral", "storage": "8Gi" } }
+```
+
+```bash
+moat repos sync-config <repo-id>
+```
+
+Imperatively via the CLI (a resources update **replaces** the whole `resources`
+object, so pass all resource flags you want to keep together):
+
+```bash
+moat repos update <repo-id> --storage-mode ephemeral --storage 8Gi
+```
+
+Or via the API:
+
+```bash
+PATCH /api/.../repositories/<repo-id>   { "resources": { "storageMode": "ephemeral" } }
+```
+
 ### Ingress Parameters
 
 | Parameter | Description | Default |

@@ -10993,6 +10993,20 @@
             "propertyNames": {
               "type": "string"
             }
+          },
+          "storage": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Per-repository workspace storage size override (e.g. \"8Gi\"). Sizes both\ntiers: the per-task PVC (`ebs`) and the node-local emptyDir (`ephemeral`).\nWhen unset, the global `K8S_SANDBOX_STORAGE_SIZE` default applies. Never\ncopied into container resource specs."
+          },
+          "storageMode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Per-repository storage tier: `\"ebs\"` (default — a per-task EBS PVC mounted\nat `/opt/moatless`, surviving pod restarts) or `\"ephemeral\"` (a node-local\nemptyDir, no PVC; transcripts persist only via the S3 sync). Unset / unknown\nvalues are treated as `\"ebs\"`."
           }
         }
       },

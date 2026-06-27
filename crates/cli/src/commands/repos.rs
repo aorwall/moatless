@@ -43,6 +43,14 @@ pub enum RepoAction {
         /// Memory limit (e.g. "4096Mi")
         #[arg(long)]
         resource_memory_limit: Option<String>,
+        /// Workspace size override, e.g. "8Gi" (sizes the PVC or the ephemeral emptyDir).
+        /// Like the --resource-* flags, a resources update replaces the whole resources
+        /// object, so pass all desired resource flags together.
+        #[arg(long)]
+        storage: Option<String>,
+        /// Storage tier: "ebs" (default, per-task PVC) or "ephemeral" (node-local emptyDir, no PVC)
+        #[arg(long)]
+        storage_mode: Option<String>,
         /// Docker image for sandbox (e.g. "myregistry/my-sandbox:latest")
         #[arg(long)]
         docker_image: Option<String>,
@@ -110,6 +118,14 @@ pub enum RepoAction {
         /// Memory limit (e.g. "4096Mi")
         #[arg(long)]
         resource_memory_limit: Option<String>,
+        /// Workspace size override, e.g. "8Gi" (sizes the PVC or the ephemeral emptyDir).
+        /// Like the --resource-* flags, a resources update replaces the whole resources
+        /// object, so pass all desired resource flags together.
+        #[arg(long)]
+        storage: Option<String>,
+        /// Storage tier: "ebs" (default, per-task PVC) or "ephemeral" (node-local emptyDir, no PVC)
+        #[arg(long)]
+        storage_mode: Option<String>,
         /// Docker image for sandbox (e.g. "myregistry/my-sandbox:latest")
         #[arg(long)]
         docker_image: Option<String>,
@@ -189,6 +205,8 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             resource_cpu_limit,
             resource_memory_request,
             resource_memory_limit,
+            storage,
+            storage_mode,
             docker_image,
             plugins,
             system_prompt,
@@ -210,6 +228,8 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 resource_cpu_limit,
                 resource_memory_request,
                 resource_memory_limit,
+                storage,
+                storage_mode,
             );
             let servers = match servers_json {
                 Some(ref json_str) => {
@@ -270,6 +290,8 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             resource_cpu_limit,
             resource_memory_request,
             resource_memory_limit,
+            storage,
+            storage_mode,
             docker_image,
             setup_commands,
             server_start_commands,
@@ -289,6 +311,8 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 resource_cpu_limit,
                 resource_memory_request,
                 resource_memory_limit,
+                storage,
+                storage_mode,
             );
             let servers = match servers_json {
                 Some(ref json_str) => {
@@ -399,11 +423,15 @@ fn build_resource_config(
     cpu_limit: Option<String>,
     memory_request: Option<String>,
     memory_limit: Option<String>,
+    storage: Option<String>,
+    storage_mode: Option<String>,
 ) -> Option<ResourceConfig> {
     let has_any = cpu_request.is_some()
         || cpu_limit.is_some()
         || memory_request.is_some()
-        || memory_limit.is_some();
+        || memory_limit.is_some()
+        || storage.is_some()
+        || storage_mode.is_some();
 
     if !has_any {
         return None;
@@ -436,8 +464,8 @@ fn build_resource_config(
         } else {
             Some(limits)
         },
-        storage: None,
-        storage_mode: None,
+        storage,
+        storage_mode,
     })
 }
 
@@ -526,6 +554,12 @@ fn format_repo_detail(r: &RepositoryResponse) {
         if let Some(ref lim) = res.limits {
             let parts: Vec<String> = lim.iter().map(|(k, v)| format!("{k}={v}")).collect();
             println!("Resource limits:   {}", parts.join(", "));
+        }
+        if let Some(ref storage) = res.storage {
+            println!("Storage:           {storage}");
+        }
+        if let Some(ref mode) = res.storage_mode {
+            println!("Storage mode:      {mode}");
         }
     }
     if let Some(ref servers) = r.servers {

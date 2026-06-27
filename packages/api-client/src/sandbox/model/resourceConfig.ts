@@ -16,4 +16,20 @@ export interface ResourceConfig {
   limits?: ResourceConfigLimits;
   /** @nullable */
   requests?: ResourceConfigRequests;
+  /**
+   * Per-repository workspace storage size override (e.g. "8Gi"). Sizes both
+tiers: the per-task PVC (`ebs`) and the node-local emptyDir (`ephemeral`).
+When unset, the global `K8S_SANDBOX_STORAGE_SIZE` default applies. Never
+copied into container resource specs.
+   * @nullable
+   */
+  storage?: string | null;
+  /**
+   * Per-repository storage tier: `"ebs"` (default — a per-task EBS PVC mounted
+at `/opt/moatless`, surviving pod restarts) or `"ephemeral"` (a node-local
+emptyDir, no PVC; transcripts persist only via the S3 sync). Unset / unknown
+values are treated as `"ebs"`.
+   * @nullable
+   */
+  storageMode?: string | null;
 }

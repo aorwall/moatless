@@ -273,6 +273,37 @@ mod tests {
     }
 
     #[test]
+    fn config_carries_storage_mode_from_git_repo_to_patch() {
+        // A repo selecting the ephemeral storage tier via its committed
+        // `.moatless/config.json`. `MoatlessRepoConfig` is camelCase, and the
+        // nested `ResourceConfig` must read the camelCase keys too — otherwise
+        // `storageMode` silently drops and the repo stays on the EBS tier.
+        let json = r#"{
+            "resources": { "storageMode": "ephemeral", "storage": "8Gi" }
+        }"#;
+        let config: MoatlessRepoConfig = serde_json::from_str(json).unwrap();
+
+        let resources = config.resources.as_ref().expect("resources present");
+        assert_eq!(resources.storage_mode.as_deref(), Some("ephemeral"));
+        assert_eq!(resources.storage.as_deref(), Some("8Gi"));
+
+        // config_to_patch serializes resources into the JSONB blob stored on the
+        // repository row. It must round-trip back to camelCase so the
+        // provision-time deserialize (`build_repo_config`) reads it correctly.
+        let patch = config_to_patch(&config).unwrap();
+        let value = patch
+            .resources
+            .expect("resources field set")
+            .expect("resources value present");
+        assert_eq!(value.get("storageMode"), Some(&serde_json::json!("ephemeral")));
+        assert_eq!(value.get("storage"), Some(&serde_json::json!("8Gi")));
+        assert!(
+            value.get("storage_mode").is_none(),
+            "snake_case key must not leak into stored JSONB"
+        );
+    }
+
+    #[test]
     fn config_to_patch_empty_config() {
         let config = MoatlessRepoConfig {
             docker_image: None,
