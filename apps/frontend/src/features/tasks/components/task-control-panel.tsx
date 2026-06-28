@@ -1,5 +1,5 @@
 import { useNavigate } from '@tanstack/react-router'
-import { Check, Globe, Lock, Power, RefreshCw, Timer, XCircle } from 'lucide-react'
+import { Globe, Lock, Power, RefreshCw, Timer, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { useSandboxRestart, useSandboxStatus, useSandboxStop } from '@/features/tasks'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
@@ -54,7 +54,8 @@ export function TaskControlPanel({ className }: TaskControlPanelProps) {
 
   return (
     <div className={cn('flex-1 min-h-0 overflow-y-auto', className)}>
-      <div className="max-w-md mx-auto p-4 space-y-4">
+      {/* pt-[74px] clears the absolute h-[58px] top bar, matching the chat view. */}
+      <div className="w-full px-4 md:px-6 pt-[74px] pb-6 space-y-4">
         <section className="rounded-md border">
           <div className="px-3 py-2 text-xs font-medium text-muted-foreground border-b">
             Details
@@ -69,75 +70,83 @@ export function TaskControlPanel({ className }: TaskControlPanelProps) {
           <TaskConnectionsSection taskId={taskId} />
         </section>
 
-        <section className="rounded-md border p-1">
-          <Button
-            variant="ghost"
-            className="w-full justify-start gap-2 h-9 px-2"
-            disabled={updateVisibility.isPending}
-            onClick={() => updateVisibility.mutate(visibility === 'public' ? 'private' : 'public')}
-          >
-            {visibility === 'public' ? (
-              <>
-                <Lock className="h-4 w-4" />
-                Make Private
-              </>
-            ) : (
-              <>
-                <Globe className="h-4 w-4" />
-                Make Public
-              </>
-            )}
-          </Button>
-          <Button
-            variant="ghost"
-            className="w-full justify-start gap-2 h-9 px-2"
-            disabled={sandboxRestart.isPending}
-            onClick={() => sandboxRestart.mutate()}
-          >
-            <RefreshCw className={`h-4 w-4 ${sandboxRestart.isPending ? 'animate-spin' : ''}`} />
-            Restart Sandbox
-          </Button>
-          <Button
-            variant="ghost"
-            className="w-full justify-start gap-2 h-9 px-2"
-            disabled={sandboxStop.isPending}
-            onClick={() => sandboxStop.mutate()}
-          >
-            <Power className="h-4 w-4" />
-            Stop Sandbox
-          </Button>
+        <section className="rounded-md border">
+          <div className="px-3 py-2 text-xs font-medium text-muted-foreground border-b">
+            Actions
+          </div>
+          <div className="flex flex-wrap gap-2 p-3">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={updateVisibility.isPending}
+              onClick={() =>
+                updateVisibility.mutate(visibility === 'public' ? 'private' : 'public')
+              }
+            >
+              {visibility === 'public' ? (
+                <>
+                  <Lock className="h-4 w-4" />
+                  Make Private
+                </>
+              ) : (
+                <>
+                  <Globe className="h-4 w-4" />
+                  Make Public
+                </>
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={sandboxRestart.isPending}
+              onClick={() => sandboxRestart.mutate()}
+            >
+              <RefreshCw className={cn('h-4 w-4', sandboxRestart.isPending && 'animate-spin')} />
+              Restart Sandbox
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={sandboxStop.isPending}
+              onClick={() => sandboxStop.mutate()}
+            >
+              <Power className="h-4 w-4" />
+              Stop Sandbox
+            </Button>
+          </div>
         </section>
 
-        <section className="rounded-md border p-1">
-          <div className="flex items-center gap-2 px-2 pt-1 pb-0.5 text-xs text-muted-foreground">
+        <section className="rounded-md border">
+          <div className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-muted-foreground border-b">
             <Timer className="h-3 w-3" />
             Sandbox TTL
           </div>
-          {TTL_PRESETS.map((preset) => {
-            const isActive = task.ttlMinutes === preset.minutes
-            return (
-              <Button
-                key={preset.minutes}
-                variant="ghost"
-                className="w-full justify-start gap-2 h-9 px-2"
-                disabled={updateTtl.isPending}
-                onClick={() => {
-                  if (!isActive) {
-                    updateTtl.mutate(preset.minutes)
-                  }
-                }}
-              >
-                <Check className={`h-4 w-4 ${isActive ? 'opacity-100' : 'opacity-0'}`} />
-                {preset.label}
-              </Button>
-            )
-          })}
+          <div className="flex flex-wrap gap-2 p-3">
+            {TTL_PRESETS.map((preset) => {
+              const isActive = task.ttlMinutes === preset.minutes
+              return (
+                <Button
+                  key={preset.minutes}
+                  variant={isActive ? 'default' : 'outline'}
+                  size="sm"
+                  disabled={updateTtl.isPending}
+                  onClick={() => {
+                    if (!isActive) {
+                      updateTtl.mutate(preset.minutes)
+                    }
+                  }}
+                >
+                  {preset.label}
+                </Button>
+              )
+            })}
+          </div>
         </section>
 
-        <section className="rounded-md border p-1">
+        <section className="rounded-md border p-3">
           <Button
-            variant="ghost"
-            className="w-full justify-start gap-2 h-9 px-2 text-destructive hover:text-destructive"
+            variant="destructive"
+            size="sm"
             disabled={closeTask.isPending}
             onClick={() => closeTask.mutate()}
           >

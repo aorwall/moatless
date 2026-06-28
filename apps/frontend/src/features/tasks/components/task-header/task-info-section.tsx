@@ -5,6 +5,7 @@ import { formatRelativeTime } from '@/features/tasks/utils/format-relative-time'
 import { getAutoCloseDeadlineMs, getIdleStopDeadlineMs } from '@/features/tasks/utils/task-ttl'
 import { Badge } from '@/lib/components/ui/badge'
 import { useNow } from '@/lib/hooks/use-now'
+import { cn } from '@/lib/utils'
 
 interface TaskInfoSectionProps {
   task: TaskResponse
@@ -18,87 +19,60 @@ export function TaskInfoSection({ task, sandbox }: TaskInfoSectionProps) {
   const createdBy = task.createdByDisplayName ?? task.createdBy
 
   return (
-    <div className="space-y-2 px-2 py-2 text-xs">
+    <dl className="grid grid-cols-2 gap-x-6 gap-y-3 px-3 py-3">
       {task.repositoryName && (
-        <Row label="Repository">
-          <span className="truncate max-w-[200px]" title={task.repositoryName}>
-            {task.repositoryName}
-          </span>
-        </Row>
+        <Field label="Repository">
+          <Truncated value={task.repositoryName} />
+        </Field>
       )}
       {task.branch && (
-        <Row label="Branch">
-          <span
-            className="flex items-center gap-1 font-mono truncate max-w-[180px]"
-            title={task.branch}
-          >
-            <GitBranch className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
+        <Field label="Branch">
+          <span className="flex items-center gap-1 font-mono" title={task.branch}>
+            <GitBranch className="h-3 w-3 shrink-0 text-muted-foreground" />
             <span className="truncate">{task.branch}</span>
           </span>
-        </Row>
+        </Field>
       )}
-      <Row label="Status">
+      <Field label="Status">
         <Badge variant={isClosed ? 'secondary' : 'default'} className="h-5 text-xs">
           {task.status}
         </Badge>
-      </Row>
-      <Row label="Agent">
-        <span className="font-mono">{task.agentType}</span>
-      </Row>
-      <Row label="Visibility">
+      </Field>
+      <Field label="Agent">
+        <Truncated value={task.agentType} className="font-mono" />
+      </Field>
+      <Field label="Visibility">
         <span className="capitalize">{task.visibility}</span>
-      </Row>
-      <Row label="Scope">
+      </Field>
+      <Field label="Scope">
         <span className="capitalize">{task.scope}</span>
-      </Row>
-      {task.teamId && (
-        <Row label="Team">
-          <span className="font-mono truncate max-w-[160px]" title={task.teamId}>
-            {task.teamId}
-          </span>
-        </Row>
-      )}
+      </Field>
       {createdBy && (
-        <Row label="Created by">
-          <span className="truncate max-w-[160px]" title={createdBy}>
-            {createdBy}
-          </span>
-        </Row>
+        <Field label="Created by">
+          <Truncated value={createdBy} />
+        </Field>
       )}
-      <Row label="Created">
-        <span className="tabular-nums">{formatTimestamp(task.createdAt)}</span>
-      </Row>
-      <Row label="Last message">
-        <span className="tabular-nums">{formatTimestamp(task.lastMessageAt)}</span>
-      </Row>
+      <Field label="Created">
+        <Truncated value={formatTimestamp(task.createdAt)} className="tabular-nums" />
+      </Field>
+      <Field label="Last message">
+        <Truncated value={formatTimestamp(task.lastMessageAt)} className="tabular-nums" />
+      </Field>
       {task.sandboxStartedAt && (
-        <Row label="Sandbox started">
-          <span className="tabular-nums">{formatTimestamp(task.sandboxStartedAt)}</span>
-        </Row>
+        <Field label="Sandbox started">
+          <Truncated value={formatTimestamp(task.sandboxStartedAt)} className="tabular-nums" />
+        </Field>
       )}
       {task.shortId && (
-        <Row label="Short ID">
+        <Field label="Short ID">
           <span className="font-mono">{task.shortId}</span>
-        </Row>
+        </Field>
       )}
-      {task.siteUrl && (
-        <Row label="Site">
-          <a
-            href={task.siteUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 font-medium hover:underline max-w-[200px]"
-          >
-            <span className="truncate">{task.siteUrl}</span>
-            <ExternalLink className="h-3 w-3 shrink-0 opacity-60" />
-          </a>
-        </Row>
-      )}
-      <Row label="Total cost">
+      <Field label="Total cost">
         <span className="tabular-nums">${totalCost.toFixed(4)}</span>
-      </Row>
+      </Field>
       {!isClosed && (
-        <CountdownRow
+        <CountdownField
           label="Idle stop"
           deadlineMs={getIdleStopDeadlineMs(task)}
           ttlSpanMs={task.ttlMinutes * 60_000}
@@ -107,7 +81,7 @@ export function TaskInfoSection({ task, sandbox }: TaskInfoSectionProps) {
         />
       )}
       {!isClosed && (
-        <CountdownRow
+        <CountdownField
           label="Auto-close"
           deadlineMs={getAutoCloseDeadlineMs(task)}
           ttlSpanMs={task.inactiveTtlDays * 86_400_000}
@@ -115,11 +89,23 @@ export function TaskInfoSection({ task, sandbox }: TaskInfoSectionProps) {
           now={now}
         />
       )}
-      <SandboxStatusRows sandbox={sandbox} />
+      <SandboxStatusFields sandbox={sandbox} />
+      {task.siteUrl && (
+        <Field label="Site" full>
+          <a
+            href={task.siteUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex max-w-full items-center gap-1 font-medium hover:underline"
+          >
+            <span className="truncate">{task.siteUrl}</span>
+            <ExternalLink className="h-3 w-3 shrink-0 opacity-60" />
+          </a>
+        </Field>
+      )}
       {task.tags.length > 0 && (
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-muted-foreground">Tags</span>
-          <div className="flex flex-wrap justify-end gap-1">
+        <Field label="Tags" full>
+          <div className="flex flex-wrap gap-1">
             {task.tags.map((tag) => (
               <Badge
                 key={tag.tagId}
@@ -130,13 +116,40 @@ export function TaskInfoSection({ task, sandbox }: TaskInfoSectionProps) {
               </Badge>
             ))}
           </div>
-        </div>
+        </Field>
       )}
+    </dl>
+  )
+}
+
+/** A label-over-value cell in the details grid. `full` spans both columns. */
+function Field({
+  label,
+  children,
+  full,
+}: {
+  label: string
+  children: React.ReactNode
+  full?: boolean
+}) {
+  return (
+    <div className={cn('min-w-0', full && 'col-span-2')}>
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="mt-0.5 text-sm">{children}</dd>
     </div>
   )
 }
 
-function CountdownRow({
+/** Single-line value that truncates within its grid cell, full text on hover. */
+function Truncated({ value, className }: { value: string; className?: string }) {
+  return (
+    <span className={cn('block truncate', className)} title={value}>
+      {value}
+    </span>
+  )
+}
+
+function CountdownField({
   label,
   deadlineMs,
   ttlSpanMs,
@@ -155,62 +168,55 @@ function CountdownRow({
   const remaining = deadlineMs - now
   const isAmber = remaining <= 0 || remaining <= ttlSpanMs * 0.1
   return (
-    <Row label={label}>
-      <span className={`tabular-nums ${isAmber ? 'text-amber-500' : ''}`}>
+    <Field label={label}>
+      <span className={cn('tabular-nums', isAmber && 'text-amber-500')}>
         {remaining <= 0 ? expiredLabel : formatRelativeTime(deadlineMs, now)}
       </span>
-    </Row>
+    </Field>
   )
 }
 
-function SandboxStatusRows({ sandbox }: { sandbox?: SandboxStatusFullResponse }) {
+function SandboxStatusFields({ sandbox }: { sandbox?: SandboxStatusFullResponse }) {
   if (!sandbox) {
     return null
   }
   return (
     <>
       {sandbox.environmentStatus && (
-        <Row label="Environment">
+        <Field label="Environment">
           <Badge
             variant={sandbox.environmentStatus === 'ready' ? 'default' : 'secondary'}
             className="h-5 text-xs"
           >
             {sandbox.environmentStatus}
           </Badge>
-        </Row>
+        </Field>
       )}
       {sandbox.agentState && (
-        <Row label="Agent">
+        <Field label="Agent state">
           <Badge
             variant={sandbox.agentState === 'running' ? 'default' : 'outline'}
             className="h-5 text-xs"
           >
             {sandbox.agentState}
           </Badge>
-        </Row>
+        </Field>
       )}
       {sandbox.sandboxState && (
-        <Row label="Sandbox">
+        <Field label="Sandbox">
           <Badge
             variant={sandbox.sandboxState === 'exists' ? 'default' : 'destructive'}
             className="h-5 text-xs"
           >
             {sandbox.sandboxState}
           </Badge>
-        </Row>
+        </Field>
       )}
       {sandbox.environmentError && (
-        <div className="text-xs text-red-600 bg-red-50 p-2 rounded">{sandbox.environmentError}</div>
+        <div className="col-span-2 rounded bg-destructive/10 p-2 text-xs text-destructive">
+          {sandbox.environmentError}
+        </div>
       )}
     </>
-  )
-}
-
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-2">
-      <span className="text-muted-foreground">{label}</span>
-      {children}
-    </div>
   )
 }
