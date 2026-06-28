@@ -9,14 +9,15 @@
 
 use std::collections::{HashMap, HashSet};
 
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use axum::Json;
 use futures::stream::{self, StreamExt};
 
 use moatless_api_schemas::enums::{AdapterKind, TaskStatus};
 use moatless_api_schemas::task::PaginationResponse;
 use moatless_api_schemas::task_connections::{
-    Connection, ListTaskConnectionsQuery, TaskConnectionRow, TaskConnectionsResponse,
+    Connection, GetTaskConnectionsQuery, ListTaskConnectionsQuery, TaskConnectionRow,
+    TaskConnectionsResponse,
 };
 
 use crate::adapters::models::TaskBinding;
@@ -190,6 +191,74 @@ pub async fn list_task_connections(
             has_more: offset + limit < total,
         },
     }))
+}
+
+/// Get a single task's external connections, statuses, and message counts.
+///
+/// Per-task counterpart to [`list_task_connections`]. Unlike the admin list,
+/// this is scope-checked like [`super::handlers::get_task`] (not admin-gated),
+/// so any user who can see the task can see its connections.
+#[utoipa::path(
+    get,
+    path = "/api/v1/tasks/{task_id}/connections",
+    tag = "tasks",
+    params(
+        ("task_id" = String, Path, description = "Task identifier"),
+        GetTaskConnectionsQuery
+    ),
+    responses(
+        (status = 200, description = "The task's external connections", body = Vec<Connection>),
+        (status = 404, description = "Task not found", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn get_task_connections(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(task_id): Path<String>,
+    Query(query): Query<GetTaskConnectionsQuery>,
+) -> Result<Json<Vec<Connection>>, TaskError> {
+    // Access check mirrors `get_task`: scope-checked, not admin-gated.
+    let row = state
+        .tasks
+        .find_by_id(&task_id, &auth.scope_context())
+        .await?
+        .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
+
+    let task_ids = [task_id.clone()];
+
+    let mut bindings = PgTaskBindingRepository(state.db.clone())
+        .find_by_task_ids(&task_ids)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(error = %e, task_id = %task_id, "Failed to resolve task bindings");
+            vec![]
+        });
+
+    let counts = state
+        .messages
+        .get_connection_message_counts(&task_ids)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(error = %e, task_id = %task_id, "Failed to resolve connection message counts");
+            vec![]
+        });
+
+    if query.refresh == Some(true) {
+        // `refresh_stale_statuses` has its own 300s staleness guard, so this
+        // stays cheap and bounded even when called per-request.
+        refresh_stale_statuses(&state, std::slice::from_ref(&row), &mut bindings).await;
+    }
+
+    let binding_refs: Vec<&TaskBinding> = bindings.iter().collect();
+    let count_refs: Vec<&ConnectionMessageCount> = counts.iter().collect();
+    let count_by_binding = match_counts(&binding_refs, &count_refs);
+
+    let connections: Vec<Connection> = binding_refs
+        .iter()
+        .map(|b| decode_connection(b, &count_by_binding))
+        .collect();
+
+    Ok(Json(connections))
 }
 
 /// Live-refresh bindings whose persisted status is missing or stale. Mutates

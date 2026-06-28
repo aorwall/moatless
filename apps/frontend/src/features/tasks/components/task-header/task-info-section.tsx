@@ -1,5 +1,6 @@
 import type { SandboxStatusFullResponse, TaskResponse } from '@moatless/api-client'
-import { GitBranch } from 'lucide-react'
+import { ExternalLink, GitBranch } from 'lucide-react'
+import { formatTimestamp } from '@/features/task-connections'
 import { formatRelativeTime } from '@/features/tasks/utils/format-relative-time'
 import { getAutoCloseDeadlineMs, getIdleStopDeadlineMs } from '@/features/tasks/utils/task-ttl'
 import { Badge } from '@/lib/components/ui/badge'
@@ -14,9 +15,17 @@ export function TaskInfoSection({ task, sandbox }: TaskInfoSectionProps) {
   const now = useNow(60_000)
   const isClosed = task.status === 'closed'
   const totalCost = task.totalCostUsd ?? 0
+  const createdBy = task.createdByDisplayName ?? task.createdBy
 
   return (
     <div className="space-y-2 px-2 py-2 text-xs">
+      {task.repositoryName && (
+        <Row label="Repository">
+          <span className="truncate max-w-[200px]" title={task.repositoryName}>
+            {task.repositoryName}
+          </span>
+        </Row>
+      )}
       {task.branch && (
         <Row label="Branch">
           <span
@@ -26,6 +35,63 @@ export function TaskInfoSection({ task, sandbox }: TaskInfoSectionProps) {
             <GitBranch className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
             <span className="truncate">{task.branch}</span>
           </span>
+        </Row>
+      )}
+      <Row label="Status">
+        <Badge variant={isClosed ? 'secondary' : 'default'} className="h-5 text-xs">
+          {task.status}
+        </Badge>
+      </Row>
+      <Row label="Agent">
+        <span className="font-mono">{task.agentType}</span>
+      </Row>
+      <Row label="Visibility">
+        <span className="capitalize">{task.visibility}</span>
+      </Row>
+      <Row label="Scope">
+        <span className="capitalize">{task.scope}</span>
+      </Row>
+      {task.teamId && (
+        <Row label="Team">
+          <span className="font-mono truncate max-w-[160px]" title={task.teamId}>
+            {task.teamId}
+          </span>
+        </Row>
+      )}
+      {createdBy && (
+        <Row label="Created by">
+          <span className="truncate max-w-[160px]" title={createdBy}>
+            {createdBy}
+          </span>
+        </Row>
+      )}
+      <Row label="Created">
+        <span className="tabular-nums">{formatTimestamp(task.createdAt)}</span>
+      </Row>
+      <Row label="Last message">
+        <span className="tabular-nums">{formatTimestamp(task.lastMessageAt)}</span>
+      </Row>
+      {task.sandboxStartedAt && (
+        <Row label="Sandbox started">
+          <span className="tabular-nums">{formatTimestamp(task.sandboxStartedAt)}</span>
+        </Row>
+      )}
+      {task.shortId && (
+        <Row label="Short ID">
+          <span className="font-mono">{task.shortId}</span>
+        </Row>
+      )}
+      {task.siteUrl && (
+        <Row label="Site">
+          <a
+            href={task.siteUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 font-medium hover:underline max-w-[200px]"
+          >
+            <span className="truncate">{task.siteUrl}</span>
+            <ExternalLink className="h-3 w-3 shrink-0 opacity-60" />
+          </a>
         </Row>
       )}
       <Row label="Total cost">
@@ -50,6 +116,22 @@ export function TaskInfoSection({ task, sandbox }: TaskInfoSectionProps) {
         />
       )}
       <SandboxStatusRows sandbox={sandbox} />
+      {task.tags.length > 0 && (
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-muted-foreground">Tags</span>
+          <div className="flex flex-wrap justify-end gap-1">
+            {task.tags.map((tag) => (
+              <Badge
+                key={tag.tagId}
+                variant="secondary"
+                className="h-5 px-1.5 text-[10px] font-normal"
+              >
+                {tag.name}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

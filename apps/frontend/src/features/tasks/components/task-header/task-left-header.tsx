@@ -1,83 +1,43 @@
-import { useNavigate } from '@tanstack/react-router'
-import {
-  Check,
-  Globe,
-  Lock,
-  MoreVertical,
-  Pencil,
-  Power,
-  RefreshCw,
-  Timer,
-  XCircle,
-} from 'lucide-react'
+import { MessageSquare, Pencil, Settings } from 'lucide-react'
 import { useState } from 'react'
-import { toast } from 'sonner'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
-import { useSandboxRestart, useSandboxStatus, useSandboxStop } from '@/features/tasks'
+import { useSandboxStatus } from '@/features/tasks'
 import { MobileViewToggle } from '@/features/tasks/components/mobile-view-toggle'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
 import { useTaskView } from '@/features/tasks/hooks/use-task-view'
-import {
-  useCloseTask,
-  useUpdateTaskMetadata,
-  useUpdateTaskTtl,
-  useUpdateTaskVisibility,
-} from '@/features/tasks/hooks/use-tasks'
+import { useUpdateTaskMetadata } from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'
-import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/popover'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar'
 import { CreateRepoButton } from './create-repo-button'
 import { EditTaskDialog } from './edit-task-dialog'
 import { ScheduledJobsPill } from './scheduled-jobs-pill'
-import { TaskInfoSection } from './task-info-section'
 
-const TTL_PRESETS: Array<{ label: string; minutes: number }> = [
-  { label: '15 minutes', minutes: 15 },
-  { label: '1 hour', minutes: 60 },
-  { label: '12 hours', minutes: 720 },
-  { label: '24 hours', minutes: 1440 },
-  { label: 'Indefinite', minutes: 0 },
-]
+interface TaskLeftHeaderProps {
+  chatPanelMode: 'chat' | 'control'
+  onChatPanelModeChange: (mode: 'chat' | 'control') => void
+}
 
-export function TaskLeftHeader() {
+export function TaskLeftHeader({ chatPanelMode, onChatPanelModeChange }: TaskLeftHeaderProps) {
   const taskId = useTaskId()
   const taskQuery = useTaskDetailQuery(taskId)
   const { data: repositories } = useRepositoriesList()
   const { data: sandboxStatus } = useSandboxStatus(taskId, taskQuery.data)
   const servers = sandboxStatus?.servers
   const { view, setView, isMobile } = useTaskView()
-  const updateVisibility = useUpdateTaskVisibility(taskId)
   const updateMetadata = useUpdateTaskMetadata(taskId, {
     onSuccess: () => setIsEditDialogOpen(false),
   })
-  const sandboxRestart = useSandboxRestart(taskId)
-  const sandboxStop = useSandboxStop(taskId)
-  const updateTtl = useUpdateTaskTtl(taskId)
-  const navigate = useNavigate()
-  const closeTask = useCloseTask(taskId, {
-    onSuccess: () => navigate({ to: '/' }),
-    onError: (err) => toast.error('Failed to close task', { description: err.message }),
-  })
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
-  const [isMenuOpen, setIsMenuOpen] = useState(false)
   const task = taskQuery.data
 
   if (!task) {
     return null
   }
 
-  const {
-    status,
-    repositoryId,
-    name,
-    description,
-    templateId,
-    visibility,
-    createdByDisplayName,
-    createdBy,
-  } = task
+  const { status, repositoryId, name, description, templateId, createdByDisplayName, createdBy } =
+    task
 
   // Get repository name or template ID for vibe tasks
   const repository = repositories?.find((repo) => repo.id === repositoryId)
@@ -88,6 +48,8 @@ export function TaskLeftHeader() {
 
   // Show create repo button for Vibe tasks (tasks created from templates)
   const showCreateRepoButton = templateId != null
+
+  const isControlMode = chatPanelMode === 'control'
 
   return (
     <div className="absolute top-0 left-0 right-0 z-10 h-[58px] px-4 py-2 border-b flex items-center justify-between flex-shrink-0 bg-background">
@@ -135,101 +97,17 @@ export function TaskLeftHeader() {
 
       <div className="flex items-center gap-2">
         <ScheduledJobsPill jobs={sandboxStatus?.scheduledJobs ?? []} />
-        {/* Task actions menu */}
-        <Popover open={isMenuOpen} onOpenChange={setIsMenuOpen}>
-          <PopoverTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-7 w-7" title="Task actions">
-              <MoreVertical className="h-4 w-4" />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-64 p-1" align="end">
-            <TaskInfoSection task={task} sandbox={sandboxStatus} />
-            <div className="my-1 border-t" />
-            <Button
-              variant="ghost"
-              className="w-full justify-start gap-2 h-8 px-2"
-              disabled={updateVisibility.isPending}
-              onClick={() => {
-                updateVisibility.mutate(visibility === 'public' ? 'private' : 'public')
-                setIsMenuOpen(false)
-              }}
-            >
-              {visibility === 'public' ? (
-                <>
-                  <Lock className="h-4 w-4" />
-                  Make Private
-                </>
-              ) : (
-                <>
-                  <Globe className="h-4 w-4" />
-                  Make Public
-                </>
-              )}
-            </Button>
-            <Button
-              variant="ghost"
-              className="w-full justify-start gap-2 h-8 px-2"
-              disabled={sandboxRestart.isPending}
-              onClick={() => {
-                sandboxRestart.mutate()
-                setIsMenuOpen(false)
-              }}
-            >
-              <RefreshCw className={`h-4 w-4 ${sandboxRestart.isPending ? 'animate-spin' : ''}`} />
-              Restart Sandbox
-            </Button>
-            <Button
-              variant="ghost"
-              className="w-full justify-start gap-2 h-8 px-2"
-              disabled={sandboxStop.isPending}
-              onClick={() => {
-                sandboxStop.mutate()
-                setIsMenuOpen(false)
-              }}
-            >
-              <Power className="h-4 w-4" />
-              Stop Sandbox
-            </Button>
-            <div className="my-1 border-t" />
-            <div className="flex items-center gap-2 px-2 pt-1 pb-0.5 text-xs text-muted-foreground">
-              <Timer className="h-3 w-3" />
-              Sandbox TTL
-            </div>
-            {TTL_PRESETS.map((preset) => {
-              const isActive = task.ttlMinutes === preset.minutes
-              return (
-                <Button
-                  key={preset.minutes}
-                  variant="ghost"
-                  className="w-full justify-start gap-2 h-8 px-2"
-                  disabled={updateTtl.isPending}
-                  onClick={() => {
-                    if (!isActive) {
-                      updateTtl.mutate(preset.minutes)
-                    }
-                    setIsMenuOpen(false)
-                  }}
-                >
-                  <Check className={`h-4 w-4 ${isActive ? 'opacity-100' : 'opacity-0'}`} />
-                  {preset.label}
-                </Button>
-              )
-            })}
-            <div className="my-1 border-t" />
-            <Button
-              variant="ghost"
-              className="w-full justify-start gap-2 h-8 px-2 text-destructive hover:text-destructive"
-              disabled={closeTask.isPending}
-              onClick={() => {
-                closeTask.mutate()
-                setIsMenuOpen(false)
-              }}
-            >
-              <XCircle className="h-4 w-4" />
-              Close Task
-            </Button>
-          </PopoverContent>
-        </Popover>
+        {/* Toggle the left panel between chat and the controls panel */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7"
+          title={isControlMode ? 'Back to chat' : 'Open controls'}
+          aria-pressed={isControlMode}
+          onClick={() => onChatPanelModeChange(isControlMode ? 'chat' : 'control')}
+        >
+          {isControlMode ? <MessageSquare className="h-4 w-4" /> : <Settings className="h-4 w-4" />}
+        </Button>
 
         {/* Create Repo button - only shown for Vibe tasks */}
         {showCreateRepoButton && (

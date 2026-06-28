@@ -20,6 +20,17 @@ pub struct ListTaskConnectionsQuery {
     pub refresh: Option<bool>,
 }
 
+/// Query parameters for `GET /api/v1/tasks/{task_id}/connections`.
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::IntoParams))]
+#[serde(rename_all = "camelCase")]
+pub struct GetTaskConnectionsQuery {
+    /// When `true`, fill in missing/stale connection statuses with a live
+    /// GitHub / Linear fetch (bounded concurrency). Default is DB-only and
+    /// fast.
+    pub refresh: Option<bool>,
+}
+
 /// Paginated list of tasks with their external connections.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]

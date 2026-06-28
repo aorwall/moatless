@@ -25,9 +25,11 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  Connection,
   CreateTaskRequest,
   CreateTaskResponse,
   ErrorBody,
+  GetTaskConnectionsParams,
   ListTaskConnectionsParams,
   ListTasksParams,
   ListTasksResponse,
@@ -813,6 +815,156 @@ export const useCloseTask = <TError = ErrorType<ErrorBody>,
       return useMutation(getCloseTaskMutationOptions(options), queryClient);
     }
     /**
+ * Per-task counterpart to [`list_task_connections`]. Unlike the admin list,
+this is scope-checked like [`super::handlers::get_task`] (not admin-gated),
+so any user who can see the task can see its connections.
+ * @summary Get a single task's external connections, statuses, and message counts.
+ */
+export type getTaskConnectionsResponse200 = {
+  data: Connection[]
+  status: 200
+}
+
+export type getTaskConnectionsResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type getTaskConnectionsResponseSuccess = (getTaskConnectionsResponse200) & {
+  headers: Headers;
+};
+export type getTaskConnectionsResponseError = (getTaskConnectionsResponse404) & {
+  headers: Headers;
+};
+
+export type getTaskConnectionsResponse = (getTaskConnectionsResponseSuccess | getTaskConnectionsResponseError)
+
+export const getGetTaskConnectionsUrl = (taskId: string,
+    params?: GetTaskConnectionsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/tasks/${taskId}/connections?${stringifiedParams}` : `/api/v1/tasks/${taskId}/connections`
+}
+
+export const getTaskConnections = async (taskId: string,
+    params?: GetTaskConnectionsParams, options?: RequestInit): Promise<getTaskConnectionsResponse> => {
+  
+  return customInstance<getTaskConnectionsResponse>(getGetTaskConnectionsUrl(taskId,params),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
+
+export const getGetTaskConnectionsQueryKey = (taskId: string,
+    params?: GetTaskConnectionsParams,) => {
+    return [
+    `/api/v1/tasks/${taskId}/connections`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+    
+export const getGetTaskConnectionsQueryOptions = <TData = Awaited<ReturnType<typeof getTaskConnections>>, TError = ErrorType<ErrorBody>>(taskId: string,
+    params?: GetTaskConnectionsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTaskConnections>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetTaskConnectionsQueryKey(taskId,params);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getTaskConnections>>> = ({ signal }) => getTaskConnections(taskId,params, { signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(taskId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getTaskConnections>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type GetTaskConnectionsQueryResult = NonNullable<Awaited<ReturnType<typeof getTaskConnections>>>
+export type GetTaskConnectionsQueryError = ErrorType<ErrorBody>
+
+
+export function useGetTaskConnections<TData = Awaited<ReturnType<typeof getTaskConnections>>, TError = ErrorType<ErrorBody>>(
+ taskId: string,
+    params: undefined |  GetTaskConnectionsParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTaskConnections>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getTaskConnections>>,
+          TError,
+          Awaited<ReturnType<typeof getTaskConnections>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useGetTaskConnections<TData = Awaited<ReturnType<typeof getTaskConnections>>, TError = ErrorType<ErrorBody>>(
+ taskId: string,
+    params?: GetTaskConnectionsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTaskConnections>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getTaskConnections>>,
+          TError,
+          Awaited<ReturnType<typeof getTaskConnections>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useGetTaskConnections<TData = Awaited<ReturnType<typeof getTaskConnections>>, TError = ErrorType<ErrorBody>>(
+ taskId: string,
+    params?: GetTaskConnectionsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTaskConnections>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+/**
+ * @summary Get a single task's external connections, statuses, and message counts.
+ */
+
+export function useGetTaskConnections<TData = Awaited<ReturnType<typeof getTaskConnections>>, TError = ErrorType<ErrorBody>>(
+ taskId: string,
+    params?: GetTaskConnectionsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTaskConnections>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getGetTaskConnectionsQueryOptions(taskId,params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get a single task's external connections, statuses, and message counts.
+ */
+export const prefetchGetTaskConnectionsQuery = async <TData = Awaited<ReturnType<typeof getTaskConnections>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, taskId: string,
+    params?: GetTaskConnectionsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTaskConnections>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getGetTaskConnectionsQueryOptions(taskId,params,options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+/**
  * @summary Start a task (provision sandbox and begin agent).
  */
 export type startTaskResponse204 = {

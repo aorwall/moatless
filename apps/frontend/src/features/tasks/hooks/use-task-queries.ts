@@ -57,3 +57,17 @@ export function useTaskSandboxStatusQuery(taskId: string, options?: TaskSandboxS
     ...queryOptions,
   })
 }
+
+/**
+ * Fetch the task's external connections (Linear issues, GitHub PRs, Slack
+ * threads) with decoded labels, live status, and message counts. Requests a
+ * status refresh; the backend has its own staleness guard so this stays cheap.
+ */
+export function useTaskConnectionsQuery(taskId: string) {
+  return useQuery({
+    queryKey: queryKeys.tasks.connections(taskId),
+    queryFn: () => tasksApi.getTaskConnections(taskId, { refresh: true }),
+    staleTime: 60_000,
+    enabled: !!taskId,
+  })
+}

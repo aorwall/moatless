@@ -3304,7 +3304,7 @@
         "tags": [
           "repositories"
         ],
-        "summary": "Sync `.moatless/config.json` from the remote repository into the DB.",
+        "summary": "Sync `.moatless/config.json` and `.moatless/loops/` from the remote\nrepository into the DB.",
         "operationId": "sync_config",
         "parameters": [
           {
@@ -3319,11 +3319,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Config synced",
+            "description": "Config + loops synced",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RepositoryResponse"
+                  "$ref": "#/components/schemas/SyncConfigResponse"
                 }
               }
             }
@@ -4805,6 +4805,64 @@
                   "items": {
                     "$ref": "#/components/schemas/CommandResponse"
                   }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/connections": {
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Get a single task's external connections, statuses, and message counts.",
+        "description": "Per-task counterpart to [`list_task_connections`]. Unlike the admin list,\nthis is scope-checked like [`super::handlers::get_task`] (not admin-gated),\nso any user who can see the task can see its connections.",
+        "operationId": "get_task_connections",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "refresh",
+            "in": "query",
+            "description": "When `true`, fill in missing/stale connection statuses with a live\nGitHub / Linear fetch (bounded concurrency). Default is DB-only and\nfast.",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The task's external connections",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Connection"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
                 }
               }
             }
@@ -10129,6 +10187,61 @@
           }
         }
       },
+      "LoopSyncSkip": {
+        "type": "object",
+        "description": "One loop that was skipped during a sync, with a human-readable reason\n(e.g. \"no github connection for org acme\").",
+        "required": [
+          "loopName",
+          "reason"
+        ],
+        "properties": {
+          "loopName": {
+            "type": "string",
+            "description": "The loop directory name (`.moatless/loops/<loop>/`)."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why the loop was skipped."
+          }
+        }
+      },
+      "LoopSyncSummary": {
+        "type": "object",
+        "description": "Summary of reconciling a repo's `.moatless/loops/` into the trigger tables.",
+        "required": [
+          "created",
+          "updated",
+          "removed",
+          "skipped"
+        ],
+        "properties": {
+          "created": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Loops inserted as new triggers.",
+            "minimum": 0
+          },
+          "removed": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Loop triggers removed because their directory is gone.",
+            "minimum": 0
+          },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LoopSyncSkip"
+            },
+            "description": "Loops that were present but not synced, with reasons."
+          },
+          "updated": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Existing loop triggers updated in place.",
+            "minimum": 0
+          }
+        }
+      },
       "ManualTriggerSource": {
         "type": "object"
       },
@@ -12261,6 +12374,22 @@
           },
           "type": {
             "$ref": "#/components/schemas/EventType"
+          }
+        }
+      },
+      "SyncConfigResponse": {
+        "type": "object",
+        "description": "Response for `POST /api/v1/repositories/{id}/sync-config`.\n\nWraps the updated repository plus the loop reconciliation summary.",
+        "required": [
+          "repository",
+          "loops"
+        ],
+        "properties": {
+          "loops": {
+            "$ref": "#/components/schemas/LoopSyncSummary"
+          },
+          "repository": {
+            "$ref": "#/components/schemas/RepositoryResponse"
           }
         }
       },
