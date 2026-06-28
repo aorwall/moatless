@@ -91,6 +91,51 @@ people often mention the bot in passing (\"look at what @you said\", \"ask @you 
     s
 }
 
+/// Slack `message` events carry a `subtype` for system notifications — channel
+/// join/leave, topic/purpose/name changes, archives, pins, edits, deletes, … —
+/// rather than genuine user input. These must never be treated as task triggers:
+/// in `all_messages` mode an unfiltered `channel_join` ("X has joined the
+/// channel") otherwise spawns a task for every new member.
+///
+/// Deliberately absent:
+/// - `bot_message` — foreign-bot posts are real content, gated separately by
+///   `allow_bot_messages` (and the `bot_id` field), so they flow through here.
+/// - `file_share`, `thread_broadcast`, `me_message` — these subtypes DO carry
+///   user input and must continue to be processed.
+fn is_ignored_message_subtype(subtype: &str) -> bool {
+    matches!(
+        subtype,
+        // Channel (public) membership / metadata lifecycle
+        "channel_join"
+            | "channel_leave"
+            | "channel_topic"
+            | "channel_purpose"
+            | "channel_name"
+            | "channel_archive"
+            | "channel_unarchive"
+            // Private channel (group) equivalents
+            | "group_join"
+            | "group_leave"
+            | "group_topic"
+            | "group_purpose"
+            | "group_name"
+            | "group_archive"
+            | "group_unarchive"
+            // Edits, deletes, pins — not new user input
+            | "message_changed"
+            | "message_deleted"
+            | "message_replied"
+            | "pinned_item"
+            | "unpinned_item"
+            // Integration / reminder / EKM system notices
+            | "bot_add"
+            | "bot_remove"
+            | "reminder_add"
+            | "tombstone"
+            | "ekm_access_denied"
+    )
+}
+
 /// Result of parsing a Slack webhook event.
 pub enum SlackWebhookResult {
     /// URL verification challenge — return the challenge string immediately.
@@ -327,6 +372,24 @@ impl SlackAdapter {
                 return Ok(SlackWebhookResult::Ignore("own_bot"));
             }
         }
+
+        // 7b. Ignore Slack system messages (channel join/leave, topic/purpose
+        // changes, edits, pins, …). These arrive as `message` events with a
+        // `subtype` and are not real user input — without this, `all_messages`
+        // mode (and the DM / tracked-thread bypasses below) spawns a task for
+        // every "X has joined the channel" notification.
+        if event_type == "message" && is_ignored_message_subtype(event_subtype) {
+            debug!(
+                reason = "system_subtype",
+                event_type = %event_type,
+                event_subtype = %event_subtype,
+                user = %user,
+                source_id = %channel,
+                "Slack event ignored"
+            );
+            return Ok(SlackWebhookResult::Ignore("system_subtype"));
+        }
+
         // 8. Parse typed provider config (needed for the bot filter and trigger filter)
         let slack_config = SlackAdapterConfig::from_config(config);
 
@@ -1148,6 +1211,49 @@ mod tests {
         assert!(s.contains("not configured"));
         // Without a known ID the response-guidance block is skipped.
         assert!(!s.contains("### When to respond"));
+    }
+
+    #[test]
+    fn system_message_subtypes_are_ignored() {
+        // The reported incident: "X has joined the channel".
+        assert!(is_ignored_message_subtype("channel_join"));
+        // The "others like it" family the join belongs to.
+        for subtype in [
+            "channel_leave",
+            "channel_topic",
+            "channel_purpose",
+            "channel_name",
+            "channel_archive",
+            "channel_unarchive",
+            "group_join",
+            "group_leave",
+            "message_changed",
+            "message_deleted",
+            "pinned_item",
+            "unpinned_item",
+            "bot_add",
+            "bot_remove",
+        ] {
+            assert!(
+                is_ignored_message_subtype(subtype),
+                "{subtype} should be ignored"
+            );
+        }
+    }
+
+    #[test]
+    fn real_message_subtypes_are_not_ignored() {
+        // A plain user message has no subtype.
+        assert!(!is_ignored_message_subtype(""));
+        // Subtypes that still carry genuine user input must flow through.
+        for subtype in ["file_share", "thread_broadcast", "me_message"] {
+            assert!(
+                !is_ignored_message_subtype(subtype),
+                "{subtype} carries user input and must not be ignored"
+            );
+        }
+        // `bot_message` is gated separately (allow_bot_messages), not here.
+        assert!(!is_ignored_message_subtype("bot_message"));
     }
 
     #[test]
