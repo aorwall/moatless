@@ -64,6 +64,20 @@ ARG CLAUDE_CLI_VERSION=2.1.170
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}" \
     && (claude --version 2>/dev/null || echo "unknown") > /opt/moatless/.claude-cli-version
 
+# Override the pnpm version baked into the upstream sandbox-base. Same rationale
+# as the Codex/Claude overrides above: the fork does not build sandbox-base
+# itself (that workflow is gated to the aorwall repo), so a pnpm pin in
+# Dockerfile.sandbox-base never reaches the platform-ECR moatless-sandbox image
+# this Dockerfile produces — the deployed pnpm stays at whatever the upstream
+# Docker Hub base shipped. AWS Inspector flagged the stale pnpm on the soap-cli
+# image (which is FROM moatless-sandbox:latest) under SP-1922: CVE-2026-55698,
+# CVE-2026-55697, CVE-2026-55700, CVE-2026-55487 and GHSA-qrv3-253h-g69c /
+# GHSA-72r4-9c5j-mj57 / GHSA-fr4h-3cph-29xv — malicious-lockfile path traversal
+# and arbitrary code execution, all fixed by 11.8.0. Pin >=11.8.0 here so the
+# fork's own build bakes in the patched pnpm regardless of the upstream base.
+RUN npm install -g pnpm@11.9.0 \
+    && (pnpm --version 2>/dev/null || echo "unknown") > /opt/moatless/.pnpm-version
+
 # Entrypoint scripts come from the sandbox-tools image so script edits don't
 # invalidate the binary COPY layer below (and vice versa).
 COPY --from=aorwall/moatless-sandbox-tools:latest /tools/docker-entrypoint-sandbox.sh /usr/local/bin/docker-entrypoint-sandbox.sh
