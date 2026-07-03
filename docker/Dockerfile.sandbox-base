@@ -22,7 +22,9 @@ ENV DEBIAN_FRONTEND=noninteractive
 # for a CVE rebuild. 2026-06-20: pull patched vim >= 2:9.1.0016-1ubuntu7.16
 # (CVE-2026-47162, -52859, -52858, -47167, -52860).
 # 2026-07-01: pull patched libnss3/nss >= 2:3.98-1ubuntu0.2 (CVE-2026-12318, SP-1966).
-ARG APT_SECURITY_REFRESH=2026-07-01
+# 2026-07-03: pull patched linux-libc-dev >= 6.8.0-134.134 fixing 91 kernel CVEs
+# (3 CRITICAL: CVE-2026-43414, -31448, -43071; 88 HIGH), SP-2021.
+ARG APT_SECURITY_REFRESH=2026-07-03
 
 # Install essential system packages
 RUN echo "OS security refresh: ${APT_SECURITY_REFRESH}" \
