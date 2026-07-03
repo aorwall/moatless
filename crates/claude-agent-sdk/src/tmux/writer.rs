@@ -13,16 +13,20 @@
 
 use async_trait::async_trait;
 use serde_json::Value;
+use std::path::PathBuf;
 use std::process::Stdio;
 use tokio::io::AsyncWriteExt;
-use tokio::process::Command;
 use tracing::{debug, warn};
 
+use super::session::tmux_command;
 use crate::error::{Result, SdkError};
 use crate::transport::StdinWriter;
 
 pub(crate) struct TmuxPasteWriter {
     pub(crate) session_name: String,
+    /// The session's private tmux server socket — must match the one
+    /// [`super::session::TmuxSession`] was spawned on so paste/send-keys reach it.
+    pub(crate) socket: PathBuf,
 }
 
 impl TmuxPasteWriter {
@@ -30,7 +34,7 @@ impl TmuxPasteWriter {
     /// pane. Used to drive startup dialogs (trust / bypass-permissions) and to
     /// submit prompts.
     pub(crate) async fn send_key(&self, key: &str) -> Result<()> {
-        let status = Command::new("tmux")
+        let status = tmux_command(&self.socket)
             .args(["send-keys", "-t", self.session_name.as_str(), key])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -56,7 +60,7 @@ impl TmuxPasteWriter {
         let buffer_name = format!("sdk-{}", uuid::Uuid::new_v4().simple());
 
         // 1. Load text into a named tmux buffer via stdin.
-        let mut load = Command::new("tmux")
+        let mut load = tmux_command(&self.socket)
             .args(["load-buffer", "-b", &buffer_name, "-"])
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
@@ -88,7 +92,7 @@ impl TmuxPasteWriter {
         let target = self.session_name.as_str();
 
         // 2. Paste with bracket-paste mode (-p) and delete the buffer after (-d).
-        let status = Command::new("tmux")
+        let status = tmux_command(&self.socket)
             .args([
                 "paste-buffer",
                 "-t",
@@ -204,7 +208,7 @@ impl TmuxPasteWriter {
     /// instead of the literal text) is present. Returns false on any capture
     /// issue, so behaviour never regresses below the single-Enter path.
     async fn prompt_pending(&self, target: &str, needle: Option<&[u8]>) -> bool {
-        let output = Command::new("tmux")
+        let output = tmux_command(&self.socket)
             .args(["capture-pane", "-t", target, "-p"])
             .stderr(Stdio::null())
             .output()

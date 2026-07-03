@@ -33,6 +33,10 @@ const TMUX_HEIGHT: u32 = 50;
 /// the orchestration in `mod.rs` must paste a prompt before discovering.
 pub(crate) struct TmuxSession {
     pub(crate) session_name: String,
+    /// The SDK-private tmux server socket (`-S <socket>`) this session runs on.
+    /// Every tmux command for this session is pinned to it — see
+    /// [`tmux_socket_path`] for why we don't use tmux's shared default socket.
+    pub(crate) socket: PathBuf,
 }
 
 impl TmuxSession {
@@ -51,16 +55,18 @@ impl TmuxSession {
             "claude-sdk-{}",
             &uuid::Uuid::new_v4().simple().to_string()[..8]
         );
+        let socket = tmux_socket_path(&session_name);
         let args = build_tmux_cli_args(options, settings_json);
         info!(
             session_name = %session_name,
+            socket = %socket.display(),
             cli_path = %cli_path,
             args = ?args,
             cwd = ?options.cwd,
             "Spawning tmux session for Claude TUI"
         );
 
-        let mut cmd = tokio::process::Command::new("tmux");
+        let mut cmd = tmux_command(&socket);
         cmd.arg("new-session")
             .arg("-d")
             .arg("-s")
@@ -88,21 +94,36 @@ impl TmuxSession {
             cmd.arg(a);
         }
 
-        let status = cmd.status().await.map_err(|e| {
+        // Capture stderr (rather than `.status()` with inherited stdio) so a
+        // failed `new-session` surfaces tmux's actual complaint — e.g.
+        // "error connecting to <socket> (Connection refused)" or a permission
+        // error — instead of an opaque exit code.
+        let output = cmd.output().await.map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
                 SdkError::TmuxNotFound
             } else {
                 SdkError::SpawnError(e)
             }
         })?;
-        if !status.success() {
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stderr = stderr.trim();
+            let detail = if stderr.is_empty() {
+                String::new()
+            } else {
+                format!(": {stderr}")
+            };
             return Err(SdkError::Internal(format!(
-                "tmux new-session exited with status {status:?}"
+                "tmux new-session exited with status {:?}{detail}",
+                output.status
             )));
         }
 
         debug!(session_name = %session_name, "tmux session spawned");
-        Ok(Self { session_name })
+        Ok(Self {
+            session_name,
+            socket,
+        })
     }
 
     /// Kill the tmux session (and the claude process inside).
@@ -118,7 +139,7 @@ impl TmuxSession {
         // `display-message` returns nothing.
         let pane_pid = self.pane_pid().await;
 
-        let result = tokio::process::Command::new("tmux")
+        let result = tmux_command(&self.socket)
             .args(["kill-session", "-t", &self.session_name])
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -161,7 +182,7 @@ impl TmuxSession {
     /// the SIGKILL escalation step. Returns `None` if the session has already
     /// exited or the PID couldn't be parsed.
     async fn pane_pid(&self) -> Option<u32> {
-        let out = tokio::process::Command::new("tmux")
+        let out = tmux_command(&self.socket)
             .args([
                 "display-message",
                 "-p",
@@ -183,7 +204,7 @@ impl TmuxSession {
     /// Capture the current pane contents, CSI-stripped. Returns `None` if the
     /// session is already gone or the tmux command fails.
     pub(crate) async fn capture_pane_stripped(&self) -> Option<Vec<u8>> {
-        let out = tokio::process::Command::new("tmux")
+        let out = tmux_command(&self.socket)
             .args(["capture-pane", "-t", &self.session_name, "-p"])
             .stderr(std::process::Stdio::null())
             .output()
@@ -197,7 +218,7 @@ impl TmuxSession {
 
     /// Return true if the tmux session is still alive.
     pub(crate) async fn is_alive(&self) -> bool {
-        tokio::process::Command::new("tmux")
+        tmux_command(&self.socket)
             .args(["has-session", "-t", &self.session_name])
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -213,11 +234,43 @@ impl Drop for TmuxSession {
         // Best-effort synchronous kill in case the async cleanup path didn't
         // run (e.g. supervisor task panicked). Won't block long.
         let _ = std::process::Command::new("tmux")
+            .arg("-S")
+            .arg(&self.socket)
             .args(["kill-session", "-t", &self.session_name])
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .status();
+        // The tmux server unlinks its socket when it exits, but remove it
+        // best-effort in case the server was already gone — leaves no stale
+        // socket behind on the (memory-backed) tmp filesystem.
+        let _ = std::fs::remove_file(&self.socket);
     }
+}
+
+/// Path to the SDK's private tmux server socket for `session_name`.
+///
+/// We run every session on its own `-S <socket>` rather than tmux's shared
+/// default socket (`$TMUX_TMPDIR/tmux-<uid>/default`). The default socket is a
+/// single well-known path per user: if a previous tmux server died uncleanly
+/// and left its socket file behind — e.g. a sandbox container restart, where
+/// the memory-backed `/tmp` survives the restart — `new-session` tries to
+/// connect to the dead server and fails with "error connecting to <socket>
+/// (Connection refused)" (exit 1). A fresh, per-session socket path derived
+/// from the unique `session_name` can never collide with such a leftover.
+fn tmux_socket_path(session_name: &str) -> PathBuf {
+    std::env::temp_dir().join(format!("{session_name}.sock"))
+}
+
+/// Build a `tmux` command pinned to the SDK's private server socket (`-S`).
+///
+/// Every tmux invocation for a given session MUST go through this so it targets
+/// the same server the session was created on — otherwise `kill-session`,
+/// `has-session`, `capture-pane`, and the paste writer would talk to tmux's
+/// default socket and never find the session.
+pub(super) fn tmux_command(socket: &Path) -> tokio::process::Command {
+    let mut cmd = tokio::process::Command::new("tmux");
+    cmd.arg("-S").arg(socket);
+    cmd
 }
 
 /// Build the `KEY=VAL` env assignments handed to `env` ahead of `claude` in the
@@ -610,10 +663,24 @@ mod tests {
     async fn capture_pane_stripped_nonexistent_session_is_none() {
         let session = TmuxSession {
             session_name: "claude-sdk-test-no-such-session".to_string(),
+            socket: tmux_socket_path("claude-sdk-test-no-such-session"),
         };
         assert_eq!(session.capture_pane_stripped().await, None);
         // Prevent Drop from running `tmux kill-session` against a live server.
         std::mem::forget(session);
+    }
+
+    #[test]
+    fn socket_path_is_private_and_per_session() {
+        // Socket lives under the process temp dir (known-writable — the same
+        // place the hook FIFO is created) and is keyed on the unique session
+        // name, so it can never collide with tmux's shared default socket or a
+        // stale leftover from a prior server.
+        let a = tmux_socket_path("claude-sdk-aaaaaaaa");
+        let b = tmux_socket_path("claude-sdk-bbbbbbbb");
+        assert_ne!(a, b);
+        assert!(a.starts_with(std::env::temp_dir()));
+        assert_eq!(a.file_name().unwrap(), "claude-sdk-aaaaaaaa.sock");
     }
 
     #[tokio::test]

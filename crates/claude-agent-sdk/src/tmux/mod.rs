@@ -123,6 +123,7 @@ pub async fn query_tmux(prompt: &str, mut options: ClaudeOptions) -> Result<Quer
 
     let writer = Arc::new(TmuxPasteWriter {
         session_name: session.session_name.clone(),
+        socket: session.socket.clone(),
     });
 
     // Trust-dialog watcher: tmux pane → strip CSI → match "trust"+"folder".
@@ -274,6 +275,7 @@ pub async fn query_tmux_streaming(mut options: ClaudeOptions) -> Result<QueryHan
 
     let writer = Arc::new(TmuxPasteWriter {
         session_name: session.session_name.clone(),
+        socket: session.socket.clone(),
     });
 
     // Trust watcher + SessionStart wait. Mirrors `query_tmux`.
