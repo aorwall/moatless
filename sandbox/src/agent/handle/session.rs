@@ -22,13 +22,15 @@ use super::claude::make_user_message;
 use super::retry::is_session_unavailable_error;
 use super::{
     ActiveHandle, AgentRuntimeError, QueuedSend, AGENT_TYPE_CLAUDE_CODE,
-    AGENT_TYPE_CLAUDE_CODE_CLI, AGENT_TYPE_CLAUDE_CODE_FABLE, AGENT_TYPE_CODEX,
+    AGENT_TYPE_CLAUDE_CODE_CLI, AGENT_TYPE_CLAUDE_CODE_FABLE, AGENT_TYPE_CLAUDE_CODE_TUI,
+    AGENT_TYPE_CODEX,
 };
 
 pub(super) fn normalize_agent_type(agent_type: Option<&str>) -> &'static str {
     match agent_type {
         Some(AGENT_TYPE_CODEX) => AGENT_TYPE_CODEX,
         Some(AGENT_TYPE_CLAUDE_CODE)
+        | Some(AGENT_TYPE_CLAUDE_CODE_TUI)
         | Some(AGENT_TYPE_CLAUDE_CODE_CLI)
         | Some(AGENT_TYPE_CLAUDE_CODE_FABLE)
         | None => AGENT_TYPE_CLAUDE_CODE,

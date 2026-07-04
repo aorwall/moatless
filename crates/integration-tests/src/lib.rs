@@ -49,7 +49,8 @@ pub fn base_url() -> String {
 /// `E2E_AGENT_TYPE=claude-code-cli` to exercise the sandbox's subprocess/NDJSON
 /// transport (`SANDBOX_USE_TMUX` is left unset by the backend's agent catalog
 /// for that agent type). Unset → `None` → backend default (`claude-code`, which
-/// now runs over the persistent tmux session).
+/// runs over the subprocess/NDJSON transport; `claude-code-tui` opts into the
+/// persistent tmux session).
 pub fn e2e_agent_type() -> Option<moatless_api_schemas::shared::AgentType> {
     std::env::var("E2E_AGENT_TYPE")
         .ok()
@@ -61,12 +62,13 @@ pub fn e2e_agent_type() -> Option<moatless_api_schemas::shared::AgentType> {
 ///
 /// The tmux transport has no machine-readable cost stream, so `total_cost_usd`
 /// stays `0.0` — cost assertions must be skipped there. Only the subprocess/NDJSON
-/// transports report cost: `claude-code-cli` and `codex`. The default
-/// (`claude-code`, i.e. `None`) and `claude-code-fable` now run over tmux.
+/// transports report cost: the default (`claude-code`, i.e. `None`),
+/// `claude-code-cli`, and `codex`. The tmux-backed `claude-code-tui` and
+/// `claude-code-fable` do not.
 pub fn e2e_agent_reports_cost() -> bool {
     matches!(
         e2e_agent_type().as_ref().map(|t| t.as_str()),
-        Some("claude-code-cli") | Some("codex")
+        None | Some("claude-code") | Some("claude-code-cli") | Some("codex")
     )
 }
 

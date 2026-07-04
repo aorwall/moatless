@@ -48,6 +48,32 @@ pub const CLAUDE_CODE: AgentEntry = AgentEntry {
     id: "claude-code",
     label: "Claude Code",
     kind: AgentKind::ClaudeCode,
+    params: AgentParams { use_tmux: false },
+    credential_keys: &[CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY],
+    provider_token_providers: &["claude"],
+    default_model: "default",
+    models: &[
+        ModelEntry {
+            id: "default",
+            label: "Default",
+        },
+        ModelEntry {
+            id: "claude-opus-4-8",
+            label: "Opus 4.8",
+        },
+        ModelEntry {
+            id: "claude-sonnet-5",
+            label: "Sonnet 5",
+        },
+    ],
+    missing_credential_hint:
+        "Add CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in Settings \u{2192} Secrets",
+};
+
+pub const CLAUDE_CODE_TUI: AgentEntry = AgentEntry {
+    id: "claude-code-tui",
+    label: "Claude Code (TUI)",
+    kind: AgentKind::ClaudeCode,
     params: AgentParams { use_tmux: true },
     credential_keys: &[CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY],
     provider_token_providers: &["claude"],
@@ -58,16 +84,12 @@ pub const CLAUDE_CODE: AgentEntry = AgentEntry {
             label: "Default",
         },
         ModelEntry {
-            id: "claude-opus-4-6",
-            label: "Opus 4.6",
+            id: "claude-opus-4-8",
+            label: "Opus 4.8",
         },
         ModelEntry {
-            id: "claude-sonnet-4-6",
-            label: "Sonnet 4.6",
-        },
-        ModelEntry {
-            id: "claude-haiku-4-5-20251001",
-            label: "Haiku 4.5",
+            id: "claude-sonnet-5",
+            label: "Sonnet 5",
         },
     ],
     missing_credential_hint:
@@ -88,16 +110,12 @@ pub const CLAUDE_CODE_CLI: AgentEntry = AgentEntry {
             label: "Default",
         },
         ModelEntry {
-            id: "claude-opus-4-6",
-            label: "Opus 4.6",
+            id: "claude-opus-4-8",
+            label: "Opus 4.8",
         },
         ModelEntry {
-            id: "claude-sonnet-4-6",
-            label: "Sonnet 4.6",
-        },
-        ModelEntry {
-            id: "claude-haiku-4-5-20251001",
-            label: "Haiku 4.5",
+            id: "claude-sonnet-5",
+            label: "Sonnet 5",
         },
     ],
     missing_credential_hint:
@@ -137,7 +155,13 @@ pub const CODEX: AgentEntry = AgentEntry {
 
 /// All supported agents in display order.
 pub fn catalog() -> &'static [AgentEntry] {
-    &[CLAUDE_CODE, CLAUDE_CODE_CLI, CLAUDE_CODE_FABLE, CODEX]
+    &[
+        CLAUDE_CODE,
+        CLAUDE_CODE_TUI,
+        CLAUDE_CODE_CLI,
+        CLAUDE_CODE_FABLE,
+        CODEX,
+    ]
 }
 
 /// Look up a catalog entry by its `agent_type` id.
