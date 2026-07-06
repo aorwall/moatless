@@ -126,7 +126,7 @@ pub const CLAUDE_CODE_FABLE: AgentEntry = AgentEntry {
     id: "claude-code-fable",
     label: "Claude Code (Fable)",
     kind: AgentKind::ClaudeCode,
-    params: AgentParams { use_tmux: true },
+    params: AgentParams { use_tmux: false },
     credential_keys: &[CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY],
     provider_token_providers: &["claude"],
     default_model: "fable",
