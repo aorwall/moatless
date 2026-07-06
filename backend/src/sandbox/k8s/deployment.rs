@@ -83,6 +83,15 @@ pub async fn create_sandbox_deployment(
                     "moatless.io/task-id": task_id,
                 }
             },
+            // Recreate (not the default RollingUpdate): the workspace PVC is a
+            // ReadWriteOnce EBS volume that can only attach to one node at a
+            // time. RollingUpdate would surge a new pod before the old one is
+            // gone, so the replacement gets a "Multi-Attach" error and stalls
+            // in Pending until AWS force-detaches (~1-6 min). Recreate tears the
+            // old pod fully down (volume detaches) before scheduling the new one.
+            "strategy": {
+                "type": "Recreate",
+            },
             "template": {
                 "metadata": {
                     "labels": pod_labels,
@@ -165,30 +174,29 @@ pub async fn delete_deployment(k8s: &K8sClient, task_id: &str) -> Result<(), kub
     }
 }
 
-/// Restart a Deployment by deleting all its pods.
+/// Restart a Deployment gracefully: scale to 0, wait for the pod to fully
+/// terminate, then scale back to 1.
 ///
-/// The Deployment controller will automatically recreate them.
+/// We deliberately do NOT just delete the pod and let the ReplicaSet recreate
+/// it. That races the ReadWriteOnce workspace PVC: the ReplicaSet schedules a
+/// replacement pod immediately (possibly on another node) while the old pod is
+/// still `Terminating` and holding the EBS attachment, producing a
+/// "Multi-Attach" error that stalls the new pod in `Pending` for 1-6 min.
+/// Scaling to 0 first lets the volume detach before the replacement is created.
 pub async fn restart_deployment(k8s: &K8sClient, task_id: &str) -> Result<(), kube::Error> {
-    let pods_api: Api<Pod> = Api::namespaced(k8s.client.clone(), k8s.namespace());
-    let lp = ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
-
-    let list = pods_api.list(&lp).await?;
-    for pod in list.items {
-        if let Some(ref name) = pod.metadata.name {
-            pods_api.delete(name, &Default::default()).await?;
-            info!(task_id, pod_name = %name, "Pod deleted for restart (Deployment will recreate)");
-        }
-    }
-
+    scale_deployment(k8s, task_id, 0).await?;
+    wait_for_pods_deleted(k8s, task_id).await;
+    scale_deployment(k8s, task_id, 1).await?;
+    info!(task_id, "Deployment restarted (scaled 0 -> 1 after termination)");
     Ok(())
 }
 
 /// Rebuild a task's Deployment from a (possibly filtered) provision request.
 ///
-/// Unlike [`restart_deployment`] (which only deletes pods, so the Deployment
-/// recreates them from the *same* spec), this deletes the Deployment and
-/// recreates it from a freshly built pod spec. That is what makes a removed
-/// server container actually disappear from the running pod.
+/// Unlike [`restart_deployment`] (which restarts the *same* Deployment/spec by
+/// scaling it 0 -> 1), this deletes the Deployment and recreates it from a
+/// freshly built pod spec. That is what makes a removed server container
+/// actually disappear from the running pod.
 ///
 /// The existing workspace PVC is reused so no data is lost.
 pub async fn redeploy_with_plan(
@@ -214,9 +222,61 @@ pub async fn redeploy_with_plan(
         .await
         .map_err(SandboxError::KubeError)?;
 
+    // Wait for the old pod to fully terminate before recreating. The Recreate
+    // strategy only serializes attach/detach *within* one Deployment; here we
+    // delete and recreate a fresh Deployment, so nothing stops the new pod from
+    // being scheduled while the old one still holds the ReadWriteOnce PVC on its
+    // node -> "Multi-Attach" stall. Blocking on termination closes that window.
+    wait_for_pods_deleted(k8s, task_id).await;
+
     create_sandbox_deployment(k8s, task_id, pod).await?;
     info!(task_id, "Deployment redeployed with updated pod spec");
     Ok(())
+}
+
+/// Poll until no pods match the task's label selector (old pod fully gone), or
+/// the timeout elapses. Best-effort: on timeout or list error we log and return
+/// so the caller can proceed rather than block a redeploy indefinitely.
+pub async fn wait_for_pods_deleted(k8s: &K8sClient, task_id: &str) {
+    use std::time::Duration;
+
+    const POLL_INTERVAL: Duration = Duration::from_secs(2);
+    // Pods have a 30s termination grace period; allow headroom for detach.
+    const TIMEOUT: Duration = Duration::from_secs(90);
+
+    let pods_api: Api<Pod> = Api::namespaced(k8s.client.clone(), k8s.namespace());
+    let lp = ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
+
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    loop {
+        match pods_api.list(&lp).await {
+            Ok(list) if list.items.is_empty() => {
+                debug!(task_id, "All pods terminated, safe to recreate Deployment");
+                return;
+            }
+            Ok(list) => {
+                debug!(
+                    task_id,
+                    remaining = list.items.len(),
+                    "Waiting for old pod(s) to terminate before redeploy"
+                );
+            }
+            Err(e) => {
+                warn!(task_id, error = %e, "Failed to list pods while waiting for termination; proceeding");
+                return;
+            }
+        }
+
+        if tokio::time::Instant::now() >= deadline {
+            warn!(
+                task_id,
+                "Timed out waiting for old pod(s) to terminate before redeploy; proceeding anyway"
+            );
+            return;
+        }
+
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
 }
 
 /// Find a Deployment for a task by label selector.

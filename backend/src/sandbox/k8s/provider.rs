@@ -208,18 +208,11 @@ impl SandboxProvider for K8sSandboxProvider {
     }
 
     async fn restart(&self, task_id: &str) -> Result<(), SandboxError> {
-        info!(task_id = %task_id, "Restarting sandbox (deleting pods, Deployment will recreate)");
+        info!(task_id = %task_id, "Restarting sandbox (scaling to 0, then back to 1 after termination)");
 
-        // Ensure Deployment is scaled to 1 (in case it was stopped)
-        if let Ok((desired, _)) = deployment::get_deployment_replicas(&self.k8s, task_id).await {
-            if desired == 0 {
-                deployment::scale_deployment(&self.k8s, task_id, 1)
-                    .await
-                    .map_err(SandboxError::KubeError)?;
-            }
-        }
-
-        // Delete pods — Deployment controller will recreate them
+        // Scale to 0, wait for the pod to terminate (releasing the RWO PVC),
+        // then scale back to 1. This also covers the "was stopped" case since
+        // restart_deployment always ends at 1 replica.
         deployment::restart_deployment(&self.k8s, task_id)
             .await
             .map_err(SandboxError::KubeError)?;
@@ -241,6 +234,10 @@ impl SandboxProvider for K8sSandboxProvider {
         if let Err(e) = deployment::delete_deployment(&self.k8s, task_id).await {
             warn!(task_id = %task_id, error = %e, "Failed to delete Deployment during redeploy");
         }
+        // 1b. Wait for the old pod to fully terminate before reprovisioning, so
+        //     the new pod doesn't race the ReadWriteOnce PVC still attached to
+        //     the terminating pod's node ("Multi-Attach" stall).
+        deployment::wait_for_pods_deleted(&self.k8s, task_id).await;
         // 2. Delete Service + IngressRoutes (will recreate with new config)
         if let Err(e) = service::delete_sandbox_service(&self.k8s, task_id).await {
             warn!(task_id = %task_id, error = %e, "Failed to delete Service during redeploy");
