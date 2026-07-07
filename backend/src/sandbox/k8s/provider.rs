@@ -75,6 +75,13 @@ impl SandboxProvider for K8sSandboxProvider {
                 if current_image.as_deref() == Some(expected.as_str()) {
                     // Tag unchanged — fast path: scale back up.
                     info!(task_id = %task_id, image = %expected, "Starting stopped sandbox (image unchanged), scaling up");
+                    // A stop→start collision (e.g. the idle reaper scales to 0
+                    // and the user immediately reopens the task) can leave the
+                    // old pod still Terminating while it holds the ReadWriteOnce
+                    // PVC. Scaling straight to 1 would schedule a new pod that
+                    // races that attachment → "Multi-Attach" stall. Wait for the
+                    // old pod to fully terminate first (no-op if already gone).
+                    deployment::wait_for_pods_deleted(&self.k8s, task_id).await;
                     deployment::scale_deployment(&self.k8s, task_id, 1)
                         .await
                         .map_err(SandboxError::KubeError)?;
