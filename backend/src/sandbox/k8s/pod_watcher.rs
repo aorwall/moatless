@@ -727,22 +727,61 @@ async fn process_watcher_event(
                 }
             }
 
-            // Auto-scale down when sandbox container exits cleanly (Completed).
-            // This prevents K8s from restarting the container into CrashLoopBackOff.
+            // Reconcile a clean sandbox exit (Completed, exit 0) against the
+            // Deployment's desired replicas.
+            //
+            // The sandbox's gRPC server never exits on its own during a task —
+            // it only returns exit 0 via the SIGTERM graceful-shutdown driver
+            // (see sandbox/src/shutdown.rs). So a `sandbox_completed` means "the
+            // pod got a SIGTERM", which has two very different causes:
+            //   * Intentional stop (idle reaper / user / crash auto-stop) already
+            //     scaled the Deployment to 0 — the SIGTERM is the pod draining.
+            //     Desired replicas == 0. Scaling to 0 again is a harmless no-op.
+            //   * Involuntary node event (spot reclaim, drain, consolidation)
+            //     SIGTERMs a pod the Deployment still wants (desired == 1). Here
+            //     K8s will reschedule the pod and agent recovery resumes the
+            //     in-flight turn — UNLESS we scale to 0 and cancel the task.
+            //
+            // So we must only "confirm" the stop when the Deployment already
+            // desires 0. When it still desires a replica, leave it untouched and
+            // let K8s reschedule. A genuine exit-0 restart loop is still caught
+            // by the restart-count auto-stop above.
             let has_completed = transitions
                 .iter()
                 .any(|(sub, _)| sub == "sandbox_completed");
-            if has_completed && !is_intentional_stop {
-                info!(
-                    task_id = %task_id,
-                    pod_name = %pod_name,
-                    "Sandbox completed cleanly, scaling deployment to 0"
-                );
-                if let Err(e) = deployment::scale_deployment(k8s, &task_id, 0).await {
-                    warn!(
+            if has_completed {
+                let desired_zero = match deployment::get_deployment_replicas(k8s, &task_id).await {
+                    Ok((desired, _)) => desired == 0,
+                    Err(e) => {
+                        // Fail safe: if we can't tell, do NOT scale down — a
+                        // reschedule after eviction is recoverable, a wrongly
+                        // cancelled active task is not.
+                        warn!(
+                            task_id = %task_id,
+                            error = %e,
+                            "Could not read deployment replicas on clean exit; leaving deployment untouched"
+                        );
+                        false
+                    }
+                };
+                if desired_zero {
+                    info!(
                         task_id = %task_id,
-                        error = %e,
-                        "Failed to scale down completed sandbox"
+                        pod_name = %pod_name,
+                        "Sandbox exited cleanly after an intentional stop, confirming scale to 0"
+                    );
+                    if let Err(e) = deployment::scale_deployment(k8s, &task_id, 0).await {
+                        warn!(
+                            task_id = %task_id,
+                            error = %e,
+                            "Failed to scale down completed sandbox"
+                        );
+                    }
+                } else {
+                    info!(
+                        task_id = %task_id,
+                        pod_name = %pod_name,
+                        "Sandbox exited cleanly while deployment still desires a replica; treating as involuntary eviction and leaving it to K8s to reschedule"
                     );
                 }
             }
