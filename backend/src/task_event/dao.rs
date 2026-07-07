@@ -73,6 +73,20 @@ pub trait TaskEventRepository: Send + Sync {
         &self,
         task_ids: &[String],
     ) -> Result<HashMap<String, (String, DateTime<Utc>)>, sqlx::Error>;
+
+    /// For each task in `task_ids`, return the timestamp of its most recent
+    /// `type = 'agent'` event of any sub-type — including the `message` events
+    /// emitted for every tool call and streamed assistant chunk.
+    ///
+    /// This is the reaper's real-activity signal: a long agent turn (many tool
+    /// calls, no new conversation `messages` row and no lifecycle transition)
+    /// still advances this timestamp, so the idle-TTL floor tracks actual work
+    /// instead of freezing at the last user message / sandbox start. Tasks with
+    /// no agent events are omitted from the map.
+    async fn get_latest_agent_activity(
+        &self,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`TaskEventRepository`].
@@ -196,5 +210,30 @@ impl TaskEventRepository for PgTaskEventRepository {
             .into_iter()
             .map(|(task_id, sub_type, ts)| (task_id, (sub_type, ts)))
             .collect())
+    }
+
+    async fn get_latest_agent_activity(
+        &self,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error> {
+        if task_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        // MAX(created_at) over all agent events (any sub_type) captures the last
+        // tool call / streamed chunk, so an in-flight turn keeps advancing the
+        // reaper's activity floor even without a new conversation message.
+        let rows: Vec<(String, DateTime<Utc>)> = sqlx::query_as(
+            r#"SELECT task_id, MAX(created_at) AS latest
+               FROM task_events
+               WHERE type = 'agent'
+                 AND task_id = ANY($1)
+               GROUP BY task_id"#,
+        )
+        .bind(task_ids)
+        .fetch_all(&self.0)
+        .await?;
+
+        Ok(rows.into_iter().collect())
     }
 }

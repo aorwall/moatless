@@ -175,22 +175,37 @@ async fn run_reap_cycle(
         "Task reaper considering tasks"
     );
 
-    // Build the latest-activity map: messages → sandbox_started_at → created_at_db.
+    // Build the latest-activity map: messages → agent tool-call activity →
+    // sandbox_started_at → created_at_db, keeping the newest across all sources.
     let mut latest_times = messages.get_latest_message_times(&all_ids).await?;
 
-    match tasks.get_sandbox_started_times(&all_ids).await {
-        Ok(started_times) => {
-            for (task_id, started_at) in started_times {
-                latest_times
-                    .entry(task_id)
-                    .and_modify(|existing| {
-                        if started_at > *existing {
-                            *existing = started_at;
-                        }
-                    })
-                    .or_insert(started_at);
-            }
+    let merge_newest = |latest_times: &mut HashMap<String, DateTime<Utc>>,
+                        entries: HashMap<String, DateTime<Utc>>| {
+        for (task_id, ts) in entries {
+            latest_times
+                .entry(task_id)
+                .and_modify(|existing| {
+                    if ts > *existing {
+                        *existing = ts;
+                    }
+                })
+                .or_insert(ts);
         }
+    };
+
+    // Fold in agent activity (tool calls + streamed chunks). A single long turn
+    // emits no new conversation message and no lifecycle transition, so without
+    // this the idle floor freezes at the last user message / sandbox start and
+    // the reaper stops a working agent mid tool call.
+    match app_state.task_events.get_latest_agent_activity(&all_ids).await {
+        Ok(activity_times) => merge_newest(&mut latest_times, activity_times),
+        Err(e) => {
+            warn!(error = %e, "Failed to fetch agent activity times, idle floor omits tool-call activity");
+        }
+    }
+
+    match tasks.get_sandbox_started_times(&all_ids).await {
+        Ok(started_times) => merge_newest(&mut latest_times, started_times),
         Err(e) => {
             warn!(error = %e, "Failed to fetch sandbox start times, using message times only");
         }
