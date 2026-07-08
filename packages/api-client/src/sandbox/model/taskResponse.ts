@@ -37,6 +37,13 @@ has occurred for this many days. `0` means "never auto-close". */
   /** @nullable */
   isRunning?: boolean | null;
   lastMessageAt: string;
+  /**
+   * RFC3339 timestamp of when the requesting user last read this task's
+conversation. `None` if they have never opened it. Compare against
+`last_message_at` to derive unread state.
+   * @nullable
+   */
+  lastReadAt?: string | null;
   /** @nullable */
   name?: string | null;
   /** @nullable */

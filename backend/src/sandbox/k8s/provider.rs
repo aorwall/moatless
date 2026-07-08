@@ -3,9 +3,10 @@
 use async_trait::async_trait;
 use axum::response::sse::Event;
 use futures::stream::BoxStream;
+use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::Pod;
 use kube::api::{Api, ListParams};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use tracing::{info, warn};
 
@@ -338,6 +339,61 @@ impl SandboxProvider for K8sSandboxProvider {
             self.config.sandbox.grpc_port,
         )
         .map_err(|e| SandboxError::Internal(format!("Failed to create gRPC client: {e}")))
+    }
+
+    async fn bulk_environment_status(
+        &self,
+        task_ids: &[String],
+    ) -> HashMap<String, SandboxStatus> {
+        if task_ids.is_empty() {
+            return HashMap::new();
+        }
+        let wanted: std::collections::HashSet<&str> =
+            task_ids.iter().map(String::as_str).collect();
+
+        // One cluster-wide LIST of managed Deployments; the Deployment status
+        // (desired vs ready replicas) tells us stopped/starting/ready without
+        // touching individual pods or the sandbox gRPC endpoint.
+        let deployments: Api<Deployment> =
+            Api::namespaced(self.k8s.client.clone(), self.k8s.namespace());
+        let lp = ListParams::default().labels("app.kubernetes.io/managed-by=moatless");
+        let list = match deployments.list(&lp).await {
+            Ok(list) => list,
+            Err(e) => {
+                warn!(error = %e, "Failed to list deployments for bulk status");
+                return HashMap::new();
+            }
+        };
+
+        let mut out = HashMap::new();
+        for dep in list.items {
+            let task_id = dep
+                .metadata
+                .labels
+                .as_ref()
+                .and_then(|labels| labels.get("moatless.io/task-id"))
+                .cloned();
+            let Some(task_id) = task_id else { continue };
+            if !wanted.contains(task_id.as_str()) {
+                continue;
+            }
+
+            let desired = dep.spec.as_ref().and_then(|s| s.replicas).unwrap_or(0);
+            let ready = dep
+                .status
+                .as_ref()
+                .and_then(|s| s.ready_replicas)
+                .unwrap_or(0);
+            let status = if desired == 0 {
+                SandboxStatus::Stopped
+            } else if ready > 0 {
+                SandboxStatus::Ready
+            } else {
+                SandboxStatus::Initializing
+            };
+            out.insert(task_id, status);
+        }
+        out
     }
 }
 

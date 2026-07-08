@@ -80,6 +80,23 @@ pub trait TaskRepository: Send + Sync {
     /// List task IDs of all tasks currently in `status = 'open'`.
     async fn list_open_task_ids(&self) -> Result<Vec<String>, sqlx::Error>;
 
+    /// Upsert a user's read marker for a task. Monotonic — never moves the
+    /// stored `last_read_at` backwards, so out-of-order calls are safe.
+    async fn mark_task_read(
+        &self,
+        user_id: &str,
+        task_id: &str,
+        read_at: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error>;
+
+    /// Batch-fetch a user's `last_read_at` for the given tasks. Tasks the user
+    /// has never opened are omitted (not present in the map).
+    async fn get_read_receipts(
+        &self,
+        user_id: &str,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error>;
+
     /// List task IDs for currently-open codex tasks under a given codex scope,
     /// optionally excluding `except_task_id`. Drives both the Codex refresh
     /// in-flight guard (empty → backend may refresh; non-empty → defer to the
@@ -537,6 +554,49 @@ impl TaskRepository for PgTaskRepository {
                 .fetch_all(&self.0)
                 .await?;
         Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
+
+    async fn mark_task_read(
+        &self,
+        user_id: &str,
+        task_id: &str,
+        read_at: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"INSERT INTO task_read_receipts (user_id, task_id, last_read_at)
+               VALUES ($1, $2, $3)
+               ON CONFLICT (user_id, task_id)
+               DO UPDATE SET last_read_at = EXCLUDED.last_read_at
+               WHERE task_read_receipts.last_read_at < EXCLUDED.last_read_at"#,
+        )
+        .bind(user_id)
+        .bind(task_id)
+        .bind(read_at)
+        .execute(&self.0)
+        .await?;
+        Ok(())
+    }
+
+    async fn get_read_receipts(
+        &self,
+        user_id: &str,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error> {
+        if task_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let rows: Vec<(String, DateTime<Utc>)> = sqlx::query_as(
+            r#"SELECT task_id, last_read_at
+               FROM task_read_receipts
+               WHERE user_id = $1 AND task_id = ANY($2)"#,
+        )
+        .bind(user_id)
+        .bind(task_ids)
+        .fetch_all(&self.0)
+        .await?;
+
+        Ok(rows.into_iter().collect())
     }
 
     async fn list_open_codex_tasks_for_scope(

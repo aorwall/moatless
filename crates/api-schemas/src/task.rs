@@ -226,6 +226,11 @@ pub struct TaskResponse {
     /// task has never had a sandbox running.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sandbox_started_at: Option<String>,
+    /// RFC3339 timestamp of when the requesting user last read this task's
+    /// conversation. `None` if they have never opened it. Compare against
+    /// `last_message_at` to derive unread state.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_read_at: Option<String>,
 }
 
 /// Tag as embedded in a task response (minimal: id + name only).

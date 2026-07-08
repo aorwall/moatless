@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import type { Event } from '@/lib/types/events'
-import { extractMessagePreview } from '../use-task-activity'
+import { activityToState, extractMessagePreview, type TaskActivity } from '../use-task-activity'
+
+/** Build a TaskActivity, overriding only the fields under test. */
+function activity(overrides: Partial<TaskActivity>): TaskActivity {
+  return {
+    agentWorking: false,
+    sandboxPhase: null,
+    lastMessage: null,
+    lastMessageAt: null,
+    recentMessages: [],
+    ...overrides,
+  }
+}
 
 /** Build a minimal agent `message` event carrying the given Claude content. */
 function agentMessageEvent(content: unknown): Event {
@@ -56,5 +68,30 @@ describe('extractMessagePreview', () => {
   it('returns null when there is nothing to show', () => {
     expect(extractMessagePreview(agentMessageEvent([]))).toBeNull()
     expect(extractMessagePreview(agentMessageEvent('   '))).toBeNull()
+  })
+})
+
+describe('activityToState', () => {
+  it('is idle for undefined or empty activity', () => {
+    expect(activityToState(undefined)).toBe('idle')
+    expect(activityToState(activity({}))).toBe('idle')
+  })
+
+  it('reports agent-working when the agent is producing output', () => {
+    expect(activityToState(activity({ agentWorking: true }))).toBe('agent-working')
+  })
+
+  it('prefers agent-working over the sandbox phase', () => {
+    expect(activityToState(activity({ agentWorking: true, sandboxPhase: 'ready' }))).toBe(
+      'agent-working',
+    )
+  })
+
+  it('reports starting while the sandbox is initializing', () => {
+    expect(activityToState(activity({ sandboxPhase: 'initializing' }))).toBe('starting')
+  })
+
+  it('reports sandbox-running for a ready but idle sandbox', () => {
+    expect(activityToState(activity({ sandboxPhase: 'ready' }))).toBe('sandbox-running')
   })
 })

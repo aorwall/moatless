@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useGlobalEventStream } from '@/features/events/contexts/global-event-stream-provider'
+import type { TaskActivityState } from '@/features/tasks/utils/task-status'
 import { isTextContent, isToolUseContent } from '@/lib/types/content-guards'
 import type { Event } from '@/lib/types/events'
 import { formatPreview } from './message-preview'
@@ -17,8 +18,14 @@ import { formatPreview } from './message-preview'
 export const MAX_RECENT_MESSAGES = 3
 
 export interface TaskActivity {
-  /** Whether the agent is currently working on this task. */
-  running: boolean
+  /** Whether the agent is currently producing output for this task. */
+  agentWorking: boolean
+  /**
+   * Latest observed sandbox phase from the stream: `initializing` while the
+   * sandbox spins up, `ready` once it is up, or `null` when it is down / never
+   * observed.
+   */
+  sandboxPhase: 'initializing' | 'ready' | null
   /** Short text preview of the most recent message, if one has streamed in. */
   lastMessage: string | null
   /** ISO timestamp of the most recent streamed message. */
@@ -29,6 +36,27 @@ export interface TaskActivity {
    * live activity, mirroring the task dashboard.
    */
   recentMessages: string[]
+}
+
+/**
+ * Collapse a task's live activity into a single display state. The agent
+ * actively working takes precedence, then a starting sandbox, then a ready
+ * (but idle) sandbox; anything else is idle.
+ */
+export function activityToState(activity: TaskActivity | undefined): TaskActivityState {
+  if (!activity) {
+    return 'idle'
+  }
+  if (activity.agentWorking) {
+    return 'agent-working'
+  }
+  if (activity.sandboxPhase === 'initializing') {
+    return 'starting'
+  }
+  if (activity.sandboxPhase === 'ready') {
+    return 'sandbox-running'
+  }
+  return 'idle'
 }
 
 /**
@@ -103,6 +131,45 @@ function isRunningStop(event: Event): boolean {
 }
 
 /**
+ * Derive the next sandbox phase from an event. Sandbox lifecycle events set the
+ * phase directly; any agent activity implies a ready sandbox, so a task keeps
+ * showing as "sandbox running" once its agent finishes (until the sandbox is
+ * later reported stopped/removed).
+ */
+function nextSandboxPhase(
+  event: Event,
+  current: 'initializing' | 'ready' | null,
+): 'initializing' | 'ready' | null {
+  if (event.type === 'sandbox') {
+    switch (event.subType) {
+      case 'initializing':
+        return 'initializing'
+      case 'ready':
+        return 'ready'
+      case 'stopped':
+      case 'removing':
+      case 'removed':
+      case 'not_created':
+      case 'error':
+        return null
+      default:
+        return current
+    }
+  }
+  // An agent can only run against a ready sandbox — infer readiness so the row
+  // stays in the running section as "sandbox running" after the agent stops.
+  if (isRunningStart(event)) {
+    return 'ready'
+  }
+  return current
+}
+
+/** Whether an event can affect a task's activity, beyond message previews. */
+function affectsActivity(event: Event): boolean {
+  return isRunningStart(event) || isRunningStop(event) || event.type === 'sandbox'
+}
+
+/**
  * Subscribe to the global event stream and maintain a live activity map keyed
  * by task id. Only produces a new map (and therefore a re-render) when an event
  * actually changes a task's running state or message preview.
@@ -118,24 +185,28 @@ export function useTaskActivity(): Map<string, TaskActivity> {
         return
       }
 
-      const running = isRunningStart(event)
-      const stopped = isRunningStop(event)
       const preview = extractMessagePreview(event)
 
-      if (!(running || stopped) && preview === null) {
+      if (!affectsActivity(event) && preview === null) {
         return
       }
 
       setActivity((prev) => {
         const current = prev.get(taskId) ?? {
-          running: false,
+          agentWorking: false,
+          sandboxPhase: null,
           lastMessage: null,
           lastMessageAt: null,
           recentMessages: [],
         }
 
+        const agentWorking = isRunningStop(event)
+          ? false
+          : isRunningStart(event) || current.agentWorking
+
         const next: TaskActivity = {
-          running: stopped ? false : running || current.running,
+          agentWorking,
+          sandboxPhase: nextSandboxPhase(event, current.sandboxPhase),
           lastMessage: preview ?? current.lastMessage,
           lastMessageAt: preview ? event.timestamp : current.lastMessageAt,
           // Keep a rolling window of the last few previews so running rows can
@@ -146,7 +217,8 @@ export function useTaskActivity(): Map<string, TaskActivity> {
         }
 
         if (
-          next.running === current.running &&
+          next.agentWorking === current.agentWorking &&
+          next.sandboxPhase === current.sandboxPhase &&
           next.lastMessage === current.lastMessage &&
           next.lastMessageAt === current.lastMessageAt
         ) {

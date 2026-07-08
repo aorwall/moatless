@@ -8,6 +8,7 @@ import { CreateTaskDialog } from '@/features/tasks/components/create-task-dialog
 import { SidebarTasksSkeleton } from '@/features/tasks/components/task-skeletons'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useCloseTask, useTasksList } from '@/features/tasks/hooks/use-tasks'
+import type { TaskActivityState } from '@/features/tasks/utils/task-status'
 import { Button } from '@/lib/components/ui/button'
 import {
   SidebarGroup,
@@ -24,7 +25,7 @@ import {
   TooltipTrigger,
 } from '@/lib/components/ui/tooltip'
 import type { MessagePreview } from '../hooks/message-preview'
-import { type TaskActivity, useTaskActivity } from '../hooks/use-task-activity'
+import { activityToState, type TaskActivity, useTaskActivity } from '../hooks/use-task-activity'
 import { useTaskLastMessages } from '../hooks/use-task-last-messages'
 
 function getRelativeTime(date: Date | string): string {
@@ -63,7 +64,16 @@ function getRelativeTime(date: Date | string): string {
 interface EnrichedTask {
   task: TaskResponse
   repositoryName: string
-  running: boolean
+  /**
+   * Live activity state (agent working / starting up / sandbox running / idle).
+   * Any non-idle state places the row in the "Running" section.
+   */
+  state: TaskActivityState
+  /**
+   * Whether the task has activity newer than the user's last read marker.
+   * The currently-open task is excluded from the unread treatment at render.
+   */
+  unread: boolean
   /** Latest message preview, or `null` when the task has no message yet. */
   preview: string | null
   /**
@@ -75,21 +85,60 @@ interface EnrichedTask {
   lastActivityAt: string
 }
 
-/** Merge a task with its live activity, deriving running state and preview. */
+/**
+ * Sort priority for the "Running" section: group by activity state, most
+ * active first. Sorting on this (then on the immutable creation time) keeps
+ * rows from jumping around as messages stream in — unlike sorting on
+ * last-activity, which changes constantly while a task is running.
+ */
+const RUNNING_STATE_ORDER: Record<TaskActivityState, number> = {
+  'agent-working': 0,
+  starting: 1,
+  'sandbox-running': 2,
+  idle: 3,
+}
+
+/**
+ * Best-effort activity state from the task list row itself. The list endpoint
+ * currently leaves these fields unset, but when present they seed the state on
+ * first render before any live event arrives; live activity takes precedence.
+ */
+function taskRowState(task: TaskResponse): TaskActivityState {
+  if (task.agentState === 'running') {
+    return 'agent-working'
+  }
+  if (task.environmentStatus === 'initializing') {
+    return 'starting'
+  }
+  if (task.environmentStatus === 'ready') {
+    return 'sandbox-running'
+  }
+  return 'idle'
+}
+
+/** Merge a task with its live activity, deriving activity state and preview. */
 function enrichTask(
   task: TaskResponse,
   activity: TaskActivity | undefined,
   fetched: MessagePreview | undefined,
 ): EnrichedTask {
   const repositoryName = task.repositoryName || task.repositoryId
-  const running = activity?.running || task.agentState === 'running'
+  // Live stream state wins; fall back to whatever the list row reported.
+  const liveState = activityToState(activity)
+  const state = liveState !== 'idle' ? liveState : taskRowState(task)
   const lastActivityAt =
     activity?.lastMessageAt || fetched?.at || task.lastMessageAt || task.createdAt
+
+  // Unread when there's activity the user hasn't seen: never opened, or the
+  // latest activity is newer than their read marker.
+  const unread =
+    !task.lastReadAt || new Date(lastActivityAt).getTime() > new Date(task.lastReadAt).getTime()
 
   return {
     task,
     repositoryName,
-    running,
+    state,
+    unread,
     // Prefer the live streamed message, then the message fetched for idle tasks.
     preview: activity?.lastMessage || fetched?.text || null,
     recentMessages: activity?.recentMessages ?? [],
@@ -146,7 +195,10 @@ function SidebarTaskItem({
   /** Task to navigate to when closing the active task, or `null` if none. */
   neighborTaskId: string | null
 }) {
-  const { task, repositoryName, running, preview, recentMessages, lastActivityAt } = item
+  const { task, repositoryName, state, unread, preview, recentMessages, lastActivityAt } = item
+  const agentWorking = state === 'agent-working'
+  // The open task is being read right now, so never flag it as unread.
+  const showUnread = unread && !isActive
   const taskTitle = task.name || task.description?.split('\n')[0] || 'Untitled'
   const navigate = useNavigate()
   const closeTask = useCloseTask(task.taskId)
@@ -169,16 +221,27 @@ function SidebarTaskItem({
   }
 
   return (
-    <SidebarMenuItem>
-      <SidebarMenuButton className="h-auto p-2 hover:bg-sidebar-accent" asChild>
+    <SidebarMenuItem className="border-b border-sidebar-border/60 last:border-b-0">
+      <SidebarMenuButton
+        className={`h-auto rounded-none p-2 hover:bg-sidebar-accent ${
+          isActive ? 'bg-sidebar-accent' : ''
+        }`}
+        asChild
+      >
         <Link to="/tasks/$task-id" params={{ 'task-id': task.taskId }}>
           <div className="flex w-full items-start gap-2 min-w-0">
             <div className="flex items-center gap-1 pt-0.5">
-              <TaskStatusIcon task={task} showText={false} />
+              <TaskStatusIcon task={task} activityState={state} showText={false} />
             </div>
             <div className="flex flex-col min-w-0 flex-1 gap-0.5">
-              <span className="font-medium text-sm truncate leading-tight pr-5">{taskTitle}</span>
-              {running ? (
+              <span
+                className={`truncate text-sm leading-tight pr-5 ${
+                  showUnread ? 'font-semibold text-sidebar-foreground' : 'font-medium'
+                }`}
+              >
+                {taskTitle}
+              </span>
+              {agentWorking ? (
                 <RunningActivity recentMessages={recentMessages} preview={preview} />
               ) : (
                 preview && (
@@ -195,6 +258,12 @@ function SidebarTaskItem({
           </div>
         </Link>
       </SidebarMenuButton>
+      {showUnread && (
+        <span
+          title="Unread messages"
+          className="pointer-events-none absolute right-2.5 top-2.5 h-2 w-2 rounded-full bg-sky-500 transition-opacity group-hover/menu-item:opacity-0"
+        />
+      )}
       <Button
         variant="ghost"
         size="icon"
@@ -253,19 +322,28 @@ export function SidebarTasks() {
   const taskIds = useMemo(() => (data?.items ?? []).map((t) => t.taskId), [data?.items])
   const previewByTask = useTaskLastMessages(taskIds)
 
-  // Split tasks into "running" (agent actively working) and the rest, each
-  // sorted by most-recent activity. Running state and the live message preview
-  // come from the event stream, so this recomputes as those inputs update.
+  // Split tasks into "running" (agent working, sandbox starting up, or sandbox
+  // ready) and the rest. Activity state and the live message preview come from
+  // the event stream, so this recomputes as those inputs update.
   const { running, open } = useMemo(() => {
     const enriched = (data?.items ?? []).map((task) =>
       enrichTask(task, activityByTask.get(task.taskId), previewByTask.get(task.taskId)),
     )
     const byActivityDesc = (a: EnrichedTask, b: EnrichedTask) =>
       b.lastActivityAt.localeCompare(a.lastActivityAt)
+    // Running rows sort by state, then by (immutable) creation time, so a task
+    // keeps its place while it runs instead of jumping on every new message.
+    const byStateThenCreated = (a: EnrichedTask, b: EnrichedTask) => {
+      const byState = RUNNING_STATE_ORDER[a.state] - RUNNING_STATE_ORDER[b.state]
+      if (byState !== 0) {
+        return byState
+      }
+      return b.task.createdAt.localeCompare(a.task.createdAt)
+    }
 
     return {
-      running: enriched.filter((t) => t.running).sort(byActivityDesc),
-      open: enriched.filter((t) => !t.running).sort(byActivityDesc),
+      running: enriched.filter((t) => t.state !== 'idle').sort(byStateThenCreated),
+      open: enriched.filter((t) => t.state === 'idle').sort(byActivityDesc),
     }
   }, [data?.items, activityByTask, previewByTask])
 
@@ -325,7 +403,7 @@ export function SidebarTasks() {
             Running
           </SidebarGroupLabel>
           <SidebarGroupContent>
-            <SidebarMenu>
+            <SidebarMenu className="gap-0">
               {running.map((item) => (
                 <SidebarTaskItem
                   key={item.task.taskId}
@@ -344,7 +422,7 @@ export function SidebarTasks() {
         <SidebarGroupContent>
           {hasTasks ? (
             open.length > 0 ? (
-              <SidebarMenu>
+              <SidebarMenu className="gap-0">
                 {open.map((item) => (
                   <SidebarTaskItem
                     key={item.task.taskId}

@@ -4,13 +4,15 @@
 //! - `K8sSandboxProvider` (k8s/provider.rs) — Kubernetes-based sandboxes
 //! - `DockerSandboxProvider` (docker/provider.rs) — Docker-based sandboxes
 
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use axum::response::sse::Event;
 use futures::stream::BoxStream;
 
 use super::client::SandboxClient;
 use super::error::SandboxError;
-use super::models::{ContainerObservedStatus, ProvisionRequest, ServerConfig};
+use super::models::{ContainerObservedStatus, ProvisionRequest, SandboxStatus, ServerConfig};
 use super::schemas::{ProvisionResponse, SandboxStatusFullResponse};
 
 #[async_trait]
@@ -83,4 +85,18 @@ pub trait SandboxProvider: Send + Sync {
     /// Verifies the sandbox is running before returning the client.
     /// Used by file operation handlers to call the sandbox directly.
     async fn sandbox_client(&self, task_id: &str) -> Result<SandboxClient, SandboxError>;
+
+    /// Best-effort environment status for many tasks at once, resolved from a
+    /// single cluster-wide LIST (no per-task pod reads or gRPC). Used to seed
+    /// the task list so the UI reflects stopped/starting/ready on load instead
+    /// of relying solely on the event stream. Only distinguishes
+    /// `Stopped` / `Initializing` / `Ready`; agent state is not resolved here.
+    /// Tasks with no resolvable sandbox are omitted from the map. Defaults to
+    /// empty for providers that can't answer cheaply.
+    async fn bulk_environment_status(
+        &self,
+        _task_ids: &[String],
+    ) -> HashMap<String, SandboxStatus> {
+        HashMap::new()
+    }
 }

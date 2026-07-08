@@ -12,7 +12,7 @@ import type {
   ToolCallDetailResponse,
   UiMessage,
 } from '@moatless/api-client'
-import { unwrapResponse } from '@moatless/api-client/custom-instance'
+import { customInstance, unwrapResponse } from '@moatless/api-client/custom-instance'
 import { getAvailableCommands as getAvailableCommandsHandler } from '@moatless/api-client/sandbox/commands/commands'
 import {
   deleteQueuedMessage as deleteQueuedMessageHandler,
@@ -155,6 +155,13 @@ export const tasksApi = {
 
   async closeTask(taskId: string): Promise<TaskResponse> {
     return await unwrapResponse(closeTaskHandler(taskId))
+  },
+
+  // Mark the task's conversation as read for the current user (clears the
+  // unread indicator). Called via the shared instance rather than a generated
+  // handler so it stays in sync with the backend regardless of client regen.
+  async markTaskRead(taskId: string): Promise<void> {
+    await customInstance<void>(`/api/v1/tasks/${taskId}/read`, { method: 'POST' })
   },
 
   async deleteTask(taskId: string): Promise<{ status: string }> {

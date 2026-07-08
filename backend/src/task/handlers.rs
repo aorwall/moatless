@@ -446,6 +446,28 @@ pub async fn list_tasks(
             vec![]
         });
 
+    // Batch resolve the requesting user's read markers (single query). Drives
+    // the unread indicator; best-effort — empty on error.
+    let read_receipts = state
+        .tasks
+        .get_read_receipts(&auth.user_id, &task_ids)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "Failed to batch resolve read receipts");
+            Default::default()
+        });
+
+    // Resolve live environment status (stopped/starting/ready) for open tasks
+    // via a single cluster-wide LIST, so the UI reflects sandbox state on load
+    // rather than relying solely on the event stream. Best-effort — empty when
+    // the provider can't answer (e.g. non-k8s) or the LIST fails.
+    let open_task_ids: Vec<String> = rows
+        .iter()
+        .filter(|r| r.status == TaskStatus::Open)
+        .map(|r| r.task_id.clone())
+        .collect();
+    let env_status = state.sandbox.bulk_environment_status(&open_task_ids).await;
+
     let items: Vec<TaskResponse> = rows
         .iter()
         .map(|row| {
@@ -494,7 +516,14 @@ pub async fn list_tasks(
                 .cloned()
                 .unwrap_or_default();
 
-            build_task_response(row, tags, display_name, repo_name, bindings, relations)
+            let mut resp =
+                build_task_response(row, tags, display_name, repo_name, bindings, relations);
+            resp.last_read_at = read_receipts.get(&row.task_id).map(|t| t.to_rfc3339());
+            if let Some(status) = env_status.get(&row.task_id) {
+                resp.environment_status = Some(status.as_str().to_string());
+                resp.is_running = Some(*status == SandboxStatus::Ready);
+            }
+            resp
         })
         .collect();
 
@@ -667,6 +696,41 @@ pub async fn delete_task(
 
     state.tasks.delete_task(&task_id).await?;
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task deleted");
+
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+/// Mark a task's conversation as read for the requesting user, up to now.
+/// Clears the unread indicator; safe to call repeatedly (the stored marker
+/// only ever advances).
+#[utoipa::path(
+    post,
+    path = "/api/v1/tasks/{task_id}/read",
+    tag = "tasks",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    responses(
+        (status = 204, description = "Task marked as read"),
+        (status = 404, description = "Task not found", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn mark_task_read(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(task_id): Path<String>,
+) -> Result<axum::http::StatusCode, TaskError> {
+    // Ensure the task exists and is visible to the user before recording a read.
+    state
+        .tasks
+        .find_by_id(&task_id, &auth.scope_context())
+        .await?
+        .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
+
+    state
+        .tasks
+        .mark_task_read(&auth.user_id, &task_id, chrono::Utc::now())
+        .await?;
 
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
@@ -1102,7 +1166,7 @@ pub async fn update_ttl(
 async fn enrich_task(
     row: &Task,
     state: &AppState,
-    _user_id: &str,
+    user_id: &str,
 ) -> Result<TaskResponse, TaskError> {
     let tags = state.tags.get_tags_for_task(&row.task_id).await?;
     let tag_responses: Vec<TagResponse> = tags
@@ -1170,6 +1234,21 @@ async fn enrich_task(
         resp.is_running = Some(status.environment_status == SandboxStatus::Ready);
     }
 
+    // Resolve the requesting user's read marker (best-effort — leave None on
+    // failure). Drives the unread indicator in clients.
+    match state
+        .tasks
+        .get_read_receipts(user_id, std::slice::from_ref(&row.task_id))
+        .await
+    {
+        Ok(receipts) => {
+            resp.last_read_at = receipts.get(&row.task_id).map(|t| t.to_rfc3339());
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, task_id = %row.task_id, "Failed to load read receipt");
+        }
+    }
+
     Ok(resp)
 }
 
@@ -1226,6 +1305,8 @@ fn build_task_response(
         ttl_minutes: row.ttl_minutes,
         inactive_ttl_days: row.inactive_ttl_days,
         sandbox_started_at: row.sandbox_started_at.map(|t| t.to_rfc3339()),
+        // Populated per-request by callers that know the requesting user.
+        last_read_at: None,
     }
 }
 

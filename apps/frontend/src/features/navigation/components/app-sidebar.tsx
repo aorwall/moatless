@@ -4,7 +4,6 @@ import { useGlobalEventStream } from '@/features/events/contexts/global-event-st
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
@@ -42,16 +41,6 @@ export function AppSidebar() {
       <SidebarContent>
         <SidebarTasks />
       </SidebarContent>
-
-      <SidebarFooter>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton variant="outline" size="sm" className="text-xs">
-              v1.0.0
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarFooter>
     </Sidebar>
   )
 }

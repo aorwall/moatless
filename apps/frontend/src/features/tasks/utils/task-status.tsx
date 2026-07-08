@@ -1,10 +1,59 @@
-import { AlertCircle, CheckCircle, CircleDot, GitMerge, Loader2, PlayCircle } from 'lucide-react'
+import {
+  AlertCircle,
+  Box,
+  CheckCircle,
+  CircleDot,
+  GitMerge,
+  Hourglass,
+  Loader2,
+  PlayCircle,
+} from 'lucide-react'
 import type { ReactElement } from 'react'
 
 export interface TaskStatusConfig {
   icon: ReactElement
   tooltip: string
   color: string
+}
+
+/**
+ * Live activity of a task derived from the event stream, orthogonal to the
+ * lifecycle `status` (open/closed/error). Drives the sidebar "Running" section:
+ * - `agent-working`   — the agent is actively producing output
+ * - `starting`        — the sandbox is initializing (spinning up)
+ * - `sandbox-running` — the sandbox is ready but the agent is idle
+ * - `idle`            — no live activity; task sits in the normal list
+ */
+export type TaskActivityState = 'agent-working' | 'starting' | 'sandbox-running' | 'idle'
+
+/**
+ * Icon/color for a task's live activity state, or `null` when idle (no
+ * indicator override — fall back to the lifecycle status icon). Each active
+ * state uses a distinct icon so the sidebar can tell them apart at a glance.
+ */
+export function getTaskActivityConfig(state: TaskActivityState): TaskStatusConfig | null {
+  switch (state) {
+    case 'agent-working':
+      return {
+        icon: <Loader2 className="h-3 w-3 animate-spin" />,
+        tooltip: 'Agent working',
+        color: 'text-emerald-500',
+      }
+    case 'starting':
+      return {
+        icon: <Hourglass className="h-3 w-3 animate-pulse" />,
+        tooltip: 'Starting up',
+        color: 'text-amber-500',
+      }
+    case 'sandbox-running':
+      return {
+        icon: <Box className="h-3 w-3" />,
+        tooltip: 'Sandbox running',
+        color: 'text-sky-500',
+      }
+    default:
+      return null
+  }
 }
 
 /**

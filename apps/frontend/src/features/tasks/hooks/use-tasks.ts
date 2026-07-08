@@ -19,6 +19,7 @@ import type {
   UseQueryOptions,
 } from '@tanstack/react-query'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect } from 'react'
 import { updateTaskInLists } from '@/features/tasks'
 import type { MessagesPage } from '@/features/tasks/api/tasks'
 import { tasksApi } from '@/features/tasks/api/tasks'
@@ -90,6 +91,36 @@ export function useTask(
     enabled: !!taskId,
     ...options,
   })
+}
+
+/**
+ * Mark a task's conversation as read while it is being viewed. Fires once when
+ * the task is opened (clearing any unread indicator immediately) and again when
+ * navigating away, so `lastReadAt` captures anything that streamed in while the
+ * user was looking at it. Optimistically patches the task caches so the sidebar
+ * updates without waiting for a refetch. Fire-and-forget — read receipts are
+ * low-stakes, so a failed request just gets retried on the next view.
+ */
+export function useMarkTaskReadOnView(taskId: string): void {
+  const queryClient = useQueryClient()
+
+  useEffect(() => {
+    if (!taskId) {
+      return
+    }
+    const mark = () => {
+      const readAt = new Date().toISOString()
+      updateTaskInLists(queryClient, taskId, { lastReadAt: readAt })
+      queryClient.setQueryData<TaskResponse>(queryKeys.tasks.detail(taskId), (prev) =>
+        prev ? { ...prev, lastReadAt: readAt } : prev,
+      )
+      tasksApi.markTaskRead(taskId).catch(() => {
+        // Best-effort — a failed read receipt is retried on the next view.
+      })
+    }
+    mark()
+    return mark
+  }, [taskId, queryClient])
 }
 
 // Mutation hooks
