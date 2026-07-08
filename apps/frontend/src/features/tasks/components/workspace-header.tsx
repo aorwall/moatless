@@ -28,14 +28,21 @@ export function WorkspaceHeader({
 
   return (
     <div className={cn('h-[58px] px-2 md:px-4 py-2 border-b flex-shrink-0', className)}>
-      <div className="relative flex items-center h-full w-full gap-2">
-        {/* Left section - View toggle (hide on mobile, show on desktop when servers exist) */}
-        {showToggle && !isMobile && servers && servers.length > 0 && (
-          <ServerTabs servers={servers} activeView={activeView} onViewChange={onViewChange} />
+      <div className="flex items-center h-full w-full gap-2">
+        {/* Left section - View toggle (hidden on mobile). Always rendered on desktop:
+            ServerTabs includes Files + the always-available Sandbox tab even with no servers. */}
+        {showToggle && !isMobile && (
+          <ServerTabs servers={servers ?? []} activeView={activeView} onViewChange={onViewChange} />
         )}
 
-        {/* Center section - Absolutely centered */}
-        <div className="absolute left-1/2 -translate-x-1/2 flex items-center">{centerContent}</div>
+        {/* Center section - centered within the free space between the tabs and the
+            right content, so the preview controls read as centered without ever
+            overlapping the view-toggle icons. */}
+        {centerContent && (
+          <div className="flex-1 min-w-0 flex items-center gap-2 justify-center">
+            {centerContent}
+          </div>
+        )}
 
         {/* Right section */}
         {rightContent && (

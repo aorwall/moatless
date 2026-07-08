@@ -11,6 +11,7 @@ import type {
   TaskResponse,
   ToolCallDetailResponse,
   UiMessage,
+  UpdateTaskTtlRequest,
 } from '@moatless/api-client'
 import { customInstance, unwrapResponse } from '@moatless/api-client/custom-instance'
 import { getAvailableCommands as getAvailableCommandsHandler } from '@moatless/api-client/sandbox/commands/commands'
@@ -190,8 +191,8 @@ export const tasksApi = {
     return { success: true }
   },
 
-  async updateTaskTtl(taskId: string, ttlMinutes: number): Promise<{ success: true }> {
-    await unwrapResponse(updateTaskTtlHandler(taskId, { ttlMinutes }))
+  async updateTaskTtl(taskId: string, request: UpdateTaskTtlRequest): Promise<{ success: true }> {
+    await unwrapResponse(updateTaskTtlHandler(taskId, request))
     return { success: true }
   },
 }

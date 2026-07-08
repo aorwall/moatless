@@ -6,12 +6,11 @@ import { usePreviewPath, usePreviewViewport } from '@/features/tasks/hooks/use-t
 import { Button } from '@/lib/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { cn } from '@/lib/utils'
-import type { PreviewProps, SandboxEvent, ScriptHealthStatus } from '../types'
+import type { PreviewProps, ScriptHealthStatus } from '../types'
 import { DeviceFrame } from './device-frame'
 import { InspectorOverlay } from './inspector-overlay'
 import { LogsPanel } from './logs-panel'
 import { PreviewHeader } from './preview-header'
-import { RecentEvents } from './recent-events'
 import { SandboxStatusOverlay } from './sandbox-status-overlay'
 
 function getResourceColor(
@@ -90,15 +89,9 @@ function ProxyErrorOverlay({
 
 function ServerStatusView({
   server,
-  events,
 }: {
   server: { status: string; label: string; name: string; error?: string | null }
-  events?: SandboxEvent[]
 }) {
-  const serverEvents = events?.filter(
-    (e) => e.type === 'server' && e.payload.serverName === server.name,
-  )
-
   return (
     <div className="flex flex-col items-center justify-center h-full text-center space-y-4 p-8">
       {(server.status === 'starting' || server.status === 'installing') && (
@@ -130,7 +123,6 @@ function ServerStatusView({
           </p>
         </>
       )}
-      {serverEvents && serverEvents.length > 0 && <RecentEvents events={serverEvents} />}
     </div>
   )
 }
@@ -162,7 +154,8 @@ export function Preview({
   const heartbeatTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const previousStatusRef = useRef<string | undefined>(undefined)
   const reloadTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const [isConsoleExpanded, setIsConsoleExpanded] = useState(false)
+  // null = follow the auto-expand default; true/false = user's explicit choice.
+  const [consoleExpandedOverride, setConsoleExpandedOverride] = useState<boolean | null>(null)
 
   // Find the active server entry from the servers array
   const activeServerEntry = useMemo(() => {
@@ -187,6 +180,12 @@ export function Preview({
       error: activeServerEntry.error,
     }
   }, [activeServerEntry])
+
+  // Auto-expand the console (Events tab) whenever the preview isn't live: the
+  // sandbox is still coming up, or the active server hasn't started yet. The
+  // user's explicit toggle (override) always wins over this default.
+  const shouldAutoExpandConsole = !isSandboxRunning || serverStatus?.status !== 'started'
+  const isConsoleExpanded = consoleExpandedOverride ?? shouldAutoExpandConsole
 
   // Get capabilities from active server
   const capabilities = activeServerEntry?.capabilities
@@ -231,6 +230,8 @@ export function Preview({
     setPath('/')
     setIframeTargetPath('/')
     setViewport('desktop')
+    // Re-apply the auto-expand default for the newly selected server.
+    setConsoleExpandedOverride(null)
   }, [activeServer])
 
   // Monitor heartbeat and update script health status
@@ -609,7 +610,7 @@ export function Preview({
   }, [])
 
   const handleToggleConsole = useCallback(() => {
-    setIsConsoleExpanded(!isConsoleExpanded)
+    setConsoleExpandedOverride(!isConsoleExpanded)
   }, [isConsoleExpanded])
 
   // Determine if we should show console (only for servers with console capability)
@@ -647,7 +648,6 @@ export function Preview({
               <SandboxStatusOverlay
                 environmentStatus={environmentStatus}
                 environmentError={environmentError}
-                sandboxEvents={sandboxEvents}
                 onRetry={() => retryMutation.mutate()}
                 isRetrying={retryMutation.isPending}
                 retryError={retryMutation.error}
@@ -664,9 +664,9 @@ export function Preview({
               </div>
             )}
 
-            {/* Server not started — show status with events */}
+            {/* Server not started — show status (events surface in the console below) */}
             {isSandboxRunning && activeServerEntry && activeServerEntry.status !== 'started' && (
-              <ServerStatusView server={activeServerEntry} events={sandboxEvents} />
+              <ServerStatusView server={activeServerEntry} />
             )}
 
             {/* Proxy error overlay — only when server is started */}

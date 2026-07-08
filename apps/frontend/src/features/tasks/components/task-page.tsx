@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { useTaskEventSubscription } from '@/features/events'
 import { FileExplorer } from '@/features/files'
 import { Preview, SandboxStatusOverlay } from '@/features/preview'
+import { SANDBOX_VIEW } from '@/features/preview/components/server-tabs'
 import { useHistoricalSandboxEvents } from '@/features/preview/hooks/use-task-events'
 import type { ElementInfo, SandboxEvent, StartupEvent } from '@/features/preview/types'
 import { useSandboxStatus } from '@/features/tasks'
@@ -18,7 +19,7 @@ import { useTaskId } from '../contexts/task-providers'
 import { useTaskDetailQuery } from '../hooks/use-task-queries'
 import { usePreviewPath, useTaskView } from '../hooks/use-task-view'
 import { ChatContainer } from './chat-view/chat-container.tsx'
-import { TaskControlPanel } from './task-control-panel'
+import { SandboxWorkspacePanel } from './sandbox-workspace-panel'
 import { TaskKioskHeader } from './task-header/task-kiosk-header'
 import { TaskLeftHeader } from './task-header/task-left-header'
 import { TaskPageLayout } from './task-page-layout'
@@ -92,9 +93,6 @@ function TaskPageComponent({ kiosk = false }: TaskPageProps) {
 
   // State for managing context items
   const [contextItems, setContextItems] = useState<MessageContextInput[]>([])
-
-  // Toggle the left panel between the chat view and the controls panel
-  const [chatPanelMode, setChatPanelMode] = useState<'chat' | 'control'>('chat')
 
   // Ref for command executor exposed by ChatContainer
   const commandExecutorRef = useRef<((commandName: string) => void) | null>(null)
@@ -350,7 +348,6 @@ function TaskPageComponent({ kiosk = false }: TaskPageProps) {
                   <SandboxStatusOverlay
                     environmentStatus={sandboxStatus.environmentStatus}
                     environmentError={sandboxStatus.environmentError ?? undefined}
-                    sandboxEvents={sandboxEvents}
                     onRetry={() => retryMutation.mutate()}
                     isRetrying={retryMutation.isPending}
                     retryError={retryMutation.error}
@@ -359,6 +356,19 @@ function TaskPageComponent({ kiosk = false }: TaskPageProps) {
               )}
             </div>
           </div>
+        </ErrorBoundary>
+      )
+    }
+
+    if (view === SANDBOX_VIEW) {
+      return (
+        <ErrorBoundary componentName="Sandbox Controls">
+          <SandboxWorkspacePanel
+            view={view}
+            onViewChange={setView}
+            servers={servers}
+            sandboxEvents={sandboxEvents}
+          />
         </ErrorBoundary>
       )
     }
@@ -392,31 +402,19 @@ function TaskPageComponent({ kiosk = false }: TaskPageProps) {
     <TaskPageLayout
       kiosk={kiosk}
       onChatToggleReady={handleChatToggleReady}
-      header={
-        kiosk ? (
-          <TaskKioskHeader />
-        ) : (
-          <TaskLeftHeader chatPanelMode={chatPanelMode} onChatPanelModeChange={setChatPanelMode} />
-        )
-      }
+      header={kiosk ? <TaskKioskHeader /> : <TaskLeftHeader />}
       chat={
-        chatPanelMode === 'control' ? (
-          <ErrorBoundary componentName="Task Controls">
-            <TaskControlPanel className="flex-1 min-h-0" />
-          </ErrorBoundary>
-        ) : (
-          <ErrorBoundary componentName="Chat View">
-            <ChatContainer
-              className="flex-1 min-h-0"
-              contextItems={contextItems}
-              onContextItemsChange={setContextItems}
-              onPreviewUrlClick={handlePreviewUrlClick}
-              onCommandExecutorReady={handleCommandExecutorReady}
-              hideAgentModeSelector={kiosk}
-              collapseToolCalls={kiosk}
-            />
-          </ErrorBoundary>
-        )
+        <ErrorBoundary componentName="Chat View">
+          <ChatContainer
+            className="flex-1 min-h-0"
+            contextItems={contextItems}
+            onContextItemsChange={setContextItems}
+            onPreviewUrlClick={handlePreviewUrlClick}
+            onCommandExecutorReady={handleCommandExecutorReady}
+            hideAgentModeSelector={kiosk}
+            collapseToolCalls={kiosk}
+          />
+        </ErrorBoundary>
       }
       workspacePanel={workspaceContent}
       isMobile={isMobile}

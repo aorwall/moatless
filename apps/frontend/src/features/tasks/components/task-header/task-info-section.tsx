@@ -1,19 +1,50 @@
-import type { SandboxStatusFullResponse, TaskResponse } from '@moatless/api-client'
-import { ExternalLink, GitBranch } from 'lucide-react'
+import type { TaskResponse } from '@moatless/api-client'
+import { useNavigate } from '@tanstack/react-router'
+import { ExternalLink, GitBranch, Globe, Lock, XCircle } from 'lucide-react'
+import { toast } from 'sonner'
 import { formatTimestamp } from '@/features/task-connections'
+import { useTaskId } from '@/features/tasks/contexts/task-providers'
+import {
+  useCloseTask,
+  useUpdateTaskTtl,
+  useUpdateTaskVisibility,
+} from '@/features/tasks/hooks/use-tasks'
 import { formatRelativeTime } from '@/features/tasks/utils/format-relative-time'
-import { getAutoCloseDeadlineMs, getIdleStopDeadlineMs } from '@/features/tasks/utils/task-ttl'
+import { getIdleStopDeadlineMs } from '@/features/tasks/utils/task-ttl'
 import { Badge } from '@/lib/components/ui/badge'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/lib/components/ui/select'
 import { useNow } from '@/lib/hooks/use-now'
 import { cn } from '@/lib/utils'
 
+/** Auto close: days of inactivity before the task is closed (0 = never). */
+const AUTO_CLOSE_PRESETS: Array<{ label: string; days: number }> = [
+  { label: '1 day', days: 1 },
+  { label: '3 days', days: 3 },
+  { label: '7 days', days: 7 },
+  { label: '30 days', days: 30 },
+  { label: 'Never', days: 0 },
+]
+
 interface TaskInfoSectionProps {
   task: TaskResponse
-  sandbox?: SandboxStatusFullResponse
 }
 
-export function TaskInfoSection({ task, sandbox }: TaskInfoSectionProps) {
+export function TaskInfoSection({ task }: TaskInfoSectionProps) {
   const now = useNow(60_000)
+  const taskId = useTaskId()
+  const navigate = useNavigate()
+  const updateVisibility = useUpdateTaskVisibility(taskId)
+  const updateTtl = useUpdateTaskTtl(taskId)
+  const closeTask = useCloseTask(taskId, {
+    onSuccess: () => navigate({ to: '/' }),
+    onError: (err) => toast.error('Failed to close task', { description: err.message }),
+  })
   const isClosed = task.status === 'closed'
   const totalCost = task.totalCostUsd ?? 0
   const createdBy = task.createdByDisplayName ?? task.createdBy
@@ -34,15 +65,41 @@ export function TaskInfoSection({ task, sandbox }: TaskInfoSectionProps) {
         </Field>
       )}
       <Field label="Status">
-        <Badge variant={isClosed ? 'secondary' : 'default'} className="h-5 text-xs">
-          {task.status}
-        </Badge>
-      </Field>
-      <Field label="Agent">
-        <Truncated value={task.agentType} className="font-mono" />
+        <div className="flex items-center gap-2">
+          <Badge variant={isClosed ? 'secondary' : 'default'} className="h-5 text-xs">
+            {task.status}
+          </Badge>
+          {!isClosed && (
+            <button
+              type="button"
+              disabled={closeTask.isPending}
+              onClick={() => closeTask.mutate()}
+              title="Close task"
+              className="inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-xs text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
+            >
+              <XCircle className="h-3 w-3" />
+              Close
+            </button>
+          )}
+        </div>
       </Field>
       <Field label="Visibility">
-        <span className="capitalize">{task.visibility}</span>
+        <button
+          type="button"
+          disabled={updateVisibility.isPending}
+          onClick={() =>
+            updateVisibility.mutate(task.visibility === 'public' ? 'private' : 'public')
+          }
+          title="Toggle visibility"
+          className="inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-xs capitalize transition-colors hover:bg-muted disabled:opacity-50"
+        >
+          {task.visibility === 'public' ? (
+            <Globe className="h-3 w-3" />
+          ) : (
+            <Lock className="h-3 w-3" />
+          )}
+          {task.visibility}
+        </button>
       </Field>
       <Field label="Scope">
         <span className="capitalize">{task.scope}</span>
@@ -63,11 +120,6 @@ export function TaskInfoSection({ task, sandbox }: TaskInfoSectionProps) {
           <Truncated value={formatTimestamp(task.sandboxStartedAt)} className="tabular-nums" />
         </Field>
       )}
-      {task.shortId && (
-        <Field label="Short ID">
-          <span className="font-mono">{task.shortId}</span>
-        </Field>
-      )}
       <Field label="Total cost">
         <span className="tabular-nums">${totalCost.toFixed(4)}</span>
       </Field>
@@ -81,15 +133,30 @@ export function TaskInfoSection({ task, sandbox }: TaskInfoSectionProps) {
         />
       )}
       {!isClosed && (
-        <CountdownField
-          label="Auto-close"
-          deadlineMs={getAutoCloseDeadlineMs(task)}
-          ttlSpanMs={task.inactiveTtlDays * 86_400_000}
-          expiredLabel="Closing…"
-          now={now}
-        />
+        <Field label="Auto close">
+          <Select
+            value={String(task.inactiveTtlDays)}
+            onValueChange={(value) => updateTtl.mutate({ inactiveTtlDays: Number(value) })}
+            disabled={updateTtl.isPending}
+          >
+            <SelectTrigger size="sm" className="h-7 w-full text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {!AUTO_CLOSE_PRESETS.some((preset) => preset.days === task.inactiveTtlDays) && (
+                <SelectItem value={String(task.inactiveTtlDays)}>
+                  {task.inactiveTtlDays} days
+                </SelectItem>
+              )}
+              {AUTO_CLOSE_PRESETS.map((preset) => (
+                <SelectItem key={preset.days} value={String(preset.days)}>
+                  {preset.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
       )}
-      <SandboxStatusFields sandbox={sandbox} />
       {task.siteUrl && (
         <Field label="Site" full>
           <a
@@ -173,50 +240,5 @@ function CountdownField({
         {remaining <= 0 ? expiredLabel : formatRelativeTime(deadlineMs, now)}
       </span>
     </Field>
-  )
-}
-
-function SandboxStatusFields({ sandbox }: { sandbox?: SandboxStatusFullResponse }) {
-  if (!sandbox) {
-    return null
-  }
-  return (
-    <>
-      {sandbox.environmentStatus && (
-        <Field label="Environment">
-          <Badge
-            variant={sandbox.environmentStatus === 'ready' ? 'default' : 'secondary'}
-            className="h-5 text-xs"
-          >
-            {sandbox.environmentStatus}
-          </Badge>
-        </Field>
-      )}
-      {sandbox.agentState && (
-        <Field label="Agent state">
-          <Badge
-            variant={sandbox.agentState === 'running' ? 'default' : 'outline'}
-            className="h-5 text-xs"
-          >
-            {sandbox.agentState}
-          </Badge>
-        </Field>
-      )}
-      {sandbox.sandboxState && (
-        <Field label="Sandbox">
-          <Badge
-            variant={sandbox.sandboxState === 'exists' ? 'default' : 'destructive'}
-            className="h-5 text-xs"
-          >
-            {sandbox.sandboxState}
-          </Badge>
-        </Field>
-      )}
-      {sandbox.environmentError && (
-        <div className="col-span-2 rounded bg-destructive/10 p-2 text-xs text-destructive">
-          {sandbox.environmentError}
-        </div>
-      )}
-    </>
   )
 }

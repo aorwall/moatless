@@ -1,8 +1,6 @@
 import { AlertCircle, Loader2, XCircle } from 'lucide-react'
 import { ApiError } from '@/lib/api/client'
 import { Button } from '@/lib/components/ui/button'
-import type { SandboxEvent } from '../types'
-import { RecentEvents } from './recent-events'
 
 type EnvironmentStatus =
   | 'not_created'
@@ -87,7 +85,6 @@ function getMutationErrorMessage(error: Error): string {
 interface SandboxStatusOverlayProps {
   environmentStatus: EnvironmentStatus
   environmentError?: string
-  sandboxEvents?: SandboxEvent[]
   onRetry: () => void
   isRetrying: boolean
   retryError?: Error | null
@@ -96,7 +93,6 @@ interface SandboxStatusOverlayProps {
 export function SandboxStatusOverlay({
   environmentStatus,
   environmentError,
-  sandboxEvents,
   onRetry,
   isRetrying,
   retryError,
@@ -135,9 +131,6 @@ export function SandboxStatusOverlay({
             {config.icon}
             <h3 className="text-lg font-semibold">{config.title}</h3>
             <p className="text-sm text-muted-foreground max-w-md">{config.message}</p>
-            {environmentStatus === 'initializing' && sandboxEvents && sandboxEvents.length > 0 && (
-              <RecentEvents events={sandboxEvents} />
-            )}
             {config.showRetry && (
               <Button variant="outline" size="sm" onClick={onRetry} disabled={isRetrying}>
                 {isRetrying ? (

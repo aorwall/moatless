@@ -66,8 +66,10 @@ export function PreviewHeader({
   const isNetlifyPublishEnabled = useFeatureFlag('NETLIFY_PUBLISH')
   const isMobile = useIsMobile()
 
-  // Get view state from URL
-  const { view, setView } = useTaskView()
+  // Get view state from URL. Pass servers so the derived default view matches
+  // what the page renders (e.g. the running preview server) — otherwise the
+  // active tab highlight falls back to "files" and looks out of sync.
+  const { view, setView } = useTaskView({ servers })
 
   // Reset pathInput when path changes (using key prop pattern in parent is better)
   // But for internal component state, we need to track when path changes
@@ -149,7 +151,7 @@ export function PreviewHeader({
       showToggle
       servers={servers}
       centerContent={
-        <div className="flex items-center gap-1 md:gap-2 w-full">
+        <div className="flex items-center gap-1 md:gap-2 w-full justify-center">
           {/* Viewport Controls - Hidden on mobile */}
           {showViewport && !isMobile && <ViewportToggle />}
 
@@ -180,7 +182,7 @@ export function PreviewHeader({
               onChange={(e) => setPathInput(e.target.value)}
               onKeyDown={handlePathSubmit}
               placeholder="Enter path (e.g., /about)"
-              className="flex-1 min-w-0 md:w-64 md:flex-initial h-8 text-sm"
+              className="flex-1 min-w-0 md:w-48 md:flex-initial h-8 text-sm"
               aria-label="Path"
               disabled={controlsDisabled}
             />

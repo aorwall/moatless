@@ -38,7 +38,9 @@ export function LogsPanel({
   showConsoleTab = true,
   sandboxEvents = [],
 }: LogsPanelProps) {
-  const [activeTab, setActiveTab] = useState('server')
+  // Events are the default tab: sandbox/server lifecycle is what users most
+  // often need when the console is auto-expanded during startup/failure.
+  const [activeTab, setActiveTab] = useState('events')
 
   return (
     <Tabs

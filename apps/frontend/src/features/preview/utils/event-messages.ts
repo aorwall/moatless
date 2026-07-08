@@ -180,8 +180,7 @@ function buildChips(event: SandboxEvent): EventChip[] {
 
 /**
  * Central event formatter: resolves label, icon, tone, and metadata chips for a
- * single event. Used by both the full event log and the recent-events overlay
- * so their presentation stays in lock-step.
+ * single event. Used by the event log console tab.
  */
 export function describeEvent(event: SandboxEvent): EventDescriptor {
   const key = resolveKey(event)

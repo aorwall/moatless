@@ -1,9 +1,8 @@
-import { MessageSquare, Pencil, Settings } from 'lucide-react'
+import { Pencil } from 'lucide-react'
 import { useState } from 'react'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { useSandboxStatus } from '@/features/tasks'
 import { MobileViewToggle } from '@/features/tasks/components/mobile-view-toggle'
-import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
 import { useTaskView } from '@/features/tasks/hooks/use-task-view'
@@ -14,12 +13,7 @@ import { CreateRepoButton } from './create-repo-button'
 import { EditTaskDialog } from './edit-task-dialog'
 import { ScheduledJobsPill } from './scheduled-jobs-pill'
 
-interface TaskLeftHeaderProps {
-  chatPanelMode: 'chat' | 'control'
-  onChatPanelModeChange: (mode: 'chat' | 'control') => void
-}
-
-export function TaskLeftHeader({ chatPanelMode, onChatPanelModeChange }: TaskLeftHeaderProps) {
+export function TaskLeftHeader() {
   const taskId = useTaskId()
   const taskQuery = useTaskDetailQuery(taskId)
   const { data: repositories } = useRepositoriesList()
@@ -36,8 +30,7 @@ export function TaskLeftHeader({ chatPanelMode, onChatPanelModeChange }: TaskLef
     return null
   }
 
-  const { status, repositoryId, name, description, templateId, createdByDisplayName, createdBy } =
-    task
+  const { repositoryId, name, description, templateId, createdByDisplayName, createdBy } = task
 
   // Get repository name or template ID for vibe tasks
   const repository = repositories?.find((repo) => repo.id === repositoryId)
@@ -48,8 +41,6 @@ export function TaskLeftHeader({ chatPanelMode, onChatPanelModeChange }: TaskLef
 
   // Show create repo button for Vibe tasks (tasks created from templates)
   const showCreateRepoButton = templateId != null
-
-  const isControlMode = chatPanelMode === 'control'
 
   return (
     <div className="absolute top-0 left-0 right-0 z-10 h-[58px] px-4 py-2 border-b flex items-center justify-between flex-shrink-0 bg-background">
@@ -79,8 +70,6 @@ export function TaskLeftHeader({ chatPanelMode, onChatPanelModeChange }: TaskLef
               </span>
             </>
           )}
-          <span className="text-muted-foreground hidden sm:inline">•</span>
-          <TaskStatusIcon task={{ status }} sandbox={sandboxStatus} showText={false} />
           {(createdByDisplayName || createdBy) && (
             <>
               <span className="text-muted-foreground hidden sm:inline">•</span>
@@ -97,17 +86,6 @@ export function TaskLeftHeader({ chatPanelMode, onChatPanelModeChange }: TaskLef
 
       <div className="flex items-center gap-2">
         <ScheduledJobsPill jobs={sandboxStatus?.scheduledJobs ?? []} />
-        {/* Toggle the left panel between chat and the controls panel */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7"
-          title={isControlMode ? 'Back to chat' : 'Open controls'}
-          aria-pressed={isControlMode}
-          onClick={() => onChatPanelModeChange(isControlMode ? 'chat' : 'control')}
-        >
-          {isControlMode ? <MessageSquare className="h-4 w-4" /> : <Settings className="h-4 w-4" />}
-        </Button>
 
         {/* Create Repo button - only shown for Vibe tasks */}
         {showCreateRepoButton && (

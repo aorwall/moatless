@@ -9,6 +9,7 @@ import type {
   TaskResponse,
   ToolCallDetailResponse,
   UiMessage,
+  UpdateTaskTtlRequest,
 } from '@moatless/api-client'
 import { unwrapResponse } from '@moatless/api-client/custom-instance'
 import { sandboxStatusHandler } from '@moatless/api-client/sandbox/sandbox/sandbox'
@@ -572,14 +573,14 @@ export function useUpdateTaskMetadata(
 
 export function useUpdateTaskTtl(
   taskId: string,
-  options?: UseMutationOptions<{ success: true }, Error, number>,
+  options?: UseMutationOptions<{ success: true }, Error, UpdateTaskTtlRequest>,
 ) {
   const queryClient = useQueryClient()
 
-  return useMutation<{ success: true }, Error, number>({
+  return useMutation<{ success: true }, Error, UpdateTaskTtlRequest>({
     ...options,
     mutationKey: ['tasks', taskId, 'updateTtl'],
-    mutationFn: (ttlMinutes) => tasksApi.updateTaskTtl(taskId, ttlMinutes),
+    mutationFn: (request) => tasksApi.updateTaskTtl(taskId, request),
     onSuccess: (data, variables, onMutateResult, mutationContext) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.detail(taskId) })
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.lists() })
