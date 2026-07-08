@@ -1484,13 +1484,28 @@ fn detect_transitions(
     if current.phase != prev_phase {
         match current.phase.as_str() {
             "Failed" => {
-                // Check if evicted
+                // A pod reaches Failed phase two very different ways:
+                //   * Real failure — the container crashed, was OOM-killed, or
+                //     exited non-zero. Worth a fatal error.
+                //   * Graceful node shutdown — the kubelet fails the pod as its
+                //     node is drained/reclaimed, but the sandbox caught SIGTERM,
+                //     drained, and the container exited 0 ("Completed"). This is
+                //     an involuntary eviction K8s will reschedule, NOT a sandbox
+                //     error. The clean stop is already reported via
+                //     `sandbox_completed`, so raising a fatal error here would be
+                //     a scary false alarm for a routine reschedule.
+                let clean_exit = current.terminated_reason.as_deref() == Some("Completed")
+                    && current.exit_code == Some(0);
                 let is_evicted = current
                     .terminated_reason
                     .as_deref()
                     .is_some_and(|r| r.contains("Evict"));
 
-                if is_evicted {
+                if clean_exit {
+                    // Graceful node-shutdown eviction — emit nothing. The
+                    // `sandbox_completed` transition covers the stop and the
+                    // Deployment reschedules the pod; no fatal event.
+                } else if is_evicted {
                     events.push((
                         "pod_evicted".to_string(),
                         Some("Pod was evicted".to_string()),
@@ -1860,6 +1875,52 @@ mod tests {
     use crate::sandbox::k8s::pod_status::test_helpers::{
         pod_with_phase_and_containers, running_container, terminated_container, waiting_container,
     };
+
+    /// Graceful node shutdown fails the pod while the sandbox container exits
+    /// 0/Completed. That is a routine eviction K8s will reschedule, so it must
+    /// NOT surface a fatal `pod_failed`/`pod_evicted` — the stop is reported via
+    /// `sandbox_completed` instead.
+    #[test]
+    fn failed_phase_with_clean_exit_is_not_fatal() {
+        let pod = pod_with_phase_and_containers(
+            "Failed",
+            vec![terminated_container("sandbox", "Completed", 0)],
+        );
+        let state = extract_pod_observed_state(&pod, "pod-1", "task-1");
+        let subs: Vec<&str> = detect_transitions(None, &state)
+            .iter()
+            .map(|(s, _)| s.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(
+            !subs.contains(&"pod_failed") && !subs.contains(&"pod_evicted"),
+            "clean-exit Failed pod must not raise a fatal event: {subs:?}"
+        );
+        assert!(
+            subs.contains(&"sandbox_completed"),
+            "clean stop should still be reported via sandbox_completed: {subs:?}"
+        );
+    }
+
+    /// A pod that fails with a real crash (non-zero exit) still raises
+    /// `pod_failed` so the user sees the fatal error.
+    #[test]
+    fn failed_phase_with_crash_still_fatal() {
+        let pod = pod_with_phase_and_containers(
+            "Failed",
+            vec![terminated_container("sandbox", "Error", 1)],
+        );
+        let state = extract_pod_observed_state(&pod, "pod-1", "task-1");
+        let subs: Vec<&str> = detect_transitions(None, &state)
+            .iter()
+            .map(|(s, _)| s.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(
+            subs.contains(&"pod_failed"),
+            "a real crash must raise pod_failed: {subs:?}"
+        );
+    }
 
     /// A terminated sandbox container exposes its exit code + K8s reason so the
     /// fatal/termination payloads can distinguish OOM (137) from a crash (1).
