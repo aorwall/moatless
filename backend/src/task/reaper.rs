@@ -330,6 +330,7 @@ async fn run_reap_cycle(
                                             "Sandbox stopped after {ttl_minutes} min idle"
                                         ),
                                         lifecycle_event: Some("idle_reaped".to_string()),
+                                        initiator: Some("reaper".to_string()),
                                         ..Default::default()
                                     },
                                 )

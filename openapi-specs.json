@@ -11365,6 +11365,13 @@
         "type": "object",
         "description": "Sandbox event payload — typed payload for sandbox lifecycle events.\n\nUsed by the pod watcher and provider to publish structured events\ninstead of raw `serde_json::Value`.",
         "properties": {
+          "disruptionReason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the pod was disrupted, from\n`pod.status.conditions[DisruptionTarget].reason` (PreemptionByScheduler |\nDeletionByTaintManager | TerminationByKubelet | EvictionByEvictionAPI |\nDeletionByPodGC), falling back to `pod.status.reason`."
+          },
           "error": {
             "type": [
               "string",
@@ -11380,6 +11387,13 @@
             "format": "int32",
             "description": "Exit code of the terminated sandbox container, when known.\n\nLets consumers distinguish OOM (137) from an application crash (1) or a\ngraceful SIGTERM (143). `#[serde(default)]` keeps old events readable."
           },
+          "initiator": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Who caused an intentional stop: \"reaper\" | \"user\" | \"close\" | \"restart\"\n| \"crash_autostop\" | \"eviction\". Null for events that aren't stops."
+          },
           "lifecycleEvent": {
             "type": [
               "string",
@@ -11390,6 +11404,21 @@
           "message": {
             "type": "string",
             "description": "Human-readable description of the event."
+          },
+          "nodeName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Node the pod was scheduled on (`pod.spec.node_name`). Enables node-level\ncorrelation of otherwise-unrelated tasks that stopped together."
+          },
+          "pendingSeconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Seconds the pod spent `Pending` before it was scheduled onto a node.\nAttached to `pod_scheduled` events so slow scheduling is readable directly."
           },
           "terminatedReason": {
             "type": [

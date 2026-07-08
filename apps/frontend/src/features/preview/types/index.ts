@@ -30,7 +30,7 @@ export interface StartupEvent {
 
 export interface SandboxEvent {
   eventId: string
-  type: 'sandbox' | 'server'
+  type: 'sandbox' | 'server' | 'taskTurn'
   subType: string
   timestamp: string
   isError: boolean
@@ -38,6 +38,18 @@ export interface SandboxEvent {
   reason?: string
   /** Server name for server events (e.g., "preview", "files") */
   serverName?: string
+  /** Node the pod was scheduled on — enables node-level correlation of stops. */
+  nodeName?: string
+  /** Why the pod was disrupted (DisruptionTarget reason / pod status reason). */
+  disruptionReason?: string
+  /** Who caused an intentional stop ("reaper" | "user" | "eviction" | …). */
+  initiator?: string
+  /** Exit code of the terminated sandbox container, when known. */
+  exitCode?: number
+  /** K8s termination reason of the sandbox container, when known. */
+  terminatedReason?: string
+  /** Seconds spent Pending before the pod was scheduled (on pod_scheduled). */
+  pendingSeconds?: number
   payload: Record<string, unknown>
 }
 

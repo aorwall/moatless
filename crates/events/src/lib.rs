@@ -371,6 +371,24 @@ pub struct SandboxEventPayload {
     /// "Error", "Completed"), when known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub terminated_reason: Option<String>,
+    /// Node the pod was scheduled on (`pod.spec.node_name`). Enables node-level
+    /// correlation of otherwise-unrelated tasks that stopped together.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node_name: Option<String>,
+    /// Why the pod was disrupted, from
+    /// `pod.status.conditions[DisruptionTarget].reason` (PreemptionByScheduler |
+    /// DeletionByTaintManager | TerminationByKubelet | EvictionByEvictionAPI |
+    /// DeletionByPodGC), falling back to `pod.status.reason`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disruption_reason: Option<String>,
+    /// Who caused an intentional stop: "reaper" | "user" | "close" | "restart"
+    /// | "crash_autostop" | "eviction". Null for events that aren't stops.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initiator: Option<String>,
+    /// Seconds the pod spent `Pending` before it was scheduled onto a node.
+    /// Attached to `pod_scheduled` events so slow scheduling is readable directly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_seconds: Option<i64>,
 }
 
 /// Agent event payload — typed shape for `EventType::Agent` events.

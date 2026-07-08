@@ -106,6 +106,15 @@ struct PodObservedState {
     /// Ready (e.g. after a container restart) is only timed on its *first* ready,
     /// keeping startup latency from being inflated by re-readies.
     startup_recorded: bool,
+    /// Node the pod is scheduled on (`pod.spec.node_name`), once bound. `None`
+    /// while the pod is still `Pending` and unscheduled.
+    node_name: Option<String>,
+    /// Why the pod was disrupted, derived from the `DisruptionTarget` pod
+    /// condition reason, falling back to `pod.status.reason`.
+    disruption_reason: Option<String>,
+    /// Pod `creationTimestamp` as epoch milliseconds, used to derive
+    /// `pending_seconds` on the Pending→scheduled edge.
+    created_at_ms: Option<i64>,
 }
 
 impl PodObservedState {
@@ -496,6 +505,26 @@ async fn process_watcher_event(
                     );
                 }
 
+                // Involuntary eviction is inherently node-initiated — tag it so
+                // the frontend can render an amber "recovering" chip. Other
+                // intentional-stop initiators are set at their explicit publish
+                // sites (reaper/handlers/provider), which the watcher can't see.
+                let initiator = if sub_type == "pod_evicted" && !is_intentional_stop {
+                    Some("eviction".to_string())
+                } else {
+                    None
+                };
+
+                // Time spent Pending before scheduling, surfaced on the edge event.
+                let pending_seconds = if sub_type == "pod_scheduled" {
+                    new_state.created_at_ms.map(|created| {
+                        let now = k8s_openapi::jiff::Timestamp::now().as_millisecond();
+                        (now - created).max(0) / 1000
+                    })
+                } else {
+                    None
+                };
+
                 event_publisher
                     .publish_sandbox_event_with_payload(
                         &task_id,
@@ -513,16 +542,15 @@ async fn process_watcher_event(
                             },
                             // Carry the exit code / K8s reason so consumers can tell
                             // OOM (137) from a crash (1) without scraping pod state.
-                            exit_code: if is_intentional_stop {
-                                None
-                            } else {
-                                new_state.effective_exit_code()
-                            },
-                            terminated_reason: if is_intentional_stop {
-                                None
-                            } else {
-                                new_state.effective_terminated_reason()
-                            },
+                            // Ride these on intentional stops too (Phase 3) — the
+                            // exit code is diagnostic, not an error signal.
+                            exit_code: new_state.effective_exit_code(),
+                            terminated_reason: new_state.effective_terminated_reason(),
+                            // Node-level correlation + disruption cause on every event.
+                            node_name: new_state.node_name.clone(),
+                            disruption_reason: new_state.disruption_reason.clone(),
+                            initiator,
+                            pending_seconds,
                         },
                     )
                     .await;
@@ -610,6 +638,9 @@ async fn process_watcher_event(
                             error: Some(error_msg),
                             exit_code,
                             terminated_reason,
+                            node_name: new_state.node_name.clone(),
+                            disruption_reason: new_state.disruption_reason.clone(),
+                            ..Default::default()
                         },
                     )
                     .await;
@@ -656,6 +687,10 @@ async fn process_watcher_event(
                             error: Some(detailed_error),
                             exit_code: new_state.effective_exit_code(),
                             terminated_reason: new_state.effective_terminated_reason(),
+                            initiator: Some("crash_autostop".to_string()),
+                            node_name: new_state.node_name.clone(),
+                            disruption_reason: new_state.disruption_reason.clone(),
+                            ..Default::default()
                         },
                     )
                     .await;
@@ -712,6 +747,10 @@ async fn process_watcher_event(
                                 error: Some(detailed_error),
                                 exit_code: new_state.effective_exit_code(),
                                 terminated_reason: new_state.effective_terminated_reason(),
+                                initiator: Some("crash_autostop".to_string()),
+                                node_name: new_state.node_name.clone(),
+                                disruption_reason: new_state.disruption_reason.clone(),
+                                ..Default::default()
                             },
                         )
                         .await;
@@ -1258,6 +1297,32 @@ fn extract_pod_observed_state(pod: &Pod, pod_name: &str, task_id: &str) -> PodOb
         })
         .unwrap_or_default();
 
+    // Node the pod is bound to (empty/absent while still Pending+unscheduled).
+    let node_name = pod
+        .spec
+        .as_ref()
+        .and_then(|s| s.node_name.clone())
+        .filter(|n| !n.is_empty());
+
+    // Why the pod was disrupted: prefer the structured `DisruptionTarget`
+    // condition reason (spot reclaim, drain, preemption, kubelet eviction, …),
+    // falling back to the coarser pod-level `status.reason` (e.g. "Evicted").
+    let disruption_reason = status
+        .and_then(|s| s.conditions.as_ref())
+        .and_then(|conds| {
+            conds
+                .iter()
+                .find(|c| c.type_ == "DisruptionTarget")
+                .and_then(|c| c.reason.clone())
+        })
+        .or_else(|| status.and_then(|s| s.reason.clone()));
+
+    let created_at_ms = pod
+        .metadata
+        .creation_timestamp
+        .as_ref()
+        .map(|t| t.0.as_millisecond());
+
     // Extract server container states
     let server_containers = extract_container_observed_statuses(pod)
         .into_iter()
@@ -1295,6 +1360,9 @@ fn extract_pod_observed_state(pod: &Pod, pod_name: &str, task_id: &str) -> PodOb
         fatal_published: false,
         auto_disabled_servers: HashSet::new(),
         startup_recorded: false,
+        node_name,
+        disruption_reason,
+        created_at_ms,
     }
 }
 
@@ -1403,6 +1471,15 @@ fn detect_transitions(
         }
     }
 
+    // Pending → scheduled edge: the pod just got bound to a node. Only emit on a
+    // real transition (a previously-observed pod that had no node), so we don't
+    // retroactively fire for pods first seen already-scheduled.
+    if let Some(prev) = prev {
+        if prev.node_name.is_none() && current.node_name.is_some() {
+            events.push(("pod_scheduled".to_string(), None));
+        }
+    }
+
     events
 }
 
@@ -1474,7 +1551,7 @@ fn lifecycle_sub_type_to_sandbox_status(sub_type: &str) -> SandboxStatus {
         }
         "pod_ready" => SandboxStatus::Ready,
         "pod_succeeded" | "sandbox_completed" => SandboxStatus::Stopped,
-        "container_restarted" | "pod_recovering" => SandboxStatus::Initializing,
+        "container_restarted" | "pod_recovering" | "pod_scheduled" => SandboxStatus::Initializing,
         _ => SandboxStatus::Error,
     }
 }
@@ -1526,6 +1603,7 @@ fn format_sandbox_lifecycle_message(lifecycle_event: &str, error: Option<&str>) 
         },
         "pod_failed" => "Pod failed".to_string(),
         "pod_evicted" => "Pod evicted".to_string(),
+        "pod_scheduled" => "Scheduled onto a node".to_string(),
         "pod_succeeded" | "sandbox_completed" => "Completed".to_string(),
         "pod_deleted" => "Pod deleted".to_string(),
         other => other.replace('_', " "),
@@ -1681,5 +1759,96 @@ mod tests {
             .find(|s| s.name == "storybook-server")
             .expect("storybook-server tracked");
         assert_eq!(sb.restart_count, 7);
+    }
+
+    /// `extract_pod_observed_state` captures the scheduled node and the
+    /// structured `DisruptionTarget` reason so node-level correlation and the
+    /// disruption cause are readable directly from the event.
+    #[test]
+    fn extract_captures_node_and_disruption_reason() {
+        use k8s_openapi::api::core::v1::{PodCondition, PodSpec, PodStatus};
+
+        let pod = Pod {
+            spec: Some(PodSpec {
+                node_name: Some("ip-10-0-1-42".to_string()),
+                ..Default::default()
+            }),
+            status: Some(PodStatus {
+                phase: Some("Running".to_string()),
+                reason: Some("Evicted".to_string()),
+                conditions: Some(vec![PodCondition {
+                    type_: "DisruptionTarget".to_string(),
+                    reason: Some("PreemptionByScheduler".to_string()),
+                    ..Default::default()
+                }]),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let state = extract_pod_observed_state(&pod, "pod-1", "task-1");
+        assert_eq!(state.node_name.as_deref(), Some("ip-10-0-1-42"));
+        // The structured DisruptionTarget reason wins over status.reason.
+        assert_eq!(
+            state.disruption_reason.as_deref(),
+            Some("PreemptionByScheduler")
+        );
+    }
+
+    /// With no `DisruptionTarget` condition, the disruption reason falls back to
+    /// the coarser pod-level `status.reason`.
+    #[test]
+    fn disruption_reason_falls_back_to_pod_status_reason() {
+        use k8s_openapi::api::core::v1::PodStatus;
+
+        let pod = Pod {
+            status: Some(PodStatus {
+                phase: Some("Failed".to_string()),
+                reason: Some("Evicted".to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let state = extract_pod_observed_state(&pod, "pod-1", "task-1");
+        assert_eq!(state.disruption_reason.as_deref(), Some("Evicted"));
+        assert!(state.node_name.is_none());
+    }
+
+    /// A pod that binds to a node (Pending→scheduled edge) emits `pod_scheduled`,
+    /// but only on a real transition — never for a pod first seen already bound.
+    #[test]
+    fn detect_emits_pod_scheduled_on_binding() {
+        let mut pending = extract_pod_observed_state(
+            &pod_with_phase_and_containers("Pending", vec![]),
+            "pod-1",
+            "task-1",
+        );
+        pending.node_name = None;
+
+        let mut scheduled = pending.clone();
+        scheduled.node_name = Some("ip-10-0-1-42".to_string());
+
+        let transitions = detect_transitions(Some(&pending), &scheduled);
+        assert!(
+            transitions.iter().any(|(sub, _)| sub == "pod_scheduled"),
+            "expected pod_scheduled, got: {transitions:?}"
+        );
+
+        // First observation already-scheduled (prev = None) must NOT fire it.
+        let first_seen = detect_transitions(None, &scheduled);
+        assert!(
+            !first_seen.iter().any(|(sub, _)| sub == "pod_scheduled"),
+            "pod_scheduled should not fire retroactively, got: {first_seen:?}"
+        );
+    }
+
+    /// `pod_scheduled` maps to an Initializing (progress) status, not the
+    /// default Error arm — otherwise it would trip the intentional-stop check.
+    #[test]
+    fn pod_scheduled_is_initializing_not_error() {
+        assert_eq!(
+            lifecycle_sub_type_to_sandbox_status("pod_scheduled"),
+            SandboxStatus::Initializing
+        );
     }
 }

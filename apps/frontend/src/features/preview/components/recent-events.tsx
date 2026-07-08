@@ -1,28 +1,10 @@
-import { AlertTriangle, CheckCircle2, Server, XCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { SandboxEvent } from '../types'
-import { getDisplayMessage } from '../utils/event-messages'
+import { describeEvent, getDisplayMessage, TONE_TEXT_CLASS } from '../utils/event-messages'
 
 interface RecentEventsProps {
   events: SandboxEvent[]
   className?: string
-}
-
-function getEventIcon(event: SandboxEvent) {
-  if (event.isError || event.subType === 'failed' || event.subType === 'error') {
-    return <XCircle className="h-3 w-3 text-destructive shrink-0" />
-  }
-  if (
-    event.subType === 'installing' ||
-    event.subType === 'starting' ||
-    event.subType === 'initializing'
-  ) {
-    return <AlertTriangle className="h-3 w-3 text-yellow-500 shrink-0" />
-  }
-  if (event.type === 'server') {
-    return <Server className="h-3 w-3 text-blue-500 shrink-0" />
-  }
-  return <CheckCircle2 className="h-3 w-3 text-green-500 shrink-0" />
 }
 
 function formatRelativeTime(timestamp: string): string {
@@ -57,20 +39,23 @@ export function RecentEvents({ events, className }: RecentEventsProps) {
         <span className="text-[10px] font-medium uppercase text-muted-foreground tracking-wider px-1">
           Recent events
         </span>
-        {recentEvents.map((event) => (
-          <div key={event.eventId} className="flex items-center gap-1.5 px-1 py-0.5">
-            {getEventIcon(event)}
-            <span className="text-xs font-medium truncate flex-1">
-              {event.subType}
-              <span className="font-normal text-muted-foreground ml-1 truncate">
-                {getDisplayMessage(event)}
+        {recentEvents.map((event) => {
+          const { label, icon: Icon, tone } = describeEvent(event)
+          return (
+            <div key={event.eventId} className="flex items-center gap-1.5 px-1 py-0.5">
+              <Icon className={cn('h-3 w-3 shrink-0', TONE_TEXT_CLASS[tone])} />
+              <span className="text-xs font-medium truncate flex-1">
+                {label}
+                <span className="font-normal text-muted-foreground ml-1 truncate">
+                  {getDisplayMessage(event)}
+                </span>
               </span>
-            </span>
-            <span className="text-[10px] text-muted-foreground shrink-0 tabular-nums">
-              {formatRelativeTime(event.timestamp)}
-            </span>
-          </div>
-        ))}
+              <span className="text-[10px] text-muted-foreground shrink-0 tabular-nums">
+                {formatRelativeTime(event.timestamp)}
+              </span>
+            </div>
+          )
+        })}
       </div>
     </div>
   )

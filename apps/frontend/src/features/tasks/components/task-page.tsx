@@ -25,25 +25,40 @@ import { TaskPageLayout } from './task-page-layout'
 import { TaskDetailSkeleton } from './task-skeletons'
 import { WorkspaceHeader } from './workspace-header'
 
+/** Coerce a payload value to a string only when present (null/undefined → undefined). */
+function optString(value: unknown): string | undefined {
+  return value != null ? String(value) : undefined
+}
+
 /** Map a raw Event to a SandboxEvent for the Events tab. */
 function toSandboxEvent(event: Event): SandboxEvent | null {
-  if (event.type !== 'sandbox' && event.type !== 'server') {
+  const rawSubType = (event as { subType?: string }).subType
+  // taskTurn events are turn-level facts; only `turn_interrupted` belongs in the
+  // sandbox/server lifecycle log — the rest (active/completed/…) are filtered out.
+  const isTurnInterrupted = event.type === 'taskTurn' && rawSubType === 'turn_interrupted'
+  if (event.type !== 'sandbox' && event.type !== 'server' && !isTurnInterrupted) {
     return null
   }
-  const rawSubType = (event as { subType?: string }).subType
   const payload = (event as { payload?: Record<string, unknown> }).payload ?? {}
+  const exitCodeRaw = payload.exitCode
   return {
     eventId: event.eventId,
-    type: event.type as 'sandbox' | 'server',
+    type: event.type as 'sandbox' | 'server' | 'taskTurn',
     subType: rawSubType ?? '',
     timestamp: event.timestamp ? new Date(event.timestamp).toISOString() : new Date().toISOString(),
     isError: event.isError,
-    message: payload.message != null ? String(payload.message) : undefined,
-    reason: payload.reason != null ? String(payload.reason) : undefined,
+    message: optString(payload.message),
+    reason: optString(payload.reason),
     serverName:
       event.type === 'server' && payload.serverName != null
         ? String(payload.serverName)
         : undefined,
+    nodeName: optString(payload.nodeName),
+    disruptionReason: optString(payload.disruptionReason),
+    initiator: optString(payload.initiator),
+    exitCode: typeof exitCodeRaw === 'number' ? exitCodeRaw : undefined,
+    terminatedReason: optString(payload.terminatedReason),
+    pendingSeconds: typeof payload.pendingSeconds === 'number' ? payload.pendingSeconds : undefined,
     payload,
   }
 }
