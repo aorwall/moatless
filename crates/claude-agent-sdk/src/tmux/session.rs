@@ -78,17 +78,25 @@ impl TmuxSession {
         if let Some(cwd) = &options.cwd {
             cmd.arg("-c").arg(cwd);
         }
+        // Pin claude's config dir + HOME to exactly what the SDK polls, then
+        // layer `options.env` after (caller overrides win) — see
+        // [`child_env_vars`]. Set on the tmux CLIENT's environment rather than
+        // passed as `new-session` argv words: a private-socket session always
+        // forks a brand new tmux SERVER (see [`tmux_socket_path`]), which
+        // inherits the client's environment at fork time and copies it into
+        // the new session, so the pane's spawned process still sees these —
+        // without counting them against tmux's `MAX_IMSGSIZE` control-message
+        // limit the way argv words would. That limit is what production hit:
+        // `options.env` carries every resolved credential/secret (unbounded
+        // size), and pushing it through argv turned "tmux new-session" into
+        // "command too long".
+        for (k, v) in child_env_vars(options) {
+            cmd.env(k, v);
+        }
         cmd.arg("--");
         // `env -u CLAUDECODE` mirrors transport/subprocess.rs:46 — claude
         // refuses to start when it sees CLAUDECODE set.
         cmd.arg("env").arg("-u").arg("CLAUDECODE");
-        // Pin claude's config dir + HOME to exactly what the SDK polls, then
-        // layer `options.env` after (caller overrides win). See
-        // [`child_env_prefix`] for why this can't rely on tmux-server env
-        // inheritance.
-        for kv in child_env_prefix(options) {
-            cmd.arg(kv);
-        }
         cmd.arg(&cli_path);
         for a in &args {
             cmd.arg(a);
@@ -273,37 +281,48 @@ pub(super) fn tmux_command(socket: &Path) -> tokio::process::Command {
     cmd
 }
 
-/// Build the `KEY=VAL` env assignments handed to `env` ahead of `claude` in the
-/// tmux child.
+/// Build the env vars to set on the tmux CLIENT process before `new-session`.
 ///
-/// The tmux child only inherits whatever the (possibly stale, possibly
-/// pre-existing) tmux server's environment provides — the SDK passes nothing
-/// else through except `options.env`. Meanwhile JSONL discovery
-/// ([`resolve_project_dir`]) computes the polled transcript dir from the *SDK
-/// process's* env. If the child's `CLAUDE_CONFIG_DIR`/`HOME` don't match, claude
-/// writes its transcript somewhere the SDK never looks → `JsonlNotFound`.
+/// These end up visible to the pane's `claude` process because a
+/// private-socket session (see [`tmux_socket_path`]) always forks a brand new
+/// tmux SERVER, which inherits the client's environment at fork time and
+/// copies it into the new session's environment table. Setting them via
+/// `Command::env` rather than `KEY=VALUE` `new-session` argv words keeps them
+/// out of tmux's control-socket message, which is capped at `MAX_IMSGSIZE`
+/// (16384 bytes, tmux's `compat/imsg.h`) — a limit `options.env` alone can
+/// exceed in production, since it carries every resolved credential/secret
+/// (see `sandbox/src/agent/claude_code.rs`), not just the two pins below.
+///
+/// Meanwhile JSONL discovery ([`resolve_project_dir`]) computes the polled
+/// transcript dir from the *SDK process's* env. If the child's
+/// `CLAUDE_CONFIG_DIR`/`HOME` don't match, claude writes its transcript
+/// somewhere the SDK never looks → `JsonlNotFound`.
 ///
 /// Pinning both here — using the exact resolver discovery uses
 /// ([`crate::config_dir::resolve_claude_config_dir`]) — makes "SDK polls X ⟺
-/// claude writes X" an invariant by construction. `options.env` is layered
-/// after so callers can still override.
-fn child_env_prefix(options: &ClaudeOptions) -> Vec<String> {
-    let mut prefix = Vec::new();
+/// claude writes X" an invariant by construction. `options.env` is applied
+/// after so callers can still override (last write to a given key wins, same
+/// as `Command::env` semantics).
+fn child_env_vars(options: &ClaudeOptions) -> Vec<(String, String)> {
+    let mut vars = Vec::new();
 
     let home = std::env::var("HOME").unwrap_or_default();
     let config_dir = crate::config_dir::resolve_claude_config_dir(&home);
-    prefix.push(format!("CLAUDE_CONFIG_DIR={}", config_dir.display()));
+    vars.push((
+        "CLAUDE_CONFIG_DIR".to_string(),
+        config_dir.to_string_lossy().into_owned(),
+    ));
     if !home.is_empty() {
-        prefix.push(format!("HOME={home}"));
+        vars.push(("HOME".to_string(), home));
     }
 
     if let Some(env) = &options.env {
         for (k, v) in env {
-            prefix.push(format!("{k}={v}"));
+            vars.push((k.clone(), v.clone()));
         }
     }
 
-    prefix
+    vars
 }
 
 /// Resolve the `claude` CLI binary path the same way the subprocess backend
@@ -606,48 +625,55 @@ mod tests {
         std::env::remove_var("CLAUDE_CONFIG_DIR");
     }
 
-    // The tmux child env prefix must pin `CLAUDE_CONFIG_DIR` (resolved by the
+    // The tmux child env vars must pin `CLAUDE_CONFIG_DIR` (resolved by the
     // SAME helper discovery uses) and `HOME`, so claude writes its transcript to
     // the dir the SDK polls instead of relying on tmux-server env inheritance.
     #[test]
-    fn child_env_prefix_pins_config_dir_and_home() {
+    fn child_env_vars_pins_config_dir_and_home() {
         let _guard = crate::config_dir::ENV_LOCK.lock().expect("env lock");
         let saved_home = std::env::var("HOME").ok();
 
         std::env::set_var("HOME", "/home/tester");
         std::env::set_var("CLAUDE_CONFIG_DIR", "/opt/moatless/.claude");
 
-        // No options.env: prefix is exactly the two pinned assignments.
-        let prefix = child_env_prefix(&ClaudeOptions::default());
+        // No options.env: vars are exactly the two pinned assignments.
+        let vars = child_env_vars(&ClaudeOptions::default());
         assert!(
-            prefix.contains(&"CLAUDE_CONFIG_DIR=/opt/moatless/.claude".to_string()),
-            "prefix should pin CLAUDE_CONFIG_DIR: {prefix:?}"
+            vars.contains(&(
+                "CLAUDE_CONFIG_DIR".to_string(),
+                "/opt/moatless/.claude".to_string()
+            )),
+            "vars should pin CLAUDE_CONFIG_DIR: {vars:?}"
         );
         assert!(
-            prefix.contains(&"HOME=/home/tester".to_string()),
-            "prefix should pin HOME: {prefix:?}"
+            vars.contains(&("HOME".to_string(), "/home/tester".to_string())),
+            "vars should pin HOME: {vars:?}"
         );
 
-        // options.env is layered AFTER the pins so caller overrides win — verify
-        // both that the entry is present and that it follows the pinned value.
+        // options.env is applied AFTER the pins so caller overrides win (last
+        // write to a given key wins, matching `Command::env` semantics) —
+        // verify both entries are present and the override comes after the pin.
         let mut env = std::collections::HashMap::new();
-        env.insert("CLAUDE_CONFIG_DIR".to_string(), "/caller/override".to_string());
+        env.insert(
+            "CLAUDE_CONFIG_DIR".to_string(),
+            "/caller/override".to_string(),
+        );
         let options = ClaudeOptions {
             env: Some(env),
             ..Default::default()
         };
-        let prefix = child_env_prefix(&options);
-        let pinned = prefix
+        let vars = child_env_vars(&options);
+        let pinned = vars
             .iter()
-            .position(|s| s == "CLAUDE_CONFIG_DIR=/opt/moatless/.claude")
+            .position(|(k, v)| k == "CLAUDE_CONFIG_DIR" && v == "/opt/moatless/.claude")
             .expect("pinned config dir present");
-        let override_pos = prefix
+        let override_pos = vars
             .iter()
-            .position(|s| s == "CLAUDE_CONFIG_DIR=/caller/override")
+            .position(|(k, v)| k == "CLAUDE_CONFIG_DIR" && v == "/caller/override")
             .expect("caller override present");
         assert!(
             override_pos > pinned,
-            "caller override must come after the pin (env: later wins): {prefix:?}"
+            "caller override must come after the pin (Command::env: later wins): {vars:?}"
         );
 
         std::env::remove_var("CLAUDE_CONFIG_DIR");
@@ -716,10 +742,8 @@ mod tests {
 
     /// Create a unique empty temp subdir (no `tempfile` dev-dep in this crate).
     fn unique_tmp_dir() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "sdk-resume-{}",
-            uuid::Uuid::new_v4().simple()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("sdk-resume-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&dir).expect("create temp dir");
         dir
     }
@@ -762,5 +786,162 @@ mod tests {
         };
         assert_eq!(resolve_resume_target(&options, &dir).await, None);
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // Regression test for the production "command too long" failure (SP tmux
+    // investigation, task e0b3e4e8): `options.env` in the real pipeline
+    // carries every resolved credential/secret (sandbox/src/agent/claude_code.rs),
+    // unbounded in size — before the fix, `child_env_prefix` re-broadcast that
+    // whole map as individual `new-session` argv words, and tmux's client
+    // packs the entire `new-session` argv into a single control-socket
+    // message capped at `MAX_IMSGSIZE` (16384 bytes, compat/imsg.h), failing
+    // with exit status 1 and stderr "command too long" once prompt + secrets
+    // crossed that ceiling. `child_env_vars` now sets these via `Command::env`
+    // on the tmux CLIENT instead (picked up by the freshly-forked tmux SERVER
+    // and copied into the session), which isn't bounded by that limit — so a
+    // ~4.5KB system prompt (realistic size, matches the failing task's logged
+    // `append_system_prompt_len`) plus a handful of secret-sized env values
+    // must now succeed.
+    fn realistic_append_system_prompt() -> String {
+        "x".repeat(4500)
+    }
+
+    #[tokio::test]
+    async fn new_session_succeeds_when_env_secrets_are_large() {
+        if which_tmux().is_none() {
+            eprintln!("tmux not on PATH — skipping");
+            return;
+        }
+
+        let harness = crate::tmux::hooks::HookHarness::create().expect("create hook harness");
+
+        // Stand-in for a handful of real-world secrets (kubeconfig,
+        // service-account JSON, cloud credentials) that `resolve_task_credentials`
+        // would merge into `options.env` alongside GitHub/Codex tokens — nothing
+        // filters these by size before they reach the sandbox. Combined with
+        // the ~4.5KB prompt below, this alone would have exceeded tmux's 16KB
+        // MAX_IMSGSIZE before the fix.
+        let mut env = std::collections::HashMap::new();
+        env.insert("KUBECONFIG_BLOB".to_string(), "k".repeat(5000));
+        env.insert("SERVICE_ACCOUNT_JSON".to_string(), "s".repeat(5000));
+        env.insert("CLOUD_CREDENTIALS".to_string(), "c".repeat(5000));
+
+        let options = ClaudeOptions {
+            cli_path: Some("/bin/echo".to_string()),
+            cwd: Some(std::env::temp_dir().to_string_lossy().into_owned()),
+            model: Some("claude-opus-4-8".to_string()),
+            disallowed_tools: Some(vec!["AskUserQuestion".to_string()]),
+            system_prompt: Some(crate::types::options::SystemPrompt::Preset {
+                prompt_type: "preset".to_string(),
+                preset: "claude_code".to_string(),
+                append: Some(realistic_append_system_prompt()),
+            }),
+            env: Some(env),
+            ..Default::default()
+        };
+
+        let session = TmuxSession::spawn(&options, Some(&harness.settings_json))
+            .await
+            .expect("large env/secrets must no longer overflow tmux's MAX_IMSGSIZE");
+        session.kill().await;
+    }
+
+    #[tokio::test]
+    async fn new_session_succeeds_with_realistic_prompt_and_no_secrets() {
+        if which_tmux().is_none() {
+            eprintln!("tmux not on PATH — skipping");
+            return;
+        }
+
+        let harness = crate::tmux::hooks::HookHarness::create().expect("create hook harness");
+
+        let options = ClaudeOptions {
+            cli_path: Some("/bin/echo".to_string()),
+            cwd: Some(std::env::temp_dir().to_string_lossy().into_owned()),
+            model: Some("claude-opus-4-8".to_string()),
+            disallowed_tools: Some(vec!["AskUserQuestion".to_string()]),
+            system_prompt: Some(crate::types::options::SystemPrompt::Preset {
+                prompt_type: "preset".to_string(),
+                preset: "claude_code".to_string(),
+                append: Some(realistic_append_system_prompt()),
+            }),
+            ..Default::default()
+        };
+
+        let session = TmuxSession::spawn(&options, Some(&harness.settings_json))
+            .await
+            .expect("prompt alone (no large env) must stay well under tmux's MAX_IMSGSIZE");
+        session.kill().await;
+    }
+
+    // The fix's core claim: env vars set via `Command::env` on the tmux
+    // CLIENT (see `child_env_vars`) still reach the pane's spawned process,
+    // even though they no longer travel through `new-session` argv. If this
+    // were false, the fix would silently drop credentials instead of loudly
+    // failing with "command too long" — worse than the original bug.
+    #[tokio::test]
+    async fn child_env_vars_reach_the_spawned_pane_process() {
+        if which_tmux().is_none() {
+            eprintln!("tmux not on PATH — skipping");
+            return;
+        }
+
+        let dir = unique_tmp_dir();
+        let dump_path = dir.join("env-dump.txt");
+        let script_path = dir.join("dump-env.sh");
+        std::fs::write(
+            &script_path,
+            format!(
+                "#!/bin/sh\necho \"$MOAT_TEST_ENV_PROBE\" > {}\n",
+                dump_path.display()
+            ),
+        )
+        .expect("write probe script");
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o700))
+            .expect("chmod probe script");
+
+        let mut env = std::collections::HashMap::new();
+        env.insert(
+            "MOAT_TEST_ENV_PROBE".to_string(),
+            "reached-the-pane".to_string(),
+        );
+        let options = ClaudeOptions {
+            cli_path: Some(script_path.to_string_lossy().into_owned()),
+            env: Some(env),
+            ..Default::default()
+        };
+
+        let session = TmuxSession::spawn(&options, None)
+            .await
+            .expect("spawn probe session");
+
+        let mut seen = String::new();
+        for _ in 0..40 {
+            if let Ok(contents) = std::fs::read_to_string(&dump_path) {
+                if !contents.trim().is_empty() {
+                    seen = contents.trim().to_string();
+                    break;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        session.kill().await;
+        std::fs::remove_dir_all(&dir).ok();
+
+        assert_eq!(
+            seen, "reached-the-pane",
+            "MOAT_TEST_ENV_PROBE set via Command::env on the tmux client must reach the pane"
+        );
+    }
+
+    fn which_tmux() -> Option<String> {
+        std::process::Command::new("which")
+            .arg("tmux")
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .filter(|s| !s.is_empty())
     }
 }
