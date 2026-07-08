@@ -19,6 +19,7 @@ export const queryKeys = {
 
     // Sub-resources - automatically invalidated with parent
     messages: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'messages'] as const,
+    lastMessage: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'last-message'] as const,
     toolCall: (taskId: string, toolUseId: string) =>
       [...queryKeys.tasks.detail(taskId), 'tool-call', toolUseId] as const,
     sandboxStatus: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'sandbox'] as const,

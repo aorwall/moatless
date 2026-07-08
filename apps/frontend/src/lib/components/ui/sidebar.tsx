@@ -23,16 +23,37 @@ import { useIsMobile } from '@/lib/hooks/use-mobile'
 import { cn } from '@/lib/utils'
 
 const SIDEBAR_COOKIE_NAME = 'sidebar_state'
+const SIDEBAR_WIDTH_COOKIE_NAME = 'sidebar_width'
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
-const SIDEBAR_WIDTH = '16rem'
 const SIDEBAR_WIDTH_MOBILE = '18rem'
 const SIDEBAR_WIDTH_ICON = '3rem'
 const SIDEBAR_KEYBOARD_SHORTCUT = 'b'
+
+// Resizable width bounds (in px). Default matches the previous fixed 16rem.
+const SIDEBAR_WIDTH_DEFAULT = 256
+const SIDEBAR_WIDTH_MIN = 200
+const SIDEBAR_WIDTH_MAX = 480
 
 // Helper function to set cookies properly
 function setCookie(name: string, value: string, maxAge: number) {
   // biome-ignore lint/suspicious/noDocumentCookie: Simple cookie utility for sidebar state
   document.cookie = `${name}=${value}; path=/; max-age=${maxAge}`
+}
+
+function clampSidebarWidth(value: number): number {
+  return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(value)))
+}
+
+/** Read the persisted sidebar width from cookies, or fall back to the default. */
+function readSidebarWidthCookie(): number {
+  if (typeof document === 'undefined') {
+    return SIDEBAR_WIDTH_DEFAULT
+  }
+  const match = document.cookie
+    .split('; ')
+    .find((row) => row.startsWith(`${SIDEBAR_WIDTH_COOKIE_NAME}=`))
+  const parsed = match ? Number.parseInt(match.split('=')[1], 10) : Number.NaN
+  return Number.isFinite(parsed) ? clampSidebarWidth(parsed) : SIDEBAR_WIDTH_DEFAULT
 }
 
 type SidebarContextProps = {
@@ -43,6 +64,13 @@ type SidebarContextProps = {
   setOpenMobile: (open: boolean) => void
   isMobile: boolean
   toggleSidebar: () => void
+  /** Current sidebar width in px (desktop, expanded). */
+  width: number
+  /** Set the sidebar width; value is clamped and persisted to a cookie. */
+  setWidth: (width: number) => void
+  /** True while the user is actively dragging the resize handle. */
+  isResizing: boolean
+  setIsResizing: (resizing: boolean) => void
 }
 
 const SidebarContext = React.createContext<SidebarContextProps | null>(null)
@@ -71,6 +99,15 @@ function SidebarProvider({
 }) {
   const isMobile = useIsMobile()
   const [openMobile, setOpenMobile] = React.useState(false)
+
+  // Persisted, resizable desktop width (px).
+  const [width, _setWidth] = React.useState<number>(readSidebarWidthCookie)
+  const [isResizing, setIsResizing] = React.useState(false)
+  const setWidth = React.useCallback((value: number) => {
+    const clamped = clampSidebarWidth(value)
+    _setWidth(clamped)
+    setCookie(SIDEBAR_WIDTH_COOKIE_NAME, String(clamped), SIDEBAR_COOKIE_MAX_AGE)
+  }, [])
 
   // This is the internal state of the sidebar.
   // We use openProp and setOpenProp for control from outside the component.
@@ -122,8 +159,12 @@ function SidebarProvider({
       openMobile,
       setOpenMobile,
       toggleSidebar,
+      width,
+      setWidth,
+      isResizing,
+      setIsResizing,
     }),
-    [state, open, setOpen, isMobile, openMobile, toggleSidebar],
+    [state, open, setOpen, isMobile, openMobile, toggleSidebar, width, setWidth, isResizing],
   )
 
   return (
@@ -133,7 +174,7 @@ function SidebarProvider({
           data-slot="sidebar-wrapper"
           style={
             {
-              '--sidebar-width': SIDEBAR_WIDTH,
+              '--sidebar-width': `${width}px`,
               '--sidebar-width-icon': SIDEBAR_WIDTH_ICON,
               ...style,
             } as React.CSSProperties
@@ -163,7 +204,7 @@ function Sidebar({
   variant?: 'sidebar' | 'floating' | 'inset'
   collapsible?: 'offcanvas' | 'icon' | 'none'
 }) {
-  const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
+  const { isMobile, state, openMobile, setOpenMobile, isResizing } = useSidebar()
 
   if (collapsible === 'none') {
     return (
@@ -218,7 +259,10 @@ function Sidebar({
       <div
         data-slot="sidebar-gap"
         className={cn(
-          'relative w-(--sidebar-width) bg-transparent transition-[width] duration-200 ease-linear',
+          'relative w-(--sidebar-width) bg-transparent',
+          // Suspend the width transition while dragging so the sidebar tracks
+          // the cursor 1:1 instead of easing behind it.
+          isResizing ? 'transition-none' : 'transition-[width] duration-200 ease-linear',
           'group-data-[collapsible=offcanvas]:w-0',
           'group-data-[side=right]:rotate-180',
           variant === 'floating' || variant === 'inset'
@@ -229,7 +273,8 @@ function Sidebar({
       <div
         data-slot="sidebar-container"
         className={cn(
-          'fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) transition-[left,right,width] duration-200 ease-linear md:flex',
+          'fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) md:flex',
+          isResizing ? 'transition-none' : 'transition-[left,right,width] duration-200 ease-linear',
           side === 'left'
             ? 'left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]'
             : 'right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]',
@@ -248,8 +293,64 @@ function Sidebar({
         >
           {children}
         </div>
+        <SidebarResizeHandle side={side} />
       </div>
     </div>
+  )
+}
+
+/**
+ * Drag handle on the sidebar's inner edge that resizes its width. Double-click
+ * resets to the default width. Hidden on mobile and in icon-collapsed mode.
+ */
+function SidebarResizeHandle({ side }: { side: 'left' | 'right' }) {
+  const { width, setWidth, setIsResizing } = useSidebar()
+
+  const handlePointerDown = React.useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>) => {
+      // Only respond to primary-button drags.
+      if (event.button !== 0) {
+        return
+      }
+      event.preventDefault()
+      const startX = event.clientX
+      const startWidth = width
+      setIsResizing(true)
+      document.body.style.cursor = 'col-resize'
+      document.body.style.userSelect = 'none'
+
+      const handleMove = (moveEvent: PointerEvent) => {
+        const delta = moveEvent.clientX - startX
+        // A left sidebar grows as the cursor moves right; a right one inverts.
+        setWidth(startWidth + (side === 'left' ? delta : -delta))
+      }
+      const handleUp = () => {
+        setIsResizing(false)
+        document.body.style.cursor = ''
+        document.body.style.userSelect = ''
+        window.removeEventListener('pointermove', handleMove)
+        window.removeEventListener('pointerup', handleUp)
+      }
+      window.addEventListener('pointermove', handleMove)
+      window.addEventListener('pointerup', handleUp)
+    },
+    [width, setWidth, setIsResizing, side],
+  )
+
+  return (
+    <button
+      type="button"
+      aria-label="Resize sidebar"
+      title="Drag to resize · double-click to reset"
+      onPointerDown={handlePointerDown}
+      onDoubleClick={() => setWidth(SIDEBAR_WIDTH_DEFAULT)}
+      className={cn(
+        'absolute inset-y-0 z-20 hidden w-1 cursor-col-resize touch-none select-none sm:block',
+        'bg-transparent transition-colors hover:bg-sidebar-border active:bg-sidebar-border',
+        'group-data-[collapsible=icon]:hidden group-data-[collapsible=offcanvas]:hidden',
+        side === 'left' ? 'right-0' : 'left-0',
+      )}
+    />
   )
 }
 
