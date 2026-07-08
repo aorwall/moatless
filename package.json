@@ -36,7 +36,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "postinstall": "turbo run build --filter=@moatless/shell-utils",
+    "postinstall": "turbo run build --filter='./packages/*'",
     "dev": "cd apps/frontend && bun dev",
     "build": "turbo run build",
     "build:dev": "turbo run build:dev",
