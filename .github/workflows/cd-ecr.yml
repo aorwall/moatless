@@ -54,6 +54,7 @@ jobs:
       build-backend: ${{ steps.compute.outputs.backend }}
       build-sandbox: ${{ steps.compute.outputs.sandbox }}
       publish-helm: ${{ steps.compute.outputs.helm }}
+      moat-changed: ${{ steps.compute.outputs.moat-changed }}
     steps:
       # fetch-depth: 0 so `git describe --tags` can see the v* release history
       # used to compute the next monotonic semver on push-to-main.
@@ -124,6 +125,27 @@ jobs:
           else
             echo "helm=false" >> "$GITHUB_OUTPUT"
           fi
+
+          # moat CLI changed? Gates release-moat + trigger-runners so the ARC/E2E
+          # runner images (soap-platform-ci) only rebuild when the `moat` binary's
+          # build closure actually changes — not on every push to main.
+          #   closure = moatless-cli (crates/cli) + its workspace path-deps
+          #   (crates/api-client → crates/api-schemas) + the Cargo/toolchain roots.
+          # fp-v* tags and manual dispatch always cut a release (intentional).
+          if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == refs/heads/main ]]; then
+            BEFORE="${{ github.event.before }}"
+            if [[ -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]]; then
+              MOAT_CHANGED=true                      # unknown base → be safe, rebuild
+            elif git diff --name-only "$BEFORE" "$GITHUB_SHA" \
+                  | grep -qE '^(crates/(cli|api-client|api-schemas)/|Cargo\.(toml|lock)$|rust-toolchain\.toml$)'; then
+              MOAT_CHANGED=true
+            else
+              MOAT_CHANGED=false
+            fi
+          else
+            MOAT_CHANGED=true                        # fp-v* tags + manual dispatch
+          fi
+          echo "moat-changed=$MOAT_CHANGED" >> "$GITHUB_OUTPUT"
 
   # ── Build Rust binaries + dump OpenAPI spec ──
   # Uses rust:1.94-bookworm to link against GLIBC 2.36, matching distroless/cc
@@ -442,9 +464,17 @@ jobs:
   # The release tag becomes the MOAT_VERSION build-arg that ARC and E2E
   # runner Dockerfiles consume via `gh release download "${MOAT_VERSION}"`
   # from soaplabs/moatless-vibe.
+  #
+  # Gated on `moat-changed` (computed in setup): on push-to-main we only cut a
+  # new moat-cli release — and therefore only fire the downstream
+  # `rebuild-runners` repository_dispatch in trigger-runners — when the moat
+  # CLI build closure actually changed. When it's skipped, trigger-runners is
+  # skipped with it (a skipped dependency skips its dependents), so the runner
+  # images keep referencing the last-good moat-cli release. fp-v* tags and
+  # manual dispatch set moat-changed=true, so they always release + rebuild.
   release-moat:
     needs: [setup, publish-sandbox]
-    if: needs.setup.outputs.build-sandbox == 'true' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/fp-v'))
+    if: needs.setup.outputs.build-sandbox == 'true' && needs.setup.outputs.moat-changed == 'true' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/fp-v'))
     runs-on: ubuntu-latest
     permissions:
       contents: write
