@@ -58,6 +58,18 @@ pub trait TaskEventRepository: Send + Sync {
         older_than: DateTime<Utc>,
     ) -> Result<Vec<UnclosedTurn>, sqlx::Error>;
 
+    /// Return the currently-active (unclosed) turn for a single task, if any.
+    ///
+    /// Like [`Self::list_tasks_with_unclosed_active_turn`] but scoped to one
+    /// task and with no age floor: yields `Some` only when the task's latest
+    /// `taskTurn` event is `active` (no terminal event has superseded it). Used
+    /// by the pod watcher to attach turn context to a `turn_interrupted` event
+    /// and to suppress it when no turn is in flight.
+    async fn active_turn_for_task(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<UnclosedTurn>, sqlx::Error>;
+
     /// For each task in `task_ids`, return its single most-recent agent
     /// lifecycle event as `(sub_type, created_at)`.
     ///
@@ -180,6 +192,35 @@ impl TaskEventRepository for PgTaskEventRepository {
                 agent_type,
             })
             .collect())
+    }
+
+    async fn active_turn_for_task(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<UnclosedTurn>, sqlx::Error> {
+        // Take this task's single most-recent taskTurn event (the inner LIMIT 1),
+        // then keep it only when that latest row is `active` — a terminal event
+        // would have produced a newer row and superseded it.
+        let row: Option<(Option<i32>, Option<String>)> = sqlx::query_as(
+            r#"SELECT latest.turn_number, latest.agent_type
+               FROM (
+                 SELECT sub_type, turn_number, agent_type
+                 FROM task_events
+                 WHERE task_id = $1 AND type = 'taskTurn'
+                 ORDER BY created_at DESC, id DESC
+                 LIMIT 1
+               ) latest
+               WHERE latest.sub_type = 'active'"#,
+        )
+        .bind(task_id)
+        .fetch_optional(&self.0)
+        .await?;
+
+        Ok(row.map(|(turn_number, agent_type)| UnclosedTurn {
+            task_id: task_id.to_string(),
+            turn_number,
+            agent_type,
+        }))
     }
 
     async fn get_latest_agent_lifecycle(

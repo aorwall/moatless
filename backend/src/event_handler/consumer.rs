@@ -510,7 +510,11 @@ impl EventHandlerConsumer {
                 | TaskSubType::Closed
                 | TaskSubType::Updated,
             )
-            | EventKey::TaskTurn(TaskTurnSubType::Active) => {
+            | EventKey::TaskTurn(TaskTurnSubType::Active | TaskTurnSubType::Interrupted) => {
+                // `turn_interrupted` is an observability marker only — the turn
+                // resumes when the pod reschedules, and the eventual terminal
+                // event (or the reaper's reconcile) still closes it. No DB
+                // side-effect here, just SSE fan-out.
                 debug!(
                     task_id = %event.task_id,
                     event_type = %event.event_type,

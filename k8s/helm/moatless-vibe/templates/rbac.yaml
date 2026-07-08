@@ -69,6 +69,8 @@ metadata:
     {{- include "moatless-vibe.labels" . | nindent 4 }}
 rules:
   # K8s Events — used by sandbox diagnostics (pod_reader::fetch_pod_runtime_events)
+  # and the pod watcher (pod_watcher::fetch_pod_event_cause) to name the cause of
+  # scheduling_blocked / startup_slow windows.
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["get", "list"]

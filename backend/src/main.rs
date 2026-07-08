@@ -176,6 +176,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(moatless_vibe_backend::plugin_repo::dao::PgPluginRepoRepository(p.clone()))
             as Arc<dyn moatless_vibe_backend::plugin_repo::dao::PluginRepoRepository>
     });
+    let sandbox_task_events: Option<
+        Arc<dyn moatless_vibe_backend::task_event::dao::TaskEventRepository>,
+    > = db_pool.as_ref().map(|p| {
+        Arc::new(moatless_vibe_backend::task_event::dao::PgTaskEventRepository(p.clone()))
+            as Arc<dyn moatless_vibe_backend::task_event::dao::TaskEventRepository>
+    });
     let sandbox_secrets: Option<Arc<moatless_vibe_backend::secret::service::SecretService>> =
         db_pool.as_ref().map(|p| {
             let secret_records: Arc<dyn moatless_vibe_backend::secret::dao::SecretRepository> =
@@ -209,6 +215,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 sandbox_repos.clone(),
                 sandbox_provider_tokens.clone(),
                 sandbox_plugin_repos.clone(),
+                sandbox_task_events.clone(),
                 Arc::new(config.clone()),
             );
             info!(

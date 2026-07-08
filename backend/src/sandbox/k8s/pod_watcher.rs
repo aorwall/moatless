@@ -17,10 +17,12 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use futures::TryStreamExt;
-use k8s_openapi::api::core::v1::Pod;
-use kube::api::{Api, LogParams};
+use k8s_openapi::api::core::v1::{Event as CoreEvent, Pod};
+use kube::api::{Api, ListParams, LogParams};
 use kube::runtime::watcher::{self, Config as WatcherConfig};
-use moatless_events::{SandboxEventPayload, SandboxStatus, ServerEventPayload, ServerSubType};
+use moatless_events::{
+    SandboxEventPayload, SandboxStatus, ServerEventPayload, ServerSubType, TaskTurnSubType,
+};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
@@ -39,6 +41,7 @@ use crate::plugin_repo::dao::PluginRepoRepository;
 use crate::repository::dao::RepoRepository;
 use crate::sandbox::jwt;
 use crate::task::dao::{TaskPatch, TaskRepository};
+use crate::task_event::dao::TaskEventRepository;
 
 /// Optional DB + config dependencies the watcher needs to auto-disable a
 /// crash-looping server container. All repositories are optional because the
@@ -50,8 +53,21 @@ struct WatcherDeps {
     repos: Option<Arc<dyn RepoRepository>>,
     provider_tokens: Option<Arc<dyn ProviderTokenRepository>>,
     plugin_repos: Option<Arc<dyn PluginRepoRepository>>,
+    /// Task-event repo, used to look up the active turn when a pod terminates
+    /// involuntarily so `turn_interrupted` carries the right turn context (and
+    /// is suppressed when no turn is in flight). `None` in DB-less setups.
+    task_events: Option<Arc<dyn TaskEventRepository>>,
     config: Arc<Config>,
 }
+
+/// Pod-Pending duration after which the watcher emits `scheduling_blocked`,
+/// surfacing an otherwise-silent unschedulable window (no node, quota, etc.).
+const SCHEDULING_BLOCKED_THRESHOLD_SECS: i64 = 60;
+
+/// Time a scheduled pod may sit with its sandbox container not yet running
+/// before the watcher emits `startup_slow` — makes a long volume-attach or
+/// image-pull window (e.g. EBS RWO Multi-Attach) a first-class event.
+const STARTUP_SLOW_THRESHOLD_SECS: i64 = 120;
 
 /// Exit code used by the sandbox to signal a permanent init failure (sysexits EX_CONFIG).
 const PERMANENT_FAILURE_EXIT_CODE: i32 = 78;
@@ -115,6 +131,13 @@ struct PodObservedState {
     /// Pod `creationTimestamp` as epoch milliseconds, used to derive
     /// `pending_seconds` on the Pending→scheduled edge.
     created_at_ms: Option<i64>,
+    /// Fire-once guard: a `scheduling_blocked` event has been emitted for this
+    /// pod's stuck-Pending window. Carried over so the threshold sweep emits at
+    /// most one blocked event per pod.
+    scheduling_blocked_published: bool,
+    /// Fire-once guard: a `startup_slow` event has been emitted for this pod's
+    /// slow-container-start window (e.g. long volume attach).
+    startup_slow_published: bool,
 }
 
 impl PodObservedState {
@@ -149,6 +172,7 @@ pub fn spawn_pod_lifecycle_watcher(
     repos: Option<Arc<dyn RepoRepository>>,
     provider_tokens: Option<Arc<dyn ProviderTokenRepository>>,
     plugin_repos: Option<Arc<dyn PluginRepoRepository>>,
+    task_events: Option<Arc<dyn TaskEventRepository>>,
     config: Arc<Config>,
 ) -> JoinHandle<()> {
     let identity = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
@@ -165,6 +189,7 @@ pub fn spawn_pod_lifecycle_watcher(
         repos,
         provider_tokens,
         plugin_repos,
+        task_events,
         config,
     };
 
@@ -249,6 +274,11 @@ async fn run_pod_watch(
                         return;
                     }
                 }
+                // Time-based sweep: the watch stream only fires on pod changes, so
+                // a pod that sits Pending or ContainerCreating for minutes produces
+                // no events. This tick turns those silent windows into
+                // scheduling_blocked / startup_slow events (fire-once per pod).
+                sweep_pending_pods(k8s, event_publisher, &mut pod_states).await;
             }
             event = stream.try_next() => {
                 match event {
@@ -562,6 +592,10 @@ async fn process_watcher_event(
                 new_state.fatal_published = prev.fatal_published;
                 new_state.auto_disabled_servers = prev.auto_disabled_servers.clone();
                 new_state.startup_recorded = prev.startup_recorded;
+                // Sticky fire-once guards for the threshold sweep, so re-observing
+                // a still-stuck pod doesn't re-emit its blocked/slow event.
+                new_state.scheduling_blocked_published = prev.scheduling_blocked_published;
+                new_state.startup_slow_published = prev.startup_slow_published;
             }
             if transitions.iter().any(|(sub, _)| sub == "pod_ready") {
                 new_state.fatal_published = false;
@@ -643,6 +677,16 @@ async fn process_watcher_event(
                             ..Default::default()
                         },
                     )
+                    .await;
+
+                // If a turn is in flight, surface the interruption immediately as
+                // a taskTurn fact (with cause) instead of waiting up to ~5 min for
+                // the reaper's delayed `reconciled_orphaned_turn`.
+                let cause = new_state
+                    .disruption_reason
+                    .clone()
+                    .or_else(|| new_state.effective_terminated_reason());
+                emit_turn_interrupted_if_active(deps, event_publisher, &task_id, cause.as_deref())
                     .await;
 
                 new_state.fatal_published = true;
@@ -1363,6 +1407,8 @@ fn extract_pod_observed_state(pod: &Pod, pod_name: &str, task_id: &str) -> PodOb
         node_name,
         disruption_reason,
         created_at_ms,
+        scheduling_blocked_published: false,
+        startup_slow_published: false,
     }
 }
 
@@ -1535,6 +1581,204 @@ async fn fetch_sandbox_logs(k8s: &K8sClient, pod_name: &str, tail_lines: i64) ->
         Err(e) => {
             debug!(pod_name = %pod_name, error = %e, "Failed to fetch sandbox logs for root cause");
             None
+        }
+    }
+}
+
+/// Best-effort lookup of the most relevant K8s Event reason+message for a pod,
+/// used to name the cause of a stuck-Pending / slow-start window (e.g.
+/// `FailedScheduling`, `FailedAttachVolume`, `Multi-Attach error for volume …`).
+///
+/// Lists core/v1 Events with a field selector on `involvedObject.name`, prefers
+/// the last `Warning`-type event, and falls back to the last event of any type.
+/// Returns `None` when nothing is found or the API call fails (e.g. missing RBAC
+/// for events) — the caller degrades to emitting the event without a cause chip.
+async fn fetch_pod_event_cause(k8s: &K8sClient, pod_name: &str) -> Option<String> {
+    let events_api: Api<CoreEvent> = Api::namespaced(k8s.client.clone(), k8s.namespace());
+    let lp = ListParams::default().fields(&format!("involvedObject.name={pod_name}"));
+    let list = match events_api.list(&lp).await {
+        Ok(list) => list,
+        Err(e) => {
+            debug!(pod_name = %pod_name, error = %e, "Failed to list pod events for cause");
+            return None;
+        }
+    };
+
+    // Prefer the newest Warning; fall back to the newest event of any type. K8s
+    // orders list results arbitrarily, so pick by `last_timestamp` explicitly.
+    let newest_warning = list
+        .items
+        .iter()
+        .filter(|e| e.type_.as_deref() == Some("Warning"))
+        .max_by_key(|e| e.last_timestamp.as_ref().map(|t| t.0));
+    let event = match newest_warning {
+        Some(e) => e,
+        None => list
+            .items
+            .iter()
+            .max_by_key(|e| e.last_timestamp.as_ref().map(|t| t.0))?,
+    };
+
+    let reason = event.reason.as_deref().unwrap_or("").trim();
+    let message = event.message.as_deref().unwrap_or("").trim();
+    match (reason.is_empty(), message.is_empty()) {
+        (true, true) => None,
+        (false, true) => Some(reason.to_string()),
+        (true, false) => Some(message.to_string()),
+        (false, false) => Some(format!("{reason}: {message}")),
+    }
+}
+
+/// Emit a `taskTurn` `turn_interrupted` event when the task has a turn in
+/// flight. No-op (with a debug log) when there's no task-event repo, no active
+/// turn, or the lookup fails — the eventual terminal event / reaper still closes
+/// the turn, so a missed interruption marker is a cosmetic loss, not correctness.
+async fn emit_turn_interrupted_if_active(
+    deps: &WatcherDeps,
+    event_publisher: &dyn EventPublisher,
+    task_id: &str,
+    cause: Option<&str>,
+) {
+    let Some(task_events) = deps.task_events.as_ref() else {
+        return;
+    };
+    let turn = match task_events.active_turn_for_task(task_id).await {
+        Ok(Some(turn)) => turn,
+        Ok(None) => {
+            debug!(task_id = %task_id, "Pod interrupted but no active turn — skipping turn_interrupted");
+            return;
+        }
+        Err(e) => {
+            warn!(task_id = %task_id, error = %e, "Failed to look up active turn for turn_interrupted");
+            return;
+        }
+    };
+
+    let message = match cause {
+        Some(c) => format!("Turn interrupted — sandbox pod terminated involuntarily ({c}). Resuming when it reschedules."),
+        None => "Turn interrupted — sandbox pod terminated involuntarily. Resuming when it reschedules.".to_string(),
+    };
+    let mut payload = serde_json::json!({ "message": message });
+    if let Some(c) = cause {
+        payload["reason"] = serde_json::Value::String(c.to_string());
+    }
+
+    info!(
+        task_id = %task_id,
+        turn_number = ?turn.turn_number,
+        cause = ?cause,
+        "Emitting turn_interrupted for active turn"
+    );
+    event_publisher
+        .publish_task_turn_event(
+            task_id,
+            TaskTurnSubType::Interrupted,
+            turn.agent_type.as_deref(),
+            turn.turn_number,
+            payload,
+        )
+        .await;
+}
+
+/// Whether a pod qualifies for a `scheduling_blocked` event: still Pending and
+/// unscheduled (no node) past the threshold, and not already reported. Pure so
+/// the threshold logic is unit-testable without a K8s client.
+fn should_emit_scheduling_blocked(state: &PodObservedState, age_secs: i64) -> bool {
+    !state.scheduling_blocked_published
+        && state.phase == "Pending"
+        && state.node_name.is_none()
+        && age_secs >= SCHEDULING_BLOCKED_THRESHOLD_SECS
+}
+
+/// Whether a pod qualifies for a `startup_slow` event: scheduled onto a node but
+/// its sandbox container still isn't ready long after creation, and the pod
+/// hasn't reached a terminal phase. Pure for unit-testing.
+fn should_emit_startup_slow(state: &PodObservedState, age_secs: i64) -> bool {
+    !state.startup_slow_published
+        && state.node_name.is_some()
+        && !state.ready
+        && state.phase != "Failed"
+        && state.phase != "Succeeded"
+        && age_secs >= STARTUP_SLOW_THRESHOLD_SECS
+}
+
+/// Periodic sweep over tracked pods that emits the threshold-driven visibility
+/// events — `scheduling_blocked` (pod stuck Pending) and `startup_slow` (pod
+/// scheduled but its sandbox container not yet running). Runs on the watcher's
+/// renew tick so multi-minute silent windows become first-class events. Each
+/// event fires at most once per pod via the sticky `*_published` guards.
+async fn sweep_pending_pods(
+    k8s: &K8sClient,
+    event_publisher: &dyn EventPublisher,
+    pod_states: &mut HashMap<String, PodObservedState>,
+) {
+    let now_ms = k8s_openapi::jiff::Timestamp::now().as_millisecond();
+
+    for state in pod_states.values_mut() {
+        let Some(created) = state.created_at_ms else {
+            continue;
+        };
+        let age_secs = (now_ms - created).max(0) / 1000;
+
+        // scheduling_blocked: still Pending and unscheduled past the threshold.
+        if should_emit_scheduling_blocked(state, age_secs) {
+            let cause = fetch_pod_event_cause(k8s, &state.pod_name).await;
+            warn!(
+                task_id = %state.task_id,
+                pod_name = %state.pod_name,
+                age_secs,
+                cause = ?cause,
+                "Pod stuck Pending past threshold — emitting scheduling_blocked"
+            );
+            event_publisher
+                .publish_sandbox_event_with_payload(
+                    &state.task_id,
+                    SandboxStatus::Initializing,
+                    &SandboxEventPayload {
+                        message: cause.clone().map_or_else(
+                            || format!("Scheduling blocked ({age_secs}s Pending)"),
+                            |c| format!("Scheduling blocked: {c}"),
+                        ),
+                        lifecycle_event: Some("scheduling_blocked".to_string()),
+                        disruption_reason: cause,
+                        pending_seconds: Some(age_secs),
+                        ..Default::default()
+                    },
+                )
+                .await;
+            state.scheduling_blocked_published = true;
+        }
+
+        // startup_slow: scheduled onto a node but the sandbox container still
+        // isn't ready long after creation (e.g. a long EBS attach / image pull).
+        if should_emit_startup_slow(state, age_secs) {
+            let cause = fetch_pod_event_cause(k8s, &state.pod_name).await;
+            warn!(
+                task_id = %state.task_id,
+                pod_name = %state.pod_name,
+                age_secs,
+                waiting_reason = ?state.waiting_reason,
+                cause = ?cause,
+                "Sandbox container slow to start past threshold — emitting startup_slow"
+            );
+            event_publisher
+                .publish_sandbox_event_with_payload(
+                    &state.task_id,
+                    SandboxStatus::Initializing,
+                    &SandboxEventPayload {
+                        message: cause.clone().map_or_else(
+                            || format!("Slow startup ({age_secs}s, not ready)"),
+                            |c| format!("Slow startup: {c}"),
+                        ),
+                        lifecycle_event: Some("startup_slow".to_string()),
+                        node_name: state.node_name.clone(),
+                        disruption_reason: cause,
+                        pending_seconds: Some(age_secs),
+                        ..Default::default()
+                    },
+                )
+                .await;
+            state.startup_slow_published = true;
         }
     }
 }
@@ -1850,5 +2094,92 @@ mod tests {
             lifecycle_sub_type_to_sandbox_status("pod_scheduled"),
             SandboxStatus::Initializing
         );
+    }
+
+    fn base_state(phase: &str) -> PodObservedState {
+        extract_pod_observed_state(
+            &pod_with_phase_and_containers(phase, vec![]),
+            "pod-1",
+            "task-1",
+        )
+    }
+
+    /// A pod stuck Pending+unscheduled past the threshold trips
+    /// `scheduling_blocked` exactly once — not before the threshold, not once
+    /// scheduled, and not after it's already been reported.
+    #[test]
+    fn scheduling_blocked_predicate() {
+        let mut s = base_state("Pending");
+        s.node_name = None;
+
+        assert!(!should_emit_scheduling_blocked(
+            &s,
+            SCHEDULING_BLOCKED_THRESHOLD_SECS - 1
+        ));
+        assert!(should_emit_scheduling_blocked(
+            &s,
+            SCHEDULING_BLOCKED_THRESHOLD_SECS
+        ));
+
+        // Once scheduled (node assigned) it no longer qualifies.
+        let mut scheduled = s.clone();
+        scheduled.node_name = Some("ip-10-0-1-42".to_string());
+        assert!(!should_emit_scheduling_blocked(
+            &scheduled,
+            SCHEDULING_BLOCKED_THRESHOLD_SECS + 300
+        ));
+
+        // Fire-once guard.
+        s.scheduling_blocked_published = true;
+        assert!(!should_emit_scheduling_blocked(
+            &s,
+            SCHEDULING_BLOCKED_THRESHOLD_SECS + 300
+        ));
+    }
+
+    /// A scheduled-but-not-ready pod trips `startup_slow` past the threshold, but
+    /// not while ready, nor once it has reached a terminal phase, nor twice.
+    #[test]
+    fn startup_slow_predicate() {
+        let mut s = base_state("Running");
+        s.node_name = Some("ip-10-0-1-42".to_string());
+        s.ready = false;
+
+        assert!(!should_emit_startup_slow(
+            &s,
+            STARTUP_SLOW_THRESHOLD_SECS - 1
+        ));
+        assert!(should_emit_startup_slow(&s, STARTUP_SLOW_THRESHOLD_SECS));
+
+        // Ready pods don't qualify.
+        let mut ready = s.clone();
+        ready.ready = true;
+        assert!(!should_emit_startup_slow(
+            &ready,
+            STARTUP_SLOW_THRESHOLD_SECS + 300
+        ));
+
+        // Terminal phases don't qualify (the fatal path handles those).
+        let mut failed = s.clone();
+        failed.phase = "Failed".to_string();
+        assert!(!should_emit_startup_slow(
+            &failed,
+            STARTUP_SLOW_THRESHOLD_SECS + 300
+        ));
+
+        // Unscheduled pods are scheduling_blocked's job, not startup_slow's.
+        let mut unscheduled = s.clone();
+        unscheduled.node_name = None;
+        assert!(!should_emit_startup_slow(
+            &unscheduled,
+            STARTUP_SLOW_THRESHOLD_SECS + 300
+        ));
+
+        // Fire-once guard.
+        s.startup_slow_published = true;
+        assert!(!should_emit_startup_slow(
+            &s,
+            STARTUP_SLOW_THRESHOLD_SECS + 300
+        ));
     }
 }

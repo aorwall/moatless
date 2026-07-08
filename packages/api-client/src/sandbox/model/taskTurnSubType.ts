@@ -17,4 +17,5 @@ export const TaskTurnSubType = {
   completed: 'completed',
   error: 'error',
   stopped: 'stopped',
+  turn_interrupted: 'turn_interrupted',
 } as const;

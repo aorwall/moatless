@@ -13067,7 +13067,8 @@
           "active",
           "completed",
           "error",
-          "stopped"
+          "stopped",
+          "turn_interrupted"
         ]
       },
       "TeamCredentialResponse": {

@@ -295,6 +295,17 @@ pub enum TaskTurnSubType {
     Completed,
     Error,
     Stopped,
+    /// The turn's sandbox pod terminated involuntarily (eviction, node loss)
+    /// while the turn was active. Emitted immediately by the pod watcher so the
+    /// interruption is visible without waiting for the delayed orphaned-turn
+    /// reconciliation. The turn resumes once the pod reschedules — not a
+    /// terminal error, so `is_error` stays false.
+    ///
+    /// Renamed explicitly: `rename_all = "snake_case"` would yield
+    /// `"interrupted"`, but the wire value (and `as_str`/`TryFrom`/frontend) is
+    /// `"turn_interrupted"` — pin it so the serde-derived OpenAPI schema agrees.
+    #[serde(rename = "turn_interrupted")]
+    Interrupted,
 }
 
 impl TaskTurnSubType {
@@ -304,6 +315,7 @@ impl TaskTurnSubType {
             Self::Completed => "completed",
             Self::Error => "error",
             Self::Stopped => "stopped",
+            Self::Interrupted => "turn_interrupted",
         }
     }
 
@@ -326,6 +338,7 @@ impl TryFrom<&str> for TaskTurnSubType {
             "completed" => Ok(Self::Completed),
             "error" => Ok(Self::Error),
             "stopped" => Ok(Self::Stopped),
+            "turn_interrupted" => Ok(Self::Interrupted),
             other => Err(format!("unknown TaskTurnSubType: {other}")),
         }
     }
@@ -721,7 +734,21 @@ mod tests {
             TaskTurnSubType::try_from("stopped"),
             Ok(TaskTurnSubType::Stopped)
         );
+        assert_eq!(
+            TaskTurnSubType::try_from("turn_interrupted"),
+            Ok(TaskTurnSubType::Interrupted)
+        );
         assert!(TaskTurnSubType::try_from("x").is_err());
+    }
+
+    #[test]
+    fn task_turn_interrupted_round_trips_and_is_not_error() {
+        // Wire string must match the frontend; interruption is recoverable, so
+        // it must not carry the is_error flag (that path drives error handling).
+        assert_eq!(TaskTurnSubType::Interrupted.as_str(), "turn_interrupted");
+        assert_eq!(TaskTurnSubType::Interrupted.to_string(), "turn_interrupted");
+        assert!(!TaskTurnSubType::Interrupted.is_error());
+        assert!(!SubType::TaskTurn(TaskTurnSubType::Interrupted).is_error());
     }
 
     #[test]
