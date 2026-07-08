@@ -25,6 +25,9 @@ import { cn } from '@/lib/utils'
 const SIDEBAR_COOKIE_NAME = 'sidebar_state'
 const SIDEBAR_WIDTH_COOKIE_NAME = 'sidebar_width'
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
+// Persist the open/collapsed state in localStorage so it survives reloads and
+// returning to the app (cookies are write-only here and never read back on init).
+const SIDEBAR_OPEN_STORAGE_KEY = 'sidebar:open'
 const SIDEBAR_WIDTH_MOBILE = '18rem'
 const SIDEBAR_WIDTH_ICON = '3rem'
 const SIDEBAR_KEYBOARD_SHORTCUT = 'b'
@@ -54,6 +57,37 @@ function readSidebarWidthCookie(): number {
     .find((row) => row.startsWith(`${SIDEBAR_WIDTH_COOKIE_NAME}=`))
   const parsed = match ? Number.parseInt(match.split('=')[1], 10) : Number.NaN
   return Number.isFinite(parsed) ? clampSidebarWidth(parsed) : SIDEBAR_WIDTH_DEFAULT
+}
+
+/** Read the persisted sidebar open state from localStorage, or fall back. */
+function readSidebarOpenStorage(fallback: boolean): boolean {
+  if (typeof window === 'undefined') {
+    return fallback
+  }
+  try {
+    const stored = window.localStorage.getItem(SIDEBAR_OPEN_STORAGE_KEY)
+    if (stored === 'true') {
+      return true
+    }
+    if (stored === 'false') {
+      return false
+    }
+    return fallback
+  } catch {
+    return fallback
+  }
+}
+
+/** Persist the sidebar open state to localStorage (best-effort). */
+function writeSidebarOpenStorage(open: boolean) {
+  if (typeof window === 'undefined') {
+    return
+  }
+  try {
+    window.localStorage.setItem(SIDEBAR_OPEN_STORAGE_KEY, String(open))
+  } catch {
+    // localStorage.setItem may throw in private browsing mode
+  }
 }
 
 type SidebarContextProps = {
@@ -111,7 +145,9 @@ function SidebarProvider({
 
   // This is the internal state of the sidebar.
   // We use openProp and setOpenProp for control from outside the component.
-  const [_open, _setOpen] = React.useState(defaultOpen)
+  // Seed from localStorage so the collapsed/expanded state survives reloads,
+  // falling back to defaultOpen on first visit.
+  const [_open, _setOpen] = React.useState(() => readSidebarOpenStorage(defaultOpen))
   const open = openProp ?? _open
   const setOpen = React.useCallback(
     (value: boolean | ((value: boolean) => boolean)) => {
@@ -122,8 +158,9 @@ function SidebarProvider({
         _setOpen(openState)
       }
 
-      // This sets the cookie to keep the sidebar state.
+      // Persist the state so it is restored on reload / return.
       setCookie(SIDEBAR_COOKIE_NAME, openState.toString(), SIDEBAR_COOKIE_MAX_AGE)
+      writeSidebarOpenStorage(openState)
     },
     [setOpenProp, open],
   )
