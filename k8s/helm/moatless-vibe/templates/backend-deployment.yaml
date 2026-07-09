@@ -100,6 +100,8 @@ spec:
               value: {{ .Values.kubernetes.sandboxStorage.enabled | default true | quote }}
             - name: K8S_SANDBOX_STORAGE_SIZE
               value: {{ .Values.kubernetes.sandboxStorage.size | default "3Gi" | quote }}
+            - name: K8S_SANDBOX_DEFAULT_STORAGE_MODE
+              value: {{ .Values.kubernetes.sandboxStorage.defaultMode | default "ebs" | quote }}
             {{- with .Values.kubernetes.sandboxStorage.storageClass }}
             - name: K8S_SANDBOX_STORAGE_CLASS
               value: {{ . | quote }}

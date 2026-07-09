@@ -23,12 +23,34 @@ pub struct ResourceConfig {
     /// copied into container resource specs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage: Option<String>,
-    /// Per-repository storage tier: `"ebs"` (default — a per-task EBS PVC mounted
-    /// at `/opt/moatless`, surviving pod restarts) or `"ephemeral"` (a node-local
-    /// emptyDir, no PVC; transcripts persist only via the S3 sync). Unset / unknown
-    /// values are treated as `"ebs"`.
+    /// Per-repository storage tier. One of [`STORAGE_MODES`]:
+    /// - `"ebs"` (default) — a per-task EBS PVC mounted at `/opt/moatless`,
+    ///   surviving pod restarts.
+    /// - `"ephemeral"` — a node-local emptyDir, no PVC; transcripts persist only
+    ///   via the S3 sync, the workspace does not survive the pod.
+    /// - `"s3"` — a node-local emptyDir plus a direct git-working-tree sync to S3,
+    ///   giving workspace persistence without an EBS attach/detach per restart.
+    ///
+    /// When unset, the deployment-wide default applies
+    /// (`K8S_SANDBOX_DEFAULT_STORAGE_MODE`, itself defaulting to `"ebs"`).
+    /// Unknown values are ignored (treated as unset).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage_mode: Option<String>,
+}
+
+/// Accepted values for [`ResourceConfig::storage_mode`]. `"ebs"` is the built-in
+/// fallback; the effective default for repos that leave `storage_mode` unset is
+/// set per-deployment via `K8S_SANDBOX_DEFAULT_STORAGE_MODE`.
+pub const STORAGE_MODES: [&str; 3] = ["ebs", "ephemeral", "s3"];
+
+/// Whether `mode` is a recognized [`ResourceConfig::storage_mode`] value.
+///
+/// Matching is case-insensitive and ignores surrounding whitespace, mirroring
+/// the backend's `StorageBackend::from_plan` resolution.
+#[must_use]
+pub fn is_valid_storage_mode(mode: &str) -> bool {
+    let normalized = mode.trim().to_ascii_lowercase();
+    STORAGE_MODES.contains(&normalized.as_str())
 }
 
 // =============================================================================
@@ -211,5 +233,19 @@ mod tests {
             serde_json::from_value(serde_json::json!({ "storageMode": "ephemeral" }))
                 .expect("deserialize ResourceConfig");
         assert_eq!(cfg.storage_mode.as_deref(), Some("ephemeral"));
+    }
+
+    #[test]
+    fn storage_mode_validation_accepts_known_and_normalizes() {
+        assert!(is_valid_storage_mode("ebs"));
+        assert!(is_valid_storage_mode("ephemeral"));
+        assert!(is_valid_storage_mode("s3"));
+        // Case-insensitive + whitespace-tolerant, matching the backend resolver.
+        assert!(is_valid_storage_mode("  S3 "));
+        assert!(is_valid_storage_mode("EBS"));
+        // Unknown values are rejected so the CLI can catch typos early.
+        assert!(!is_valid_storage_mode("s33"));
+        assert!(!is_valid_storage_mode("pvc"));
+        assert!(!is_valid_storage_mode(""));
     }
 }

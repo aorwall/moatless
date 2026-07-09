@@ -1,7 +1,8 @@
 //! Reads `.moatless/config.json` from remote repositories via provider APIs.
 
+use moatless_api_schemas::repository::{is_valid_storage_mode, STORAGE_MODES};
 use serde::Deserialize;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::sandbox::models::ServerConfig;
 
@@ -178,6 +179,23 @@ pub fn config_to_patch(config: &MoatlessRepoConfig) -> Result<RepositoryPatch, R
 
     let system_prompt = config.system_prompt.as_ref().map(|s| Some(s.clone()));
 
+    // A committed `.moatless/config.json` can set the storage tier. An
+    // unrecognized value isn't fatal — provisioning falls back to the EBS tier —
+    // but warn so a typo (e.g. "s33") doesn't silently strand a repo on EBS.
+    if let Some(mode) = config
+        .resources
+        .as_ref()
+        .and_then(|r| r.storage_mode.as_deref())
+    {
+        if !is_valid_storage_mode(mode) {
+            warn!(
+                storage_mode = %mode,
+                valid = %STORAGE_MODES.join(", "),
+                "Unrecognized resources.storageMode in .moatless/config.json; provisioning will fall back to the ebs tier"
+            );
+        }
+    }
+
     let resources = config
         .resources
         .as_ref()
@@ -301,6 +319,29 @@ mod tests {
             value.get("storage_mode").is_none(),
             "snake_case key must not leak into stored JSONB"
         );
+    }
+
+    #[test]
+    fn config_carries_s3_storage_mode_from_git_repo_to_patch() {
+        // The `s3` tier must survive repo config sync end-to-end the same way
+        // `ephemeral` does: read from camelCase, round-trip back to camelCase in
+        // the stored JSONB so provision-time deserialize resolves it.
+        let json = r#"{ "resources": { "storageMode": "s3" } }"#;
+        let config: MoatlessRepoConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            config
+                .resources
+                .as_ref()
+                .and_then(|r| r.storage_mode.as_deref()),
+            Some("s3")
+        );
+
+        let patch = config_to_patch(&config).unwrap();
+        let value = patch
+            .resources
+            .expect("resources field set")
+            .expect("resources value present");
+        assert_eq!(value.get("storageMode"), Some(&serde_json::json!("s3")));
     }
 
     #[test]

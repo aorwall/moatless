@@ -1,7 +1,9 @@
 //! Storage backend selection for sandbox workspaces.
 //!
 //! A repository picks how its sandbox workspace (`/opt/moatless`) is persisted
-//! via `resources.storage_mode`. Three backends exist:
+//! via `resources.storage_mode`; when a repo leaves it unset, the
+//! deployment-wide default (`K8S_SANDBOX_DEFAULT_STORAGE_MODE`) applies. Three
+//! backends exist:
 //!
 //! - [`StorageBackend::Ebs`] (default) — a per-task EBS PVC, `ReadWriteOnce`,
 //!   surviving pod restarts. Reliable but forces `strategy: Recreate` + a drain
@@ -30,20 +32,31 @@ pub enum StorageBackend {
 }
 
 impl StorageBackend {
-    /// Resolve the backend from `resources.storage_mode` (case-insensitive,
-    /// trimmed). Unset / unknown values fall back to [`StorageBackend::Ebs`].
-    pub fn from_plan(plan: &ProvisionPlan) -> Self {
-        let mode = plan
-            .repo_config
+    /// Parse a single `storage_mode` string (case-insensitive, trimmed).
+    /// Returns `None` for empty / unrecognized values.
+    fn parse(mode: &str) -> Option<Self> {
+        match mode.trim().to_ascii_lowercase().as_str() {
+            "ebs" => Some(Self::Ebs),
+            "ephemeral" => Some(Self::Ephemeral),
+            "s3" => Some(Self::S3),
+            _ => None,
+        }
+    }
+
+    /// Resolve the backend for a provisioning plan.
+    ///
+    /// A per-repo `resources.storage_mode` wins when set to a recognized value.
+    /// Otherwise the deployment-wide `default_mode` applies (from
+    /// `K8S_SANDBOX_DEFAULT_STORAGE_MODE`). If both are unset/unrecognized, falls
+    /// back to [`StorageBackend::Ebs`] — the safe default that needs no S3.
+    pub fn from_plan(plan: &ProvisionPlan, default_mode: &str) -> Self {
+        plan.repo_config
             .resources
             .as_ref()
             .and_then(|r| r.storage_mode.as_deref())
-            .map(|m| m.trim().to_ascii_lowercase());
-        match mode.as_deref() {
-            Some("ephemeral") => Self::Ephemeral,
-            Some("s3") => Self::S3,
-            _ => Self::Ebs,
-        }
+            .and_then(Self::parse)
+            .or_else(|| Self::parse(default_mode))
+            .unwrap_or(Self::Ebs)
     }
 
     /// True only for [`StorageBackend::Ebs`] — the sole backend that provisions
@@ -65,5 +78,92 @@ impl StorageBackend {
             Self::Ephemeral => "ephemeral",
             Self::S3 => "s3",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::repository::models::ResourceConfig;
+    use crate::sandbox::models::RepoConfig;
+
+    /// Build a minimal plan whose repo either sets `storage_mode` or leaves it
+    /// unset (`None`), so default resolution can be exercised in isolation.
+    fn plan_with_mode(mode: Option<&str>) -> ProvisionPlan {
+        ProvisionPlan {
+            repo_config: RepoConfig {
+                name: "test-repo".to_string(),
+                docker_image: None,
+                servers: None,
+                plugin_ids: None,
+                system_prompt: None,
+                code_execution: None,
+                preview_config: None,
+                resources: mode.map(|m| ResourceConfig {
+                    storage_mode: Some(m.to_string()),
+                    ..Default::default()
+                }),
+                plugin_repos: None,
+                docker_access: None,
+                docker_networks: None,
+            },
+            git_clone_url: "https://example.com/repo.git".to_string(),
+            git_branch: None,
+            git_provider: "github".to_string(),
+            env_vars: None,
+        }
+    }
+
+    #[test]
+    fn repo_mode_overrides_default() {
+        // A repo's explicit mode always wins, whatever the deployment default.
+        assert_eq!(
+            StorageBackend::from_plan(&plan_with_mode(Some("ephemeral")), "s3"),
+            StorageBackend::Ephemeral
+        );
+        assert_eq!(
+            StorageBackend::from_plan(&plan_with_mode(Some("ebs")), "s3"),
+            StorageBackend::Ebs
+        );
+        // Case/space-insensitive.
+        assert_eq!(
+            StorageBackend::from_plan(&plan_with_mode(Some("  S3 ")), "ebs"),
+            StorageBackend::S3
+        );
+    }
+
+    #[test]
+    fn default_applies_when_repo_unset() {
+        // No per-repo mode → the deployment default decides.
+        assert_eq!(
+            StorageBackend::from_plan(&plan_with_mode(None), "s3"),
+            StorageBackend::S3
+        );
+        assert_eq!(
+            StorageBackend::from_plan(&plan_with_mode(None), "ephemeral"),
+            StorageBackend::Ephemeral
+        );
+        assert_eq!(
+            StorageBackend::from_plan(&plan_with_mode(None), "ebs"),
+            StorageBackend::Ebs
+        );
+    }
+
+    #[test]
+    fn unknown_values_fall_back_to_ebs() {
+        // An unrecognized repo mode falls through to the default...
+        assert_eq!(
+            StorageBackend::from_plan(&plan_with_mode(Some("bogus")), "s3"),
+            StorageBackend::S3
+        );
+        // ...and an unrecognized default (or both unset) lands on safe EBS.
+        assert_eq!(
+            StorageBackend::from_plan(&plan_with_mode(Some("bogus")), "also-bogus"),
+            StorageBackend::Ebs
+        );
+        assert_eq!(
+            StorageBackend::from_plan(&plan_with_mode(None), ""),
+            StorageBackend::Ebs
+        );
     }
 }

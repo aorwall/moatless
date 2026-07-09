@@ -57,7 +57,8 @@ impl SandboxProvider for K8sSandboxProvider {
         // Time the whole provision so the `ebs` PVC path (attach) and the
         // node-local backends can be compared. The body runs in an inner async
         // block so every early return is captured at a single measurement point.
-        let backend = StorageBackend::from_plan(&request.plan);
+        let backend =
+            StorageBackend::from_plan(&request.plan, &self.config.sandbox.default_storage_mode);
         let started = std::time::Instant::now();
         let result: Result<ProvisionResponse, SandboxError> = async {
         info!(task_id = %task_id, user_id = %request.user_id, "Provisioning sandbox");
@@ -537,7 +538,7 @@ impl K8sSandboxProvider {
         task_id: &str,
         plan: &ProvisionPlan,
     ) -> Result<String, String> {
-        if !StorageBackend::from_plan(plan).uses_pvc() {
+        if !StorageBackend::from_plan(plan, &self.config.sandbox.default_storage_mode).uses_pvc() {
             info!(task_id, "Non-EBS storage backend — skipping PVC creation");
             return Ok(String::new());
         }

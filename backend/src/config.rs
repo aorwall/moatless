@@ -266,6 +266,11 @@ pub struct SandboxConfig {
     pub storage_size: String,
     /// PVC storage class
     pub storage_class: Option<String>,
+    /// Default workspace storage backend for repos that don't set
+    /// `resources.storage_mode` (env `K8S_SANDBOX_DEFAULT_STORAGE_MODE`).
+    /// One of `ebs` / `ephemeral` / `s3`; unknown values fall back to `ebs`.
+    /// A per-repo `storage_mode` always overrides this.
+    pub default_storage_mode: String,
     /// Pod startup timeout in seconds
     pub pod_startup_timeout_secs: u64,
     /// Secret for signing task auth JWTs
@@ -816,6 +821,7 @@ impl Config {
                 storage_enabled: env_bool("K8S_SANDBOX_STORAGE_ENABLED", true),
                 storage_size: env_str("K8S_SANDBOX_STORAGE_SIZE", "3Gi"),
                 storage_class: env_opt("K8S_SANDBOX_STORAGE_CLASS"),
+                default_storage_mode: env_str("K8S_SANDBOX_DEFAULT_STORAGE_MODE", "ebs"),
                 pod_startup_timeout_secs: env_or("K8S_POD_STARTUP_TIMEOUT_SECS", 120),
                 task_token_secret: env_opt("TASK_TOKEN_SECRET"),
                 file_mount_path: env_str("SANDBOX_FILE_MOUNT_PATH", "/mnt/uploads"),
@@ -1231,6 +1237,7 @@ mod tests {
                 storage_enabled: false,
                 storage_size: "1Gi".into(),
                 storage_class: None,
+                default_storage_mode: "ebs".into(),
                 pod_startup_timeout_secs: 10,
                 task_token_secret: None,
                 file_mount_path: "/tmp".into(),

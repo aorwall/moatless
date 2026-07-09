@@ -513,10 +513,19 @@ kubernetes:
     # -- Storage class for sandbox PVCs (empty = cluster default)
     storageClass: ""
     # -- Default size of each task's workspace (the per-task EBS PVC, or the
-    #    node-local emptyDir for the ephemeral tier). Big repos can opt into more
-    #    via `.moatless/config.json` -> `resources.storage`; a repo can drop the
-    #    PVC entirely with `resources.storageMode: ephemeral`.
+    #    node-local emptyDir for the ephemeral/s3 tiers). Big repos can opt into
+    #    more via `.moatless/config.json` -> `resources.storage`; a repo can drop
+    #    the PVC entirely with `resources.storageMode: ephemeral`.
     size: "3Gi"
+    # -- Default workspace storage backend for repos that don't set
+    #    `resources.storageMode` themselves (`ebs` | `ephemeral` | `s3`).
+    #    `s3` runs on a node-local emptyDir and syncs the git working tree to S3
+    #    (no per-task EBS PVC, no attach/detach churn on restart). Trade-off:
+    #    gitignored build output (target/, node_modules/, ...) is NOT synced, so
+    #    it must be rebuilt after a cold stop. Requires the S3 uploads bucket to
+    #    be configured (same one used by transcriptStorage). A per-repo
+    #    `storageMode` always overrides this.
+    defaultMode: "s3"
   # Sandbox Claude transcript sync to S3.
   # The sandbox tars `~/.claude/projects/*.jsonl` and ships it to the uploads
   # bucket via the backend (no pod AWS creds), so transcripts persist off the

@@ -467,7 +467,9 @@ fn build_sandbox_container(
     // (no PVC) and syncs the git working tree to S3 via presigned URLs — flag the
     // sandbox so it starts its workspace-sync loop and restores on boot. `ebs`
     // and `ephemeral` leave this unset (loop stays off).
-    if super::storage::StorageBackend::from_plan(plan).syncs_workspace() {
+    if super::storage::StorageBackend::from_plan(plan, &config.sandbox.default_storage_mode)
+        .syncs_workspace()
+    {
         env.push(env_var("WORKSPACE_SYNC_ENABLED", "true"));
     }
 
@@ -979,6 +981,7 @@ mod tests {
                 storage_enabled: false,
                 storage_size: "1Gi".into(),
                 storage_class: None,
+                default_storage_mode: "ebs".into(),
                 pod_startup_timeout_secs: 10,
                 task_token_secret: Some("secret".into()),
                 file_mount_path: "/tmp".into(),

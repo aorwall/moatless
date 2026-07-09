@@ -3291,6 +3291,7 @@ dependencies = [
  "moatless-events",
  "notify",
  "prost",
+ "reqwest",
  "sandbox-proto",
  "serde",
  "serde_json",

@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use clap::Subcommand;
 use moatless_api_schemas::enums::{RepositoryKind, RepositoryProvider, Scope};
 use moatless_api_schemas::repository::{
-    CreateRepositoryRequest, RepositoryResponse, ResourceConfig, ServerConfig,
-    UpdateRepositoryRequest,
+    CreateRepositoryRequest, is_valid_storage_mode, RepositoryResponse, ResourceConfig,
+    ServerConfig, STORAGE_MODES, UpdateRepositoryRequest,
 };
 
 use crate::client::{ClientError, MoatClient};
@@ -48,7 +48,8 @@ pub enum RepoAction {
         /// object, so pass all desired resource flags together.
         #[arg(long)]
         storage: Option<String>,
-        /// Storage tier: "ebs" (default, per-task PVC) or "ephemeral" (node-local emptyDir, no PVC)
+        /// Storage tier: "ebs" (default, per-task PVC), "ephemeral" (node-local
+        /// emptyDir, no PVC), or "s3" (node-local emptyDir + git-tree sync to S3)
         #[arg(long)]
         storage_mode: Option<String>,
         /// Docker image for sandbox (e.g. "myregistry/my-sandbox:latest")
@@ -127,7 +128,8 @@ pub enum RepoAction {
         /// object, so pass all desired resource flags together.
         #[arg(long)]
         storage: Option<String>,
-        /// Storage tier: "ebs" (default, per-task PVC) or "ephemeral" (node-local emptyDir, no PVC)
+        /// Storage tier: "ebs" (default, per-task PVC), "ephemeral" (node-local
+        /// emptyDir, no PVC), or "s3" (node-local emptyDir + git-tree sync to S3)
         #[arg(long)]
         storage_mode: Option<String>,
         /// Docker image for sandbox (e.g. "myregistry/my-sandbox:latest")
@@ -232,6 +234,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             team_id,
             scope,
         } => {
+            validate_storage_mode(storage_mode.as_deref())?;
             let resources = build_resource_config(
                 resource_cpu_request,
                 resource_cpu_limit,
@@ -317,6 +320,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             enable_inspector,
             auto_reload,
         } => {
+            validate_storage_mode(storage_mode.as_deref())?;
             let resources = build_resource_config(
                 resource_cpu_request,
                 resource_cpu_limit,
@@ -426,6 +430,18 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
         }
     }
     Ok(())
+}
+
+/// Reject an unknown `--storage-mode` before it silently falls back to the EBS
+/// tier at provision time. `None` (flag omitted) is always accepted.
+fn validate_storage_mode(mode: Option<&str>) -> Result<(), ClientError> {
+    match mode {
+        Some(m) if !is_valid_storage_mode(m) => Err(ClientError::Other(format!(
+            "Invalid --storage-mode '{m}'. Valid values: {}",
+            STORAGE_MODES.join(", ")
+        ))),
+        _ => Ok(()),
+    }
 }
 
 /// Build a `ResourceConfig` from individual CLI flags.
@@ -649,5 +665,27 @@ fn format_repo_detail(r: &RepositoryResponse) {
     }
     if let Some(reload) = r.auto_reload {
         println!("Auto-reload: {reload}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_storage_mode_accepts_known_and_omitted() {
+        assert!(validate_storage_mode(None).is_ok());
+        assert!(validate_storage_mode(Some("ebs")).is_ok());
+        assert!(validate_storage_mode(Some("ephemeral")).is_ok());
+        assert!(validate_storage_mode(Some("s3")).is_ok());
+        assert!(validate_storage_mode(Some(" S3 ")).is_ok());
+    }
+
+    #[test]
+    fn validate_storage_mode_rejects_unknown_with_hint() {
+        let err = validate_storage_mode(Some("s33")).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("s33"), "error names the bad value: {msg}");
+        assert!(msg.contains("s3"), "error lists valid values: {msg}");
     }
 }
