@@ -1,4 +1,4 @@
-import { Timer } from 'lucide-react'
+import { ExternalLink, Timer } from 'lucide-react'
 import { SandboxActionButtons } from '@/features/sandbox/components/sandbox-action-buttons'
 import { useSandboxStatus } from '@/features/tasks'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
@@ -85,6 +85,15 @@ export function TaskControlPanel({ className }: TaskControlPanelProps) {
   }
   const environmentError = sandboxStatus?.environmentError
 
+  // Preview server to link out to: prefer the one literally named "preview",
+  // then the default server, then the first. Only linkable once the backend has
+  // assigned a `url` (server is running) and it may be opened externally.
+  const servers = sandboxStatus?.servers
+  const previewServer =
+    servers?.find((s) => s.name === 'preview') ?? servers?.find((s) => s.default) ?? servers?.[0]
+  const previewUrl =
+    previewServer?.url && previewServer.capabilities.openExternal ? previewServer.url : undefined
+
   return (
     <div className={cn('flex-1 min-h-0 overflow-y-auto', className)}>
       <div className="w-full px-4 md:px-6 pt-4 pb-6 space-y-4">
@@ -111,6 +120,18 @@ export function TaskControlPanel({ className }: TaskControlPanelProps) {
                 ? environmentError
                 : statusMeta.description}
             </p>
+            {previewUrl && (
+              <a
+                href={previewUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={previewUrl}
+                className="flex items-center gap-2 text-sm text-primary hover:underline"
+              >
+                <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">Open {previewServer?.label ?? 'preview'}</span>
+              </a>
+            )}
             <div>
               <div className="mb-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Timer className="h-3 w-3" />

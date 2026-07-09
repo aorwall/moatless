@@ -182,8 +182,20 @@
     @apply bg-background text-foreground;
   }
   html,
+  body,
+  #app {
+    height: 100%;
+  }
+  html,
   body {
     overscroll-behavior: none;
+  }
+  /* Lock the document to the viewport so only inner scroll containers scroll.
+     Prevents the whole app from scrolling (header/chat drifting off-screen and
+     stray horizontal scroll) on mobile, and keeps layout stable when the
+     on-screen keyboard opens and closes. */
+  body {
+    overflow: hidden;
   }
   button {
     @apply cursor-pointer;
@@ -278,6 +290,33 @@
 [data-streamdown="unordered-list"],
 [data-streamdown="ordered-list"] {
   @apply list-inside pl-4;
+}
+
+/* Break long inline code so it wraps instead of forcing the chat message wider
+   than the viewport (which triggered horizontal scroll on mobile). */
+[data-streamdown="inline-code"] {
+  overflow-wrap: anywhere;
+}
+
+/* Keep fenced code blocks scrolling within their own container rather than
+   stretching the message column. */
+[data-code-block-container] {
+  max-width: 100%;
+}
+
+/* Markdown tables scroll inside their own wrapper (bounded to the message
+   column) instead of widening the whole chat and causing page-level
+   horizontal scroll on mobile. */
+[data-streamdown="table-wrapper"] {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* Never let a markdown image exceed the message column width. */
+[data-streamdown="image"],
+.prose img {
+  max-width: 100%;
+  height: auto;
 }
 
 /* Diff viewer styles */

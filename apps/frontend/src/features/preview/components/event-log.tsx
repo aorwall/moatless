@@ -85,7 +85,14 @@ export function EventLog({ events }: EventLogProps) {
 
   return (
     <div className="h-full w-full bg-background relative">
-      <ScrollArea ref={scrollAreaRef} className="h-full w-full">
+      {/* Force the Radix viewport's inner wrapper to `block` (it defaults to
+          `display:table`, which sizes to max-content and lets long log lines
+          scroll horizontally / defeat the row `truncate`). This keeps the
+          console vertical-scroll only and clips overlong lines to width. */}
+      <ScrollArea
+        ref={scrollAreaRef}
+        className="h-full w-full [&>[data-slot=scroll-area-viewport]>div]:!block [&>[data-slot=scroll-area-viewport]>div]:!min-w-0"
+      >
         <div className="p-4 space-y-1">
           {events.map((event) => (
             <EventRow key={event.eventId} event={event} />

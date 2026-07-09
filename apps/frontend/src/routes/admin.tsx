@@ -23,7 +23,7 @@ export const Route = createFileRoute('/admin')({
 function AdminLayout() {
   return (
     <SidebarProvider>
-      <div className="flex h-dvh w-full">
+      <div className="flex h-full w-full">
         <AdminSidebar />
         <div className="flex-1 overflow-auto">
           <Outlet />
