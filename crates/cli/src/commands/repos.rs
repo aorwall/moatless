@@ -107,6 +107,12 @@ pub enum RepoAction {
         repo_id: String,
         #[arg(long)]
         name: Option<String>,
+        /// Change access scope: global, team, or user (re-resolves team/owner)
+        #[arg(long)]
+        scope: Option<String>,
+        /// Target team ID when moving to team scope
+        #[arg(long)]
+        team_id: Option<String>,
         #[arg(long)]
         branch: Option<String>,
         #[arg(long)]
@@ -297,6 +303,8 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
         RepoAction::Update {
             repo_id,
             name,
+            scope,
+            team_id,
             branch,
             git_url,
             resource_cpu_request,
@@ -337,8 +345,21 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 }
                 None => None,
             };
+            let parsed_scope = match scope.as_deref() {
+                Some(s) => match parse_scope(s) {
+                    Some(sc) => Some(sc),
+                    None => {
+                        return Err(ClientError::Other(format!(
+                            "Invalid --scope '{s}' (expected: global, team, or user)"
+                        )));
+                    }
+                },
+                None => None,
+            };
             let req = UpdateRepositoryRequest {
                 name,
+                scope: parsed_scope,
+                team_id,
                 default_branch: branch,
                 remote_url: git_url,
                 auto_reload,

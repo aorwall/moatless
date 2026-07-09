@@ -5,13 +5,16 @@ use sqlx::AssertSqlSafe;
 
 use super::models::{Repository, RepositoryKind, RepositoryProvider};
 use crate::db::DbPool;
-use crate::scope::{ScopeContext, ScopedEntity};
+use crate::scope::{Scope, ScopeContext, ScopedEntity};
 
 /// Patch struct for partial updates.
 #[derive(Default)]
 pub struct RepositoryPatch {
     pub name: Option<String>,
     pub kind: Option<RepositoryKind>,
+    pub scope: Option<Scope>,
+    pub team_id: Option<Option<String>>,
+    pub owner_user_id: Option<Option<String>>,
     pub remote_url: Option<Option<String>>,
     pub default_branch: Option<Option<String>>,
     pub docker_image: Option<Option<String>>,
@@ -190,6 +193,9 @@ impl RepoRepository for PgRepoRepository {
 
         push_set!(name);
         push_set!(kind);
+        push_set!(scope);
+        push_set!(team_id);
+        push_set!(owner_user_id);
         push_set!(remote_url);
         push_set!(default_branch);
         push_set!(docker_image);
@@ -233,6 +239,9 @@ impl RepoRepository for PgRepoRepository {
 
         bind_opt!(name);
         bind_opt!(kind);
+        bind_opt!(scope);
+        bind_opt!(team_id);
+        bind_opt!(owner_user_id);
         bind_opt!(remote_url);
         bind_opt!(default_branch);
         bind_opt!(docker_image);

@@ -280,7 +280,26 @@ pub async fn update_repository(
     .await?;
     validate_non_secret_env_vars(req.env_vars.as_ref())?;
 
+    // Changing scope re-resolves team_id/owner_user_id and re-validates that the
+    // caller is allowed to own a resource at the target scope (same policy as create).
+    let (scope, team_id, owner_user_id) = match req.scope {
+        Some(new_scope) => {
+            let resolved =
+                resolve_scope_for_create(&state, &auth, Some(new_scope), req.team_id.clone())
+                    .await?;
+            (
+                Some(resolved.scope),
+                Some(Some(resolved.team_id)),
+                Some(resolved.owner_user_id),
+            )
+        }
+        None => (None, None, None),
+    };
+
     let patch = RepositoryPatch {
+        scope,
+        team_id,
+        owner_user_id,
         name: req.name,
         remote_url: req.remote_url.map(Some),
         default_branch: req.default_branch.map(Some),

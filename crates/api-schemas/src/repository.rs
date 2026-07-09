@@ -129,6 +129,12 @@ pub struct CreateRepositoryRequest {
 #[serde(rename_all = "camelCase")]
 pub struct UpdateRepositoryRequest {
     pub name: Option<String>,
+    /// Change the repository's access scope (`global`, `team`, or `user`).
+    /// When set, `team_id`/`owner_user_id` are re-resolved from the new scope
+    /// (e.g. `global` moves it to the system team with no owner).
+    pub scope: Option<Scope>,
+    /// Target team when moving to `team` scope. Ignored for `global`/`user`.
+    pub team_id: Option<String>,
     pub remote_url: Option<String>,
     pub default_branch: Option<String>,
     pub docker_image: Option<String>,
