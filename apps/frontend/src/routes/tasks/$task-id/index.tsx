@@ -1,6 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { AppSidebar } from '@/features/navigation/components/app-sidebar'
-import { MobileSidebarSwipe } from '@/features/navigation/components/mobile-sidebar-swipe'
 import { TaskPage, TaskProviders } from '@/features/tasks'
 import { useMarkTaskReadOnView } from '@/features/tasks/hooks/use-tasks'
 import { taskSearchSchema } from '@/features/tasks/types/task-search-schema'
@@ -19,7 +18,6 @@ function TaskDetail() {
 
   return (
     <SidebarProvider defaultOpen={false}>
-      <MobileSidebarSwipe />
       <div className="flex h-full w-full">
         <AppSidebar />
         <div className="flex-1 h-full overflow-hidden">

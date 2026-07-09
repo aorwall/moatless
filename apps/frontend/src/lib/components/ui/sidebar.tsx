@@ -4,14 +4,8 @@ import { PanelLeftIcon } from 'lucide-react'
 import * as React from 'react'
 import { Button } from '@/lib/components/ui/button'
 import { Input } from '@/lib/components/ui/input'
+import { MobileSidebarDrawer } from '@/lib/components/ui/mobile-sidebar-drawer'
 import { Separator } from '@/lib/components/ui/separator'
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/lib/components/ui/sheet'
 import { Skeleton } from '@/lib/components/ui/skeleton'
 import {
   Tooltip,
@@ -28,7 +22,6 @@ const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
 // Persist the open/collapsed state in localStorage so it survives reloads and
 // returning to the app (cookies are write-only here and never read back on init).
 const SIDEBAR_OPEN_STORAGE_KEY = 'sidebar:open'
-const SIDEBAR_WIDTH_MOBILE = '18rem'
 const SIDEBAR_WIDTH_ICON = '3rem'
 const SIDEBAR_KEYBOARD_SHORTCUT = 'b'
 
@@ -259,27 +252,13 @@ function Sidebar({
   }
 
   if (isMobile) {
+    // Custom draggable drawer: the panel follows the finger when swiped in from
+    // the left edge (and back out to dismiss) instead of the browser navigating
+    // back. Driven by the same openMobile state, so SidebarTrigger still works.
     return (
-      <Sheet open={openMobile} onOpenChange={setOpenMobile} {...props}>
-        <SheetContent
-          data-sidebar="sidebar"
-          data-slot="sidebar"
-          data-mobile="true"
-          className="bg-sidebar text-sidebar-foreground w-(--sidebar-width) p-0 [&>button]:hidden"
-          style={
-            {
-              '--sidebar-width': SIDEBAR_WIDTH_MOBILE,
-            } as React.CSSProperties
-          }
-          side={side}
-        >
-          <SheetHeader className="sr-only">
-            <SheetTitle>Sidebar</SheetTitle>
-            <SheetDescription>Displays the mobile sidebar.</SheetDescription>
-          </SheetHeader>
-          <div className="flex h-full w-full flex-col">{children}</div>
-        </SheetContent>
-      </Sheet>
+      <MobileSidebarDrawer open={openMobile} onOpenChange={setOpenMobile} className={className}>
+        <div className="flex h-full w-full flex-col">{children}</div>
+      </MobileSidebarDrawer>
     )
   }
 
