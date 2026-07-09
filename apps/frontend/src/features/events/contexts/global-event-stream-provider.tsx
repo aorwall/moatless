@@ -9,7 +9,7 @@ import {
   invalidateMessagesForEvent,
   shouldInvalidateTaskList,
 } from '@/features/events'
-import { applyTaskEventUpdate } from '@/features/tasks/utils/query-helpers'
+import { applyTaskEventUpdate, applyTaskMetadataUpdate } from '@/features/tasks/utils/query-helpers'
 import { queryKeys } from '@/lib/api/query-keys'
 import type { Event, EventType } from '@/lib/types/events'
 
@@ -124,6 +124,27 @@ export function GlobalEventStreamProvider({
     [],
   )
 
+  // Helper: Handle task.updated / task.metadata.updated events. These carry the
+  // changed name/description in the payload, so patch the detail + list caches
+  // directly instead of refetching. Fall back to invalidation only if the
+  // payload has no recognized fields (keeps us correct for unknown future
+  // event shapes).
+  const handleTaskMetadataUpdate = useCallback(
+    (event: Event) => {
+      if (applyTaskMetadataUpdate(queryClient, event)) {
+        return
+      }
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.tasks.detail(event.taskId),
+      })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.tasks.lists(),
+        refetchType: 'active',
+      })
+    },
+    [queryClient],
+  )
+
   // Helper: Apply cache updates and invalidations for events with taskId
   const applyCacheUpdates = useCallback(
     (event: Event) => {
@@ -131,21 +152,12 @@ export function GlobalEventStreamProvider({
         return
       }
 
-      // Special case: task.updated / task.metadata.updated events should force
-      // refetch (name/description/etc changed) and refresh task lists for
-      // observers other than the originating client.
       if (
         event.type === 'task' &&
         (event.subType === 'updated' || event.subType === 'metadata.updated')
       ) {
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.tasks.detail(event.taskId),
-        })
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.tasks.lists(),
-          refetchType: 'active',
-        })
-        return // Skip optimistic updates for metadata changes
+        handleTaskMetadataUpdate(event)
+        return // Handled directly (or via fallback); skip generic paths
       }
 
       // Apply optimistic updates for sandbox status events
@@ -220,9 +232,19 @@ export function GlobalEventStreamProvider({
             })
           }
 
-          // Fallback: invalidate task lists for status-affecting events
-          // This ensures eventual consistency if optimistic updates fail
-          if (shouldInvalidateTaskList(event)) {
+          // Refetch task lists only for `task` events, which can change list
+          // membership (a new task appears via `task.created`, a task enters or
+          // leaves the status-filtered list on `task.open`/`task.closed`) —
+          // things optimistic in-place patches can't do, and the only way other
+          // clients learn about a new task.
+          //
+          // High-frequency agent/taskTurn/sandbox/server events do NOT change
+          // list membership: running indicators are derived from the raw event
+          // stream (useTaskActivity) and per-task sandboxStatus queries, and
+          // status/lastMessageAt are patched in place by applyTaskEventUpdate.
+          // Refetching the whole sidebar on each of those during an active run
+          // was redundant, so it's dropped here.
+          if (event.type === 'task' && shouldInvalidateTaskList(event)) {
             queryClient.invalidateQueries({
               queryKey: queryKeys.tasks.lists(),
               refetchType: 'active',
@@ -231,7 +253,7 @@ export function GlobalEventStreamProvider({
         })
       }
     },
-    [queryClient, updateSandboxStatus],
+    [queryClient, updateSandboxStatus, handleTaskMetadataUpdate],
   )
 
   // Helper: Notify all subscribers about the event

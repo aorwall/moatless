@@ -177,6 +177,51 @@ export function applyTaskEventUpdate(queryClient: QueryClient, event: Event): vo
 }
 
 /**
+ * Applies a `task.metadata.updated` event directly to the cache instead of
+ * refetching. The backend publishes the changed `name`/`description` in the
+ * event payload, so we can patch the task detail + list caches in place.
+ *
+ * Returns `true` if the event was fully handled via a direct write. Returns
+ * `false` when the payload carries no recognized fields (e.g. a future
+ * `task.updated` event with a different shape), so the caller can fall back to
+ * an invalidation to stay correct.
+ */
+export function applyTaskMetadataUpdate(queryClient: QueryClient, event: Event): boolean {
+  if (!event.taskId) {
+    return false
+  }
+
+  const payload = event.payload as { name?: string | null; description?: string | null } | undefined
+
+  const updates: Partial<TaskResponse> = {}
+  // Only apply fields that are actually present as strings. A `null`/absent
+  // value means the field was not part of the update (the PATCH endpoint only
+  // sets provided fields), so we must not overwrite the cached value with null.
+  if (typeof payload?.name === 'string') {
+    updates.name = payload.name
+  }
+  if (typeof payload?.description === 'string') {
+    updates.description = payload.description
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return false
+  }
+
+  const taskId = event.taskId
+  const currentTask = queryClient.getQueryData<TaskResponse>(queryKeys.tasks.detail(taskId))
+  if (currentTask) {
+    queryClient.setQueryData(queryKeys.tasks.detail(taskId), { ...currentTask, ...updates })
+  }
+
+  // Propagate the name/description change to every cached list (the sidebar
+  // renders the task name), including for other clients observing the list.
+  updateTaskInLists(queryClient, taskId, updates)
+
+  return true
+}
+
+/**
  * Determines which query keys to invalidate based on task status change
  */
 export function getInvalidationKeys(
