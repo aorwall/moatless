@@ -526,6 +526,12 @@ pub struct S3Config {
     /// Reuses the uploads bucket — the backend IRSA already has read/write on it.
     /// Env: `TRANSCRIPT_S3_PREFIX`.
     pub transcript_prefix: String,
+    /// S3 key prefix for the `s3` storage backend's workspace archives, stored
+    /// under `<prefix>/<task_id>/workspace.tar`. Reuses the uploads bucket. The
+    /// sandbox never gets S3 credentials — the backend presigns PUT/GET URLs
+    /// scoped to this prefix and the sandbox transfers directly. Env:
+    /// `WORKSPACE_S3_PREFIX` (default: "workspaces").
+    pub workspace_prefix: String,
     /// S3 region (default: "us-east-1")
     pub region: String,
 }
@@ -909,6 +915,7 @@ impl Config {
                 bucket_name: env_opt("S3_BUCKET_NAME"),
                 key_prefix: env_str("S3_KEY_PREFIX", "uploads"),
                 transcript_prefix: env_str("TRANSCRIPT_S3_PREFIX", "transcripts"),
+                workspace_prefix: env_str("WORKSPACE_S3_PREFIX", "workspaces"),
                 region: env_str("S3_REGION", "us-east-1"),
             },
 
@@ -1272,6 +1279,7 @@ mod tests {
                 bucket_name: None,
                 key_prefix: "test".into(),
                 transcript_prefix: "transcripts".into(),
+                workspace_prefix: "workspaces".into(),
                 region: "us-east-1".into(),
             },
             slack: SlackConfig {

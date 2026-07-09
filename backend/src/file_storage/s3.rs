@@ -1,5 +1,8 @@
 //! S3 operations for file storage.
 
+use std::time::Duration;
+
+use aws_sdk_s3::presigning::PresigningConfig;
 use aws_sdk_s3::primitives::ByteStream;
 
 /// Upload a file to S3.
@@ -79,6 +82,54 @@ pub async fn get_object_opt(
             _ => Err(format!("S3 get_object failed: {e}")),
         },
     }
+}
+
+/// Presign an HTTP `PUT` URL for `key`, valid for `ttl`.
+///
+/// The URL is scoped to exactly this bucket + key + `PUT` verb. A holder can
+/// upload that one object until the URL expires and nothing else — this is how
+/// the `s3` storage backend lets an AWS-credential-less sandbox write its
+/// workspace archive directly to S3 without a standing IAM identity. No headers
+/// are bound into the signature, so the caller can `PUT` the body with a plain
+/// HTTP client and no special headers.
+pub async fn presign_put(
+    client: &aws_sdk_s3::Client,
+    bucket: &str,
+    key: &str,
+    ttl: Duration,
+) -> Result<String, String> {
+    let cfg =
+        PresigningConfig::expires_in(ttl).map_err(|e| format!("presign config invalid: {e}"))?;
+    let req = client
+        .put_object()
+        .bucket(bucket)
+        .key(key)
+        .presigned(cfg)
+        .await
+        .map_err(|e| format!("S3 presign put_object failed: {e}"))?;
+    Ok(req.uri().to_string())
+}
+
+/// Presign an HTTP `GET` URL for `key`, valid for `ttl`.
+///
+/// Scoped to this bucket + key + `GET` verb. A `GET` against a missing object
+/// returns HTTP 404, which the sandbox treats as "nothing stored yet".
+pub async fn presign_get(
+    client: &aws_sdk_s3::Client,
+    bucket: &str,
+    key: &str,
+    ttl: Duration,
+) -> Result<String, String> {
+    let cfg =
+        PresigningConfig::expires_in(ttl).map_err(|e| format!("presign config invalid: {e}"))?;
+    let req = client
+        .get_object()
+        .bucket(bucket)
+        .key(key)
+        .presigned(cfg)
+        .await
+        .map_err(|e| format!("S3 presign get_object failed: {e}"))?;
+    Ok(req.uri().to_string())
 }
 
 /// Delete every object under `prefix` in `bucket`. Returns the count deleted.

@@ -356,6 +356,14 @@ fn build_sandbox_container(
     // Git provider (github, gitlab, gitness)
     env.push(env_var("GIT_PROVIDER", &plan.git_provider));
 
+    // Workspace storage backend. The `s3` backend runs on a node-local emptyDir
+    // (no PVC) and syncs the git working tree to S3 via presigned URLs — flag the
+    // sandbox so it starts its workspace-sync loop and restores on boot. `ebs`
+    // and `ephemeral` leave this unset (loop stays off).
+    if super::storage::StorageBackend::from_plan(plan).syncs_workspace() {
+        env.push(env_var("WORKSPACE_SYNC_ENABLED", "true"));
+    }
+
     // REPO_CONFIG env var (pass-through for sandbox)
     if let Some(repo_config_json) = build_repo_config_json(plan) {
         env.push(env_var("REPO_CONFIG", &repo_config_json));

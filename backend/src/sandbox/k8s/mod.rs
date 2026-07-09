@@ -17,3 +17,4 @@ pub mod provider;
 pub mod pvc;
 pub mod service;
 pub mod status_resolver;
+pub mod storage;

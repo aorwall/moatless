@@ -11,8 +11,10 @@ use sandbox_proto::backend_sandbox_service_client::BackendSandboxServiceClient;
 use sandbox_proto::{
     AcknowledgeMessagesRequest, DownloadTranscriptRequest, DownloadUploadRequest,
     DownloadUploadResponse, GetCredentialsRequest, GetCredentialsResponse,
-    GetPendingMessagesRequest, GetSystemPromptRequest, InterruptedTurn, PendingMessage,
-    PublishEventRequest, RecoverInterruptedRunRequest, TranscriptChunk, UpdateCredentialRequest,
+    GetPendingMessagesRequest, GetSystemPromptRequest, GetWorkspaceSyncUrlsRequest,
+    GetWorkspaceSyncUrlsResponse, InterruptedTurn, PendingMessage, PublishEventRequest,
+    RecoverInterruptedRunRequest, ReportWorkspaceSyncRequest, TranscriptChunk,
+    UpdateCredentialRequest,
 };
 use tonic::service::interceptor::InterceptedService;
 use tonic::transport::Channel;
@@ -96,6 +98,31 @@ pub trait BackendClient: Send + Sync {
     /// Download the task's transcript tar from S3 via the backend, reassembling the
     /// streamed chunks. Returns an empty `Vec` when no transcript is stored yet.
     async fn download_transcript(&self, task_id: &str) -> Result<Vec<u8>, tonic::Status>;
+
+    /// Mint short-lived presigned S3 PUT/GET URLs for this task's workspace
+    /// archive (the `s3` storage backend). The sandbox transfers the workspace
+    /// tar directly to/from S3 with these URLs — the backend never sees the
+    /// bytes. Default impl reports the feature unsupported so test doubles that
+    /// don't exercise workspace sync need not implement it.
+    async fn get_workspace_sync_urls(
+        &self,
+        _task_id: &str,
+    ) -> Result<GetWorkspaceSyncUrlsResponse, tonic::Status> {
+        Err(tonic::Status::unimplemented("workspace sync not supported"))
+    }
+
+    /// Report the outcome of a direct-to-S3 workspace transfer so the backend
+    /// can record comparison metrics. Fire-and-forget; the default impl is a
+    /// no-op.
+    async fn report_workspace_sync(
+        &self,
+        _task_id: &str,
+        _direction: &str,
+        _bytes: u64,
+        _duration_ms: u64,
+        _ok: bool,
+    ) {
+    }
 }
 
 /// Auth interceptor that injects a Bearer token on every outbound gRPC call.
@@ -321,5 +348,41 @@ impl BackendClient for BackendGrpcClient {
             data.extend_from_slice(&chunk?.data);
         }
         Ok(data)
+    }
+
+    async fn get_workspace_sync_urls(
+        &self,
+        task_id: &str,
+    ) -> Result<GetWorkspaceSyncUrlsResponse, tonic::Status> {
+        let mut client = self.client.clone();
+        let resp = client
+            .get_workspace_sync_urls(GetWorkspaceSyncUrlsRequest {
+                task_id: task_id.to_string(),
+            })
+            .await?;
+        Ok(resp.into_inner())
+    }
+
+    async fn report_workspace_sync(
+        &self,
+        task_id: &str,
+        direction: &str,
+        bytes: u64,
+        duration_ms: u64,
+        ok: bool,
+    ) {
+        let mut client = self.client.clone();
+        if let Err(e) = client
+            .report_workspace_sync(ReportWorkspaceSyncRequest {
+                task_id: task_id.to_string(),
+                direction: direction.to_string(),
+                bytes: bytes as i64,
+                duration_ms: duration_ms as i64,
+                ok,
+            })
+            .await
+        {
+            debug!(task_id, error = %e, "Failed to report workspace sync (non-fatal)");
+        }
     }
 }

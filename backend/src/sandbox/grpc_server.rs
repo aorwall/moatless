@@ -17,9 +17,11 @@ use sandbox_proto::{
     AcknowledgeMessagesRequest, AcknowledgeMessagesResponse, DownloadTranscriptRequest,
     DownloadUploadRequest, DownloadUploadResponse, GetCredentialsRequest, GetCredentialsResponse,
     GetPendingMessagesRequest, GetPendingMessagesResponse, GetSystemPromptRequest,
-    GetSystemPromptResponse, InterruptedTurn as ProtoInterruptedTurn, PublishEventRequest,
-    PublishEventResponse, RecoverInterruptedRunRequest, RecoverInterruptedRunResponse,
-    TranscriptChunk, UpdateCredentialRequest, UpdateCredentialResponse, UploadTranscriptResponse,
+    GetSystemPromptResponse, GetWorkspaceSyncUrlsRequest, GetWorkspaceSyncUrlsResponse,
+    InterruptedTurn as ProtoInterruptedTurn, PublishEventRequest, PublishEventResponse,
+    RecoverInterruptedRunRequest, RecoverInterruptedRunResponse, ReportWorkspaceSyncRequest,
+    ReportWorkspaceSyncResponse, TranscriptChunk, UpdateCredentialRequest, UpdateCredentialResponse,
+    UploadTranscriptResponse,
 };
 
 use crate::agent::prompt;
@@ -73,6 +75,19 @@ fn transcript_key(prefix: &str, task_id: &str) -> String {
     )
 }
 
+/// Build the S3 key for a task's workspace archive:
+/// `<prefix>/<task_id>/workspace.tar`. The `<prefix>/<task_id>/` portion is the
+/// same one `provider.rs::cleanup` deletes, so uploads and cleanup stay aligned.
+fn workspace_key(prefix: &str, task_id: &str) -> String {
+    format!("{}/{}/workspace.tar", prefix.trim_end_matches('/'), task_id)
+}
+
+/// Lifetime of the presigned workspace-sync URLs. The sandbox re-mints them on
+/// every sync tick, so this only needs to cover a single transfer. Kept short to
+/// bound the blast radius of a leaked URL, but generous enough for a large tar
+/// on a slow link.
+const WORKSPACE_PRESIGN_TTL: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
 /// gRPC server state — holds event publisher, repository trait objects, and JWT secret.
 pub struct BackendSandboxServiceImpl {
     pub events: Option<Arc<dyn EventPublisher>>,
@@ -116,6 +131,10 @@ pub struct BackendSandboxServiceImpl {
     /// S3 key prefix for sandbox Claude transcripts (`config.s3.transcript_prefix`).
     /// Objects land at `<prefix>/<task_id>/transcripts.tar` in the same bucket.
     pub transcript_s3_prefix: String,
+    /// S3 key prefix for `s3`-backend workspace archives (`config.s3.workspace_prefix`).
+    /// Objects land at `<prefix>/<task_id>/workspace.tar` in the same bucket;
+    /// the sandbox uploads/downloads them directly via presigned URLs.
+    pub workspace_s3_prefix: String,
     /// User repository — used to render `<sent_by>` headers on pending
     /// messages so the agent sees the inbound sender's moatless login.
     pub users: Option<Arc<dyn UserRepository>>,
@@ -880,6 +899,81 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
 
         let stream = futures::stream::iter(chunks).map(Ok::<TranscriptChunk, Status>);
         Ok(Response::new(Box::pin(stream)))
+    }
+
+    /// Mint presigned PUT + GET URLs for the task's workspace archive.
+    ///
+    /// The `s3` storage backend uses this instead of the transcript-style gRPC
+    /// proxy: the workspace tar can be hundreds of MB, so rather than stream it
+    /// through the backend, we hand the sandbox short-lived URLs scoped to
+    /// exactly `<prefix>/<task_id>/workspace.tar` and it transfers directly to
+    /// S3. The sandbox stays AWS-credential-less; the URL is the only capability
+    /// it holds and it expires. Auth: task-scoped JWT via gRPC metadata.
+    async fn get_workspace_sync_urls(
+        &self,
+        request: Request<GetWorkspaceSyncUrlsRequest>,
+    ) -> Result<Response<GetWorkspaceSyncUrlsResponse>, Status> {
+        let _claims = self.verify_auth(&request)?;
+        let req = request.into_inner();
+
+        let Some(ref s3_client) = self.s3 else {
+            return Err(Status::failed_precondition("S3 not configured"));
+        };
+        let Some(ref bucket) = self.s3_bucket else {
+            return Err(Status::failed_precondition("S3 bucket not configured"));
+        };
+
+        let key = workspace_key(&self.workspace_s3_prefix, &req.task_id);
+
+        let put_url = file_s3::presign_put(s3_client, bucket, &key, WORKSPACE_PRESIGN_TTL)
+            .await
+            .map_err(|e| {
+                warn!(error = %e, task_id = %req.task_id, "presign PUT for workspace failed");
+                Status::internal("Failed to presign workspace upload URL")
+            })?;
+        let get_url = file_s3::presign_get(s3_client, bucket, &key, WORKSPACE_PRESIGN_TTL)
+            .await
+            .map_err(|e| {
+                warn!(error = %e, task_id = %req.task_id, "presign GET for workspace failed");
+                Status::internal("Failed to presign workspace download URL")
+            })?;
+
+        debug!(task_id = %req.task_id, key = %key, "Minted workspace sync URLs");
+        Ok(Response::new(GetWorkspaceSyncUrlsResponse {
+            put_url,
+            get_url,
+            expires_in_secs: WORKSPACE_PRESIGN_TTL.as_secs() as i64,
+        }))
+    }
+
+    /// Record a workspace-sync outcome reported by the sandbox as Prometheus
+    /// metrics. The `s3` backend transfers directly to S3, so the backend never
+    /// sees the bytes and must be told the size/duration/outcome to build the
+    /// EBS-vs-S3 comparison. Best-effort: it only touches metrics, never fails
+    /// the sandbox's sync. Auth: task-scoped JWT via gRPC metadata.
+    async fn report_workspace_sync(
+        &self,
+        request: Request<ReportWorkspaceSyncRequest>,
+    ) -> Result<Response<ReportWorkspaceSyncResponse>, Status> {
+        let _claims = self.verify_auth(&request)?;
+        let req = request.into_inner();
+
+        crate::sandbox::metrics::record_workspace_sync(
+            &req.direction,
+            req.bytes.max(0) as u64,
+            std::time::Duration::from_millis(req.duration_ms.max(0) as u64),
+            req.ok,
+        );
+
+        debug!(
+            task_id = %req.task_id,
+            direction = %req.direction,
+            bytes = req.bytes,
+            duration_ms = req.duration_ms,
+            ok = req.ok,
+            "Recorded workspace sync report"
+        );
+        Ok(Response::new(ReportWorkspaceSyncResponse {}))
     }
 
     /// Detect an interrupted agent run and return the data needed to replay it.

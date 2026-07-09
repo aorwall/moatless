@@ -59,7 +59,49 @@ service BackendSandboxService {
   // survives the PVC lifecycle (and exists at all for the ephemeral tier). An
   // empty stream means "no transcript stored yet". Auth via gRPC metadata.
   rpc DownloadTranscript(DownloadTranscriptRequest) returns (stream TranscriptChunk);
+
+  // Mint short-lived, single-object presigned S3 URLs for the task's workspace
+  // archive (`<workspace_prefix>/<task_id>/workspace.tar`). Used by the `s3`
+  // storage backend as an alternative to the EBS PVC. The sandbox is
+  // AWS-credential-less: rather than proxy the (potentially hundreds-of-MB)
+  // workspace tar through the backend over gRPC, the backend — which holds the
+  // S3 identity — signs a PUT and a GET URL scoped to exactly this one object,
+  // and the sandbox transfers directly to S3 over plain HTTPS. Called before
+  // each workspace sync (download-on-start, periodic, shutdown flush).
+  // `FailedPrecondition` when S3 isn't configured. Auth via gRPC metadata.
+  rpc GetWorkspaceSyncUrls(GetWorkspaceSyncUrlsRequest) returns (GetWorkspaceSyncUrlsResponse);
+
+  // Report the outcome of a direct-to-S3 workspace transfer so the backend can
+  // record comparison metrics (the backend isn't in the data path for `s3`-mode
+  // syncs, so it can't time them itself). Fire-and-forget; non-fatal on failure.
+  // Auth via gRPC metadata.
+  rpc ReportWorkspaceSync(ReportWorkspaceSyncRequest) returns (ReportWorkspaceSyncResponse);
 }
+
+message GetWorkspaceSyncUrlsRequest {
+  string task_id = 1;
+  // auth via gRPC metadata (authorization: Bearer <token>)
+}
+
+message GetWorkspaceSyncUrlsResponse {
+  // Presigned HTTP PUT URL for uploading workspace.tar.
+  string put_url = 1;
+  // Presigned HTTP GET URL for downloading workspace.tar. A GET that returns
+  // 404 means "no archive stored yet".
+  string get_url = 2;
+  // Seconds until the presigned URLs expire.
+  int64 expires_in_secs = 3;
+}
+
+message ReportWorkspaceSyncRequest {
+  string task_id = 1;
+  string direction = 2;    // "upload" | "download"
+  int64 bytes = 3;
+  int64 duration_ms = 4;
+  bool ok = 5;
+}
+
+message ReportWorkspaceSyncResponse {}
 
 // A chunk of a transcript tar archive. For UploadTranscript the `task_id` is read
 // from the first chunk (later chunks may leave it empty); `data` carries the bytes.

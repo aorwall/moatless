@@ -43,6 +43,13 @@ pub async fn perform_shutdown(
     // internally so it can't blow the pod's 30s grace period.
     if let Some(state) = state {
         crate::init::transcript_sync::flush_on_shutdown(state).await;
+
+        // For the `s3` storage backend, flush the git working tree too — this is
+        // the durability the node-local emptyDir doesn't provide. Same ordering
+        // rationale as the transcript flush; bounded internally.
+        if state.config.workspace_sync_enabled {
+            crate::init::workspace_sync::flush_on_shutdown(state).await;
+        }
     }
 
     lifecycle_cancel.cancel();

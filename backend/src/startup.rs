@@ -69,6 +69,7 @@ pub fn spawn_metrics_server(port: u16) {
     crate::triggers::metrics::describe_trigger_metrics();
     crate::bindings::metrics::describe_binding_metrics();
     crate::event_handler::metrics::describe_agent_metrics();
+    crate::sandbox::metrics::describe_sandbox_metrics();
     let router = metrics::metrics_router(handle);
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     tokio::spawn(async move {
@@ -223,6 +224,7 @@ pub fn spawn_grpc_server(
     let s3_bucket = config.s3.bucket_name.clone();
     let s3_key_prefix = config.s3.key_prefix.clone();
     let transcript_s3_prefix = config.s3.transcript_prefix.clone();
+    let workspace_s3_prefix = config.s3.workspace_prefix.clone();
     let github_apps = Arc::new(GitHubAppRegistry::from_config(config));
     let github_app_service = github_apps.default_service();
     let provider_token_auth: Option<Arc<dyn ProviderTokenAuthRepository>> =
@@ -289,6 +291,7 @@ pub fn spawn_grpc_server(
             s3_bucket,
             s3_key_prefix,
             transcript_s3_prefix,
+            workspace_s3_prefix,
             users,
         };
         let addr = SocketAddr::from(([0, 0, 0, 0], port));

@@ -20,6 +20,7 @@ use super::pod_status::is_sandbox_container_ready;
 use super::pvc;
 use super::service;
 use super::status_resolver::StatusResolver;
+use super::storage::StorageBackend;
 use crate::config::Config;
 use crate::events::EventPublisher;
 use crate::sandbox::client::SandboxClient;
@@ -53,6 +54,12 @@ impl SandboxProvider for K8sSandboxProvider {
         task_id: &str,
         request: &ProvisionRequest,
     ) -> Result<ProvisionResponse, SandboxError> {
+        // Time the whole provision so the `ebs` PVC path (attach) and the
+        // node-local backends can be compared. The body runs in an inner async
+        // block so every early return is captured at a single measurement point.
+        let backend = StorageBackend::from_plan(&request.plan);
+        let started = std::time::Instant::now();
+        let result: Result<ProvisionResponse, SandboxError> = async {
         info!(task_id = %task_id, user_id = %request.user_id, "Provisioning sandbox");
 
         let plan = &request.plan;
@@ -175,6 +182,15 @@ impl SandboxProvider for K8sSandboxProvider {
         Ok(ProvisionResponse {
             status: SandboxStatus::Initializing,
         })
+        }
+        .await;
+
+        crate::sandbox::metrics::record_provision(
+            backend,
+            if result.is_ok() { "ok" } else { "error" },
+            started.elapsed(),
+        );
+        result
     }
 
     async fn sandbox_status(
@@ -218,12 +234,22 @@ impl SandboxProvider for K8sSandboxProvider {
     async fn restart(&self, task_id: &str) -> Result<(), SandboxError> {
         info!(task_id = %task_id, "Restarting sandbox (scaling to 0, then back to 1 after termination)");
 
+        // Time the restart so the `ebs` path (which pays a pod-drain wait to
+        // release the RWO PVC before the new pod can attach) can be compared to
+        // the node-local backends that don't. The backend is read from the
+        // running Deployment's env rather than a plan (restart has no plan).
+        let backend = self.deployment_storage_backend(task_id).await;
+        let started = std::time::Instant::now();
+
         // Scale to 0, wait for the pod to terminate (releasing the RWO PVC),
         // then scale back to 1. This also covers the "was stopped" case since
         // restart_deployment always ends at 1 replica.
-        deployment::restart_deployment(&self.k8s, task_id)
+        let outcome = deployment::restart_deployment(&self.k8s, task_id)
             .await
-            .map_err(SandboxError::KubeError)?;
+            .map_err(SandboxError::KubeError);
+
+        crate::sandbox::metrics::record_restart(backend, started.elapsed());
+        outcome?;
 
         // Publish initializing event (pod_watcher handles readiness)
         self.publish_initializing(task_id).await;
@@ -282,6 +308,10 @@ impl SandboxProvider for K8sSandboxProvider {
         // Best-effort: a leftover object is harmless and the bucket lifecycle rule
         // eventually expires it. No-op when S3 isn't configured.
         self.delete_task_transcripts(task_id).await;
+
+        // Delete this task's `s3`-backend workspace archive too (`<prefix>/<task_id>/`).
+        // No-op for `ebs`/`ephemeral` tasks (nothing under the prefix).
+        self.delete_task_workspace(task_id).await;
 
         if let Some(ref publisher) = self.event_publisher {
             publisher
@@ -401,15 +431,24 @@ impl SandboxProvider for K8sSandboxProvider {
 // Private helper methods
 // =============================================================================
 
-/// True when the repo selected the ephemeral (no-EBS) storage tier via
-/// `resources.storage_mode == "ephemeral"` (case-insensitive). Any other value —
-/// including unset, `"ebs"`, or an unknown string — means the default PVC tier.
-fn is_ephemeral_storage(plan: &ProvisionPlan) -> bool {
-    plan.repo_config
-        .resources
+/// Inspect a running Deployment's sandbox container for the
+/// `WORKSPACE_SYNC_ENABLED=true` env that marks the `s3` storage backend.
+fn deployment_has_workspace_sync(dep: &Deployment) -> bool {
+    dep.spec
         .as_ref()
-        .and_then(|r| r.storage_mode.as_deref())
-        .is_some_and(|m| m.trim().eq_ignore_ascii_case("ephemeral"))
+        .and_then(|s| s.template.spec.as_ref())
+        .map(|pod| {
+            pod.containers.iter().any(|c| {
+                c.name == "sandbox"
+                    && c.env.as_ref().is_some_and(|env| {
+                        env.iter().any(|e| {
+                            e.name == "WORKSPACE_SYNC_ENABLED"
+                                && e.value.as_deref() == Some("true")
+                        })
+                    })
+            })
+        })
+        .unwrap_or(false)
 }
 
 /// Result of checking for an existing pod.
@@ -472,20 +511,34 @@ impl K8sSandboxProvider {
             .map_err(|e| SandboxError::JwtError(e.to_string()))
     }
 
+    /// Resolve the storage backend of a *running* task from cluster state
+    /// (used where there's no `ProvisionPlan`, e.g. restart). A PVC means `ebs`;
+    /// otherwise the `WORKSPACE_SYNC_ENABLED` env on the sandbox container
+    /// distinguishes `s3` from plain `ephemeral`.
+    async fn deployment_storage_backend(&self, task_id: &str) -> StorageBackend {
+        if pvc::find_task_pvc(&self.k8s, task_id).await.is_some() {
+            return StorageBackend::Ebs;
+        }
+        match deployment::find_deployment(&self.k8s, task_id).await {
+            Ok(Some(dep)) if deployment_has_workspace_sync(&dep) => StorageBackend::S3,
+            _ => StorageBackend::Ephemeral,
+        }
+    }
+
     /// Create or find existing PVC. A per-repo `resources.storage` override
     /// (if set) sizes a freshly created PVC; existing PVCs are reused as-is.
     ///
-    /// Returns an empty string (→ no PVC) for the ephemeral tier
-    /// (`resources.storage_mode == "ephemeral"`): `build_pod` then mounts a
+    /// Returns an empty string (→ no PVC) for the non-EBS backends (`ephemeral`
+    /// and `s3`, via `resources.storage_mode`): `build_pod` then mounts a
     /// node-local emptyDir at `/opt/moatless` instead. The check runs *before*
-    /// `find_task_pvc` so a repo flipped to ephemeral stops reusing any stale PVC.
+    /// `find_task_pvc` so a repo flipped off `ebs` stops reusing any stale PVC.
     async fn create_or_find_pvc(
         &self,
         task_id: &str,
         plan: &ProvisionPlan,
     ) -> Result<String, String> {
-        if is_ephemeral_storage(plan) {
-            info!(task_id, "Ephemeral storage tier — skipping PVC creation");
+        if !StorageBackend::from_plan(plan).uses_pvc() {
+            info!(task_id, "Non-EBS storage backend — skipping PVC creation");
             return Ok(String::new());
         }
 
@@ -525,6 +578,31 @@ impl K8sSandboxProvider {
             Ok(n) => info!(task_id, deleted = n, prefix = %prefix, "Deleted task transcripts from S3"),
             Err(e) => {
                 warn!(task_id, error = %e, prefix = %prefix, "Failed to delete task transcripts from S3");
+            }
+        }
+    }
+
+    /// Best-effort delete of a task's `s3`-backend workspace archive from S3.
+    ///
+    /// Removes every object under `<workspace_prefix>/<task_id>/` in the uploads
+    /// bucket — the counterpart to the sandbox's presigned uploads. No-op when
+    /// S3 or the bucket isn't configured, or for tasks that never used the `s3`
+    /// backend (the prefix is simply empty). Errors are logged, never propagated.
+    async fn delete_task_workspace(&self, task_id: &str) {
+        let (Some(s3), Some(bucket)) = (self.s3.as_ref(), self.config.s3.bucket_name.as_deref())
+        else {
+            return;
+        };
+        let prefix = format!(
+            "{}/{}/",
+            self.config.s3.workspace_prefix.trim_end_matches('/'),
+            task_id
+        );
+        match crate::file_storage::s3::delete_objects_by_prefix(s3, bucket, &prefix).await {
+            Ok(0) => {}
+            Ok(n) => info!(task_id, deleted = n, prefix = %prefix, "Deleted task workspace from S3"),
+            Err(e) => {
+                warn!(task_id, error = %e, prefix = %prefix, "Failed to delete task workspace from S3");
             }
         }
     }

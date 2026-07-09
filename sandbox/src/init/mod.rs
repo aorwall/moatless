@@ -23,6 +23,7 @@ pub(crate) mod refresher;
 pub(crate) mod server_env;
 pub(crate) mod transcript_sync;
 mod workspace;
+pub(crate) mod workspace_sync;
 
 use moatless_events::SandboxSubType;
 use sandbox_proto::PublishEventRequest;
@@ -203,6 +204,23 @@ pub async fn run_init(state: SandboxState) {
             transcript_cancel,
             interval,
         ));
+    }
+
+    // Spawn the periodic workspace uploader for the `s3` storage backend. Every
+    // interval it tars the git working tree and PUTs it directly to S3 via a
+    // backend-minted presigned URL, so the working tree survives the node-local
+    // emptyDir across stop/start. `WORKSPACE_SYNC_INTERVAL_SECS=0` disables the
+    // loop; sync-on-shutdown still flushes the final delta.
+    if state.config.workspace_sync_enabled {
+        if let Some(interval) = workspace_sync::read_interval_from_env() {
+            let workspace_state = state.clone();
+            let workspace_cancel = state.lifecycle_cancel.clone();
+            tokio::spawn(workspace_sync::run_workspace_sync(
+                workspace_state,
+                workspace_cancel,
+                interval,
+            ));
+        }
     }
 
     // Watch ~/.codex/auth.json for rotations. Codex rewrites this file every
@@ -429,6 +447,15 @@ async fn run_core_init(state: &SandboxState) -> Result<(), InitError> {
     //    dispatch see restored `--resume` history. Tier-agnostic and best-effort:
     //    a missing transcript (or a disabled feature) is non-fatal.
     transcript_sync::download_on_start(state).await;
+
+    // 10. For the `s3` storage backend, overlay the persisted git working tree
+    //     from S3 onto the fresh clone (agent edits / uncommitted changes from
+    //     the previous pod). Runs after the clone, before Ready, so the agent
+    //     sees restored state. Only when the backend enabled workspace sync;
+    //     best-effort and non-fatal.
+    if state.config.workspace_sync_enabled {
+        workspace_sync::download_on_start(state).await;
+    }
 
     Ok(())
 }

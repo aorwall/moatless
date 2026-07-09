@@ -143,6 +143,11 @@ pub struct Config {
     pub default_codex_model: Option<String>,
     /// Use the tmux-based Claude Code SDK transport instead of subprocess/NDJSON (env: SANDBOX_USE_TMUX).
     pub use_tmux: bool,
+    /// Whether the `s3` storage backend's workspace sync is enabled (env:
+    /// `WORKSPACE_SYNC_ENABLED`). Set by the backend only for `storage_mode:
+    /// "s3"` pods; when true, the sandbox restores the git working tree from S3
+    /// on boot and periodically syncs it back via backend-minted presigned URLs.
+    pub workspace_sync_enabled: bool,
 
     // ── Init-related fields ────────────────────────────────────────
     /// Home directory (default: "/home/moatless")
@@ -233,6 +238,9 @@ impl Config {
             default_model: env::var("DEFAULT_CLAUDE_CODE_MODEL").ok(),
             default_codex_model: env::var("DEFAULT_CODEX_MODEL").ok(),
             use_tmux: env::var("SANDBOX_USE_TMUX")
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false),
+            workspace_sync_enabled: env::var("WORKSPACE_SYNC_ENABLED")
                 .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
                 .unwrap_or(false),
 

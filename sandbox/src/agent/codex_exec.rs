@@ -848,6 +848,7 @@ mod tests {
             servers: vec![],
             frontend_url: None,
             use_tmux: false,
+            workspace_sync_enabled: false,
             default_model: None,
             default_codex_model: default_codex_model.map(String::from),
             home_dir: "/tmp/home".to_string(),

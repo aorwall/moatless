@@ -89,6 +89,7 @@ mod tests {
             servers: Vec::new(),
             frontend_url: None,
             use_tmux: false,
+            workspace_sync_enabled: false,
             default_model: None,
             default_codex_model: None,
             home_dir: tmp.path().join("home").display().to_string(),
