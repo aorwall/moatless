@@ -9,6 +9,7 @@ import { useRepositorySkills } from '@/features/skills'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
 import { useFileSearch } from '@/features/tasks/hooks/use-file-search'
 import { useSandboxRetry, useSandboxStatus } from '@/features/tasks/hooks/use-sandbox-status'
+import { useTaskDraftMessage } from '@/features/tasks/hooks/use-task-draft-message'
 import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
 import {
@@ -177,8 +178,9 @@ function ChatContainer({
     [availableCommands, repoSkills],
   )
 
-  // Local state for chat values
-  const [message, setMessage] = useState('')
+  // Local state for chat values. The message draft is persisted per task in
+  // localStorage so text survives reloads and switching tasks.
+  const [message, setMessage] = useTaskDraftMessage(taskId)
   const [resumeConversation] = useState(true)
   const [startFresh, setStartFresh] = useState(false)
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
@@ -253,10 +255,10 @@ function ChatContainer({
   const modelSelector = useModelSelector(modelValue, modelOnChange)
   const agentModeSelector = useAgentModeSelector(selectedAgentMode, setSelectedAgentMode)
 
-  // Clear state when task changes
+  // Clear state when task changes. The message draft is intentionally NOT
+  // cleared here — useTaskDraftMessage loads the per-task draft on task change.
   // biome-ignore lint/correctness/useExhaustiveDependencies: taskId is from params and we want to reset state when it changes
   useEffect(() => {
-    setMessage('')
     taskInputs.clearAll()
     // Reset selectors to defaults
     setSelectedModel(getModelForTask(isModelSelectorEnabled, undefined))
@@ -439,6 +441,7 @@ function ChatContainer({
     taskInputs,
     isModelSelectorEnabled,
     startFresh,
+    setMessage,
   ])
 
   // Handle command button click
@@ -508,7 +511,7 @@ function ChatContainer({
         handleInputChange(newMessage, cursorPosition)
       }
     },
-    [handleCommandInputChange, handleInputChange, textareaRef],
+    [handleCommandInputChange, handleInputChange, textareaRef, setMessage],
   )
 
   // Compose key handlers: command autocomplete first, then file autocomplete
