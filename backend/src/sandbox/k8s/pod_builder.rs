@@ -148,9 +148,34 @@ pub fn build_pod(
     // ── Server containers ───────────────────────────────────────────
     let server_containers = build_server_containers(config, plan)?;
 
+    // ── Docker-in-Docker sidecar (opt-in via repo config `dockerAccess`) ──
+    //
+    // When a repo opts in, attach a privileged `docker:dind` sidecar. It shares
+    // the pod network namespace, so the sandbox reaches dockerd at
+    // `tcp://localhost:2375` — which is what lets Testcontainers spin up real
+    // containers (Postgres, Redis, …). dind's image/container storage lives on a
+    // node-local emptyDir (`docker-storage`) so it never charges against the pod
+    // memory budget. Gated on the opt-in so default sandboxes stay hardened with
+    // no privileged container. Mirrors the CI runner dind pattern
+    // (soap-platform-gitops `java-build-runner-set`).
+    let docker_access = docker_access_enabled(plan);
+    if docker_access {
+        volumes.push(Volume {
+            name: "docker-storage".to_string(),
+            empty_dir: Some(EmptyDirVolumeSource {
+                size_limit: Some(Quantity(config.sandbox.docker_dind_storage_size.clone())),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+    }
+
     // ── Assemble Pod ────────────────────────────────────────────────
     let mut all_containers = vec![sandbox_container];
     all_containers.extend(server_containers);
+    if docker_access {
+        all_containers.push(build_dind_container(config));
+    }
 
     let pod = Pod {
         metadata: k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta {
@@ -318,6 +343,88 @@ fn build_nvme_setup_container(config: &Config) -> Container {
     }
 }
 
+/// Whether this repo opted into Docker access (privileged dind sidecar).
+///
+/// Reuses the existing `RepoConfig.docker_access` flag (already honoured by the
+/// Docker provider via a socket mount); in K8s mode "docker access" means a
+/// privileged `dind` sidecar rather than a host socket. Defaults to `false`, so
+/// sandboxes stay hardened unless a repo explicitly opts in.
+fn docker_access_enabled(plan: &ProvisionPlan) -> bool {
+    plan.repo_config.docker_access.unwrap_or(false)
+}
+
+/// Build the privileged `dind` (docker-in-docker) sidecar container.
+///
+/// Runs `dockerd` without TLS on `tcp://0.0.0.0:2375` (reachable only from
+/// within the pod's network namespace, i.e. by the sandbox container via
+/// `localhost`) plus the default unix socket. Image/container layers live on the
+/// `docker-storage` emptyDir mounted at `/var/lib/docker`. Mirrors the CI runner
+/// dind topology (soap-platform-gitops `java-build-runner-set`).
+///
+/// Deliberately privileged — dockerd needs it to manage cgroups, overlay mounts,
+/// and iptables. Scoped to this sidecar and only attached when a repo opts into
+/// `dockerAccess`; the agent/server containers keep `drop_all_security_context()`.
+fn build_dind_container(config: &Config) -> Container {
+    let resources = ResourceRequirements {
+        limits: Some(BTreeMap::from([
+            (
+                "cpu".to_string(),
+                Quantity(config.sandbox.docker_dind_cpu_limit.clone()),
+            ),
+            (
+                "memory".to_string(),
+                Quantity(config.sandbox.docker_dind_memory_limit.clone()),
+            ),
+        ])),
+        requests: Some(BTreeMap::from([
+            (
+                "cpu".to_string(),
+                Quantity(config.sandbox.docker_dind_cpu_request.clone()),
+            ),
+            (
+                "memory".to_string(),
+                Quantity(config.sandbox.docker_dind_memory_request.clone()),
+            ),
+        ])),
+        ..Default::default()
+    };
+
+    Container {
+        name: "dind".to_string(),
+        image: Some(config.sandbox.docker_dind_image.clone()),
+        image_pull_policy: Some(config.sandbox.image_pull_policy.clone()),
+        // Keep the image ENTRYPOINT (`dockerd-entrypoint.sh`), which performs the
+        // cgroup/iptables setup before exec'ing the `dockerd` we pass as args.
+        args: Some(vec![
+            "dockerd".to_string(),
+            "--host=tcp://0.0.0.0:2375".to_string(),
+            "--host=unix:///var/run/docker.sock".to_string(),
+            "--tls=false".to_string(),
+        ]),
+        // Disable the entrypoint's automatic TLS cert generation so it listens
+        // in plaintext on 2375.
+        env: Some(vec![env_var("DOCKER_TLS_CERTDIR", "")]),
+        security_context: Some(privileged_security_context()),
+        volume_mounts: Some(vec![VolumeMount {
+            name: "docker-storage".to_string(),
+            mount_path: "/var/lib/docker".to_string(),
+            ..Default::default()
+        }]),
+        readiness_probe: Some(Probe {
+            tcp_socket: Some(TCPSocketAction {
+                port: IntOrString::Int(2375),
+                ..Default::default()
+            }),
+            period_seconds: Some(5),
+            failure_threshold: Some(6),
+            initial_delay_seconds: Some(2),
+            ..Default::default()
+        }),
+        resources: Some(resources),
+        ..Default::default()
+    }
+}
+
 /// Build the main sandbox container.
 #[allow(clippy::unnecessary_wraps)] // Result for consistency with build_server_containers
 fn build_sandbox_container(
@@ -408,6 +515,15 @@ fn build_sandbox_container(
         for (key, value) in &cache.env {
             env.push(env_var(key, value));
         }
+    }
+
+    // Docker-in-Docker access (opt-in). Point the Docker CLI + Testcontainers at
+    // the privileged `dind` sidecar over the shared pod network namespace, and
+    // disable Ryuk — its socket-reaper doesn't play well with the dind topology
+    // (same as the CI runners). The sidecar itself is added in `build_pod`.
+    if docker_access_enabled(plan) {
+        env.push(env_var("DOCKER_HOST", "tcp://localhost:2375"));
+        env.push(env_var("TESTCONTAINERS_RYUK_DISABLED", "true"));
     }
 
     // Startup probe
@@ -881,6 +997,12 @@ mod tests {
                 cache_volumes: vec![],
                 cache_host_root: "/mnt/cache".into(),
                 cache_init_image: "docker:dind".into(),
+                docker_dind_image: "docker:dind".into(),
+                docker_dind_storage_size: "10Gi".into(),
+                docker_dind_cpu_request: "500m".into(),
+                docker_dind_cpu_limit: "2".into(),
+                docker_dind_memory_request: "1Gi".into(),
+                docker_dind_memory_limit: "4Gi".into(),
             },
             proxy: ProxyConfig {
                 domain: None,
@@ -1365,5 +1487,115 @@ mod tests {
         assert_eq!(cache_host_parent("/mnt/cache/"), "/mnt");
         assert_eq!(cache_host_parent("/var/lib/pkg-cache"), "/var/lib");
         assert_eq!(cache_host_parent("/mnt"), "/");
+    }
+
+    /// `dockerAccess: true` → a privileged `dind` sidecar + `docker-storage`
+    /// emptyDir + `DOCKER_HOST`/`TESTCONTAINERS_RYUK_DISABLED` on the agent
+    /// container, while the agent container itself stays unprivileged.
+    #[test]
+    fn docker_access_adds_privileged_dind_sidecar_and_env() {
+        let config = test_config();
+        let mut plan = test_plan();
+        plan.repo_config.docker_access = Some(true);
+
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        let spec = pod.spec.as_ref().unwrap();
+
+        // A privileged `dind` sidecar using the configured image, running dockerd.
+        let dind = spec
+            .containers
+            .iter()
+            .find(|c| c.name == "dind")
+            .expect("dind sidecar present when dockerAccess is set");
+        assert_eq!(
+            dind.security_context.as_ref().and_then(|s| s.privileged),
+            Some(true),
+            "dind must be privileged"
+        );
+        assert_eq!(dind.image.as_deref(), Some("docker:dind"));
+        let args = dind.args.as_ref().unwrap().join(" ");
+        assert!(args.contains("dockerd"), "dind runs dockerd, got: {args}");
+        assert!(args.contains("--tls=false"), "dind runs without TLS");
+        assert!(
+            dind.volume_mounts
+                .as_ref()
+                .unwrap()
+                .iter()
+                .any(|m| m.name == "docker-storage" && m.mount_path == "/var/lib/docker"),
+            "dind must mount docker-storage at /var/lib/docker"
+        );
+
+        // A node-local docker-storage emptyDir backs /var/lib/docker.
+        let ds = spec
+            .volumes
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|v| v.name == "docker-storage")
+            .expect("docker-storage volume present");
+        assert!(ds.empty_dir.is_some(), "docker-storage must be an emptyDir");
+
+        // The sandbox container is pointed at the dind sidecar and disables Ryuk.
+        let sandbox = spec
+            .containers
+            .iter()
+            .find(|c| c.name == "sandbox")
+            .unwrap();
+        let env = sandbox.env.as_ref().unwrap();
+        assert!(
+            env.iter().any(|e| e.name == "DOCKER_HOST"
+                && e.value.as_deref() == Some("tcp://localhost:2375")),
+            "sandbox must point DOCKER_HOST at the dind sidecar"
+        );
+        assert!(
+            env.iter().any(|e| e.name == "TESTCONTAINERS_RYUK_DISABLED"
+                && e.value.as_deref() == Some("true")),
+            "Ryuk must be disabled for the dind topology"
+        );
+
+        // The agent container itself stays hardened (not privileged).
+        assert_ne!(
+            sandbox.security_context.as_ref().and_then(|s| s.privileged),
+            Some(true),
+            "sandbox container must not be privileged"
+        );
+    }
+
+    /// Default (no `dockerAccess`) → hardened: no dind sidecar, no docker-storage
+    /// volume, no `DOCKER_HOST` on the agent container.
+    #[test]
+    fn no_docker_access_means_no_dind_sidecar() {
+        let config = test_config();
+        let plan = test_plan(); // docker_access defaults to None
+
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        let spec = pod.spec.as_ref().unwrap();
+
+        assert!(
+            spec.containers.iter().all(|c| c.name != "dind"),
+            "no dind sidecar without dockerAccess"
+        );
+        assert!(
+            spec.volumes
+                .as_ref()
+                .unwrap()
+                .iter()
+                .all(|v| v.name != "docker-storage"),
+            "no docker-storage volume without dockerAccess"
+        );
+        let sandbox = spec
+            .containers
+            .iter()
+            .find(|c| c.name == "sandbox")
+            .unwrap();
+        assert!(
+            sandbox
+                .env
+                .as_ref()
+                .unwrap()
+                .iter()
+                .all(|e| e.name != "DOCKER_HOST"),
+            "no DOCKER_HOST env without dockerAccess"
+        );
     }
 }

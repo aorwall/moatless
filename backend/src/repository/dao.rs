@@ -15,6 +15,7 @@ pub struct RepositoryPatch {
     pub remote_url: Option<Option<String>>,
     pub default_branch: Option<Option<String>>,
     pub docker_image: Option<Option<String>>,
+    pub docker_access: Option<Option<bool>>,
     pub system_prompt: Option<Option<String>>,
     pub description: Option<Option<String>>,
     pub provider: Option<Option<RepositoryProvider>>,
@@ -126,7 +127,8 @@ impl RepoRepository for PgRepoRepository {
                 enable_inspector, auto_reload,
                 description, provider, scope, team_id, owner_user_id, created_by,
                 resources,
-                deleted, created_at, updated_at
+                deleted, created_at, updated_at,
+                docker_access
             ) VALUES (
                 $1, $2, $3, $4, $5,
                 $6, $7, $8, $9,
@@ -136,7 +138,8 @@ impl RepoRepository for PgRepoRepository {
                 $16, $17,
                 $18, $19, $20, $21, $22, $23,
                 $24,
-                $25, $26, $27
+                $25, $26, $27,
+                $28
             )"#,
         )
         .bind(&row.id)
@@ -166,6 +169,7 @@ impl RepoRepository for PgRepoRepository {
         .bind(row.deleted)
         .bind(row.created_at)
         .bind(row.updated_at)
+        .bind(row.docker_access)
         .execute(&self.0)
         .await?;
         Ok(())
@@ -189,6 +193,7 @@ impl RepoRepository for PgRepoRepository {
         push_set!(remote_url);
         push_set!(default_branch);
         push_set!(docker_image);
+        push_set!(docker_access);
         push_set!(system_prompt);
         push_set!(description);
         push_set!(provider);
@@ -231,6 +236,7 @@ impl RepoRepository for PgRepoRepository {
         bind_opt!(remote_url);
         bind_opt!(default_branch);
         bind_opt!(docker_image);
+        bind_opt!(docker_access);
         bind_opt!(system_prompt);
         bind_opt!(description);
         bind_opt!(provider);

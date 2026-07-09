@@ -15,6 +15,7 @@ impl From<Repository> for RepositoryResponse {
             remote_url: r.remote_url,
             default_branch: r.default_branch,
             docker_image: r.docker_image,
+            docker_access: r.docker_access,
             system_prompt: r.system_prompt,
             description: r.description,
             provider: r.provider,

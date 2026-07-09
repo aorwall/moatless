@@ -54,6 +54,10 @@ pub enum RepoAction {
         /// Docker image for sandbox (e.g. "myregistry/my-sandbox:latest")
         #[arg(long)]
         docker_image: Option<String>,
+        /// Enable Docker-in-Docker access (privileged dind sidecar) so Testcontainers
+        /// can run inside the sandbox
+        #[arg(long)]
+        docker_access: Option<bool>,
         /// Plugin references (repeatable, e.g. "name@url")
         #[arg(long = "plugin")]
         plugins: Vec<String>,
@@ -129,6 +133,10 @@ pub enum RepoAction {
         /// Docker image for sandbox (e.g. "myregistry/my-sandbox:latest")
         #[arg(long)]
         docker_image: Option<String>,
+        /// Enable Docker-in-Docker access (privileged dind sidecar) so Testcontainers
+        /// can run inside the sandbox
+        #[arg(long)]
+        docker_access: Option<bool>,
         /// Setup commands run before server starts (repeatable)
         #[arg(long = "setup-command")]
         setup_commands: Vec<String>,
@@ -208,6 +216,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             storage,
             storage_mode,
             docker_image,
+            docker_access,
             plugins,
             system_prompt,
             description,
@@ -250,6 +259,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 build_output_directory: build_output_dir,
                 description,
                 docker_image,
+                docker_access,
                 enable_inspector,
                 env_vars: parse_env_vars(&env_vars),
                 plugins: if plugins.is_empty() {
@@ -293,6 +303,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             storage,
             storage_mode,
             docker_image,
+            docker_access,
             setup_commands,
             server_start_commands,
             env_vars,
@@ -331,6 +342,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 build_output_directory: build_output_dir,
                 description,
                 docker_image,
+                docker_access,
                 enable_inspector,
                 env_vars: parse_env_vars(&env_vars),
                 plugins: if plugins.is_empty() {

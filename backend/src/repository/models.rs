@@ -20,6 +20,9 @@ pub struct Repository {
     pub remote_url: Option<String>,
     pub default_branch: Option<String>,
     pub docker_image: Option<String>,
+    /// Opt-in Docker-in-Docker access (privileged `dind` sidecar) for this repo's
+    /// sandboxes — enables Testcontainers. Defaults to `None`/false.
+    pub docker_access: Option<bool>,
     pub system_prompt: Option<String>,
     pub setup_commands: Option<serde_json::Value>,
     pub env_vars: Option<serde_json::Value>,

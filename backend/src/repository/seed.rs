@@ -36,6 +36,7 @@ async fn seed_moatable(repos: &dyn RepoRepository) -> Result<(), sqlx::Error> {
         remote_url: Some("https://github.com/aorwall/moatable".to_string()),
         default_branch: Some("main".to_string()),
         docker_image: None,
+        docker_access: None,
         system_prompt: None,
         setup_commands: Some(json!(["bun install"])),
         env_vars: None,

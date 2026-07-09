@@ -473,6 +473,12 @@ mod tests {
                 cache_volumes: vec![],
                 cache_host_root: "/mnt/cache".into(),
                 cache_init_image: "docker:dind".into(),
+                docker_dind_image: "docker:dind".into(),
+                docker_dind_storage_size: "10Gi".into(),
+                docker_dind_cpu_request: "500m".into(),
+                docker_dind_cpu_limit: "2".into(),
+                docker_dind_memory_request: "1Gi".into(),
+                docker_dind_memory_limit: "4Gi".into(),
             },
             proxy: ProxyConfig {
                 domain: None,

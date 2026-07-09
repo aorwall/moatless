@@ -76,6 +76,10 @@ pub struct CreateRepositoryRequest {
     pub remote_url: Option<String>,
     pub default_branch: Option<String>,
     pub docker_image: Option<String>,
+    /// Opt-in Docker-in-Docker access (privileged `dind` sidecar) — enables
+    /// Testcontainers inside the sandbox. Defaults to false.
+    #[serde(default)]
+    pub docker_access: Option<bool>,
     pub system_prompt: Option<String>,
     pub description: Option<String>,
     pub provider: Option<RepositoryProvider>,
@@ -106,6 +110,10 @@ pub struct UpdateRepositoryRequest {
     pub remote_url: Option<String>,
     pub default_branch: Option<String>,
     pub docker_image: Option<String>,
+    /// Opt-in Docker-in-Docker access (privileged `dind` sidecar) — enables
+    /// Testcontainers inside the sandbox. Defaults to false.
+    #[serde(default)]
+    pub docker_access: Option<bool>,
     pub system_prompt: Option<String>,
     pub description: Option<String>,
     pub servers: Option<Vec<ServerConfig>>,
@@ -135,6 +143,8 @@ pub struct RepositoryResponse {
     pub remote_url: Option<String>,
     pub default_branch: Option<String>,
     pub docker_image: Option<String>,
+    #[serde(default)]
+    pub docker_access: Option<bool>,
     pub system_prompt: Option<String>,
     pub description: Option<String>,
     pub provider: Option<RepositoryProvider>,

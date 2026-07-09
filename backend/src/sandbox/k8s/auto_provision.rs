@@ -179,7 +179,7 @@ pub fn build_repo_config(repo: &Repository) -> RepoConfig {
         preview_config,
         resources,
         plugin_repos: None,
-        docker_access: None,
+        docker_access: repo.docker_access,
         docker_networks: None,
     }
 }

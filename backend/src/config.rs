@@ -315,6 +315,26 @@ pub struct SandboxConfig {
     /// `restrict-image-registries` Kyverno policy (the ECR-mirrored dind image).
     /// Env `K8S_SANDBOX_CACHE_INIT_IMAGE`.
     pub cache_init_image: String,
+    /// Image for the privileged `dind` (docker-in-docker) sidecar attached to
+    /// sandbox pods whose repo config sets `dockerAccess: true`. This is what
+    /// lets Testcontainers-based tests run inside the sandbox. Must be an
+    /// allowlisted ref under the `restrict-image-registries` Kyverno policy
+    /// (the ECR-mirrored dind image). Env `K8S_SANDBOX_DOCKER_DIND_IMAGE`.
+    pub docker_dind_image: String,
+    /// Size cap for the `dind` sidecar's `/var/lib/docker` emptyDir (image layer
+    /// + container storage). Env `K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE`
+    /// (default `10Gi`).
+    pub docker_dind_storage_size: String,
+    /// CPU request for the `dind` sidecar. Env `K8S_SANDBOX_DOCKER_DIND_CPU_REQUEST`.
+    pub docker_dind_cpu_request: String,
+    /// CPU limit for the `dind` sidecar. Env `K8S_SANDBOX_DOCKER_DIND_CPU_LIMIT`.
+    pub docker_dind_cpu_limit: String,
+    /// Memory request for the `dind` sidecar. Env `K8S_SANDBOX_DOCKER_DIND_MEMORY_REQUEST`.
+    pub docker_dind_memory_request: String,
+    /// Memory limit for the `dind` sidecar. Containers started by Testcontainers
+    /// run as children of dockerd inside this container, so their memory charges
+    /// against this limit. Env `K8S_SANDBOX_DOCKER_DIND_MEMORY_LIMIT`.
+    pub docker_dind_memory_limit: String,
 }
 
 /// Proxy / Traefik IngressRoute settings.
@@ -817,6 +837,21 @@ impl Config {
                     "K8S_SANDBOX_CACHE_INIT_IMAGE",
                     "111111111111.dkr.ecr.eu-north-1.amazonaws.com/mirror/docker.io/library/docker:29-dind",
                 ),
+                docker_dind_image: env_str(
+                    "K8S_SANDBOX_DOCKER_DIND_IMAGE",
+                    "111111111111.dkr.ecr.eu-north-1.amazonaws.com/mirror/docker.io/library/docker:29-dind",
+                ),
+                docker_dind_storage_size: env_str(
+                    "K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE",
+                    "10Gi",
+                ),
+                docker_dind_cpu_request: env_str("K8S_SANDBOX_DOCKER_DIND_CPU_REQUEST", "500m"),
+                docker_dind_cpu_limit: env_str("K8S_SANDBOX_DOCKER_DIND_CPU_LIMIT", "2"),
+                docker_dind_memory_request: env_str(
+                    "K8S_SANDBOX_DOCKER_DIND_MEMORY_REQUEST",
+                    "1Gi",
+                ),
+                docker_dind_memory_limit: env_str("K8S_SANDBOX_DOCKER_DIND_MEMORY_LIMIT", "4Gi"),
             },
 
             proxy: ProxyConfig {
@@ -1214,6 +1249,12 @@ mod tests {
                 cache_volumes: vec![],
                 cache_host_root: "/mnt/cache".into(),
                 cache_init_image: "docker:dind".into(),
+                docker_dind_image: "docker:dind".into(),
+                docker_dind_storage_size: "10Gi".into(),
+                docker_dind_cpu_request: "500m".into(),
+                docker_dind_cpu_limit: "2".into(),
+                docker_dind_memory_request: "1Gi".into(),
+                docker_dind_memory_limit: "4Gi".into(),
             },
             proxy: ProxyConfig {
                 domain: None,
