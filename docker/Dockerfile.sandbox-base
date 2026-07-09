@@ -1,10 +1,12 @@
 # moatless-sandbox-base: Stable base image for all sandbox variants.
 #
 # Contains: Ubuntu, Node.js, npm, Claude Code CLI, Codex CLI, Bun, pnpm, yarn,
-# TypeScript/tsx, Playwright + Chromium, git, system tools, moatless user.
-# Does NOT contain: Rust binaries (sandbox/moat) or entrypoint scripts — those are
-# added by leaf images (Dockerfile.sandbox, Dockerfile.sandbox-full) so the
-# expensive layers here cache across normal code changes.
+# TypeScript/tsx, Playwright + Chromium, the Rust toolchain (rustup/cargo/clippy/
+# rustfmt) plus protoc/pkg-config so agents can build Rust projects — including
+# moatless-vibe itself — inside the sandbox, git, system tools, moatless user.
+# Does NOT contain: the compiled sandbox/moat binaries or entrypoint scripts —
+# those are added by leaf images (Dockerfile.sandbox, Dockerfile.sandbox-full)
+# so the expensive layers here cache across normal code changes.
 #
 # Bumping CLAUDE_CLI_VERSION, CODEX_CLI_VERSION, BUN_VERSION or the Playwright
 # install rebuilds this image (and invalidates leaf-image caches from the FROM
@@ -79,10 +81,14 @@ RUN ARCH=$(dpkg --print-architecture) && \
     /tmp/aws/install && \
     rm -rf /tmp/aws /tmp/awscliv2.zip
 
-# Install Python build dependencies and pyenv prerequisites (used by sandbox-full)
+# Install Python build dependencies and pyenv prerequisites (used by sandbox-full),
+# plus native build tooling needed to compile the Rust workspace: pkg-config and
+# protobuf-compiler (`protoc`) — tonic-build in crates/sandbox-proto shells out to
+# protoc and does not vendor it.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev \
     libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev \
+    pkg-config protobuf-compiler \
     && rm -rf /var/lib/apt/lists/*
 
 # Remove default ubuntu user (has UID/GID 1000 which we want for moatless)
@@ -105,6 +111,20 @@ RUN mkdir -p /opt/moatless/data /mnt/plugins /usr/share/moatless-skills /etc/cod
 RUN mkdir -p /home/$USERNAME/.cache \
     /home/$USERNAME/.config/gh \
     && chown -R $USERNAME:$USERNAME /home/$USERNAME
+
+# Install the Rust toolchain (rustup default profile: rustc, cargo, clippy,
+# rustfmt) so agents can build/test Rust projects — including moatless-vibe —
+# inside the sandbox. RUSTUP_HOME/CARGO_HOME live under /opt and are owned by the
+# moatless user so `cargo build`/`cargo install` can write the registry cache and
+# any downloaded toolchains at runtime.
+ENV RUSTUP_HOME="/opt/rust"
+ENV CARGO_HOME="/opt/cargo"
+ENV PATH="/opt/cargo/bin:$PATH"
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path \
+    && chown -R $USERNAME:$USERNAME /opt/rust /opt/cargo \
+    && echo 'export RUSTUP_HOME="/opt/rust"' >> /etc/profile \
+    && echo 'export CARGO_HOME="/opt/cargo"' >> /etc/profile \
+    && echo 'export PATH="/opt/cargo/bin:$PATH"' >> /etc/profile
 
 # Claude/Codex CLIs (pinned versions). Bump these args to upgrade the CLIs —
 # this is the only frequent reason this image will rebuild.

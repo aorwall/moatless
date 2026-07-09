@@ -1,7 +1,8 @@
 # moatless-sandbox-full: Full development environment for agent task execution.
 #
-# Extends sandbox-base with Python (pyenv), Rust (rustup), Go and Java/Maven.
-# Bun, pnpm, yarn, TypeScript and Playwright + Chromium come from sandbox-base.
+# Extends sandbox-base with Python (pyenv), Go and Java/Maven.
+# Bun, pnpm, yarn, TypeScript, Playwright + Chromium and the Rust toolchain
+# (rustup/cargo/clippy/rustfmt) come from sandbox-base.
 #
 # For the lightweight image (everything in base + Rust binaries), use the
 # `aorwall/moatless-sandbox` (or its alias `aorwall/moatless-sandbox-js`)
@@ -28,12 +29,7 @@ RUN eval "$(pyenv init -)" \
     && pyenv install 3.12.8 \
     && pyenv global 3.12.8
 
-# Install Rust
-ENV RUSTUP_HOME="/opt/rust"
-ENV CARGO_HOME="/opt/cargo"
-ENV PATH="/opt/cargo/bin:$PATH"
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path \
-    && echo 'export PATH="/opt/cargo/bin:$PATH"' >> /etc/profile
+# Rust (rustup/cargo/clippy/rustfmt) is provided by sandbox-base.
 
 # Install Go
 ENV GO_VERSION=1.23.8

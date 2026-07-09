@@ -8,8 +8,8 @@ This directory contains Docker configurations for building the application and s
 |-------|------|------|---------|
 | `moatless-vibe` | `bun:alpine` | ~150MB | Main web application (self-contained) |
 | `moatless-sandbox` | Ubuntu 24.04 | ~500MB | Minimal base for sandboxes |
-| `moatless-sandbox-js` | sandbox | ~2GB | JS/TS environment with Playwright |
-| `moatless-sandbox-full` | sandbox | ~5-8GB | Full dev environment (Python, Rust, Go, Java) |
+| `moatless-sandbox-js` | sandbox | ~2GB | JS/TS environment with Playwright + Rust toolchain |
+| `moatless-sandbox-full` | sandbox | ~5-8GB | Full dev environment (Python, Go, Java; Rust from base) |
 
 ## Image Hierarchy
 
@@ -25,13 +25,13 @@ This directory contains Docker configurations for building the application and s
   │                                   │
   ▼                                   ▼
 ┌─────────────────────────────┐    ┌─────────────────────────────┐
-│      sandbox-js (JS-only)   │    │     sandbox-full (full)     │
+│      sandbox-js (default)   │    │     sandbox-full (full)     │
 │  + Bun, pnpm, yarn          │    │  + Python 3.12 (pyenv)      │
-│  + TypeScript               │    │  + Rust (rustup)            │
-│  + Playwright + Chromium    │    │  + Go 1.23                  │
-│  + moatless-vibe app        │    │  + Java 21 + Maven          │
-└─────────────────────────────┘    │  + Bun, pnpm, yarn          │
-                                   │  + Playwright + Chromium    │
+│  + TypeScript               │    │  + Go 1.23                  │
+│  + Rust (rustup) + protoc   │    │  + Java 21 + Maven          │
+│  + Playwright + Chromium    │    │  (Rust from base)           │
+│  + moatless-vibe app        │    │  + Bun, pnpm, yarn          │
+└─────────────────────────────┘    │  + Playwright + Chromium    │
                                    │  + moatless-vibe app        │
                                    └─────────────────────────────┘
 ```
@@ -130,6 +130,8 @@ normal code changes — only the binary `COPY` in the leaf images invalidates.
 - Claude Code CLI, Codex CLI
 - Bun, pnpm, yarn, TypeScript, tsx
 - Playwright + Chromium
+- Rust toolchain (rustup/cargo/clippy/rustfmt) + protoc, pkg-config —
+  enough to build the moatless-vibe Rust workspace in-sandbox
 - Git, curl, wget, jq, ripgrep
 - git-delta, GitHub CLI (gh), Docker CLI
 - moatless user (UID 1000)
@@ -169,9 +171,10 @@ Full development environment for executing agent tasks with all major languages.
 
 ### Contents (in addition to sandbox-base)
 - Python 3.12 (via pyenv)
-- Rust (via rustup)
 - Go 1.23
 - Java 21 + Maven
+
+(Rust comes from sandbox-base and is available in every sandbox variant.)
 
 ### Building
 
