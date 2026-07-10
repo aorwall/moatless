@@ -90,6 +90,44 @@ pub async fn materialize_ssh_keys(config: &Config, ssh_keys: &HashMap<String, St
         }
         Err(e) => {
             warn!(error = %e, "Failed to write ~/.ssh/config");
+            return;
+        }
+    }
+
+    // OpenSSH resolves `~` for the per-user config via getpwuid(), NOT $HOME.
+    // The sandbox runs as root (passwd home /root) while our material lives
+    // under $HOME/.ssh (e.g. /home/moatless/.ssh), so a bare `git clone` over
+    // SSH would look for /root/.ssh/config, not find it, and silently ignore
+    // our identities + `accept-new` host policy — failing with "Host key
+    // verification failed". Point git at the config file explicitly via
+    // core.sshCommand so every git SSH op (the init clone AND the agent's later
+    // push/pull) uses it regardless of $HOME/uid. The config only references
+    // absolute paths, so there is no further `~` to resolve.
+    wire_git_ssh_command(&config_path).await;
+}
+
+/// The `ssh` invocation git should use for SSH remotes: force our materialized
+/// config so identities + host-key policy apply regardless of how ssh resolves
+/// `~`.
+fn git_ssh_command(config_path: &str) -> String {
+    format!("ssh -F {config_path}")
+}
+
+/// Set `core.sshCommand` in the global git config so git drives SSH through our
+/// materialized `~/.ssh/config`. Best-effort: logged, never fatal.
+async fn wire_git_ssh_command(config_path: &str) {
+    let ssh_command = git_ssh_command(config_path);
+    match crate::init::git::run_command(
+        "git",
+        &["config", "--global", "core.sshCommand", &ssh_command],
+    )
+    .await
+    {
+        Ok(()) => {
+            info!(config = %config_path, "Wired git core.sshCommand to materialized SSH config");
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to set git core.sshCommand — SSH git ops may fail host-key checks");
         }
     }
 }
@@ -140,6 +178,14 @@ mod tests {
     fn key_file_name_sanitizes() {
         assert_eq!(key_file_name("GIT_SSH_PRIVATE_KEY"), "moatless_git_ssh_private_key");
         assert_eq!(key_file_name("DEPLOY-KEY.1"), "moatless_deploy_key_1");
+    }
+
+    #[test]
+    fn git_ssh_command_forces_config() {
+        assert_eq!(
+            git_ssh_command("/home/moatless/.ssh/config"),
+            "ssh -F /home/moatless/.ssh/config"
+        );
     }
 
     #[test]
