@@ -11714,7 +11714,8 @@
           "env",
           "provider_token",
           "runtime_file",
-          "deployment"
+          "deployment",
+          "ssh_key"
         ]
       },
       "SecretMetadataResponse": {

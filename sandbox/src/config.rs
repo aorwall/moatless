@@ -258,6 +258,49 @@ impl Config {
     }
 }
 
+/// Test-only helpers for constructing a [`Config`] without env vars.
+#[cfg(test)]
+pub(crate) mod test_support {
+    use super::{AgentConfig, Config, ProxyConfig};
+
+    /// A minimal [`Config`] with empty/default values, suitable for unit tests
+    /// that only exercise a few fields. Callers override what they need.
+    pub(crate) fn minimal_config() -> Config {
+        Config {
+            port: 8001,
+            grpc_port: 50052,
+            task_id: "test-task".to_string(),
+            workspace_dir: "/tmp/workspace".to_string(),
+            data_dir: "/tmp/data".to_string(),
+            upload_dir: "/tmp/uploads".to_string(),
+            log_level: "info".to_string(),
+            backend_grpc_url: "http://backend:50051".to_string(),
+            backend_api_url: None,
+            user_auth_token: None,
+            agent_config: AgentConfig::default(),
+            claude_cli_path: "/usr/local/bin/claude".to_string(),
+            codex_cli_path: "/usr/local/bin/codex".to_string(),
+            proxy: ProxyConfig::default(),
+            servers: Vec::new(),
+            frontend_url: None,
+            default_model: None,
+            default_codex_model: None,
+            use_tmux: false,
+            workspace_sync_enabled: false,
+            home_dir: "/tmp/home".to_string(),
+            codex_home_dir: "/tmp/home/.codex".to_string(),
+            claude_config_dir: "/tmp/home/.claude".to_string(),
+            git_clone_url: None,
+            git_branch: None,
+            git_provider: "github".to_string(),
+            repo_config_raw: None,
+            setup_commands: Vec::new(),
+            plugin_ids: Vec::new(),
+            plugin_repos: Vec::new(),
+        }
+    }
+}
+
 /// Parse REPO_CONFIG JSON env var into server configs, agent config, and setup commands.
 fn parse_repo_config() -> ParsedRepoConfig {
     let raw = match env::var("REPO_CONFIG") {

@@ -41,8 +41,8 @@ use crate::message::send::enrich_pending_with_commands;
 use crate::repository::dao::RepoRepository;
 use crate::sandbox::jwt;
 use crate::sandbox::secrets::{
-    resolve_server_env, resolve_task_credentials, resolve_task_repo_owner, resolve_task_team_id,
-    TaskCredentialInputs,
+    resolve_server_env, resolve_task_credentials, resolve_task_repo_owner, resolve_task_ssh_keys,
+    resolve_task_team_id, TaskCredentialInputs,
 };
 use crate::secret::service::SecretService;
 use crate::shared_models::AgentType;
@@ -532,6 +532,8 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         .await;
         let server_env =
             resolve_server_env(&claims.user_id, team_id.as_deref(), self.secrets.as_ref()).await;
+        let ssh_keys =
+            resolve_task_ssh_keys(self.secrets.as_ref(), &claims.user_id, team_id.as_deref()).await;
 
         info!(
             task_id = %req.task_id,
@@ -544,12 +546,14 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             has_anthropic = credentials.contains_key(CredentialKey::ANTHROPIC_API_KEY),
             has_claude_oauth = credentials.contains_key(CredentialKey::CLAUDE_CODE_OAUTH_TOKEN),
             server_env_count = server_env.len(),
+            ssh_key_count = ssh_keys.len(),
             "Credentials resolved"
         );
 
         Ok(Response::new(GetCredentialsResponse {
             credentials,
             server_env,
+            ssh_keys,
         }))
     }
 

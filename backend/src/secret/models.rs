@@ -49,6 +49,10 @@ pub enum SecretKind {
     ProviderToken,
     RuntimeFile,
     Deployment,
+    /// SSH private key. Materialized into the sandbox's `~/.ssh` directory
+    /// (never set as an env var) and used transparently for git/ssh over SSH
+    /// remotes.
+    SshKey,
 }
 
 impl SecretKind {
@@ -58,6 +62,7 @@ impl SecretKind {
             Self::ProviderToken => "provider_token",
             Self::RuntimeFile => "runtime_file",
             Self::Deployment => "deployment",
+            Self::SshKey => "ssh_key",
         }
     }
 }
@@ -77,6 +82,7 @@ impl TryFrom<&str> for SecretKind {
             "provider_token" => Ok(Self::ProviderToken),
             "runtime_file" => Ok(Self::RuntimeFile),
             "deployment" => Ok(Self::Deployment),
+            "ssh_key" => Ok(Self::SshKey),
             other => Err(format!("unknown secret kind: {other}")),
         }
     }
@@ -129,6 +135,9 @@ pub struct ResolvedSecret {
     pub key: String,
     pub value: String,
     pub provider: Option<String>,
+    /// Raw `kind` string from the record (e.g. `"env"`, `"ssh_key"`). Lets
+    /// callers route `ssh_key` secrets to `~/.ssh` instead of the env-var map.
+    pub kind: String,
 }
 
 /// Storage payload for an encrypted inline secret.

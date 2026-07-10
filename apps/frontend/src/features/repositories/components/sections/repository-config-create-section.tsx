@@ -48,9 +48,29 @@ export function RepositoryConfigCreateSection({
     return null
   }
 
+  // Helper: Detect an SSH clone URL (ssh:// or scp-like git@host:path).
+  // SSH remotes authenticate with a private key stored as a secret (kind
+  // `ssh_key`) and materialized into the sandbox's ~/.ssh — no provider token.
+  const isSshUrl = (input: string): boolean => {
+    const trimmed = input.trim()
+    if (trimmed.startsWith('ssh://')) {
+      return true
+    }
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return false
+    }
+    const at = trimmed.indexOf('@')
+    const colon = trimmed.indexOf(':')
+    return at >= 0 && colon > at
+  }
+
   // Helper: Validate URL based on selected provider
   const isValidGitUrl = (input: string, selectedProvider: GitProvider): boolean => {
     const trimmed = input.trim()
+    // SSH URLs are accepted for any provider (auth via ssh_key secret).
+    if (isSshUrl(trimmed)) {
+      return true
+    }
     if (!trimmed.startsWith('https://')) {
       return false
     }
@@ -64,15 +84,16 @@ export function RepositoryConfigCreateSection({
     return true
   }
 
-  // Helper: Extract repository name from Git HTTPS URL
+  // Helper: Extract repository name from a Git HTTPS or SSH URL
   const extractRepoNameFromUrl = (url: string): string | null => {
     const cleaned = url
       .trim()
       .replace(/\/$/, '')
       .replace(/\.git$/, '')
     const parts = cleaned.split('/')
-    // Return the last path segment as repo name
-    const lastPart = parts[parts.length - 1]
+    // Last path segment; for scp-like SSH URLs without a '/' (git@host:repo)
+    // strip the leading `user@host:` by taking the part after the last ':'.
+    const lastPart = parts[parts.length - 1]?.split(':').pop()
     return lastPart && lastPart.length > 0 ? lastPart : null
   }
 
@@ -86,9 +107,11 @@ export function RepositoryConfigCreateSection({
 
     if (!isValidGitUrl(trimmedInput, provider)) {
       if (provider === 'gitness') {
-        toast.error('Please enter a valid HTTPS URL for your Gitness repository')
+        toast.error('Please enter a valid HTTPS or SSH URL for your Gitness repository')
       } else {
-        toast.error(`Please enter a valid ${provider === 'github' ? 'GitHub' : 'GitLab'} HTTPS URL`)
+        toast.error(
+          `Please enter a valid ${provider === 'github' ? 'GitHub' : 'GitLab'} HTTPS URL, or an SSH URL (git@…)`,
+        )
       }
       return
     }
@@ -164,7 +187,10 @@ export function RepositoryConfigCreateSection({
           </Select>
         </ConfigurationItem>
 
-        <ConfigurationItem label="Repository URL" description="Enter the Git HTTPS URL">
+        <ConfigurationItem
+          label="Repository URL"
+          description="Enter the Git HTTPS or SSH URL (SSH uses an ssh_key secret for auth)"
+        >
           <ConfigurationInput
             value={inputValue}
             onChange={handleInputChange}

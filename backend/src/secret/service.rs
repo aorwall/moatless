@@ -435,36 +435,78 @@ impl SecretService {
                 key: record.key,
                 value,
                 provider: record.provider,
+                kind: record.kind,
             });
         }
         Ok(resolved)
     }
 
+    /// Resolve accessible secrets into an env-var map with `user > team >
+    /// global` precedence.
+    ///
+    /// `ssh_key`-kind secrets are intentionally excluded — they are delivered
+    /// through a separate channel and materialized into `~/.ssh` rather than
+    /// being exposed as environment variables. Use
+    /// [`resolve_accessible_ssh_keys`](Self::resolve_accessible_ssh_keys) for those.
     pub async fn resolve_accessible_plaintext(
         &self,
         actor_id: &str,
         team_id: Option<&str>,
     ) -> Result<HashMap<String, String>, SecretError> {
+        self.resolve_accessible_by_kind(actor_id, team_id, false)
+            .await
+    }
+
+    /// Resolve accessible `ssh_key`-kind secrets into a name → private-key map
+    /// with `user > team > global` precedence. Delivered to the sandbox
+    /// separately from env credentials and written to `~/.ssh`.
+    pub async fn resolve_accessible_ssh_keys(
+        &self,
+        actor_id: &str,
+        team_id: Option<&str>,
+    ) -> Result<HashMap<String, String>, SecretError> {
+        self.resolve_accessible_by_kind(actor_id, team_id, true)
+            .await
+    }
+
+    /// Shared implementation for the two accessible-secret resolvers.
+    /// When `ssh_keys_only` is true, only `ssh_key`-kind secrets are kept;
+    /// otherwise `ssh_key`-kind secrets are skipped.
+    async fn resolve_accessible_by_kind(
+        &self,
+        actor_id: &str,
+        team_id: Option<&str>,
+        ssh_keys_only: bool,
+    ) -> Result<HashMap<String, String>, SecretError> {
+        let ssh_kind = SecretKind::SshKey.as_str();
+        let keep = |scope: &ResolvedSecret| (scope.kind.as_str() == ssh_kind) == ssh_keys_only;
+
         let mut credentials = HashMap::new();
         for scope in self
             .resolve_plaintext_scope(actor_id, SecretScopeType::Global, None)
             .await?
         {
-            credentials.insert(scope.key, scope.value);
+            if keep(&scope) {
+                credentials.insert(scope.key, scope.value);
+            }
         }
         if let Some(team_id) = team_id {
             for scope in self
                 .resolve_plaintext_scope(actor_id, SecretScopeType::Team, Some(team_id))
                 .await?
             {
-                credentials.entry(scope.key).or_insert(scope.value);
+                if keep(&scope) {
+                    credentials.entry(scope.key).or_insert(scope.value);
+                }
             }
         }
         for scope in self
             .resolve_plaintext_scope(actor_id, SecretScopeType::User, Some(actor_id))
             .await?
         {
-            credentials.entry(scope.key).or_insert(scope.value);
+            if keep(&scope) {
+                credentials.entry(scope.key).or_insert(scope.value);
+            }
         }
         Ok(credentials)
     }

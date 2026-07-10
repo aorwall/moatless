@@ -21,6 +21,7 @@ mod git;
 mod plugin_skills;
 pub(crate) mod refresher;
 pub(crate) mod server_env;
+mod ssh;
 pub(crate) mod transcript_sync;
 mod workspace;
 pub(crate) mod workspace_sync;

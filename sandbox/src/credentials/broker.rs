@@ -173,6 +173,7 @@ mod tests {
             Ok(GetCredentialsResponse {
                 credentials: self.creds.clone(),
                 server_env: HashMap::new(),
+                ssh_keys: HashMap::new(),
             })
         }
         async fn update_credential(&self, _: &str, _: &str, _: &str) -> Result<(), tonic::Status> {

@@ -62,6 +62,7 @@ pub enum CliKind {
     ProviderToken,
     RuntimeFile,
     Deployment,
+    SshKey,
 }
 
 impl From<CliKind> for super::models::SecretKind {
@@ -71,6 +72,7 @@ impl From<CliKind> for super::models::SecretKind {
             CliKind::ProviderToken => Self::ProviderToken,
             CliKind::RuntimeFile => Self::RuntimeFile,
             CliKind::Deployment => Self::Deployment,
+            CliKind::SshKey => Self::SshKey,
         }
     }
 }

@@ -207,6 +207,10 @@ message GetCredentialsResponse {
   // Shared env for all server sidecars; written by the sandbox to
   // /opt/moatless/data/server.env at init time.
   map<string, string> server_env = 2;
+  // SSH private keys, keyed by secret name. Materialized by the sandbox into
+  // ~/.ssh (mode 0600) and used transparently for git/ssh over SSH remotes.
+  // Delivered separately from `credentials` so they are never set as env vars.
+  map<string, string> ssh_keys = 3;
 }
 
 message UpdateCredentialRequest {

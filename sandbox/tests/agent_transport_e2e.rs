@@ -125,6 +125,7 @@ impl BackendClient for NoopBackend {
         Ok(GetCredentialsResponse {
             credentials: self.credentials.clone(),
             server_env: HashMap::new(),
+            ssh_keys: HashMap::new(),
         })
     }
 

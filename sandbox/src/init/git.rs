@@ -15,10 +15,21 @@ use crate::config::Config;
 /// For GitHub: uses `gh auth setup-git` + resolves user info via `gh api user`.
 /// For other providers: configures token-based HTTPS auth via git credential helper.
 pub async fn configure_git(config: &Config) -> Result<(), String> {
+    let is_ssh = config
+        .git_clone_url
+        .as_deref()
+        .map(is_ssh_url)
+        .unwrap_or(false);
     let is_github = config.git_provider == "github";
 
-    // GitHub-specific: use gh CLI for credential management
-    if is_github {
+    if is_ssh {
+        // SSH remotes authenticate with the private key(s) materialized into
+        // ~/.ssh by credentials.rs — nothing to wire here. Skip the
+        // token/gh/insteadOf setup (the GitHub `insteadOf` rewrite would even
+        // rewrite our SSH URL back to HTTPS) and fall through to git identity.
+        info!("SSH remote detected — using SSH key auth from ~/.ssh");
+    } else if is_github {
+        // GitHub-specific: use gh CLI for credential management
         if std::env::var("GIT_TOKEN").is_err() {
             info!("No git token set — skipping git configuration");
             return Ok(());
@@ -57,8 +68,9 @@ pub async fn configure_git(config: &Config) -> Result<(), String> {
     let user_name = std::env::var("GIT_USER_NAME").ok();
     let user_email = std::env::var("GIT_USER_EMAIL").ok();
 
-    // Try to resolve user info from GitHub API (GitHub only)
-    if is_github && (user_name.is_none() || user_email.is_none()) {
+    // Try to resolve user info from GitHub API (GitHub HTTPS only — an SSH
+    // remote has no `gh` token to query the API with).
+    if is_github && !is_ssh && (user_name.is_none() || user_email.is_none()) {
         match resolve_github_user().await {
             Ok((name, email)) => {
                 if user_name.is_none() {
@@ -86,8 +98,9 @@ pub async fn configure_git(config: &Config) -> Result<(), String> {
         run_command("git", &["config", "--global", "user.email", email]).await?;
     }
 
-    // For non-GitHub providers, set a fallback user if nothing was configured
-    if !is_github && user_name.is_none() && user_email.is_none() {
+    // For non-GitHub providers (and SSH remotes, which have no `gh` identity
+    // to resolve), set a fallback user if nothing was configured.
+    if (!is_github || is_ssh) && user_name.is_none() && user_email.is_none() {
         let _ = run_command(
             "git",
             &["config", "--global", "user.name", "Moatless Agent"],
@@ -119,6 +132,7 @@ pub async fn clone_repository(config: &Config) -> Result<(), String> {
         return Ok(());
     }
 
+    let is_ssh = is_ssh_url(clone_url);
     let is_github = config.git_provider == "github";
 
     // Normalize empty branch to None
@@ -127,9 +141,31 @@ pub async fn clone_repository(config: &Config) -> Result<(), String> {
     info!(
         url = %clone_url,
         provider = %config.git_provider,
+        ssh = is_ssh,
         branch = ?branch,
         "Cloning repository"
     );
+
+    // SSH remote: clone the URL directly. Authentication and host-key checking
+    // come from the identities/config written to ~/.ssh by credentials.rs — no
+    // token injection or `gh` involved (checked first so an SSH URL to a host
+    // with a configured provider still takes the SSH path).
+    if is_ssh {
+        let mut git_args = vec!["clone", "--depth", "1"];
+        if let Some(b) = branch {
+            git_args.push("--branch");
+            git_args.push(b);
+        }
+        git_args.push(clone_url);
+        git_args.push(&config.workspace_dir);
+        return match run_command("git", &git_args).await {
+            Ok(()) => {
+                info!("Repository cloned successfully over SSH");
+                Ok(())
+            }
+            Err(e) => Err(format!("SSH clone failed: {e}")),
+        };
+    }
 
     // GitHub: try `gh repo clone` first (handles auth automatically)
     if is_github {
@@ -234,6 +270,25 @@ fn extract_github_repo_path(url: &str) -> String {
         .replace("git@github.com:", "")
         .trim_end_matches(".git")
         .to_string()
+}
+
+/// Whether a clone URL uses SSH transport.
+///
+/// Matches both `ssh://…` URLs and scp-like `[user@]host:path` syntax
+/// (e.g. `git@github.com:owner/repo.git`), while excluding HTTP(S) URLs.
+pub(crate) fn is_ssh_url(url: &str) -> bool {
+    if url.starts_with("ssh://") || url.starts_with("git+ssh://") {
+        return true;
+    }
+    if url.starts_with("http://") || url.starts_with("https://") {
+        return false;
+    }
+    // scp-like syntax: user@host:path — an '@' before a ':', and the ':' is not
+    // part of a URL scheme.
+    match (url.find('@'), url.find(':')) {
+        (Some(at), Some(colon)) => colon > at,
+        _ => false,
+    }
 }
 
 /// Inject a token into an HTTPS clone URL.
@@ -399,5 +454,20 @@ mod tests {
     fn inject_token_ssh_passthrough() {
         let ssh_url = "git@github.com:owner/repo.git";
         assert_eq!(inject_token_into_url(ssh_url, "tok"), ssh_url);
+    }
+
+    #[test]
+    fn detects_ssh_urls() {
+        assert!(is_ssh_url("git@github.com:owner/repo.git"));
+        assert!(is_ssh_url("git@gitlab.example.com:group/sub/repo.git"));
+        assert!(is_ssh_url("ssh://git@example.com/owner/repo.git"));
+        assert!(is_ssh_url("deploy@10.0.0.1:/srv/git/repo.git"));
+    }
+
+    #[test]
+    fn rejects_non_ssh_urls() {
+        assert!(!is_ssh_url("https://github.com/owner/repo.git"));
+        assert!(!is_ssh_url("http://gitlab.example.com/owner/repo.git"));
+        assert!(!is_ssh_url("https://user:tok@github.com/owner/repo.git"));
     }
 }

@@ -135,6 +135,30 @@ fn fill_missing_from_scoped(
     }
 }
 
+/// Resolve the SSH private keys a task's sandbox should materialize into
+/// `~/.ssh`.
+///
+/// These are `ssh_key`-kind scoped secrets, resolved with the same
+/// `user > team > global` precedence as other secrets but delivered on a
+/// dedicated channel so they are never exposed as environment variables to the
+/// agent. Returns a `secret key name → private key` map.
+pub async fn resolve_task_ssh_keys(
+    secrets: Option<&Arc<SecretService>>,
+    user_id: &str,
+    team_id: Option<&str>,
+) -> HashMap<String, String> {
+    let Some(secrets) = secrets else {
+        return HashMap::new();
+    };
+    match secrets.resolve_accessible_ssh_keys(user_id, team_id).await {
+        Ok(keys) => keys,
+        Err(e) => {
+            warn!(user_id, error = %e, "Failed to resolve ssh key secrets");
+            HashMap::new()
+        }
+    }
+}
+
 /// Resolve the shared env delivered to every server sidecar.
 ///
 /// Returns the full accessible scope chain (global > team > user) with

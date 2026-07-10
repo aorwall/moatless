@@ -30,6 +30,10 @@ pub enum SecretAction {
         #[arg(long, short = 'v')]
         value: Option<String>,
 
+        /// Read the secret value from a file (handy for multi-line ssh_key PEM files)
+        #[arg(long, conflicts_with = "value")]
+        value_file: Option<String>,
+
         /// Secret scope: user, team, or global
         #[arg(long, short = 's', default_value = "user")]
         scope: String,
@@ -42,7 +46,7 @@ pub enum SecretAction {
         #[arg(long, short = 't', default_value = "agent")]
         target: String,
 
-        /// Secret kind: env, provider_token, runtime_file, deployment
+        /// Secret kind: env, provider_token, runtime_file, deployment, ssh_key
         #[arg(long, short = 'k', default_value = "env")]
         kind: String,
 
@@ -100,6 +104,7 @@ pub async fn run(client: &MoatClient, action: SecretAction, json: bool) -> Resul
         SecretAction::Set {
             key,
             value,
+            value_file,
             scope,
             scope_id,
             target,
@@ -111,6 +116,7 @@ pub async fn run(client: &MoatClient, action: SecretAction, json: bool) -> Resul
                 client,
                 &key,
                 value,
+                value_file.as_deref(),
                 &scope,
                 scope_id.as_deref(),
                 &target,
@@ -218,6 +224,7 @@ async fn set_secret(
     client: &MoatClient,
     key: &str,
     value: Option<String>,
+    value_file: Option<&str>,
     scope: &str,
     scope_id: Option<&str>,
     target: &str,
@@ -228,8 +235,11 @@ async fn set_secret(
 ) -> Result<(), ClientError> {
     validate_scope(scope)?;
 
-    // Read value from stdin if "-"
-    let resolved_value = read_value(value)?;
+    // Resolve value from --value-file, --value, or stdin ("-").
+    let resolved_value = match value_file {
+        Some(path) => Some(read_value_file(path)?),
+        None => read_value(value)?,
+    };
 
     // Validate: must have exactly one of value or external_ref
     if resolved_value.is_none() && external_ref.is_none() {
@@ -377,6 +387,14 @@ fn read_value(value: Option<String>) -> Result<Option<String>, ClientError> {
         Some(v) => Ok(Some(v.to_string())),
         None => Ok(None),
     }
+}
+
+fn read_value_file(path: &str) -> Result<String, ClientError> {
+    let contents = std::fs::read_to_string(path)
+        .map_err(|e| ClientError::Other(format!("Failed to read value file '{path}': {e}")))?;
+    // Preserve the file's internal content but drop a single trailing newline;
+    // the sandbox re-adds one when materializing ssh_key secrets to ~/.ssh.
+    Ok(contents.trim_end_matches('\n').to_string())
 }
 
 async fn find_secrets_by_key(

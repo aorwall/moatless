@@ -18,6 +18,7 @@ use tracing::{info, warn};
 
 use super::gh_hosts;
 use super::server_env;
+use super::ssh;
 use crate::config::Config;
 use crate::state::SandboxState;
 
@@ -154,6 +155,12 @@ pub async fn fetch_and_apply_credentials_with_mode(
                 persist_agent_credentials(&state.config, &resp.credentials, mode).await;
 
                 server_env::write_server_env_file(&state.config, &resp.server_env).await;
+
+                // Materialize SSH private keys into ~/.ssh so git/ssh can use
+                // them for SSH remotes. Delivered on a dedicated channel and
+                // never set as env vars — the agent uses the key without ever
+                // reading its value.
+                ssh::materialize_ssh_keys(&state.config, &resp.ssh_keys).await;
 
                 return Ok(());
             }

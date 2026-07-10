@@ -27,6 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/lib/components/ui/select'
+import { Textarea } from '@/lib/components/ui/textarea'
 import { getErrorMessage } from '@/lib/utils/error'
 
 type EditorScope = 'user' | 'team' | 'global'
@@ -221,6 +222,7 @@ export function SecretEditorDialog({
                 <SelectItem value={SecretKind.provider_token}>provider_token</SelectItem>
                 <SelectItem value={SecretKind.runtime_file}>runtime_file</SelectItem>
                 <SelectItem value={SecretKind.deployment}>deployment</SelectItem>
+                <SelectItem value={SecretKind.ssh_key}>ssh_key (SSH private key)</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -232,14 +234,35 @@ export function SecretEditorDialog({
                 <span className="ml-2 text-muted-foreground">(leave blank to keep current)</span>
               )}
             </Label>
-            <Input
-              type="password"
-              value={form.value}
-              onChange={(e) => setForm((prev) => ({ ...prev, value: e.target.value }))}
-              placeholder={isEditing ? 'Enter new value to replace' : 'Secret value'}
-              autoComplete="new-password"
-              spellCheck={false}
-            />
+            {form.kind === SecretKind.ssh_key ? (
+              <>
+                <Textarea
+                  value={form.value}
+                  onChange={(e) => setForm((prev) => ({ ...prev, value: e.target.value }))}
+                  placeholder={
+                    isEditing
+                      ? 'Paste a new private key to replace'
+                      : '-----BEGIN OPENSSH PRIVATE KEY-----\n…'
+                  }
+                  className="min-h-[160px] font-mono text-xs"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <p className="text-xs text-muted-foreground">
+                  PEM/OpenSSH private key. Written to <code>~/.ssh</code> in the sandbox and used
+                  for git/ssh over SSH remotes. Never exposed as an environment variable.
+                </p>
+              </>
+            ) : (
+              <Input
+                type="password"
+                value={form.value}
+                onChange={(e) => setForm((prev) => ({ ...prev, value: e.target.value }))}
+                placeholder={isEditing ? 'Enter new value to replace' : 'Secret value'}
+                autoComplete="new-password"
+                spellCheck={false}
+              />
+            )}
           </div>
         </div>
 
