@@ -110,17 +110,22 @@ async fn publish_sandbox_event(
 pub async fn run_init(state: SandboxState) {
     info!(task_id = %state.config.task_id, "Starting sandbox initialization");
 
-    // Phase 1: Core init — must complete before health returns 200
-    if let Err(e) = run_core_init(&state).await {
-        error!(error = %e, "Core initialization failed");
-        // Write termination message for K8s to surface in pod status.
-        let _ = std::fs::write("/dev/termination-log", e.to_string());
-        let exit_code = match &e {
-            InitError::Permanent(_) => 78, // EX_CONFIG — pod watcher stops immediately
-            InitError::Transient(_) => 1,  // K8s retries, threshold handles it
-        };
-        std::process::exit(exit_code);
-    }
+    // Phase 1: Core init — must complete before health returns 200.
+    // Returns whether the workspace was rebuilt from a fresh clone (ephemeral
+    // pre-restart state lost) so we can warn a resuming agent.
+    let workspace_recloned = match run_core_init(&state).await {
+        Ok(recloned) => recloned,
+        Err(e) => {
+            error!(error = %e, "Core initialization failed");
+            // Write termination message for K8s to surface in pod status.
+            let _ = std::fs::write("/dev/termination-log", e.to_string());
+            let exit_code = match &e {
+                InitError::Permanent(_) => 78, // EX_CONFIG — pod watcher stops immediately
+                InitError::Transient(_) => 1,  // K8s retries, threshold handles it
+            };
+            std::process::exit(exit_code);
+        }
+    };
 
     // Mark as ready — health endpoint now returns 200
     *state.init_phase.write().await = InitPhase::Ready;
@@ -155,7 +160,7 @@ pub async fn run_init(state: SandboxState) {
             "Pending messages present on startup; skipping interrupted-run replay"
         );
     } else {
-        recover_interrupted_run(&state).await;
+        recover_interrupted_run(&state, workspace_recloned).await;
     }
 
     // Fetch any messages that arrived during initialization.
@@ -230,6 +235,24 @@ pub async fn run_init(state: SandboxState) {
     spawn_codex_auth_watcher(&state).await;
 }
 
+/// Note prepended to a resumed turn when the workspace was rebuilt from a fresh
+/// clone across the restart, so the agent knows its pre-restart scratch state is
+/// gone rather than silently working against a reset tree.
+fn workspace_recloned_note(workspace_dir: &str) -> String {
+    format!(
+        "<sandbox-restart-note>\n\
+         This sandbox was restarted and the repository at {workspace_dir} was \
+         rebuilt from a fresh `git clone`. Committed, pushed git content is \
+         present, but ephemeral state from before the restart is gone: gitignored \
+         dependencies and build artifacts (e.g. node_modules, target, dist, \
+         .venv), and any files created outside the git repository. Any local \
+         commits or uncommitted changes that were never pushed may also be \
+         missing. Re-run install/build steps and verify your working state \
+         before continuing.\n\
+         </sandbox-restart-note>\n\n"
+    )
+}
+
 /// Detect any interrupted agent run via the backend RPC and queue a resume on
 /// the agent actor. Runs once on startup, **only when there are no new pending
 /// user messages** — a fresh message supersedes the interrupted turn and
@@ -239,7 +262,11 @@ pub async fn run_init(state: SandboxState) {
 /// user-turn, increments `recovery_attempts`, publishes the
 /// `agent.recovery_started` event). If we get back a turn we feed it through
 /// the existing `--resume <session_id>` path; otherwise this is a no-op.
-async fn recover_interrupted_run(state: &SandboxState) {
+///
+/// When `workspace_recloned` is set, the workspace was rebuilt from a fresh
+/// clone on this restart, so a `<sandbox-restart-note>` is prepended to the
+/// resumed prompt to tell the agent its ephemeral pre-restart state is gone.
+async fn recover_interrupted_run(state: &SandboxState, workspace_recloned: bool) {
     let task_id = &state.config.task_id;
     match state.backend_client.recover_interrupted_run(task_id).await {
         Ok(Some(turn)) => {
@@ -247,10 +274,22 @@ async fn recover_interrupted_run(state: &SandboxState) {
                 task_id = %task_id,
                 session_id = %turn.session_id,
                 turn_number = turn.turn_number,
+                workspace_recloned,
                 "Resuming interrupted agent run"
             );
+            // If the workspace was re-cloned on this restart, prepend a note so
+            // the resuming agent doesn't assume its prior scratch state survived.
+            let prompt_text = if workspace_recloned {
+                format!(
+                    "{}{}",
+                    workspace_recloned_note(&state.config.workspace_dir),
+                    turn.prompt_text
+                )
+            } else {
+                turn.prompt_text
+            };
             state.agent_handle.recover(
-                turn.prompt_text,
+                prompt_text,
                 turn.agent_type,
                 turn.agent_mode,
                 turn.session_id,
@@ -299,7 +338,10 @@ async fn spawn_codex_auth_watcher(state: &SandboxState) {
 /// 4. Configure git authentication (non-fatal)
 /// 5. Clone repository (fatal on failure)
 /// 6. Sync plugins (non-fatal)
-async fn run_core_init(state: &SandboxState) -> Result<(), InitError> {
+/// Runs Phase 1 core init. Returns `true` when the workspace was rebuilt from a
+/// fresh clone (ephemeral pre-restart state lost), so the caller can warn a
+/// resuming agent; `false` when the repo was fully restored / persisted.
+async fn run_core_init(state: &SandboxState) -> Result<bool, InitError> {
     // 1. Ensure directories exist
     dirs::ensure_directories(&state.config);
 
@@ -342,33 +384,74 @@ async fn run_core_init(state: &SandboxState) -> Result<(), InitError> {
         .await;
     }
 
-    // 4. Clone repository (fatal on failure)
-    {
-        *state.init_phase.write().await = InitPhase::CloningRepository;
-    }
+    // 4. For the `s3` storage backend, try to restore a full-repo snapshot from
+    //    S3 *before* cloning. A snapshot that carries `.git` is a complete repo
+    //    at the exact prior HEAD + index + dirty working tree, so restoring it
+    //    lets us skip the clone entirely — no fresh clone of an advanced base
+    //    branch to drift against (which previously surfaced upstream changes as
+    //    phantom uncommitted "reverts"). Returns false (leaving the workspace
+    //    empty) for a fresh task, a disabled feature, a failed transfer, or a
+    //    legacy working-tree-only snapshot — in which case we clone below.
+    let restored_full_repo = if state.config.workspace_sync_enabled {
+        let restored = workspace_sync::restore_on_start(state).await;
+        if restored {
+            publish_sandbox_event(
+                state,
+                "RepositoryRestored",
+                "Restored repository from S3 snapshot",
+                false,
+            )
+            .await;
+        }
+        restored
+    } else {
+        false
+    };
 
-    if let Some(ref clone_url) = state.config.git_clone_url {
-        if !clone_url.is_empty() {
-            match git::clone_repository(&state.config).await {
-                Ok(()) => {
-                    let branch_info = state
-                        .config
-                        .git_branch
-                        .as_deref()
-                        .map(|b| format!(" ({b})"))
-                        .unwrap_or_default();
-                    publish_sandbox_event(
-                        state,
-                        "RepositoryCloned",
-                        &format!("Cloned repository{branch_info}"),
-                        false,
-                    )
-                    .await;
-                }
-                Err(e) => {
-                    let msg = format!("Failed to clone repository: {e}");
-                    publish_sandbox_event(state, "RepositoryCloneFailed", &msg, true).await;
-                    return Err(InitError::Permanent(msg));
+    // 5. Clone repository (fatal on failure) — skipped when a full repo was
+    //    restored from S3 above.
+    //
+    // `workspace_recloned` tracks whether a *fresh* clone actually replaced the
+    // workspace (as opposed to a full S3 restore, an EBS/PVC volume that already
+    // held the repo — `clone_repository` skips when `.git` exists — or a legacy
+    // overlay onto a fresh clone). When true, ephemeral pre-restart state
+    // (gitignored deps/build artifacts, out-of-repo files, unpushed commits /
+    // uncommitted changes) is gone, and we tell a resuming agent so below.
+    let mut workspace_recloned = false;
+    if !restored_full_repo {
+        {
+            *state.init_phase.write().await = InitPhase::CloningRepository;
+        }
+
+        if let Some(ref clone_url) = state.config.git_clone_url {
+            if !clone_url.is_empty() {
+                // A pre-existing `.git` means the repo persisted (EBS/PVC) and
+                // `clone_repository` will skip — so nothing was re-cloned/lost.
+                let repo_preexisted = std::path::Path::new(&state.config.workspace_dir)
+                    .join(".git")
+                    .exists();
+                match git::clone_repository(&state.config).await {
+                    Ok(()) => {
+                        workspace_recloned = !repo_preexisted;
+                        let branch_info = state
+                            .config
+                            .git_branch
+                            .as_deref()
+                            .map(|b| format!(" ({b})"))
+                            .unwrap_or_default();
+                        publish_sandbox_event(
+                            state,
+                            "RepositoryCloned",
+                            &format!("Cloned repository{branch_info}"),
+                            false,
+                        )
+                        .await;
+                    }
+                    Err(e) => {
+                        let msg = format!("Failed to clone repository: {e}");
+                        publish_sandbox_event(state, "RepositoryCloneFailed", &msg, true).await;
+                        return Err(InitError::Permanent(msg));
+                    }
                 }
             }
         }
@@ -448,16 +531,17 @@ async fn run_core_init(state: &SandboxState) -> Result<(), InitError> {
     //    a missing transcript (or a disabled feature) is non-fatal.
     transcript_sync::download_on_start(state).await;
 
-    // 10. For the `s3` storage backend, overlay the persisted git working tree
-    //     from S3 onto the fresh clone (agent edits / uncommitted changes from
-    //     the previous pod). Runs after the clone, before Ready, so the agent
-    //     sees restored state. Only when the backend enabled workspace sync;
-    //     best-effort and non-fatal.
-    if state.config.workspace_sync_enabled {
+    // 10. Legacy S3 overlay: only when workspace sync is on AND we did *not*
+    //     already restore a full repo in step 4 (i.e. the stored snapshot is a
+    //     working-tree-only "legacy" archive without `.git`, or none existed and
+    //     we cloned). Overlays the persisted working tree onto the fresh clone so
+    //     the agent sees restored edits. New-format snapshots skip this — they
+    //     were fully restored before the clone. Best-effort and non-fatal.
+    if state.config.workspace_sync_enabled && !restored_full_repo {
         workspace_sync::download_on_start(state).await;
     }
 
-    Ok(())
+    Ok(workspace_recloned)
 }
 
 /// Phase 2: Workspace setup.
