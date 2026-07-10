@@ -61,16 +61,20 @@ async fn file_operations_chain() {
         "Files did not become available"
     );
     let files = client.api().list_files(task_id).await.unwrap();
-    assert!(
-        files.files.iter().any(|f| f.contains("package.json")),
-        "Expected package.json in file list: {:?}",
-        files.files
-    );
+    // The file browser is rooted at the workspace dir, so the repo (and its
+    // package.json) appears under a subdirectory — match on the suffix and use
+    // the discovered workspace-relative path for the read below.
+    let package_json_path = files
+        .files
+        .iter()
+        .find(|f| f.ends_with("package.json"))
+        .cloned()
+        .unwrap_or_else(|| panic!("Expected package.json in file list: {:?}", files.files));
 
     // FILE-02: Read package.json, assert non-empty content
     let content = client
         .api()
-        .read_file(task_id, "package.json")
+        .read_file(task_id, &package_json_path)
         .await
         .unwrap();
     assert!(

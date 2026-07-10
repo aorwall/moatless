@@ -151,6 +151,12 @@ impl SandboxService for SandboxServiceImpl {
     }
 
     // ── File operations ──────────────────────────────────────────
+    //
+    // The file browser API is rooted at the workspace directory (`WORKSPACE_DIR`,
+    // e.g. `/opt/moatless/workspace`) rather than the primary repo subdirectory,
+    // so the frontend exposes the entire workspace. Git change overlays are
+    // computed relative to the same root and degrade gracefully (no badges) when
+    // the workspace root is not itself a git repository.
 
     #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
     async fn get_file_tree(
@@ -158,7 +164,7 @@ impl SandboxService for SandboxServiceImpl {
         request: Request<GetFileTreeRequest>,
     ) -> Result<Response<GetFileTreeResponse>, Status> {
         let req = request.into_inner();
-        let repo_dir = &self.state.config.repo_dir;
+        let root_dir = &self.state.config.workspace_dir;
         let root_path = if req.root_path.is_empty() {
             "."
         } else {
@@ -166,7 +172,7 @@ impl SandboxService for SandboxServiceImpl {
         };
 
         let (tree, summary) =
-            files::tree::get_file_tree_with_changes(repo_dir, root_path, req.recursive)
+            files::tree::get_file_tree_with_changes(root_dir, root_path, req.recursive)
                 .await
                 .map_err(|e| Status::internal(format!("Failed to build file tree: {e}")))?;
 
@@ -190,10 +196,10 @@ impl SandboxService for SandboxServiceImpl {
         request: Request<ReadFileRequest>,
     ) -> Result<Response<ReadFileResponse>, Status> {
         let req = request.into_inner();
-        let repo_dir = &self.state.config.repo_dir;
+        let root_dir = &self.state.config.workspace_dir;
 
         if req.include_changes {
-            let result = files::read_write::read_file_with_changes(repo_dir, &req.path)
+            let result = files::read_write::read_file_with_changes(root_dir, &req.path)
                 .await
                 .map_err(file_error_to_status)?;
             Ok(Response::new(ReadFileResponse {
@@ -206,7 +212,7 @@ impl SandboxService for SandboxServiceImpl {
                 media_type: result.media_type,
             }))
         } else {
-            let result = files::read_write::read_file(repo_dir, &req.path)
+            let result = files::read_write::read_file(root_dir, &req.path)
                 .await
                 .map_err(file_error_to_status)?;
             Ok(Response::new(ReadFileResponse {
@@ -227,9 +233,9 @@ impl SandboxService for SandboxServiceImpl {
         request: Request<WriteFileRequest>,
     ) -> Result<Response<WriteFileResponse>, Status> {
         let req = request.into_inner();
-        let repo_dir = &self.state.config.repo_dir;
+        let root_dir = &self.state.config.workspace_dir;
 
-        files::read_write::write_file(repo_dir, &req.path, &req.content)
+        files::read_write::write_file(root_dir, &req.path, &req.content)
             .await
             .map_err(file_error_to_status)?;
 
@@ -243,10 +249,10 @@ impl SandboxService for SandboxServiceImpl {
         request: Request<ListFilesRequest>,
     ) -> Result<Response<ListFilesResponse>, Status> {
         let req = request.into_inner();
-        let repo_dir = &self.state.config.repo_dir;
+        let root_dir = &self.state.config.workspace_dir;
         let path = if req.path.is_empty() { "." } else { &req.path };
 
-        let files = files::tree::list_files(repo_dir, path, req.recursive)
+        let files = files::tree::list_files(root_dir, path, req.recursive)
             .await
             .map_err(|e| Status::internal(format!("Failed to list files: {e}")))?;
 
@@ -259,10 +265,10 @@ impl SandboxService for SandboxServiceImpl {
         request: Request<SearchFilesByNameRequest>,
     ) -> Result<Response<SearchFilesByNameResponse>, Status> {
         let req = request.into_inner();
-        let repo_dir = &self.state.config.repo_dir;
+        let root_dir = &self.state.config.workspace_dir;
 
         let results = files::search::search_files_by_name(
-            repo_dir,
+            root_dir,
             &req.query,
             req.case_sensitive,
             req.max_results,
