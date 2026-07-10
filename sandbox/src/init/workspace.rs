@@ -97,7 +97,7 @@ fn derive_plugin_name(url: &str) -> String {
         .to_string()
 }
 
-/// Run a single setup command in the workspace directory.
+/// Run a single setup command in the repository directory.
 pub async fn run_setup_command(config: &Config, cmd: &str) -> Result<(), String> {
     if cmd.is_empty() {
         return Ok(());
@@ -106,7 +106,7 @@ pub async fn run_setup_command(config: &Config, cmd: &str) -> Result<(), String>
     info!(command = %cmd, "Running setup command");
     let output = Command::new("sh")
         .args(["-c", cmd])
-        .current_dir(&config.workspace_dir)
+        .current_dir(&config.repo_dir)
         .output()
         .await
         .map_err(|e| format!("Failed to execute: {e}"))?;

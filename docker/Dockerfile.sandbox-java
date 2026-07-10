@@ -75,7 +75,8 @@ RUN chmod +x /usr/local/bin/sandbox /usr/local/bin/moat
 
 # Environment
 ENV HOME=/home/moatless
-ENV WORKSPACE_DIR=/opt/moatless/repo
+# Persisted working area (agent cwd); the task repo is cloned into a subdir.
+ENV WORKSPACE_DIR=/opt/moatless/workspace
 ENV CLAUDE_CONFIG_DIR=/opt/moatless/.claude
 ENV CLAUDE_BIN_DIR=/usr/local/bin
 ENV DATA_DIR=/opt/moatless/data

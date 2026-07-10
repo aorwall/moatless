@@ -90,7 +90,7 @@ pub fn read_interval_from_env() -> Option<Duration> {
 /// overlaid by [`download_on_start`]. Best-effort and non-fatal throughout.
 pub async fn restore_on_start(state: &SandboxState) -> bool {
     let task_id = &state.config.task_id;
-    let workspace_dir = PathBuf::from(&state.config.workspace_dir);
+    let workspace_dir = PathBuf::from(&state.config.repo_dir);
 
     let urls = match state.backend_client.get_workspace_sync_urls(task_id).await {
         Ok(u) => u,
@@ -158,7 +158,7 @@ pub async fn restore_on_start(state: &SandboxState) -> bool {
 /// and skipped.
 pub async fn download_on_start(state: &SandboxState) {
     let task_id = &state.config.task_id;
-    let workspace_dir = PathBuf::from(&state.config.workspace_dir);
+    let workspace_dir = PathBuf::from(&state.config.repo_dir);
 
     let urls = match state.backend_client.get_workspace_sync_urls(task_id).await {
         Ok(u) => u,
@@ -211,7 +211,7 @@ pub async fn download_on_start(state: &SandboxState) {
 /// disabled feature) are logged, never propagated.
 pub async fn upload(state: &SandboxState) {
     let task_id = &state.config.task_id;
-    let workspace_dir = PathBuf::from(&state.config.workspace_dir);
+    let workspace_dir = PathBuf::from(&state.config.repo_dir);
 
     let Some(tar) = build_tar(workspace_dir).await else {
         debug!(task_id = %task_id, "No workspace files to upload");

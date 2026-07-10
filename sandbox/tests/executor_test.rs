@@ -179,6 +179,7 @@ fn test_config() -> Config {
         grpc_port: 0,
         task_id: "test-task-1".to_string(),
         workspace_dir: "/tmp/test-workspace".to_string(),
+        repo_dir: "/tmp/test-workspace".to_string(),
         data_dir: "/tmp/test-data".to_string(),
         upload_dir: "/tmp/test-upload".to_string(),
         home_dir: "/tmp/test-home".to_string(),
@@ -204,6 +205,7 @@ fn test_config() -> Config {
         use_tmux: false,
         default_model: None,
         default_codex_model: None,
+        workspace_sync_enabled: false,
     }
 }
 

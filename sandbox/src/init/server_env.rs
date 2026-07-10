@@ -76,6 +76,7 @@ mod tests {
             grpc_port: 50052,
             task_id: "task-1".to_string(),
             workspace_dir: tmp.path().join("workspace").display().to_string(),
+            repo_dir: tmp.path().join("workspace").display().to_string(),
             data_dir: tmp.path().display().to_string(),
             upload_dir: tmp.path().join("uploads").display().to_string(),
             log_level: "info".to_string(),

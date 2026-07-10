@@ -127,7 +127,7 @@ pub async fn clone_repository(config: &Config) -> Result<(), String> {
     };
 
     // Skip if already cloned
-    if Path::new(&config.workspace_dir).join(".git").exists() {
+    if Path::new(&config.repo_dir).join(".git").exists() {
         info!("Repository already cloned, skipping");
         return Ok(());
     }
@@ -170,7 +170,7 @@ pub async fn clone_repository(config: &Config) -> Result<(), String> {
     // GitHub: try `gh repo clone` first (handles auth automatically)
     if is_github {
         let repo_path = extract_github_repo_path(clone_url);
-        let mut args = vec!["repo", "clone", &repo_path, &config.workspace_dir, "--"];
+        let mut args = vec!["repo", "clone", &repo_path, &config.repo_dir, "--"];
         args.push("--depth");
         args.push("1");
 
@@ -186,7 +186,7 @@ pub async fn clone_repository(config: &Config) -> Result<(), String> {
             }
             Err(e) => {
                 warn!(error = %e, "gh repo clone failed, falling back to git clone");
-                clean_workspace_dir(&config.workspace_dir).await;
+                clean_workspace_dir(&config.repo_dir).await;
             }
         }
     }
@@ -202,7 +202,7 @@ pub async fn clone_repository(config: &Config) -> Result<(), String> {
             git_args.push(b);
         }
         git_args.push(&auth_url);
-        git_args.push(&config.workspace_dir);
+        git_args.push(&config.repo_dir);
         match run_command("git", &git_args).await {
             Ok(()) => {
                 info!("Repository cloned successfully with token auth");
@@ -210,7 +210,7 @@ pub async fn clone_repository(config: &Config) -> Result<(), String> {
             }
             Err(e) => {
                 warn!(error = %e, "git clone with token failed, trying without auth");
-                clean_workspace_dir(&config.workspace_dir).await;
+                clean_workspace_dir(&config.repo_dir).await;
             }
         }
     }
@@ -222,7 +222,7 @@ pub async fn clone_repository(config: &Config) -> Result<(), String> {
         git_args.push(b);
     }
     git_args.push(clone_url);
-    git_args.push(&config.workspace_dir);
+    git_args.push(&config.repo_dir);
     match run_command("git", &git_args).await {
         Ok(()) => {
             info!("Repository cloned successfully (plain git clone)");

@@ -540,8 +540,9 @@ kubernetes:
     nodeEnv: "production"
     # -- Log level for sandbox pods (defaults to config.logLevel if empty)
     logLevel: "info"
-    # -- Workspace directory inside the sandbox container
-    workspaceDir: "/opt/moatless/repo"
+    # -- Workspace directory inside the sandbox container (agent cwd, persisted).
+    # The task repo is cloned into a subdir (workspaceDir/<repo-name>).
+    workspaceDir: "/opt/moatless/workspace"
     # -- Data directory inside the sandbox container
     dataDir: "/opt/moatless/data"
     # -- Claude config directory inside the sandbox container

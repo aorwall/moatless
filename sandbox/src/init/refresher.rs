@@ -189,6 +189,7 @@ mod tests {
             grpc_port: 0,
             task_id: "task-refresher".to_string(),
             workspace_dir: tmp.path().join("workspace").display().to_string(),
+            repo_dir: tmp.path().join("workspace").display().to_string(),
             data_dir: tmp.path().join("data").display().to_string(),
             upload_dir: tmp.path().join("uploads").display().to_string(),
             log_level: "info".to_string(),

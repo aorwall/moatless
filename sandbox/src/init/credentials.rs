@@ -154,7 +154,16 @@ pub async fn fetch_and_apply_credentials_with_mode(
 
                 persist_agent_credentials(&state.config, &resp.credentials, mode).await;
 
-                server_env::write_server_env_file(&state.config, &resp.server_env).await;
+                // Server sidecars `cd "$WORKSPACE_PATH"` before running their start
+                // commands. The repo now lives at `repo_dir` (inside the workspace
+                // dir), which only the sandbox knows, so inject it here as the source
+                // of truth — overriding any container-level WORKSPACE_PATH default.
+                let mut server_env = resp.server_env.clone();
+                server_env.insert(
+                    "WORKSPACE_PATH".to_string(),
+                    state.config.repo_dir.clone(),
+                );
+                server_env::write_server_env_file(&state.config, &server_env).await;
 
                 // Materialize SSH private keys into ~/.ssh so git/ssh can use
                 // them for SSH remotes. Delivered on a dedicated channel and
@@ -349,6 +358,7 @@ mod tests {
             grpc_port: 50052,
             task_id: "task-1".to_string(),
             workspace_dir: tmp.path().join("workspace").display().to_string(),
+            repo_dir: tmp.path().join("workspace").display().to_string(),
             data_dir: tmp.path().join("data").display().to_string(),
             upload_dir: tmp.path().join("uploads").display().to_string(),
             log_level: "info".to_string(),

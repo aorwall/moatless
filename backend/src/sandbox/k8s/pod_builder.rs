@@ -721,7 +721,7 @@ fn build_server_containers(
                 let full_cmd = format!(
                     "until [ -f /opt/moatless/data/.workspace-ready ]; do sleep 2; done && \
                      if [ -f /opt/moatless/data/server.env ]; then set -a && . /opt/moatless/data/server.env && set +a; fi && \
-                     cd /opt/moatless/repo && {joined_cmd}"
+                     cd \"${{WORKSPACE_PATH:-/opt/moatless/repo}}\" && {joined_cmd}"
                 );
                 (
                     Some(vec!["bash".to_string(), "-c".to_string()]),

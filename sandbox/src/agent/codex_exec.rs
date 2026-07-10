@@ -832,6 +832,7 @@ mod tests {
             grpc_port: 0,
             task_id: "task-test".to_string(),
             workspace_dir: "/tmp/workspace".to_string(),
+            repo_dir: "/tmp/workspace".to_string(),
             data_dir: "/tmp/data".to_string(),
             upload_dir: "/tmp/uploads".to_string(),
             log_level: "info".to_string(),

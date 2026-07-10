@@ -179,6 +179,7 @@ fn test_config(tmp: &TempDir, use_tmux: bool) -> Config {
         grpc_port: 0,
         task_id: "agent-transport-e2e".to_string(),
         workspace_dir: tmp.path().join("workspace").display().to_string(),
+        repo_dir: tmp.path().join("workspace").display().to_string(),
         data_dir: tmp.path().join("data").display().to_string(),
         upload_dir: tmp.path().join("uploads").display().to_string(),
         log_level: "info".to_string(),
@@ -209,6 +210,7 @@ fn test_config(tmp: &TempDir, use_tmux: bool) -> Config {
         setup_commands: vec![],
         plugin_ids: vec![],
         plugin_repos: vec![],
+        workspace_sync_enabled: false,
     }
 }
 

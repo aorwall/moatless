@@ -110,8 +110,17 @@ pub struct Config {
     pub grpc_port: u16,
     /// Task ID (required)
     pub task_id: String,
-    /// Workspace directory
+    /// Workspace directory — the persisted *container* dir (e.g.
+    /// `/opt/moatless/workspace`). This is the agent's cwd and the root of the
+    /// S3 workspace snapshot; the primary repo lives in [`Self::repo_dir`], a
+    /// subdirectory of this.
     pub workspace_dir: String,
+    /// Repository directory — where the primary repo is cloned, a subdirectory
+    /// of [`Self::workspace_dir`] named after the repo (e.g.
+    /// `/opt/moatless/workspace/<repo-name>`). All repo-scoped operations (git
+    /// status/diff, the file API, setup commands, dev servers) target this.
+    /// Falls back to `workspace_dir` when there is no clone URL.
+    pub repo_dir: String,
     /// Data directory for server artifacts
     pub data_dir: String,
     /// Upload directory
@@ -172,6 +181,25 @@ pub struct Config {
     pub plugin_repos: Vec<String>,
 }
 
+/// Derive the repo subdirectory name from a clone URL: the last path segment
+/// with any trailing `.git` and slashes stripped. Falls back to `"repo"` for
+/// URLs that don't yield a usable segment.
+///
+/// Handles `https://host/owner/repo(.git)` and `git@host:owner/repo(.git)`.
+pub(crate) fn derive_repo_name(url: &str) -> String {
+    let name = url
+        .trim_end_matches('/')
+        .rsplit(['/', ':'])
+        .next()
+        .unwrap_or("")
+        .trim_end_matches(".git");
+    if name.is_empty() {
+        "repo".to_string()
+    } else {
+        name.to_string()
+    }
+}
+
 impl Config {
     /// Load configuration from environment variables.
     pub fn from_env() -> Self {
@@ -188,6 +216,21 @@ impl Config {
         let codex_home_dir =
             env::var("CODEX_HOME").unwrap_or_else(|_| format!("{home_dir}/.codex"));
 
+        // The workspace is the persisted container dir; the primary repo is
+        // cloned into a named subdirectory of it. Derive `repo_dir` from the
+        // clone URL's last path segment, falling back to `workspace_dir` itself
+        // when there is no repo to clone.
+        let workspace_dir = env::var("WORKSPACE_DIR").unwrap_or_else(|_| "/workspace".to_string());
+        let git_clone_url = env::var("GIT_CLONE_URL").ok().filter(|u| !u.is_empty());
+        let repo_dir = match git_clone_url {
+            Some(ref url) => format!(
+                "{}/{}",
+                workspace_dir.trim_end_matches('/'),
+                derive_repo_name(url)
+            ),
+            None => workspace_dir.clone(),
+        };
+
         Self {
             port: env::var("PORT")
                 .ok()
@@ -201,8 +244,8 @@ impl Config {
 
             task_id: env::var("TASK_ID").unwrap_or_default(),
 
-            workspace_dir: env::var("WORKSPACE_DIR")
-                .unwrap_or_else(|_| "/workspace".to_string()),
+            workspace_dir,
+            repo_dir,
 
             data_dir: env::var("DATA_DIR")
                 .unwrap_or_else(|_| "/opt/moatless/data".to_string()),
@@ -247,7 +290,7 @@ impl Config {
             home_dir,
             codex_home_dir,
             claude_config_dir,
-            git_clone_url: env::var("GIT_CLONE_URL").ok(),
+            git_clone_url,
             git_branch: env::var("GIT_BRANCH").ok(),
             git_provider: env::var("GIT_PROVIDER").unwrap_or_else(|_| "github".to_string()),
             repo_config_raw: env::var("REPO_CONFIG").ok(),
@@ -356,5 +399,29 @@ fn parse_repo_config() -> ParsedRepoConfig {
         plugin_ids,
         plugin_repos,
         servers,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::derive_repo_name;
+
+    #[test]
+    fn derive_repo_name_handles_common_url_shapes() {
+        assert_eq!(derive_repo_name("https://github.com/owner/repo.git"), "repo");
+        assert_eq!(derive_repo_name("https://github.com/owner/repo"), "repo");
+        assert_eq!(derive_repo_name("git@github.com:owner/repo.git"), "repo");
+        assert_eq!(derive_repo_name("https://host/owner/repo/"), "repo");
+        assert_eq!(
+            derive_repo_name("https://gitlab.com/group/sub/my-service.git"),
+            "my-service"
+        );
+    }
+
+    #[test]
+    fn derive_repo_name_falls_back_for_unusable_urls() {
+        assert_eq!(derive_repo_name(""), "repo");
+        assert_eq!(derive_repo_name("/"), "repo");
+        assert_eq!(derive_repo_name(".git"), "repo");
     }
 }

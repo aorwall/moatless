@@ -24,6 +24,7 @@ pub(crate) mod server_env;
 mod ssh;
 pub(crate) mod transcript_sync;
 mod workspace;
+mod workspace_bridge;
 pub(crate) mod workspace_sync;
 
 use moatless_events::SandboxSubType;
@@ -283,7 +284,7 @@ async fn recover_interrupted_run(state: &SandboxState, workspace_recloned: bool)
             let prompt_text = if workspace_recloned {
                 format!(
                     "{}{}",
-                    workspace_recloned_note(&state.config.workspace_dir),
+                    workspace_recloned_note(&state.config.repo_dir),
                     turn.prompt_text
                 )
             } else {
@@ -339,6 +340,7 @@ async fn spawn_codex_auth_watcher(state: &SandboxState) {
 /// 4. Configure git authentication (non-fatal)
 /// 5. Clone repository (fatal on failure)
 /// 6. Sync plugins (non-fatal)
+///
 /// Runs Phase 1 core init. Returns `true` when the workspace was rebuilt from a
 /// fresh clone (ephemeral pre-restart state lost), so the caller can warn a
 /// resuming agent; `false` when the repo was fully restored / persisted.
@@ -428,7 +430,7 @@ async fn run_core_init(state: &SandboxState) -> Result<bool, InitError> {
             if !clone_url.is_empty() {
                 // A pre-existing `.git` means the repo persisted (EBS/PVC) and
                 // `clone_repository` will skip — so nothing was re-cloned/lost.
-                let repo_preexisted = std::path::Path::new(&state.config.workspace_dir)
+                let repo_preexisted = std::path::Path::new(&state.config.repo_dir)
                     .join(".git")
                     .exists();
                 match git::clone_repository(&state.config).await {
@@ -504,24 +506,44 @@ async fn run_core_init(state: &SandboxState) -> Result<bool, InitError> {
         .await;
     }
 
-    // 8. Mirror CLAUDE.md → AGENTS.md and .claude/skills → .agents/skills
-    // throughout the workspace so Codex finds the same instructions and
-    // skill bundles Claude does. Runs unconditionally — agent type is
-    // decided per-message; symlinks are cheap, idempotent, and harmless
-    // when Claude is the active agent.
-    if !state.config.workspace_dir.is_empty() {
-        let workspace = std::path::Path::new(&state.config.workspace_dir);
-        let agents_md = codex_compat::mirror_claude_md_to_agents_md(workspace);
-        let agents_skills = codex_compat::mirror_claude_skills_to_agents_skills(workspace);
-        let total = agents_md + agents_skills;
-        if total > 0 {
+    // 8. Mirror CLAUDE.md → AGENTS.md throughout the repo so Codex finds the same
+    // instructions Claude does (Codex reads the AGENTS.md in the directory of
+    // files it edits). Runs unconditionally — agent type is decided per-message;
+    // symlinks are cheap, idempotent, and harmless when Claude is the active
+    // agent. Skills are handled at the workspace level below, not mirrored here.
+    if !state.config.repo_dir.is_empty() {
+        let agents_md = codex_compat::mirror_claude_md_to_agents_md(std::path::Path::new(
+            &state.config.repo_dir,
+        ));
+        if agents_md > 0 {
             publish_sandbox_event(
                 state,
                 "CodexCompatMirrored",
-                &format!("Mirrored {agents_md} AGENTS.md and {agents_skills} skill(s) for Codex",),
+                &format!("Mirrored {agents_md} AGENTS.md for Codex"),
                 false,
             )
             .await;
+        }
+    }
+
+    // 8b. Bridge the repo's root agent config up to the workspace root: skills for
+    // both agents (`.claude/skills` for Claude, `.agents/skills` for Codex) plus
+    // `CLAUDE.md`/`AGENTS.md`. The agent's cwd is `workspace_dir`, but these are
+    // discovered relative to cwd, so a repo checked out one level down at
+    // `repo_dir` would otherwise be invisible. Symlinks only — the repo stays the
+    // source of truth; they sit outside `repo_dir` so the S3 snapshot skips them,
+    // and they're regenerated every init. No-op when there is no separate checkout
+    // (`repo_dir == workspace_dir`).
+    if !state.config.repo_dir.is_empty() {
+        let bridged = workspace_bridge::bridge_repo_config_to_workspace(
+            std::path::Path::new(&state.config.workspace_dir),
+            std::path::Path::new(&state.config.repo_dir),
+        );
+        if bridged > 0 {
+            info!(
+                count = bridged,
+                "Bridged repo agent config (skills/CLAUDE.md/AGENTS.md) to workspace root"
+            );
         }
     }
 

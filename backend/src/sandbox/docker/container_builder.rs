@@ -146,7 +146,7 @@ pub fn build_container_config(
         generate_claude_config_host_path(&config.docker.data_dir, task_id);
     let mut mounts = vec![
         Mount {
-            target: Some("/opt/moatless/repo".to_string()),
+            target: Some("/opt/moatless/workspace".to_string()),
             source: Some(workspace_host_path),
             typ: Some(MountTypeEnum::BIND),
             read_only: Some(false),
@@ -320,6 +320,8 @@ pub fn build_server_container_config(
         "WORKSPACE_PATH=/opt/moatless/repo".to_string(),
         "DATA_DIR=/opt/moatless/data".to_string(),
     ];
+    // Note: server.env (sourced below at startup) overrides WORKSPACE_PATH with the
+    // sandbox-derived repo_dir; this default is only a fallback before init.
 
     if let Some(ref extra) = server.env_vars {
         for (k, v) in extra {
@@ -345,7 +347,7 @@ pub fn build_server_container_config(
                 format!(
                     "until [ -f /opt/moatless/data/.workspace-ready ]; do sleep 2; done && \
                      if [ -f /opt/moatless/data/server.env ]; then set -a && . /opt/moatless/data/server.env && set +a; fi && \
-                     cd /opt/moatless/repo && {joined_cmd}"
+                     cd \"${{WORKSPACE_PATH:-/opt/moatless/repo}}\" && {joined_cmd}"
                 ),
             ])
         }
@@ -385,7 +387,7 @@ pub fn build_server_container_config(
     let data_host_path = generate_data_host_path(&config.docker.data_dir, task_id);
     let mounts = vec![
         Mount {
-            target: Some("/opt/moatless/repo".to_string()),
+            target: Some("/opt/moatless/workspace".to_string()),
             source: Some(workspace_host_path),
             typ: Some(MountTypeEnum::BIND),
             read_only: Some(false),
@@ -671,7 +673,7 @@ mod tests {
         let host_config = cc.host_config.unwrap();
         let mounts = host_config.mounts.unwrap();
         assert_eq!(mounts.len(), 3);
-        assert_eq!(mounts[0].target.as_deref(), Some("/opt/moatless/repo"));
+        assert_eq!(mounts[0].target.as_deref(), Some("/opt/moatless/workspace"));
         assert_eq!(mounts[0].source.as_deref(), Some("/data/tasks/task-1/repo"));
         assert_eq!(mounts[1].target.as_deref(), Some("/opt/moatless/data"));
         assert_eq!(mounts[1].source.as_deref(), Some("/data/tasks/task-1/data"));
@@ -801,7 +803,7 @@ mod tests {
         let host_config = cc.host_config.unwrap();
         let mounts = host_config.mounts.unwrap();
         assert_eq!(mounts.len(), 2);
-        assert_eq!(mounts[0].target.as_deref(), Some("/opt/moatless/repo"));
+        assert_eq!(mounts[0].target.as_deref(), Some("/opt/moatless/workspace"));
         assert_eq!(mounts[1].target.as_deref(), Some("/opt/moatless/data"));
     }
 

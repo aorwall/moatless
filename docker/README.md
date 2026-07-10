@@ -94,7 +94,8 @@ All sandbox images run as the `moatless` user:
 ### Directory Structure
 ```
 /opt/moatless/          # Root directory (PVC mount in K8s, volume mount in Docker)
-├── repo/               # Git repository (WORKSPACE_DIR)
+├── workspace/          # Persisted working area / agent cwd (WORKSPACE_DIR)
+│   └── <repo-name>/    # Git repository checkout (repo dir)
 ├── data/               # Persistent data (DATA_DIR)
 └── .claude/            # Claude Code config (CLAUDE_CONFIG_DIR)
     └── skills -> /usr/share/moatless-skills  # Symlinked at container startup
@@ -189,7 +190,7 @@ docker build -f docker/Dockerfile.sandbox-full \
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `WORKSPACE_DIR` | Workspace directory | `/opt/moatless/repo` |
+| `WORKSPACE_DIR` | Workspace directory (agent cwd; repo cloned into `WORKSPACE_DIR/<repo-name>`) | `/opt/moatless/workspace` |
 | `DATA_DIR` | Data storage directory | `/opt/moatless/data` |
 | `CLAUDE_CONFIG_DIR` | Claude config directory | `/opt/moatless/.claude` |
 | `PORT` | Sandbox API port | `8001` |

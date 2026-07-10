@@ -36,7 +36,10 @@ WORKDIR /opt/moatless
 
 # Sandbox runtime paths
 ENV HOME=/home/moatless
-ENV WORKSPACE_DIR=/opt/moatless/repo
+# WORKSPACE_DIR is the persisted working area (agent cwd). The task repo is
+# cloned into a subdir (WORKSPACE_DIR/<repo-name>) so other repos and loose
+# files saved under WORKSPACE_DIR persist alongside it.
+ENV WORKSPACE_DIR=/opt/moatless/workspace
 ENV CLAUDE_CONFIG_DIR=/opt/moatless/.claude
 ENV CODEX_HOME=/opt/moatless/.codex
 ENV CLAUDE_BIN_DIR=/usr/local/bin

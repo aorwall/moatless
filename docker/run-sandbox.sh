@@ -81,7 +81,7 @@ while [[ $# -gt 0 ]]; do
       echo ""
       echo "Inside the container:"
       echo "  - Check env vars: env | grep -E 'CLAUDE|PORT|GIT'"
-      echo "  - Check cloned repo: ls /opt/moatless/repo"
+      echo "  - Check cloned repo: ls /opt/moatless/workspace"
       echo "  - Start sandbox: /usr/local/bin/sandbox"
       exit 0
       ;;
@@ -189,7 +189,7 @@ DOCKER_CMD+=" -p $HOST_PORT_PREVIEW:3000"
 DOCKER_CMD+=" -e PORT=8001"
 DOCKER_CMD+=" -e LOG_LEVEL=debug"
 DOCKER_CMD+=" -e HOME=/home/moatless"
-DOCKER_CMD+=" -e WORKSPACE_DIR=/opt/moatless/repo"
+DOCKER_CMD+=" -e WORKSPACE_DIR=/opt/moatless/workspace"
 DOCKER_CMD+=" -e DATA_DIR=/opt/moatless/data"
 
 # Git clone URL
@@ -214,7 +214,7 @@ echo -e ""
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${GREEN}Inside the container, you can:${NC}"
 echo -e "  1. Check environment: ${YELLOW}env | grep -E 'CLAUDE|PORT|GIT'${NC}"
-echo -e "  2. Clone the repo manually: ${YELLOW}git clone \$GIT_CLONE_URL \$WORKSPACE_DIR${NC}"
+echo -e "  2. Clone the repo manually: ${YELLOW}git clone \$GIT_CLONE_URL \$WORKSPACE_DIR/<repo-name>${NC}"
 echo -e "  3. Start sandbox server: ${YELLOW}/usr/local/bin/sandbox${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e ""

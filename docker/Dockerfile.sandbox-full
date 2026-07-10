@@ -72,7 +72,8 @@ ENV PATH="/usr/bin:/usr/local/bin:$PATH"
 
 # Runtime environment variables (mirror Dockerfile.sandbox)
 ENV HOME=/home/moatless
-ENV WORKSPACE_DIR=/opt/moatless/repo
+# Persisted working area (agent cwd); the task repo is cloned into a subdir.
+ENV WORKSPACE_DIR=/opt/moatless/workspace
 ENV CLAUDE_CONFIG_DIR=/opt/moatless/.claude
 ENV CODEX_HOME=/home/moatless/.codex
 ENV CLAUDE_BIN_DIR=/usr/local/bin
