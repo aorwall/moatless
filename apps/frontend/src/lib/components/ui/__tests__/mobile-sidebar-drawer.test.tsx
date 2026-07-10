@@ -5,8 +5,8 @@ import { MobileSidebarDrawer } from '@/lib/components/ui/mobile-sidebar-drawer'
 /**
  * The drawer registers its gesture handlers on `document`, so these tests
  * dispatch raw touch events there. jsdom has no layout, so `offsetWidth` is 0
- * and the drawer falls back to its 288px width — meaning the halfway snap
- * point sits at -144px.
+ * and the drawer falls back to its 320px width — meaning the halfway snap
+ * point sits at -160px.
  */
 
 type Point = { clientX: number; clientY: number }
@@ -36,7 +36,7 @@ describe('MobileSidebarDrawer', () => {
     const { onOpenChange } = renderDrawer(false)
 
     dispatchTouch('touchstart', [{ clientX: 5, clientY: 100 }])
-    dispatchTouch('touchmove', [{ clientX: 250, clientY: 110 }]) // +245px, well past -144
+    dispatchTouch('touchmove', [{ clientX: 250, clientY: 110 }]) // ends at -75px, well past -160
     dispatchTouch('touchend', [])
 
     expect(onOpenChange).toHaveBeenCalledWith(true)
@@ -46,7 +46,7 @@ describe('MobileSidebarDrawer', () => {
     const { onOpenChange } = renderDrawer(false)
 
     dispatchTouch('touchstart', [{ clientX: 5, clientY: 100 }])
-    dispatchTouch('touchmove', [{ clientX: 80, clientY: 105 }]) // ends at -213px, short of -144
+    dispatchTouch('touchmove', [{ clientX: 80, clientY: 105 }]) // ends at -245px, short of -160
     dispatchTouch('touchend', [])
 
     expect(onOpenChange).toHaveBeenCalledWith(false)
@@ -89,16 +89,16 @@ describe('MobileSidebarDrawer', () => {
     const { panel } = renderDrawer(false)
 
     dispatchTouch('touchstart', [{ clientX: 5, clientY: 100 }])
-    dispatchTouch('touchmove', [{ clientX: 150, clientY: 105 }]) // base -288 + 145 = -143
+    dispatchTouch('touchmove', [{ clientX: 150, clientY: 105 }]) // base -320 + 145 = -175
 
-    expect(panel.style.transform).toContain('translate3d(-143px')
+    expect(panel.style.transform).toContain('translate3d(-175px')
   })
 
   it('closes when dragged back out while open', () => {
     const { onOpenChange } = renderDrawer(true)
 
     dispatchTouch('touchstart', [{ clientX: 200, clientY: 100 }])
-    dispatchTouch('touchmove', [{ clientX: 30, clientY: 110 }]) // -170px, past -144
+    dispatchTouch('touchmove', [{ clientX: 30, clientY: 110 }]) // -170px, past -160
     dispatchTouch('touchend', [])
 
     expect(onOpenChange).toHaveBeenCalledWith(false)

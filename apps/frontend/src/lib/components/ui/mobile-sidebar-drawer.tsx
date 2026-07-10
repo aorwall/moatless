@@ -5,8 +5,8 @@ import { cn } from '@/lib/utils'
 const EDGE_SIZE = 24
 /** Minimum travel (px) before a gesture locks into horizontal vs vertical. */
 const DIRECTION_LOCK = 8
-/** Fallback panel width (px) used before the element can be measured (18rem). */
-const FALLBACK_WIDTH = 288
+/** Fallback panel width (px) used before the element can be measured (20rem). */
+const FALLBACK_WIDTH = 320
 
 interface MobileSidebarDrawerProps {
   open: boolean
@@ -181,7 +181,7 @@ export function MobileSidebarDrawer({
         aria-modal="true"
         aria-label="Task list"
         className={cn(
-          'fixed inset-y-0 left-0 z-50 flex h-full w-72 max-w-[85vw] flex-col overflow-x-hidden overscroll-x-none border-r bg-sidebar text-sidebar-foreground',
+          'fixed inset-y-0 left-0 z-50 flex h-full w-80 max-w-[85vw] flex-col overflow-x-hidden overscroll-x-none border-r bg-sidebar text-sidebar-foreground',
           isDragging ? 'transition-none' : 'transition-transform duration-300 ease-in-out',
           dragX === null && (openMobile ? 'translate-x-0' : '-translate-x-full'),
           !(openMobile || isDragging) && 'pointer-events-none',
