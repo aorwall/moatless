@@ -53,6 +53,7 @@ export const tasksApi = {
     offset?: number
     tag?: string
     createdBy?: string
+    followedBy?: string
     repositoryId?: string
   }): Promise<ListTasksResponse> {
     return await unwrapResponse(
@@ -62,6 +63,7 @@ export const tasksApi = {
         offset: params?.offset,
         tag: params?.tag,
         createdBy: params?.createdBy,
+        followedBy: params?.followedBy,
         repositoryId: params?.repositoryId,
       }),
     )
@@ -163,6 +165,22 @@ export const tasksApi = {
   // handler so it stays in sync with the backend regardless of client regen.
   async markTaskRead(taskId: string): Promise<void> {
     await customInstance<void>(`/api/v1/tasks/${taskId}/read`, { method: 'POST' })
+  },
+
+  // Follow a task so it shows up in the user's personal task list. Called via
+  // the shared instance rather than a generated handler so it stays in sync
+  // with the backend regardless of client regen.
+  async followTask(taskId: string): Promise<{ following: boolean }> {
+    return await customInstance<{ following: boolean }>(`/api/v1/tasks/${taskId}/follow`, {
+      method: 'POST',
+    })
+  },
+
+  // Stop following a task, removing it from the user's personal task list.
+  async unfollowTask(taskId: string): Promise<{ following: boolean }> {
+    return await customInstance<{ following: boolean }>(`/api/v1/tasks/${taskId}/follow`, {
+      method: 'DELETE',
+    })
   },
 
   async deleteTask(taskId: string): Promise<{ status: string }> {

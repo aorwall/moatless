@@ -71,6 +71,7 @@ export function useTasksList(
     offset?: number
     tag?: string
     createdBy?: string
+    followedBy?: string
     repositoryId?: string
   },
   options?: Omit<UseQueryOptions<ListTasksResponse>, 'queryKey' | 'queryFn'>,
@@ -122,6 +123,67 @@ export function useMarkTaskReadOnView(taskId: string): void {
     mark()
     return mark
   }, [taskId, queryClient])
+}
+
+/**
+ * Follow or unfollow a task. Following adds it to the user's personal task
+ * list (the sidebar, driven by a `followedBy` filter); unfollowing removes it.
+ * Optimistically patches the `isFollowing` flag on the task detail cache, then
+ * invalidates the task lists so followed/unfollowed rows appear or disappear.
+ */
+export function useToggleTaskFollow(
+  taskId: string,
+  options?: UseMutationOptions<
+    { following: boolean },
+    Error,
+    boolean,
+    { previousTask: TaskResponse | undefined }
+  >,
+) {
+  const queryClient = useQueryClient()
+
+  return useMutation<
+    { following: boolean },
+    Error,
+    boolean,
+    { previousTask: TaskResponse | undefined }
+  >({
+    ...options,
+    mutationKey: ['tasks', taskId, 'toggleFollow'],
+    mutationFn: (following: boolean) =>
+      following ? tasksApi.followTask(taskId) : tasksApi.unfollowTask(taskId),
+    onMutate: async (following) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.tasks.detail(taskId) })
+
+      const previousTask = queryClient.getQueryData<TaskResponse>(queryKeys.tasks.detail(taskId))
+
+      queryClient.setQueryData<TaskResponse>(queryKeys.tasks.detail(taskId), (prev) =>
+        prev ? { ...prev, isFollowing: following } : prev,
+      )
+      updateTaskInLists(queryClient, taskId, { isFollowing: following })
+
+      return { previousTask }
+    },
+    onError: (error, following, context, mutationContext) => {
+      if (context?.previousTask) {
+        queryClient.setQueryData(queryKeys.tasks.detail(taskId), context.previousTask)
+        updateTaskInLists(queryClient, taskId, context.previousTask)
+      }
+      options?.onError?.(error, following, context, mutationContext)
+    },
+    onSettled: async () => {
+      // Refetch task lists so the (un)followed task appears in or drops out of
+      // the sidebar's followedBy-filtered list.
+      await queryClient.refetchQueries({
+        queryKey: queryKeys.tasks.lists(),
+        exact: false,
+        type: 'active',
+      })
+    },
+    onSuccess: (data, following, onMutateResult, mutationContext) => {
+      options?.onSuccess?.(data, following, onMutateResult, mutationContext)
+    },
+  })
 }
 
 // Mutation hooks

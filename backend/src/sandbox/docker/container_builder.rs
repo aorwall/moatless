@@ -545,6 +545,7 @@ mod tests {
                 bucket_name: None,
                 key_prefix: "test".into(),
                 transcript_prefix: "transcripts".into(),
+                workspace_prefix: "workspaces".into(),
                 region: "us-east-1".into(),
             },
             slack: SlackConfig {

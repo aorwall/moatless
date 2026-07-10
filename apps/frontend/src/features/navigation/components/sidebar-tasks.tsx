@@ -313,7 +313,10 @@ export function SidebarTasks() {
   } = useTasksList({
     limit: 100,
     status: 'open',
-    createdBy: user?.id,
+    // Personal task list: tasks the user follows. Users auto-follow tasks they
+    // create or message, and can follow other users' tasks explicitly, so this
+    // shows own tasks alongside followed ones.
+    followedBy: user?.id,
   })
 
   // Fetch a latest-message preview per task (cached, one request each) so idle

@@ -1,11 +1,12 @@
 import type { TaskResponse } from '@moatless/api-client'
 import { useNavigate } from '@tanstack/react-router'
-import { ExternalLink, GitBranch, Globe, Lock, XCircle } from 'lucide-react'
+import { Bell, BellOff, ExternalLink, GitBranch, Globe, Lock, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { formatTimestamp } from '@/features/task-connections'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
 import {
   useCloseTask,
+  useToggleTaskFollow,
   useUpdateTaskTtl,
   useUpdateTaskVisibility,
 } from '@/features/tasks/hooks/use-tasks'
@@ -41,6 +42,9 @@ export function TaskInfoSection({ task }: TaskInfoSectionProps) {
   const navigate = useNavigate()
   const updateVisibility = useUpdateTaskVisibility(taskId)
   const updateTtl = useUpdateTaskTtl(taskId)
+  const toggleFollow = useToggleTaskFollow(taskId, {
+    onError: (err) => toast.error('Failed to update follow', { description: err.message }),
+  })
   const closeTask = useCloseTask(taskId, {
     onSuccess: () => navigate({ to: '/' }),
     onError: (err) => toast.error('Failed to close task', { description: err.message }),
@@ -103,6 +107,31 @@ export function TaskInfoSection({ task }: TaskInfoSectionProps) {
       </Field>
       <Field label="Scope">
         <span className="capitalize">{task.scope}</span>
+      </Field>
+      <Field label="Follow">
+        <button
+          type="button"
+          disabled={toggleFollow.isPending}
+          onClick={() => toggleFollow.mutate(!task.isFollowing)}
+          title={
+            task.isFollowing
+              ? 'Unfollow — remove from your task list'
+              : 'Follow — add to your task list'
+          }
+          className="inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-xs transition-colors hover:bg-muted disabled:opacity-50"
+        >
+          {task.isFollowing ? (
+            <>
+              <Bell className="h-3 w-3" />
+              Following
+            </>
+          ) : (
+            <>
+              <BellOff className="h-3 w-3" />
+              Follow
+            </>
+          )}
+        </button>
       </Field>
       {createdBy && (
         <Field label="Created by">

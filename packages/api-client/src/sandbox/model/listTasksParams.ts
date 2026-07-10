@@ -33,4 +33,10 @@ tag?: string | null;
  * @nullable
  */
 parentTaskId?: string | null;
+/**
+ * When set, restrict results to tasks this user follows. Drives the
+ * personal task list (own tasks plus followed tasks from other users).
+ * @nullable
+ */
+followedBy?: string | null;
 };

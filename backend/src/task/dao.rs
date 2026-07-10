@@ -25,6 +25,9 @@ pub struct TaskFilter {
     /// When set, restrict results to tasks that have a `created_by` relation
     /// pointing at this task id (i.e. children of this parent).
     pub parent_task_id: Option<String>,
+    /// When set, restrict results to tasks this user follows (a row exists in
+    /// `task_follows`). Drives the personal sidebar list.
+    pub followed_by: Option<String>,
 }
 
 /// Repository trait for task persistence.
@@ -96,6 +99,21 @@ pub trait TaskRepository: Send + Sync {
         user_id: &str,
         task_ids: &[String],
     ) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error>;
+
+    /// Make `user_id` follow `task_id`. Idempotent — following an
+    /// already-followed task is a no-op.
+    async fn follow_task(&self, user_id: &str, task_id: &str) -> Result<(), sqlx::Error>;
+
+    /// Make `user_id` stop following `task_id`. Idempotent — unfollowing a
+    /// task that isn't followed is a no-op.
+    async fn unfollow_task(&self, user_id: &str, task_id: &str) -> Result<(), sqlx::Error>;
+
+    /// Batch-fetch the subset of `task_ids` that `user_id` currently follows.
+    async fn get_followed(
+        &self,
+        user_id: &str,
+        task_ids: &[String],
+    ) -> Result<std::collections::HashSet<String>, sqlx::Error>;
 
     /// List task IDs for currently-open codex tasks under a given codex scope,
     /// optionally excluding `except_task_id`. Drives both the Codex refresh
@@ -193,6 +211,21 @@ impl TaskRepository for PgTaskRepository {
         .bind(&row.disabled_servers)
         .execute(&self.0)
         .await?;
+
+        // Auto-follow the task for its creator so it lands in their personal
+        // task list. Applied at the DAO layer so every creation path (HTTP
+        // handler, adapters, triggers) follows consistently. Best-effort — a
+        // follow failure must never fail task insertion.
+        if let Some(ref creator) = row.created_by {
+            if let Err(e) = self.follow_task(creator, &row.task_id).await {
+                tracing::warn!(
+                    error = %e,
+                    task_id = %row.task_id,
+                    "Failed to auto-follow task for creator"
+                );
+            }
+        }
+
         Ok(())
     }
 
@@ -263,6 +296,11 @@ impl TaskRepository for PgTaskRepository {
                     AND tr.relation_type = 'created_by'
                     AND tr.to_task_id = $8
               ))
+              AND ($12::text IS NULL OR EXISTS (
+                  SELECT 1 FROM task_follows tf
+                  WHERE tf.task_id = t.task_id
+                    AND tf.user_id = $12
+              ))
             ORDER BY t.updated_at DESC NULLS LAST
             LIMIT $9 OFFSET $10"#,
             access.sql(),
@@ -279,6 +317,7 @@ impl TaskRepository for PgTaskRepository {
             .bind(filter.limit)
             .bind(filter.offset)
             .bind(filter.exclude_status)
+            .bind(&filter.followed_by)
             .fetch_all(&self.0)
             .await?;
 
@@ -599,6 +638,50 @@ impl TaskRepository for PgTaskRepository {
         Ok(rows.into_iter().collect())
     }
 
+    async fn follow_task(&self, user_id: &str, task_id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"INSERT INTO task_follows (user_id, task_id)
+               VALUES ($1, $2)
+               ON CONFLICT (user_id, task_id) DO NOTHING"#,
+        )
+        .bind(user_id)
+        .bind(task_id)
+        .execute(&self.0)
+        .await?;
+        Ok(())
+    }
+
+    async fn unfollow_task(&self, user_id: &str, task_id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(r#"DELETE FROM task_follows WHERE user_id = $1 AND task_id = $2"#)
+            .bind(user_id)
+            .bind(task_id)
+            .execute(&self.0)
+            .await?;
+        Ok(())
+    }
+
+    async fn get_followed(
+        &self,
+        user_id: &str,
+        task_ids: &[String],
+    ) -> Result<std::collections::HashSet<String>, sqlx::Error> {
+        if task_ids.is_empty() {
+            return Ok(std::collections::HashSet::new());
+        }
+
+        let rows: Vec<(String,)> = sqlx::query_as(
+            r#"SELECT task_id
+               FROM task_follows
+               WHERE user_id = $1 AND task_id = ANY($2)"#,
+        )
+        .bind(user_id)
+        .bind(task_ids)
+        .fetch_all(&self.0)
+        .await?;
+
+        Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
+
     async fn list_open_codex_tasks_for_scope(
         &self,
         scope_kind: String,
@@ -731,6 +814,7 @@ pub async fn list_tasks(
         created_by: created_by.map(String::from),
         tag: tag.map(String::from),
         parent_task_id: parent_task_id.map(String::from),
+        followed_by: None,
     };
     PgTaskRepository(pool.clone()).list_tasks(&filter).await
 }

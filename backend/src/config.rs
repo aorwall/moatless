@@ -326,8 +326,8 @@ pub struct SandboxConfig {
     /// allowlisted ref under the `restrict-image-registries` Kyverno policy
     /// (the ECR-mirrored dind image). Env `K8S_SANDBOX_DOCKER_DIND_IMAGE`.
     pub docker_dind_image: String,
-    /// Size cap for the `dind` sidecar's `/var/lib/docker` emptyDir (image layer
-    /// + container storage). Env `K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE`
+    /// Size cap for the `dind` sidecar's `/var/lib/docker` emptyDir (image
+    /// layer + container storage). Env `K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE`
     /// (default `10Gi`).
     pub docker_dind_storage_size: String,
     /// CPU request for the `dind` sidecar. Env `K8S_SANDBOX_DOCKER_DIND_CPU_REQUEST`.

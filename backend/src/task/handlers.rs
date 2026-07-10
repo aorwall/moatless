@@ -410,6 +410,7 @@ pub async fn list_tasks(
         created_by: query.created_by.clone(),
         tag: query.tag.clone(),
         parent_task_id: query.parent_task_id.clone(),
+        followed_by: query.followed_by.clone(),
     };
 
     let (rows, total) = state.tasks.list_tasks(&filter).await?;
@@ -454,6 +455,17 @@ pub async fn list_tasks(
         .await
         .unwrap_or_else(|e| {
             tracing::warn!(error = %e, "Failed to batch resolve read receipts");
+            Default::default()
+        });
+
+    // Batch resolve which of these tasks the requesting user follows (single
+    // query). Drives the follow indicator; best-effort — empty on error.
+    let followed = state
+        .tasks
+        .get_followed(&auth.user_id, &task_ids)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "Failed to batch resolve follow state");
             Default::default()
         });
 
@@ -518,7 +530,10 @@ pub async fn list_tasks(
 
             let mut resp =
                 build_task_response(row, tags, display_name, repo_name, bindings, relations);
-            resp.last_read_at = read_receipts.get(&row.task_id).map(|t| t.to_rfc3339());
+            resp.last_read_at = read_receipts
+                .get(&row.task_id)
+                .map(chrono::DateTime::to_rfc3339);
+            resp.is_following = Some(followed.contains(&row.task_id));
             if let Some(status) = env_status.get(&row.task_id) {
                 resp.environment_status = Some(status.as_str().to_string());
                 resp.is_running = Some(*status == SandboxStatus::Ready);
@@ -733,6 +748,70 @@ pub async fn mark_task_read(
         .await?;
 
     Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+/// Follow a task so it appears in the requesting user's personal task list.
+/// Any task the user can see may be followed. Idempotent.
+#[utoipa::path(
+    post,
+    path = "/api/v1/tasks/{task_id}/follow",
+    tag = "tasks",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    responses(
+        (status = 200, description = "Task followed", body = FollowTaskResponse),
+        (status = 404, description = "Task not found", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn follow_task(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(task_id): Path<String>,
+) -> Result<Json<FollowTaskResponse>, TaskError> {
+    // Ensure the task exists and is visible to the user before following.
+    state
+        .tasks
+        .find_by_id(&task_id, &auth.scope_context())
+        .await?
+        .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
+
+    state.tasks.follow_task(&auth.user_id, &task_id).await?;
+    tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task followed");
+
+    Ok(Json(FollowTaskResponse { following: true }))
+}
+
+/// Stop following a task, removing it from the requesting user's personal task
+/// list. Idempotent.
+#[utoipa::path(
+    delete,
+    path = "/api/v1/tasks/{task_id}/follow",
+    tag = "tasks",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    responses(
+        (status = 200, description = "Task unfollowed", body = FollowTaskResponse),
+        (status = 404, description = "Task not found", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn unfollow_task(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(task_id): Path<String>,
+) -> Result<Json<FollowTaskResponse>, TaskError> {
+    // Ensure the task exists and is visible to the user before unfollowing.
+    state
+        .tasks
+        .find_by_id(&task_id, &auth.scope_context())
+        .await?
+        .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
+
+    state.tasks.unfollow_task(&auth.user_id, &task_id).await?;
+    tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task unfollowed");
+
+    Ok(Json(FollowTaskResponse { following: false }))
 }
 
 /// Close a task and stop its sandbox.
@@ -1242,10 +1321,25 @@ async fn enrich_task(
         .await
     {
         Ok(receipts) => {
-            resp.last_read_at = receipts.get(&row.task_id).map(|t| t.to_rfc3339());
+            resp.last_read_at = receipts.get(&row.task_id).map(chrono::DateTime::to_rfc3339);
         }
         Err(e) => {
             tracing::warn!(error = %e, task_id = %row.task_id, "Failed to load read receipt");
+        }
+    }
+
+    // Resolve whether the requesting user follows this task (best-effort —
+    // leave None on failure). Drives the follow/unfollow toggle in clients.
+    match state
+        .tasks
+        .get_followed(user_id, std::slice::from_ref(&row.task_id))
+        .await
+    {
+        Ok(followed) => {
+            resp.is_following = Some(followed.contains(&row.task_id));
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, task_id = %row.task_id, "Failed to load follow state");
         }
     }
 
@@ -1307,6 +1401,7 @@ fn build_task_response(
         sandbox_started_at: row.sandbox_started_at.map(|t| t.to_rfc3339()),
         // Populated per-request by callers that know the requesting user.
         last_read_at: None,
+        is_following: None,
     }
 }
 

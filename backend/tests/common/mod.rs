@@ -141,6 +141,12 @@ pub fn test_config() -> Config {
             cache_volumes: vec![],
             cache_host_root: "/mnt/cache".into(),
             cache_init_image: "docker:dind".into(),
+            docker_dind_image: "docker:dind".into(),
+            docker_dind_storage_size: "10Gi".into(),
+            docker_dind_cpu_request: "500m".into(),
+            docker_dind_cpu_limit: "2".into(),
+            docker_dind_memory_request: "1Gi".into(),
+            docker_dind_memory_limit: "4Gi".into(),
         },
         docker: DockerConfig {
             network: "moatless".into(),
@@ -206,6 +212,7 @@ pub fn test_config() -> Config {
             bucket_name: None,
             key_prefix: "test".into(),
             transcript_prefix: "transcripts".into(),
+            workspace_prefix: "workspaces".into(),
             region: "us-east-1".into(),
         },
         slack: SlackConfig {
@@ -310,6 +317,7 @@ pub fn make_repository_row(id: &str, user_id: &str) -> Repository {
         remote_url: Some("https://github.com/test/repo.git".to_string()),
         default_branch: Some("main".to_string()),
         docker_image: None,
+        docker_access: None,
         system_prompt: None,
         setup_commands: None,
         env_vars: None,

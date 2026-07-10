@@ -438,7 +438,7 @@ fn deployment_has_workspace_sync(dep: &Deployment) -> bool {
     dep.spec
         .as_ref()
         .and_then(|s| s.template.spec.as_ref())
-        .map(|pod| {
+        .is_some_and(|pod| {
             pod.containers.iter().any(|c| {
                 c.name == "sandbox"
                     && c.env.as_ref().is_some_and(|env| {
@@ -449,7 +449,6 @@ fn deployment_has_workspace_sync(dep: &Deployment) -> bool {
                     })
             })
         })
-        .unwrap_or(false)
 }
 
 /// Result of checking for an existing pod.

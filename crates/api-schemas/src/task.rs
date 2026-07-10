@@ -171,6 +171,9 @@ pub struct ListTasksQuery {
     pub created_by: Option<String>,
     pub tag: Option<String>,
     pub parent_task_id: Option<String>,
+    /// When set, restrict results to tasks this user follows. Drives the
+    /// personal task list (own tasks plus followed tasks from other users).
+    pub followed_by: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -231,6 +234,20 @@ pub struct TaskResponse {
     /// `last_message_at` to derive unread state.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_read_at: Option<String>,
+    /// Whether the requesting user follows this task. Followed tasks appear in
+    /// the user's personal task list. `None` when the response was built
+    /// without a requesting-user context.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_following: Option<bool>,
+}
+
+/// Response for follow/unfollow endpoints, reporting the resulting state.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct FollowTaskResponse {
+    /// Whether the requesting user follows the task after the operation.
+    pub following: bool,
 }
 
 /// Tag as embedded in a task response (minimal: id + name only).

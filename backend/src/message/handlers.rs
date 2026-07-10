@@ -41,6 +41,15 @@ pub async fn send_message(
         .await?
         .ok_or_else(|| MessageError::NotFound(task_id.clone()))?;
 
+    // Auto-follow: writing to a task adds it to the sender's personal task
+    // list. Best-effort — a follow failure must never block sending. Skip
+    // agent/system contexts, which don't map to a followable user.
+    if !auth.is_agent_context {
+        if let Err(e) = state.tasks.follow_task(&auth.user_id, &task_id).await {
+            tracing::warn!(error = %e, task_id = %task_id, "Failed to auto-follow task on message send");
+        }
+    }
+
     // Handle tool response (AskUserQuestion / ExitPlanMode)
     if let (Some(_tool_use_id), Some(_tool_name)) = (&req.tool_use_id, &req.tool_name) {
         send::send_tool_response_flow(
@@ -93,9 +102,9 @@ pub async fn send_message(
 }
 
 /// Default page size when `limit` is not specified.
-const DEFAULT_MESSAGE_LIMIT: i32 = 200;
+const DEFAULT_MESSAGE_LIMIT: i32 = 50;
 /// Maximum allowed page size.
-const MAX_MESSAGE_LIMIT: i32 = 500;
+const MAX_MESSAGE_LIMIT: i32 = 200;
 
 /// Tool calls whose `tool_input` must survive `?summary=true` projection
 /// because the frontend renders it directly (no expand-on-demand fetch).
@@ -114,7 +123,7 @@ pub struct GetMessagesQuery {
     /// Omit for the most recent page.
     #[serde(default)]
     pub before_id: Option<i32>,
-    /// Page size. Defaults to 200, clamped to 1..=500.
+    /// Page size. Defaults to 50, clamped to 1..=200.
     #[serde(default)]
     pub limit: Option<i32>,
 }
@@ -131,7 +140,7 @@ pub struct GetMessagesQuery {
         ("task_id" = String, Path, description = "Task identifier"),
         ("summary" = Option<bool>, Query, description = "Strip heavy fields for summary view"),
         ("before_id" = Option<i32>, Query, description = "Return only rows strictly older than this id"),
-        ("limit" = Option<i32>, Query, description = "Page size (default 200, max 500)")
+        ("limit" = Option<i32>, Query, description = "Page size (default 50, max 200)")
     ),
     responses(
         (status = 200, description = "Page of messages", body = GetMessagesResponse),

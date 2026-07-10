@@ -192,6 +192,7 @@ async fn list_tasks_exclude_status_filter(pool: PgPool) {
         created_by: None,
         tag: None,
         parent_task_id: None,
+        followed_by: None,
     };
     let (rows, total) = PgTaskRepository(pool).list_tasks(&filter).await.unwrap();
 
@@ -325,4 +326,67 @@ async fn exists_by_short_id(pool: PgPool) {
     assert!(!task_dao::exists_by_short_id(&pool, "xxxxxxxx")
         .await
         .unwrap());
+}
+
+#[sqlx::test]
+async fn follow_unfollow_and_list_followed(pool: PgPool) {
+    let owner = "user-1";
+    let follower = "user-2";
+    seed_repo(&pool, "repo-1", owner).await;
+
+    // A public task by `owner` that `follower` can see and therefore follow.
+    let mut row = make_task_row("task-followed", owner);
+    row.visibility = Visibility::Public;
+    task_dao::insert_task(&pool, &row).await.unwrap();
+
+    let repo = PgTaskRepository(pool.clone());
+
+    // Initially the follower follows nothing.
+    let followed = repo
+        .get_followed(follower, &["task-followed".to_string()])
+        .await
+        .unwrap();
+    assert!(followed.is_empty());
+
+    // Follow, then the followed_by filter surfaces the task.
+    repo.follow_task(follower, "task-followed").await.unwrap();
+
+    let followed = repo
+        .get_followed(follower, &["task-followed".to_string()])
+        .await
+        .unwrap();
+    assert!(followed.contains("task-followed"));
+
+    let filter = TaskFilter {
+        scope: scope_ctx(follower),
+        limit: 50,
+        offset: 0,
+        status: None,
+        exclude_status: None,
+        repository_id: None,
+        created_by: None,
+        tag: None,
+        parent_task_id: None,
+        followed_by: Some(follower.to_string()),
+    };
+    let (rows, total) = repo.list_tasks(&filter).await.unwrap();
+    assert_eq!(total, 1);
+    assert_eq!(rows[0].task_id, "task-followed");
+
+    // Following is idempotent — a second follow does not duplicate the row.
+    repo.follow_task(follower, "task-followed").await.unwrap();
+    let (_, total) = repo.list_tasks(&filter).await.unwrap();
+    assert_eq!(total, 1);
+
+    // Unfollow removes it from the followed_by filter again.
+    repo.unfollow_task(follower, "task-followed").await.unwrap();
+    let (rows, total) = repo.list_tasks(&filter).await.unwrap();
+    assert_eq!(total, 0);
+    assert!(rows.is_empty());
+
+    let followed = repo
+        .get_followed(follower, &["task-followed".to_string()])
+        .await
+        .unwrap();
+    assert!(followed.is_empty());
 }

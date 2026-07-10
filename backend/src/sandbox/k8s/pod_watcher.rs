@@ -1887,10 +1887,8 @@ mod tests {
             vec![terminated_container("sandbox", "Completed", 0)],
         );
         let state = extract_pod_observed_state(&pod, "pod-1", "task-1");
-        let subs: Vec<&str> = detect_transitions(None, &state)
-            .iter()
-            .map(|(s, _)| s.as_str())
-            .collect::<Vec<_>>();
+        let transitions = detect_transitions(None, &state);
+        let subs: Vec<&str> = transitions.iter().map(|(s, _)| s.as_str()).collect::<Vec<_>>();
 
         assert!(
             !subs.contains(&"pod_failed") && !subs.contains(&"pod_evicted"),
@@ -1911,10 +1909,8 @@ mod tests {
             vec![terminated_container("sandbox", "Error", 1)],
         );
         let state = extract_pod_observed_state(&pod, "pod-1", "task-1");
-        let subs: Vec<&str> = detect_transitions(None, &state)
-            .iter()
-            .map(|(s, _)| s.as_str())
-            .collect::<Vec<_>>();
+        let transitions = detect_transitions(None, &state);
+        let subs: Vec<&str> = transitions.iter().map(|(s, _)| s.as_str()).collect::<Vec<_>>();
 
         assert!(
             subs.contains(&"pod_failed"),

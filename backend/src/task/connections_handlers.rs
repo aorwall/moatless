@@ -74,6 +74,7 @@ pub async fn list_task_connections(
         created_by: None,
         tag: None,
         parent_task_id: None,
+        followed_by: None,
     };
 
     let (rows, total) = state.tasks.list_tasks(&filter).await?;

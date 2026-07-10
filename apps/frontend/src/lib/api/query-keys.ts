@@ -12,6 +12,7 @@ export const queryKeys = {
       status?: string
       tag?: string
       createdBy?: string
+      followedBy?: string
       repositoryId?: string
     }) => [...queryKeys.tasks.lists(), filters] as const,
 
