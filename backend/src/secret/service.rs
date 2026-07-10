@@ -481,9 +481,11 @@ impl SecretService {
         let ssh_kind = SecretKind::SshKey.as_str();
         let keep = |scope: &ResolvedSecret| (scope.kind.as_str() == ssh_kind) == ssh_keys_only;
 
+        // Most-specific scope wins: user > team > global. Resolve user first so
+        // `or_insert` keeps it when a broader scope repeats the same key.
         let mut credentials = HashMap::new();
         for scope in self
-            .resolve_plaintext_scope(actor_id, SecretScopeType::Global, None)
+            .resolve_plaintext_scope(actor_id, SecretScopeType::User, Some(actor_id))
             .await?
         {
             if keep(&scope) {
@@ -501,7 +503,7 @@ impl SecretService {
             }
         }
         for scope in self
-            .resolve_plaintext_scope(actor_id, SecretScopeType::User, Some(actor_id))
+            .resolve_plaintext_scope(actor_id, SecretScopeType::Global, None)
             .await?
         {
             if keep(&scope) {
@@ -756,5 +758,157 @@ mod tests {
             is_admin: false,
         };
         assert!(ensure_scope_access(&ctx, SecretScopeType::Global, None).is_err());
+    }
+
+    // --- scope precedence (user > team > global), shared by env + ssh_key ---
+
+    struct FakeStore {
+        records: Vec<SecretRecord>,
+    }
+
+    #[async_trait::async_trait]
+    impl SecretRepository for FakeStore {
+        async fn list_by_scope(
+            &self,
+            scope_type: &str,
+            scope_id: Option<&str>,
+        ) -> Result<Vec<SecretRecord>, sqlx::Error> {
+            Ok(self
+                .records
+                .iter()
+                .filter(|r| r.scope_type == scope_type && r.scope_id.as_deref() == scope_id)
+                .cloned()
+                .collect())
+        }
+        async fn find_by_id(&self, _id: &str) -> Result<Option<SecretRecord>, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn find_by_scope_key(
+            &self,
+            _scope_type: &str,
+            _scope_id: Option<&str>,
+            _key: &str,
+        ) -> Result<Option<SecretRecord>, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn insert(&self, _input: SecretInsert<'_>) -> Result<SecretRecord, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn replace(&self, _input: SecretReplace<'_>) -> Result<SecretRecord, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn delete(&self, _id: &str) -> Result<bool, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn mark_used(&self, _id: &str) -> Result<(), sqlx::Error> {
+            Ok(())
+        }
+    }
+
+    struct FakeAudits;
+
+    #[async_trait::async_trait]
+    impl SecretAuditRepository for FakeAudits {
+        async fn record(&self, _input: SecretAuditInput<'_>) -> Result<(), sqlx::Error> {
+            Ok(())
+        }
+    }
+
+    /// Cipher stub: the stored "ciphertext" bytes are the UTF-8 plaintext verbatim.
+    struct PlaintextCipher;
+
+    impl SecretCipher for PlaintextCipher {
+        fn encrypt(
+            &self,
+            _secret_id: &str,
+            _plaintext: &str,
+        ) -> Result<EncryptedSecretValue, SecretError> {
+            unimplemented!()
+        }
+        fn decrypt(&self, record: &SecretRecord) -> Result<String, SecretError> {
+            let bytes = record.value_ciphertext.clone().unwrap_or_default();
+            Ok(String::from_utf8(bytes).expect("test ciphertext is valid utf8"))
+        }
+    }
+
+    fn secret(
+        scope_type: &str,
+        scope_id: Option<&str>,
+        kind: &str,
+        key: &str,
+        value: &str,
+    ) -> SecretRecord {
+        SecretRecord {
+            id: format!("{scope_type}:{key}"),
+            scope_type: scope_type.to_string(),
+            scope_id: scope_id.map(str::to_string),
+            key: key.to_string(),
+            kind: kind.to_string(),
+            provider: None,
+            value_ciphertext: Some(value.as_bytes().to_vec()),
+            encryption_nonce: None,
+            encrypted_data_key: None,
+            external_ref: None,
+            kms_key_id: None,
+            encryption_version: 1,
+            created_by: "test".to_string(),
+            updated_by: "test".to_string(),
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            last_used_at: None,
+            version: 1,
+        }
+    }
+
+    fn service_with(records: Vec<SecretRecord>) -> SecretService {
+        SecretService::new(
+            Arc::new(FakeStore { records }),
+            Arc::new(FakeAudits),
+            Some(Arc::new(PlaintextCipher)),
+        )
+    }
+
+    #[tokio::test]
+    async fn user_scoped_secret_overrides_global() {
+        let svc = service_with(vec![
+            secret("global", None, "env", "CLAUDE_CODE_OAUTH_TOKEN", "global-token"),
+            secret("user", Some("u1"), "env", "CLAUDE_CODE_OAUTH_TOKEN", "user-token"),
+            secret("global", None, "env", "GLOBAL_ONLY", "g"),
+        ]);
+        let resolved = svc.resolve_accessible_plaintext("u1", None).await.unwrap();
+        assert_eq!(resolved["CLAUDE_CODE_OAUTH_TOKEN"], "user-token");
+        // Keys set only globally still fall through as a fallback.
+        assert_eq!(resolved["GLOBAL_ONLY"], "g");
+    }
+
+    #[tokio::test]
+    async fn user_beats_team_beats_global() {
+        let svc = service_with(vec![
+            secret("global", None, "env", "K", "global"),
+            secret("team", Some("t1"), "env", "K", "team"),
+            secret("user", Some("u1"), "env", "K", "user"),
+            secret("global", None, "env", "TEAM_KEY", "global-teamkey"),
+            secret("team", Some("t1"), "env", "TEAM_KEY", "team-teamkey"),
+        ]);
+        let resolved = svc
+            .resolve_accessible_plaintext("u1", Some("t1"))
+            .await
+            .unwrap();
+        assert_eq!(resolved["K"], "user");
+        // Team overrides global when the user has no value for that key.
+        assert_eq!(resolved["TEAM_KEY"], "team-teamkey");
+    }
+
+    #[tokio::test]
+    async fn ssh_key_user_overrides_global() {
+        let svc = service_with(vec![
+            secret("global", None, "ssh_key", "DEPLOY_KEY", "global-key"),
+            secret("user", Some("u1"), "ssh_key", "DEPLOY_KEY", "user-key"),
+            // env secrets must not leak into the ssh-key map.
+            secret("user", Some("u1"), "env", "CLAUDE_CODE_OAUTH_TOKEN", "tok"),
+        ]);
+        let keys = svc.resolve_accessible_ssh_keys("u1", None).await.unwrap();
+        assert_eq!(keys["DEPLOY_KEY"], "user-key");
+        assert!(!keys.contains_key("CLAUDE_CODE_OAUTH_TOKEN"));
     }
 }
