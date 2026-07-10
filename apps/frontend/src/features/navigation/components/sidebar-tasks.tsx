@@ -2,7 +2,7 @@ import type { TaskResponse } from '@moatless/api-client'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { X } from 'lucide-react'
 import type React from 'react'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useAuth } from '@/features/auth/hooks/use-auth'
 import { SidebarTasksSkeleton } from '@/features/tasks/components/task-skeletons'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
@@ -21,6 +21,12 @@ import { TooltipProvider } from '@/lib/components/ui/tooltip'
 import type { MessagePreview } from '../hooks/message-preview'
 import { activityToState, type TaskActivity, useTaskActivity } from '../hooks/use-task-activity'
 import { useTaskLastMessages } from '../hooks/use-task-last-messages'
+import {
+  DEFAULT_SIDEBAR_FILTERS,
+  hasActiveSidebarFilters,
+  SidebarTaskFilters,
+  type SidebarTaskFilterValues,
+} from './sidebar-task-filters'
 
 function getRelativeTime(date: Date | string): string {
   const now = new Date()
@@ -273,11 +279,18 @@ function SidebarTaskItem({
   )
 }
 
-/** Shared header row with the group label and the create-task button. */
-function SidebarTasksHeader() {
+/** Shared header row with the group label and the filter control. */
+function SidebarTasksHeader({
+  filters,
+  onFiltersChange,
+}: {
+  filters: SidebarTaskFilterValues
+  onFiltersChange: (filters: SidebarTaskFilterValues) => void
+}) {
   return (
     <div className="px-2">
       <SidebarGroupLabel className="px-0">Tasks</SidebarGroupLabel>
+      <SidebarTaskFilters filters={filters} onChange={onFiltersChange} />
     </div>
   )
 }
@@ -286,16 +299,23 @@ export function SidebarTasks() {
   const { user } = useAuth()
   const activityByTask = useTaskActivity()
 
+  // Sidebar-local filters (status/tag/creator/repository/followed). Default to
+  // the personal task list (open tasks the user follows); users can broaden it
+  // via the header filter to surface not-running / other users' tasks.
+  const [filters, setFilters] = useState<SidebarTaskFilterValues>(DEFAULT_SIDEBAR_FILTERS)
+
   // The task currently open in the main view (if we're on a task route), used to
   // decide where to navigate when its sidebar row is closed.
   const params = useParams({ strict: false })
   const activeTaskId = (params as Record<string, string | undefined>)['task-id'] ?? null
 
-  const {
-    data,
-    isLoading: isLoadingTasks,
-    error: tasksError,
-  } = useTasksList({
+  // Two independent queries drive the two sections:
+  //  - `runningQuery` is the fixed personal list (open tasks the user follows)
+  //    that feeds the always-on "Running" section — the filter never touches it.
+  //  - `filteredQuery` applies the header filter and feeds the "Tasks" section.
+  // When the filter is at its default, both share the same params (and thus the
+  // same query key), so React Query dedupes them into a single request.
+  const runningQuery = useTasksList({
     limit: 100,
     status: 'open',
     // Personal task list: tasks the user follows. Users auto-follow tasks they
@@ -303,20 +323,39 @@ export function SidebarTasks() {
     // shows own tasks alongside followed ones.
     followedBy: user?.id,
   })
+  const filteredQuery = useTasksList({
+    limit: 100,
+    status: filters.status === 'all' ? undefined : filters.status,
+    tag: filters.tag,
+    createdBy: filters.createdBy === 'all' ? undefined : filters.createdBy,
+    repositoryId: filters.repositoryId,
+    // Cleared when the user opts to see everyone's tasks via the filter.
+    followedBy: filters.onlyFollowed ? user?.id : undefined,
+  })
+
+  const isLoadingTasks = runningQuery.isLoading || filteredQuery.isLoading
+  const tasksError = runningQuery.error || filteredQuery.error
 
   // Fetch a latest-message preview per task (cached, one request each) so idle
   // tasks show their last message on load; live updates still come from the
   // event stream via `activityByTask` and take precedence.
-  const taskIds = useMemo(() => (data?.items ?? []).map((t) => t.taskId), [data?.items])
+  const taskIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const t of runningQuery.data?.items ?? []) {
+      ids.add(t.taskId)
+    }
+    for (const t of filteredQuery.data?.items ?? []) {
+      ids.add(t.taskId)
+    }
+    return [...ids]
+  }, [runningQuery.data?.items, filteredQuery.data?.items])
   const previewByTask = useTaskLastMessages(taskIds)
 
-  // Split tasks into "running" (agent working, sandbox starting up, or sandbox
-  // ready) and the rest. Activity state and the live message preview come from
-  // the event stream, so this recomputes as those inputs update.
+  // Derive the two sections. Activity state and the live message preview come
+  // from the event stream, so this recomputes as those inputs update.
   const { running, open } = useMemo(() => {
-    const enriched = (data?.items ?? []).map((task) =>
-      enrichTask(task, activityByTask.get(task.taskId), previewByTask.get(task.taskId)),
-    )
+    const enrich = (task: TaskResponse) =>
+      enrichTask(task, activityByTask.get(task.taskId), previewByTask.get(task.taskId))
     const byActivityDesc = (a: EnrichedTask, b: EnrichedTask) =>
       b.lastActivityAt.localeCompare(a.lastActivityAt)
     // Running rows sort by state, then by (immutable) creation time, so a task
@@ -329,11 +368,22 @@ export function SidebarTasks() {
       return b.task.createdAt.localeCompare(a.task.createdAt)
     }
 
-    return {
-      running: enriched.filter((t) => t.state !== 'idle').sort(byStateThenCreated),
-      open: enriched.filter((t) => t.state === 'idle').sort(byActivityDesc),
-    }
-  }, [data?.items, activityByTask, previewByTask])
+    // Running section: active tasks from the personal list only.
+    const running = (runningQuery.data?.items ?? [])
+      .map(enrich)
+      .filter((t) => t.state !== 'idle')
+      .sort(byStateThenCreated)
+    const runningIds = new Set(running.map((t) => t.task.taskId))
+
+    // Tasks section: the filtered list, minus anything already shown as running
+    // above (avoids duplicates while the personal default overlaps the filter).
+    const open = (filteredQuery.data?.items ?? [])
+      .map(enrich)
+      .filter((t) => !runningIds.has(t.task.taskId))
+      .sort(byActivityDesc)
+
+    return { running, open }
+  }, [runningQuery.data?.items, filteredQuery.data?.items, activityByTask, previewByTask])
 
   // Displayed order (running first, then open) so we can pick the neighbouring
   // task to jump to when the active one is closed.
@@ -353,7 +403,7 @@ export function SidebarTasks() {
     return (
       <TooltipProvider>
         <SidebarGroup>
-          <SidebarTasksHeader />
+          <SidebarTasksHeader filters={filters} onFiltersChange={setFilters} />
           <SidebarGroupContent>
             <SidebarTasksSkeleton />
           </SidebarGroupContent>
@@ -366,7 +416,7 @@ export function SidebarTasks() {
     return (
       <TooltipProvider>
         <SidebarGroup>
-          <SidebarTasksHeader />
+          <SidebarTasksHeader filters={filters} onFiltersChange={setFilters} />
           <SidebarGroupContent>
             <div className="px-3 py-2 text-sm text-destructive">Failed to load tasks</div>
           </SidebarGroupContent>
@@ -375,7 +425,12 @@ export function SidebarTasks() {
     )
   }
 
-  const hasTasks = running.length > 0 || open.length > 0
+  // Empty-state copy for the Tasks section (Running is rendered separately).
+  const emptyMessage = hasActiveSidebarFilters(filters)
+    ? 'No tasks match filters'
+    : running.length > 0
+      ? 'All tasks are running'
+      : 'No tasks found'
 
   return (
     <TooltipProvider>
@@ -404,25 +459,21 @@ export function SidebarTasks() {
       )}
 
       <SidebarGroup>
-        <SidebarTasksHeader />
+        <SidebarTasksHeader filters={filters} onFiltersChange={setFilters} />
         <SidebarGroupContent>
-          {hasTasks ? (
-            open.length > 0 ? (
-              <SidebarMenu className="gap-0">
-                {open.map((item) => (
-                  <SidebarTaskItem
-                    key={item.task.taskId}
-                    item={item}
-                    isActive={item.task.taskId === activeTaskId}
-                    neighborTaskId={neighborOf(item.task.taskId)}
-                  />
-                ))}
-              </SidebarMenu>
-            ) : (
-              <div className="px-3 py-2 text-sm text-muted-foreground">All tasks are running</div>
-            )
+          {open.length > 0 ? (
+            <SidebarMenu className="gap-0">
+              {open.map((item) => (
+                <SidebarTaskItem
+                  key={item.task.taskId}
+                  item={item}
+                  isActive={item.task.taskId === activeTaskId}
+                  neighborTaskId={neighborOf(item.task.taskId)}
+                />
+              ))}
+            </SidebarMenu>
           ) : (
-            <div className="px-3 py-2 text-sm text-muted-foreground">No tasks found</div>
+            <div className="px-3 py-2 text-sm text-muted-foreground">{emptyMessage}</div>
           )}
         </SidebarGroupContent>
       </SidebarGroup>
