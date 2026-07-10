@@ -1,10 +1,9 @@
 import type { TaskResponse } from '@moatless/api-client'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
-import { Plus, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import type React from 'react'
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { useAuth } from '@/features/auth/hooks/use-auth'
-import { CreateTaskDialog } from '@/features/tasks/components/create-task-dialog'
 import { SidebarTasksSkeleton } from '@/features/tasks/components/task-skeletons'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useCloseTask, useTasksList } from '@/features/tasks/hooks/use-tasks'
@@ -18,12 +17,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from '@/lib/components/ui/sidebar'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/lib/components/ui/tooltip'
+import { TooltipProvider } from '@/lib/components/ui/tooltip'
 import type { MessagePreview } from '../hooks/message-preview'
 import { activityToState, type TaskActivity, useTaskActivity } from '../hooks/use-task-activity'
 import { useTaskLastMessages } from '../hooks/use-task-last-messages'
@@ -280,24 +274,15 @@ function SidebarTaskItem({
 }
 
 /** Shared header row with the group label and the create-task button. */
-function SidebarTasksHeader({ onCreate }: { onCreate: () => void }) {
+function SidebarTasksHeader() {
   return (
-    <div className="flex items-center justify-between px-2">
+    <div className="px-2">
       <SidebarGroupLabel className="px-0">Tasks</SidebarGroupLabel>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onCreate}>
-            <Plus className="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="right">Create new task</TooltipContent>
-      </Tooltip>
     </div>
   )
 }
 
 export function SidebarTasks() {
-  const [createTaskOpen, setCreateTaskOpen] = useState(false)
   const { user } = useAuth()
   const activityByTask = useTaskActivity()
 
@@ -368,12 +353,11 @@ export function SidebarTasks() {
     return (
       <TooltipProvider>
         <SidebarGroup>
-          <SidebarTasksHeader onCreate={() => setCreateTaskOpen(true)} />
+          <SidebarTasksHeader />
           <SidebarGroupContent>
             <SidebarTasksSkeleton />
           </SidebarGroupContent>
         </SidebarGroup>
-        <CreateTaskDialog open={createTaskOpen} onOpenChange={setCreateTaskOpen} />
       </TooltipProvider>
     )
   }
@@ -382,12 +366,11 @@ export function SidebarTasks() {
     return (
       <TooltipProvider>
         <SidebarGroup>
-          <SidebarTasksHeader onCreate={() => setCreateTaskOpen(true)} />
+          <SidebarTasksHeader />
           <SidebarGroupContent>
             <div className="px-3 py-2 text-sm text-destructive">Failed to load tasks</div>
           </SidebarGroupContent>
         </SidebarGroup>
-        <CreateTaskDialog open={createTaskOpen} onOpenChange={setCreateTaskOpen} />
       </TooltipProvider>
     )
   }
@@ -421,7 +404,7 @@ export function SidebarTasks() {
       )}
 
       <SidebarGroup>
-        <SidebarTasksHeader onCreate={() => setCreateTaskOpen(true)} />
+        <SidebarTasksHeader />
         <SidebarGroupContent>
           {hasTasks ? (
             open.length > 0 ? (
@@ -443,7 +426,6 @@ export function SidebarTasks() {
           )}
         </SidebarGroupContent>
       </SidebarGroup>
-      <CreateTaskDialog open={createTaskOpen} onOpenChange={setCreateTaskOpen} />
     </TooltipProvider>
   )
 }
