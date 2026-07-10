@@ -971,6 +971,11 @@ pub async fn start_task(
         return Err(TaskError::BadRequest(msg));
     }
 
+    // Best-effort: if the repo ships a `.moatless/` directory, reconcile its
+    // `config.json` + `loops/` before provisioning so the sandbox and trigger
+    // tables pick up the latest committed settings. Never fails the start.
+    maybe_sync_repo_config_on_start(&state, &auth, &repo).await;
+
     let request = crate::sandbox::auto_provision::build_provision_request(
         state.tasks.as_ref(),
         state.repositories.as_ref(),
@@ -989,6 +994,62 @@ pub async fn start_task(
 
     tracing::info!(task_id = %task_id, "Sandbox provision initiated (initializing)");
     Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+/// Best-effort auto-sync of a repo's `.moatless/` config + loops when a task
+/// starts. Gated on the repo actually shipping a `.moatless/` directory so we
+/// don't hit the provider API for repos that don't use it. Every failure is
+/// logged and swallowed — this must never block or fail a task start.
+async fn maybe_sync_repo_config_on_start(
+    state: &AppState,
+    auth: &AuthUser,
+    repo: &crate::repository::models::Repository,
+) {
+    let Some(remote_url) = repo.remote_url.as_deref() else {
+        return;
+    };
+    let provider = repo.provider.unwrap_or(RepositoryProvider::Github);
+
+    // Resolve a token for the existence probe; fall back to an unauthenticated
+    // probe (works for public repos) if we can't load one.
+    let token = match state
+        .provider_tokens
+        .find_provider_token(&auth.user_id, provider.as_str())
+        .await
+    {
+        Ok(token) => token,
+        Err(e) => {
+            tracing::warn!(repository_id = %repo.id, error = %e, "Config auto-sync: failed to load provider token; probing unauthenticated");
+            None
+        }
+    };
+    let token_str = token.as_ref().map(|t| t.access_token.as_str());
+    let branch = repo.default_branch.as_deref();
+
+    if !crate::repository::config_reader::moatless_dir_exists(
+        remote_url, branch, token_str, provider,
+    )
+    .await
+    {
+        tracing::debug!(repository_id = %repo.id, "Config auto-sync: no .moatless directory, skipping");
+        return;
+    }
+
+    match crate::repository::handlers::sync_repo_config(state, repo, auth).await {
+        Ok((_, summary)) => {
+            tracing::info!(
+                repository_id = %repo.id,
+                created = summary.created,
+                updated = summary.updated,
+                removed = summary.removed,
+                skipped = summary.skipped.len(),
+                "Config auto-sync on task start complete"
+            );
+        }
+        Err(e) => {
+            tracing::warn!(repository_id = %repo.id, error = %e, "Config auto-sync on task start failed");
+        }
+    }
 }
 
 /// Stop the agent running on a task.

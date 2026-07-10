@@ -1004,6 +1004,29 @@ pub async fn sync_config(
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
 
+    let (updated, loops) = sync_repo_config(&state, &repo, &auth).await?;
+
+    Ok(Json(SyncConfigResponse {
+        repository: updated.into(),
+        loops,
+    }))
+}
+
+/// Reconcile a repository's committed `.moatless/config.json` + `.moatless/loops/`
+/// into the DB and trigger tables.
+///
+/// Shared by the `sync-config` endpoint and the automatic sync on task start.
+/// Applying `config.json` is skipped when absent (a repo may ship only loops),
+/// and loop sync is best-effort: a fetch failure yields an empty summary rather
+/// than failing the whole reconcile. Returns the (possibly updated) repository
+/// row alongside the loop-sync summary.
+pub(crate) async fn sync_repo_config(
+    state: &AppState,
+    repo: &Repository,
+    auth: &AuthUser,
+) -> Result<(Repository, LoopSyncSummary), RepositoryError> {
+    let scope_ctx = auth.scope_context();
+
     let remote_url = repo
         .remote_url
         .as_deref()
@@ -1026,33 +1049,30 @@ pub async fn sync_config(
     match fetch_moatless_config(remote_url, branch, token_str, provider).await? {
         Some(config) => {
             let patch = config_to_patch(&config)?;
-            state.repositories.update(&repository_id, &patch).await?;
+            state.repositories.update(&repo.id, &patch).await?;
         }
         None => {
-            debug!(repository_id = %repository_id, "No .moatless/config.json found; syncing loops only");
+            debug!(repository_id = %repo.id, "No .moatless/config.json found; syncing loops only");
         }
     }
 
     let updated = state
         .repositories
-        .find_by_id(&repository_id, &scope_ctx)
+        .find_by_id(&repo.id, &scope_ctx)
         .await?
-        .ok_or_else(|| RepositoryError::NotFound(repository_id))?;
+        .ok_or_else(|| RepositoryError::NotFound(repo.id.clone()))?;
 
     // Reconcile `.moatless/loops/` into the trigger tables. Best-effort: a fetch
     // failure surfaces an empty summary rather than failing the whole sync.
-    let loops = match sync_repo_loops(&state, &updated, &auth).await {
+    let loops = match sync_repo_loops(state, &updated, auth).await {
         Ok(summary) => summary,
         Err(e) => {
-            warn!(repository_id = %updated.id, error = %e, "Loop sync failed during sync-config");
+            warn!(repository_id = %updated.id, error = %e, "Loop sync failed during config sync");
             LoopSyncSummary::default()
         }
     };
 
-    Ok(Json(SyncConfigResponse {
-        repository: updated.into(),
-        loops,
-    }))
+    Ok((updated, loops))
 }
 
 #[cfg(test)]

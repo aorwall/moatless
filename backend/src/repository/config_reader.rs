@@ -56,6 +56,62 @@ pub async fn fetch_moatless_config(
     }
 }
 
+/// Cheap best-effort check for whether a repo ships a `.moatless/` directory.
+///
+/// Used to gate the automatic config sync on task start so we don't hit the
+/// provider API for repos that don't use moatless config at all. Fails open:
+/// on a definitive 404 it returns `false`, but on any other error (transport,
+/// rate limit, unsupported provider) it returns `true` so the caller still
+/// attempts the sync rather than silently skipping a repo that does have config.
+pub async fn moatless_dir_exists(
+    remote_url: &str,
+    branch: Option<&str>,
+    token: Option<&str>,
+    provider: RepositoryProvider,
+) -> bool {
+    match provider {
+        RepositoryProvider::Github => github_moatless_dir_exists(remote_url, branch, token).await,
+        // Non-GitHub providers have no cheap check wired yet — don't skip them.
+        _ => true,
+    }
+}
+
+/// GitHub existence probe: `GET /repos/{owner}/{repo}/contents/.moatless?ref={branch}`.
+/// Only a 404 is treated as "no directory"; everything else fails open to `true`.
+async fn github_moatless_dir_exists(
+    remote_url: &str,
+    branch: Option<&str>,
+    token: Option<&str>,
+) -> bool {
+    let Some((owner, repo)) = parse_github_owner_repo(remote_url) else {
+        return true;
+    };
+
+    let mut url = format!("https://api.github.com/repos/{owner}/{repo}/contents/.moatless");
+    if let Some(r) = branch {
+        use std::fmt::Write;
+        let _ = write!(url, "?ref={r}");
+    }
+
+    let client = reqwest::Client::new();
+    let mut req = client
+        .get(&url)
+        .header("User-Agent", "moatless-vibe-backend")
+        .header("Accept", "application/vnd.github+json");
+    if let Some(token) = token {
+        req = req.header("Authorization", format!("Bearer {token}"));
+    }
+
+    match req.send().await {
+        Ok(resp) if resp.status() == reqwest::StatusCode::NOT_FOUND => false,
+        Ok(_) => true,
+        Err(e) => {
+            warn!(error = %e, "Failed to probe .moatless directory; assuming present");
+            true
+        }
+    }
+}
+
 /// Fetch from GitHub: `GET /repos/{owner}/{repo}/contents/.moatless/config.json?ref={branch}`
 async fn fetch_github_config(
     remote_url: &str,
@@ -219,6 +275,13 @@ pub fn config_to_patch(config: &MoatlessRepoConfig) -> Result<RepositoryPatch, R
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn moatless_dir_exists_fails_open_for_non_github() {
+        // Non-GitHub providers have no cheap probe wired — the gate must not
+        // skip them, so the check reports the directory as present.
+        assert!(moatless_dir_exists("https://gitness.example.com/x/y.git", None, None, RepositoryProvider::Gitness).await);
+    }
 
     #[test]
     fn parse_config_json() {
