@@ -387,4 +387,4 @@ jobs:
       - name: Package and push chart
         run: |
           helm package k8s/helm/moatless-vibe -d ./dist
-          helm push ./dist/moatless-vibe-*.tgz "oci://registry-1.docker.io/${{ env.REGISTRY_ORG }}"
+          helm push ./dist/moatless-*.tgz "oci://registry-1.docker.io/${{ env.REGISTRY_ORG }}"
