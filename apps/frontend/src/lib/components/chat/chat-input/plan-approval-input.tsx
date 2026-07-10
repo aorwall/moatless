@@ -81,7 +81,7 @@ export function PlanApprovalInput({
                 placeholder="Explain what changes you'd like to see..."
                 value={feedback}
                 onChange={(e) => setFeedback(e.target.value)}
-                className="text-sm min-h-[80px] resize-none"
+                className="min-h-[80px] resize-none"
                 rows={3}
                 disabled={isPending}
               />

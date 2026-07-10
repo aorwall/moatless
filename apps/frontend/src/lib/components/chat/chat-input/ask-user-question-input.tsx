@@ -146,7 +146,7 @@ export function AskUserQuestionInput({
                               }))
                             }
                             disabled={isPending}
-                            className="h-8 text-sm"
+                            className="h-8"
                             onKeyDown={(e) => {
                               if (e.key === 'Enter' && !e.shiftKey && allAnswered && !isPending) {
                                 e.preventDefault()

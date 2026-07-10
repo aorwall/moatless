@@ -157,7 +157,7 @@ export function ComposeTaskForm(props: ComposeTaskFormProps) {
           onKeyDown={handleBodyKeyDown}
           onPaste={form.taskInputs.handlePaste}
           placeholder={form.placeholder}
-          className="h-full resize-none border-0 px-0 py-3 text-sm shadow-none focus-visible:ring-0"
+          className="h-full resize-none border-0 px-0 py-3 shadow-none focus-visible:ring-0"
         />
         {form.isCommandAutocompleteOpen && (
           <CommandAutocomplete

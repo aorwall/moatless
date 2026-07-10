@@ -22,10 +22,8 @@ export const Route = createRootRoute({
         name: 'description',
         content: description,
       },
-      {
-        name: 'viewport',
-        content: 'width=device-width, initial-scale=1.0',
-      },
+      // viewport is set in index.html (with iOS-specific maximum-scale to
+      // prevent auto-zoom on input focus) — do not redeclare it here
       {
         name: 'application-name',
         content: title,
