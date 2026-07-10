@@ -158,6 +158,7 @@ pub async fn run(
                 created_by: None,
                 tag: None,
                 parent_task_id: None,
+                followed_by: None,
             };
             let list = client.api().list_tasks(&query).await?;
             if json {
@@ -238,6 +239,7 @@ pub async fn run(
                 created_by: None,
                 tag: None,
                 parent_task_id: Some(parent),
+                followed_by: None,
             };
             let list = client.api().list_tasks(&query).await?;
             if json {
