@@ -19,8 +19,8 @@ if [ "$USE_GIT_WORKTREES" = "true" ] && [ -n "$GIT_WORKTREE_NAME" ]; then
     export GIT_WORK_TREE="$WORKSPACE_DIR"
 fi
 
-# CodeArtifact bootstrap — point npm / maven at the org CodeArtifact repos so
-# in-task package installs resolve over the CodeArtifact VPC endpoints instead
+# CodeArtifact bootstrap — point npm / pip / maven at the org CodeArtifact repos
+# so in-task package installs resolve over the CodeArtifact VPC endpoints instead
 # of NAT (and resolve private @soaplabs / com.soaplabs packages with no GitHub
 # token). Gated on CODEARTIFACT_DOMAIN, so unset == no-op (local/dev unaffected).
 # Best-effort: a failed token mint warns and continues rather than aborting the
@@ -29,6 +29,7 @@ if [ -n "$CODEARTIFACT_DOMAIN" ]; then
     ca_owner="${CODEARTIFACT_DOMAIN_OWNER:-222222222222}"
     ca_region="${AWS_REGION:-${AWS_DEFAULT_REGION:-eu-north-1}}"
     ca_npm_repo="${CODEARTIFACT_NPM_REPO:-npm}"
+    ca_pypi_repo="${CODEARTIFACT_PYPI_REPO:-pypi}"
     ca_maven_repo="${CODEARTIFACT_MAVEN_REPO:-maven}"
     ca_host="${CODEARTIFACT_DOMAIN}-${ca_owner}.d.codeartifact.${ca_region}.amazonaws.com"
 
@@ -58,6 +59,10 @@ if [ -n "$CODEARTIFACT_DOMAIN" ]; then
                 echo "//${ca_host}/npm/${ca_npm_repo}/:always-auth=true"
             } > "$HOME/.npmrc"
 
+            # pip / uv — env-only, inherited by the sandbox and its setup commands
+            export PIP_INDEX_URL="https://aws:${ca_token}@${ca_host}/pypi/${ca_pypi_repo}/simple/"
+            export UV_DEFAULT_INDEX="$PIP_INDEX_URL"
+
             # maven (wildcard mirror)
             mkdir -p "$HOME/.m2"
             cat > "$HOME/.m2/settings.xml" <<EOF
@@ -79,7 +84,7 @@ if [ -n "$CODEARTIFACT_DOMAIN" ]; then
   </mirrors>
 </settings>
 EOF
-            echo "[codeartifact] configured npm/maven for ${ca_host}" >&2
+            echo "[codeartifact] configured npm/pip/maven for ${ca_host}" >&2
         fi
     fi
 fi

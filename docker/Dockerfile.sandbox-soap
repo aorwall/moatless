@@ -138,9 +138,9 @@ COPY --from=binaries ${TARGETARCH}/moat /usr/local/bin/moat
 RUN chmod +x /usr/local/bin/sandbox-real /usr/local/bin/moat && \
     cat > /usr/local/bin/sandbox <<'WRAPPER' && chmod +x /usr/local/bin/sandbox
 #!/bin/sh
-# CodeArtifact npm/bun auth. The K8s pod spec runs this wrapper directly
-# (command: ["/usr/local/bin/sandbox"]), bypassing the Docker ENTRYPOINT — so the
-# CodeArtifact bootstrap in docker-entrypoint-sandbox.sh never runs here and must
+# CodeArtifact npm/bun + pip/uv + maven auth. The K8s pod spec runs this wrapper
+# directly (command: ["/usr/local/bin/sandbox"]), bypassing the Docker ENTRYPOINT — so
+# the CodeArtifact bootstrap in docker-entrypoint-sandbox.sh never runs here and must
 # be repeated. Mint a token and EXPORT it so any repo's own .npmrc that references
 # ${CODEARTIFACT_AUTH_TOKEN} (the documented contract) resolves during `bun install`
 # in setup commands; also write ~/.npmrc as a fallback for repos shipping no .npmrc.
@@ -152,6 +152,8 @@ if [ -n "$CODEARTIFACT_DOMAIN" ] && command -v aws >/dev/null 2>&1; then
   ca_owner="${CODEARTIFACT_DOMAIN_OWNER:-222222222222}"
   ca_region="${AWS_REGION:-${AWS_DEFAULT_REGION:-eu-north-1}}"
   ca_npm_repo="${CODEARTIFACT_NPM_REPO:-npm}"
+  ca_pypi_repo="${CODEARTIFACT_PYPI_REPO:-pypi}"
+  ca_maven_repo="${CODEARTIFACT_MAVEN_REPO:-maven}"
   ca_host="${CODEARTIFACT_DOMAIN}-${ca_owner}.d.codeartifact.${ca_region}.amazonaws.com"
   ca_token="$(aws codeartifact get-authorization-token \
       --domain "$CODEARTIFACT_DOMAIN" --domain-owner "$ca_owner" --region "$ca_region" \
@@ -164,41 +166,33 @@ if [ -n "$CODEARTIFACT_DOMAIN" ] && command -v aws >/dev/null 2>&1; then
       echo "//${ca_host}/npm/${ca_npm_repo}/:_authToken=${ca_token}"
       echo "//${ca_host}/npm/${ca_npm_repo}/:always-auth=true"
     } > "${HOME}/.npmrc"
-  else
-    echo "[codeartifact] could not mint a token (no AWS creds?) — skipping npm auth" >&2
-  fi
-fi
-# Generate Maven settings.xml from GH_PACKAGES_TOKEN env var
-if [ -n "$GH_PACKAGES_TOKEN" ]; then
-  mkdir -p /root/.m2
-  cat > /root/.m2/settings.xml <<EOF
+    # pip / uv — exported so agent shells and setup commands inherit them.
+    export PIP_INDEX_URL="https://aws:${ca_token}@${ca_host}/pypi/${ca_pypi_repo}/simple/"
+    export UV_DEFAULT_INDEX="$PIP_INDEX_URL"
+    # maven — wildcard mirror, same settings.xml docker-entrypoint-sandbox.sh writes.
+    mkdir -p "${HOME}/.m2"
+    cat > "${HOME}/.m2/settings.xml" <<EOF
 <settings>
   <servers>
     <server>
-      <id>soap-github</id>
-      <username>oauth2</username>
-      <password>${GH_PACKAGES_TOKEN}</password>
+      <id>codeartifact</id>
+      <username>aws</username>
+      <password>${ca_token}</password>
     </server>
   </servers>
-  <profiles>
-    <profile>
-      <id>github</id>
-      <repositories>
-        <repository>
-          <id>soap-github</id>
-          <url>https://maven.pkg.github.com/soaplabs/*</url>
-          <snapshots>
-            <enabled>true</enabled>
-          </snapshots>
-        </repository>
-      </repositories>
-    </profile>
-  </profiles>
-  <activeProfiles>
-    <activeProfile>github</activeProfile>
-  </activeProfiles>
+  <mirrors>
+    <mirror>
+      <id>codeartifact</id>
+      <name>CodeArtifact wildcard mirror</name>
+      <url>https://${ca_host}/maven/${ca_maven_repo}/</url>
+      <mirrorOf>*</mirrorOf>
+    </mirror>
+  </mirrors>
 </settings>
 EOF
+  else
+    echo "[codeartifact] could not mint a token (no AWS creds?) — skipping npm/pip/maven auth" >&2
+  fi
 fi
 # Update jira-cli login with the git committer's email (set by moatless sandbox)
 if [ -n "$GIT_USER_EMAIL" ]; then
