@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use futures::TryStreamExt;
 use k8s_openapi::api::core::v1::{Event as CoreEvent, Pod};
-use kube::api::{Api, ListParams, LogParams};
+use kube::api::{Api, DeleteParams, ListParams, LogParams};
 use kube::runtime::watcher::{self, Config as WatcherConfig};
 use moatless_events::{
     SandboxEventPayload, SandboxStatus, ServerEventPayload, ServerSubType, TaskTurnSubType,
@@ -138,6 +138,13 @@ struct PodObservedState {
     /// Fire-once guard: a `startup_slow` event has been emitted for this pod's
     /// slow-container-start window (e.g. long volume attach).
     startup_slow_published: bool,
+    /// Epoch ms when this pod was first observed in the terminal `Failed`
+    /// phase. K8s never garbage-collects Failed pods (e.g. evicted for
+    /// exceeding an emptyDir sizeLimit), so the sweep deletes them once this
+    /// is older than the GC grace period.
+    failed_since_ms: Option<i64>,
+    /// Fire-once guard: a GC delete has been issued for this Failed pod.
+    gc_requested: bool,
 }
 
 impl PodObservedState {
@@ -279,6 +286,7 @@ async fn run_pod_watch(
                 // no events. This tick turns those silent windows into
                 // scheduling_blocked / startup_slow events (fire-once per pod).
                 sweep_pending_pods(k8s, event_publisher, &mut pod_states).await;
+                gc_failed_pods(k8s, &mut pod_states).await;
             }
             event = stream.try_next() => {
                 match event {
@@ -354,6 +362,11 @@ async fn process_watcher_event(
 
             // During InitApply, populate the map silently without publishing events
             if is_init {
+                if new_state.phase == "Failed" {
+                    // Corpse predating this watcher — start its GC clock now.
+                    new_state.failed_since_ms =
+                        Some(k8s_openapi::jiff::Timestamp::now().as_millisecond());
+                }
                 pod_states.insert(pod_name, new_state);
                 return;
             }
@@ -596,6 +609,14 @@ async fn process_watcher_event(
                 // a still-stuck pod doesn't re-emit its blocked/slow event.
                 new_state.scheduling_blocked_published = prev.scheduling_blocked_published;
                 new_state.startup_slow_published = prev.startup_slow_published;
+            }
+            // Start (or carry over) the GC clock for pods in the terminal
+            // Failed phase — K8s never removes them on its own.
+            if new_state.phase == "Failed" {
+                new_state.failed_since_ms = prev_state
+                    .and_then(|p| p.failed_since_ms)
+                    .or_else(|| Some(k8s_openapi::jiff::Timestamp::now().as_millisecond()));
+                new_state.gc_requested = prev_state.is_some_and(|p| p.gc_requested);
             }
             if transitions.iter().any(|(sub, _)| sub == "pod_ready") {
                 new_state.fatal_published = false;
@@ -1409,6 +1430,8 @@ fn extract_pod_observed_state(pod: &Pod, pod_name: &str, task_id: &str) -> PodOb
         created_at_ms,
         scheduling_blocked_published: false,
         startup_slow_published: false,
+        failed_since_ms: None,
+        gc_requested: false,
     }
 }
 
@@ -1798,6 +1821,67 @@ async fn sweep_pending_pods(
     }
 }
 
+/// How long a `Failed` pod corpse is kept before being garbage-collected.
+/// Long enough for post-mortem inspection (`kubectl logs --previous`, pod
+/// describe), short enough that corpses don't accumulate — K8s itself never
+/// removes Failed pods until the cluster-wide terminated-pod GC threshold.
+const FAILED_POD_GC_GRACE_MS: i64 = 15 * 60 * 1000;
+
+/// True when a tracked pod is a Failed corpse past the GC grace period that
+/// hasn't been deleted yet.
+fn should_gc_failed_pod(state: &PodObservedState, now_ms: i64) -> bool {
+    state.phase == "Failed"
+        && !state.gc_requested
+        && state
+            .failed_since_ms
+            .is_some_and(|since| now_ms - since >= FAILED_POD_GC_GRACE_MS)
+}
+
+/// Delete pods stuck in the terminal `Failed` phase past the grace period.
+///
+/// Evicted pods (emptyDir sizeLimit exceeded, node pressure) stay `Failed`
+/// forever unless something deletes them. The ReplicaSet has already replaced
+/// them, so they are pure corpses — but they still match the task's label
+/// selector, clutter the sandbox view, and pin logs on the node. Runs on the
+/// watcher's renew tick (leader-only). The resulting `Delete` watch event
+/// removes the entry from `pod_states`.
+async fn gc_failed_pods(k8s: &K8sClient, pod_states: &mut HashMap<String, PodObservedState>) {
+    let now_ms = k8s_openapi::jiff::Timestamp::now().as_millisecond();
+    let pods_api: Api<Pod> = Api::namespaced(k8s.client.clone(), k8s.namespace());
+
+    for state in pod_states.values_mut() {
+        if !should_gc_failed_pod(state, now_ms) {
+            continue;
+        }
+
+        match pods_api
+            .delete(&state.pod_name, &DeleteParams::default())
+            .await
+        {
+            Ok(_) => {
+                info!(
+                    task_id = %state.task_id,
+                    pod_name = %state.pod_name,
+                    "Garbage-collected Failed pod past grace period"
+                );
+                state.gc_requested = true;
+            }
+            Err(kube::Error::Api(ae)) if ae.code == 404 => {
+                // Already gone (manual delete, node GC) — nothing to do.
+                state.gc_requested = true;
+            }
+            Err(e) => {
+                warn!(
+                    task_id = %state.task_id,
+                    pod_name = %state.pod_name,
+                    error = %e,
+                    "Failed to garbage-collect Failed pod; will retry next sweep"
+                );
+            }
+        }
+    }
+}
+
 /// Map a lifecycle event sub_type to the corresponding SandboxStatus.
 fn lifecycle_sub_type_to_sandbox_status(sub_type: &str) -> SandboxStatus {
     match sub_type {
@@ -1875,6 +1959,37 @@ mod tests {
     use crate::sandbox::k8s::pod_status::test_helpers::{
         pod_with_phase_and_containers, running_container, terminated_container, waiting_container,
     };
+
+    /// A Failed corpse past the grace period is GC'd exactly once; live pods,
+    /// fresh failures, and already-GC'd entries are left alone.
+    #[test]
+    fn should_gc_failed_pod_requires_terminal_phase_grace_and_no_prior_gc() {
+        let pod = pod_with_phase_and_containers(
+            "Failed",
+            vec![terminated_container("sandbox", "Error", 137)],
+        );
+        let mut state = extract_pod_observed_state(&pod, "pod-1", "task-1");
+        let now_ms = 1_000_000 + FAILED_POD_GC_GRACE_MS;
+
+        // No failed_since recorded yet — not eligible.
+        assert!(!should_gc_failed_pod(&state, now_ms));
+
+        // Failed long enough — eligible.
+        state.failed_since_ms = Some(1_000_000);
+        assert!(should_gc_failed_pod(&state, now_ms));
+
+        // Within the grace period — not yet.
+        assert!(!should_gc_failed_pod(&state, now_ms - 1));
+
+        // Delete already issued — never again.
+        state.gc_requested = true;
+        assert!(!should_gc_failed_pod(&state, now_ms));
+
+        // Non-terminal phase — never, regardless of timestamps.
+        state.gc_requested = false;
+        state.phase = "Running".to_string();
+        assert!(!should_gc_failed_pod(&state, now_ms));
+    }
 
     /// Graceful node shutdown fails the pod while the sandbox container exits
     /// 0/Completed. That is a routine eviction K8s will reschedule, so it must

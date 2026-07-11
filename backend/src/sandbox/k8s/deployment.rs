@@ -234,9 +234,25 @@ pub async fn redeploy_with_plan(
     Ok(())
 }
 
-/// Poll until no pods match the task's label selector (old pod fully gone), or
-/// the timeout elapses. Best-effort: on timeout or list error we log and return
-/// so the caller can proceed rather than block a redeploy indefinitely.
+/// True when a pod can still hold volume attachments and so must be waited on
+/// before recreating its Deployment. Pods in a terminal phase
+/// (`Succeeded`/`Failed`) have no running containers and hold no attachments —
+/// notably, K8s never garbage-collects `Failed` pods (e.g. evicted for
+/// exceeding an emptyDir sizeLimit), so treating them as blocking would stall
+/// every subsequent start until the timeout.
+fn pod_blocks_redeploy(pod: &Pod) -> bool {
+    let phase = pod
+        .status
+        .as_ref()
+        .and_then(|s| s.phase.as_deref())
+        .unwrap_or("");
+    !matches!(phase, "Succeeded" | "Failed")
+}
+
+/// Poll until no non-terminal pods match the task's label selector (old pod
+/// fully gone), or the timeout elapses. Best-effort: on timeout or list error
+/// we log and return so the caller can proceed rather than block a redeploy
+/// indefinitely.
 pub async fn wait_for_pods_deleted(k8s: &K8sClient, task_id: &str) {
     use std::time::Duration;
 
@@ -250,14 +266,15 @@ pub async fn wait_for_pods_deleted(k8s: &K8sClient, task_id: &str) {
     let deadline = tokio::time::Instant::now() + TIMEOUT;
     loop {
         match pods_api.list(&lp).await {
-            Ok(list) if list.items.is_empty() => {
-                debug!(task_id, "All pods terminated, safe to recreate Deployment");
-                return;
-            }
             Ok(list) => {
+                let blocking = list.items.iter().filter(|p| pod_blocks_redeploy(p)).count();
+                if blocking == 0 {
+                    debug!(task_id, "All pods terminated, safe to recreate Deployment");
+                    return;
+                }
                 debug!(
                     task_id,
-                    remaining = list.items.len(),
+                    remaining = blocking,
                     "Waiting for old pod(s) to terminate before redeploy"
                 );
             }
@@ -391,5 +408,32 @@ mod tests {
     fn deployment_sandbox_image_none_when_spec_absent() {
         let dep = Deployment::default();
         assert_eq!(deployment_sandbox_image(&dep), None);
+    }
+
+    fn pod_in_phase(phase: Option<&str>) -> Pod {
+        Pod {
+            status: phase.map(|p| k8s_openapi::api::core::v1::PodStatus {
+                phase: Some(p.to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    /// Terminal pods (evicted corpses, completed pods) hold no volume
+    /// attachments and must not stall the pre-scale-up wait — otherwise a
+    /// never-GC'd evicted pod blocks every start of its task.
+    #[test]
+    fn terminal_pods_do_not_block_redeploy() {
+        assert!(!pod_blocks_redeploy(&pod_in_phase(Some("Failed"))));
+        assert!(!pod_blocks_redeploy(&pod_in_phase(Some("Succeeded"))));
+    }
+
+    #[test]
+    fn live_pods_block_redeploy() {
+        assert!(pod_blocks_redeploy(&pod_in_phase(Some("Running"))));
+        assert!(pod_blocks_redeploy(&pod_in_phase(Some("Pending"))));
+        // Unknown/missing phase: err on the side of waiting.
+        assert!(pod_blocks_redeploy(&pod_in_phase(None)));
     }
 }
