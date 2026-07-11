@@ -5,9 +5,9 @@
  * these constants name the fixed, always-available views. Defined here — not in
  * a component file — so the vocabulary lives in one place.
  *
- * NOTE: `features/preview/components/server-tabs.tsx` still declares its own
+ * NOTE: `features/preview/components/view-tabs.tsx` still declares its own
  * `SANDBOX_VIEW` literal because `features/preview` may not import
- * `features/tasks`. Both resolve to the same string; unify once `ServerTabs`
+ * `features/tasks`. Both resolve to the same string; unify once `ViewTabs`
  * moves into the tasks feature (see the composability plan's rename table).
  */
 export const CHAT_VIEW = 'chat'

@@ -6,6 +6,36 @@ import { toast } from 'sonner'
 import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
 import { SettingsDialog, useFigmaConfig } from '@/features/settings'
 import { useRepositorySkills } from '@/features/skills'
+import {
+  AskUserQuestionInput,
+  ChatInput,
+  ContextItems,
+  FileAttachments,
+  PlanApprovalInput,
+  Selectors,
+  SendButton,
+  StopButton,
+} from '@/features/tasks/components/chat/chat-input'
+import {
+  AttachmentPopoverContent,
+  PopoverSelector,
+  SelectorButton,
+  SimpleListPopoverContent,
+  useAgentModeSelector,
+  useModelSelector,
+} from '@/features/tasks/components/chat/chat-input/selectors'
+import { ChatScrollArea } from '@/features/tasks/components/chat/chat-scroll-area'
+import {
+  CommandAutocomplete,
+  type Suggestion,
+  useCommandAutocomplete,
+} from '@/features/tasks/components/chat/command-autocomplete'
+import {
+  FileAutocomplete,
+  useFileAutocomplete,
+} from '@/features/tasks/components/chat/file-autocomplete'
+import { MessageHistory } from '@/features/tasks/components/chat/message-history'
+import { QueuedMessages } from '@/features/tasks/components/chat/queued-messages'
 import { usePanelControls, useTaskId } from '@/features/tasks/contexts/task-providers'
 import { useFileSearch } from '@/features/tasks/hooks/use-file-search'
 import { useSandboxRetry, useSandboxStatus } from '@/features/tasks/hooks/use-sandbox-status'
@@ -19,33 +49,6 @@ import {
   useTaskCommands,
   useTaskMessages,
 } from '@/features/tasks/hooks/use-tasks'
-import {
-  AskUserQuestionInput,
-  ChatInput,
-  ContextItems,
-  FileAttachments,
-  PlanApprovalInput,
-  Selectors,
-  SendButton,
-  StopButton,
-} from '@/lib/components/chat/chat-input'
-import {
-  AttachmentPopoverContent,
-  PopoverSelector,
-  SelectorButton,
-  SimpleListPopoverContent,
-  useAgentModeSelector,
-  useModelSelector,
-} from '@/lib/components/chat/chat-input/selectors'
-import { ChatView } from '@/lib/components/chat/chat-view'
-import {
-  CommandAutocomplete,
-  type Suggestion,
-  useCommandAutocomplete,
-} from '@/lib/components/chat/command-autocomplete'
-import { FileAutocomplete, useFileAutocomplete } from '@/lib/components/chat/file-autocomplete'
-import { MessageHistory } from '@/lib/components/chat/message-history'
-import { QueuedMessages } from '@/lib/components/chat/queued-messages'
 import { Button } from '@/lib/components/ui/button'
 import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
 import { type ClaudeModel, DEFAULT_CLAUDE_MODEL, modelToApiValue } from '@/lib/types/claude-models'
@@ -538,7 +541,7 @@ function ChatContainer({
   }, [figmaConfig?.connected, taskInputs])
 
   return (
-    <ChatView className={className}>
+    <ChatScrollArea className={className}>
       <MessageHistory
         taskId={taskId}
         messages={messages}
@@ -741,7 +744,7 @@ function ChatContainer({
         onOpenChange={setSettingsDialogOpen}
         defaultSection="figma"
       />
-    </ChatView>
+    </ChatScrollArea>
   )
 }
 

@@ -11,7 +11,7 @@ import { WorkspacePanel } from '../panels/workspace-panel'
  */
 export function MobileTaskLayout() {
   const { registerChatToggle } = usePanelControls()
-  const { view, setView } = useTaskView()
+  const { view, setView } = useTaskView({ fallback: 'chat' })
 
   const showChat = useCallback(() => setView('chat'), [setView])
   useEffect(() => registerChatToggle(showChat), [registerChatToggle, showChat])
@@ -19,7 +19,7 @@ export function MobileTaskLayout() {
   return (
     <div className="h-full w-full flex flex-col overflow-hidden">
       <div className="flex-1 min-h-0 relative">
-        <TaskLeftHeader />
+        <TaskLeftHeader showViewToggle defaultView="chat" />
         {view === 'chat' ? <ChatPanel /> : <WorkspacePanel />}
       </div>
     </div>

@@ -1,16 +1,17 @@
 import type { ServerEntry } from '@moatless/api-client'
 import { useState } from 'react'
+import type { LifecycleEvent } from '@/features/events'
 import { LogsPanel } from '@/features/preview/components/logs-panel'
-import type { SandboxEvent } from '@/features/preview/types'
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
+import { ViewTabs } from '@/features/preview/components/view-tabs'
+import { StackedConsoleSplit } from '@/lib/layout/stacked-console-split'
+import { WorkspaceHeader } from '@/lib/layout/workspace-header'
 import { TaskControlPanel } from './task-control-panel'
-import { WorkspaceHeader } from './workspace-header'
 
 interface SandboxWorkspacePanelProps {
   view: string
   onViewChange: (view: string) => void
   servers?: ServerEntry[] | undefined
-  sandboxEvents?: SandboxEvent[] | undefined
+  sandboxEvents?: LifecycleEvent[] | undefined
 }
 
 /**
@@ -42,25 +43,17 @@ export function SandboxWorkspacePanel({
 
   return (
     <div className="h-full flex flex-col">
-      <WorkspaceHeader activeView={view} onViewChange={onViewChange} servers={servers} />
-      <div className="flex-1 min-h-0 flex flex-col">
-        <ResizablePanelGroup direction="vertical" className="flex-1 min-h-0 overflow-hidden">
-          <ResizablePanel className="overflow-hidden">
-            <TaskControlPanel className="h-full" />
-          </ResizablePanel>
-
-          {isConsoleExpanded && <ResizableHandle withHandle />}
-          {isConsoleExpanded && (
-            <ResizablePanel defaultSize={30} minSize={10} maxSize={70}>
-              {renderConsole(true)}
-            </ResizablePanel>
-          )}
-        </ResizablePanelGroup>
-
-        {!isConsoleExpanded && (
-          <div className="h-10 flex-shrink-0 border-t">{renderConsole(false)}</div>
-        )}
-      </div>
+      <WorkspaceHeader
+        leading={<ViewTabs servers={servers ?? []} activeView={view} onViewChange={onViewChange} />}
+      />
+      <StackedConsoleSplit
+        renderConsole={renderConsole}
+        isConsoleExpanded={isConsoleExpanded}
+        consoleDefaultSize={30}
+        consoleMinSize={10}
+      >
+        <TaskControlPanel className="h-full" />
+      </StackedConsoleSplit>
     </div>
   )
 }

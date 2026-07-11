@@ -1,4 +1,5 @@
 import type { ResourceMetrics, ServerEntry } from '@moatless/api-client'
+import type { LifecycleEvent, StartupEvent } from '@/features/events/types'
 
 export interface SourceLocation {
   componentId: string // data-component-id: "path:line:column" format (e.g., "src/components/ui/button.tsx:15:3")
@@ -21,36 +22,15 @@ export interface ElementInfo extends SourceLocation {
   elementRect?: ElementRect // bounding rect for popover positioning
 }
 
-export interface StartupEvent {
-  reason: string
-  message: string
-  eventType: string
-  timestamp: string
-}
-
-export interface SandboxEvent {
-  eventId: string
-  type: 'sandbox' | 'server' | 'taskTurn'
-  subType: string
-  timestamp: string
-  isError: boolean
-  message?: string | undefined
-  reason?: string | undefined
-  /** Server name for server events (e.g., "preview", "files") */
-  serverName?: string | undefined
-  /** Node the pod was scheduled on — enables node-level correlation of stops. */
-  nodeName?: string | undefined
-  /** Why the pod was disrupted (DisruptionTarget reason / pod status reason). */
-  disruptionReason?: string | undefined
-  /** Who caused an intentional stop ("reaper" | "user" | "eviction" | …). */
-  initiator?: string | undefined
-  /** Exit code of the terminated sandbox container, when known. */
-  exitCode?: number | undefined
-  /** K8s termination reason of the sandbox container, when known. */
-  terminatedReason?: string | undefined
-  /** Seconds spent Pending before the pod was scheduled (on pod_scheduled). */
-  pendingSeconds?: number | undefined
-  payload: Record<string, unknown>
+/**
+ * Publish (deploy) state supplied by the composing feature. Kept as an injected
+ * prop so `features/preview` doesn't reach into task/repository data.
+ */
+export interface PreviewPublish {
+  canPublish: boolean
+  siteUrl?: string | undefined
+  onPublish: () => void
+  isPending: boolean
 }
 
 export interface PreviewProps {
@@ -78,10 +58,16 @@ export interface PreviewProps {
   servers?: ServerEntry[] | undefined
   /** Active server name (determines which server's iframe to show) */
   activeServer?: string | undefined
+  /** Active workspace view — highlights the matching header tab */
+  view: string
+  /** Switch the active workspace view (from the header tabs) */
+  onViewChange: (view: string) => void
+  /** Publish/deploy state for the header's publish button (undefined = no publish) */
+  publish?: PreviewPublish | undefined
   /** Resource metrics from the sandbox container (CPU, memory, event loop) */
   resources?: ResourceMetrics | undefined
   /** Sandbox and server lifecycle events for the Events tab / recent events box */
-  sandboxEvents?: SandboxEvent[] | undefined
+  sandboxEvents?: LifecycleEvent[] | undefined
   /** Hide the preview header (address bar, server tabs, inspector toggle, reload). */
   hideHeader?: boolean | undefined
   /** Hide the bottom logs/console panel entirely (no expanded panel, no collapsed bar). */

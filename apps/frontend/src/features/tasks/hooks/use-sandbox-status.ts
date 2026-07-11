@@ -1,14 +1,17 @@
 import type { TaskResponse } from '@moatless/api-client'
 import {
   cleanupHandler,
-  provisionHandler,
   redeployHandler,
   restartHandler,
   stopHandler,
 } from '@moatless/api-client/sandbox/sandbox/sandbox'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/api/query-keys'
-import { useTaskSandboxStatusQuery } from './use-task-queries'
+import { useTaskSandboxStatusQuery } from '@/lib/api/task-sandbox-queries'
+
+// Re-export the shared retry mutation so existing tasks-side callers keep their
+// `@/features/tasks/hooks/use-sandbox-status` import.
+export { useSandboxRetry } from '@/lib/api/task-sandbox-queries'
 
 type UseSandboxStatusOptions = Parameters<typeof useTaskSandboxStatusQuery>[1]
 
@@ -30,21 +33,6 @@ export function useSandboxStatus(
   return useTaskSandboxStatusQuery(taskId, {
     ...restOptions,
     enabled: isEnabled && task?.status !== 'closed',
-  })
-}
-
-/**
- * Hook to retry sandbox provisioning after a failure
- * Calls backend's provision endpoint directly
- * Note: Status updates are handled by SSE events in global-event-stream-provider
- */
-export function useSandboxRetry(taskId: string) {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: () => provisionHandler(taskId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.sandboxStatus(taskId) })
-    },
   })
 }
 

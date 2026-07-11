@@ -6,9 +6,6 @@ import { useAgentAvailability } from '@/features/agents'
 import { useCommandsList } from '@/features/commands/hooks/use-commands'
 import { useRepositoriesList, useRepository } from '@/features/repositories'
 import { useRepositorySkills } from '@/features/skills'
-import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
-import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
-import { queryKeys } from '@/lib/api/query-keys'
 import {
   type AgentType,
   useAgentModeSelector,
@@ -17,8 +14,14 @@ import {
   useModelSelector,
   useRepositorySelector,
   useTaskTemplateSelector,
-} from '@/lib/components/chat/chat-input/selectors'
-import { type Suggestion, useCommandAutocomplete } from '@/lib/components/chat/command-autocomplete'
+} from '@/features/tasks/components/chat/chat-input/selectors'
+import {
+  type Suggestion,
+  useCommandAutocomplete,
+} from '@/features/tasks/components/chat/command-autocomplete'
+import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
+import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
+import { queryKeys } from '@/lib/api/query-keys'
 import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
 import { type ClaudeModel, DEFAULT_CLAUDE_MODEL, modelToApiValue } from '@/lib/types/claude-models'
 import { getErrorMessage } from '@/lib/utils/error'

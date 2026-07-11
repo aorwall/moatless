@@ -1,9 +1,9 @@
 import type { ReactNode } from 'react'
-import type { ViewportMode } from '@/features/tasks/hooks/use-task-view'
 import { cn } from '@/lib/utils'
+import type { DeviceMode } from '../hooks/use-preview-view'
 
 interface DeviceFrameProps {
-  mode: ViewportMode
+  mode: DeviceMode
   children: ReactNode
   className?: string
 }

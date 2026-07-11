@@ -295,6 +295,23 @@
   },
   "overrides": [
     {
+      "includes": ["apps/frontend/src/features/preview/**", "apps/frontend/src/features/files/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "@/features/tasks": "features/preview and features/files must not import features/tasks. Composition flows one way: features/tasks composes these features, not the reverse. Move shared code to lib/ or invert via props. See docs/plans/task-page-composability.md."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "includes": ["apps/frontend/src/routeTree.gen.ts"],
       "linter": {
         "enabled": false

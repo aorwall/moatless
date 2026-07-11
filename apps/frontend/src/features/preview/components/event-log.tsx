@@ -1,10 +1,10 @@
 import { ArrowDown } from 'lucide-react'
 import { useRef } from 'react'
+import type { LifecycleEvent } from '@/features/events/types'
 import { Button } from '@/lib/components/ui/button'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { useAutoScroll } from '@/lib/hooks/use-auto-scroll'
 import { cn } from '@/lib/utils'
-import type { SandboxEvent } from '../types'
 import {
   describeEvent,
   getDisplayMessage,
@@ -13,10 +13,10 @@ import {
 } from '../utils/event-messages'
 
 interface EventLogProps {
-  events: SandboxEvent[]
+  events: LifecycleEvent[]
 }
 
-function EventRow({ event }: { event: SandboxEvent }) {
+function EventRow({ event }: { event: LifecycleEvent }) {
   const { label, icon: Icon, tone, chips } = describeEvent(event)
   const message = getDisplayMessage(event)
   const showMessage = message && message.toLowerCase() !== label.toLowerCase()

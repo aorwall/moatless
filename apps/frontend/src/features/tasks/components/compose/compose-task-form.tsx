@@ -2,19 +2,19 @@ import type React from 'react'
 import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
 import { RepositoriesConfigurationDialog } from '@/features/repositories'
 import { SettingsDialog } from '@/features/settings'
-import {
-  type UseComposeTaskFormArgs,
-  useComposeTaskForm,
-} from '@/features/tasks/hooks/use-compose-task-form'
-import { ContextItems, FileAttachments } from '@/lib/components/chat/chat-input'
+import { ContextItems, FileAttachments } from '@/features/tasks/components/chat/chat-input'
 import {
   AttachmentPopoverContent,
   BranchPopoverContent,
   PopoverSelector,
   SearchablePopoverContent,
   SimpleListPopoverContent,
-} from '@/lib/components/chat/chat-input/selectors'
-import { CommandAutocomplete } from '@/lib/components/chat/command-autocomplete'
+} from '@/features/tasks/components/chat/chat-input/selectors'
+import { CommandAutocomplete } from '@/features/tasks/components/chat/command-autocomplete'
+import {
+  type UseComposeTaskFormArgs,
+  useComposeTaskForm,
+} from '@/features/tasks/hooks/use-compose-task-form'
 import { Button } from '@/lib/components/ui/button'
 import { Input } from '@/lib/components/ui/input'
 import { Textarea } from '@/lib/components/ui/textarea'

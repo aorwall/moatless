@@ -1,11 +1,11 @@
 import { AlertCircle, Loader2, MessageSquarePlus, Server, XCircle } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FeedbackDialog } from '@/features/feedback/components/feedback-dialog'
-import { useSandboxRetry } from '@/features/tasks/hooks/use-sandbox-status'
-import { usePreviewPath, usePreviewViewport } from '@/features/tasks/hooks/use-task-view'
+import { useSandboxRetry } from '@/lib/api/task-sandbox-queries'
 import { Button } from '@/lib/components/ui/button'
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
+import { StackedConsoleSplit } from '@/lib/layout/stacked-console-split'
 import { cn } from '@/lib/utils'
+import { usePreviewDevice, usePreviewPath } from '../hooks/use-preview-view'
 import type { PreviewProps, ScriptHealthStatus } from '../types'
 import { DeviceFrame } from './device-frame'
 import { InspectorOverlay } from './inspector-overlay'
@@ -139,6 +139,9 @@ export function Preview({
   onChatToggleRequest,
   servers,
   activeServer,
+  view,
+  onViewChange,
+  publish,
   resources,
   sandboxEvents,
   hideHeader = false,
@@ -193,8 +196,8 @@ export function Preview({
   // Get preview path from URL state
   const { previewPath: path, setPreviewPath: setPath } = usePreviewPath()
 
-  // Get viewport mode from URL state
-  const { viewport: viewportMode, setViewport } = usePreviewViewport()
+  // Get device mode from URL state
+  const { device: deviceMode, setDevice } = usePreviewDevice()
   const [iframeTargetPath, setIframeTargetPath] = useState(path) // Path to load in iframe (for reloads)
   const [isInspectorActive, setIsInspectorActive] = useState(false)
   const [isLoaded, setIsLoaded] = useState(false)
@@ -229,7 +232,7 @@ export function Preview({
     setHasProxyError(false)
     setPath('/')
     setIframeTargetPath('/')
-    setViewport('desktop')
+    setDevice('desktop')
     // Re-apply the auto-expand default for the newly selected server.
     setConsoleExpandedOverride(null)
   }, [activeServer])
@@ -616,6 +619,18 @@ export function Preview({
   // Determine if we should show console (only for servers with console capability)
   const showConsole = capabilities?.console ?? false
 
+  const renderConsole = (isExpanded: boolean) => (
+    <LogsPanel
+      className="h-full"
+      onToggleExpanded={handleToggleConsole}
+      isExpanded={isExpanded}
+      consoleLogs={consoleLogs}
+      serverName={activeServerEntry?.name}
+      showConsoleTab={showConsole}
+      sandboxEvents={sandboxEvents}
+    />
+  )
+
   return (
     <div className={cn('flex flex-col h-full', className)}>
       {!hideHeader && (
@@ -631,168 +646,136 @@ export function Preview({
           onInspectorDialogOpenChange={setIsInspectorDialogOpen}
           serverUrl={serverStatus?.url ?? undefined}
           servers={servers}
+          view={view}
+          onViewChange={onViewChange}
           capabilities={capabilities}
           isSandboxRunning={isSandboxRunning}
+          publish={publish}
         />
       )}
 
-      <div className="flex-1 min-h-0 flex flex-col">
-        <ResizablePanelGroup
-          direction="vertical"
-          className="flex-1 min-h-0 overflow-hidden bg-background"
-        >
-          {/* Preview content panel */}
-          <ResizablePanel className="overflow-hidden relative">
-            {/* Sandbox not running overlay */}
-            {!isSandboxRunning && environmentStatus && (
-              <SandboxStatusOverlay
-                environmentStatus={environmentStatus}
-                environmentError={environmentError}
-                onRetry={() => retryMutation.mutate()}
-                isRetrying={retryMutation.isPending}
-                retryError={retryMutation.error}
-              />
-            )}
+      <StackedConsoleSplit
+        isConsoleExpanded={isConsoleExpanded}
+        hideConsole={hideConsole}
+        renderConsole={renderConsole}
+        groupClassName="bg-background"
+        contentClassName="relative"
+        footer={
+          resources && isSandboxRunning ? (
+            <div
+              className={cn(
+                'h-6 flex-shrink-0 border-t px-3 flex items-center gap-3 text-xs font-mono tabular-nums',
+                getResourceColor(resources.cpuUsagePercent, resources.eventLoopLatencyMs),
+              )}
+            >
+              {resources.cpuUsagePercent !== null && <span>CPU {resources.cpuUsagePercent}%</span>}
+              <span>
+                Mem {formatMemory(resources.memoryUsageMb)}
+                {resources.memoryLimitMb != null ? `/${formatMemory(resources.memoryLimitMb)}` : ''}
+              </span>
+              <span>Loop {Math.round(resources.eventLoopLatencyMs)}ms</span>
+            </div>
+          ) : null
+        }
+      >
+        {/* Preview content panel */}
+        {/* Sandbox not running overlay */}
+        {!isSandboxRunning && environmentStatus && (
+          <SandboxStatusOverlay
+            environmentStatus={environmentStatus}
+            environmentError={environmentError}
+            onRetry={() => retryMutation.mutate()}
+            isRetrying={retryMutation.isPending}
+            retryError={retryMutation.error}
+          />
+        )}
 
-            {/* No servers configured */}
-            {servers && servers.length === 0 && isSandboxRunning && (
-              <div className="absolute inset-0 flex items-center justify-center z-10">
-                <div className="text-center space-y-2">
-                  <Server className="h-8 w-8 text-muted-foreground mx-auto" />
-                  <p className="text-sm text-muted-foreground">No servers configured</p>
-                </div>
-              </div>
-            )}
-
-            {/* Server not started — show status (events surface in the console below) */}
-            {isSandboxRunning && activeServerEntry && activeServerEntry.status !== 'started' && (
-              <ServerStatusView server={activeServerEntry} />
-            )}
-
-            {/* Proxy error overlay — only when server is started */}
-            {hasProxyError && isSandboxRunning && serverStatus?.status === 'started' && (
-              <ProxyErrorOverlay
-                taskId={taskId}
-                onReload={reloadPreview}
-                serverName={activeServerEntry?.name}
-                serverLabel={activeServerEntry?.label}
-                previewUrl={previewUrl ?? undefined}
-              />
-            )}
-
-            {/* Render iframe only when server is started */}
-            {previewUrl && serverStatus?.status === 'started' && (
-              <DeviceFrame mode={capabilities?.viewport ? viewportMode : 'desktop'}>
-                <iframe
-                  key={iframeSrcKey}
-                  ref={iframeRef}
-                  src={previewUrl}
-                  title="Application Preview"
-                  sandbox="allow-scripts allow-forms allow-popups allow-modals allow-same-origin allow-storage-access-by-user-activation"
-                  onLoad={handleIframeLoad}
-                  className={cn('w-full h-full border-none', !isLoaded && 'opacity-0')}
-                />
-
-                {isInspectorActive && (
-                  <InspectorOverlay
-                    iframeRef={iframeRef}
-                    isActive={isInspectorActive}
-                    onElementSelected={(element) => {
-                      // Transform iframe-relative coordinates to parent-window coordinates
-                      let transformedElement = element
-                      if (element.elementRect && iframeRef.current) {
-                        const iframeRect = iframeRef.current.getBoundingClientRect()
-                        transformedElement = {
-                          ...element,
-                          elementRect: {
-                            top: element.elementRect.top + iframeRect.top,
-                            left: element.elementRect.left + iframeRect.left,
-                            width: element.elementRect.width,
-                            height: element.elementRect.height,
-                            bottom: element.elementRect.bottom + iframeRect.top,
-                            right: element.elementRect.right + iframeRect.left,
-                          },
-                        }
-                      }
-
-                      // Check if clicking the same element again (to toggle it off)
-                      const isSameElement =
-                        selectedComponentId &&
-                        transformedElement.componentId === selectedComponentId
-
-                      if (isSameElement) {
-                        // Clicking same element again - remove selection overlay and from context
-                        removeFromSelection(transformedElement.componentId)
-                        setSelectedComponentId(null)
-                      } else {
-                        // Different element - clear old selection and add new one
-                        clearSelection()
-                        addToSelection(transformedElement.componentId)
-                        setSelectedComponentId(transformedElement.componentId)
-                      }
-
-                      // Notify parent of selection (optional callback)
-                      onElementSelected?.(transformedElement)
-                      // Automatically toggle element in context
-                      onToggleElementContext?.(transformedElement)
-                    }}
-                  />
-                )}
-              </DeviceFrame>
-            )}
-          </ResizablePanel>
-
-          {/* Resize handle - only show when console is expanded */}
-          {!hideConsole && isConsoleExpanded && <ResizableHandle withHandle />}
-
-          {/* Console panel - only show when expanded */}
-          {!hideConsole && isConsoleExpanded && (
-            <ResizablePanel defaultSize={20} minSize={5} maxSize={70}>
-              <LogsPanel
-                className="h-full"
-                onToggleExpanded={handleToggleConsole}
-                isExpanded={true}
-                consoleLogs={consoleLogs}
-                serverName={activeServerEntry?.name}
-                showConsoleTab={showConsole}
-                sandboxEvents={sandboxEvents}
-              />
-            </ResizablePanel>
-          )}
-        </ResizablePanelGroup>
-
-        {/* Resource metrics indicator */}
-        {resources && isSandboxRunning && (
-          <div
-            className={cn(
-              'h-6 flex-shrink-0 border-t px-3 flex items-center gap-3 text-xs font-mono tabular-nums',
-              getResourceColor(resources.cpuUsagePercent, resources.eventLoopLatencyMs),
-            )}
-          >
-            {resources.cpuUsagePercent !== null && <span>CPU {resources.cpuUsagePercent}%</span>}
-            <span>
-              Mem {formatMemory(resources.memoryUsageMb)}
-              {resources.memoryLimitMb != null ? `/${formatMemory(resources.memoryLimitMb)}` : ''}
-            </span>
-            <span>Loop {Math.round(resources.eventLoopLatencyMs)}ms</span>
+        {/* No servers configured */}
+        {servers && servers.length === 0 && isSandboxRunning && (
+          <div className="absolute inset-0 flex items-center justify-center z-10">
+            <div className="text-center space-y-2">
+              <Server className="h-8 w-8 text-muted-foreground mx-auto" />
+              <p className="text-sm text-muted-foreground">No servers configured</p>
+            </div>
           </div>
         )}
 
-        {/* Console panel collapsed state - fixed 40px */}
-        {!(hideConsole || isConsoleExpanded) && (
-          <div className="h-10 flex-shrink-0 border-t">
-            <LogsPanel
-              className="h-full"
-              onToggleExpanded={handleToggleConsole}
-              isExpanded={false}
-              consoleLogs={consoleLogs}
-              serverName={activeServerEntry?.name}
-              showConsoleTab={showConsole}
-              sandboxEvents={sandboxEvents}
+        {/* Server not started — show status (events surface in the console below) */}
+        {isSandboxRunning && activeServerEntry && activeServerEntry.status !== 'started' && (
+          <ServerStatusView server={activeServerEntry} />
+        )}
+
+        {/* Proxy error overlay — only when server is started */}
+        {hasProxyError && isSandboxRunning && serverStatus?.status === 'started' && (
+          <ProxyErrorOverlay
+            taskId={taskId}
+            onReload={reloadPreview}
+            serverName={activeServerEntry?.name}
+            serverLabel={activeServerEntry?.label}
+            previewUrl={previewUrl ?? undefined}
+          />
+        )}
+
+        {/* Render iframe only when server is started */}
+        {previewUrl && serverStatus?.status === 'started' && (
+          <DeviceFrame mode={capabilities?.viewport ? deviceMode : 'desktop'}>
+            <iframe
+              key={iframeSrcKey}
+              ref={iframeRef}
+              src={previewUrl}
+              title="Application Preview"
+              sandbox="allow-scripts allow-forms allow-popups allow-modals allow-same-origin allow-storage-access-by-user-activation"
+              onLoad={handleIframeLoad}
+              className={cn('w-full h-full border-none', !isLoaded && 'opacity-0')}
             />
-          </div>
+
+            {isInspectorActive && (
+              <InspectorOverlay
+                iframeRef={iframeRef}
+                isActive={isInspectorActive}
+                onElementSelected={(element) => {
+                  // Transform iframe-relative coordinates to parent-window coordinates
+                  let transformedElement = element
+                  if (element.elementRect && iframeRef.current) {
+                    const iframeRect = iframeRef.current.getBoundingClientRect()
+                    transformedElement = {
+                      ...element,
+                      elementRect: {
+                        top: element.elementRect.top + iframeRect.top,
+                        left: element.elementRect.left + iframeRect.left,
+                        width: element.elementRect.width,
+                        height: element.elementRect.height,
+                        bottom: element.elementRect.bottom + iframeRect.top,
+                        right: element.elementRect.right + iframeRect.left,
+                      },
+                    }
+                  }
+
+                  // Check if clicking the same element again (to toggle it off)
+                  const isSameElement =
+                    selectedComponentId && transformedElement.componentId === selectedComponentId
+
+                  if (isSameElement) {
+                    // Clicking same element again - remove selection overlay and from context
+                    removeFromSelection(transformedElement.componentId)
+                    setSelectedComponentId(null)
+                  } else {
+                    // Different element - clear old selection and add new one
+                    clearSelection()
+                    addToSelection(transformedElement.componentId)
+                    setSelectedComponentId(transformedElement.componentId)
+                  }
+
+                  // Notify parent of selection (optional callback)
+                  onElementSelected?.(transformedElement)
+                  // Automatically toggle element in context
+                  onToggleElementContext?.(transformedElement)
+                }}
+              />
+            )}
+          </DeviceFrame>
         )}
-      </div>
+      </StackedConsoleSplit>
     </div>
   )
 }

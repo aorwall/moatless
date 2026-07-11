@@ -4,7 +4,7 @@ import { useRef } from 'react'
 import {
   FileAutocomplete,
   type FileAutocompleteItem,
-} from '@/lib/components/chat/file-autocomplete'
+} from '@/features/tasks/components/chat/file-autocomplete'
 import { Button } from '@/lib/components/ui/button'
 import {
   Tooltip,

@@ -1,4 +1,7 @@
-import { type AgentType, DEFAULT_AGENT_TYPE } from '@/lib/components/chat/chat-input/selectors'
+import {
+  type AgentType,
+  DEFAULT_AGENT_TYPE,
+} from '@/features/tasks/components/chat/chat-input/selectors'
 import { useLocalStorage } from '@/lib/hooks/use-local-storage'
 
 type AgentMode = 'edit' | 'plan'

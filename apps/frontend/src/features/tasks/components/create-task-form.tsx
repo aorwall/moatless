@@ -5,9 +5,7 @@ import { toast } from 'sonner'
 import { z } from 'zod'
 import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
 import { useRepository } from '@/features/repositories'
-import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
-import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
-import { ContextItems, FileAttachments } from '@/lib/components/chat/chat-input'
+import { ContextItems, FileAttachments } from '@/features/tasks/components/chat/chat-input'
 import {
   AttachmentPopoverContent,
   BranchPopoverContent,
@@ -17,7 +15,9 @@ import {
   useAgentModeSelector,
   useBranchSelector,
   useRepositorySelector,
-} from '@/lib/components/chat/chat-input/selectors'
+} from '@/features/tasks/components/chat/chat-input/selectors'
+import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
+import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/lib/components/ui/card'
 import { Label } from '@/lib/components/ui/label'

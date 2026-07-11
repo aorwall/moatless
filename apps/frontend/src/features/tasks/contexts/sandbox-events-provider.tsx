@@ -8,50 +8,14 @@ import {
   useRef,
   useState,
 } from 'react'
-import { useTaskEventSubscription } from '@/features/events/contexts/global-event-stream-provider'
-import { useHistoricalSandboxEvents } from '@/features/preview/hooks/use-task-events'
-import type { SandboxEvent, StartupEvent } from '@/features/preview/types'
+import type { LifecycleEvent, StartupEvent } from '@/features/events'
+import {
+  toLifecycleEvent,
+  useHistoricalLifecycleEvents,
+  useTaskEventSubscription,
+} from '@/features/events'
 import type { Event } from '@/lib/types/events'
 import { useTaskId } from './task-data-provider'
-
-/** Coerce a payload value to a string only when present (null/undefined → undefined). */
-function optString(value: unknown): string | undefined {
-  return value != null ? String(value) : undefined
-}
-
-/** Map a raw Event to a SandboxEvent for the Events tab. */
-function toSandboxEvent(event: Event): SandboxEvent | null {
-  const rawSubType = (event as { subType?: string }).subType
-  // taskTurn events are turn-level facts; only `turn_interrupted` belongs in the
-  // sandbox/server lifecycle log — the rest (active/completed/…) are filtered out.
-  const isTurnInterrupted = event.type === 'taskTurn' && rawSubType === 'turn_interrupted'
-  if (event.type !== 'sandbox' && event.type !== 'server' && !isTurnInterrupted) {
-    return null
-  }
-  const payload = (event as { payload?: Record<string, unknown> }).payload ?? {}
-  const exitCodeRaw = payload['exitCode']
-  return {
-    eventId: event.eventId,
-    type: event.type as 'sandbox' | 'server' | 'taskTurn',
-    subType: rawSubType ?? '',
-    timestamp: event.timestamp ? new Date(event.timestamp).toISOString() : new Date().toISOString(),
-    isError: event.isError,
-    message: optString(payload['message']),
-    reason: optString(payload['reason']),
-    serverName:
-      event.type === 'server' && payload['serverName'] != null
-        ? String(payload['serverName'])
-        : undefined,
-    nodeName: optString(payload['nodeName']),
-    disruptionReason: optString(payload['disruptionReason']),
-    initiator: optString(payload['initiator']),
-    exitCode: typeof exitCodeRaw === 'number' ? exitCodeRaw : undefined,
-    terminatedReason: optString(payload['terminatedReason']),
-    pendingSeconds:
-      typeof payload['pendingSeconds'] === 'number' ? payload['pendingSeconds'] : undefined,
-    payload,
-  }
-}
 
 /** Check if a sandbox event subType is a startup-phase event. */
 function isStartupSubType(subType: string | undefined): boolean {
@@ -67,7 +31,7 @@ function isStartupEndSubType(subType: string | undefined): boolean {
 
 interface SandboxEventsContextValue {
   /** Sandbox/server lifecycle events for the Events tab and recent-events box. */
-  sandboxEvents: SandboxEvent[]
+  sandboxEvents: LifecycleEvent[]
   /** K8s startup events for the initializing overlay. */
   startupEvents: StartupEvent[]
 }
@@ -87,13 +51,13 @@ export function SandboxEventsProvider({ children }: { children: ReactNode }) {
   const [startupEvents, setStartupEvents] = useState<StartupEvent[]>([])
 
   // Sandbox/server lifecycle events for Events tab and recent events box
-  const [sandboxEvents, setSandboxEvents] = useState<SandboxEvent[]>([])
+  const [sandboxEvents, setSandboxEvents] = useState<LifecycleEvent[]>([])
 
   // Track seen event IDs for deduplication between historical and live SSE events
   const seenEventIds = useRef<Set<string>>(new Set())
 
   // Fetch historical sandbox/server events so events persist across page reloads
-  const historicalEventsQuery = useHistoricalSandboxEvents(taskId)
+  const historicalEventsQuery = useHistoricalLifecycleEvents(taskId)
 
   // Seed sandboxEvents from historical data when query resolves
   useEffect(() => {
@@ -102,13 +66,13 @@ export function SandboxEventsProvider({ children }: { children: ReactNode }) {
       return
     }
 
-    const mapped: SandboxEvent[] = []
+    const mapped: LifecycleEvent[] = []
     for (const event of data) {
       if (seenEventIds.current.has(event.eventId)) {
         continue
       }
       seenEventIds.current.add(event.eventId)
-      const se = toSandboxEvent(event)
+      const se = toLifecycleEvent(event)
       if (se) {
         mapped.push(se)
       }
@@ -125,7 +89,7 @@ export function SandboxEventsProvider({ children }: { children: ReactNode }) {
 
   const handleTaskEvent = useCallback((event: Event) => {
     // Append sandbox/server events for the Events tab (with dedup)
-    const se = toSandboxEvent(event)
+    const se = toLifecycleEvent(event)
     if (se) {
       if (seenEventIds.current.has(event.eventId)) {
         return
@@ -177,7 +141,7 @@ function useSandboxEventsContext(): SandboxEventsContextValue {
 }
 
 /** Sandbox/server lifecycle events for the Events tab and recent-events box. */
-export function useSandboxEvents(): SandboxEvent[] {
+export function useSandboxEvents(): LifecycleEvent[] {
   return useSandboxEventsContext().sandboxEvents
 }
 

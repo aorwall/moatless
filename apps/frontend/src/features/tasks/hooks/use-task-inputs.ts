@@ -5,9 +5,9 @@ import { toast } from 'sonner'
 import type { FigmaImportResponse } from '@/features/figma/api/figma'
 import { useFigmaClipboardPaste } from '@/features/figma/hooks/use-figma-clipboard-paste'
 import { useFigmaImport } from '@/features/figma/hooks/use-figma-import'
+import { useAttachmentSelector } from '@/features/tasks/components/chat/chat-input/selectors'
 import { useImagePaste } from '@/features/uploads/hooks/use-image-paste'
 import { useUploadFile } from '@/features/uploads/hooks/use-upload'
-import { useAttachmentSelector } from '@/lib/components/chat/chat-input/selectors'
 import { getErrorMessage } from '@/lib/utils/error'
 
 export interface UseTaskInputsOptions {

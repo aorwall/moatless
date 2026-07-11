@@ -7,7 +7,7 @@ import { useAutoScroll } from '../use-auto-scroll'
  *
  * Note: Full scroll behavior testing is better done via Storybook
  * where you can visually verify auto-scroll with real DOM interactions.
- * See: apps/frontend/src/lib/components/chat/message-history/__stories__/message-history.stories.tsx
+ * See: apps/frontend/src/features/tasks/components/chat/message-history/__stories__/message-history.stories.tsx
  * - AutoScrollBehavior story
  *
  * These tests verify the hook's basic API and initialization.

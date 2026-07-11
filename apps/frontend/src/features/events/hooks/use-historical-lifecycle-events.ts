@@ -1,8 +1,12 @@
 import { useQuery } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/api/query-keys'
-import { fetchTaskEvents } from '../api/events'
+import { fetchTaskEvents } from '../api/task-events'
 
-export function useHistoricalSandboxEvents(taskId: string | undefined) {
+/**
+ * Fetch a task's historical sandbox/server lifecycle events so the Events tab
+ * and recent-events box persist across page reloads.
+ */
+export function useHistoricalLifecycleEvents(taskId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.tasks.events(taskId ?? ''),
     queryFn: () =>

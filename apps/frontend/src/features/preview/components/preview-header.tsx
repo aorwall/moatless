@@ -1,22 +1,17 @@
 import type { ServerCapabilities, ServerEntry } from '@moatless/api-client'
 import { ExternalLink, MousePointer, RotateCcw } from 'lucide-react'
 import { type KeyboardEvent, useCallback, useState } from 'react'
-import { toast } from 'sonner'
-import { useRepository } from '@/features/repositories/hooks/use-repositories'
-import { WorkspaceHeader } from '@/features/tasks/components/workspace-header'
-import { useTaskId } from '@/features/tasks/contexts/task-providers'
-import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
-import { useTaskView } from '@/features/tasks/hooks/use-task-view'
-import { useDeployTask } from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'
 import { Input } from '@/lib/components/ui/input'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/lib/components/ui/tooltip'
 import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
 import { useIsMobile } from '@/lib/hooks/use-mobile'
-import { getErrorMessage } from '@/lib/utils/error'
+import { WorkspaceHeader } from '@/lib/layout/workspace-header'
+import type { PreviewPublish } from '../types'
+import { DeviceToggle } from './device-toggle'
 import { InspectorUnavailableDialog } from './inspector-unavailable-dialog'
 import { PublishButton } from './publish-button'
-import { ViewportToggle } from './viewport-toggle'
+import { ViewTabs } from './view-tabs'
 
 interface PreviewHeaderProps {
   path: string
@@ -29,12 +24,18 @@ interface PreviewHeaderProps {
   isInspectorDialogOpen: boolean
   onInspectorDialogOpenChange: (open: boolean) => void
   serverUrl?: string | undefined
-  /** Dynamic server list — passed through to WorkspaceHeader for dynamic tabs */
+  /** Dynamic server list — rendered as the workspace view tabs */
   servers?: ServerEntry[] | undefined
+  /** Active workspace view — highlights the matching tab */
+  view: string
+  /** Switch the active workspace view */
+  onViewChange: (view: string) => void
   /** Capabilities of the active server — controls which controls to show */
   capabilities?: ServerCapabilities | undefined
   /** Whether the sandbox is running (controls disabled when false) */
   isSandboxRunning?: boolean | undefined
+  /** Publish/deploy state, injected by the composing feature (undefined = no publish). */
+  publish?: PreviewPublish | undefined
 }
 
 export function PreviewHeader({
@@ -49,27 +50,15 @@ export function PreviewHeader({
   onInspectorDialogOpenChange,
   serverUrl,
   servers,
+  view,
+  onViewChange,
   capabilities,
   isSandboxRunning = true,
+  publish,
 }: PreviewHeaderProps) {
-  const taskId = useTaskId()
-  const { data: task } = useTaskDetailQuery(taskId)
-  const { data: repository } = useRepository(task?.repositoryId ?? '')
-  const vibe = task?.vibe
-  const siteUrl = task?.siteUrl
-
-  // Show publish button if vibe or has buildCommand
-  const hasBuildCommand = Boolean(repository?.buildCommand)
-  const canPublish = vibe || hasBuildCommand
-
   const [pathInput, setPathInput] = useState(path)
   const isNetlifyPublishEnabled = useFeatureFlag('NETLIFY_PUBLISH')
   const isMobile = useIsMobile()
-
-  // Get view state from URL. Pass servers so the derived default view matches
-  // what the page renders (e.g. the running preview server) — otherwise the
-  // active tab highlight falls back to "files" and looks out of sync.
-  const { view, setView } = useTaskView({ servers })
 
   // Reset pathInput when path changes (using key prop pattern in parent is better)
   // But for internal component state, we need to track when path changes
@@ -79,30 +68,6 @@ export function PreviewHeader({
     setPathInput(path)
     setLastPath(path)
   }
-
-  // Deploy hook for publishing vibe tasks
-  const deployTask = useDeployTask(taskId, {
-    onSuccess: (data) => {
-      if (data.success && data.siteUrl) {
-        toast.success('Site published successfully!', {
-          description: `Your site is live at ${data.siteUrl}`,
-          action: {
-            label: 'Open Site',
-            onClick: () => window.open(data.siteUrl, '_blank', 'noopener,noreferrer'),
-          },
-        })
-      } else if (data.error) {
-        toast.error('Failed to publish site', {
-          description: data.error,
-        })
-      }
-    },
-    onError: (error) => {
-      toast.error('Failed to publish site', {
-        description: getErrorMessage(error),
-      })
-    },
-  })
 
   const handlePathSubmit = useCallback(
     (e: KeyboardEvent<HTMLInputElement>) => {
@@ -130,30 +95,24 @@ export function PreviewHeader({
     }
   }, [serverUrl, path])
 
-  const handlePublish = useCallback(() => {
-    deployTask.mutate()
-  }, [deployTask])
-
   // Derive which controls to show from capabilities
   const showAddressBar = capabilities?.addressBar ?? true
   const showInspector = capabilities?.inspector ?? false
   const showReload = capabilities?.reload ?? true
   const showOpenExternal = capabilities?.openExternal ?? true
-  const showViewport = capabilities?.viewport ?? false
+  const showDeviceToggle = capabilities?.viewport ?? false
 
   // Disable controls when sandbox is not running
   const controlsDisabled = !isSandboxRunning
 
   return (
     <WorkspaceHeader
-      activeView={view}
-      onViewChange={setView}
       showToggle
-      servers={servers}
+      leading={<ViewTabs servers={servers ?? []} activeView={view} onViewChange={onViewChange} />}
       centerContent={
         <div className="flex items-center gap-1 md:gap-2 w-full justify-center">
-          {/* Viewport Controls - Hidden on mobile */}
-          {showViewport && !isMobile && <ViewportToggle />}
+          {/* Device Controls - Hidden on mobile */}
+          {showDeviceToggle && !isMobile && <DeviceToggle />}
 
           {/* Reload button */}
           {showReload && (
@@ -253,12 +212,12 @@ export function PreviewHeader({
         </div>
       }
       rightContent={
-        isNetlifyPublishEnabled ? (
+        isNetlifyPublishEnabled && publish ? (
           <PublishButton
-            canPublish={canPublish && isSandboxRunning}
-            siteUrl={siteUrl ?? undefined}
-            onPublish={handlePublish}
-            isPending={deployTask.isPending}
+            canPublish={publish.canPublish && isSandboxRunning}
+            siteUrl={publish.siteUrl ?? undefined}
+            onPublish={publish.onPublish}
+            isPending={publish.isPending}
           />
         ) : null
       }

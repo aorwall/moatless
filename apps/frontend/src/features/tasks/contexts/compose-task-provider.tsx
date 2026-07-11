@@ -1,5 +1,5 @@
 import { createContext, type ReactNode, useCallback, useContext, useMemo, useRef } from 'react'
-import type { AgentType } from '@/lib/components/chat/chat-input/selectors'
+import type { AgentType } from '@/features/tasks/components/chat/chat-input/selectors'
 import { useLocalStorage } from '@/lib/hooks/use-local-storage'
 import { type ClaudeModel, DEFAULT_CLAUDE_MODEL } from '@/lib/types/claude-models'
 import { useTaskPreferences } from '../hooks/use-task-preferences'

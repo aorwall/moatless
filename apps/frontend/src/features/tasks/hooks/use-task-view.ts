@@ -1,13 +1,11 @@
 import type { ServerEntry } from '@moatless/api-client'
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useMemo } from 'react'
-import { useIsMobile } from '@/lib/hooks/use-mobile'
 import type { TaskSearch } from '../types/task-search-schema'
 
 // Type exports for task view management
 // TaskView is a string: 'chat', 'diff', or any server name (e.g. 'files', 'preview', 'storybook')
 export type TaskView = string
-export type ViewportMode = 'mobile' | 'tablet' | 'desktop'
 
 /**
  * Read the task search params from whichever task route is currently active
@@ -20,12 +18,18 @@ function useTaskSearch(): TaskSearch {
 
 interface UseTaskViewOptions {
   servers?: ServerEntry[] | undefined
+  /**
+   * View to use when the URL has no `?view=` param. Layouts supply this so the
+   * responsive default is a layout decision, not something the hook derives from
+   * a media query (the mobile layout passes `'chat'`). When omitted, the default
+   * is derived from the servers list (or `'files'`).
+   */
+  fallback?: TaskView | undefined
 }
 
 interface UseTaskViewReturn {
   view: TaskView
   setView: (view: TaskView) => void
-  isMobile: boolean
 }
 
 /**
@@ -36,15 +40,14 @@ interface UseTaskViewReturn {
  * - Mobile: URL controls which single panel is visible (chat or a server name)
  *
  * Default view logic when no URL param:
- * - Mobile: 'chat'
- * - Desktop: default server name from the servers list, or fallback to 'preview'/'files'
+ * - `fallback` when the layout provides one (mobile passes `'chat'`)
+ * - otherwise the default server name from the servers list, or `'files'`
  *
  * Note: The task page component keeps showing a skeleton while workspace status loads.
  */
-export function useTaskView({ servers }: UseTaskViewOptions = {}): UseTaskViewReturn {
+export function useTaskView({ servers, fallback }: UseTaskViewOptions = {}): UseTaskViewReturn {
   const navigate = useNavigate()
   const search = useTaskSearch()
-  const isMobile = useIsMobile()
 
   // Compute the effective view
   const view = useMemo<TaskView>(() => {
@@ -53,9 +56,9 @@ export function useTaskView({ servers }: UseTaskViewOptions = {}): UseTaskViewRe
       return search.view
     }
 
-    // Mobile default: chat
-    if (isMobile) {
-      return 'chat'
+    // Layout-provided default (e.g. the mobile layout defaults to chat)
+    if (fallback) {
+      return fallback
     }
 
     // Use default server name from the servers array when available
@@ -73,7 +76,7 @@ export function useTaskView({ servers }: UseTaskViewOptions = {}): UseTaskViewRe
 
     // Fallback (servers not loaded yet)
     return 'files'
-  }, [search.view, isMobile, servers])
+  }, [search.view, fallback, servers])
 
   // Function to update the view in URL
   const setView = (newView: TaskView) => {
@@ -86,110 +89,5 @@ export function useTaskView({ servers }: UseTaskViewOptions = {}): UseTaskViewRe
     })
   }
 
-  return { view, setView, isMobile }
-}
-
-interface UseSelectedFileReturn {
-  selectedFile: string | undefined
-  setSelectedFile: (file: string | undefined) => void
-}
-
-/**
- * Hook for managing selected file state via URL search params.
- *
- * The selected file path is stored in the URL, making it:
- * - Shareable via URL
- * - Persistent across page refreshes
- * - Compatible with browser back/forward navigation
- */
-export function useSelectedFile(): UseSelectedFileReturn {
-  const navigate = useNavigate()
-  const search = useTaskSearch()
-
-  const selectedFile = search.file
-
-  // Function to update the selected file in URL
-  const setSelectedFile = (file: string | undefined) => {
-    navigate({
-      to: '.',
-      search: (prev) => {
-        const prevSearch = prev as TaskSearch
-        // Remove file param if undefined, otherwise set it
-        if (file === undefined) {
-          const { file: _, ...rest } = prevSearch
-          return rest
-        }
-        return { ...prevSearch, file }
-      },
-      replace: true, // Use replace to avoid polluting browser history
-    }).catch(() => {
-      /* ignore: navigate() for URL param updates only rejects on framework errors */
-    })
-  }
-
-  return { selectedFile, setSelectedFile }
-}
-
-interface UsePreviewPathReturn {
-  previewPath: string
-  setPreviewPath: (path: string) => void
-}
-
-/**
- * Hook for managing preview path state via URL search params.
- *
- * The preview path is stored in the URL, making it:
- * - Shareable via URL
- * - Persistent across page refreshes
- * - Compatible with browser back/forward navigation
- */
-export function usePreviewPath(): UsePreviewPathReturn {
-  const navigate = useNavigate()
-  const search = useTaskSearch()
-
-  const previewPath = search.path ?? '/'
-
-  const setPreviewPath = (path: string) => {
-    navigate({
-      to: '.',
-      search: (prev) => ({ ...prev, path }) as TaskSearch,
-      replace: true, // Use replace to avoid polluting browser history
-    }).catch(() => {
-      /* ignore: navigate() for URL param updates only rejects on framework errors */
-    })
-  }
-
-  return { previewPath, setPreviewPath }
-}
-
-interface UsePreviewViewportReturn {
-  viewport: ViewportMode
-  setViewport: (mode: ViewportMode) => void
-}
-
-/**
- * Hook for managing preview viewport state via URL search params.
- *
- * The viewport mode is stored in the URL, making it:
- * - Shareable via URL (useful for bug reports at specific viewport sizes)
- * - Persistent across page refreshes
- * - Compatible with browser back/forward navigation
- */
-export function usePreviewViewport(): UsePreviewViewportReturn {
-  const navigate = useNavigate()
-  const search = useTaskSearch()
-
-  const viewport = search.viewport ?? 'desktop'
-
-  const setViewport = (mode: ViewportMode) => {
-    navigate({
-      to: '.',
-      search: (prev) => ({ ...prev, viewport: mode }) as TaskSearch,
-      replace: true, // Use replace to avoid polluting browser history
-    }).catch(() => {
-      /* ignore: navigate() for URL param updates only rejects on framework errors */
-    })
-  }
-
-  return { viewport, setViewport }
+  return { view, setView }
 }

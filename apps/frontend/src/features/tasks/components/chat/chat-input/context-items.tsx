@@ -2,7 +2,7 @@ import type { ElementContextData, MessageContextInput } from '@moatless/api-clie
 import { ExternalLink, Eye, Loader2, X } from 'lucide-react'
 import { useState } from 'react'
 import { FigmaImportViewer, figmaApi } from '@/features/figma'
-import { FileAttachments } from '@/lib/components/chat/chat-input/file-attachments'
+import { FileAttachments } from '@/features/tasks/components/chat/chat-input/file-attachments'
 import { Figma } from '@/lib/components/ui/brand-icons'
 import { Button } from '@/lib/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/popover'

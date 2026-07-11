@@ -1,7 +1,8 @@
 import { LazyFileExplorer } from '@/features/files'
 import { SandboxStatusOverlay } from '@/features/preview'
+import { ViewTabs } from '@/features/preview/components/view-tabs'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
-import { WorkspaceHeader } from '../components/workspace-header'
+import { WorkspaceHeader } from '@/lib/layout/workspace-header'
 import { useTaskId } from '../contexts/task-providers'
 import { useSandboxRetry, useSandboxStatus } from '../hooks/use-sandbox-status'
 import { useTaskDetailQuery } from '../hooks/use-task-queries'
@@ -24,7 +25,9 @@ export function FilesPanel() {
   return (
     <ErrorBoundary componentName="File Explorer">
       <div className="h-full flex flex-col">
-        <WorkspaceHeader activeView={view} onViewChange={setView} servers={servers} />
+        <WorkspaceHeader
+          leading={<ViewTabs servers={servers ?? []} activeView={view} onViewChange={setView} />}
+        />
         <div className="flex-1 min-h-0 relative">
           {isSandboxReady ? (
             <LazyFileExplorer taskId={taskId} />

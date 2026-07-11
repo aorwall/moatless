@@ -12,16 +12,13 @@ import {
 } from '@/features/repositories'
 import { SettingsDialog } from '@/features/settings'
 import { useRepositorySkills } from '@/features/skills'
-import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
-import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
-import { queryKeys } from '@/lib/api/query-keys'
 import {
   ChatInput,
   ContextItems,
   FileAttachments,
   Selectors,
   SendButton,
-} from '@/lib/components/chat/chat-input'
+} from '@/features/tasks/components/chat/chat-input'
 import {
   type AgentType,
   AttachmentPopoverContent,
@@ -36,12 +33,15 @@ import {
   useModelSelector,
   useRepositorySelector,
   useTaskTemplateSelector,
-} from '@/lib/components/chat/chat-input/selectors'
+} from '@/features/tasks/components/chat/chat-input/selectors'
 import {
   CommandAutocomplete,
   type Suggestion,
   useCommandAutocomplete,
-} from '@/lib/components/chat/command-autocomplete'
+} from '@/features/tasks/components/chat/command-autocomplete'
+import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
+import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
+import { queryKeys } from '@/lib/api/query-keys'
 import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
 import { type ClaudeModel, DEFAULT_CLAUDE_MODEL, modelToApiValue } from '@/lib/types/claude-models'
 import { getErrorMessage } from '@/lib/utils/error'

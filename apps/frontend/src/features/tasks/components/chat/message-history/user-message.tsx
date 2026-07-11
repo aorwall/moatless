@@ -1,9 +1,9 @@
 import type { UiMessage } from '@moatless/api-client'
 import { ChevronDown, ChevronRight, Eye, FileText, Terminal } from 'lucide-react'
 import { useState } from 'react'
+import { ContextItems } from '@/features/tasks/components/chat/chat-input/context-items'
 import { Message, MessageContent } from '@/lib/components/ai-elements/message'
 import { Response } from '@/lib/components/ai-elements/response'
-import { ContextItems } from '@/lib/components/chat/chat-input/context-items'
 import { cn } from '@/lib/utils'
 
 interface UserMessageProps {

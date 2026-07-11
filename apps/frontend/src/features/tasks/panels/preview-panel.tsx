@@ -1,5 +1,9 @@
+import { toast } from 'sonner'
 import { Preview } from '@/features/preview'
+import type { PreviewPublish } from '@/features/preview/types'
+import { useRepository } from '@/features/repositories/hooks/use-repositories'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
+import { getErrorMessage } from '@/lib/utils/error'
 import {
   useComposer,
   usePanelControls,
@@ -10,6 +14,7 @@ import {
 import { useSandboxStatus } from '../hooks/use-sandbox-status'
 import { useTaskDetailQuery } from '../hooks/use-task-queries'
 import { useTaskView } from '../hooks/use-task-view'
+import { useDeployTask } from '../hooks/use-tasks'
 
 interface PreviewPanelProps {
   /** Kiosk variant: hide the preview header and console. */
@@ -24,9 +29,10 @@ interface PreviewPanelProps {
 export function PreviewPanel({ kiosk = false }: PreviewPanelProps) {
   const taskId = useTaskId()
   const taskQuery = useTaskDetailQuery(taskId)
-  const { data: sandboxStatus } = useSandboxStatus(taskId, taskQuery.data)
+  const task = taskQuery.data
+  const { data: sandboxStatus } = useSandboxStatus(taskId, task)
   const servers = sandboxStatus?.servers
-  const { view } = useTaskView({ servers })
+  const { view, setView } = useTaskView({ servers })
 
   const composer = useComposer()
   const controls = usePanelControls()
@@ -34,6 +40,34 @@ export function PreviewPanel({ kiosk = false }: PreviewPanelProps) {
   const startupEvents = useStartupEvents()
 
   const activeServerName = view === 'chat' ? undefined : view
+
+  // Publish (deploy) state — composed here and passed into the presentational
+  // Preview header so `features/preview` doesn't reach into task/repository data.
+  const { data: repository } = useRepository(task?.repositoryId ?? '')
+  const deployTask = useDeployTask(taskId, {
+    onSuccess: (data) => {
+      if (data.success && data.siteUrl) {
+        toast.success('Site published successfully!', {
+          description: `Your site is live at ${data.siteUrl}`,
+          action: {
+            label: 'Open Site',
+            onClick: () => window.open(data.siteUrl, '_blank', 'noopener,noreferrer'),
+          },
+        })
+      } else if (data.error) {
+        toast.error('Failed to publish site', { description: data.error })
+      }
+    },
+    onError: (error) => {
+      toast.error('Failed to publish site', { description: getErrorMessage(error) })
+    },
+  })
+  const publish: PreviewPublish = {
+    canPublish: Boolean(task?.vibe) || Boolean(repository?.buildCommand),
+    siteUrl: task?.siteUrl ?? undefined,
+    onPublish: () => deployTask.mutate(),
+    isPending: deployTask.isPending,
+  }
 
   return (
     <ErrorBoundary componentName="Preview">
@@ -48,6 +82,9 @@ export function PreviewPanel({ kiosk = false }: PreviewPanelProps) {
         onChatToggleRequest={() => controls.toggleChat()}
         servers={servers}
         activeServer={activeServerName}
+        view={view}
+        onViewChange={setView}
+        publish={publish}
         resources={sandboxStatus?.resources ?? undefined}
         sandboxEvents={sandboxEvents}
         hideHeader={kiosk}

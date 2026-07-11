@@ -1,6 +1,6 @@
 import { useQueries } from '@tanstack/react-query'
-import { useTaskSandboxStatusQuery } from '@/features/tasks/hooks/use-task-queries'
 import { queryKeys } from '@/lib/api/query-keys'
+import { useTaskSandboxStatusQuery } from '@/lib/api/task-sandbox-queries'
 import { fetchFileTree } from '../api/files-api'
 import type { FileTreeResponse } from '../types'
 

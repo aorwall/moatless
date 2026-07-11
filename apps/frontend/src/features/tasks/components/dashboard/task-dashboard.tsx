@@ -2,6 +2,7 @@ import type { TaskResponse } from '@moatless/api-client'
 import { useCallback, useMemo, useState } from 'react'
 import type { TaskTemplateResponse } from '@/features/task-templates'
 import { TemplateChipsRow } from '@/features/task-templates'
+import type { AgentType } from '@/features/tasks/components/chat/chat-input/selectors'
 import { CreateCodeTask } from '@/features/tasks/components/create-task/create-code-task'
 import {
   type DashboardSearchParams,
@@ -11,7 +12,6 @@ import { TaskTable } from '@/features/tasks/components/dashboard/task-table'
 import { TaskCard } from '@/features/tasks/components/task-card'
 import { useTaskPreferences } from '@/features/tasks/hooks/use-task-preferences'
 import { useTasksList } from '@/features/tasks/hooks/use-tasks'
-import type { AgentType } from '@/lib/components/chat/chat-input/selectors'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { type ClaudeModel, DEFAULT_CLAUDE_MODEL } from '@/lib/types/claude-models'
 

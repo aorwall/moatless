@@ -1,11 +1,11 @@
 import { Activity, ChevronDown, ChevronUp, Server, Terminal } from 'lucide-react'
 import { useState } from 'react'
-import { ServerLogsViewer } from '@/features/tasks/components/server-logs-viewer/server-logs-viewer'
+import type { LifecycleEvent } from '@/features/events/types'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/lib/components/ui/tabs'
 import { cn } from '@/lib/utils'
-import type { SandboxEvent } from '../types'
 import { ConsoleLogs } from './console-logs'
 import { EventLog } from './event-log'
+import { ServerLogsViewer } from './server-logs-viewer/server-logs-viewer'
 
 interface ConsoleLog {
   id: string
@@ -26,7 +26,7 @@ interface LogsPanelProps {
   /** Whether to show the Console tab (only for servers with iframe console) */
   showConsoleTab?: boolean | undefined
   /** Sandbox and server lifecycle events */
-  sandboxEvents?: SandboxEvent[] | undefined
+  sandboxEvents?: LifecycleEvent[] | undefined
 }
 
 export function LogsPanel({

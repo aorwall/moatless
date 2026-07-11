@@ -10,13 +10,13 @@ import {
   UploadButton,
 } from '../chat-input'
 import { SelectorButton } from '../chat-input/selectors'
-import { ChatView } from '../chat-view'
+import { ChatScrollArea } from '../chat-scroll-area'
 import { MessageHistory } from '../message-history'
 import { QueuedMessages } from '../queued-messages'
 
 const meta = {
-  title: 'Chat/ChatView',
-  component: ChatView,
+  title: 'Chat/ChatScrollArea',
+  component: ChatScrollArea,
   parameters: {
     layout: 'fullscreen',
   },
@@ -27,7 +27,7 @@ const meta = {
       </div>
     ),
   ],
-} satisfies Meta<typeof ChatView>
+} satisfies Meta<typeof ChatScrollArea>
 
 export default meta
 
@@ -72,7 +72,7 @@ const noop = () => {
 
 export const Default = {
   render: () => (
-    <ChatView>
+    <ChatScrollArea>
       <MessageHistory
         messages={[
           createUserMessage('Hello!', 'msg-1'),
@@ -119,13 +119,13 @@ export const Default = {
           </div>
         </div>
       </ChatInput>
-    </ChatView>
+    </ChatScrollArea>
   ),
 } as unknown as Story
 
 export const EmptyChat = {
   render: () => (
-    <ChatView>
+    <ChatScrollArea>
       <MessageHistory messages={[]} />
       <ChatInput
         message=""
@@ -141,13 +141,13 @@ export const EmptyChat = {
           <SendButton disabled />
         </div>
       </ChatInput>
-    </ChatView>
+    </ChatScrollArea>
   ),
 } as unknown as Story
 
 export const WithToolCalls = {
   render: () => (
-    <ChatView>
+    <ChatScrollArea>
       <MessageHistory
         messages={[
           createUserMessage('Can you check the authentication file?', 'msg-1'),
@@ -187,13 +187,13 @@ export const WithToolCalls = {
           <SendButton disabled />
         </div>
       </ChatInput>
-    </ChatView>
+    </ChatScrollArea>
   ),
 } as unknown as Story
 
 export const ErrorState = {
   render: () => (
-    <ChatView>
+    <ChatScrollArea>
       <MessageHistory
         messages={undefined}
         error={new Error('Failed to load messages from the server')}
@@ -206,13 +206,13 @@ export const ErrorState = {
           <SendButton disabled />
         </div>
       </ChatInput>
-    </ChatView>
+    </ChatScrollArea>
   ),
 } as unknown as Story
 
 export const LoadingState = {
   render: () => (
-    <ChatView>
+    <ChatScrollArea>
       <MessageHistory messages={[]} isLoading />
       <ChatInput
         message=""
@@ -228,13 +228,13 @@ export const LoadingState = {
           <SendButton disabled />
         </div>
       </ChatInput>
-    </ChatView>
+    </ChatScrollArea>
   ),
 } as unknown as Story
 
 export const ThinkingState = {
   render: () => (
-    <ChatView>
+    <ChatScrollArea>
       <MessageHistory
         messages={[createUserMessage('What is the capital of France?', 'msg-1')]}
         isRunning
@@ -253,7 +253,7 @@ export const ThinkingState = {
           <SendButton disabled />
         </div>
       </ChatInput>
-    </ChatView>
+    </ChatScrollArea>
   ),
 } as unknown as Story
 
@@ -263,7 +263,7 @@ export const ThinkingState = {
  */
 export const WithQueuedMessages = {
   render: () => (
-    <ChatView>
+    <ChatScrollArea>
       <MessageHistory
         messages={[
           createUserMessage('Add authentication to the app', 'msg-1'),
@@ -311,7 +311,7 @@ export const WithQueuedMessages = {
           </div>
         </div>
       </ChatInput>
-    </ChatView>
+    </ChatScrollArea>
   ),
 } as unknown as Story
 
@@ -320,7 +320,7 @@ export const WithQueuedMessages = {
  */
 export const WithSingleQueuedMessage = {
   render: () => (
-    <ChatView>
+    <ChatScrollArea>
       <MessageHistory
         messages={[
           createUserMessage('Fix the button styling on the homepage', 'msg-1'),
@@ -359,6 +359,6 @@ export const WithSingleQueuedMessage = {
           </div>
         </div>
       </ChatInput>
-    </ChatView>
+    </ChatScrollArea>
   ),
 } as unknown as Story

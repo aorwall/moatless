@@ -1,11 +1,11 @@
 import { Pencil } from 'lucide-react'
 import { useState } from 'react'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
-import { MobileViewToggle } from '@/features/tasks/components/mobile-view-toggle'
+import { ViewSwitcher } from '@/features/tasks/components/view-switcher'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
 import { useSandboxStatus } from '@/features/tasks/hooks/use-sandbox-status'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
-import { useTaskView } from '@/features/tasks/hooks/use-task-view'
+import { type TaskView, useTaskView } from '@/features/tasks/hooks/use-task-view'
 import { useUpdateTaskMetadata } from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar'
@@ -13,13 +13,23 @@ import { CreateRepoButton } from './create-repo-button'
 import { EditTaskDialog } from './edit-task-dialog'
 import { ScheduledJobsPill } from './scheduled-jobs-pill'
 
-export function TaskLeftHeader() {
+interface TaskLeftHeaderProps {
+  /**
+   * Render the mobile view toggle. Owned by the layout: the mobile layout sets
+   * this, the desktop layout leaves it off (tabs live in the workspace header).
+   */
+  showViewToggle?: boolean
+  /** Default view when the URL has no `?view=` — must match the layout's default. */
+  defaultView?: TaskView
+}
+
+export function TaskLeftHeader({ showViewToggle = false, defaultView }: TaskLeftHeaderProps = {}) {
   const taskId = useTaskId()
   const taskQuery = useTaskDetailQuery(taskId)
   const { data: repositories } = useRepositoriesList()
   const { data: sandboxStatus } = useSandboxStatus(taskId, taskQuery.data)
   const servers = sandboxStatus?.servers
-  const { view, setView, isMobile } = useTaskView()
+  const { view, setView } = useTaskView({ fallback: defaultView })
   const updateMetadata = useUpdateTaskMetadata(taskId, {
     onSuccess: () => setIsEditDialogOpen(false),
   })
@@ -96,9 +106,9 @@ export function TaskLeftHeader() {
           />
         )}
 
-        {/* Mobile view toggle - only shown on mobile */}
-        {isMobile && (
-          <MobileViewToggle currentView={view} onViewChange={setView} servers={servers} />
+        {/* Mobile view switcher - shown when the layout requests it (mobile) */}
+        {showViewToggle && (
+          <ViewSwitcher currentView={view} onViewChange={setView} servers={servers} />
         )}
       </div>
 

@@ -26,14 +26,7 @@ export {
 } from './contexts/task-providers'
 export * from './hooks/use-sandbox-status'
 // URL state hooks and types
-export {
-  type TaskView,
-  usePreviewPath,
-  usePreviewViewport,
-  useSelectedFile,
-  useTaskView,
-  type ViewportMode,
-} from './hooks/use-task-view'
+export { type TaskView, useTaskView } from './hooks/use-task-view'
 // Hooks
 export * from './hooks/use-tasks'
 export { TaskPage } from './layouts/task-page'

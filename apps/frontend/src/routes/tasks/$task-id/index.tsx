@@ -24,10 +24,10 @@ export const Route = createFileRoute('/tasks/$task-id/')({
       .catch(() => {
         /* ignore: component's own query owns error handling via FullPageError */
       }),
-  component: TaskDetail,
+  component: TaskPageRoute,
 })
 
-function TaskDetail() {
+function TaskPageRoute() {
   const { 'task-id': taskId } = Route.useParams()
 
   // Clear the unread indicator while this task is open (and on navigating away).

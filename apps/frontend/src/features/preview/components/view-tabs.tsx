@@ -2,7 +2,7 @@ import type { ServerEntry } from '@moatless/api-client'
 import { FileText, type LucideIcon, Monitor, Server, SlidersHorizontal } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-interface ServerTabsProps {
+interface ViewTabsProps {
   servers: ServerEntry[]
   activeView: string
   onViewChange: (view: string) => void
@@ -41,11 +41,11 @@ function StatusDot({ status }: { status: ServerEntry['status'] }) {
 }
 
 /**
- * Dynamic server tabs component.
- * Renders a tab for each available server plus a "Diff" tab.
+ * Dynamic workspace view tabs.
+ * Renders a tab for Files, each available server, and the Sandbox controls.
  * Server names are used directly as view identifiers.
  */
-export function ServerTabs({ servers, activeView, onViewChange, className }: ServerTabsProps) {
+export function ViewTabs({ servers, activeView, onViewChange, className }: ViewTabsProps) {
   const sorted = servers.toSorted((a, b) => (b.default ? 1 : 0) - (a.default ? 1 : 0))
   // Only label the server tabs when there's more than one to disambiguate;
   // Files and Sandbox are always icon-only.

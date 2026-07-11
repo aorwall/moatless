@@ -1,10 +1,10 @@
 import { Monitor, Smartphone, Tablet } from 'lucide-react'
-import { usePreviewViewport, type ViewportMode } from '@/features/tasks/hooks/use-task-view'
 import { Button } from '@/lib/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/lib/components/ui/tooltip'
+import { type DeviceMode, usePreviewDevice } from '../hooks/use-preview-view'
 
-// Helper function to get the next viewport mode in cycle
-function getNextMode(currentMode: ViewportMode): ViewportMode {
+// Helper function to get the next device mode in cycle
+function getNextMode(currentMode: DeviceMode): DeviceMode {
   switch (currentMode) {
     case 'desktop':
       return 'mobile'
@@ -16,7 +16,7 @@ function getNextMode(currentMode: ViewportMode): ViewportMode {
 }
 
 // Helper function to get icon for current mode
-function getIcon(mode: ViewportMode) {
+function getIcon(mode: DeviceMode) {
   switch (mode) {
     case 'desktop':
       return Monitor
@@ -28,7 +28,7 @@ function getIcon(mode: ViewportMode) {
 }
 
 // Helper function to get tooltip text for current mode
-function getTooltipText(mode: ViewportMode): string {
+function getTooltipText(mode: DeviceMode): string {
   switch (mode) {
     case 'desktop':
       return 'Desktop (Full Width)'
@@ -39,16 +39,16 @@ function getTooltipText(mode: ViewportMode): string {
   }
 }
 
-export function ViewportToggle() {
-  const { viewport: viewportMode, setViewport: setViewportMode } = usePreviewViewport()
+export function DeviceToggle() {
+  const { device: deviceMode, setDevice: setDeviceMode } = usePreviewDevice()
 
   const handleClick = () => {
-    const nextMode = getNextMode(viewportMode)
-    setViewportMode(nextMode)
+    const nextMode = getNextMode(deviceMode)
+    setDeviceMode(nextMode)
   }
 
-  const Icon = getIcon(viewportMode)
-  const tooltipText = getTooltipText(viewportMode)
+  const Icon = getIcon(deviceMode)
+  const tooltipText = getTooltipText(deviceMode)
 
   return (
     <Tooltip>
@@ -58,7 +58,7 @@ export function ViewportToggle() {
           size="icon"
           onClick={handleClick}
           className="h-8 w-8"
-          aria-label={`Current viewport: ${viewportMode}`}
+          aria-label={`Current device: ${deviceMode}`}
         >
           <Icon className="h-4 w-4" />
         </Button>

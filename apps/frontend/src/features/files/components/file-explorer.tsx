@@ -1,7 +1,7 @@
 import { Search } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useSelectedFile } from '@/features/tasks/hooks/use-task-view'
 import { useFileSearch } from '../hooks/use-file-search'
+import { useSelectedFile } from '../hooks/use-selected-file'
 import '../styles/file-explorer.css'
 import { FileTree } from './file-tree'
 import { FileViewer } from './file-viewer'

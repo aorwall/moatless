@@ -3,7 +3,7 @@ import { FileText, MessageSquare, Monitor, Server, SlidersHorizontal } from 'luc
 import { cn } from '@/lib/utils'
 import { SANDBOX_VIEW } from '../types/view-registry'
 
-interface MobileViewToggleProps {
+interface ViewSwitcherProps {
   currentView: string
   onViewChange: (view: string) => void
   servers?: ServerEntry[] | undefined
@@ -22,12 +22,7 @@ function iconForServer(name: string) {
   }
 }
 
-export function MobileViewToggle({
-  currentView,
-  onViewChange,
-  servers,
-  className,
-}: MobileViewToggleProps) {
+export function ViewSwitcher({ currentView, onViewChange, servers, className }: ViewSwitcherProps) {
   // Build tabs dynamically: chat + each server
   const tabs: Array<{ value: string; label: string; icon: typeof MessageSquare }> = [
     { value: 'chat', label: 'Chat', icon: MessageSquare },

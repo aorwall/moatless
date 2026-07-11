@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import type { SandboxEvent } from '../../types'
+import type { LifecycleEvent } from '@/features/events/types'
 import { describeEvent, formatDurationSeconds, getSourceLabel } from '../event-messages'
 
-function makeEvent(overrides: Partial<SandboxEvent> = {}): SandboxEvent {
+function makeEvent(overrides: Partial<LifecycleEvent> = {}): LifecycleEvent {
   return {
     eventId: 'e1',
     type: 'sandbox',

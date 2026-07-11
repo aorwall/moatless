@@ -9,13 +9,13 @@ import { z } from 'zod'
  * @property view - Current view: 'chat', 'diff', or a server name (e.g. 'files', 'preview', 'storybook')
  * @property file - Selected file path in file explorer
  * @property path - Current path in preview (e.g., /about)
- * @property viewport - Preview viewport mode: mobile/tablet/desktop
+ * @property device - Preview device mode: mobile/tablet/desktop
  */
 export const taskSearchSchema = z.object({
   view: z.string().optional(),
   file: z.string().optional(),
   path: z.string().optional(),
-  viewport: z.enum(['mobile', 'tablet', 'desktop']).optional(),
+  device: z.enum(['mobile', 'tablet', 'desktop']).optional(),
 })
 
 export type TaskSearch = z.infer<typeof taskSearchSchema>

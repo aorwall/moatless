@@ -11,8 +11,8 @@ import {
   useState,
 } from 'react'
 import { toast } from 'sonner'
+import { usePreviewPath } from '@/features/preview/hooks/use-preview-view'
 import type { ElementInfo } from '@/features/preview/types'
-import { usePreviewPath } from '../hooks/use-task-view'
 
 interface ComposerContextValue {
   contextItems: MessageContextInput[]

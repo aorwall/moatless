@@ -1,12 +1,12 @@
 import type { LucideIcon } from 'lucide-react'
 import { CheckCircle2, Clock, MinusCircle, RotateCcw, Server, XCircle } from 'lucide-react'
-import type { SandboxEvent } from '../types'
+import type { LifecycleEvent } from '@/features/events/types'
 
 /**
  * Get the source label to display for an event.
  * Server events show the server name (e.g., "preview"); sandbox events show "sandbox".
  */
-export function getSourceLabel(event: SandboxEvent): string {
+export function getSourceLabel(event: LifecycleEvent): string {
   if (event.type === 'server' && event.serverName) {
     return event.serverName
   }
@@ -21,7 +21,7 @@ export function getSourceLabel(event: SandboxEvent): string {
  * Prefers backend-provided message, then reason, then generates a fallback
  * from the event type and subType.
  */
-export function getDisplayMessage(event: SandboxEvent): string {
+export function getDisplayMessage(event: LifecycleEvent): string {
   if (event.message) {
     return event.message
   }
@@ -112,7 +112,7 @@ const DESCRIPTORS: Record<string, Descriptor> = {
 }
 
 /** The lifecycleEvent is where the rich sandbox vocabulary lives; fall back to subType. */
-function resolveKey(event: SandboxEvent): string {
+function resolveKey(event: LifecycleEvent): string {
   if (event.type === 'sandbox') {
     const lifecycle = event.payload?.['lifecycleEvent']
     if (typeof lifecycle === 'string' && lifecycle.length > 0) {
@@ -122,7 +122,7 @@ function resolveKey(event: SandboxEvent): string {
   return event.subType
 }
 
-function iconForTone(tone: EventTone, type: SandboxEvent['type']): LucideIcon {
+function iconForTone(tone: EventTone, type: LifecycleEvent['type']): LucideIcon {
   if (tone === 'error') {
     return XCircle
   }
@@ -155,7 +155,7 @@ export function formatDurationSeconds(totalSeconds: number): string {
   return remMinutes > 0 ? `${hours}h ${remMinutes}m` : `${hours}h`
 }
 
-function buildChips(event: SandboxEvent): EventChip[] {
+function buildChips(event: LifecycleEvent): EventChip[] {
   const chips: EventChip[] = []
   if (event.nodeName) {
     chips.push({ label: 'node', value: event.nodeName })
@@ -182,7 +182,7 @@ function buildChips(event: SandboxEvent): EventChip[] {
  * Central event formatter: resolves label, icon, tone, and metadata chips for a
  * single event. Used by the event log console tab.
  */
-export function describeEvent(event: SandboxEvent): EventDescriptor {
+export function describeEvent(event: LifecycleEvent): EventDescriptor {
   const key = resolveKey(event)
   const descriptor = DESCRIPTORS[key]
 
