@@ -15,19 +15,19 @@ import { ToggleGroup, ToggleGroupItem } from '@/lib/components/ui/toggle-group'
 const STATUS_OPTIONS = ['open', 'error', 'closed'] as const
 
 export interface DashboardSearchParams {
-  view?: 'cards' | 'table'
-  tag?: string
-  createdBy?: string
-  repositoryId?: string
-  status?: 'all' | 'open' | 'error' | 'closed'
-  page?: number
+  view?: 'cards' | 'table' | undefined
+  tag?: string | undefined
+  createdBy?: string | undefined
+  repositoryId?: string | undefined
+  status?: 'all' | 'open' | 'error' | 'closed' | undefined
+  page?: number | undefined
 }
 
 interface TaskFiltersProps {
   view: 'cards' | 'table'
-  tag?: string
-  createdBy?: string
-  repositoryId?: string
+  tag?: string | undefined
+  createdBy?: string | undefined
+  repositoryId?: string | undefined
   status?: DashboardSearchParams['status']
   onSearchChange: (params: DashboardSearchParams) => void
 }

@@ -554,7 +554,7 @@ export class ShellCommand {
     if (this.endTime && this.startTime) {
       return this.endTime.getTime() - this.startTime.getTime()
     }
-    return undefined
+    return
   }
 
   /**

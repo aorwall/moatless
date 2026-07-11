@@ -8,8 +8,8 @@ interface FileAutocompleteProps {
   selectedIndex: number
   onSelect: (file: FileAutocompleteItem) => void
   isLoading: boolean
-  error?: Error | null
-  position?: 'above' | 'below'
+  error?: Error | null | undefined
+  position?: 'above' | 'below' | undefined
 }
 
 export function FileAutocomplete({

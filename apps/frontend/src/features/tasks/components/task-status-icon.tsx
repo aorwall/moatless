@@ -8,15 +8,15 @@ import {
 
 interface TaskStatusIconProps {
   task: Pick<TaskResponse, 'status'>
-  sandbox?: SandboxStatusFullResponse
+  sandbox?: SandboxStatusFullResponse | undefined
   /**
    * Live activity derived from the event stream. When set to a non-idle state
    * it overrides the lifecycle status icon (e.g. a spinner while the agent
    * works, an hourglass while the sandbox starts up).
    */
-  activityState?: TaskActivityState
-  showText?: boolean
-  className?: string
+  activityState?: TaskActivityState | undefined
+  showText?: boolean | undefined
+  className?: string | undefined
 }
 
 export function TaskStatusIcon({

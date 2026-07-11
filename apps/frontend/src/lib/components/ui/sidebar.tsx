@@ -48,7 +48,7 @@ function readSidebarWidthCookie(): number {
   const match = document.cookie
     .split('; ')
     .find((row) => row.startsWith(`${SIDEBAR_WIDTH_COOKIE_NAME}=`))
-  const parsed = match ? Number.parseInt(match.split('=')[1], 10) : Number.NaN
+  const parsed = match ? Number.parseInt(match.split('=')[1] ?? '', 10) : Number.NaN
   return Number.isFinite(parsed) ? clampSidebarWidth(parsed) : SIDEBAR_WIDTH_DEFAULT
 }
 

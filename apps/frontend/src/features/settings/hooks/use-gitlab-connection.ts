@@ -4,7 +4,7 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
-import { gitlabConnectionApi } from '@/features/settings'
+import { gitlabConnectionApi } from '@/features/settings/api/gitlab-connection.api'
 import type { ApiError } from '@/lib/api/client'
 import { queryKeys } from '@/lib/api/query-keys'
 import type { GitLabPATRequest } from '@/lib/types/settings'

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
-import { TaskDataProvider, TaskUIProvider } from '@/features/tasks'
+import { TaskDataProvider } from './task-data-provider'
+import { TaskUIProvider } from './task-ui-provider'
 
 interface TaskProvidersProps {
   taskId: string

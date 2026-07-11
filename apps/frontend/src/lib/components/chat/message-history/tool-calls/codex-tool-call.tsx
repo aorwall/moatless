@@ -16,7 +16,7 @@ import { type Todo, TodoList } from './todo-list.tsx'
 
 interface CodexToolCallProps {
   content: UiContentBlock
-  toolResult?: UiToolResult
+  toolResult?: UiToolResult | undefined
   expanded: boolean
   onToggle: () => void
 }
@@ -281,7 +281,9 @@ function CodexEditCall({ content, toolResult, expanded, onToggle }: CodexToolCal
             <FileEdit className="h-3 w-3 text-primary flex-shrink-0" />
             <span className="font-medium flex-shrink-0">Edit</span>
             <span className="text-muted-foreground truncate min-w-0">
-              {changes.length === 1 ? truncate(changes[0].path, 60) : `${changes.length} files`}
+              {changes.length === 1
+                ? truncate(changes[0]?.path ?? '', 60)
+                : `${changes.length} files`}
             </span>
             {hasResult && <ResultIcon isError={isError} />}
           </ExpandableHeader>

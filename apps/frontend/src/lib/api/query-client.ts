@@ -1,5 +1,7 @@
-import { QueryCache, QueryClient } from '@tanstack/react-query'
+import { MutationCache, QueryCache, QueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
 
+import { getErrorMessage } from '@/lib/utils/error'
 import { isServerUnavailable, serverStatusStore } from './server-status'
 
 const AUTH_REDIRECT_KEY = 'auth_redirect_ts'
@@ -46,6 +48,20 @@ function handleServerStatusError(error: Error) {
   }
 }
 
+/**
+ * Retry only transient server-side failures (500/502/504), at most twice.
+ * 4xx responses are non-retriable client errors, and 503/network failures
+ * are owned by the `ServerDownGate` flow via `serverStatusStore` — retrying
+ * those would only delay the "server unavailable" screen.
+ */
+function retryTransientErrors(failureCount: number, error: Error): boolean {
+  if (failureCount >= 2 || isServerUnavailable(error)) {
+    return false
+  }
+  const status = (error as { status?: unknown }).status
+  return typeof status === 'number' && status >= 500
+}
+
 export const queryClient = new QueryClient({
   queryCache: new QueryCache({
     onError: (error) => {
@@ -57,19 +73,34 @@ export const queryClient = new QueryClient({
       serverStatusStore.setUnavailable(false)
     },
   }),
+  // The MutationCache callbacks run for EVERY mutation, unlike
+  // `defaultOptions.mutations.onError` which is replaced when a caller
+  // passes its own `onError` — so auth/availability handling lives here.
+  mutationCache: new MutationCache({
+    onError: (error, _variables, _context, mutation) => {
+      handleAuthError(error)
+      handleServerStatusError(error)
+      // Fallback toast for fire-and-forget mutations that surface no error UX
+      // of their own. 401 and 503/network already have dedicated handling
+      // (login redirect / ServerDownGate), so skip those.
+      const status = (error as { status?: unknown }).status
+      if (!mutation.options.onError && status !== 401 && !isServerUnavailable(error)) {
+        toast.error(getErrorMessage(error))
+      }
+    },
+    onSuccess: () => {
+      serverStatusStore.setUnavailable(false)
+    },
+  }),
   defaultOptions: {
     queries: {
       staleTime: 1000 * 60 * 5, // 5 minutes
       gcTime: 1000 * 60 * 10, // 10 minutes
-      retry: false,
+      retry: retryTransientErrors,
       refetchOnWindowFocus: false,
     },
     mutations: {
       retry: false,
-      onError: (error) => {
-        handleAuthError(error)
-        handleServerStatusError(error)
-      },
     },
   },
 })

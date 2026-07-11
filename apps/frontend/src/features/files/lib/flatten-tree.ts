@@ -2,9 +2,9 @@ import type { GitStatusEntry } from '@pierre/trees'
 import type { FileTreeNode } from '../types'
 
 export interface RowMetadata {
-  isStaged?: boolean
-  additions?: number
-  deletions?: number
+  isStaged?: boolean | undefined
+  additions?: number | undefined
+  deletions?: number | undefined
   isChanged: boolean
   type: 'file' | 'directory'
 }

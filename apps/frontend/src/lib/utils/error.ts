@@ -5,22 +5,23 @@ import { ApiError } from '@/lib/api/client'
  */
 function getApiErrorMessage(data: Record<string, unknown>): string | null {
   // Check for common error message fields
-  if (typeof data.detail === 'string') {
-    return data.detail
+  if (typeof data['detail'] === 'string') {
+    return data['detail']
   }
-  if (typeof data.message === 'string') {
-    return data.message
+  if (typeof data['message'] === 'string') {
+    return data['message']
   }
   // Check for nested error object with message (ApiErrorResponse)
-  if (typeof data.error === 'object' && data.error !== null) {
-    const nestedError = data.error as Record<string, unknown>
-    if (typeof nestedError.message === 'string') {
-      return nestedError.message
+  const errorField = data['error']
+  if (typeof errorField === 'object' && errorField !== null) {
+    const nestedError = errorField as Record<string, unknown>
+    if (typeof nestedError['message'] === 'string') {
+      return nestedError['message']
     }
   }
   // Check for error as string (legacy format)
-  if (typeof data.error === 'string') {
-    return data.error
+  if (typeof errorField === 'string') {
+    return errorField
   }
   return null
 }

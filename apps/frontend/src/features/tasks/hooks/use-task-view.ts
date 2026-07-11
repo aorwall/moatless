@@ -19,7 +19,7 @@ function useTaskSearch(): TaskSearch {
 }
 
 interface UseTaskViewOptions {
-  servers?: ServerEntry[]
+  servers?: ServerEntry[] | undefined
 }
 
 interface UseTaskViewReturn {
@@ -61,6 +61,9 @@ export function useTaskView({ servers }: UseTaskViewOptions = {}): UseTaskViewRe
     // Use default server name from the servers array when available
     if (servers && servers.length > 0) {
       const defaultServer = servers.find((s) => s.default) ?? servers[0]
+      if (defaultServer === undefined) {
+        return 'files'
+      }
       // Show files while server is still starting
       if (defaultServer.status === 'started') {
         return defaultServer.name
@@ -78,6 +81,8 @@ export function useTaskView({ servers }: UseTaskViewOptions = {}): UseTaskViewRe
       to: '.',
       search: (prev) => ({ ...prev, view: newView }) as TaskSearch,
       replace: true, // Use replace to avoid polluting browser history
+    }).catch(() => {
+      /* ignore: navigate() for URL param updates only rejects on framework errors */
     })
   }
 
@@ -117,6 +122,8 @@ export function useSelectedFile(): UseSelectedFileReturn {
         return { ...prevSearch, file }
       },
       replace: true, // Use replace to avoid polluting browser history
+    }).catch(() => {
+      /* ignore: navigate() for URL param updates only rejects on framework errors */
     })
   }
 
@@ -147,6 +154,8 @@ export function usePreviewPath(): UsePreviewPathReturn {
       to: '.',
       search: (prev) => ({ ...prev, path }) as TaskSearch,
       replace: true, // Use replace to avoid polluting browser history
+    }).catch(() => {
+      /* ignore: navigate() for URL param updates only rejects on framework errors */
     })
   }
 
@@ -177,6 +186,8 @@ export function usePreviewViewport(): UsePreviewViewportReturn {
       to: '.',
       search: (prev) => ({ ...prev, viewport: mode }) as TaskSearch,
       replace: true, // Use replace to avoid polluting browser history
+    }).catch(() => {
+      /* ignore: navigate() for URL param updates only rejects on framework errors */
     })
   }
 

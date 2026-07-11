@@ -52,8 +52,14 @@ export function GenericSelector({
     return cn(base, width, errorClass, className)
   }
 
+  const isDisabled = disabled || loading || isError
+
   return (
-    <Select value={value} onValueChange={onChange} disabled={disabled || loading || isError}>
+    <Select
+      {...(value !== undefined && { value })}
+      onValueChange={onChange}
+      {...(isDisabled && { disabled: true })}
+    >
       <SelectTrigger size="sm" className={getTriggerClassName()}>
         <SelectValue placeholder={getPlaceholder()} />
       </SelectTrigger>

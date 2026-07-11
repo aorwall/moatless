@@ -50,7 +50,7 @@ function agentBadgeVariant(state: string | undefined): 'default' | 'secondary' |
 
 interface TaskWithStatus {
   task: TaskResponse
-  status?: SandboxStatusFullResponse
+  status?: SandboxStatusFullResponse | undefined
   isLoading: boolean
 }
 
@@ -189,7 +189,7 @@ export function SandboxOverview() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link to="/">
-            <Button variant="ghost" size="icon">
+            <Button variant="ghost" size="icon" aria-label="Back to home">
               <ArrowLeft className="h-4 w-4" />
             </Button>
           </Link>

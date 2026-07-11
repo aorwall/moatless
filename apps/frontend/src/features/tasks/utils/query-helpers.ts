@@ -154,6 +154,13 @@ export function applyTaskEventUpdate(queryClient: QueryClient, event: Event): vo
     case 'agent':
       taskUpdates = getAgentEventUpdates(event)
       break
+    case 'sandbox':
+    case 'server':
+    case 'resources':
+    case 'navigation':
+    case 'preview':
+      // These event types do not carry task-level updates
+      break
   }
 
   // Apply updates if we have any

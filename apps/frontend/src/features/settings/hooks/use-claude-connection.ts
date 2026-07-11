@@ -4,7 +4,7 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
-import { claudeConnectionApi } from '@/features/settings'
+import { claudeConnectionApi } from '@/features/settings/api/claude-connection.api'
 import type { ApiError } from '@/lib/api/client'
 import { queryKeys } from '@/lib/api/query-keys'
 import type { ClaudePATRequest } from '@/lib/types/settings'

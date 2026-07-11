@@ -60,8 +60,8 @@ export async function isPortAvailable(port: number, timeoutMs = 200): Promise<bo
  * Uses random selection to minimize conflicts when called in parallel
  */
 export async function getPort(): Promise<number> {
-  const MIN_PORT = 49152 // IANA ephemeral port range start
-  const MAX_PORT = 65535 // IANA ephemeral port range end
+  const MIN_PORT = 49_152 // IANA ephemeral port range start
+  const MAX_PORT = 65_535 // IANA ephemeral port range end
   const maxAttempts = 10
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -133,7 +133,7 @@ export interface PortWaitCallbacks {
  */
 export async function waitForPort(
   port: number,
-  maxWait = 10000,
+  maxWait = 10_000,
   callbacks?: PortWaitCallbacks,
 ): Promise<boolean> {
   const checkInterval = 500

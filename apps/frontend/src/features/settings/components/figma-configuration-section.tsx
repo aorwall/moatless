@@ -8,7 +8,7 @@ import {
   useFigmaConfig,
   useGetFigmaOAuthUrl,
   useSaveFigmaPAT,
-} from '@/features/settings'
+} from '@/features/settings/hooks/use-figma'
 import { queryKeys } from '@/lib/api/query-keys'
 import {
   ConfigurationGroup,

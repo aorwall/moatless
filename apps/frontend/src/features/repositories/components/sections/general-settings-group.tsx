@@ -8,7 +8,7 @@ import {
 
 interface GeneralSettingsGroupProps {
   repositoryKind: string
-  provider?: string | null
+  provider?: string | null | undefined
   formData: Partial<UpdateRepositoryRequest>
   onUpdateField: <K extends keyof UpdateRepositoryRequest>(
     field: K,

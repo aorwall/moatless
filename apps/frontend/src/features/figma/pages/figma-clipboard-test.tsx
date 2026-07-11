@@ -85,6 +85,7 @@ export function FigmaClipboardTestPage() {
             variant="ghost"
             size="icon"
             className="absolute left-0 top-4 z-10 h-8 w-8 rounded-r-md border border-l-0 bg-background shadow-sm hover:bg-muted"
+            aria-label={isLeftPanelCollapsed ? 'Expand panel' : 'Collapse panel'}
             onClick={() => setIsLeftPanelCollapsed(!isLeftPanelCollapsed)}
           >
             {isLeftPanelCollapsed ? (

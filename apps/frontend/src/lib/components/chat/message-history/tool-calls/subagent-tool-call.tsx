@@ -14,8 +14,8 @@ import { cn } from '@/lib/utils'
 
 interface SubagentToolCallProps {
   content: UiContentBlock
-  toolResult?: UiToolResult
-  subagentMessages?: UiMessage[]
+  toolResult?: UiToolResult | undefined
+  subagentMessages?: UiMessage[] | undefined
   expanded: boolean
   onToggle: () => void
 }

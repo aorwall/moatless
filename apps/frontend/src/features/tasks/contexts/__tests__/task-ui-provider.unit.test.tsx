@@ -37,7 +37,9 @@ describe('TaskUIProvider', () => {
 
     // Suppress console.error for this test
     const originalError = console.error
-    console.error = () => undefined
+    console.error = () => {
+      /* noop: suppress expected error output during this test */
+    }
 
     expect(() => {
       render(<ErrorTestComponent />)

@@ -5,12 +5,10 @@ import { useExchangeFigmaToken } from '@/features/settings'
 import { Alert, AlertDescription, AlertTitle } from '@/lib/components/ui/alert'
 import { Button } from '@/lib/components/ui/button'
 import { getErrorMessage } from '@/lib/utils/error'
+import { oauthCallbackSearchSchema } from '@/lib/utils/oauth-callback-search-schema'
 
 export const Route = createFileRoute('/oauth/figma/callback')({
-  validateSearch: (search): { code?: string; state?: string } => ({
-    code: (search as { code?: string }).code,
-    state: (search as { state?: string }).state,
-  }),
+  validateSearch: oauthCallbackSearchSchema,
   component: FigmaOAuthCallback,
 })
 

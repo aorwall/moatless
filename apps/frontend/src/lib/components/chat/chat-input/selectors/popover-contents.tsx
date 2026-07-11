@@ -9,15 +9,15 @@ import { cn } from '@/lib/utils.ts'
 export interface SelectableItem {
   id: string
   label: string
-  description?: string
-  disabled?: boolean
+  description?: string | undefined
+  disabled?: boolean | undefined
 }
 
 interface PopoverContentProps {
   items: SelectableItem[]
-  value?: string
+  value?: string | undefined
   onChange: (value: string) => void
-  onSelect?: () => void
+  onSelect?: (() => void) | undefined
 }
 
 export interface SearchablePopoverContentProps extends PopoverContentProps {
@@ -153,9 +153,9 @@ export function SimpleListPopoverContent({
 }
 
 export interface BranchPopoverContentProps extends PopoverContentProps {
-  currentBranch?: string
-  enableSearch?: boolean
-  placeholder?: string
+  currentBranch?: string | undefined
+  enableSearch?: boolean | undefined
+  placeholder?: string | undefined
   error?: unknown
 }
 

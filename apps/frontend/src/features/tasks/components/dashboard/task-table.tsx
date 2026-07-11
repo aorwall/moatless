@@ -169,6 +169,9 @@ const columns: ColumnDef<TaskResponse>[] = [
         return null
       }
       const first = bindings[0]
+      if (!first) {
+        return null
+      }
       const label = first.sourceName
         ? `${adapterLabels[first.adapterKind] ?? first.adapterKind}: ${first.sourceName}`
         : (adapterLabels[first.adapterKind] ?? first.adapterKind)

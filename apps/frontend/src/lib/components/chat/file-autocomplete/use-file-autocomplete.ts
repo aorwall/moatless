@@ -5,8 +5,8 @@ import type { FileAutocompleteItem } from './types'
 interface UseFileAutocompleteOptions {
   value: string
   onValueChange: (value: string) => void
-  onSelect?: (filePath: string) => void
-  enabled?: boolean
+  onSelect?: ((filePath: string) => void) | undefined
+  enabled?: boolean | undefined
   // Search behavior injected from outside
   onSearch: (searchTerm: string) => void
   results: FileAutocompleteItem[]
@@ -171,23 +171,27 @@ export function useFileAutocomplete({
             selectedIndex: Math.max(prev.selectedIndex - 1, 0),
           }))
           break
-        case 'Enter':
-          if (state.isOpen && results[state.selectedIndex]) {
+        case 'Enter': {
+          const enterItem = results[state.selectedIndex]
+          if (state.isOpen && enterItem) {
             e.preventDefault()
-            selectFile(results[state.selectedIndex])
+            selectFile(enterItem)
           }
           break
+        }
         case 'Escape':
           e.preventDefault()
           e.stopPropagation()
           setState((prev) => ({ ...prev, isOpen: false }))
           break
-        case 'Tab':
-          if (state.isOpen && results[state.selectedIndex]) {
+        case 'Tab': {
+          const tabItem = results[state.selectedIndex]
+          if (state.isOpen && tabItem) {
             e.preventDefault()
-            selectFile(results[state.selectedIndex])
+            selectFile(tabItem)
           }
           break
+        }
         default:
           break
       }

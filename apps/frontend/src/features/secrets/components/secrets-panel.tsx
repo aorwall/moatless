@@ -26,7 +26,7 @@ export function SecretsPanel() {
     if (scope === SecretScopeType.team) {
       return teamId.trim() || undefined
     }
-    return undefined
+    return
   }, [scope, teamId, user?.id])
 
   const {
@@ -34,7 +34,7 @@ export function SecretsPanel() {
     isLoading,
     error,
   } = useSecretsList(
-    { scope, scopeId },
+    { scope, ...(scopeId !== undefined && { scopeId }) },
     {
       enabled: scope !== SecretScopeType.team || !!scopeId,
     },

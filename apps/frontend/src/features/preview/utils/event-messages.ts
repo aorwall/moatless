@@ -114,7 +114,7 @@ const DESCRIPTORS: Record<string, Descriptor> = {
 /** The lifecycleEvent is where the rich sandbox vocabulary lives; fall back to subType. */
 function resolveKey(event: SandboxEvent): string {
   if (event.type === 'sandbox') {
-    const lifecycle = event.payload?.lifecycleEvent
+    const lifecycle = event.payload?.['lifecycleEvent']
     if (typeof lifecycle === 'string' && lifecycle.length > 0) {
       return lifecycle
     }

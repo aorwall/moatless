@@ -58,7 +58,10 @@ function isClusterableAssistantMessage(message: UiMessageWithSubagents): boolean
   ) {
     return false
   }
-  if (message.sdkMetadata?.codex_reasoning === true || message.sdkMetadata?.codex_error === true) {
+  if (
+    message.sdkMetadata?.['codex_reasoning'] === true ||
+    message.sdkMetadata?.['codex_error'] === true
+  ) {
     return false
   }
   return true
@@ -78,7 +81,8 @@ function messageHasToolCalls(message: UiMessageWithSubagents): boolean {
 function emitRun(run: UiMessageWithSubagents[], items: RenderItem[]): void {
   let lastToolIdx = -1
   for (let k = 0; k < run.length; k++) {
-    if (messageHasToolCalls(run[k])) {
+    const msg = run[k]
+    if (msg !== undefined && messageHasToolCalls(msg)) {
       lastToolIdx = k
     }
   }
@@ -89,13 +93,17 @@ function emitRun(run: UiMessageWithSubagents[], items: RenderItem[]): void {
     return
   }
   const clusterMsgs = run.slice(0, lastToolIdx + 1)
+  const firstMsg = clusterMsgs[0]
   items.push({
     kind: 'cluster',
-    key: `cluster-${clusterMsgs[0].uuid}`,
+    key: `cluster-${firstMsg !== undefined ? firstMsg.uuid : lastToolIdx}`,
     messages: clusterMsgs,
   })
   for (let k = lastToolIdx + 1; k < run.length; k++) {
-    items.push({ kind: 'message', message: run[k] })
+    const msg = run[k]
+    if (msg !== undefined) {
+      items.push({ kind: 'message', message: msg })
+    }
   }
 }
 
@@ -124,7 +132,7 @@ function buildRenderItems(messages: UiMessageWithSubagents[], cluster: boolean):
 }
 
 interface CommandClusterProps {
-  taskId?: string
+  taskId?: string | undefined
   messages: UiMessageWithSubagents[]
   expandedToolCalls: Set<string>
   onToggleToolCall: (toolUseId: string) => void
@@ -163,24 +171,24 @@ function CommandCluster({
 }
 
 interface MessageHistoryProps {
-  taskId?: string
-  messages?: UiMessage[]
-  isLoading?: boolean
-  error?: Error | null
-  className?: string
-  isRunning?: boolean
-  environmentStatus?: EnvironmentStatus
-  environmentError?: string
-  onPreviewUrlClick?: (path: string) => void
-  hasPreviousPage?: boolean
-  isFetchingPreviousPage?: boolean
-  fetchPreviousPage?: () => void
+  taskId?: string | undefined
+  messages?: UiMessage[] | undefined
+  isLoading?: boolean | undefined
+  error?: Error | null | undefined
+  className?: string | undefined
+  isRunning?: boolean | undefined
+  environmentStatus?: EnvironmentStatus | undefined
+  environmentError?: string | undefined
+  onPreviewUrlClick?: ((path: string) => void) | undefined
+  hasPreviousPage?: boolean | undefined
+  isFetchingPreviousPage?: boolean | undefined
+  fetchPreviousPage?: (() => void) | undefined
   /**
    * Wrap each assistant message's tool calls in a single collapsed group
    * (always shown, even for one call) that displays a live "N commands"
    * counter. Defaults to false.
    */
-  collapseToolCalls?: boolean
+  collapseToolCalls?: boolean | undefined
 }
 
 // How close to the top (in px) before we trigger a previous-page fetch.
@@ -429,6 +437,9 @@ function MessageHistoryComponent({
   const lastAssistantMessage = useMemo<UiMessage | null>(() => {
     for (let i = renderItems.length - 1; i >= 0; i--) {
       const item = renderItems[i]
+      if (item === undefined) {
+        continue
+      }
       if (item.kind === 'message' && item.message.role === 'assistant') {
         return item.message
       }
@@ -475,7 +486,7 @@ function MessageHistoryComponent({
           className="h-full w-full overflow-y-auto overflow-x-hidden overscroll-contain [&::-webkit-scrollbar]:w-2.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:transition-colors"
           style={{
             scrollbarWidth: 'thin',
-            scrollbarColor: 'hsl(var(--border)) transparent',
+            scrollbarColor: 'var(--border) transparent',
           }}
         >
           <div className="px-4 pt-[74px] pb-[var(--chat-input-height,120px)] space-y-4 w-full max-w-full">

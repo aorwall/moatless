@@ -33,7 +33,7 @@ export function AskUserQuestionCard({
   const handleSubmit = useCallback(async () => {
     const finalAnswers: Record<string, string> = {}
     for (const q of questions) {
-      const answer = answers[q.question]
+      const answer = answers[q.question] ?? ''
       finalAnswers[q.question] = answer === 'Other' ? otherText[q.question] || answer : answer
     }
 

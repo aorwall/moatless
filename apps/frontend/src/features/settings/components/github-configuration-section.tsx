@@ -10,7 +10,7 @@ import {
   useGitHubConfig,
   useRemoveGitHubPATOverride,
   useSaveGitHubPAT,
-} from '@/features/settings'
+} from '@/features/settings/hooks/use-github-connection'
 import { queryKeys } from '@/lib/api/query-keys'
 import {
   ConfigurationGroup,

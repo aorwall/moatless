@@ -104,7 +104,7 @@ interface ErrorBoundaryProps {
 interface ErrorBoundaryState {
   hasError: boolean
   error: Error | null
-  resetKeys?: (string | number)[]
+  resetKeys?: (string | number)[] | undefined
 }
 
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
@@ -143,7 +143,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     return null
   }
 
-  componentDidCatch(error: Error, errorInfo: { componentStack: string }) {
+  override componentDidCatch(error: Error, errorInfo: { componentStack: string }) {
     // Call custom error handler if provided
     this.props.onError?.(error, errorInfo)
 
@@ -157,7 +157,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     this.setState({ hasError: false, error: null })
   }
 
-  render() {
+  override render() {
     // Check if debug mode is enabled and repository ID is available
     const isDebugMode =
       typeof window !== 'undefined' && localStorage.getItem('moatlessDebugMode') === 'true'

@@ -60,7 +60,11 @@ export function EnvironmentVariablesList({
       setNewValue('')
       setTouched(false)
     } else if (entries.length === 1) {
-      const [key, value] = entries[0]
+      const entry = entries[0]
+      if (!entry) {
+        return
+      }
+      const [key, value] = entry
       e.preventDefault()
       setNewKey(key)
       setNewValue(value)

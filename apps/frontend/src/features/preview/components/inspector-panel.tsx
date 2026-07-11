@@ -83,7 +83,13 @@ export function InspectorPanel({
       <div className="p-2 space-y-2">
         <div className="flex items-center justify-between gap-1">
           <span className="text-xs font-semibold truncate">&lt;{elementName}&gt;</span>
-          <Button variant="ghost" size="icon" onClick={onClose} className="h-5 w-5 flex-shrink-0">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onClose}
+            className="h-5 w-5 flex-shrink-0"
+            aria-label="Close inspector"
+          >
             <X className="h-3 w-3" />
           </Button>
         </div>

@@ -28,13 +28,13 @@ interface PreviewHeaderProps {
   isInspectorAvailable: boolean | null
   isInspectorDialogOpen: boolean
   onInspectorDialogOpenChange: (open: boolean) => void
-  serverUrl?: string
+  serverUrl?: string | undefined
   /** Dynamic server list — passed through to WorkspaceHeader for dynamic tabs */
-  servers?: ServerEntry[]
+  servers?: ServerEntry[] | undefined
   /** Capabilities of the active server — controls which controls to show */
-  capabilities?: ServerCapabilities
+  capabilities?: ServerCapabilities | undefined
   /** Whether the sandbox is running (controls disabled when false) */
-  isSandboxRunning?: boolean
+  isSandboxRunning?: boolean | undefined
 }
 
 export function PreviewHeader({
@@ -240,6 +240,7 @@ export function PreviewHeader({
                     size="icon"
                     onClick={handleOpenInNewTab}
                     className="h-8 w-8"
+                    aria-label="Open in new tab"
                     disabled={controlsDisabled}
                   >
                     <ExternalLink className="h-4 w-4" />

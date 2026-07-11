@@ -54,7 +54,9 @@ export function FeatureFlagsProvider({ children }: FeatureFlagsProviderProps) {
       }
     }
 
-    fetchFlags()
+    fetchFlags().catch(() => {
+      /* ignore: fetchFlags handles all errors internally via try/catch/finally */
+    })
   }, [])
 
   const isEnabled = (flag: FeatureFlagKey): boolean => {

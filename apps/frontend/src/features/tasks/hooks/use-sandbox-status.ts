@@ -1,4 +1,4 @@
-import type { SandboxStatusFullResponse, TaskResponse } from '@moatless/api-client'
+import type { TaskResponse } from '@moatless/api-client'
 import {
   cleanupHandler,
   provisionHandler,
@@ -6,15 +6,11 @@ import {
   restartHandler,
   stopHandler,
 } from '@moatless/api-client/sandbox/sandbox/sandbox'
-import type { UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/api/query-keys'
 import { useTaskSandboxStatusQuery } from './use-task-queries'
 
-interface UseSandboxStatusOptions
-  extends Omit<UseQueryOptions<SandboxStatusFullResponse>, 'queryKey' | 'queryFn'> {
-  enabled?: boolean
-}
+type UseSandboxStatusOptions = Parameters<typeof useTaskSandboxStatusQuery>[1]
 
 /**
  * Hook to fetch sandbox status for a task
@@ -28,12 +24,13 @@ export function useSandboxStatus(
   task?: TaskResponse,
   options?: UseSandboxStatusOptions,
 ) {
-  const isEnabled = options?.enabled ?? true
+  const { enabled, ...restOptions } = options ?? {}
+  const isEnabled = enabled ?? true
 
   return useTaskSandboxStatusQuery(taskId, {
-    ...options,
+    ...restOptions,
     enabled: isEnabled && task?.status !== 'closed',
-  } as Parameters<typeof useTaskSandboxStatusQuery>[1])
+  })
 }
 
 /**

@@ -67,8 +67,8 @@ export function CreateTaskForm() {
   const { errors, validate } = useZodForm({ schema: CreateTaskRequestSchema })
 
   const createTask = useCreateTask({
-    onSuccess: (data) => {
-      navigate({ to: `/tasks/${data.taskId}` })
+    onSuccess: async (data) => {
+      await navigate({ to: '/tasks/$task-id', params: { 'task-id': data.taskId } })
     },
     onError: () => {
       toast.error('Failed to create task. Please try again.')
@@ -104,7 +104,19 @@ export function CreateTaskForm() {
       return
     }
 
-    createTask.mutate(result.data as unknown as CreateTaskRequest)
+    const fileIds = result.data.fileIds ?? []
+    const contexts = taskInputs.contextItems.length > 0 ? taskInputs.contextItems : null
+    const request: CreateTaskRequest = {
+      agentType: result.data.agentType,
+      repositoryId: result.data.repositoryId,
+      message: result.data.message ?? null,
+      branch: result.data.branch ?? null,
+      model: result.data.model ?? null,
+      agentMode: result.data.agentMode ?? null,
+      ...(fileIds.length > 0 ? { fileIds } : {}),
+      ...(contexts !== null ? { contexts } : {}),
+    }
+    createTask.mutate(request)
   }
 
   return (

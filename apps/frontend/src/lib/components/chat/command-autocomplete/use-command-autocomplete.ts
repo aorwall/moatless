@@ -158,18 +158,22 @@ export function useCommandAutocomplete({
             selectedIndex: Math.max(prev.selectedIndex - 1, 0),
           }))
           break
-        case 'Enter':
-          if (filteredSuggestions[state.selectedIndex]) {
+        case 'Enter': {
+          const enterSuggestion = filteredSuggestions[state.selectedIndex]
+          if (enterSuggestion) {
             e.preventDefault()
-            selectSuggestion(filteredSuggestions[state.selectedIndex])
+            selectSuggestion(enterSuggestion)
           }
           break
-        case 'Tab':
-          if (filteredSuggestions[state.selectedIndex]) {
+        }
+        case 'Tab': {
+          const tabSuggestion = filteredSuggestions[state.selectedIndex]
+          if (tabSuggestion) {
             e.preventDefault()
-            selectSuggestion(filteredSuggestions[state.selectedIndex])
+            selectSuggestion(tabSuggestion)
           }
           break
+        }
         case 'Escape':
           e.preventDefault()
           e.stopPropagation()

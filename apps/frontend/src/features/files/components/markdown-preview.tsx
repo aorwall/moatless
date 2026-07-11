@@ -13,13 +13,13 @@ interface MarkdownPreviewProps {
 
 function extractLanguage(className: string | undefined): string | undefined {
   if (!className) {
-    return undefined
+    return
   }
   const match = className.match(/language-(\w+)/)
   return match?.[1]
 }
 
-function HighlightedCode({ code, language }: { code: string; language?: string }) {
+function HighlightedCode({ code, language }: { code: string; language?: string | undefined }) {
   const lines = code.replace(/\n$/, '').split('\n')
   return (
     <>
@@ -60,8 +60,8 @@ function MarkdownImage({
   markdownFilePath,
   ...props
 }: React.ImgHTMLAttributes<HTMLImageElement> & {
-  taskId?: string
-  markdownFilePath?: string
+  taskId?: string | undefined
+  markdownFilePath?: string | undefined
 }) {
   const [resolvedSrc, setResolvedSrc] = useState(src)
   const [error, setError] = useState(false)

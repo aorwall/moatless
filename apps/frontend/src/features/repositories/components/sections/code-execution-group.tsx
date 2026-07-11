@@ -18,13 +18,9 @@ interface CodeExecutionGroupProps {
 export function CodeExecutionGroup({ formData, onUpdateField }: CodeExecutionGroupProps) {
   const updateField = onUpdateField
 
-  // envVars from the API is typed as { [key: string]: unknown } | null,
-  // but we treat it as Record<string, string> for the UI
-  const envVars = (formData.envVars ?? {}) as Record<string, string>
+  const envVars = formData.envVars ?? {}
 
-  // setupCommands from the API is typed as { [key: string]: unknown } | null,
-  // but we treat it as string[] for the UI
-  const setupCommands = (formData.setupCommands ?? []) as unknown as string[]
+  const setupCommands = formData.setupCommands ?? []
 
   return (
     <ConfigurationGroup title="Code Execution" showSeparator>
@@ -42,12 +38,7 @@ export function CodeExecutionGroup({ formData, onUpdateField }: CodeExecutionGro
       <ConfigurationItem label="Setup Commands" description="Commands to run before executing code">
         <ConfigurationTextarea
           value={setupCommands.join('\n')}
-          onChange={(e) =>
-            updateField(
-              'setupCommands',
-              e.target.value.split('\n') as unknown as UpdateRepositoryRequest['setupCommands'],
-            )
-          }
+          onChange={(e) => updateField('setupCommands', e.target.value.split('\n'))}
           placeholder="npm install&#10;npm run build"
           rows={4}
         />
@@ -59,9 +50,7 @@ export function CodeExecutionGroup({ formData, onUpdateField }: CodeExecutionGro
       >
         <EnvironmentVariablesList
           variables={envVars}
-          onChange={(vars) =>
-            updateField('envVars', vars as unknown as UpdateRepositoryRequest['envVars'])
-          }
+          onChange={(vars) => updateField('envVars', vars)}
         />
       </ConfigurationItem>
     </ConfigurationGroup>

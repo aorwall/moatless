@@ -34,22 +34,22 @@ export interface SandboxEvent {
   subType: string
   timestamp: string
   isError: boolean
-  message?: string
-  reason?: string
+  message?: string | undefined
+  reason?: string | undefined
   /** Server name for server events (e.g., "preview", "files") */
-  serverName?: string
+  serverName?: string | undefined
   /** Node the pod was scheduled on — enables node-level correlation of stops. */
-  nodeName?: string
+  nodeName?: string | undefined
   /** Why the pod was disrupted (DisruptionTarget reason / pod status reason). */
-  disruptionReason?: string
+  disruptionReason?: string | undefined
   /** Who caused an intentional stop ("reaper" | "user" | "eviction" | …). */
-  initiator?: string
+  initiator?: string | undefined
   /** Exit code of the terminated sandbox container, when known. */
-  exitCode?: number
+  exitCode?: number | undefined
   /** K8s termination reason of the sandbox container, when known. */
-  terminatedReason?: string
+  terminatedReason?: string | undefined
   /** Seconds spent Pending before the pod was scheduled (on pod_scheduled). */
-  pendingSeconds?: number
+  pendingSeconds?: number | undefined
   payload: Record<string, unknown>
 }
 
@@ -63,29 +63,30 @@ export interface PreviewProps {
     | 'removing'
     | 'removed'
     | 'error'
+    | undefined
   /** Error message when environment is in error state */
-  environmentError?: string
+  environmentError?: string | undefined
   /** K8s startup events to display during initializing state */
-  startupEvents?: StartupEvent[]
-  onElementSelected?: (element: ElementInfo | null) => void
-  onToggleElementContext?: (element: ElementInfo) => void
-  onNavigationReady?: (navigate: (path: string) => void) => void
-  onTroubleshootRequest?: (reason: string) => void
+  startupEvents?: StartupEvent[] | undefined
+  onElementSelected?: ((element: ElementInfo | null) => void) | undefined
+  onToggleElementContext?: ((element: ElementInfo) => void) | undefined
+  onNavigationReady?: ((navigate: (path: string) => void) => void) | undefined
+  onTroubleshootRequest?: ((reason: string) => void) | undefined
   /** Called when the preview iframe requests toggling the chat panel. */
-  onChatToggleRequest?: () => void
+  onChatToggleRequest?: (() => void) | undefined
   /** Dynamic server list for multi-server tab rendering */
-  servers?: ServerEntry[]
+  servers?: ServerEntry[] | undefined
   /** Active server name (determines which server's iframe to show) */
-  activeServer?: string
+  activeServer?: string | undefined
   /** Resource metrics from the sandbox container (CPU, memory, event loop) */
-  resources?: ResourceMetrics
+  resources?: ResourceMetrics | undefined
   /** Sandbox and server lifecycle events for the Events tab / recent events box */
-  sandboxEvents?: SandboxEvent[]
+  sandboxEvents?: SandboxEvent[] | undefined
   /** Hide the preview header (address bar, server tabs, inspector toggle, reload). */
-  hideHeader?: boolean
+  hideHeader?: boolean | undefined
   /** Hide the bottom logs/console panel entirely (no expanded panel, no collapsed bar). */
-  hideConsole?: boolean
-  className?: string
+  hideConsole?: boolean | undefined
+  className?: string | undefined
 }
 
 export type ScriptHealthStatus = 'not-injected' | 'injected-not-reachable' | 'injected-reachable'

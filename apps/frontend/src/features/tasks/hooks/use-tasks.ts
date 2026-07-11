@@ -21,9 +21,9 @@ import type {
 } from '@tanstack/react-query'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
-import { updateTaskInLists } from '@/features/tasks'
 import type { MessagesPage } from '@/features/tasks/api/tasks'
 import { tasksApi } from '@/features/tasks/api/tasks'
+import { updateTaskInLists } from '@/features/tasks/utils/query-helpers'
 import { queryKeys } from '@/lib/api/query-keys'
 import type { AskUserQuestionResponse, ExitPlanModeResponse } from '@/lib/types/user-input'
 
@@ -265,27 +265,29 @@ export function useCreateTask(
 
 interface SendMessageVariables {
   message: string
-  resume?: boolean
-  model?: string
-  fileIds?: string[]
+  resume?: boolean | undefined
+  model?: string | undefined
+  fileIds?: string[] | undefined
   /**
    * Locally-known upload metadata for the files referenced by `fileIds`.
    * Used only for the optimistic message render so file chips appear
    * immediately; not sent to the backend (the backend re-resolves filenames
    * from `file_metadata`).
    */
-  fileUploads?: Array<{ fileId: string; filename: string; mimeType: string; size: number }>
-  commandName?: string
-  agentMode?: string
-  contexts?: MessageContextInput[]
-  toolUseId?: string
-  toolName?: 'AskUserQuestion' | 'ExitPlanMode'
-  toolResponse?: AskUserQuestionResponse | ExitPlanModeResponse
+  fileUploads?:
+    | Array<{ fileId: string; filename: string; mimeType: string; size: number }>
+    | undefined
+  commandName?: string | undefined
+  agentMode?: string | undefined
+  contexts?: MessageContextInput[] | undefined
+  toolUseId?: string | undefined
+  toolName?: 'AskUserQuestion' | 'ExitPlanMode' | undefined
+  toolResponse?: AskUserQuestionResponse | ExitPlanModeResponse | undefined
   /**
    * When true, the next agent run starts a fresh session (no `--resume`).
    * Per-message; the chat composer clears the toggle after each successful send.
    */
-  startFresh?: boolean
+  startFresh?: boolean | undefined
 }
 
 export function useSendMessage(
@@ -469,11 +471,15 @@ export function useTaskMessages(taskId: string, options?: { enabled?: boolean })
   return useInfiniteQuery({
     queryKey: queryKeys.tasks.messages(taskId),
     queryFn: ({ pageParam }) =>
-      tasksApi.getTaskMessages(taskId, { beforeId: pageParam, limit: MESSAGES_PAGE_SIZE }),
+      tasksApi.getTaskMessages(taskId, {
+        ...(pageParam !== undefined && { beforeId: pageParam }),
+        limit: MESSAGES_PAGE_SIZE,
+      }),
     initialPageParam: undefined as number | undefined,
     // Older pages are paginated. Newer messages arrive via targeted refetch
     // of the newest page (see `refreshNewestMessagesPage`).
     getPreviousPageParam: (firstPage) => (firstPage.hasMore ? firstPage.nextBeforeId : undefined),
+    // biome-ignore lint/nursery/noUselessUndefined: TanStack Query's getNextPageParam contract requires returning undefined, not void
     getNextPageParam: () => undefined,
     // Cap the cache so very long tasks don't drag the DOM; oldest pages drop
     // when the user scrolls past the limit and re-fetch on demand.

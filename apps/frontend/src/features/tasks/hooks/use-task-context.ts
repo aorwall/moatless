@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { useTaskId } from '@/features/tasks'
+import { useTaskId } from '@/features/tasks/contexts/task-data-provider'
 import { useTaskDetailQuery } from './use-task-queries'
 
 export function useTaskStatus() {

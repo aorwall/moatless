@@ -10,7 +10,10 @@ export function useFileContent(taskId: string, filePath: string | undefined, wit
 
   return useQuery<FileContentResponse>({
     queryKey: [...queryKeys.tasks.files(taskId), 'content', filePath, withChanges],
-    queryFn: () => fetchFileContent(taskId, filePath!, withChanges),
+    queryFn: () =>
+      filePath
+        ? fetchFileContent(taskId, filePath, withChanges)
+        : Promise.reject(new Error('filePath is required')),
     enabled: !!filePath && isSandboxReady,
   })
 }

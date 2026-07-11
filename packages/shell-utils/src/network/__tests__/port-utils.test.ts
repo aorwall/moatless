@@ -11,7 +11,7 @@ describe('port-utils', () => {
   describe('isPortAvailable', () => {
     it('should return true when port is available', async () => {
       // Use a very high port number that's likely available
-      const port = 60000 + Math.floor(Math.random() * 1000)
+      const port = 60_000 + Math.floor(Math.random() * 1000)
       const available = await isPortAvailable(port)
       expect(available).toBe(true)
     })
@@ -39,7 +39,7 @@ describe('port-utils', () => {
     })
 
     it('should handle custom timeout', async () => {
-      const port = 60000
+      const port = 60_000
       const available = await isPortAvailable(port, 100)
       expect(available).toBe(true)
     })
@@ -48,8 +48,8 @@ describe('port-utils', () => {
   describe('getPort', () => {
     it('should return a port in the ephemeral range', async () => {
       const port = await getPort()
-      expect(port).toBeGreaterThanOrEqual(49152)
-      expect(port).toBeLessThanOrEqual(65535)
+      expect(port).toBeGreaterThanOrEqual(49_152)
+      expect(port).toBeLessThanOrEqual(65_535)
     })
 
     it('should return an available port', async () => {
@@ -62,8 +62,8 @@ describe('port-utils', () => {
       const port1 = await getPort()
       const port2 = await getPort()
       // They might be the same due to randomness, but should both be valid
-      expect(port1).toBeGreaterThanOrEqual(49152)
-      expect(port2).toBeGreaterThanOrEqual(49152)
+      expect(port1).toBeGreaterThanOrEqual(49_152)
+      expect(port2).toBeGreaterThanOrEqual(49_152)
     })
   })
 
@@ -71,7 +71,7 @@ describe('port-utils', () => {
     it('should return an OS-assigned port', async () => {
       const port = await findAnyAvailablePort()
       expect(port).toBeGreaterThan(0)
-      expect(port).toBeLessThanOrEqual(65535)
+      expect(port).toBeLessThanOrEqual(65_535)
     })
 
     it('should return an available port', async () => {
@@ -83,7 +83,7 @@ describe('port-utils', () => {
 
   describe('pingPort', () => {
     it('should return false for a port with no server', async () => {
-      const port = 60000 + Math.floor(Math.random() * 1000)
+      const port = 60_000 + Math.floor(Math.random() * 1000)
       const responsive = await pingPort(port, 100)
       expect(responsive).toBe(false)
     })
@@ -112,7 +112,7 @@ describe('port-utils', () => {
 
   describe('waitForPort', () => {
     it('should return false when port never becomes available', async () => {
-      const port = 60000 + Math.floor(Math.random() * 1000)
+      const port = 60_000 + Math.floor(Math.random() * 1000)
       const ready = await waitForPort(port, 500)
       expect(ready).toBe(false)
     })
@@ -142,7 +142,7 @@ describe('port-utils', () => {
     })
 
     it('should call callbacks during wait', async () => {
-      const port = 60000 + Math.floor(Math.random() * 1000)
+      const port = 60_000 + Math.floor(Math.random() * 1000)
       const onWaiting = vi.fn()
       const onTimeout = vi.fn()
 

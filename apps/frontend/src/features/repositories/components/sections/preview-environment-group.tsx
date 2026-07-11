@@ -19,9 +19,7 @@ interface PreviewEnvironmentGroupProps {
 export function PreviewEnvironmentGroup({ formData, onUpdateField }: PreviewEnvironmentGroupProps) {
   const updateField = onUpdateField
 
-  // serverStartCommands from the API is typed as { [key: string]: unknown } | null,
-  // but we treat it as string[] for the UI
-  const serverStartCommands = (formData.serverStartCommands ?? []) as unknown as string[]
+  const serverStartCommands = formData.serverStartCommands ?? []
 
   return (
     <ConfigurationGroup title="Preview Environment" showSeparator>
@@ -33,10 +31,7 @@ export function PreviewEnvironmentGroup({ formData, onUpdateField }: PreviewEnvi
           value={serverStartCommands.join('\n')}
           onChange={(e) => {
             const commands = e.target.value.split('\n')
-            updateField(
-              'serverStartCommands',
-              commands as unknown as UpdateRepositoryRequest['serverStartCommands'],
-            )
+            updateField('serverStartCommands', commands)
           }}
           placeholder="npm install&#10;npm run dev"
           rows={3}

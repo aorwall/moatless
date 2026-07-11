@@ -9,7 +9,7 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
-import { githubConnectionApi } from '@/features/settings'
+import { githubConnectionApi } from '@/features/settings/api/github-connection.api'
 import type { ApiError } from '@/lib/api/client'
 import { queryKeys } from '@/lib/api/query-keys'
 

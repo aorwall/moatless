@@ -12,21 +12,21 @@ interface ConsoleLog {
   timestamp: string
   level: 'log' | 'info' | 'warn' | 'error' | 'debug'
   message: string
-  args?: unknown[]
-  stack?: string
+  args?: unknown[] | undefined
+  stack?: string | undefined
 }
 
 interface LogsPanelProps {
-  className?: string
-  onToggleExpanded?: () => void
-  isExpanded?: boolean
-  consoleLogs?: ConsoleLog[]
+  className?: string | undefined
+  onToggleExpanded?: (() => void) | undefined
+  isExpanded?: boolean | undefined
+  consoleLogs?: ConsoleLog[] | undefined
   /** Server name for log streaming */
-  serverName?: string
+  serverName?: string | undefined
   /** Whether to show the Console tab (only for servers with iframe console) */
-  showConsoleTab?: boolean
+  showConsoleTab?: boolean | undefined
   /** Sandbox and server lifecycle events */
-  sandboxEvents?: SandboxEvent[]
+  sandboxEvents?: SandboxEvent[] | undefined
 }
 
 export function LogsPanel({

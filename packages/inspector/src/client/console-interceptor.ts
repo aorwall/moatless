@@ -22,7 +22,7 @@ export function installConsoleInterceptors(): void {
       // Capture stack trace for errors and warnings
       const stack =
         level === 'error' || level === 'warn'
-          ? new Error().stack?.split('\n').slice(2).join('\n')
+          ? new Error('console interceptor stack trace').stack?.split('\n').slice(2).join('\n')
           : undefined
 
       // Serialize arguments to a readable message

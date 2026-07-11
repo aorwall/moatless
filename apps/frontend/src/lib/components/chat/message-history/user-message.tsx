@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils'
 
 interface UserMessageProps {
   message: UiMessage
-  onPreviewUrlClick?: (path: string) => void
+  onPreviewUrlClick?: ((path: string) => void) | undefined
 }
 
 // Extract text content from UiMessage content blocks

@@ -31,7 +31,8 @@ export function useTaskTemplate(
 ) {
   return useQuery({
     queryKey: queryKeys.taskTemplates.detail(id ?? ''),
-    queryFn: () => taskTemplatesApi.getTaskTemplate(id!),
+    queryFn: () =>
+      id ? taskTemplatesApi.getTaskTemplate(id) : Promise.reject(new Error('id is required')),
     enabled: !!id,
     ...options,
   })

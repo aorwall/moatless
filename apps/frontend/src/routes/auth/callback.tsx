@@ -1,10 +1,14 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useEffect } from 'react'
+import { z } from 'zod'
+import { consumeReturnTo } from '@/features/auth/utils/return-to'
+
+const callbackSearchSchema = z.object({
+  success: z.string().optional().catch(undefined),
+})
 
 export const Route = createFileRoute('/auth/callback')({
-  validateSearch: (search): { success?: string } => ({
-    success: (search as { success?: string }).success,
-  }),
+  validateSearch: callbackSearchSchema,
   component: AuthCallback,
 })
 
@@ -14,8 +18,21 @@ function AuthCallback() {
 
   useEffect(() => {
     if (success === 'true') {
-      // OAuth succeeded, redirect immediately
-      navigate({ to: '/' })
+      // OAuth succeeded — return to the page the user was heading for when
+      // AuthGate bounced them (validated same-origin path), or the dashboard.
+      // A hard navigation is fine here: it picks up the fresh session cookie.
+      const returnTo = consumeReturnTo()
+      if (returnTo) {
+        window.location.replace(returnTo)
+      } else {
+        navigate({ to: '/' }).catch((error: unknown) => {
+          // Navigation failure after OAuth — not much we can do; log for debugging
+          if (import.meta.env.DEV) {
+            // biome-ignore lint/suspicious/noConsole: dev-only diagnostic
+            console.error('Navigation failed after OAuth callback', error)
+          }
+        })
+      }
     }
   }, [success, navigate])
 

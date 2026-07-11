@@ -18,10 +18,10 @@ export interface FeedbackDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   taskId: string
-  messageUuid?: string
-  toolUseId?: string
+  messageUuid?: string | undefined
+  toolUseId?: string | undefined
   surface: FeedbackSurface
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown> | undefined
 }
 
 const SURFACE_LABELS: Record<FeedbackSurface, string> = {

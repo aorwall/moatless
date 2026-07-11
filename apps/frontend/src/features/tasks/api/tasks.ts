@@ -36,7 +36,7 @@ import {
 
 export interface MessagesPage {
   messages: UiMessage[]
-  nextBeforeId?: number
+  nextBeforeId?: number | undefined
   hasMore: boolean
 }
 
@@ -56,15 +56,16 @@ export const tasksApi = {
     followedBy?: string
     repositoryId?: string
   }): Promise<ListTasksResponse> {
+    const status = params?.status || (params?.activeOnly ? 'open' : undefined)
     return await unwrapResponse(
       listTasksHandler({
-        status: params?.status || (params?.activeOnly ? 'open' : undefined),
-        limit: params?.limit,
-        offset: params?.offset,
-        tag: params?.tag,
-        createdBy: params?.createdBy,
-        followedBy: params?.followedBy,
-        repositoryId: params?.repositoryId,
+        ...(status !== undefined && { status }),
+        ...(params?.limit !== undefined && { limit: params.limit }),
+        ...(params?.offset !== undefined && { offset: params.offset }),
+        ...(params?.tag !== undefined && { tag: params.tag }),
+        ...(params?.createdBy !== undefined && { createdBy: params.createdBy }),
+        ...(params?.followedBy !== undefined && { followedBy: params.followedBy }),
+        ...(params?.repositoryId !== undefined && { repositoryId: params.repositoryId }),
       }),
     )
   },
@@ -78,7 +79,12 @@ export const tasksApi = {
   },
 
   async getTaskConnections(taskId: string, opts?: { refresh?: boolean }): Promise<Connection[]> {
-    return await unwrapResponse(getTaskConnectionsHandler(taskId, { refresh: opts?.refresh }))
+    const refresh = opts?.refresh
+    return await unwrapResponse(
+      getTaskConnectionsHandler(taskId, {
+        ...(refresh !== undefined && { refresh }),
+      }),
+    )
   },
 
   async createTask(request: CreateTaskRequest): Promise<CreateTaskResponse> {
@@ -89,27 +95,30 @@ export const tasksApi = {
     taskId: string,
     variables: {
       message: string
-      resume?: boolean
-      model?: string
-      fileIds?: string[]
+      resume?: boolean | undefined
+      model?: string | undefined
+      fileIds?: string[] | undefined
       /**
        * Optimistic-render only — never sent to the backend. Stripped here
        * so the field can't leak into the request body.
        */
-      fileUploads?: Array<{ fileId: string; filename: string; mimeType: string; size: number }>
-      commandName?: string
-      agentMode?: string
-      contexts?: MessageContextInput[]
-      toolUseId?: string
-      toolName?: 'AskUserQuestion' | 'ExitPlanMode'
+      fileUploads?:
+        | Array<{ fileId: string; filename: string; mimeType: string; size: number }>
+        | undefined
+      commandName?: string | undefined
+      agentMode?: string | undefined
+      contexts?: MessageContextInput[] | undefined
+      toolUseId?: string | undefined
+      toolName?: 'AskUserQuestion' | 'ExitPlanMode' | undefined
       toolResponse?: unknown
-      startFresh?: boolean
+      startFresh?: boolean | undefined
     },
   ): Promise<SendMessageResponse> {
+    // fileUploads is a UI-only optimistic-render field; strip it before sending.
+    // The rest spread is structurally compatible with ApiSendMessageRequest
+    // (same fields, only differing in optional | undefined vs | null widening).
     const { fileUploads: _fileUploads, ...payload } = variables
-    return await unwrapResponse(
-      sendMessageHandler(taskId, payload as unknown as ApiSendMessageRequest),
-    )
+    return await unwrapResponse(sendMessageHandler(taskId, payload as ApiSendMessageRequest))
   },
 
   // Deprecated: Use createTask instead
@@ -134,8 +143,8 @@ export const tasksApi = {
   ): Promise<MessagesPage> {
     const response = await unwrapResponse<GetMessagesResponse>(
       getMessagesHandler(taskId, {
-        before_id: params?.beforeId,
-        limit: params?.limit,
+        ...(params?.beforeId !== undefined && { before_id: params.beforeId }),
+        ...(params?.limit !== undefined && { limit: params.limit }),
         // Slim wire payload: full tool_input + result are fetched on demand
         // via `getToolCallDetail` when a tool call is expanded.
         summary: true,

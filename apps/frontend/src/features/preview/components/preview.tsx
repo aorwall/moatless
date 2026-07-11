@@ -42,11 +42,11 @@ function ProxyErrorOverlay({
   serverLabel,
   previewUrl,
 }: {
-  taskId?: string
+  taskId?: string | undefined
   onReload: () => void
-  serverName?: string
-  serverLabel?: string
-  previewUrl?: string
+  serverName?: string | undefined
+  serverLabel?: string | undefined
+  previewUrl?: string | undefined
 }) {
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const errorMessage =
@@ -160,7 +160,7 @@ export function Preview({
   // Find the active server entry from the servers array
   const activeServerEntry = useMemo(() => {
     if (servers?.length === 0 || !servers) {
-      return undefined
+      return
     }
     if (activeServer) {
       return servers.find((s) => s.name === activeServer)
@@ -172,7 +172,7 @@ export function Preview({
   // Derive server status and URL from the active server entry
   const serverStatus = useMemo(() => {
     if (!activeServerEntry) {
-      return undefined
+      return
     }
     return {
       status: activeServerEntry.status,
@@ -242,7 +242,7 @@ export function Preview({
     }
 
     // If we have a recent heartbeat, set status to reachable
-    if (lastHeartbeat && Date.now() - lastHeartbeat < 10000) {
+    if (lastHeartbeat && Date.now() - lastHeartbeat < 10_000) {
       setScriptHealthStatus('injected-reachable')
     }
 
@@ -251,7 +251,7 @@ export function Preview({
       if (scriptHealthStatus === 'injected-reachable') {
         setScriptHealthStatus('injected-not-reachable')
       }
-    }, 10000)
+    }, 10_000)
 
     return () => {
       if (heartbeatTimeoutRef.current) {

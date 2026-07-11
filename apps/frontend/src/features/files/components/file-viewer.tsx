@@ -58,7 +58,7 @@ function BinaryFileView({
   filePath,
 }: {
   content: string
-  mediaType?: string
+  mediaType?: string | undefined
   filePath: string
 }) {
   if (isImageMediaType(mediaType)) {

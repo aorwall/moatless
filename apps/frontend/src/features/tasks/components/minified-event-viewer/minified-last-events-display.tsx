@@ -7,10 +7,10 @@ import { MinifiedEventItem } from './minified-event-item.tsx'
 
 interface MinifiedLastThreeEventsDisplayProps {
   events: Event[]
-  className?: string
-  isRunning?: boolean
-  runningStartTime?: Date
-  latestContextTokens?: number | null
+  className?: string | undefined
+  isRunning?: boolean | undefined
+  runningStartTime?: Date | undefined
+  latestContextTokens?: number | null | undefined
 }
 
 function isMessageOrToolEvent(event: Event): boolean {
@@ -81,7 +81,7 @@ export function MinifiedLastEventsDisplay({
                 className="transition-all duration-300 ease-in-out rounded-md px-2 py-1.5 relative"
                 style={{
                   opacity,
-                  backgroundColor: `hsl(var(--muted) / ${bgOpacity})`,
+                  backgroundColor: `color-mix(in oklab, var(--muted) ${bgOpacity * 100}%, transparent)`,
                 }}
               >
                 <MinifiedEventItem event={event} />
@@ -112,7 +112,10 @@ export function MinifiedLastEventsDisplay({
                       ? `${Math.round(latestContextTokens / 1000)}k tokens`
                       : `${latestContextTokens.toLocaleString()} tokens`}
                   </span>
-                  <Progress value={(latestContextTokens / 200000) * 100} className="w-full h-1.5" />
+                  <Progress
+                    value={(latestContextTokens / 200_000) * 100}
+                    className="w-full h-1.5"
+                  />
                 </div>
               )}
             </div>

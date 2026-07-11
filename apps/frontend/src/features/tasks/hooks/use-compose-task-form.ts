@@ -38,12 +38,12 @@ export interface UseComposeTaskFormArgs {
   onAgentModeChange: (value: 'edit' | 'plan') => void
   agentType: AgentType
   onAgentTypeChange: (value: AgentType) => void
-  templateId?: string
-  onTemplateChange?: (value: string | undefined) => void
+  templateId?: string | undefined
+  onTemplateChange?: ((value: string | undefined) => void) | undefined
   /** Navigate to the created task, or stay put with a toast (docked compose). */
-  navigateOnSuccess?: boolean
+  navigateOnSuccess?: boolean | undefined
   /** Fired after a task is successfully created (e.g. to close the window). */
-  onSuccess?: () => void
+  onSuccess?: (() => void) | undefined
 }
 
 /**
@@ -176,7 +176,10 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
 
   useEffect(() => {
     if (!(repoDialogOpen || repositoryId) && repositories && repositories.length > 0) {
-      onRepositoryChange(repositories[0].id)
+      const firstRepo = repositories[0]
+      if (firstRepo) {
+        onRepositoryChange(firstRepo.id)
+      }
     }
   }, [repoDialogOpen, repositoryId, repositories, onRepositoryChange])
 
@@ -216,19 +219,21 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
       selectedCommand,
     )
 
+    const trimmedName = name.trim()
+    const modelValue = isModelSelectorEnabled ? modelToApiValue(model) : undefined
     createTask.mutate(
       {
         agentType,
-        name: name.trim() || undefined,
-        message: submitMessage,
         repositoryId,
-        model: isModelSelectorEnabled ? modelToApiValue(model) : undefined,
-        fileIds: taskInputs.getFileIds(),
-        contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,
-        branch: branchSelector.value,
         agentMode: submitAgentMode,
-        commandName: selectedCommand?.name,
-        taskTemplateId: templateId,
+        fileIds: taskInputs.getFileIds(),
+        ...(trimmedName !== '' && { name: trimmedName }),
+        ...(submitMessage !== undefined && { message: submitMessage }),
+        ...(modelValue !== undefined && { model: modelValue }),
+        ...(taskInputs.contextItems.length > 0 && { contexts: taskInputs.contextItems }),
+        ...(branchSelector.value !== undefined && { branch: branchSelector.value }),
+        ...(selectedCommand?.name !== undefined && { commandName: selectedCommand.name }),
+        ...(templateId !== undefined && { taskTemplateId: templateId }),
       },
       {
         onSuccess: () => {
@@ -309,7 +314,7 @@ function notifyTaskCreated(
   navigateOnSuccess: boolean,
   navigate: ReturnType<typeof useNavigate>,
 ) {
-  const go = () => navigate({ to: `/tasks/${taskId}` })
+  const go = () => navigate({ to: '/tasks/$task-id', params: { 'task-id': taskId } })
   if (navigateOnSuccess) {
     go()
     return

@@ -6,11 +6,11 @@ import { Textarea } from '@/lib/components/ui/textarea'
 import { cn } from '@/lib/utils'
 
 interface PlanApprovalInputProps {
-  plan?: string
+  plan?: string | undefined
   onApprove: () => void
   onReject: (feedback?: string) => void
-  isPending?: boolean
-  error?: Error | null
+  isPending?: boolean | undefined
+  error?: Error | null | undefined
 }
 
 export function PlanApprovalInput({
@@ -71,6 +71,7 @@ export function PlanApprovalInput({
                   variant="ghost"
                   size="icon"
                   className="h-6 w-6"
+                  aria-label="Cancel feedback"
                   onClick={handleCancelFeedback}
                   disabled={isPending}
                 >

@@ -61,7 +61,7 @@ export function ApiKeyConfigurationSection() {
 
     const request = {
       name: newKeyName.trim(),
-      expiresInDays: expiresInDays === 'never' ? undefined : Number.parseInt(expiresInDays, 10),
+      ...(expiresInDays !== 'never' && { expiresInDays: Number.parseInt(expiresInDays, 10) }),
     }
 
     createApiKey.mutate(request, {

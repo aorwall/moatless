@@ -6,8 +6,8 @@ import { cn } from '@/lib/utils'
 interface MobileViewToggleProps {
   currentView: string
   onViewChange: (view: string) => void
-  servers?: ServerEntry[]
-  className?: string
+  servers?: ServerEntry[] | undefined
+  className?: string | undefined
 }
 
 /** Pick an icon based on server name */

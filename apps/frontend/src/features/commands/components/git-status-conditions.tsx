@@ -33,7 +33,7 @@ export function GitStatusConditions({ conditions, onConditionsChange }: GitStatu
         <div className="flex items-center space-x-2">
           <Checkbox
             id={requiresUncommittedChangesId}
-            checked={conditions?.requiresUncommittedChanges}
+            checked={conditions?.requiresUncommittedChanges ?? false}
             onCheckedChange={(checked) =>
               onConditionsChange({
                 ...conditions,
@@ -51,7 +51,7 @@ export function GitStatusConditions({ conditions, onConditionsChange }: GitStatu
         <div className="flex items-center space-x-2">
           <Checkbox
             id={requiresCommittedChangesId}
-            checked={conditions?.requiresCommittedChanges}
+            checked={conditions?.requiresCommittedChanges ?? false}
             onCheckedChange={(checked) =>
               onConditionsChange({
                 ...conditions,
@@ -69,7 +69,7 @@ export function GitStatusConditions({ conditions, onConditionsChange }: GitStatu
         <div className="flex items-center space-x-2">
           <Checkbox
             id={requiresBehindMainId}
-            checked={conditions?.requiresBehindMain}
+            checked={conditions?.requiresBehindMain ?? false}
             onCheckedChange={(checked) =>
               onConditionsChange({
                 ...conditions,
@@ -84,7 +84,7 @@ export function GitStatusConditions({ conditions, onConditionsChange }: GitStatu
         <div className="flex items-center space-x-2">
           <Checkbox
             id={requiresAheadOfMainId}
-            checked={conditions?.requiresAheadOfMain}
+            checked={conditions?.requiresAheadOfMain ?? false}
             onCheckedChange={(checked) =>
               onConditionsChange({
                 ...conditions,
@@ -99,7 +99,7 @@ export function GitStatusConditions({ conditions, onConditionsChange }: GitStatu
         <div className="flex items-center space-x-2">
           <Checkbox
             id={requiresDivergedId}
-            checked={conditions?.requiresDiverged}
+            checked={conditions?.requiresDiverged ?? false}
             onCheckedChange={(checked) =>
               onConditionsChange({
                 ...conditions,

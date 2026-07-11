@@ -101,7 +101,8 @@ export function useBranchSelector(
   // Auto-select first branch if no value is set
   const derivedValue = useMemo(() => {
     if (!currentValue && items.length > 0) {
-      return items[0].id
+      const firstItem = items[0]
+      return firstItem?.id
     }
     return currentValue
   }, [currentValue, items])

@@ -1,15 +1,13 @@
 import type { RepositoryResponse } from '@moatless/api-client'
 import { FileCode, Plus } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import {
-  getRepositoryLocation,
-  RepositoryConfigCreateSection,
-  RepositoryConfigEditSection,
-  useRepositoriesList,
-} from '@/features/repositories'
+import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
+import { getRepositoryLocation } from '@/features/repositories/utils/repository.utils'
 import { Github } from '@/lib/components/ui/brand-icons'
 import { Button } from '@/lib/components/ui/button'
 import { SidebarDialog } from '@/lib/components/ui/sidebar-dialog'
+import { RepositoryConfigCreateSection } from './sections/repository-config-create-section'
+import { RepositoryConfigEditSection } from './sections/repository-config-edit-section'
 
 interface RepositoriesConfigurationDialogProps {
   open: boolean
@@ -53,7 +51,10 @@ export function RepositoriesConfigurationDialog({
       setActiveSection('new')
     } else if (!(activeSection || initialRepositoryId || showNewRepository)) {
       // Has repos but no active section - select first repo
-      setActiveSection(repositories[0].id)
+      const firstRepo = repositories[0]
+      if (firstRepo) {
+        setActiveSection(firstRepo.id)
+      }
     }
   }, [repositories, activeSection, initialRepositoryId, showNewRepository])
 
@@ -151,8 +152,9 @@ export function RepositoriesConfigurationDialog({
             key="new-repository"
             onCancel={() => {
               setShowNewRepository(false)
-              if (repositories.length > 0) {
-                setActiveSection(repositories[0].id)
+              const firstRepo = repositories[0]
+              if (firstRepo) {
+                setActiveSection(firstRepo.id)
               } else {
                 // No repos to show - close the dialog
                 onOpenChange(false)
@@ -174,8 +176,9 @@ export function RepositoriesConfigurationDialog({
               const remainingRepos = repositories.filter(
                 (r) => r.id !== currentSection.repositoryId,
               )
-              if (remainingRepos.length > 0) {
-                setActiveSection(remainingRepos[0].id)
+              const firstRemaining = remainingRepos[0]
+              if (firstRemaining) {
+                setActiveSection(firstRemaining.id)
               } else {
                 setShowNewRepository(false)
                 setActiveSection('')

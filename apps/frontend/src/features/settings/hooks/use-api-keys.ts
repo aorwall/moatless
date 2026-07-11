@@ -20,10 +20,10 @@ import { queryKeys } from '@/lib/api/query-keys'
 
 // Re-export generated types for consumers
 export type {
-  ApiKeyListItem as ApiKey,
   ApiKeyCreateResponse as ApiKeyCreateResult,
+  ApiKeyListItem as ApiKey,
   CreateApiKeyRequest,
-}
+} from '@moatless/api-client'
 
 /**
  * Get all API keys for the current user

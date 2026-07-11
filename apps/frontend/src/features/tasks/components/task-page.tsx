@@ -1,14 +1,13 @@
 import type { MessageContextInput } from '@moatless/api-client'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { useTaskEventSubscription } from '@/features/events'
-import { FileExplorer } from '@/features/files'
+import { useTaskEventSubscription } from '@/features/events/contexts/global-event-stream-provider'
+import { LazyFileExplorer } from '@/features/files'
 import { Preview, SandboxStatusOverlay } from '@/features/preview'
 import { SANDBOX_VIEW } from '@/features/preview/components/server-tabs'
 import { useHistoricalSandboxEvents } from '@/features/preview/hooks/use-task-events'
 import type { ElementInfo, SandboxEvent, StartupEvent } from '@/features/preview/types'
-import { useSandboxStatus } from '@/features/tasks'
-import { useSandboxRetry } from '@/features/tasks/hooks/use-sandbox-status'
+import { useSandboxRetry, useSandboxStatus } from '@/features/tasks/hooks/use-sandbox-status'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { FullPageError } from '@/lib/components/full-page-error'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
@@ -41,25 +40,26 @@ function toSandboxEvent(event: Event): SandboxEvent | null {
     return null
   }
   const payload = (event as { payload?: Record<string, unknown> }).payload ?? {}
-  const exitCodeRaw = payload.exitCode
+  const exitCodeRaw = payload['exitCode']
   return {
     eventId: event.eventId,
     type: event.type as 'sandbox' | 'server' | 'taskTurn',
     subType: rawSubType ?? '',
     timestamp: event.timestamp ? new Date(event.timestamp).toISOString() : new Date().toISOString(),
     isError: event.isError,
-    message: optString(payload.message),
-    reason: optString(payload.reason),
+    message: optString(payload['message']),
+    reason: optString(payload['reason']),
     serverName:
-      event.type === 'server' && payload.serverName != null
-        ? String(payload.serverName)
+      event.type === 'server' && payload['serverName'] != null
+        ? String(payload['serverName'])
         : undefined,
-    nodeName: optString(payload.nodeName),
-    disruptionReason: optString(payload.disruptionReason),
-    initiator: optString(payload.initiator),
+    nodeName: optString(payload['nodeName']),
+    disruptionReason: optString(payload['disruptionReason']),
+    initiator: optString(payload['initiator']),
     exitCode: typeof exitCodeRaw === 'number' ? exitCodeRaw : undefined,
-    terminatedReason: optString(payload.terminatedReason),
-    pendingSeconds: typeof payload.pendingSeconds === 'number' ? payload.pendingSeconds : undefined,
+    terminatedReason: optString(payload['terminatedReason']),
+    pendingSeconds:
+      typeof payload['pendingSeconds'] === 'number' ? payload['pendingSeconds'] : undefined,
     payload,
   }
 }
@@ -156,13 +156,13 @@ function TaskPageComponent({ kiosk = false }: TaskPageProps) {
       const rawSubType = (event as { subType?: string }).subType
       if (isStartupSubType(rawSubType)) {
         const payload = (event as { payload?: Record<string, unknown> }).payload ?? {}
-        if (payload.reason || payload.message) {
+        if (payload['reason'] || payload['message']) {
           setStartupEvents((prev) => [
             ...prev,
             {
-              reason: String(payload.reason ?? ''),
-              message: String(payload.message ?? ''),
-              eventType: String(payload.eventType ?? 'Normal'),
+              reason: String(payload['reason'] ?? ''),
+              message: String(payload['message'] ?? ''),
+              eventType: String(payload['eventType'] ?? 'Normal'),
               timestamp: event.timestamp
                 ? new Date(event.timestamp).toISOString()
                 : new Date().toISOString(),
@@ -342,7 +342,7 @@ function TaskPageComponent({ kiosk = false }: TaskPageProps) {
             <WorkspaceHeader activeView={view} onViewChange={setView} servers={servers} />
             <div className="flex-1 min-h-0 relative">
               {isSandboxReady ? (
-                <FileExplorer taskId={taskId} />
+                <LazyFileExplorer taskId={taskId} />
               ) : (
                 sandboxStatus?.environmentStatus && (
                   <SandboxStatusOverlay

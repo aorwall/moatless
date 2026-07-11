@@ -7,13 +7,16 @@ const API_BASE_URL = import.meta.env.PROD
   : (import.meta.env.VITE_API_URL ?? '')
 
 export class ApiError extends Error {
-  constructor(
-    public status: number,
-    public statusText: string,
-    public data?: ApiErrorResponse | unknown,
-  ) {
+  status: number
+  statusText: string
+  data?: ApiErrorResponse | unknown
+
+  constructor(status: number, statusText: string, data?: ApiErrorResponse | unknown) {
     super(`API request failed: ${status} ${statusText}`)
     this.name = 'ApiError'
+    this.status = status
+    this.statusText = statusText
+    this.data = data
   }
 
   get isApiError(): boolean {
@@ -31,7 +34,7 @@ export class ApiError extends Error {
 }
 
 interface RequestOptions extends RequestInit {
-  params?: Record<string, string | number | boolean | undefined>
+  params?: Record<string, string | number | boolean | undefined> | undefined
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -92,21 +95,21 @@ export const apiClient = {
   post<T>(path: string, data?: unknown): Promise<T> {
     return request<T>(path, {
       method: 'POST',
-      body: data !== undefined ? JSON.stringify(data) : undefined,
+      ...(data !== undefined && { body: JSON.stringify(data) }),
     })
   },
 
   put<T>(path: string, data?: unknown): Promise<T> {
     return request<T>(path, {
       method: 'PUT',
-      body: data !== undefined ? JSON.stringify(data) : undefined,
+      ...(data !== undefined && { body: JSON.stringify(data) }),
     })
   },
 
   patch<T>(path: string, data?: unknown): Promise<T> {
     return request<T>(path, {
       method: 'PATCH',
-      body: data !== undefined ? JSON.stringify(data) : undefined,
+      ...(data !== undefined && { body: JSON.stringify(data) }),
     })
   },
 

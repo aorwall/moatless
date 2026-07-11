@@ -8,7 +8,7 @@ import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { useAutoScroll } from '@/lib/hooks/use-auto-scroll'
 
 interface ServerLogsViewerProps {
-  serverName?: string
+  serverName?: string | undefined
 }
 
 export function ServerLogsViewer({ serverName }: ServerLogsViewerProps) {

@@ -27,7 +27,7 @@ import { ImageThumbnail } from './image-thumbnail'
 import { CodexToolCall, SubagentToolCall, type Todo, TodoList } from './tool-calls'
 
 interface AssistantMessageProps {
-  taskId?: string
+  taskId?: string | undefined
   message: UiMessageWithSubagents
   expandedToolCalls: Set<string>
   onToggleToolCall: (toolUseId: string) => void
@@ -53,14 +53,14 @@ function ExternalSourceChip({ source }: { source: NonNullable<UiMessage['externa
 }
 
 interface ToolCallProps {
-  taskId?: string
+  taskId?: string | undefined
   /** UUID of the assistant message this tool call belongs to. */
-  parentMessageUuid?: string
+  parentMessageUuid?: string | undefined
   content: UiContentBlock
-  toolResult?: UiToolResult
+  toolResult?: UiToolResult | undefined
   expanded: boolean
   onToggle: () => void
-  hasPendingUserInput?: boolean | null
+  hasPendingUserInput?: boolean | null | undefined
 }
 
 /**
@@ -100,9 +100,9 @@ function ToolCallFeedbackChrome({
   parentMessageUuid,
   toolUseId,
 }: {
-  taskId?: string
-  parentMessageUuid?: string
-  toolUseId?: string
+  taskId?: string | undefined
+  parentMessageUuid?: string | undefined
+  toolUseId?: string | undefined
 }) {
   const [open, setOpen] = useState(false)
   const index = useTaskFeedbackIndex(taskId)
@@ -427,7 +427,11 @@ function ToolCallComponent({
     }
 
     // Show only first parameter in compact view
-    const [_key, value] = entries[0]
+    const firstEntry = entries[0]
+    if (!firstEntry) {
+      return ''
+    }
+    const [_key, value] = firstEntry
     const displayValue = typeof value === 'string' ? value : JSON.stringify(value)
     const truncatedValue =
       displayValue.length > 50 ? `${displayValue.substring(0, 50)}...` : displayValue
@@ -752,8 +756,8 @@ export function AssistantMessageComponent({
   const [isExpanded, setIsExpanded] = useState(false)
   const isHidden = (message.messageType as string) === 'transcript_only'
   const isSummary = (message.messageType as string) === 'compact_summary'
-  const isCodexReasoning = message.sdkMetadata?.codex_reasoning === true
-  const isCodexError = message.sdkMetadata?.codex_error === true
+  const isCodexReasoning = message.sdkMetadata?.['codex_reasoning'] === true
+  const isCodexError = message.sdkMetadata?.['codex_error'] === true
 
   // Build a lookup map from toolUseId to toolResult
   const toolResultMap = buildToolResultMap(message)

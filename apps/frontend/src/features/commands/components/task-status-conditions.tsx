@@ -30,7 +30,7 @@ export function TaskStatusConditions({
         <div className="flex items-center space-x-2">
           <Checkbox
             id={requiresTaskNotRunningId}
-            checked={conditions?.requiresTaskNotRunning}
+            checked={conditions?.requiresTaskNotRunning ?? false}
             onCheckedChange={(checked) =>
               onConditionsChange({
                 ...conditions,
@@ -45,7 +45,7 @@ export function TaskStatusConditions({
         <div className="flex items-center space-x-2">
           <Checkbox
             id={requiresLastIterationErrorId}
-            checked={conditions?.requiresLastIterationError}
+            checked={conditions?.requiresLastIterationError ?? false}
             onCheckedChange={(checked) =>
               onConditionsChange({
                 ...conditions,
@@ -63,7 +63,7 @@ export function TaskStatusConditions({
         <div className="flex items-center space-x-2">
           <Checkbox
             id={requiresLastIterationSuccessId}
-            checked={conditions?.requiresLastIterationSuccess}
+            checked={conditions?.requiresLastIterationSuccess ?? false}
             onCheckedChange={(checked) =>
               onConditionsChange({
                 ...conditions,

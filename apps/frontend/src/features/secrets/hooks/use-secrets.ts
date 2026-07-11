@@ -5,6 +5,13 @@ import type {
   SecretMetadataResponse,
   SecretMutationResponse,
 } from '@moatless/api-client'
+
+export type {
+  PatchSecretRequest,
+  PutSecretRequest,
+  SecretMetadataResponse,
+} from '@moatless/api-client'
+
 import { type ErrorType, unwrapResponse } from '@moatless/api-client/custom-instance'
 import {
   deleteSecret,
@@ -19,8 +26,6 @@ import {
   useQueryClient,
 } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/api/query-keys'
-
-export type { PatchSecretRequest, PutSecretRequest, SecretMetadataResponse }
 
 /**
  * List secret metadata for a given scope. Values are never returned by the API.

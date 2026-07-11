@@ -93,10 +93,10 @@ function EmptyTaskState() {
 
 interface TaskDashboardProps {
   view: 'cards' | 'table'
-  tag?: string
-  createdBy?: string
-  repositoryId?: string
-  status?: 'all' | 'open' | 'error' | 'closed'
+  tag?: string | undefined
+  createdBy?: string | undefined
+  repositoryId?: string | undefined
+  status?: 'all' | 'open' | 'error' | 'closed' | undefined
   page: number
   onSearchChange: (params: DashboardSearchParams) => void
 }
@@ -142,6 +142,9 @@ export function TaskDashboard({
   const offset = (page - 1) * PAGE_SIZE
 
   // Fetch tasks with filters
+  const resolvedStatus = status === 'all' ? undefined : status
+  const resolvedCreatedBy = createdBy === 'all' ? undefined : createdBy
+
   const {
     data: tasksData,
     isLoading: isLoadingTasks,
@@ -150,10 +153,10 @@ export function TaskDashboard({
     {
       limit: PAGE_SIZE,
       offset,
-      status: status === 'all' ? undefined : status,
-      tag,
-      createdBy: createdBy === 'all' ? undefined : createdBy,
-      repositoryId,
+      ...(resolvedStatus !== undefined && { status: resolvedStatus }),
+      ...(tag !== undefined && { tag }),
+      ...(resolvedCreatedBy !== undefined && { createdBy: resolvedCreatedBy }),
+      ...(repositoryId !== undefined && { repositoryId }),
     },
     {
       refetchInterval: false,

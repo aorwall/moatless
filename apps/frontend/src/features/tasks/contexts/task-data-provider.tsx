@@ -7,7 +7,10 @@ import {
   useMemo,
   useState,
 } from 'react'
-import { useGlobalEventStream, useTaskEventSubscription } from '@/features/events'
+import {
+  useGlobalEventStream,
+  useTaskEventSubscription,
+} from '@/features/events/contexts/global-event-stream-provider'
 import type { Event } from '@/lib/types/events'
 
 interface TaskDataContextValue {
@@ -104,6 +107,7 @@ export function useLatestContextTokens() {
     for (let i = streamingEvents.length - 1; i >= 0; i--) {
       const event = streamingEvents[i]
       if (
+        event !== undefined &&
         event.type === 'agent' &&
         event.subType === 'message' &&
         typeof event.payload?.contextTokens === 'number'

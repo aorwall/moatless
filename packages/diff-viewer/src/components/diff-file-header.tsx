@@ -42,7 +42,7 @@ export function DiffFileHeader({ file, collapsed = false, onCollapseChange }: Di
     }
 
     const dir = parts.slice(0, -1).join('/')
-    const name = parts[parts.length - 1]
+    const name = parts.at(-1)
 
     return (
       <>

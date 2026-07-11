@@ -7,14 +7,14 @@ import { cn } from '@/lib/utils.ts'
 
 export interface PopoverSelectorProps {
   icon: LucideIcon
-  value?: string
-  displayValue?: string
-  tooltip?: string
-  disabled?: boolean
-  loading?: boolean
-  error?: boolean
+  value?: string | undefined
+  displayValue?: string | undefined
+  tooltip?: string | undefined
+  disabled?: boolean | undefined
+  loading?: boolean | undefined
+  error?: boolean | undefined
   children: React.ReactNode
-  className?: string
+  className?: string | undefined
 }
 
 export function PopoverSelector({

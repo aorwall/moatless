@@ -12,7 +12,7 @@ interface MobileSidebarDrawerProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   children: React.ReactNode
-  className?: string
+  className?: string | undefined
 }
 
 /**
@@ -61,6 +61,9 @@ export function MobileSidebarDrawer({
         return
       }
       const touch = event.touches[0]
+      if (!touch) {
+        return
+      }
       const width = measure()
       if (openRef.current) {
         // Drawer is open: allow a drag-to-close from anywhere over it.

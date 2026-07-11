@@ -18,7 +18,10 @@ interface SandboxStatusConfig {
   showRetry: boolean
 }
 
-function getSandboxStatusConfig(status: EnvironmentStatus, error?: string): SandboxStatusConfig {
+function getSandboxStatusConfig(
+  status: EnvironmentStatus,
+  error?: string | null | undefined,
+): SandboxStatusConfig {
   const configs: Record<EnvironmentStatus, SandboxStatusConfig> = {
     not_created: {
       icon: <AlertCircle className="h-12 w-12 text-orange-500" />,
@@ -84,10 +87,10 @@ function getMutationErrorMessage(error: Error): string {
 
 interface SandboxStatusOverlayProps {
   environmentStatus: EnvironmentStatus
-  environmentError?: string
+  environmentError?: string | null | undefined
   onRetry: () => void
   isRetrying: boolean
-  retryError?: Error | null
+  retryError?: Error | null | undefined
 }
 
 export function SandboxStatusOverlay({

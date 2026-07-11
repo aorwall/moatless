@@ -81,7 +81,7 @@ describe('tree-kill', () => {
     })
 
     it('should handle non-existent PID gracefully', async () => {
-      const fakePid = 999999
+      const fakePid = 999_999
 
       await new Promise<void>((resolve) => {
         treeKill(fakePid, 'SIGTERM', (_error) => {
@@ -168,7 +168,7 @@ describe('tree-kill', () => {
     })
 
     it('should handle errors as promise rejection', async () => {
-      const fakePid = 999999
+      const fakePid = 999_999
 
       // Should resolve even for non-existent PID (ESRCH is ignored)
       await expect(treeKillAsync(fakePid, 'SIGTERM')).resolves.toBeUndefined()

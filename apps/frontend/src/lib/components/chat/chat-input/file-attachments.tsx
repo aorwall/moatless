@@ -14,7 +14,7 @@ interface FileAttachmentsProps {
     filename: string
     mimeType: string
   }>
-  onRemove?: (fileId: string) => void
+  onRemove?: ((fileId: string) => void) | undefined
 }
 
 export function FileAttachments({ files, onRemove }: FileAttachmentsProps) {

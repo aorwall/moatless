@@ -1,18 +1,16 @@
 import { Bot, GitBranch, Key, Sparkles, User } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import {
-  ApiKeyConfigurationSection,
-  ClaudeConfigurationSection,
-  CodexConfigurationSection,
-  FigmaConfigurationSection,
-  GitHubConfigurationSection,
-  GitLabConfigurationSection,
-  GitnessConfigurationSection,
-  ProfileConfigurationSection,
-} from '@/features/settings'
 import { Figma, Github, Gitlab } from '@/lib/components/ui/brand-icons'
 import { SidebarDialog } from '@/lib/components/ui/sidebar-dialog'
 import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
+import { ApiKeyConfigurationSection } from './api-key-configuration-section'
+import { ClaudeConfigurationSection } from './claude-configuration-section'
+import { CodexConfigurationSection } from './codex-configuration-section'
+import { FigmaConfigurationSection } from './figma-configuration-section'
+import { GitHubConfigurationSection } from './github-configuration-section'
+import { GitLabConfigurationSection } from './gitlab-configuration-section'
+import { GitnessConfigurationSection } from './gitness-configuration-section'
+import { ProfileConfigurationSection } from './profile-configuration-section'
 
 interface SettingsDialogProps {
   open: boolean

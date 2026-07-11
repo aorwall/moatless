@@ -224,7 +224,7 @@ function Footer({ children }: FooterProps) {
 
 // Content Component
 interface ContentProps {
-  title?: string
+  title?: string | undefined
   children: ReactNode
 }
 

@@ -69,6 +69,7 @@ function ServerCard({
               variant="ghost"
               size="icon"
               className="h-7 w-7"
+              aria-label="Remove server"
               onClick={(e) => {
                 e.stopPropagation()
                 onRemove()
@@ -123,12 +124,12 @@ function ServerFields({
         <ConfigurationInput
           type="number"
           min={1}
-          max={65535}
+          max={65_535}
           value={server.port ?? ''}
           onChange={(e) =>
             onUpdate({
               ...server,
-              port: e.target.value ? Number(e.target.value) : undefined,
+              ...(e.target.value ? { port: Number(e.target.value) } : {}),
             })
           }
           placeholder="Auto (assigned at start)"
@@ -161,7 +162,7 @@ function ServerFields({
           onChange={(e) =>
             onUpdate({
               ...server,
-              startupTimeoutSeconds: e.target.value ? Number(e.target.value) : undefined,
+              ...(e.target.value ? { startupTimeoutSeconds: Number(e.target.value) } : {}),
             })
           }
           placeholder="30"
@@ -197,7 +198,7 @@ function ServerFields({
           onChange={(newVars) =>
             onUpdate({
               ...server,
-              envVars: Object.keys(newVars).length > 0 ? newVars : undefined,
+              ...(Object.keys(newVars).length > 0 ? { envVars: newVars } : {}),
             })
           }
         />
@@ -258,12 +259,10 @@ function AddServerForm({
 
 export function ServersGroup({ formData, onUpdateField }: ServersGroupProps) {
   const [showAddForm, setShowAddForm] = useState(false)
-  // servers from the API is typed as { [key: string]: unknown } | null,
-  // but we treat it as ServerConfig[] for the UI
-  const servers = (formData.servers ?? []) as unknown as ServerConfig[]
+  const servers = formData.servers ?? []
 
   const updateServers = (newServers: ServerConfig[]) => {
-    onUpdateField('servers', newServers as unknown as UpdateRepositoryRequest['servers'])
+    onUpdateField('servers', newServers)
   }
 
   const handleUpdateServer = (index: number, updated: ServerConfig) => {
@@ -280,7 +279,7 @@ export function ServersGroup({ formData, onUpdateField }: ServersGroupProps) {
     updateServers(
       servers.map((s, i) => ({
         ...s,
-        default: i === index ? true : undefined,
+        ...(i === index ? { default: true } : {}),
       })),
     )
   }
@@ -289,7 +288,7 @@ export function ServersGroup({ formData, onUpdateField }: ServersGroupProps) {
     // Auto-assign a port if the new server doesn't have one
     let newServer = server
     if (!newServer.port) {
-      const usedPorts = new Set(servers.filter((s) => s.port).map((s) => s.port!))
+      const usedPorts = new Set(servers.flatMap((s) => (s.port != null ? [s.port] : [])))
       let nextPort = 3000
       while (usedPorts.has(nextPort)) {
         nextPort++

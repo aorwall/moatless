@@ -2,6 +2,7 @@ import { Navigate } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 
 import { useAuth } from '@/features/auth/hooks/use-auth'
+import { saveReturnTo } from '@/features/auth/utils/return-to'
 import { useServerStatus } from '@/lib/api/server-status'
 
 /**
@@ -28,6 +29,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
   }
 
   if (!(isAuthenticated || isServerUnavailable || isUnavailable)) {
+    // Idempotent, so safe to call during render (StrictMode double-invokes).
+    saveReturnTo()
     return <Navigate to="/login" />
   }
 

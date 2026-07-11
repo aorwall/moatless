@@ -378,7 +378,7 @@ describe('ShellCommand', () => {
       const limitedLogs = cmd.getLogs(1)
 
       expect(limitedLogs.length).toBe(1)
-      expect(limitedLogs[0]).toEqual(allLogs[allLogs.length - 1])
+      expect(limitedLogs[0]).toEqual(allLogs.at(-1))
     })
   })
 

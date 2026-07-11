@@ -8,10 +8,30 @@ import {
   invalidateByTool,
   invalidateMessagesForEvent,
   shouldInvalidateTaskList,
-} from '@/features/events'
+} from '@/features/events/utils/event-handlers'
 import { applyTaskEventUpdate, applyTaskMetadataUpdate } from '@/features/tasks/utils/query-helpers'
 import { queryKeys } from '@/lib/api/query-keys'
 import type { Event, EventType } from '@/lib/types/events'
+
+/**
+ * Validates that a parsed JSON value has the required SSE event envelope fields.
+ * Only checks the base envelope — deep payload shape validation is intentionally
+ * omitted to avoid schema drift.
+ */
+function isStreamEvent(value: unknown): value is Event {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+  const v = value as Record<string, unknown>
+  return (
+    typeof v['eventId'] === 'string' &&
+    typeof v['taskId'] === 'string' &&
+    typeof v['type'] === 'string' &&
+    typeof v['subType'] === 'string' &&
+    typeof v['isError'] === 'boolean' &&
+    'payload' in v
+  )
+}
 
 interface GlobalEventStreamContextType {
   isConnected: boolean
@@ -84,7 +104,7 @@ export function GlobalEventStreamProvider({
           ) {
             return { ...current, agentState: 'idle' }
           }
-          break
+          return current
         case 'sandbox': {
           // Handle environment status updates
           const validStatuses = [
@@ -118,8 +138,15 @@ export function GlobalEventStreamProvider({
           }
           return current
         }
+        // These event types do not affect sandbox status — return unchanged
+        case 'task':
+        case 'taskTurn':
+        case 'server':
+        case 'resources':
+        case 'navigation':
+        case 'preview':
+          return current
       }
-      return current
     },
     [],
   )
@@ -331,14 +358,27 @@ export function GlobalEventStreamProvider({
       }
 
       try {
-        const data = JSON.parse(line)
+        const data: unknown = JSON.parse(line)
 
-        // Ignore ping events
-        if (data.type === 'ping') {
+        // Ignore ping events (checked before full validation — pings are intentionally minimal)
+        if (
+          typeof data === 'object' &&
+          data !== null &&
+          (data as Record<string, unknown>)['type'] === 'ping'
+        ) {
           return
         }
 
-        handleEvent(data as Event)
+        if (!isStreamEvent(data)) {
+          // biome-ignore lint/suspicious/noConsole: surfacing discarded malformed events aids debugging
+          console.warn(
+            '[EventStream] Discarding malformed event (missing required envelope fields):',
+            line.slice(0, 200),
+          )
+          return
+        }
+
+        handleEvent(data)
       } catch (_error) {
         // Silently ignore JSON parse errors for malformed events
       }
@@ -393,7 +433,7 @@ export function GlobalEventStreamProvider({
   // Helper: Schedule reconnection with exponential backoff
   const scheduleReconnect = useCallback((onReconnect: () => void) => {
     const attempts = reconnectAttemptsRef.current
-    const delay = Math.min(1000 * 2 ** attempts, 30000)
+    const delay = Math.min(1000 * 2 ** attempts, 30_000)
     reconnectTimeoutRef.current = setTimeout(() => {
       reconnectAttemptsRef.current++
       onReconnect()

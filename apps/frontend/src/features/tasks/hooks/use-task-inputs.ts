@@ -14,23 +14,23 @@ export interface UseTaskInputsOptions {
   /**
    * Enable context items management. Default: true
    */
-  enableContextItems?: boolean
+  enableContextItems?: boolean | undefined
 
   /**
    * Enable Figma integration (clipboard paste + import dialog). Default: true
    */
-  enableFigma?: boolean
+  enableFigma?: boolean | undefined
 
   /**
    * External context items state (for ChatContainer prop-based management)
    * When provided, the hook will use this instead of internal state
    */
-  contextItems?: MessageContextInput[]
+  contextItems?: MessageContextInput[] | undefined
 
   /**
    * Callback when context items change (for ChatContainer prop-based management)
    */
-  onContextItemsChange?: (contexts: MessageContextInput[]) => void
+  onContextItemsChange?: ((contexts: MessageContextInput[]) => void) | undefined
 }
 
 export interface UseTaskInputsReturn {

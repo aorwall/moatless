@@ -107,7 +107,7 @@ function parseHljsHtml(html: string): HighlightToken[] {
       }
 
       // Stray '<' — emit as text
-      const currentType = typeStack[typeStack.length - 1] ?? 'plain'
+      const currentType = typeStack.at(-1) ?? 'plain'
       tokens.push({ type: currentType, content: '<' })
       i++
       continue
@@ -120,7 +120,7 @@ function parseHljsHtml(html: string): HighlightToken[] {
     }
     const text = html.slice(i, end)
     if (text) {
-      const currentType = typeStack[typeStack.length - 1] ?? 'plain'
+      const currentType = typeStack.at(-1) ?? 'plain'
       tokens.push({ type: currentType, content: decodeHtml(text) })
     }
     i = end
@@ -142,4 +142,4 @@ function decodeHtml(html: string): string {
     .replace(/&#39;/g, "'")
 }
 
-export { hljs }
+export { default as hljs } from 'highlight.js/lib/core'

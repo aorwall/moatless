@@ -23,7 +23,7 @@ export default function inspectorPlugin(options: InspectorPluginOptions = {}): P
 
     transformIndexHtml(): HtmlTagDescriptor[] | undefined {
       if (devOnly && !isDev) {
-        return undefined
+        return
       }
 
       const __filename = fileURLToPath(import.meta.url)

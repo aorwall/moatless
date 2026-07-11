@@ -47,23 +47,23 @@ import { type ClaudeModel, DEFAULT_CLAUDE_MODEL, modelToApiValue } from '@/lib/t
 import { getErrorMessage } from '@/lib/utils/error'
 
 interface CreateCodeTaskProps {
-  className?: string
-  maxHeight?: string
-  minHeight?: string
-  showTitle?: boolean
-  title?: string
-  defaultMessage?: string
+  className?: string | undefined
+  maxHeight?: string | undefined
+  minHeight?: string | undefined
+  showTitle?: boolean | undefined
+  title?: string | undefined
+  defaultMessage?: string | undefined
   model: ClaudeModel
   onModelChange: (model: ClaudeModel) => void
   agentMode: 'edit' | 'plan'
   onAgentModeChange: (mode: 'edit' | 'plan') => void
-  agentType?: AgentType
-  onAgentTypeChange?: (type: AgentType) => void
+  agentType?: AgentType | undefined
+  onAgentTypeChange?: ((type: AgentType) => void) | undefined
   repositoryId: string
   onRepositoryChange: (repoId: string) => void
-  templateId?: string
-  onTemplateChange?: (id: string | undefined) => void
-  onSuccess?: () => void
+  templateId?: string | undefined
+  onTemplateChange?: ((id: string | undefined) => void) | undefined
+  onSuccess?: (() => void) | undefined
 }
 
 export function CreateCodeTask({
@@ -203,16 +203,17 @@ export function CreateCodeTask({
 
   // Auto-select first repository when dialog closes and a repository is available but none selected
   useEffect(() => {
-    if (!(repoDialogOpen || repositoryId) && repositories && repositories.length > 0) {
-      onRepositoryChange(repositories[0].id)
+    const firstRepo = repositories?.[0]
+    if (!(repoDialogOpen || repositoryId) && firstRepo) {
+      onRepositoryChange(firstRepo.id)
     }
   }, [repoDialogOpen, repositoryId, repositories, onRepositoryChange])
 
   const createTask = useCreateTask({
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       // Invalidate new task data (including messages) - lists already handled by hook
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.detail(data.taskId) })
-      navigate({ to: `/tasks/${data.taskId}` })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.tasks.detail(data.taskId) })
+      await navigate({ to: '/tasks/$task-id', params: { 'task-id': data.taskId } })
     },
     onError: (error) => {
       toast.error('Failed to create task', {
@@ -244,18 +245,19 @@ export function CreateCodeTask({
       selectedCommand,
     )
 
+    const modelApiValue = isModelSelectorEnabled ? modelToApiValue(model) : undefined
     createTask.mutate(
       {
         agentType,
-        message: submitMessage,
         repositoryId,
-        model: isModelSelectorEnabled ? modelToApiValue(model) : undefined,
         fileIds: taskInputs.getFileIds(),
-        contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,
-        branch: branchSelector.value,
         agentMode: submitAgentMode,
-        commandName: selectedCommand?.name,
-        taskTemplateId: templateId,
+        ...(submitMessage !== undefined && { message: submitMessage }),
+        ...(modelApiValue !== undefined && { model: modelApiValue }),
+        ...(taskInputs.contextItems.length > 0 && { contexts: taskInputs.contextItems }),
+        ...(branchSelector.value !== undefined && { branch: branchSelector.value }),
+        ...(selectedCommand?.name !== undefined && { commandName: selectedCommand.name }),
+        ...(templateId !== undefined && { taskTemplateId: templateId }),
       },
       {
         onSuccess: () => {
@@ -280,8 +282,6 @@ export function CreateCodeTask({
     ? 'Describe what you want to build...'
     : 'Describe your coding task or leave empty to just run the app...'
 
-  const chatInputClassName = getChatInputClassName(maxHeight, minHeight)
-
   return (
     <div className={className}>
       {showTitle && (
@@ -290,13 +290,12 @@ export function CreateCodeTask({
         </div>
       )}
 
-      <div className={showTitle ? 'max-w-2xl mx-auto' : ''}>
+      <div className={showTitle ? 'max-w-2xl mx-auto' : ''} style={{ maxHeight, minHeight }}>
         <ChatInput
           message={message}
           onMessageChange={handleMessageChange}
           onSubmit={handleSubmit}
           placeholder={placeholder}
-          className={chatInputClassName}
           canSubmit={canSubmit}
           textareaRef={textareaRef}
           onKeyDownCapture={handleCommandKeyDown}
@@ -491,16 +490,6 @@ export function CreateCodeTask({
       />
     </div>
   )
-}
-
-function getChatInputClassName(maxHeight?: string, minHeight?: string): string | undefined {
-  if (maxHeight) {
-    return `max-h-[${maxHeight}]`
-  }
-  if (minHeight) {
-    return `min-h-[${minHeight}]`
-  }
-  return undefined
 }
 
 function getSubmitButtonText(isPending: boolean, message: string): string {

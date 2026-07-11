@@ -1,6 +1,17 @@
-import * as LucideIcons from 'lucide-react'
-import type React from 'react'
+import {
+  Bug,
+  GitBranch,
+  GitCommit,
+  GitMerge,
+  GitPullRequest,
+  Hammer,
+  Package,
+  Play,
+  TestTube,
+  Zap,
+} from 'lucide-react'
 import { useId } from 'react'
+import { getLucideIcon } from '@/features/commands/utils/lucide-icon'
 import { Label } from '@/lib/components/ui/label'
 import {
   Select,
@@ -39,12 +50,7 @@ export function CommandUICustomization({
               {icon && (
                 <div className="flex items-center gap-2">
                   {(() => {
-                    const IconComponent = (
-                      LucideIcons as unknown as Record<
-                        string,
-                        React.ComponentType<{ className?: string }>
-                      >
-                    )[icon]
+                    const IconComponent = getLucideIcon(icon)
                     return IconComponent ? <IconComponent className="h-4 w-4" /> : null
                   })()}
                   <span>{icon}</span>
@@ -56,61 +62,61 @@ export function CommandUICustomization({
             <SelectItem value="none">No icon</SelectItem>
             <SelectItem value="GitCommit">
               <div className="flex items-center gap-2">
-                <LucideIcons.GitCommit className="h-4 w-4" />
+                <GitCommit className="h-4 w-4" />
                 <span>GitCommit</span>
               </div>
             </SelectItem>
             <SelectItem value="GitBranch">
               <div className="flex items-center gap-2">
-                <LucideIcons.GitBranch className="h-4 w-4" />
+                <GitBranch className="h-4 w-4" />
                 <span>GitBranch</span>
               </div>
             </SelectItem>
             <SelectItem value="GitMerge">
               <div className="flex items-center gap-2">
-                <LucideIcons.GitMerge className="h-4 w-4" />
+                <GitMerge className="h-4 w-4" />
                 <span>GitMerge</span>
               </div>
             </SelectItem>
             <SelectItem value="GitPullRequest">
               <div className="flex items-center gap-2">
-                <LucideIcons.GitPullRequest className="h-4 w-4" />
+                <GitPullRequest className="h-4 w-4" />
                 <span>GitPullRequest</span>
               </div>
             </SelectItem>
             <SelectItem value="Play">
               <div className="flex items-center gap-2">
-                <LucideIcons.Play className="h-4 w-4" />
+                <Play className="h-4 w-4" />
                 <span>Play</span>
               </div>
             </SelectItem>
             <SelectItem value="TestTube">
               <div className="flex items-center gap-2">
-                <LucideIcons.TestTube className="h-4 w-4" />
+                <TestTube className="h-4 w-4" />
                 <span>TestTube</span>
               </div>
             </SelectItem>
             <SelectItem value="Hammer">
               <div className="flex items-center gap-2">
-                <LucideIcons.Hammer className="h-4 w-4" />
+                <Hammer className="h-4 w-4" />
                 <span>Hammer</span>
               </div>
             </SelectItem>
             <SelectItem value="Package">
               <div className="flex items-center gap-2">
-                <LucideIcons.Package className="h-4 w-4" />
+                <Package className="h-4 w-4" />
                 <span>Package</span>
               </div>
             </SelectItem>
             <SelectItem value="Bug">
               <div className="flex items-center gap-2">
-                <LucideIcons.Bug className="h-4 w-4" />
+                <Bug className="h-4 w-4" />
                 <span>Bug</span>
               </div>
             </SelectItem>
             <SelectItem value="Zap">
               <div className="flex items-center gap-2">
-                <LucideIcons.Zap className="h-4 w-4" />
+                <Zap className="h-4 w-4" />
                 <span>Zap</span>
               </div>
             </SelectItem>

@@ -22,7 +22,11 @@ export function ConfigurationSelect({
   disabled,
 }: ConfigurationSelectProps) {
   return (
-    <Select value={value} onValueChange={onValueChange} disabled={disabled}>
+    <Select
+      {...(value !== undefined && { value })}
+      {...(onValueChange !== undefined && { onValueChange })}
+      {...(disabled !== undefined && { disabled })}
+    >
       <SelectTrigger>
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>

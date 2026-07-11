@@ -20,7 +20,7 @@ export interface AskUserQuestionResponse {
 
 export interface ExitPlanModeResponse {
   approved: boolean
-  feedback?: string
+  feedback?: string | undefined
 }
 
 export interface UserInputResponseRequest {

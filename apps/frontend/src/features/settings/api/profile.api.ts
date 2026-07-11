@@ -1,8 +1,8 @@
 import { apiClient } from '@/lib/api/client'
 
 export interface UpdateProfileRequest {
-  name?: string
-  email?: string
+  name?: string | undefined
+  email?: string | undefined
 }
 
 export interface UpdateProfileResponse {

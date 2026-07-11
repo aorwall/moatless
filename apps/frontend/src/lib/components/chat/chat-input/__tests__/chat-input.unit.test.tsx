@@ -154,7 +154,7 @@ describe('ChatInput - Tier 2 Interaction Tests', () => {
 
       await userEvent.type(textarea, 'test')
 
-      expect(Number.parseInt(textarea.style.height || '0')).toBeLessThanOrEqual(400)
+      expect(Number.parseInt(textarea.style.height || '0', 10)).toBeLessThanOrEqual(400)
     })
 
     it('resets height when message is cleared', async () => {

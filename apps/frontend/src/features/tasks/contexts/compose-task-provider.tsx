@@ -20,7 +20,7 @@ export interface ComposeWindowState {
   agentType: AgentType
   agentMode: 'edit' | 'plan'
   model: ClaudeModel
-  templateId?: string
+  templateId?: string | undefined
 }
 
 interface ComposeTaskContextValue {

@@ -122,7 +122,7 @@ export const queryKeys = {
 
   secrets: {
     all: () => [...queryKeys.all, 'secrets'] as const,
-    list: (params?: { scope: string; scopeId?: string }) =>
+    list: (params?: { scope: string; scopeId?: string | undefined } | undefined) =>
       [...queryKeys.secrets.all(), 'list', params] as const,
   },
 

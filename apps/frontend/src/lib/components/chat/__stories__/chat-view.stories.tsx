@@ -55,7 +55,7 @@ const mockFiles: UploadResponse[] = [
     fileId: 'file-1',
     filename: 'screenshot.png',
     mimeType: 'image/png',
-    size: 125000,
+    size: 125_000,
   },
   {
     fileId: 'file-2',
@@ -66,7 +66,9 @@ const mockFiles: UploadResponse[] = [
 ]
 
 // Noop handlers for static stories
-const noop = () => undefined
+const noop = () => {
+  /* noop: static story handlers have no behavior */
+}
 
 export const Default = {
   render: () => (

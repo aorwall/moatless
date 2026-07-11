@@ -30,8 +30,8 @@ function Dashboard() {
   const { user } = useAuth()
 
   const handleSearchChange = useCallback(
-    (params: DashboardSearchParams) => {
-      navigate({ search: params })
+    async (params: DashboardSearchParams) => {
+      await navigate({ search: params })
     },
     [navigate],
   )

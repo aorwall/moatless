@@ -102,7 +102,10 @@ export class MockWebSocket extends EventEmitter {
 
   public close = vi.fn((code?: number, reason?: string) => {
     this.readyState = 3 // CLOSED
-    const closeEvent = new CloseEvent('close', { code, reason })
+    const closeEvent = new CloseEvent('close', {
+      ...(code !== undefined && { code }),
+      ...(reason !== undefined && { reason }),
+    })
     if (this.onclose) {
       this.onclose(closeEvent)
     }
@@ -125,7 +128,7 @@ export class MockWebSocket extends EventEmitter {
     super()
     this.url = url
     if (protocols) {
-      this.protocol = Array.isArray(protocols) ? protocols[0] : protocols
+      this.protocol = Array.isArray(protocols) ? (protocols[0] ?? '') : protocols
     }
   }
 

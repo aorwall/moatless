@@ -1,4 +1,5 @@
 import { createRootRoute, HeadContent, Outlet, useRouterState } from '@tanstack/react-router'
+import { useEffect, useRef } from 'react'
 
 import { AuthGate } from '@/features/auth/components/auth-gate'
 import { GlobalEventStreamProvider } from '@/features/events'
@@ -111,11 +112,25 @@ function RootComponent() {
   const { pathname } = useRouterState({ select: (s) => s.location })
   const isPublicRoute = pathname === '/login' || pathname.startsWith('/auth/')
 
+  // Move focus to the main content region after client-side navigation so
+  // screen reader and keyboard users get a clear "new page" signal (SPA route
+  // changes don't reset focus the way full page loads do).
+  const previousPathname = useRef(pathname)
+  useEffect(() => {
+    if (previousPathname.current === pathname) {
+      return
+    }
+    previousPathname.current = pathname
+    document.getElementById('main-content')?.focus()
+  }, [pathname])
+
   if (isPublicRoute) {
     return (
       <ServerDownGate>
         <HeadContent />
-        <Outlet />
+        <ErrorBoundary componentName="Page">
+          <Outlet />
+        </ErrorBoundary>
       </ServerDownGate>
     )
   }
@@ -123,15 +138,15 @@ function RootComponent() {
   return (
     <ServerDownGate>
       <HeadContent />
-      <AuthGate>
-        <ErrorBoundary>
+      <ErrorBoundary>
+        <AuthGate>
           <GlobalEventStreamProvider>
             <Layout>
               <Outlet />
             </Layout>
           </GlobalEventStreamProvider>
-        </ErrorBoundary>
-      </AuthGate>
+        </AuthGate>
+      </ErrorBoundary>
     </ServerDownGate>
   )
 }

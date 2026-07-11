@@ -5,7 +5,7 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
-import { gitnessConnectionApi } from '@/features/settings'
+import { gitnessConnectionApi } from '@/features/settings/api/gitness-connection.api'
 import type { ApiError } from '@/lib/api/client'
 import { queryKeys } from '@/lib/api/query-keys'
 

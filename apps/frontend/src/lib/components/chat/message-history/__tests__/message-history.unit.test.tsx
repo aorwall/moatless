@@ -1,7 +1,7 @@
 import type { ToolCallDetailResponse, UiMessage } from '@moatless/api-client'
-import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen } from '@/test-utils/render'
 import { MessageHistory } from '../message-history'
 
 // Mock the on-demand tool-call detail hook so the component tree stays

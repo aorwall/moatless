@@ -1,5 +1,3 @@
-import { WorkerPoolContextProvider } from '@pierre/diffs/react'
-import DiffsWorker from '@pierre/diffs/worker/worker-portable.js?worker'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { createRouter, RouterProvider } from '@tanstack/react-router'
 import { StrictMode } from 'react'
@@ -12,8 +10,17 @@ import { routeTree } from './routeTree.gen'
 import '@/lib/styles/globals.css'
 
 import { queryClient } from '@/lib/api/query-client'
+import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { FeatureFlagsProvider } from '@/lib/contexts/feature-flags-context'
 import { Page404 } from '@/lib/pages/404'
+
+// Last-resort logging for promise rejections that escape all local handlers
+// (fire-and-forget mutations, event handlers). Error boundaries can't catch
+// these, so without this listener they vanish silently.
+window.addEventListener('unhandledrejection', (event) => {
+  // biome-ignore lint/suspicious/noConsole: last-resort sink for floating rejections
+  console.error('Unhandled promise rejection:', event.reason)
+})
 
 // Create a new router instance
 const router = createRouter({
@@ -46,13 +53,10 @@ if (rootElement && !rootElement.innerHTML) {
     <StrictMode>
       <FeatureFlagsProvider>
         <QueryClientProvider client={queryClient}>
-          <WorkerPoolContextProvider
-            poolOptions={{ workerFactory: () => new DiffsWorker() }}
-            highlighterOptions={{}}
-          >
+          <ErrorBoundary componentName="Application">
             <RouterProvider router={router} />
-            <Toaster position="bottom-right" />
-          </WorkerPoolContextProvider>
+          </ErrorBoundary>
+          <Toaster position="bottom-right" />
         </QueryClientProvider>
       </FeatureFlagsProvider>
     </StrictMode>,

@@ -126,12 +126,12 @@ function extractLatestTodos(events: Event[]): Todo[] | null {
 
     const payload = event.payload
 
-    if (payload?.type !== 'assistant' || !payload.message?.content) {
+    if (payload?.type !== 'assistant' || !payload.message?.['content']) {
       continue
     }
 
     // Handle both string and array content
-    const content = payload.message.content
+    const content = payload.message['content']
     const contentArray = Array.isArray(content) ? content : []
 
     // Look for TodoWrite tool calls
@@ -211,7 +211,7 @@ function renderRunningTaskContent(
               className="transition-all duration-300 ease-in-out rounded-md px-2 py-1.5 relative"
               style={{
                 opacity,
-                backgroundColor: `hsl(var(--muted) / ${bgOpacity})`,
+                backgroundColor: `color-mix(in oklab, var(--muted) ${bgOpacity * 100}%, transparent)`,
               }}
             >
               <MinifiedEventItem event={event} />

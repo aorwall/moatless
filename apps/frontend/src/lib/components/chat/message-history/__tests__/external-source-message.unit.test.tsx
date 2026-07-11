@@ -82,7 +82,7 @@ describe('ExternalSourceMessageComponent', () => {
     it('also collapses long content in the task variant', async () => {
       const user = userEvent.setup()
       const message = createChannelMessage('github_pr', longContent, {
-        externalSource: undefined,
+        externalSource: null,
         sourceTaskId: 'task-42',
       })
       render(<ExternalSourceMessageComponent message={message} variant="task" />)

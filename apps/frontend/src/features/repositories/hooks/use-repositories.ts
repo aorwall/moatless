@@ -124,7 +124,7 @@ export function useBranches(
     queryKey: queryKeys.repositoryBranches(repoId),
     queryFn: () => repositoriesApi.getBranches(repoId),
     enabled: !!repoId,
-    staleTime: 60000, // Cache for 1 minute
+    staleTime: 60_000, // Cache for 1 minute
     ...options,
   })
 }

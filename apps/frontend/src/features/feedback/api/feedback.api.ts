@@ -5,11 +5,11 @@ export type FeedbackSource = 'user' | 'agent'
 
 export interface CreateFeedbackRequest {
   taskId: string
-  messageUuid?: string
-  toolUseId?: string
+  messageUuid?: string | undefined
+  toolUseId?: string | undefined
   surface: FeedbackSurface
   comment: string
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown> | undefined
 }
 
 export interface FeedbackResponse {

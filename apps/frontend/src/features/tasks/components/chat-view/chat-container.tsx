@@ -141,6 +141,7 @@ function ChatContainer({
   // yields a chronological array — no reverse.
   const messages = useMemo(() => {
     if (!messagesData) {
+      // biome-ignore lint/nursery/noUselessUndefined: a bare `return` makes the useMemo callback void-typed and breaks inference downstream
       return undefined
     }
     return messagesData.pages.flatMap((p) => p.messages)
@@ -294,8 +295,8 @@ function ChatContainer({
       return null
     }
 
-    const lastMessage = messages[messages.length - 1]
-    if (lastMessage.role !== 'assistant') {
+    const lastMessage = messages.at(-1)
+    if (!lastMessage || lastMessage.role !== 'assistant') {
       return null
     }
 
@@ -310,6 +311,9 @@ function ChatContainer({
 
     for (let i = lastMessage.content.length - 1; i >= 0; i--) {
       const content = lastMessage.content[i]
+      if (!content) {
+        continue
+      }
       if (
         content.type === 'tool_use' &&
         content.toolUseId &&

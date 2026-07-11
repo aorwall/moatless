@@ -27,6 +27,9 @@ export function AskUserQuestionInput({
     const finalAnswers: Record<string, string> = {}
     for (const q of questions) {
       const answer = answers[q.question]
+      if (answer === undefined) {
+        continue
+      }
       finalAnswers[q.question] = answer === 'Other' ? otherText[q.question] || answer : answer
     }
     onSubmit(finalAnswers)

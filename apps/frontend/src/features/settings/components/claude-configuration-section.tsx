@@ -6,7 +6,7 @@ import {
   useDisconnectClaude,
   useGetClaudeOAuthUrl,
   useSaveClaudePAT,
-} from '@/features/settings'
+} from '@/features/settings/hooks/use-claude-connection'
 import {
   ConfigurationGroup,
   ConfigurationItem,

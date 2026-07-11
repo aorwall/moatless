@@ -98,7 +98,7 @@ function OverviewSection({
   canExecute,
 }: {
   environmentStatus: string
-  environmentError?: string | null
+  environmentError?: string | null | undefined
   agentState: string
   sandboxState: string
   sandboxReady: boolean
@@ -483,7 +483,7 @@ export function SandboxDiagnostics({ taskId }: SandboxDiagnosticsProps) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link to="/sandbox">
-            <Button variant="ghost" size="icon">
+            <Button variant="ghost" size="icon" aria-label="Back to sandbox list">
               <ArrowLeft className="h-4 w-4" />
             </Button>
           </Link>

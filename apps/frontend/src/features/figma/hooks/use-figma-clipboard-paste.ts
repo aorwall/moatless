@@ -38,9 +38,9 @@ export function useFigmaClipboardPaste(
 
   const mutation = useMutation({
     mutationFn: (clipboardHtml: string) => figmaApi.importClipboard(clipboardHtml, false),
-    onSuccess: options?.onSuccess,
+    ...(options?.onSuccess !== undefined && { onSuccess: options.onSuccess }),
     onError:
-      options?.onError ||
+      options?.onError ??
       ((error) => {
         toast.error('Failed to parse Figma clipboard', {
           description: getErrorMessage(error),

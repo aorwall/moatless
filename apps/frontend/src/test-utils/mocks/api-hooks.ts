@@ -12,7 +12,7 @@ import { vi } from 'vitest'
  * @returns Mock query result
  */
 export function createMockQuery<TData = unknown, TError = Error>(
-  data: TData | undefined = undefined,
+  data: TData | undefined,
   overrides?: Partial<UseQueryResult<TData, TError>>,
 ): UseQueryResult<TData, TError> {
   const hasData = data !== undefined
@@ -139,7 +139,9 @@ export function createMockErrorQuery<TData = unknown, TError = Error>(
     }),
     fetchStatus: 'idle',
     // Create a rejected promise that's already handled to avoid unhandled rejection warnings
-    promise: Promise.reject(error).catch(() => undefined) as Promise<TData>,
+    promise: Promise.reject(error).catch(() => {
+      /* noop: rejection is intentional in error-state mock */
+    }) as Promise<TData>,
   }
 
   return {
@@ -203,8 +205,6 @@ export function createMockPendingMutation<
     isPending: true,
     isSuccess: false,
     status: 'pending',
-    variables: undefined,
-    context: undefined,
     failureCount: 0,
     failureReason: null,
     isPaused: false,
@@ -240,8 +240,6 @@ export function createMockSuccessMutation<
     isPending: false,
     isSuccess: true,
     status: 'success',
-    variables: undefined,
-    context: undefined,
     failureCount: 0,
     failureReason: null,
     isPaused: false,

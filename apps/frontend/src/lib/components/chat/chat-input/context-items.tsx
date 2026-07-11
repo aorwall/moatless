@@ -10,9 +10,9 @@ import { cn } from '@/lib/utils'
 
 interface ContextItemsProps {
   contexts: MessageContextInput[]
-  onRemove?: (index: number) => void
-  onPreviewUrlClick?: (path: string) => void
-  isLoading?: boolean
+  onRemove?: ((index: number) => void) | undefined
+  onPreviewUrlClick?: ((path: string) => void) | undefined
+  isLoading?: boolean | undefined
 }
 
 interface ElementDetailPopoverProps {
@@ -29,7 +29,13 @@ function ElementDetailPopover({ element, displayName, onClose }: ElementDetailPo
     <div className="w-80 max-w-[80vw]">
       <div className="flex items-center justify-between p-3 border-b">
         <h3 className="text-sm font-semibold">Element Details</h3>
-        <Button variant="ghost" size="icon" onClick={onClose} className="h-6 w-6">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onClose}
+          className="h-6 w-6"
+          aria-label="Close element details"
+        >
           <X className="h-4 w-4" />
         </Button>
       </div>

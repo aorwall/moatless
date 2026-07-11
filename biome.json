@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.0.0-beta.6/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.1.1/schema.json",
   "vcs": {
     "enabled": true,
     "clientKind": "git",
@@ -43,7 +43,28 @@
     "enabled": true,
     "rules": {
       "recommended": true,
+      "nursery": {
+        "noImportCycles": "error",
+        "noFloatingPromises": "error",
+        "noMisusedPromises": "error",
+        "useExhaustiveSwitchCases": "error",
+        "useIterableCallbackReturn": "error",
+        "useParseIntRadix": "error",
+        "noUselessUndefined": "error",
+        "noConstantBinaryExpression": "error",
+        "noTsIgnore": "error",
+        "useIndexOf": "error",
+        "useObjectSpread": "error",
+        "noUselessBackrefInRegex": "error",
+        "useSingleJsDocAsterisk": "error",
+        "useNumericSeparators": "error"
+      },
       "style": {
+        "noNonNullAssertion": "error",
+        "noSubstr": "error",
+        "useAtIndex": "error",
+        "useTrimStartEnd": "error",
+        "noExportedImports": "error",
         "useImportType": "error",
         "noParameterAssign": "error",
         "useAsConstAssertion": "error",
@@ -134,6 +155,8 @@
           }
         },
         "noExtraBooleanCast": "error",
+        "useDateNow": "error",
+        "noUselessEscapeInRegex": "error",
         "noForEach": "error",
         "noStaticOnlyClass": "error",
         "noUselessCatch": "error",
@@ -156,6 +179,11 @@
         "useSimplifiedLogicExpression": "error"
       },
       "suspicious": {
+        "useGuardForIn": "error",
+        "useErrorMessage": "error",
+        "noDuplicateElseIf": "error",
+        "noOctalEscape": "error",
+        "noTemplateCurlyInString": "error",
         "noApproximativeNumericConstant": "error",
         "noArrayIndexKey": "error",
         "noAssignInExpressions": "error",
@@ -240,6 +268,8 @@
         "useIframeTitle": "error",
         "useKeyWithClickEvents": "error",
         "useMediaCaption": "error",
+        "useSemanticElements": "error",
+        "noLabelWithoutControl": "error",
         "useValidAnchor": "error",
         "useValidAriaProps": "error",
         "useValidAriaRole": "error",

@@ -50,7 +50,7 @@ export function TopBar({ onRepositoriesClick, onSettingsClick }: TopBarProps) {
           )}
           <Popover open={isMenuOpen} onOpenChange={setIsMenuOpen}>
             <PopoverTrigger asChild>
-              <Button variant="ghost" size="icon">
+              <Button variant="ghost" size="icon" aria-label="Open main menu">
                 <Settings className="h-5 w-5" />
               </Button>
             </PopoverTrigger>

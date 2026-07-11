@@ -1,7 +1,7 @@
 import { ExternalLink, Timer } from 'lucide-react'
 import { SandboxActionButtons } from '@/features/sandbox/components/sandbox-action-buttons'
-import { useSandboxStatus } from '@/features/tasks'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
+import { useSandboxStatus } from '@/features/tasks/hooks/use-sandbox-status'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
 import { useUpdateTaskTtl } from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'

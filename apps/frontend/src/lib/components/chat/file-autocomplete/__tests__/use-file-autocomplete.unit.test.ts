@@ -6,11 +6,10 @@ import { useFileAutocomplete } from '../use-file-autocomplete'
 
 describe('useFileAutocomplete - Tier 1 Tests', () => {
   // Mock file search results
-  const mockResults: FileAutocompleteItem[] = [
-    { path: 'src/components/button.tsx' },
-    { path: 'src/hooks/use-tasks.ts' },
-    { path: 'src/utils/helpers.ts' },
-  ]
+  const mockResult0: FileAutocompleteItem = { path: 'src/components/button.tsx' }
+  const mockResult1: FileAutocompleteItem = { path: 'src/hooks/use-tasks.ts' }
+  const mockResult2: FileAutocompleteItem = { path: 'src/utils/helpers.ts' }
+  const mockResults: FileAutocompleteItem[] = [mockResult0, mockResult1, mockResult2]
 
   const defaultProps = {
     value: '',
@@ -316,7 +315,7 @@ describe('useFileAutocomplete - Tier 1 Tests', () => {
 
       // Select a file
       act(() => {
-        result.current.selectFile(mockResults[0])
+        result.current.selectFile(mockResult0)
       })
 
       expect(onValueChange).toHaveBeenCalledWith('Check @src/components/button.tsx in code')
@@ -337,7 +336,7 @@ describe('useFileAutocomplete - Tier 1 Tests', () => {
       expect(result.current.isOpen).toBe(true)
 
       act(() => {
-        result.current.selectFile(mockResults[0])
+        result.current.selectFile(mockResult0)
       })
 
       expect(result.current.isOpen).toBe(false)
@@ -359,7 +358,7 @@ describe('useFileAutocomplete - Tier 1 Tests', () => {
       })
 
       act(() => {
-        result.current.selectFile(mockResults[1])
+        result.current.selectFile(mockResult1)
       })
 
       expect(onSelect).toHaveBeenCalledWith('src/hooks/use-tasks.ts')
@@ -381,7 +380,7 @@ describe('useFileAutocomplete - Tier 1 Tests', () => {
       })
 
       act(() => {
-        result.current.selectFile(mockResults[0])
+        result.current.selectFile(mockResult0)
       })
 
       expect(onValueChange).toHaveBeenCalledWith('@src/components/button.tsx')
@@ -403,7 +402,7 @@ describe('useFileAutocomplete - Tier 1 Tests', () => {
       })
 
       act(() => {
-        result.current.selectFile(mockResults[0])
+        result.current.selectFile(mockResult0)
       })
 
       expect(onValueChange).toHaveBeenCalledWith('Look at @src/components/button.tsx for examples')
@@ -689,7 +688,7 @@ describe('useFileAutocomplete - Tier 1 Tests', () => {
 
       // Should not throw when selecting
       act(() => {
-        result.current.selectFile(mockResults[0])
+        result.current.selectFile(mockResult0)
       })
 
       expect(onValueChange).toHaveBeenCalled()

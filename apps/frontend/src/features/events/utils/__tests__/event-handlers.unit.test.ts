@@ -41,7 +41,8 @@ describe('event-handlers', () => {
 
       // Should only invalidate the specific task, not all tasks
       expect(keys).toHaveLength(1)
-      expect(keys[0]('task-123')).toEqual(queryKeys.tasks.detail('task-123'))
+      const [key0] = keys
+      expect(key0?.('task-123')).toEqual(queryKeys.tasks.detail('task-123'))
     })
 
     it('should return correct invalidation keys for AGENT COMPLETED event', () => {
@@ -59,8 +60,9 @@ describe('event-handlers', () => {
 
       // Should invalidate task detail and sandbox status (so thinking indicator clears)
       expect(keys).toHaveLength(2)
-      expect(keys[0]('task-456')).toEqual(queryKeys.tasks.detail('task-456'))
-      expect(keys[1]('task-456')).toEqual(queryKeys.tasks.sandboxStatus('task-456'))
+      const [agentKey0, agentKey1] = keys
+      expect(agentKey0?.('task-456')).toEqual(queryKeys.tasks.detail('task-456'))
+      expect(agentKey1?.('task-456')).toEqual(queryKeys.tasks.sandboxStatus('task-456'))
     })
 
     it('should not invalidate messages key for AGENT MESSAGE event', () => {
@@ -108,8 +110,9 @@ describe('event-handlers', () => {
       const keys = getInvalidationKeys(event)
 
       expect(keys).toHaveLength(2)
-      expect(keys[0]('task-999')).toEqual(queryKeys.tasks.sandboxStatus('task-999'))
-      expect(keys[1]('task-999')).toEqual(queryKeys.tasks.sandboxSetup('task-999'))
+      const [sandboxKey0, sandboxKey1] = keys
+      expect(sandboxKey0?.('task-999')).toEqual(queryKeys.tasks.sandboxStatus('task-999'))
+      expect(sandboxKey1?.('task-999')).toEqual(queryKeys.tasks.sandboxSetup('task-999'))
     })
   })
 

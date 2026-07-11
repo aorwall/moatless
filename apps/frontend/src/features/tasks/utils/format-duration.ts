@@ -16,8 +16,8 @@ export function formatRunningDuration(startTime: Date | string): string {
     return '0s'
   }
 
-  const minutes = Math.floor(durationMs / 60000)
-  const seconds = Math.floor((durationMs % 60000) / 1000)
+  const minutes = Math.floor(durationMs / 60_000)
+  const seconds = Math.floor((durationMs % 60_000) / 1000)
 
   if (minutes > 0) {
     return `${minutes}m ${seconds}s`

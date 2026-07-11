@@ -343,7 +343,7 @@
 /* JSON Viewer clickable values styles */
 .json-viewer-clickable span:not([class]):hover {
   cursor: pointer;
-  background-color: oklch(var(--accent) / 0.2);
+  background-color: color-mix(in oklab, var(--accent) 20%, transparent);
   text-decoration: underline;
   text-decoration-style: dotted;
   border-radius: 2px;

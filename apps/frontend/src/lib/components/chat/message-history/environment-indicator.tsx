@@ -2,7 +2,7 @@ import { AlertCircle, Server } from 'lucide-react'
 
 interface EnvironmentIndicatorProps {
   status: 'initializing' | 'error'
-  errorMessage?: string
+  errorMessage?: string | undefined
 }
 
 export function EnvironmentIndicator({ status, errorMessage }: EnvironmentIndicatorProps) {

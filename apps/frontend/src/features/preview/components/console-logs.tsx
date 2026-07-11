@@ -9,8 +9,8 @@ interface ConsoleLog {
   timestamp: string
   level: 'log' | 'info' | 'warn' | 'error' | 'debug' | 'route'
   message: string
-  args?: unknown[]
-  stack?: string
+  args?: unknown[] | undefined
+  stack?: string | undefined
 }
 
 interface ConsoleMessage {

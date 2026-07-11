@@ -3,9 +3,7 @@ import type {
   CreateCommandRequest,
   UpdateCommandRequest,
 } from '@moatless/api-client'
-import * as LucideIcons from 'lucide-react'
 import { Loader2, Plus, Trash2 } from 'lucide-react'
-import type React from 'react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { AdminPage } from '@/features/admin'
@@ -15,6 +13,7 @@ import {
   useDeleteCommand,
   useUpdateCommand,
 } from '@/features/commands/hooks/use-commands'
+import { getLucideIcon } from '@/features/commands/utils/lucide-icon'
 import { ConfigurationInput, ConfigurationItem } from '@/lib/components/configuration'
 import { Alert, AlertDescription, AlertTitle } from '@/lib/components/ui/alert'
 import { Button } from '@/lib/components/ui/button'
@@ -70,6 +69,48 @@ const initialFormData: CommandFormData = {
   agentMode: 'edit',
 }
 
+function buildCommandRequest(
+  formData: CommandFormData,
+): CreateCommandRequest | UpdateCommandRequest {
+  const conditions = Object.keys(formData.conditions).length > 0 ? formData.conditions : undefined
+  return {
+    name: formData.name,
+    description: formData.description,
+    prompt: formData.prompt,
+    ...(conditions !== undefined && { conditions }),
+    ...(formData.icon && { icon: formData.icon }),
+    ...(formData.variant !== undefined && { variant: formData.variant }),
+    ...(formData.active !== undefined && { active: formData.active }),
+    ...(formData.willNotResume !== undefined && { willNotResume: formData.willNotResume }),
+    ...(formData.agentMode !== undefined && { agentMode: formData.agentMode }),
+  }
+}
+
+function ConditionCheckbox({
+  id,
+  label,
+  checked,
+  onCheckedChange,
+}: {
+  id: string
+  label: string
+  checked: boolean | undefined
+  onCheckedChange: (checked: boolean) => void
+}) {
+  return (
+    <div className="flex items-center space-x-2">
+      <Checkbox
+        id={id}
+        checked={checked ?? false}
+        onCheckedChange={(checked) => onCheckedChange(checked === true)}
+      />
+      <Label htmlFor={id} className="text-sm">
+        {label}
+      </Label>
+    </div>
+  )
+}
+
 export function CommandsPage() {
   const { data: commands, isLoading, error } = useCommandsList()
   const createCommand = useCreateCommand()
@@ -100,6 +141,10 @@ export function CommandsPage() {
   }
 
   const handleSaveCommand = () => {
+    if (editingCommand === null) {
+      return
+    }
+
     if (!formData.name.trim()) {
       toast.error('Command name is required')
       return
@@ -113,17 +158,7 @@ export function CommandsPage() {
       return
     }
 
-    const commandData: CreateCommandRequest | UpdateCommandRequest = {
-      name: formData.name,
-      description: formData.description,
-      prompt: formData.prompt,
-      conditions: Object.keys(formData.conditions).length > 0 ? formData.conditions : undefined,
-      icon: formData.icon || undefined,
-      variant: formData.variant,
-      active: formData.active,
-      willNotResume: formData.willNotResume,
-      agentMode: formData.agentMode,
-    }
+    const commandData = buildCommandRequest(formData)
 
     if (editingCommand === '__new__') {
       createCommand.mutate(commandData as CreateCommandRequest, {
@@ -140,7 +175,7 @@ export function CommandsPage() {
       })
     } else {
       updateCommand.mutate(
-        { commandName: editingCommand!, request: commandData },
+        { commandName: editingCommand, request: commandData },
         {
           onSuccess: () => {
             setEditingCommand(null)
@@ -223,14 +258,7 @@ export function CommandsPage() {
                 return null
               }
 
-              const IconComponent = command.icon
-                ? (
-                    LucideIcons as unknown as Record<
-                      string,
-                      React.ComponentType<{ className?: string }>
-                    >
-                  )[command.icon]
-                : null
+              const IconComponent = command.icon ? getLucideIcon(command.icon) : null
 
               return (
                 <Card key={command.name}>
@@ -322,70 +350,44 @@ export function CommandsPage() {
                   </p>
 
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="requiresUncommittedChanges"
-                        checked={formData.conditions.requiresUncommittedChanges}
-                        onCheckedChange={(checked) =>
-                          updateCondition('requiresUncommittedChanges', checked === true)
-                        }
-                      />
-                      <Label htmlFor="requiresUncommittedChanges" className="text-sm">
-                        Uncommitted changes
-                      </Label>
-                    </div>
+                    <ConditionCheckbox
+                      id="requiresUncommittedChanges"
+                      label="Uncommitted changes"
+                      checked={formData.conditions.requiresUncommittedChanges}
+                      onCheckedChange={(value) =>
+                        updateCondition('requiresUncommittedChanges', value)
+                      }
+                    />
 
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="requiresCommittedChanges"
-                        checked={formData.conditions.requiresCommittedChanges}
-                        onCheckedChange={(checked) =>
-                          updateCondition('requiresCommittedChanges', checked === true)
-                        }
-                      />
-                      <Label htmlFor="requiresCommittedChanges" className="text-sm">
-                        Committed changes
-                      </Label>
-                    </div>
+                    <ConditionCheckbox
+                      id="requiresCommittedChanges"
+                      label="Committed changes"
+                      checked={formData.conditions.requiresCommittedChanges}
+                      onCheckedChange={(value) =>
+                        updateCondition('requiresCommittedChanges', value)
+                      }
+                    />
 
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="requiresAheadOfMain"
-                        checked={formData.conditions.requiresAheadOfMain}
-                        onCheckedChange={(checked) =>
-                          updateCondition('requiresAheadOfMain', checked === true)
-                        }
-                      />
-                      <Label htmlFor="requiresAheadOfMain" className="text-sm">
-                        Ahead of main
-                      </Label>
-                    </div>
+                    <ConditionCheckbox
+                      id="requiresAheadOfMain"
+                      label="Ahead of main"
+                      checked={formData.conditions.requiresAheadOfMain}
+                      onCheckedChange={(value) => updateCondition('requiresAheadOfMain', value)}
+                    />
 
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="requiresBehindMain"
-                        checked={formData.conditions.requiresBehindMain}
-                        onCheckedChange={(checked) =>
-                          updateCondition('requiresBehindMain', checked === true)
-                        }
-                      />
-                      <Label htmlFor="requiresBehindMain" className="text-sm">
-                        Behind main
-                      </Label>
-                    </div>
+                    <ConditionCheckbox
+                      id="requiresBehindMain"
+                      label="Behind main"
+                      checked={formData.conditions.requiresBehindMain}
+                      onCheckedChange={(value) => updateCondition('requiresBehindMain', value)}
+                    />
 
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="requiresDiverged"
-                        checked={formData.conditions.requiresDiverged}
-                        onCheckedChange={(checked) =>
-                          updateCondition('requiresDiverged', checked === true)
-                        }
-                      />
-                      <Label htmlFor="requiresDiverged" className="text-sm">
-                        Diverged from main
-                      </Label>
-                    </div>
+                    <ConditionCheckbox
+                      id="requiresDiverged"
+                      label="Diverged from main"
+                      checked={formData.conditions.requiresDiverged}
+                      onCheckedChange={(value) => updateCondition('requiresDiverged', value)}
+                    />
                   </div>
                 </div>
 
@@ -397,44 +399,30 @@ export function CommandsPage() {
                   </p>
 
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="requiresTaskNotRunning"
-                        checked={formData.conditions.requiresTaskNotRunning}
-                        onCheckedChange={(checked) =>
-                          updateCondition('requiresTaskNotRunning', checked === true)
-                        }
-                      />
-                      <Label htmlFor="requiresTaskNotRunning" className="text-sm">
-                        Task not running
-                      </Label>
-                    </div>
+                    <ConditionCheckbox
+                      id="requiresTaskNotRunning"
+                      label="Task not running"
+                      checked={formData.conditions.requiresTaskNotRunning}
+                      onCheckedChange={(value) => updateCondition('requiresTaskNotRunning', value)}
+                    />
 
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="requiresLastIterationError"
-                        checked={formData.conditions.requiresLastIterationError}
-                        onCheckedChange={(checked) =>
-                          updateCondition('requiresLastIterationError', checked === true)
-                        }
-                      />
-                      <Label htmlFor="requiresLastIterationError" className="text-sm">
-                        Last iteration had error
-                      </Label>
-                    </div>
+                    <ConditionCheckbox
+                      id="requiresLastIterationError"
+                      label="Last iteration had error"
+                      checked={formData.conditions.requiresLastIterationError}
+                      onCheckedChange={(value) =>
+                        updateCondition('requiresLastIterationError', value)
+                      }
+                    />
 
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="requiresLastIterationSuccess"
-                        checked={formData.conditions.requiresLastIterationSuccess}
-                        onCheckedChange={(checked) =>
-                          updateCondition('requiresLastIterationSuccess', checked === true)
-                        }
-                      />
-                      <Label htmlFor="requiresLastIterationSuccess" className="text-sm">
-                        Last iteration successful
-                      </Label>
-                    </div>
+                    <ConditionCheckbox
+                      id="requiresLastIterationSuccess"
+                      label="Last iteration successful"
+                      checked={formData.conditions.requiresLastIterationSuccess}
+                      onCheckedChange={(value) =>
+                        updateCondition('requiresLastIterationSuccess', value)
+                      }
+                    />
                   </div>
                 </div>
 

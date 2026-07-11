@@ -19,9 +19,7 @@ interface PluginsGroupProps {
 export function PluginsGroup({ formData, onUpdateField }: PluginsGroupProps) {
   const { data, isLoading } = usePlugins()
   const plugins = data?.plugins ?? []
-  // plugins from the API is typed as { [key: string]: unknown } | null,
-  // but we treat it as string[] for the UI
-  const selectedPluginIds = (formData.plugins ?? []) as unknown as string[]
+  const selectedPluginIds = formData.plugins ?? []
   const [isPickerOpen, setIsPickerOpen] = useState(false)
 
   // Create a map for quick plugin lookup
@@ -42,11 +40,11 @@ export function PluginsGroup({ formData, onUpdateField }: PluginsGroupProps) {
 
   const handleRemovePlugin = (pluginId: string) => {
     const filtered = selectedPluginIds.filter((p) => p !== pluginId)
-    onUpdateField('plugins', filtered as unknown as UpdateRepositoryRequest['plugins'])
+    onUpdateField('plugins', filtered)
   }
 
   const handleConfirmSelection = (newSelection: string[]) => {
-    onUpdateField('plugins', newSelection as unknown as UpdateRepositoryRequest['plugins'])
+    onUpdateField('plugins', newSelection)
   }
 
   if (isLoading) {

@@ -110,8 +110,8 @@ export function SecretEditorDialog({
 
     if (isEditing && editSecret) {
       const request: PatchSecretRequest = {
-        value: form.value ? form.value : undefined,
-        kind: form.kind !== editSecret.kind ? form.kind : undefined,
+        ...(form.value ? { value: form.value } : {}),
+        ...(form.kind !== editSecret.kind ? { kind: form.kind } : {}),
       }
       patchSecret.mutate(
         { id: editSecret.id, request },

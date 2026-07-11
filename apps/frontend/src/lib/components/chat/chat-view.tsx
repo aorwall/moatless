@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils'
 
 interface ChatViewProps {
   children: React.ReactNode
-  className?: string
+  className?: string | undefined
 }
 
 export function ChatView({ children, className }: ChatViewProps) {

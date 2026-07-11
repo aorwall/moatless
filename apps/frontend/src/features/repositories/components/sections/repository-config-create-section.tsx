@@ -93,7 +93,7 @@ export function RepositoryConfigCreateSection({
     const parts = cleaned.split('/')
     // Last path segment; for scp-like SSH URLs without a '/' (git@host:repo)
     // strip the leading `user@host:` by taking the part after the last ':'.
-    const lastPart = parts[parts.length - 1]?.split(':').pop()
+    const lastPart = parts.at(-1)?.split(':').pop()
     return lastPart && lastPart.length > 0 ? lastPart : null
   }
 

@@ -10,8 +10,8 @@ import { Button } from '@/lib/components/ui/button'
 
 interface SandboxActionButtonsProps {
   taskId: string
-  environmentStatus?: string
-  compact?: boolean
+  environmentStatus?: string | undefined
+  compact?: boolean | undefined
 }
 
 export function SandboxActionButtons({

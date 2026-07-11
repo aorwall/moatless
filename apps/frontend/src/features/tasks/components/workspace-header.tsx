@@ -7,12 +7,12 @@ import { cn } from '@/lib/utils'
 interface WorkspaceHeaderProps {
   activeView: string
   onViewChange: (view: string) => void
-  centerContent?: ReactNode
-  rightContent?: ReactNode
-  showToggle?: boolean
+  centerContent?: ReactNode | undefined
+  rightContent?: ReactNode | undefined
+  showToggle?: boolean | undefined
   /** Dynamic server list — renders ServerTabs when provided */
-  servers?: ServerEntry[]
-  className?: string
+  servers?: ServerEntry[] | undefined
+  className?: string | undefined
 }
 
 export function WorkspaceHeader({

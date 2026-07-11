@@ -5,12 +5,14 @@ import { Button } from '@/lib/components/ui/button'
 
 interface AdminPageProps {
   title: string
-  description?: string
-  backTo?: { to: LinkProps['to']; params?: LinkProps['params']; label: string }
-  actions?: ReactNode
+  description?: string | undefined
+  backTo?:
+    | { to: NonNullable<LinkProps['to']>; params?: LinkProps['params']; label: string }
+    | undefined
+  actions?: ReactNode | undefined
   children: ReactNode
   /** Span the full page width instead of the default `max-w-4xl` container. */
-  fullWidth?: boolean
+  fullWidth?: boolean | undefined
 }
 
 export function AdminPage({
@@ -29,7 +31,7 @@ export function AdminPage({
     >
       {backTo && (
         <Button variant="ghost" size="sm" asChild>
-          <Link to={backTo.to} params={backTo.params}>
+          <Link to={backTo.to} {...(backTo.params !== undefined && { params: backTo.params })}>
             <ArrowLeft className="mr-2 h-4 w-4" />
             {backTo.label}
           </Link>

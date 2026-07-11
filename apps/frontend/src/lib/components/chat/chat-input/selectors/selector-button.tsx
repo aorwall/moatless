@@ -5,9 +5,9 @@ import { cn } from '@/lib/utils'
 export interface SelectorButtonProps {
   icon: LucideIcon
   label: string
-  onClick?: () => void
-  disabled?: boolean
-  className?: string
+  onClick?: (() => void) | undefined
+  disabled?: boolean | undefined
+  className?: string | undefined
 }
 
 export function SelectorButton({

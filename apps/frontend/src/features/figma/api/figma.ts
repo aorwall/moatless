@@ -44,4 +44,4 @@ export const figmaApi = {
 }
 
 // Export types for use in hooks
-export type { FigmaImportResponse, ParseClipboardResponse }
+export type { FigmaImportResponse, ParseClipboardResponse } from '@moatless/api-client'

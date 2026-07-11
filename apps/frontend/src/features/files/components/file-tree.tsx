@@ -85,7 +85,9 @@ export function FileTree({ taskId, selectedPath, onFileSelect }: FileTreeProps) 
     paths: initialPaths.current,
     gitStatus: initialGitStatus.current,
     onSelectionChange,
-    initialSelectedPaths: initialSelection.current,
+    ...(initialSelection.current !== undefined && {
+      initialSelectedPaths: initialSelection.current,
+    }),
     initialExpansion: 'closed',
     initialExpandedPaths: initialExpansion.current,
     renderRowDecoration,

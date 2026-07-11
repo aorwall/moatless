@@ -140,7 +140,7 @@ vi.mock('@radix-ui/react-tooltip', () => ({
 }))
 
 // Increase test timeout for heavy operations
-vi.setConfig({ testTimeout: 10000 })
+vi.setConfig({ testTimeout: 10_000 })
 
 // Cleanup after each test
 afterEach(() => {

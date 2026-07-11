@@ -66,17 +66,23 @@ export function RepositoryConfigEditSection({
       name: repository.name || '',
       description: repository.description || '',
       systemPrompt: repository.systemPrompt || '',
-      dockerImage: repository.dockerImage,
-      setupCommands: repository.setupCommands,
-      envVars: repository.envVars,
-      buildCommand: repository.buildCommand,
-      buildOutputDirectory: repository.buildOutputDirectory,
-      autoReload: repository.autoReload,
+      ...(repository.dockerImage !== undefined && { dockerImage: repository.dockerImage }),
+      ...(repository.setupCommands !== undefined && { setupCommands: repository.setupCommands }),
+      ...(repository.envVars !== undefined && { envVars: repository.envVars }),
+      ...(repository.buildCommand !== undefined && { buildCommand: repository.buildCommand }),
+      ...(repository.buildOutputDirectory !== undefined && {
+        buildOutputDirectory: repository.buildOutputDirectory,
+      }),
+      ...(repository.autoReload !== undefined && { autoReload: repository.autoReload }),
       enableInspector: repository.enableInspector ?? true,
-      serverStartCommands: repository.serverStartCommands,
-      startupTimeoutSeconds: repository.startupTimeoutSeconds,
-      servers: repository.servers,
-      plugins: repository.plugins,
+      ...(repository.serverStartCommands !== undefined && {
+        serverStartCommands: repository.serverStartCommands,
+      }),
+      ...(repository.startupTimeoutSeconds !== undefined && {
+        startupTimeoutSeconds: repository.startupTimeoutSeconds,
+      }),
+      ...(repository.servers !== undefined && { servers: repository.servers }),
+      ...(repository.plugins !== undefined && { plugins: repository.plugins }),
       remoteUrl: repository.remoteUrl || '',
     }
 

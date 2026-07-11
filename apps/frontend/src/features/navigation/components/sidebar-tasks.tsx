@@ -203,7 +203,7 @@ function SidebarTaskItem({
   const navigate = useNavigate()
   const closeTask = useCloseTask(task.taskId)
 
-  const handleClose = (event: React.MouseEvent) => {
+  const handleClose = async (event: React.MouseEvent) => {
     event.preventDefault()
     event.stopPropagation()
 
@@ -211,9 +211,9 @@ function SidebarTaskItem({
     // task instead of bouncing back to the dashboard.
     if (isActive) {
       if (neighborTaskId) {
-        navigate({ to: '/tasks/$task-id', params: { 'task-id': neighborTaskId } })
+        await navigate({ to: '/tasks/$task-id', params: { 'task-id': neighborTaskId } })
       } else {
-        navigate({ to: '/' })
+        await navigate({ to: '/' })
       }
     }
 
@@ -321,16 +321,19 @@ export function SidebarTasks() {
     // Personal task list: tasks the user follows. Users auto-follow tasks they
     // create or message, and can follow other users' tasks explicitly, so this
     // shows own tasks alongside followed ones.
-    followedBy: user?.id,
+    ...(user?.id !== undefined && { followedBy: user.id }),
   })
+  const filteredQueryStatus = filters.status === 'all' ? undefined : filters.status
+  const filteredQueryCreatedBy = filters.createdBy === 'all' ? undefined : filters.createdBy
+  const filteredQueryFollowedBy = filters.onlyFollowed ? user?.id : undefined
   const filteredQuery = useTasksList({
     limit: 100,
-    status: filters.status === 'all' ? undefined : filters.status,
-    tag: filters.tag,
-    createdBy: filters.createdBy === 'all' ? undefined : filters.createdBy,
-    repositoryId: filters.repositoryId,
+    ...(filteredQueryStatus !== undefined && { status: filteredQueryStatus }),
+    ...(filters.tag !== undefined && { tag: filters.tag }),
+    ...(filteredQueryCreatedBy !== undefined && { createdBy: filteredQueryCreatedBy }),
+    ...(filters.repositoryId !== undefined && { repositoryId: filters.repositoryId }),
     // Cleared when the user opts to see everyone's tasks via the filter.
-    followedBy: filters.onlyFollowed ? user?.id : undefined,
+    ...(filteredQueryFollowedBy !== undefined && { followedBy: filteredQueryFollowedBy }),
   })
 
   const isLoadingTasks = runningQuery.isLoading || filteredQuery.isLoading

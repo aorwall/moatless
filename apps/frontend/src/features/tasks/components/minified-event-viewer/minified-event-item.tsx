@@ -53,62 +53,63 @@ function getToolIcon(toolName: string) {
 
 // Helper: Get truncated file path from input
 function getFilePathSummary(input: Record<string, unknown>, maxLength = 40): string {
-  return input.file_path && typeof input.file_path === 'string'
-    ? truncateText(input.file_path, maxLength)
-    : ''
+  const filePath = input['file_path']
+  return filePath && typeof filePath === 'string' ? truncateText(filePath, maxLength) : ''
 }
 
 // Helper: Get truncated pattern from input
 function getPatternSummary(input: Record<string, unknown>, maxLength = 30): string {
-  return input.pattern && typeof input.pattern === 'string'
-    ? `"${truncateText(input.pattern, maxLength)}"`
-    : ''
+  const pattern = input['pattern']
+  return pattern && typeof pattern === 'string' ? `"${truncateText(pattern, maxLength)}"` : ''
 }
 
 // Helper: Get truncated command from input
 function getCommandSummary(input: Record<string, unknown>, maxLength = 50): string {
-  return input.command && typeof input.command === 'string'
-    ? truncateText(input.command, maxLength)
-    : ''
+  const command = input['command']
+  return command && typeof command === 'string' ? truncateText(command, maxLength) : ''
 }
 
 // Helper: Get truncated URL from input
 function getUrlSummary(input: Record<string, unknown>, maxLength = 40): string {
-  return input.url && typeof input.url === 'string' ? truncateText(input.url, maxLength) : ''
+  const url = input['url']
+  return url && typeof url === 'string' ? truncateText(url, maxLength) : ''
 }
 
 // Helper: Get truncated path from input
 function getPathSummary(input: Record<string, unknown>, maxLength = 40): string {
-  return input.path && typeof input.path === 'string' ? truncateText(input.path, maxLength) : ''
+  const path = input['path']
+  return path && typeof path === 'string' ? truncateText(path, maxLength) : ''
 }
 
 // Helper: Get truncated description from input
 function getDescriptionSummary(input: Record<string, unknown>, maxLength = 40): string {
-  return input.description && typeof input.description === 'string'
-    ? truncateText(input.description, maxLength)
-    : ''
+  const description = input['description']
+  return description && typeof description === 'string' ? truncateText(description, maxLength) : ''
 }
 
 // Helper: Get todo count summary
 function getTodoCountSummary(input: Record<string, unknown>): string {
-  return input.todos && Array.isArray(input.todos) ? `${input.todos.length} items` : ''
+  const todos = input['todos']
+  return todos && Array.isArray(todos) ? `${todos.length} items` : ''
 }
 
 // Helper: Get codex todo_list item count summary
 function getCodexTodoListSummary(input: Record<string, unknown>): string {
-  return Array.isArray(input.items) ? `${input.items.length} items` : ''
+  const items = input['items']
+  return Array.isArray(items) ? `${items.length} items` : ''
 }
 
 // Helper: Get codex edit change summary
 function getCodexEditSummary(input: Record<string, unknown>): string {
-  if (!Array.isArray(input.changes) || input.changes.length === 0) {
+  const changes = input['changes']
+  if (!Array.isArray(changes) || changes.length === 0) {
     return ''
   }
-  if (input.changes.length === 1) {
-    const first = input.changes[0] as { path?: unknown }
+  if (changes.length === 1) {
+    const first = changes[0] as { path?: unknown }
     return typeof first.path === 'string' ? truncateText(first.path, 40) : ''
   }
-  return `${input.changes.length} files`
+  return `${changes.length} files`
 }
 
 function getToolSummary(toolContent: ToolUseContent): string {
@@ -162,10 +163,10 @@ function extractToolContent(event: Event): ToolUseContent | null {
 
   if (
     payload?.type === 'assistant' &&
-    payload.message?.content &&
-    Array.isArray(payload.message.content)
+    payload.message?.['content'] &&
+    Array.isArray(payload.message['content'])
   ) {
-    for (const content of payload.message.content) {
+    for (const content of payload.message['content']) {
       if (isToolUseContent(content)) {
         return content
       }
@@ -185,8 +186,8 @@ export function MinifiedEventItem({ event }: MinifiedEventItemProps) {
     const payload = agentEvent.payload
 
     // Handle text messages
-    if (payload?.type === 'assistant' && payload.message?.content) {
-      const content = payload.message.content
+    if (payload?.type === 'assistant' && payload.message?.['content']) {
+      const content = payload.message['content']
 
       // If content is a string, show it
       if (typeof content === 'string') {

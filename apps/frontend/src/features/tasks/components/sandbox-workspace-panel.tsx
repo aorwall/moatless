@@ -9,8 +9,8 @@ import { WorkspaceHeader } from './workspace-header'
 interface SandboxWorkspacePanelProps {
   view: string
   onViewChange: (view: string) => void
-  servers?: ServerEntry[]
-  sandboxEvents?: SandboxEvent[]
+  servers?: ServerEntry[] | undefined
+  sandboxEvents?: SandboxEvent[] | undefined
 }
 
 /**
