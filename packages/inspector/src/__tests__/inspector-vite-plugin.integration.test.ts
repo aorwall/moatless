@@ -62,10 +62,11 @@ describe('Inspector Vite Plugin Integration', () => {
       timeout: 60_000,
     })
 
-    // 5. Start dev server on random port
+    // 5. Start dev server on random port (detached so the whole process group can be killed)
     devProcess = spawn('bunx', ['vite', '--port', String(port)], {
       cwd: tmpDir,
       stdio: 'pipe',
+      detached: true,
       env: { ...process.env, PORT: String(port) },
     })
 
@@ -73,12 +74,32 @@ describe('Inspector Vite Plugin Integration', () => {
     await waitForServer(`http://localhost:${port}`, 30_000)
   }, 120_000)
 
-  afterAll(() => {
-    if (devProcess) {
-      devProcess.kill()
+  afterAll(async () => {
+    if (devProcess?.pid !== undefined && devProcess.exitCode === null) {
+      // Kill the whole process group (bunx spawns vite/esbuild children that
+      // keep writing to tmpDir if only the wrapper is killed)
+      const exited = new Promise<void>((resolve) => {
+        devProcess.once('exit', () => resolve())
+      })
+      try {
+        process.kill(-devProcess.pid, 'SIGTERM')
+      } catch {
+        devProcess.kill()
+      }
+      const timeout = new Promise<'timeout'>((resolve) =>
+        setTimeout(() => resolve('timeout'), 5000),
+      )
+      if ((await Promise.race([exited, timeout])) === 'timeout') {
+        try {
+          process.kill(-devProcess.pid, 'SIGKILL')
+        } catch {
+          devProcess.kill('SIGKILL')
+        }
+        await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 2000))])
+      }
     }
     if (tmpDir) {
-      rmSync(tmpDir, { recursive: true, force: true })
+      rmSync(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
     }
   })
 
