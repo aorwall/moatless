@@ -5,8 +5,6 @@ export * from './api/tasks'
 
 // Components
 export { CreateTaskForm } from './components/create-task-form'
-export { TaskPage } from './components/task-page'
-
 // Tri-Context Pattern for performance optimization
 export {
   TaskDataProvider,
@@ -38,6 +36,7 @@ export {
 } from './hooks/use-task-view'
 // Hooks
 export * from './hooks/use-tasks'
+export { TaskPage } from './layouts/task-page'
 
 // Utils
 export * from './utils/format-duration'

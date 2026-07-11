@@ -1,7 +1,6 @@
 import { PanelRightClose, Pencil } from 'lucide-react'
 import { useState } from 'react'
-import { useChatToggle } from '@/features/tasks/components/task-page-layout'
-import { useTaskId } from '@/features/tasks/contexts/task-providers'
+import { usePanelControls, useTaskId } from '@/features/tasks/contexts/task-providers'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
 import { useUpdateTaskMetadata } from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'
@@ -11,7 +10,7 @@ export function TaskKioskHeader() {
   const taskId = useTaskId()
   const taskQuery = useTaskDetailQuery(taskId)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
-  const { toggleChat } = useChatToggle()
+  const { toggleChat } = usePanelControls()
   const updateMetadata = useUpdateTaskMetadata(taskId, {
     onSuccess: () => setIsEditDialogOpen(false),
   })

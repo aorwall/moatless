@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
 import { SettingsDialog, useFigmaConfig } from '@/features/settings'
 import { useRepositorySkills } from '@/features/skills'
-import { useTaskId } from '@/features/tasks/contexts/task-providers'
+import { usePanelControls, useTaskId } from '@/features/tasks/contexts/task-providers'
 import { useFileSearch } from '@/features/tasks/hooks/use-file-search'
 import { useSandboxRetry, useSandboxStatus } from '@/features/tasks/hooks/use-sandbox-status'
 import { useTaskDraftMessage } from '@/features/tasks/hooks/use-task-draft-message'
@@ -57,8 +57,6 @@ interface ChatContainerProps {
   className?: string
   contextItems?: MessageContextInput[]
   onContextItemsChange?: (contexts: MessageContextInput[]) => void
-  onPreviewUrlClick?: (path: string) => void
-  onCommandExecutorReady?: (executor: (commandName: string) => void) => void
   /** Hide the agent edit/plan mode toggle in the chat input. */
   hideAgentModeSelector?: boolean
   /**
@@ -106,12 +104,11 @@ function ChatContainer({
   className,
   contextItems = [],
   onContextItemsChange,
-  onPreviewUrlClick,
-  onCommandExecutorReady,
   hideAgentModeSelector = false,
   collapseToolCalls = false,
 }: ChatContainerProps) {
   const taskId = useTaskId()
+  const { navigatePreview, registerCommandExecutor } = usePanelControls()
 
   const { data: task } = useTaskDetailQuery(taskId)
   const status = task?.status
@@ -491,10 +488,12 @@ function ChatContainer({
     [availableCommands, sendMessage, isModelSelectorEnabled, selectedModel, selectedAgentMode],
   )
 
-  // Expose command executor to parent
-  useEffect(() => {
-    onCommandExecutorReady?.(executeCommandByName)
-  }, [onCommandExecutorReady, executeCommandByName])
+  // Register command executor with panel controls (invoked e.g. by the preview
+  // troubleshoot button). Cleanup unregisters on unmount / executor change.
+  useEffect(
+    () => registerCommandExecutor(executeCommandByName),
+    [registerCommandExecutor, executeCommandByName],
+  )
 
   // Compute placeholder text using extracted helper
   const placeholderText = getPlaceholderText(envStatus, isTaskRunning, status)
@@ -548,7 +547,7 @@ function ChatContainer({
         isRunning={isTaskRunning}
         environmentStatus={envStatus}
         environmentError={sandboxStatus?.environmentError ?? undefined}
-        onPreviewUrlClick={onPreviewUrlClick}
+        onPreviewUrlClick={navigatePreview}
         hasPreviousPage={hasPreviousPage}
         isFetchingPreviousPage={isFetchingPreviousPage}
         fetchPreviousPage={fetchPreviousPage}
@@ -651,7 +650,7 @@ function ChatContainer({
             <ContextItems
               contexts={taskInputs.contextItems}
               onRemove={taskInputs.handleRemoveContext}
-              onPreviewUrlClick={onPreviewUrlClick}
+              onPreviewUrlClick={navigatePreview}
               isLoading={taskInputs.figmaImportPending}
             />
           )}

@@ -1,7 +1,7 @@
 import type { ServerEntry } from '@moatless/api-client'
 import { FileText, MessageSquare, Monitor, Server, SlidersHorizontal } from 'lucide-react'
-import { SANDBOX_VIEW } from '@/features/preview/components/server-tabs'
 import { cn } from '@/lib/utils'
+import { SANDBOX_VIEW } from '../types/view-registry'
 
 interface MobileViewToggleProps {
   currentView: string
