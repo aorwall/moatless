@@ -1,12 +1,14 @@
-import { ExternalLink, Timer } from 'lucide-react'
+import { ExternalLink, Pencil, Timer } from 'lucide-react'
+import { useState } from 'react'
 import { SandboxActionButtons } from '@/features/sandbox/components/sandbox-action-buttons'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
 import { useSandboxStatus } from '@/features/tasks/hooks/use-sandbox-status'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
-import { useUpdateTaskTtl } from '@/features/tasks/hooks/use-tasks'
+import { useUpdateTaskMetadata, useUpdateTaskTtl } from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'
 import { cn } from '@/lib/utils'
 import { TaskConnectionsSection } from './task-connections-section'
+import { EditTaskDialog } from './task-header/edit-task-dialog'
 import { TaskInfoSection } from './task-header/task-info-section'
 
 /** Idle stop: minutes of inactivity before the sandbox is stopped (0 = never). */
@@ -71,6 +73,10 @@ export function TaskControlPanel({ className }: TaskControlPanelProps) {
   const taskQuery = useTaskDetailQuery(taskId)
   const { data: sandboxStatus } = useSandboxStatus(taskId, taskQuery.data)
   const updateTtl = useUpdateTaskTtl(taskId)
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const updateMetadata = useUpdateTaskMetadata(taskId, {
+    onSuccess: () => setIsEditDialogOpen(false),
+  })
   const task = taskQuery.data
 
   if (!task) {
@@ -98,8 +104,17 @@ export function TaskControlPanel({ className }: TaskControlPanelProps) {
     <div className={cn('flex-1 min-h-0 overflow-y-auto', className)}>
       <div className="w-full px-4 md:px-6 pt-4 pb-6 space-y-4">
         <section className="rounded-md border">
-          <div className="px-3 py-2 text-xs font-medium text-muted-foreground border-b">
-            Details
+          <div className="flex items-center justify-between gap-2 px-3 py-2 border-b">
+            <span className="text-xs font-medium text-muted-foreground">Details</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 gap-1 px-2 text-xs"
+              onClick={() => setIsEditDialogOpen(true)}
+            >
+              <Pencil className="h-3 w-3" />
+              Edit
+            </Button>
           </div>
           <TaskInfoSection task={task} />
         </section>
@@ -168,6 +183,15 @@ export function TaskControlPanel({ className }: TaskControlPanelProps) {
           <TaskConnectionsSection taskId={taskId} />
         </section>
       </div>
+
+      <EditTaskDialog
+        isOpen={isEditDialogOpen}
+        onOpenChange={setIsEditDialogOpen}
+        currentName={task.name || ''}
+        currentDescription={task.description || ''}
+        onSubmit={(updates) => updateMetadata.mutate(updates)}
+        isPending={updateMetadata.isPending}
+      />
     </div>
   )
 }

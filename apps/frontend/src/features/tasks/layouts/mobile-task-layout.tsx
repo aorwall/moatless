@@ -1,5 +1,5 @@
 import { useCallback, useEffect } from 'react'
-import { TaskLeftHeader } from '../components/task-header/task-left-header'
+import { TaskMobileHeader } from '../components/task-header/task-mobile-header'
 import { usePanelControls } from '../contexts/task-providers'
 import { useTaskView } from '../hooks/use-task-view'
 import { ChatPanel } from '../panels/chat-panel'
@@ -19,7 +19,7 @@ export function MobileTaskLayout() {
   return (
     <div className="h-full w-full flex flex-col overflow-hidden">
       <div className="flex-1 min-h-0 relative">
-        <TaskLeftHeader showViewToggle defaultView="chat" />
+        <TaskMobileHeader />
         {view === 'chat' ? <ChatPanel /> : <WorkspacePanel />}
       </div>
     </div>

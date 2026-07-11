@@ -1,39 +1,21 @@
-import { Pencil } from 'lucide-react'
-import { useState } from 'react'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
-import { ViewSwitcher } from '@/features/tasks/components/view-switcher'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
 import { useSandboxStatus } from '@/features/tasks/hooks/use-sandbox-status'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
-import { type TaskView, useTaskView } from '@/features/tasks/hooks/use-task-view'
-import { useUpdateTaskMetadata } from '@/features/tasks/hooks/use-tasks'
-import { Button } from '@/lib/components/ui/button'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar'
 import { CreateRepoButton } from './create-repo-button'
-import { EditTaskDialog } from './edit-task-dialog'
 import { ScheduledJobsPill } from './scheduled-jobs-pill'
 
-interface TaskLeftHeaderProps {
-  /**
-   * Render the mobile view toggle. Owned by the layout: the mobile layout sets
-   * this, the desktop layout leaves it off (tabs live in the workspace header).
-   */
-  showViewToggle?: boolean
-  /** Default view when the URL has no `?view=` — must match the layout's default. */
-  defaultView?: TaskView
-}
-
-export function TaskLeftHeader({ showViewToggle = false, defaultView }: TaskLeftHeaderProps = {}) {
+/**
+ * Desktop chat-panel header: sits above the chat side of the desktop task
+ * split. Shows the task title, repository/creator metadata, scheduled jobs, and
+ * the create-repo action. The mobile view switcher lives in `TaskMobileHeader`.
+ */
+export function TaskLeftHeader() {
   const taskId = useTaskId()
   const taskQuery = useTaskDetailQuery(taskId)
   const { data: repositories } = useRepositoriesList()
   const { data: sandboxStatus } = useSandboxStatus(taskId, taskQuery.data)
-  const servers = sandboxStatus?.servers
-  const { view, setView } = useTaskView({ fallback: defaultView })
-  const updateMetadata = useUpdateTaskMetadata(taskId, {
-    onSuccess: () => setIsEditDialogOpen(false),
-  })
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const task = taskQuery.data
 
   if (!task) {
@@ -60,15 +42,6 @@ export function TaskLeftHeader({ showViewToggle = false, defaultView }: TaskLeft
           <span className="font-medium truncate max-w-[300px]" title={taskTitle}>
             {taskTitle}
           </span>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6 shrink-0"
-            title="Edit task name and description"
-            onClick={() => setIsEditDialogOpen(true)}
-          >
-            <Pencil className="h-3 w-3" />
-          </Button>
           {displayName && (
             <>
               <span className="text-muted-foreground hidden sm:inline">•</span>
@@ -105,21 +78,7 @@ export function TaskLeftHeader({ showViewToggle = false, defaultView }: TaskLeft
             repository={repository}
           />
         )}
-
-        {/* Mobile view switcher - shown when the layout requests it (mobile) */}
-        {showViewToggle && (
-          <ViewSwitcher currentView={view} onViewChange={setView} servers={servers} />
-        )}
       </div>
-
-      <EditTaskDialog
-        isOpen={isEditDialogOpen}
-        onOpenChange={setIsEditDialogOpen}
-        currentName={name || ''}
-        currentDescription={description || ''}
-        onSubmit={(updates) => updateMetadata.mutate(updates)}
-        isPending={updateMetadata.isPending}
-      />
     </div>
   )
 }
