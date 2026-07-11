@@ -170,8 +170,12 @@ if [ -n "$CODEARTIFACT_DOMAIN" ] && command -v aws >/dev/null 2>&1; then
     export PIP_INDEX_URL="https://aws:${ca_token}@${ca_host}/pypi/${ca_pypi_repo}/simple/"
     export UV_DEFAULT_INDEX="$PIP_INDEX_URL"
     # maven — wildcard mirror, same settings.xml docker-entrypoint-sandbox.sh writes.
-    mkdir -p "${HOME}/.m2"
-    cat > "${HOME}/.m2/settings.xml" <<EOF
+    # Maven resolves settings from the JVM's user.home, which comes from the passwd
+    # entry (/root for uid 0), not $HOME (/home/moatless) — write to both.
+    pw_home="$(getent passwd "$(id -u)" | cut -d: -f6)"
+    for m2_dir in "${HOME}/.m2" "${pw_home:-$HOME}/.m2"; do
+      mkdir -p "$m2_dir"
+      cat > "$m2_dir/settings.xml" <<EOF
 <settings>
   <servers>
     <server>
@@ -190,6 +194,7 @@ if [ -n "$CODEARTIFACT_DOMAIN" ] && command -v aws >/dev/null 2>&1; then
   </mirrors>
 </settings>
 EOF
+    done
   else
     echo "[codeartifact] could not mint a token (no AWS creds?) — skipping npm/pip/maven auth" >&2
   fi

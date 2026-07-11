@@ -63,9 +63,13 @@ if [ -n "$CODEARTIFACT_DOMAIN" ]; then
             export PIP_INDEX_URL="https://aws:${ca_token}@${ca_host}/pypi/${ca_pypi_repo}/simple/"
             export UV_DEFAULT_INDEX="$PIP_INDEX_URL"
 
-            # maven (wildcard mirror)
-            mkdir -p "$HOME/.m2"
-            cat > "$HOME/.m2/settings.xml" <<EOF
+            # maven (wildcard mirror). Maven resolves settings from the JVM's
+            # user.home, which comes from the passwd entry (/root for uid 0),
+            # not $HOME (/home/moatless) — write to both.
+            pw_home="$(getent passwd "$(id -u)" | cut -d: -f6)"
+            for m2_dir in "$HOME/.m2" "${pw_home:-$HOME}/.m2"; do
+                mkdir -p "$m2_dir"
+                cat > "$m2_dir/settings.xml" <<EOF
 <settings>
   <servers>
     <server>
@@ -84,6 +88,7 @@ if [ -n "$CODEARTIFACT_DOMAIN" ]; then
   </mirrors>
 </settings>
 EOF
+            done
             echo "[codeartifact] configured npm/pip/maven for ${ca_host}" >&2
         fi
     fi
