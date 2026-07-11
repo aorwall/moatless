@@ -74,10 +74,16 @@ pub fn build_options(
     ClaudeOptions {
         model,
         system_prompt,
+        // Plan-mode requests always use Plan so the InteractivePermissionHandler
+        // can block writes until ExitPlanMode. Otherwise use the configured mode
+        // (`SANDBOX_PERMISSION_MODE`), which defaults to BypassPermissions:
+        // AcceptEdits auto-approves only file edit/write tools and leaves network
+        // tools like WebSearch/WebFetch denied, since the CLI never routes those
+        // through the stdio permission handler.
         permission_mode: Some(if is_plan_mode {
             PermissionMode::Plan
         } else {
-            PermissionMode::AcceptEdits
+            config.permission_mode.clone()
         }),
         cwd: Some(config.workspace_dir.clone()),
         cli_path: Some(config.claude_cli_path.clone()),
@@ -264,6 +270,7 @@ mod tests {
             default_model: None,
             default_codex_model: None,
             use_tmux,
+            permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
             workspace_sync_enabled: false,
             home_dir: "/tmp/home".to_string(),
             codex_home_dir: "/tmp/home/.codex".to_string(),
@@ -297,6 +304,44 @@ mod tests {
             Arc::new(AgentState::new()),
             None,
         )
+    }
+
+    #[test]
+    fn normal_mode_uses_configured_permission_mode() {
+        // Default config carries BypassPermissions, which non-plan runs adopt.
+        let options = build_test_options(false);
+        assert_eq!(
+            options.permission_mode,
+            Some(PermissionMode::BypassPermissions)
+        );
+
+        // An overridden config mode flows through for non-plan runs.
+        let mut config = test_config(false);
+        config.permission_mode = PermissionMode::AcceptEdits;
+        let options = build_options(
+            &config,
+            &test_request(),
+            CancellationToken::new(),
+            Arc::new(AgentState::new()),
+            None,
+        );
+        assert_eq!(options.permission_mode, Some(PermissionMode::AcceptEdits));
+    }
+
+    #[test]
+    fn plan_mode_overrides_configured_permission_mode() {
+        let mut config = test_config(false);
+        config.permission_mode = PermissionMode::BypassPermissions;
+        let mut request = test_request();
+        request.agent_mode = Some("plan".to_string());
+        let options = build_options(
+            &config,
+            &request,
+            CancellationToken::new(),
+            Arc::new(AgentState::new()),
+            None,
+        );
+        assert_eq!(options.permission_mode, Some(PermissionMode::Plan));
     }
 
     #[test]

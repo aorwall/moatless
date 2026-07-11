@@ -619,6 +619,11 @@ kubernetes:
   # Example: enable tmux-based Claude SDK transport:
   #   - name: SANDBOX_USE_TMUX
   #     value: "true"
+  # Example: change the Claude CLI permission mode for subprocess-transport pods
+  # (default: bypassPermissions; accepts default|acceptEdits|bypassPermissions|
+  # plan|delegate|dontAsk). Ignored in tmux mode:
+  #   - name: SANDBOX_PERMISSION_MODE
+  #     value: "acceptEdits"
   sandboxExtraEnv: []
   # Image pre-pull configuration (reduces pod startup time)
   imagePrepull:

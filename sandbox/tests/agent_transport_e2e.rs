@@ -210,6 +210,7 @@ fn test_config(tmp: &TempDir, use_tmux: bool) -> Config {
         setup_commands: vec![],
         plugin_ids: vec![],
         plugin_repos: vec![],
+        permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
         workspace_sync_enabled: false,
     }
 }

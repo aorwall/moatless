@@ -849,6 +849,7 @@ mod tests {
             servers: vec![],
             frontend_url: None,
             use_tmux: false,
+            permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
             workspace_sync_enabled: false,
             default_model: None,
             default_codex_model: default_codex_model.map(String::from),

@@ -5,6 +5,7 @@
 
 use std::env;
 
+use claude_agent_sdk::PermissionMode;
 use serde::Deserialize;
 
 /// Agent-specific configuration parsed from REPO_CONFIG.
@@ -152,6 +153,15 @@ pub struct Config {
     pub default_codex_model: Option<String>,
     /// Use the tmux-based Claude Code SDK transport instead of subprocess/NDJSON (env: SANDBOX_USE_TMUX).
     pub use_tmux: bool,
+    /// Permission mode for the Claude CLI in normal (non-plan) mode (env:
+    /// `SANDBOX_PERMISSION_MODE`). Defaults to `bypassPermissions` so network
+    /// tools like WebSearch/WebFetch aren't denied (they are not auto-approved
+    /// by `acceptEdits` and the CLI never routes them through the stdio
+    /// permission handler). Plan-mode requests always override this with
+    /// `plan`. Ignored in tmux mode, which always uses
+    /// `--dangerously-skip-permissions`. Accepts the CLI spellings: `default`,
+    /// `acceptEdits`, `bypassPermissions`, `plan`, `delegate`, `dontAsk`.
+    pub permission_mode: PermissionMode,
     /// Whether the `s3` storage backend's workspace sync is enabled (env:
     /// `WORKSPACE_SYNC_ENABLED`). Set by the backend only for `storage_mode:
     /// "s3"` pods; when true, the sandbox restores the git working tree from S3
@@ -197,6 +207,31 @@ pub(crate) fn derive_repo_name(url: &str) -> String {
         "repo".to_string()
     } else {
         name.to_string()
+    }
+}
+
+/// Parse the `SANDBOX_PERMISSION_MODE` env value into a [`PermissionMode`].
+///
+/// Accepts the CLI's camelCase spellings case-insensitively (`default`,
+/// `acceptEdits`, `bypassPermissions`, `plan`, `delegate`, `dontAsk`) plus a
+/// couple of snake_case aliases. Returns `None` for empty or unrecognised
+/// values so the caller falls back to the default.
+fn parse_permission_mode(raw: &str) -> Option<PermissionMode> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "" => None,
+        "default" => Some(PermissionMode::Default),
+        "acceptedits" | "accept_edits" => Some(PermissionMode::AcceptEdits),
+        "bypasspermissions" | "bypass" => Some(PermissionMode::BypassPermissions),
+        "plan" => Some(PermissionMode::Plan),
+        "delegate" => Some(PermissionMode::Delegate),
+        "dontask" | "dont_ask" => Some(PermissionMode::DontAsk),
+        other => {
+            tracing::warn!(
+                value = %other,
+                "Unrecognised SANDBOX_PERMISSION_MODE; falling back to default"
+            );
+            None
+        }
     }
 }
 
@@ -283,6 +318,10 @@ impl Config {
             use_tmux: env::var("SANDBOX_USE_TMUX")
                 .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
                 .unwrap_or(false),
+            permission_mode: env::var("SANDBOX_PERMISSION_MODE")
+                .ok()
+                .and_then(|v| parse_permission_mode(&v))
+                .unwrap_or(PermissionMode::BypassPermissions),
             workspace_sync_enabled: env::var("WORKSPACE_SYNC_ENABLED")
                 .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
                 .unwrap_or(false),
@@ -304,7 +343,7 @@ impl Config {
 /// Test-only helpers for constructing a [`Config`] without env vars.
 #[cfg(test)]
 pub(crate) mod test_support {
-    use super::{AgentConfig, Config, ProxyConfig};
+    use super::{AgentConfig, Config, PermissionMode, ProxyConfig};
 
     /// A minimal [`Config`] with empty/default values, suitable for unit tests
     /// that only exercise a few fields. Callers override what they need.
@@ -329,6 +368,7 @@ pub(crate) mod test_support {
             default_model: None,
             default_codex_model: None,
             use_tmux: false,
+            permission_mode: PermissionMode::BypassPermissions,
             workspace_sync_enabled: false,
             home_dir: "/tmp/home".to_string(),
             codex_home_dir: "/tmp/home/.codex".to_string(),
@@ -404,7 +444,45 @@ fn parse_repo_config() -> ParsedRepoConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::derive_repo_name;
+    use super::{derive_repo_name, parse_permission_mode, PermissionMode};
+
+    #[test]
+    fn parse_permission_mode_accepts_known_values() {
+        assert_eq!(parse_permission_mode("default"), Some(PermissionMode::Default));
+        assert_eq!(
+            parse_permission_mode("acceptEdits"),
+            Some(PermissionMode::AcceptEdits)
+        );
+        assert_eq!(
+            parse_permission_mode("bypassPermissions"),
+            Some(PermissionMode::BypassPermissions)
+        );
+        assert_eq!(parse_permission_mode("plan"), Some(PermissionMode::Plan));
+        assert_eq!(
+            parse_permission_mode("delegate"),
+            Some(PermissionMode::Delegate)
+        );
+        assert_eq!(parse_permission_mode("dontAsk"), Some(PermissionMode::DontAsk));
+    }
+
+    #[test]
+    fn parse_permission_mode_is_case_insensitive_and_trims() {
+        assert_eq!(
+            parse_permission_mode("  BYPASSPERMISSIONS  "),
+            Some(PermissionMode::BypassPermissions)
+        );
+        assert_eq!(
+            parse_permission_mode("bypass"),
+            Some(PermissionMode::BypassPermissions)
+        );
+    }
+
+    #[test]
+    fn parse_permission_mode_rejects_empty_and_unknown() {
+        assert_eq!(parse_permission_mode(""), None);
+        assert_eq!(parse_permission_mode("   "), None);
+        assert_eq!(parse_permission_mode("nonsense"), None);
+    }
 
     #[test]
     fn derive_repo_name_handles_common_url_shapes() {

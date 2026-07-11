@@ -205,6 +205,7 @@ fn test_config() -> Config {
         use_tmux: false,
         default_model: None,
         default_codex_model: None,
+        permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
         workspace_sync_enabled: false,
     }
 }

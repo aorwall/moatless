@@ -270,6 +270,7 @@ mod tests {
             default_model: None,
             default_codex_model: None,
             use_tmux: false,
+            permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
             workspace_sync_enabled: false,
             home_dir: "/tmp/home".to_string(),
             codex_home_dir,
