@@ -37,7 +37,10 @@ interface RequestOptions extends RequestInit {
   params?: Record<string, string | number | boolean | undefined> | undefined
 }
 
-async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+// Shared request pipeline: build the URL, send the fetch, and surface non-2xx
+// responses as `ApiError`. Returns the raw `Response` so the typed wrappers below
+// decide how to decode the body.
+async function performRequest(path: string, options: RequestOptions = {}): Promise<Response> {
   const { params, ...fetchOptions } = options
 
   let url = `${API_BASE_URL}${path}`
@@ -80,11 +83,33 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     throw new ApiError(response.status, response.statusText, errorData)
   }
 
+  return response
+}
+
+async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const response = await performRequest(path, options)
+
+  // A 204 has no body to decode. Callers that expect an empty response should
+  // use `requestVoid`/the `*Void` methods so a `null` never masquerades as a
+  // non-nullable `T`. If a caller typed a non-void `T` still receives a 204,
+  // this is the honest failure point rather than a silent `null`.
   if (response.status === 204) {
     return null as unknown as T
   }
 
+  // THE APP'S ONLY SANCTIONED NETWORK-BOUNDARY CAST.
+  // `request<T>` cannot statically verify that the decoded JSON matches `T`;
+  // `T` is guaranteed instead by the generated OpenAPI types the callers pass.
+  // Do not add response-shape casts elsewhere — for high-risk endpoints, layer
+  // a Zod `parse()` in the feature API module instead.
   return (await response.json()) as unknown as T
+}
+
+// Void variant: decodes nothing and returns `void`, so an empty/204 response can
+// never leak a `null` into a typed value. Prefer this for POST/PUT/PATCH/DELETE
+// endpoints that return no meaningful body.
+async function requestVoid(path: string, options: RequestOptions = {}): Promise<void> {
+  await performRequest(path, options)
 }
 
 export const apiClient = {
@@ -115,5 +140,31 @@ export const apiClient = {
 
   delete<T>(path: string): Promise<T> {
     return request<T>(path, { method: 'DELETE' })
+  },
+
+  // Void-returning variants for endpoints with no response body (see `requestVoid`).
+  postVoid(path: string, data?: unknown): Promise<void> {
+    return requestVoid(path, {
+      method: 'POST',
+      ...(data !== undefined && { body: JSON.stringify(data) }),
+    })
+  },
+
+  putVoid(path: string, data?: unknown): Promise<void> {
+    return requestVoid(path, {
+      method: 'PUT',
+      ...(data !== undefined && { body: JSON.stringify(data) }),
+    })
+  },
+
+  patchVoid(path: string, data?: unknown): Promise<void> {
+    return requestVoid(path, {
+      method: 'PATCH',
+      ...(data !== undefined && { body: JSON.stringify(data) }),
+    })
+  },
+
+  deleteVoid(path: string): Promise<void> {
+    return requestVoid(path, { method: 'DELETE' })
   },
 }

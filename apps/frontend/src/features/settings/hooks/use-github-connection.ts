@@ -29,7 +29,7 @@ export function useGitHubConfig() {
  */
 export function useGetGitHubOAuthUrl(options?: { enabled?: boolean }) {
   return useQuery({
-    queryKey: ['github-oauth-url'],
+    queryKey: queryKeys.oauth.github(),
     queryFn: githubConnectionApi.getOAuthUrl,
     enabled: options?.enabled ?? false,
     // Don't cache OAuth URLs - they're single-use with unique state
@@ -57,7 +57,7 @@ export function useExchangeGitHubToken(
       queryClient.invalidateQueries({ queryKey: queryKeys.settings.github() })
       // Refresh the session so the top-bar reconnect indicator reflects the
       // new provider state without requiring a full reload.
-      queryClient.invalidateQueries({ queryKey: ['auth', 'session'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.auth.session() })
     },
     ...options,
   })
@@ -78,7 +78,7 @@ export function useDisconnectGitHub(
       queryClient.invalidateQueries({ queryKey: queryKeys.settings.github() })
       // Refresh the session so the top-bar reconnect indicator reflects the
       // new provider state without requiring a full reload.
-      queryClient.invalidateQueries({ queryKey: ['auth', 'session'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.auth.session() })
     },
     ...options,
   })
@@ -99,7 +99,7 @@ export function useSaveGitHubPAT(
       queryClient.invalidateQueries({ queryKey: queryKeys.settings.github() })
       // Refresh the session so the top-bar reconnect indicator reflects the
       // new provider state without requiring a full reload.
-      queryClient.invalidateQueries({ queryKey: ['auth', 'session'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.auth.session() })
     },
     ...options,
   })
@@ -117,7 +117,7 @@ export function useRemoveGitHubPATOverride(
     mutationFn: githubConnectionApi.removePATOverride,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.settings.github() })
-      queryClient.invalidateQueries({ queryKey: ['auth', 'session'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.auth.session() })
     },
     ...options,
   })

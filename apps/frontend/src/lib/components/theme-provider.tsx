@@ -49,20 +49,23 @@ export function ThemeProvider({
     }
   }, [theme])
 
-  const value = {
-    theme,
-    setTheme: (newTheme: Theme) => {
-      if (newTheme === 'light' || newTheme === 'dark' || newTheme === 'system') {
-        localStorage.setItem(storageKey, newTheme)
-        setTheme(newTheme)
-      }
-    },
-  }
+  const value = React.useMemo<ThemeProviderState>(
+    () => ({
+      theme,
+      setTheme: (newTheme: Theme) => {
+        if (newTheme === 'light' || newTheme === 'dark' || newTheme === 'system') {
+          localStorage.setItem(storageKey, newTheme)
+          setTheme(newTheme)
+        }
+      },
+    }),
+    [theme, storageKey],
+  )
 
   return (
-    <ThemeProviderContext.Provider {...props} value={value}>
+    <ThemeProviderContext {...props} value={value}>
       {children}
-    </ThemeProviderContext.Provider>
+    </ThemeProviderContext>
   )
 }
 

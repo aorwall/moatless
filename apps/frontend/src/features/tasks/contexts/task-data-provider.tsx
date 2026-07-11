@@ -68,7 +68,7 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
     [taskId, streamingEvents, isStreaming, streamingError],
   )
 
-  return <TaskDataContext.Provider value={contextValue}>{children}</TaskDataContext.Provider>
+  return <TaskDataContext value={contextValue}>{children}</TaskDataContext>
 }
 
 // Event hooks (previously in TaskEventsProvider)

@@ -1,5 +1,13 @@
 import type { FeatureFlagsResponse } from '@moatless/api-client/sandbox/model'
-import { createContext, type ReactNode, useContext, useEffect, useState } from 'react'
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
 import { apiClient } from '@/lib/api/client'
 import { isServerUnavailable, serverStatusStore } from '@/lib/api/server-status'
 import type { FeatureFlagKey } from '@/lib/types/feature-flags'
@@ -59,24 +67,28 @@ export function FeatureFlagsProvider({ children }: FeatureFlagsProviderProps) {
     })
   }, [])
 
-  const isEnabled = (flag: FeatureFlagKey): boolean => {
-    if (!flags) {
-      return false
-    }
-    const flagKey = flag.toLowerCase() as keyof FeatureFlagsResponse
-    const value = flags[flagKey]
-    return typeof value === 'boolean' ? value : false
-  }
-
-  const getSlackConfig = (): SlackConfig | undefined => {
-    return flags?.slack ?? undefined
-  }
-
-  return (
-    <FeatureFlagsContext.Provider value={{ flags, isLoading, isEnabled, getSlackConfig }}>
-      {children}
-    </FeatureFlagsContext.Provider>
+  const isEnabled = useCallback(
+    (flag: FeatureFlagKey): boolean => {
+      if (!flags) {
+        return false
+      }
+      const flagKey = flag.toLowerCase() as keyof FeatureFlagsResponse
+      const value = flags[flagKey]
+      return typeof value === 'boolean' ? value : false
+    },
+    [flags],
   )
+
+  const getSlackConfig = useCallback((): SlackConfig | undefined => {
+    return flags?.slack ?? undefined
+  }, [flags])
+
+  const value = useMemo(
+    () => ({ flags, isLoading, isEnabled, getSlackConfig }),
+    [flags, isLoading, isEnabled, getSlackConfig],
+  )
+
+  return <FeatureFlagsContext value={value}>{children}</FeatureFlagsContext>
 }
 
 /**

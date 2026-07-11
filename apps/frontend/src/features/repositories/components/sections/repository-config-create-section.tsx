@@ -20,7 +20,12 @@ import {
 } from '@/lib/components/ui/select'
 import { getErrorMessage } from '@/lib/utils/error'
 
-type GitProvider = 'github' | 'gitlab' | 'gitness'
+const GIT_PROVIDERS = ['github', 'gitlab', 'gitness'] as const
+type GitProvider = (typeof GIT_PROVIDERS)[number]
+
+function isGitProvider(value: string): value is GitProvider {
+  return (GIT_PROVIDERS as readonly string[]).includes(value)
+}
 
 interface RepositoryConfigCreateSectionProps {
   onCancel: () => void
@@ -156,7 +161,10 @@ export function RepositoryConfigCreateSection({
   }
 
   const handleProviderChange = (value: string) => {
-    setProvider(value as GitProvider)
+    if (!isGitProvider(value)) {
+      return
+    }
+    setProvider(value)
     setInputError(null)
   }
 

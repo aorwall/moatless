@@ -679,9 +679,7 @@ export function GlobalEventStreamProvider({
     [isConnected, connectionError, eventsByTask, subscribeToTask, subscribeToAll, subscribeToType],
   )
 
-  return (
-    <GlobalEventStreamContext.Provider value={value}>{children}</GlobalEventStreamContext.Provider>
-  )
+  return <GlobalEventStreamContext value={value}>{children}</GlobalEventStreamContext>
 }
 
 export function useGlobalEventStream() {

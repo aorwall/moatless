@@ -1,28 +1,33 @@
 import type { ProviderConnection, SessionResponse } from '@moatless/api-client'
 import { unwrapResponse } from '@moatless/api-client/custom-instance'
 import { meHandler } from '@moatless/api-client/sandbox/auth/auth'
-import { useQuery } from '@tanstack/react-query'
+import { queryOptions, useQuery } from '@tanstack/react-query'
 
+import { queryKeys } from '@/lib/api/query-keys'
 import { isServerUnavailable } from '@/lib/api/server-status'
 
 const API_BASE_URL = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL ?? '')
+
+/**
+ * Colocated `queryKey` + `queryFn` (+ defaults) for the current auth session.
+ * Shared between the `useAuth` hook and route loaders (e.g. the admin guard) so
+ * cache access stays typed and the key can never drift between call sites.
+ */
+export function authSessionQueryOptions() {
+  return queryOptions({
+    queryKey: queryKeys.auth.session(),
+    queryFn: () => unwrapResponse<SessionResponse>(meHandler()),
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  })
+}
 
 /**
  * Hook to get the current authenticated user.
  * The root-level AuthGate handles redirecting to /login on 401.
  */
 export function useAuth() {
-  const {
-    data: session,
-    isLoading,
-    error,
-    refetch,
-  } = useQuery({
-    queryKey: ['auth', 'session'],
-    queryFn: () => unwrapResponse<SessionResponse>(meHandler()),
-    retry: false,
-    staleTime: 5 * 60 * 1000,
-  })
+  const { data: session, isLoading, error, refetch } = useQuery(authSessionQueryOptions())
 
   /**
    * Logout by navigating to the logout endpoint

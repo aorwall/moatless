@@ -1,7 +1,7 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createLazyFileRoute } from '@tanstack/react-router'
 import { SandboxDiagnostics } from '@/features/sandbox/components/sandbox-diagnostics'
 
-export const Route = createFileRoute('/sandbox/$task-id/')({
+export const Route = createLazyFileRoute('/sandbox/$task-id/')({
   component: SandboxDiagnosticsPage,
 })
 

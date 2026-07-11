@@ -7,6 +7,7 @@ import type {
   GetMessagesResponse,
   ListTasksResponse,
   MessageContextInput,
+  SendMessageRequestToolResponse,
   SendMessageResponse,
   TaskResponse,
   ToolCallDetailResponse,
@@ -114,11 +115,30 @@ export const tasksApi = {
       startFresh?: boolean | undefined
     },
   ): Promise<SendMessageResponse> {
-    // fileUploads is a UI-only optimistic-render field; strip it before sending.
-    // The rest spread is structurally compatible with ApiSendMessageRequest
-    // (same fields, only differing in optional | undefined vs | null widening).
-    const { fileUploads: _fileUploads, ...payload } = variables
-    return await unwrapResponse(sendMessageHandler(taskId, payload as ApiSendMessageRequest))
+    // fileUploads is a UI-only optimistic-render field and is dropped here.
+    // Build the request explicitly so it is typed as ApiSendMessageRequest by
+    // construction: omitting `undefined` fields (rather than casting) reconciles
+    // the local `| undefined` optionals with the generated `| null` nullables.
+    const payload: ApiSendMessageRequest = {
+      message: variables.message,
+      ...(variables.resume !== undefined && { resume: variables.resume }),
+      ...(variables.model !== undefined && { model: variables.model }),
+      ...(variables.fileIds !== undefined && { fileIds: variables.fileIds }),
+      ...(variables.commandName !== undefined && { commandName: variables.commandName }),
+      ...(variables.agentMode !== undefined && { agentMode: variables.agentMode }),
+      ...(variables.contexts !== undefined && { contexts: variables.contexts }),
+      ...(variables.toolUseId !== undefined && { toolUseId: variables.toolUseId }),
+      ...(variables.toolName !== undefined && { toolName: variables.toolName }),
+      ...(variables.toolResponse !== undefined && {
+        // The tool-reply payload is an opaque record (answers/approval). The
+        // generated request type is an index-signature record that concrete
+        // response interfaces satisfy structurally but not nominally, so map
+        // this single field explicitly rather than casting the whole request.
+        toolResponse: variables.toolResponse as SendMessageRequestToolResponse,
+      }),
+      ...(variables.startFresh !== undefined && { startFresh: variables.startFresh }),
+    }
+    return await unwrapResponse(sendMessageHandler(taskId, payload))
   },
 
   // Deprecated: Use createTask instead

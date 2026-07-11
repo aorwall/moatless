@@ -91,7 +91,7 @@ export function ComposeTaskProvider({ children }: { children: ReactNode }) {
     [windows, open, close, toggleMinimize, update],
   )
 
-  return <ComposeTaskContext.Provider value={value}>{children}</ComposeTaskContext.Provider>
+  return <ComposeTaskContext value={value}>{children}</ComposeTaskContext>
 }
 
 export function useComposeTask(): ComposeTaskContextValue {

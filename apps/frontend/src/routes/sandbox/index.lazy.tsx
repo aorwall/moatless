@@ -1,7 +1,7 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createLazyFileRoute } from '@tanstack/react-router'
 import { SandboxOverview } from '@/features/sandbox/components/sandbox-overview'
 
-export const Route = createFileRoute('/sandbox/')({
+export const Route = createLazyFileRoute('/sandbox/')({
   component: SandboxOverviewPage,
 })
 

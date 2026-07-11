@@ -30,13 +30,31 @@ export const queryKeys = {
 
     // File operations - all under 'files' key for targeted invalidation
     files: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'files'] as const,
-    fileTree: (taskId: string, path?: string) =>
-      [...queryKeys.tasks.files(taskId), 'tree', path] as const,
-    fileContent: (taskId: string, filePath: string, changes?: boolean) =>
+    fileTree: (taskId: string, mode?: 'shallow' | 'recursive') =>
+      [...queryKeys.tasks.files(taskId), 'tree', '.', mode] as const,
+    fileContent: (taskId: string, filePath: string | undefined, changes?: boolean) =>
       [...queryKeys.tasks.files(taskId), 'content', filePath, changes] as const,
     commands: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'commands'] as const,
     events: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'events'] as const,
     connections: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'connections'] as const,
+  },
+
+  auth: {
+    all: ['auth'] as const,
+    session: () => [...queryKeys.auth.all, 'session'] as const,
+  },
+
+  figma: {
+    all: ['figma'] as const,
+    imports: () => [...queryKeys.figma.all, 'imports'] as const,
+    import: (importId: string | null | undefined) =>
+      [...queryKeys.figma.imports(), importId] as const,
+  },
+
+  oauth: {
+    all: ['oauth'] as const,
+    github: () => [...queryKeys.oauth.all, 'github'] as const,
+    figma: () => [...queryKeys.oauth.all, 'figma'] as const,
   },
 
   tags: {

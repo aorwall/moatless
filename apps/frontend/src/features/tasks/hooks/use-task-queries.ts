@@ -1,5 +1,5 @@
 import type { TaskResponse } from '@moatless/api-client'
-import { type UseQueryOptions, useQuery } from '@tanstack/react-query'
+import { queryOptions, type UseQueryOptions, useQuery } from '@tanstack/react-query'
 import { tasksApi } from '@/features/tasks/api/tasks'
 import { queryKeys } from '@/lib/api/query-keys'
 
@@ -12,18 +12,29 @@ type TaskDetailQueryOptions = Omit<
   'queryKey' | 'queryFn'
 >
 
-export function useTaskDetailQuery(taskId: string, options?: TaskDetailQueryOptions) {
-  const { enabled = true, staleTime = 30_000, ...queryOptions } = options ?? {}
-
-  return useQuery({
+/**
+ * Colocated `queryKey` + `queryFn` (+ defaults) for a task's detail. Use with
+ * `ensureQueryData`/`getQueryData` in route loaders and the SSE provider for
+ * typed cache access that stays in sync with the query key.
+ */
+export function taskDetailQueryOptions(taskId: string) {
+  return queryOptions({
     queryKey: queryKeys.tasks.detail(taskId),
     queryFn: () => tasksApi.getTask(taskId),
-    enabled: enabled && !!taskId,
-    staleTime,
+    staleTime: 30_000,
     // Rely on SSE events for real-time updates, not aggressive refetching
     refetchOnMount: true, // Only refetch if stale
     refetchOnWindowFocus: false, // SSE handles updates
-    ...queryOptions,
+  })
+}
+
+export function useTaskDetailQuery(taskId: string, options?: TaskDetailQueryOptions) {
+  const { enabled = true, ...restOptions } = options ?? {}
+
+  return useQuery({
+    ...taskDetailQueryOptions(taskId),
+    enabled: enabled && !!taskId,
+    ...restOptions,
   })
 }
 

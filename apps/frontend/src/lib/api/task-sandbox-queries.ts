@@ -4,7 +4,13 @@ import {
   provisionHandler,
   sandboxStatusHandler,
 } from '@moatless/api-client/sandbox/sandbox/sandbox'
-import { type UseQueryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  queryOptions,
+  type UseQueryOptions,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { queryKeys } from './query-keys'
 
 /**
@@ -26,26 +32,32 @@ type TaskSandboxStatusQueryOptions = Omit<
   'queryKey' | 'queryFn'
 >
 
-export function useTaskSandboxStatusQuery(taskId: string, options?: TaskSandboxStatusQueryOptions) {
-  const {
-    enabled = true,
-    staleTime = 5000,
-    refetchInterval = false,
-    ...queryOptions
-  } = options ?? {}
-
-  // Polling disabled by default - rely on SSE events for real-time updates
-  // Callers can override with refetchInterval if polling is specifically needed
-
-  return useQuery({
+/**
+ * Colocated `queryKey` + `queryFn` (+ defaults) for a task's sandbox status.
+ * Use this with `getQueryData`/`ensureQueryData`/`setQueryData` for typed,
+ * key-in-sync cache access (route loaders, the SSE provider, the dashboard cell).
+ */
+export function taskSandboxStatusQueryOptions(taskId: string) {
+  return queryOptions({
     queryKey: queryKeys.tasks.sandboxStatus(taskId),
     queryFn: () => unwrapResponse<SandboxStatusFullResponse>(sandboxStatusHandler(taskId)),
-    enabled: enabled && !!taskId,
-    staleTime,
-    refetchInterval,
+    // Polling disabled by default - rely on SSE events for real-time updates.
+    staleTime: 5000,
+    refetchInterval: false as const,
     refetchOnMount: true, // Only refetch if stale
     refetchOnWindowFocus: false, // SSE handles updates
-    ...queryOptions,
+  })
+}
+
+export function useTaskSandboxStatusQuery(taskId: string, options?: TaskSandboxStatusQueryOptions) {
+  const { enabled = true, ...restOptions } = options ?? {}
+
+  // Callers can override staleTime/refetchInterval via `options` if polling is
+  // specifically needed; the base config comes from `taskSandboxStatusQueryOptions`.
+  return useQuery({
+    ...taskSandboxStatusQueryOptions(taskId),
+    enabled: enabled && !!taskId,
+    ...restOptions,
   })
 }
 

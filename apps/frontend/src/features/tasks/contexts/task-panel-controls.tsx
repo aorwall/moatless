@@ -75,9 +75,7 @@ export function TaskPanelControlsProvider({ children }: { children: ReactNode })
     [],
   )
 
-  return (
-    <TaskPanelControlsContext.Provider value={value}>{children}</TaskPanelControlsContext.Provider>
-  )
+  return <TaskPanelControlsContext value={value}>{children}</TaskPanelControlsContext>
 }
 
 export function usePanelControls(): TaskPanelControls {

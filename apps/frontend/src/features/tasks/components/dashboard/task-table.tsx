@@ -46,7 +46,12 @@ function formatDate(date: Date | string): string {
 }
 
 function TaskStatusCell({ task }: { task: TaskResponse }) {
-  const { data: sandboxStatus } = useSandboxStatus(task.taskId, task)
+  // Render from the task row plus any sandbox status already in the query cache
+  // (populated by the task page or SSE patches). `enabled: false` keeps the
+  // dashboard from firing a per-row `GET /sandbox/status` on mount — a table of
+  // N tasks would otherwise burst N requests. The cell still subscribes to the
+  // cache, so it upgrades to live data whenever an entry is present.
+  const { data: sandboxStatus } = useSandboxStatus(task.taskId, task, { enabled: false })
   return <TaskStatusIcon task={task} sandbox={sandboxStatus} showText={true} />
 }
 

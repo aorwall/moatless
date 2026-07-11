@@ -37,19 +37,19 @@ export function getTaskActivityConfig(state: TaskActivityState): TaskStatusConfi
       return {
         icon: <Loader2 className="h-3 w-3 animate-spin" />,
         tooltip: 'Agent working',
-        color: 'text-emerald-500',
+        color: 'text-status-success',
       }
     case 'starting':
       return {
         icon: <Hourglass className="h-3 w-3 animate-pulse" />,
         tooltip: 'Starting up',
-        color: 'text-amber-500',
+        color: 'text-status-warning',
       }
     case 'sandbox-running':
       return {
         icon: <Box className="h-3 w-3" />,
         tooltip: 'Sandbox running',
-        color: 'text-sky-500',
+        color: 'text-status-info',
       }
     default:
       return null

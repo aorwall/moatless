@@ -1,5 +1,5 @@
 import { Search } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { Input } from '@/lib/components/ui/input'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { CanvasSearchResult, getParentPath, type SearchMatch } from './canvas-search-result'
@@ -112,8 +112,13 @@ function searchJSON(
  */
 export function CanvasSearch({ data, externalSearchQuery }: CanvasSearchProps) {
   const [searchQuery, setSearchQuery] = useState('')
-  const [debouncedQuery, setDebouncedQuery] = useState('')
   const lastExternalQueryRef = useRef<string>('')
+
+  // Derive the search term used for the (expensive) recursive scan. React 19's
+  // `useDeferredValue` keeps the input responsive by letting the heavy
+  // `searchJSON` pass lag behind keystrokes — no debounce timer or mirrored
+  // state to keep in sync.
+  const deferredQuery = useDeferredValue(searchQuery)
 
   // Sync external search queries with local state
   // Only update when external query changes (not when user types)
@@ -124,21 +129,13 @@ export function CanvasSearch({ data, externalSearchQuery }: CanvasSearchProps) {
     }
   }, [externalSearchQuery])
 
-  // Debounce search input (300ms delay)
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedQuery(searchQuery)
-    }, 300)
-    return () => clearTimeout(timer)
-  }, [searchQuery])
-
   // Memoized search results (filtered to exclude "assetRef" paths and deduplicated by parent)
   const results = useMemo(() => {
-    if (!(data && debouncedQuery.trim())) {
+    if (!(data && deferredQuery.trim())) {
       return []
     }
 
-    const allMatches = searchJSON(data, debouncedQuery.trim()).filter(
+    const allMatches = searchJSON(data, deferredQuery.trim()).filter(
       (match) => !match.fullPath.includes('assetRef'),
     )
 
@@ -157,7 +154,7 @@ export function CanvasSearch({ data, externalSearchQuery }: CanvasSearchProps) {
     }
 
     return deduplicated.slice(0, 100)
-  }, [data, debouncedQuery])
+  }, [data, deferredQuery])
 
   // Empty state: no data
   if (!data) {
@@ -185,7 +182,7 @@ export function CanvasSearch({ data, externalSearchQuery }: CanvasSearchProps) {
             className="pl-9"
           />
         </div>
-        {debouncedQuery && (
+        {deferredQuery && (
           <div className="mt-2 text-xs text-muted-foreground">
             {results.length > 0 ? (
               <>
@@ -201,7 +198,7 @@ export function CanvasSearch({ data, externalSearchQuery }: CanvasSearchProps) {
 
       {/* Results area */}
       <div className="flex-1 overflow-hidden">
-        {!debouncedQuery ? (
+        {!deferredQuery ? (
           <div className="flex h-full items-center justify-center p-8">
             <p className="text-sm text-muted-foreground">
               Enter a search term to find matching fields
@@ -209,7 +206,7 @@ export function CanvasSearch({ data, externalSearchQuery }: CanvasSearchProps) {
           </div>
         ) : results.length === 0 ? (
           <div className="flex h-full items-center justify-center p-8">
-            <p className="text-sm text-muted-foreground">No matches found for "{debouncedQuery}"</p>
+            <p className="text-sm text-muted-foreground">No matches found for "{deferredQuery}"</p>
           </div>
         ) : (
           <ScrollArea className="h-full">

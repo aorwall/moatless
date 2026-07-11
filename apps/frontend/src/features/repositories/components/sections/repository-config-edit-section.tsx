@@ -57,12 +57,16 @@ export function RepositoryConfigEditSection({
   const [showConvertDialog, setShowConvertDialog] = useState(false)
 
   // Derive base form data from repository - following derived state pattern
-  const baseFormData = useMemo<Partial<UpdateRepositoryRequest>>(() => {
+  // `UpdateRepositoryRequest` is already all-optional; using it directly (rather
+  // than `Partial<>`) keeps value types free of the `| undefined` widening that
+  // `Partial<>` adds under `exactOptionalPropertyTypes`, so the payload below
+  // builds without a request cast.
+  const baseFormData = useMemo<UpdateRepositoryRequest>(() => {
     if (!repository) {
       return {}
     }
 
-    const base: Partial<UpdateRepositoryRequest> = {
+    const base: UpdateRepositoryRequest = {
       name: repository.name || '',
       description: repository.description || '',
       systemPrompt: repository.systemPrompt || '',
@@ -90,7 +94,7 @@ export function RepositoryConfigEditSection({
   }, [repository])
 
   // Track user modifications locally
-  const [userModifications, setUserModifications] = useState<Partial<UpdateRepositoryRequest>>({})
+  const [userModifications, setUserModifications] = useState<UpdateRepositoryRequest>({})
 
   // Merge derived data with user modifications
   const formData = useMemo(
@@ -119,7 +123,7 @@ export function RepositoryConfigEditSection({
 
     // Send complete repository config
     // Empty strings are converted to null to signal field removal
-    const payload: Partial<UpdateRepositoryRequest> = {
+    const payload: UpdateRepositoryRequest = {
       ...formData,
       description: formData.description?.trim() || null,
       remoteUrl: formData.remoteUrl?.trim() || null,
@@ -127,7 +131,7 @@ export function RepositoryConfigEditSection({
     }
 
     updateRepository.mutate(
-      { repoId: repositoryId, request: payload as UpdateRepositoryRequest },
+      { repoId: repositoryId, request: payload },
       {
         onSuccess: () => {
           setUserModifications({})

@@ -68,7 +68,7 @@ export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
     [currentState, setPanelSizes],
   )
 
-  return <TaskUIContext.Provider value={contextValue}>{children}</TaskUIContext.Provider>
+  return <TaskUIContext value={contextValue}>{children}</TaskUIContext>
 }
 
 /**

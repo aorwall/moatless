@@ -1,10 +1,10 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createLazyFileRoute, useNavigate } from '@tanstack/react-router'
 import { Loader2 } from 'lucide-react'
 import { AdminPage } from '@/features/admin'
 import { TaskTriggerForm } from '@/features/integrations/components/task-trigger-form'
 import { useTrigger } from '@/features/integrations/hooks/use-integrations'
 
-export const Route = createFileRoute('/admin/triggers/$trigger-id/edit')({
+export const Route = createLazyFileRoute('/admin/triggers/$trigger-id/edit')({
   component: EditTriggerPage,
 })
 

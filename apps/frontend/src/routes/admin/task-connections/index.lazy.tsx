@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createLazyFileRoute } from '@tanstack/react-router'
 import { Link2, Loader2, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 import { AdminPage } from '@/features/admin'
@@ -6,7 +6,7 @@ import { TaskConnectionsTable, useTaskConnections } from '@/features/task-connec
 import { Alert, AlertDescription, AlertTitle } from '@/lib/components/ui/alert'
 import { Button } from '@/lib/components/ui/button'
 
-export const Route = createFileRoute('/admin/task-connections/')({
+export const Route = createLazyFileRoute('/admin/task-connections/')({
   component: TaskConnectionsPage,
 })
 

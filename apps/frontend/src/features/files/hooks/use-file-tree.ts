@@ -18,13 +18,13 @@ export function useFileTree(taskId: string): UseFileTreeResult {
   const [shallow, recursive] = useQueries({
     queries: [
       {
-        queryKey: [...queryKeys.tasks.files(taskId), 'tree', '.', 'shallow'],
+        queryKey: queryKeys.tasks.fileTree(taskId, 'shallow'),
         queryFn: () => fetchFileTree(taskId),
         refetchInterval: 30_000,
         enabled: isSandboxReady,
       },
       {
-        queryKey: [...queryKeys.tasks.files(taskId), 'tree', '.', 'recursive'],
+        queryKey: queryKeys.tasks.fileTree(taskId, 'recursive'),
         queryFn: () => fetchFileTree(taskId, undefined, true),
         refetchInterval: 30_000,
         enabled: isSandboxReady,

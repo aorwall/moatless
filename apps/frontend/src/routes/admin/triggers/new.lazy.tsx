@@ -1,8 +1,8 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createLazyFileRoute, useNavigate } from '@tanstack/react-router'
 import { AdminPage } from '@/features/admin'
 import { TaskTriggerForm } from '@/features/integrations/components/task-trigger-form'
 
-export const Route = createFileRoute('/admin/triggers/new')({
+export const Route = createLazyFileRoute('/admin/triggers/new')({
   component: NewTriggerPage,
 })
 

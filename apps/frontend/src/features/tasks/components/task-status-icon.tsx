@@ -40,7 +40,7 @@ export function TaskStatusIcon({
   // Override for environment issues (show these as higher priority)
   if (environmentStatus === 'error') {
     icon = <XCircle className="h-3.5 w-3.5" />
-    color = 'text-red-500'
+    color = 'text-status-error'
     displayText = 'env error'
   } else if (environmentStatus === 'removed') {
     icon = <AlertCircle className="h-3.5 w-3.5" />
@@ -48,16 +48,16 @@ export function TaskStatusIcon({
     displayText = 'removed'
   } else if (environmentStatus === 'not_created') {
     icon = <AlertCircle className="h-3.5 w-3.5" />
-    color = 'text-orange-500'
+    color = 'text-status-warning'
     displayText = 'not setup'
   } else if (environmentStatus === 'initializing') {
     icon = <Clock className="h-3.5 w-3.5" />
-    color = 'text-yellow-500'
+    color = 'text-status-warning'
     displayText = 'initializing'
   } else if (task.status === 'open' && environmentStatus === 'ready') {
     // Task is open and environment is ready
     icon = <CheckCircle className="h-3.5 w-3.5" />
-    color = 'text-green-500'
+    color = 'text-status-success'
     displayText = 'ready'
   }
   // For other statuses (running, merged, closed, etc.), use the default from statusConfig

@@ -36,6 +36,20 @@
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(1 0 0);
+  /* Semantic status/intent colors — theme-aware so dark mode and any future
+     rebrand stay in one place instead of scattered `text-red-500`-style classes. */
+  --success: oklch(0.723 0.219 149.579);
+  --success-foreground: oklch(0.985 0 0);
+  --warning: oklch(0.795 0.184 86.047);
+  --warning-foreground: oklch(0.205 0 0);
+  --info: oklch(0.623 0.214 259.815);
+  --info-foreground: oklch(0.985 0 0);
+  /* Task/sandbox status palette (referenced via `text-status-*`). */
+  --status-info: oklch(0.623 0.214 259.815);
+  --status-success: oklch(0.723 0.219 149.579);
+  --status-warning: oklch(0.769 0.188 70.08);
+  --status-error: oklch(0.577 0.245 27.325);
+  --status-pending: oklch(0.556 0 0);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
@@ -88,6 +102,18 @@
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
   --destructive-foreground: oklch(1 0 0);
+  /* Brighter variants for legibility on the dark background. */
+  --success: oklch(0.792 0.209 151.711);
+  --success-foreground: oklch(0.205 0 0);
+  --warning: oklch(0.852 0.199 91.936);
+  --warning-foreground: oklch(0.205 0 0);
+  --info: oklch(0.707 0.165 254.624);
+  --info-foreground: oklch(0.205 0 0);
+  --status-info: oklch(0.707 0.165 254.624);
+  --status-success: oklch(0.792 0.209 151.711);
+  --status-warning: oklch(0.852 0.199 91.936);
+  --status-error: oklch(0.704 0.191 22.216);
+  --status-pending: oklch(0.708 0 0);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
@@ -138,6 +164,17 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-status-info: var(--status-info);
+  --color-status-success: var(--status-success);
+  --color-status-warning: var(--status-warning);
+  --color-status-error: var(--status-error);
+  --color-status-pending: var(--status-pending);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);

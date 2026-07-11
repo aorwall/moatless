@@ -1,5 +1,6 @@
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery } from '@tanstack/react-query'
+import { queryKeys } from '@/lib/api/query-keys'
 import { figmaApi } from '../api/figma'
 
 type FigmaImportResponse = Awaited<ReturnType<typeof figmaApi.importNode>>
@@ -25,7 +26,7 @@ export function useFigmaImportQuery(
   options?: Omit<UseQueryOptions<FigmaImportMetadata, Error>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
-    queryKey: ['figma', 'imports', importId],
+    queryKey: queryKeys.figma.import(importId),
     queryFn: () => {
       if (!importId) {
         throw new Error('Import ID is required')

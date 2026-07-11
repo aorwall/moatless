@@ -25,7 +25,7 @@ export function useFigmaConfig() {
  */
 export function useGetFigmaOAuthUrl(options?: { enabled?: boolean }) {
   return useQuery({
-    queryKey: ['figma-oauth-url'],
+    queryKey: queryKeys.oauth.figma(),
     queryFn: figmaApi.getOAuthUrl,
     enabled: options?.enabled ?? false,
     // Don't cache OAuth URLs - they're single-use with unique state

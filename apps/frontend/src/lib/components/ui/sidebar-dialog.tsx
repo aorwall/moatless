@@ -1,6 +1,6 @@
 import { Menu, Search, XIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { Button } from './button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './dialog'
@@ -54,8 +54,13 @@ function SidebarDialogRoot({ open, onOpenChange, children, className }: SidebarD
   const isMobile = !useMediaQuery('(min-width: 640px)')
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
 
+  const contextValue = useMemo(
+    () => ({ isMobile, mobileSidebarOpen, setMobileSidebarOpen }),
+    [isMobile, mobileSidebarOpen],
+  )
+
   return (
-    <SidebarDialogContext.Provider value={{ isMobile, mobileSidebarOpen, setMobileSidebarOpen }}>
+    <SidebarDialogContext value={contextValue}>
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent
           className={cn(
@@ -81,7 +86,7 @@ function SidebarDialogRoot({ open, onOpenChange, children, className }: SidebarD
           </div>
         </DialogContent>
       </Dialog>
-    </SidebarDialogContext.Provider>
+    </SidebarDialogContext>
   )
 }
 

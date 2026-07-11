@@ -129,7 +129,7 @@ export function SandboxEventsProvider({ children }: { children: ReactNode }) {
     [sandboxEvents, startupEvents],
   )
 
-  return <SandboxEventsContext.Provider value={value}>{children}</SandboxEventsContext.Provider>
+  return <SandboxEventsContext value={value}>{children}</SandboxEventsContext>
 }
 
 function useSandboxEventsContext(): SandboxEventsContextValue {

@@ -4,7 +4,7 @@ import type {
   RepositoryResponse,
   TriggerResponse,
 } from '@moatless/api-client'
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createLazyFileRoute, useNavigate } from '@tanstack/react-router'
 import { Bell, CalendarClock, Loader2, Plus, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
@@ -90,7 +90,7 @@ function getConnectionLabel(
   return connectionsById.get(connectionId)?.externalAccountId ?? 'Missing connection'
 }
 
-export const Route = createFileRoute('/admin/triggers/')({
+export const Route = createLazyFileRoute('/admin/triggers/')({
   component: TriggersListPage,
 })
 

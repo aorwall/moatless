@@ -9,7 +9,7 @@ export function useFileContent(taskId: string, filePath: string | undefined, wit
   const isSandboxReady = sandboxStatus?.environmentStatus === 'ready'
 
   return useQuery<FileContentResponse>({
-    queryKey: [...queryKeys.tasks.files(taskId), 'content', filePath, withChanges],
+    queryKey: queryKeys.tasks.fileContent(taskId, filePath, withChanges),
     queryFn: () =>
       filePath
         ? fetchFileContent(taskId, filePath, withChanges)

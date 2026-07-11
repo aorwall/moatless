@@ -1,7 +1,7 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createLazyFileRoute } from '@tanstack/react-router'
 import { SecretsPanel } from '@/features/secrets/components/secrets-panel'
 
-export const Route = createFileRoute('/secrets')({
+export const Route = createLazyFileRoute('/secrets')({
   component: SecretsRoute,
 })
 

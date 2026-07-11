@@ -115,7 +115,7 @@ export function TaskComposerProvider({ children }: { children: ReactNode }) {
     [contextItems, toggleElementContext],
   )
 
-  return <ComposerContext.Provider value={value}>{children}</ComposerContext.Provider>
+  return <ComposerContext value={value}>{children}</ComposerContext>
 }
 
 export function useComposer(): ComposerContextValue {

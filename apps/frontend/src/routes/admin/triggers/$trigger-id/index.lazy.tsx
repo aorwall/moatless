@@ -4,7 +4,7 @@ import type {
   TriggerRecentTaskItem,
   TriggerResponse,
 } from '@moatless/api-client'
-import { createFileRoute, Link } from '@tanstack/react-router'
+import { createLazyFileRoute, Link } from '@tanstack/react-router'
 import { Loader2 } from 'lucide-react'
 import { AdminPage } from '@/features/admin'
 import {
@@ -71,7 +71,7 @@ function formatTimestamp(value: string | null | undefined): string {
   return date.toLocaleString()
 }
 
-export const Route = createFileRoute('/admin/triggers/$trigger-id/')({
+export const Route = createLazyFileRoute('/admin/triggers/$trigger-id/')({
   component: TriggerDetailPage,
 })
 

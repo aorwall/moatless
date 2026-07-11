@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createLazyFileRoute } from '@tanstack/react-router'
 import { Loader2 } from 'lucide-react'
 import { AdminPage } from '@/features/admin'
 import { useIntegrationConnections } from '@/features/integrations/hooks/use-integrations'
@@ -27,7 +27,7 @@ function formatTimestamp(value: string | null | undefined): string {
   return date.toLocaleString()
 }
 
-export const Route = createFileRoute('/admin/integrations/connections/$connection-id/')({
+export const Route = createLazyFileRoute('/admin/integrations/connections/$connection-id/')({
   component: ConnectionDetailPage,
 })
 

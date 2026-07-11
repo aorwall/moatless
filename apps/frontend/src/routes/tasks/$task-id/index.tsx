@@ -1,11 +1,10 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { AppSidebar } from '@/features/navigation/components/app-sidebar'
 import { TaskPage, TaskProviders } from '@/features/tasks'
-import { tasksApi } from '@/features/tasks/api/tasks'
+import { taskDetailQueryOptions } from '@/features/tasks/hooks/use-task-queries'
 import { useMarkTaskReadOnView } from '@/features/tasks/hooks/use-tasks'
 import { taskSearchSchema } from '@/features/tasks/types/task-search-schema'
 import { queryClient } from '@/lib/api/query-client'
-import { queryKeys } from '@/lib/api/query-keys'
 import { SidebarProvider } from '@/lib/components/ui/sidebar'
 
 export const Route = createFileRoute('/tasks/$task-id/')({
@@ -16,14 +15,9 @@ export const Route = createFileRoute('/tasks/$task-id/')({
   // Errors are deliberately not thrown here: the component's own query
   // owns error handling (FullPageError), not the router's error screen.
   loader: ({ params }) =>
-    queryClient
-      .ensureQueryData({
-        queryKey: queryKeys.tasks.detail(params['task-id']),
-        queryFn: () => tasksApi.getTask(params['task-id']),
-      })
-      .catch(() => {
-        /* ignore: component's own query owns error handling via FullPageError */
-      }),
+    queryClient.ensureQueryData(taskDetailQueryOptions(params['task-id'])).catch(() => {
+      /* ignore: component's own query owns error handling via FullPageError */
+    }),
   component: TaskPageRoute,
 })
 
