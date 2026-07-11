@@ -42,6 +42,14 @@ export function FeedbackDialog({
 }: FeedbackDialogProps) {
   const [comment, setComment] = useState('')
   const [error, setError] = useState<string | null>(null)
+  // FeedbackDialog is instantiated per message row and per tool call, so an
+  // eagerly mounted Radix Dialog tree multiplies across long transcripts and
+  // re-renders on every keystroke elsewhere on the page. Mount nothing until
+  // first opened; stay mounted afterwards so the close animation plays.
+  const [hasOpened, setHasOpened] = useState(open)
+  if (open && !hasOpened) {
+    setHasOpened(true)
+  }
   const submit = useSubmitFeedback()
 
   // Reset form fields each time the dialog re-opens. `submit.reset` is stable
@@ -75,6 +83,10 @@ export function FeedbackDialog({
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to submit feedback.')
     }
+  }
+
+  if (!hasOpened) {
+    return null
   }
 
   return (

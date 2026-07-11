@@ -74,4 +74,23 @@ describe('FeedbackDialog', () => {
       expect(onOpenChange).toHaveBeenCalledWith(false)
     })
   })
+
+  it('mounts nothing while closed and opens after first open', async () => {
+    const { rerender, container } = render(
+      <FeedbackDialog open={false} onOpenChange={vi.fn()} taskId="task-1" surface="task" />,
+    )
+
+    // Lazy mount: a never-opened dialog contributes nothing to the tree.
+    expect(container).toBeEmptyDOMElement()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    rerender(<FeedbackDialog open onOpenChange={vi.fn()} taskId="task-1" surface="task" />)
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+
+    // Closing again keeps it mounted (exit animation) but hidden.
+    rerender(<FeedbackDialog open={false} onOpenChange={vi.fn()} taskId="task-1" surface="task" />)
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+  })
 })
