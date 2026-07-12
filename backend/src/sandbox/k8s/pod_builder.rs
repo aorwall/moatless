@@ -144,6 +144,18 @@ pub fn build_pod(
             }),
             ..Default::default()
         },
+        Volume {
+            name: "run-moatless".to_string(),
+            empty_dir: Some(EmptyDirVolumeSource {
+                // Memory-backed home for the credential-broker Unix socket at
+                // `/run/moatless`. `/run` itself is root-owned tmpfs, so under
+                // `run_as_non_root` the sandbox (uid 1000) can't mkdir there and
+                // the broker degrades to the on-disk hosts.yml fallback.
+                medium: Some("Memory".to_string()),
+                size_limit: Some(Quantity("1Mi".to_string())),
+            }),
+            ..Default::default()
+        },
     ];
 
     if let Some(pvc) = pvc_name {
@@ -676,6 +688,11 @@ fn build_sandbox_container(
             name: "workspace-data".to_string(),
             mount_path: "/tmp".to_string(),
             sub_path: Some("tmp".to_string()),
+            ..Default::default()
+        },
+        VolumeMount {
+            name: "run-moatless".to_string(),
+            mount_path: "/run/moatless".to_string(),
             ..Default::default()
         },
     ];
@@ -1552,6 +1569,12 @@ mod tests {
                 && m.mount_path == "/tmp"
                 && m.sub_path.as_deref() == Some("tmp")),
             "/tmp must be a subPath of workspace-data"
+        );
+        assert!(
+            mounts
+                .iter()
+                .any(|m| m.name == "run-moatless" && m.mount_path == "/run/moatless"),
+            "credential-broker socket dir must be a writable mount for non-root"
         );
 
         // Server containers share the same workspace volume.
