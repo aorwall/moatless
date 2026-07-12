@@ -8,12 +8,21 @@
 //! cancels the lifecycle token lets the process drain and exit promptly.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
 use crate::agent::agent_state::AgentState;
 use crate::state::SandboxState;
+
+/// Bounded time budget for draining the event outbox on graceful shutdown.
+///
+/// Kept small so the total teardown (this drain + the ~22s worst-case
+/// transcript/workspace flushes) stays well within the pod's 30s termination
+/// grace period. On timeout the drainer keeps retrying in the background until
+/// the process exits — best-effort, not a hard guarantee.
+const OUTBOX_FLUSH_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Side effects to run when a shutdown signal arrives: stop the running agent
 /// (best-effort), flush the Claude transcript to S3, then cancel the lifecycle
@@ -34,6 +43,20 @@ pub async fn perform_shutdown(
     match agent.stop().await {
         Ok(()) => info!("Shutdown: stopped running agent"),
         Err(e) => info!(error = %e, "Shutdown: no running agent to stop (continuing)"),
+    }
+
+    // Drain the event outbox BEFORE the transcript flush and BEFORE cancelling
+    // the lifecycle token (which stops the drainer). Stopping the agent above
+    // emits the terminal `agent`/`taskTurn` events we most need delivered, so
+    // this flush is what makes graceful teardown lose no lifecycle events.
+    // Bounded so it can't blow the pod's 30s grace period — the transcript and
+    // workspace flushes below already budget ~22s worst case.
+    if let Some(state) = state {
+        state
+            .events
+            .outbox()
+            .flush(OUTBOX_FLUSH_TIMEOUT)
+            .await;
     }
 
     // Flush the transcript AFTER the agent has stopped (so the active `.jsonl` is

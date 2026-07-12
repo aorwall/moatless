@@ -98,9 +98,11 @@ async fn publish_sandbox_event(
         event_type: proto_event_type as i32,
         sub_type: SandboxSubType::Initializing.as_str().to_string(),
         payload_json,
+        event_id: String::new(),
+        sequence: 0,
     };
 
-    state.events.client().publish_event(req).await;
+    state.events.enqueue(req);
 }
 
 /// Run the full initialization sequence (phase 1 + phase 2).

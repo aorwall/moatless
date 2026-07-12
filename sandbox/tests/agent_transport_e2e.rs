@@ -95,11 +95,12 @@ struct NoopBackend {
 
 #[async_trait::async_trait]
 impl BackendClient for NoopBackend {
-    async fn publish_event(&self, req: PublishEventRequest) {
+    async fn publish_event(&self, req: PublishEventRequest) -> Result<(), tonic::Status> {
         self.events
             .lock()
             .expect("event log poisoned")
             .push(format!("{}/{}", req.event_type().as_str_name(), req.sub_type));
+        Ok(())
     }
 
     async fn get_pending_messages(
@@ -251,7 +252,12 @@ fn spawn_test_agent_in(tmp: &TempDir, use_tmux: bool) -> (AgentHandle, Arc<Agent
         events: Arc::clone(&event_log),
     });
 
-    let events = GrpcEventPublisher::new(Arc::clone(&backend));
+    let outbox = moatless_sandbox::outbox::EventOutbox::spawn(
+        Arc::clone(&backend),
+        "test-task".to_string(),
+        tokio_util::sync::CancellationToken::new(),
+    );
+    let events = GrpcEventPublisher::new(outbox);
     let config = Arc::new(test_config(tmp, use_tmux));
 
     // Mirror the cluster: the `claude` child inherits CLAUDE_CONFIG_DIR from the

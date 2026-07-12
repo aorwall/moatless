@@ -293,6 +293,7 @@ pub fn spawn_grpc_server(
             transcript_s3_prefix,
             workspace_s3_prefix,
             users,
+            event_dedup: Arc::new(crate::sandbox::event_dedup::EventDedup::new()),
         };
         let addr = SocketAddr::from(([0, 0, 0, 0], port));
         info!(port, "Starting backend gRPC server");

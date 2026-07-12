@@ -138,6 +138,10 @@ pub struct BackendSandboxServiceImpl {
     /// User repository — used to render `<sent_by>` headers on pending
     /// messages so the agent sees the inbound sender's moatless login.
     pub users: Option<Arc<dyn UserRepository>>,
+    /// Ingress dedup for sandbox-published events. The sandbox outbox delivers
+    /// at-least-once (retries reuse the same `event_id`); this drops retried
+    /// duplicates before they reach Redis so SSE consumers don't see them twice.
+    pub event_dedup: Arc<crate::sandbox::event_dedup::EventDedup>,
 }
 
 impl BackendSandboxServiceImpl {
@@ -189,6 +193,31 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         let event = request.into_inner();
         tracing::Span::current().record("task_id", event.task_id.as_str());
 
+        // Log sequence gaps/resets for observability (never gates publishing).
+        self.event_dedup
+            .observe_sequence(&event.task_id, event.sequence)
+            .await;
+
+        // Drop retried duplicates at ingress. The outbox reuses `event_id`
+        // across retries, so a duplicate here means the previous delivery was
+        // already published to Redis — re-publishing would double it for SSE
+        // consumers. Ack with the same id so the sandbox stops retrying.
+        if self
+            .event_dedup
+            .is_duplicate(&event.task_id, &event.event_id)
+            .await
+        {
+            debug!(
+                task_id = %event.task_id,
+                event_id = %event.event_id,
+                sub_type = %event.sub_type,
+                "Duplicate event dropped at ingress"
+            );
+            return Ok(Response::new(PublishEventResponse {
+                event_id: event.event_id,
+            }));
+        }
+
         let Some(ref publisher) = self.events else {
             // Redis not configured — accept but discard
             debug!(task_id = %event.task_id, "Event received but Redis not configured, discarding");
@@ -237,8 +266,14 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             )
             .await;
 
-        // Generate event ID matching the format publishers use
-        let event_id = uuid::Uuid::new_v4().to_string();
+        // Echo the sandbox's stable event_id back so retries dedupe on a
+        // consistent id. Fall back to a fresh id for legacy senders that
+        // predate the outbox and don't set one.
+        let event_id = if event.event_id.is_empty() {
+            uuid::Uuid::new_v4().to_string()
+        } else {
+            event.event_id
+        };
 
         Ok(Response::new(PublishEventResponse { event_id }))
     }

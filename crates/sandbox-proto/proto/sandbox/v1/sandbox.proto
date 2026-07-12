@@ -133,6 +133,15 @@ message PublishEventRequest {
   EventType event_type = 2;    // Typed event category
   string sub_type = 3;         // Validated by receiver (varies per event_type)
   string payload_json = 4;     // JSON string payload
+  // Stable event identity assigned by the sandbox outbox at enqueue time and
+  // held constant across retries. The backend dedupes retried deliveries on
+  // this id at ingress (short-lived per-task LRU) so SSE consumers don't see
+  // duplicates. Empty string = legacy sender that predates the outbox.
+  string event_id = 5;
+  // Monotonically increasing per-sandbox sequence number, assigned by the
+  // outbox drainer in transmission order and reused across retries. Lets the
+  // backend detect duplicates and sandbox restarts (sequence resets). 0 = unset.
+  uint64 sequence = 6;
 }
 
 message PublishEventResponse {

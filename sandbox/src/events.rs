@@ -3,36 +3,45 @@
 //! Publishes events to the backend via gRPC. The backend then writes them
 //! to Redis Streams for SSE consumption.
 //!
-//! This replaces the previous `RedisEventPublisher` which published
-//! directly to Redis from the sandbox. The public API is unchanged —
-//! all publish methods are fire-and-forget.
-
-use std::sync::Arc;
+//! Publishing is enqueue-only: every method hands the event to the
+//! [`crate::outbox::EventOutbox`], which owns the at-least-once delivery
+//! (ordered, retried with backoff). The public API stays fire-and-forget — an
+//! `enqueue` never blocks and never fails the caller.
 
 use moatless_events::{AgentSubType, EventType, TaskSubType, TaskTurnSubType};
 use sandbox_proto::PublishEventRequest;
 use tracing::debug;
 
-use crate::backend_client::BackendClient;
+use crate::outbox::EventOutbox;
 
-/// Publishes sandbox events to the backend via gRPC.
+/// Publishes sandbox events to the backend via the at-least-once outbox.
 ///
-/// All publish operations are fire-and-forget — failures are logged
-/// but never propagated.
+/// All publish operations are non-blocking — they enqueue and return. Delivery,
+/// retry, ordering and overflow handling live in [`crate::outbox`].
 #[derive(Clone)]
 pub struct GrpcEventPublisher {
-    client: Arc<dyn BackendClient>,
+    outbox: EventOutbox,
 }
 
 impl GrpcEventPublisher {
-    /// Create a new publisher backed by the given backend client.
-    pub fn new(client: Arc<dyn BackendClient>) -> Self {
-        Self { client }
+    /// Create a new publisher backed by the given outbox.
+    pub fn new(outbox: EventOutbox) -> Self {
+        Self { outbox }
     }
 
-    /// Access the underlying backend client (for direct gRPC calls).
-    pub fn client(&self) -> &dyn BackendClient {
-        &*self.client
+    /// Access the underlying outbox (for shutdown flush and metrics).
+    pub fn outbox(&self) -> &EventOutbox {
+        &self.outbox
+    }
+
+    /// Enqueue a pre-built request. Assigns a stable `event_id` when the caller
+    /// left it empty. Used for events assembled outside the typed helpers below
+    /// (e.g. init's sandbox status event with its custom payload shape).
+    pub fn enqueue(&self, mut req: PublishEventRequest) {
+        if req.event_id.is_empty() {
+            req.event_id = uuid::Uuid::new_v4().to_string();
+        }
+        self.outbox.enqueue(req);
     }
 
     /// Publish a task lifecycle event (e.g. status changes, metadata updates).
@@ -82,7 +91,7 @@ impl GrpcEventPublisher {
             .await;
     }
 
-    /// Internal: publish a generic event via gRPC.
+    /// Internal: build a generic event and enqueue it for delivery.
     async fn publish_event(
         &self,
         task_id: &str,
@@ -102,18 +111,18 @@ impl GrpcEventPublisher {
             task_id = %task_id,
             event_type = %event_type,
             sub_type = %sub_type,
-            "Publishing event via gRPC"
+            "Enqueueing event for delivery"
         );
 
         let proto_event_type: sandbox_proto::EventType = event_type.into();
 
-        self.client
-            .publish_event(PublishEventRequest {
-                task_id: task_id.to_string(),
-                event_type: proto_event_type as i32,
-                sub_type: sub_type.to_string(),
-                payload_json,
-            })
-            .await;
+        self.outbox.enqueue(PublishEventRequest {
+            task_id: task_id.to_string(),
+            event_type: proto_event_type as i32,
+            sub_type: sub_type.to_string(),
+            payload_json,
+            event_id: uuid::Uuid::new_v4().to_string(),
+            sequence: 0,
+        });
     }
 }

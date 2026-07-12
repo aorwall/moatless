@@ -8,6 +8,7 @@ pub mod auto_provision;
 pub mod client;
 pub mod docker;
 pub mod error;
+pub mod event_dedup;
 pub mod file_handlers;
 pub mod grpc_server;
 pub mod handlers;

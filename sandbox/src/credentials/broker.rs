@@ -154,7 +154,9 @@ mod tests {
 
     #[async_trait]
     impl BackendClient for StaticBackend {
-        async fn publish_event(&self, _: PublishEventRequest) {}
+        async fn publish_event(&self, _: PublishEventRequest) -> Result<(), tonic::Status> {
+            Ok(())
+        }
         async fn get_pending_messages(
             &self,
             _: &str,

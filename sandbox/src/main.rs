@@ -77,8 +77,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let backend_client: Arc<dyn moatless_sandbox::backend_client::BackendClient> =
         Arc::new(backend_client);
 
-    // Create event publisher backed by gRPC
-    let event_publisher = GrpcEventPublisher::new(Arc::clone(&backend_client));
+    // Lifecycle token, created up front so the event outbox drainer shares it
+    // with the rest of the runtime and winds down on SIGTERM.
+    let lifecycle_cancel = CancellationToken::new();
+
+    // Spawn the at-least-once event outbox and back the publisher with it. The
+    // drainer sends events in order with retry/backoff, so a backend rollout or
+    // network blip no longer silently drops agent/taskTurn events.
+    let outbox = moatless_sandbox::outbox::EventOutbox::spawn(
+        Arc::clone(&backend_client),
+        config.task_id.clone(),
+        lifecycle_cancel.clone(),
+    );
+    let event_publisher = GrpcEventPublisher::new(outbox);
 
     // Build shared state with init phase tracking
     let agent_state = Arc::new(agent::agent_state::AgentState::new());
@@ -139,7 +150,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         backend_client,
         init_phase: Arc::new(RwLock::new(InitPhase::Starting)),
         credentials,
-        lifecycle_cancel: CancellationToken::new(),
+        lifecycle_cancel,
         credential_dispatcher,
         credential_failures,
         codex_watcher_handle,

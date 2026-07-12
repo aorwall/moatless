@@ -234,7 +234,9 @@ mod tests {
 
     #[async_trait::async_trait]
     impl BackendClient for RecordingBackend {
-        async fn publish_event(&self, _req: PublishEventRequest) {}
+        async fn publish_event(&self, _req: PublishEventRequest) -> Result<(), tonic::Status> {
+            Ok(())
+        }
         async fn get_pending_messages(
             &self,
             _task_id: &str,

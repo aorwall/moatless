@@ -66,8 +66,9 @@ impl MockBackendClient {
 
 #[async_trait::async_trait]
 impl BackendClient for MockBackendClient {
-    async fn publish_event(&self, _req: PublishEventRequest) {
+    async fn publish_event(&self, _req: PublishEventRequest) -> Result<(), tonic::Status> {
         self.publish_count.fetch_add(1, Ordering::SeqCst);
+        Ok(())
     }
 
     async fn get_pending_messages(
@@ -213,7 +214,12 @@ fn test_config() -> Config {
 fn test_state(backend: Arc<dyn BackendClient>) -> SandboxState {
     use moatless_sandbox::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
 
-    let events = GrpcEventPublisher::new(Arc::clone(&backend));
+    let outbox = moatless_sandbox::outbox::EventOutbox::spawn(
+        Arc::clone(&backend),
+        "test-task".to_string(),
+        tokio_util::sync::CancellationToken::new(),
+    );
+    let events = GrpcEventPublisher::new(outbox);
     let config = Arc::new(test_config());
     let agent_state = Arc::new(AgentState::new());
     let credentials = Arc::new(RwLock::new(HashMap::new()));

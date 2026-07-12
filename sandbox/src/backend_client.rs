@@ -19,7 +19,7 @@ use sandbox_proto::{
 use tonic::service::interceptor::InterceptedService;
 use tonic::transport::Channel;
 use tonic::{Request, Status};
-use tracing::{debug, warn};
+use tracing::debug;
 
 /// Errors that can occur when constructing a [`BackendGrpcClient`].
 #[derive(Debug, thiserror::Error)]
@@ -33,8 +33,12 @@ pub enum BackendGrpcClientError {
 /// The real implementation is [`BackendGrpcClient`]; tests can provide a mock.
 #[async_trait::async_trait]
 pub trait BackendClient: Send + Sync {
-    /// Publish an event to the backend (fire-and-forget).
-    async fn publish_event(&self, req: PublishEventRequest);
+    /// Attempt a single publish of an event to the backend.
+    ///
+    /// One gRPC attempt with the channel's call timeout — no internal retry.
+    /// Retry/backoff and ordering live in [`crate::outbox`], which owns the
+    /// at-least-once guarantee; this method just reports the attempt's outcome.
+    async fn publish_event(&self, req: PublishEventRequest) -> Result<(), tonic::Status>;
 
     /// Fetch pending messages for a task.
     async fn get_pending_messages(
@@ -174,28 +178,14 @@ impl BackendGrpcClient {
 
 #[async_trait::async_trait]
 impl BackendClient for BackendGrpcClient {
-    async fn publish_event(&self, req: PublishEventRequest) {
+    async fn publish_event(&self, req: PublishEventRequest) -> Result<(), tonic::Status> {
         let mut client = self.client.clone();
-        let task_id = req.task_id.clone();
-        let event_type = req.event_type;
-        let sub_type = req.sub_type.clone();
-        match client.publish_event(req).await {
-            Ok(resp) => {
-                debug!(
-                    event_id = %resp.into_inner().event_id,
-                    "Event published via gRPC"
-                );
-            }
-            Err(e) => {
-                warn!(
-                    error = %e,
-                    task_id = %task_id,
-                    event_type,
-                    sub_type = %sub_type,
-                    "Failed to publish event via gRPC"
-                );
-            }
-        }
+        let resp = client.publish_event(req).await?;
+        debug!(
+            event_id = %resp.into_inner().event_id,
+            "Event published via gRPC"
+        );
+        Ok(())
     }
 
     async fn get_pending_messages(
