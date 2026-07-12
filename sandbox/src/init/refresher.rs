@@ -242,6 +242,7 @@ mod tests {
         let credential_failures = CredentialFailureDetector::default();
         let credential_dispatcher = Arc::new(Dispatcher::new());
         let system_prompt_cache: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+        let heartbeat = crate::agent::heartbeat::Heartbeat::new();
 
         let agent_handle = spawn_agent(
             Arc::clone(&config),
@@ -253,6 +254,7 @@ mod tests {
             credential_failures.clone(),
             Arc::clone(&credential_dispatcher),
             Arc::clone(&system_prompt_cache),
+            heartbeat.clone(),
         );
         late_injector.set(Box::new(agent_handle.clone()));
 
@@ -261,6 +263,7 @@ mod tests {
             events,
             agent: agent_state,
             agent_handle,
+            heartbeat,
             scheduled_jobs,
             backend_client: backend,
             init_phase: Arc::new(RwLock::new(InitPhase::Ready)),

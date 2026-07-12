@@ -631,6 +631,25 @@ fn build_sandbox_container(
         ..Default::default()
     };
 
+    // Liveness probe (opt-in via `K8S_SANDBOX_LIVENESS_ENABLED`). Hits the
+    // sandbox `/livez` endpoint, which reports unhealthy only when the agent
+    // actor loop is wedged — never on backend/credential/disk trouble. Settings
+    // are deliberately conservative: 6 consecutive failures at 10s spacing (~60s)
+    // before a restart, because a false-positive restart kills an in-flight agent
+    // turn, which is worse than a rare hang. Gated off by default; the startup
+    // probe on `/health` remains the readiness/startup gate regardless.
+    let liveness_probe = config.sandbox.liveness_enabled.then(|| Probe {
+        http_get: Some(HTTPGetAction {
+            path: Some("/livez".to_string()),
+            port: IntOrString::Int(8001),
+            ..Default::default()
+        }),
+        period_seconds: Some(10),
+        timeout_seconds: Some(5),
+        failure_threshold: Some(6),
+        ..Default::default()
+    });
+
     // Volume mounts
     //
     // `workspace-data` (PVC or ephemeral emptyDir) is always present and mounted at
@@ -737,6 +756,7 @@ fn build_sandbox_container(
         ]),
         env: Some(env),
         startup_probe: Some(startup_probe),
+        liveness_probe,
         volume_mounts: Some(volume_mounts),
         resources: Some(resources),
         security_context: Some(app_security_context(config)),
@@ -1137,6 +1157,7 @@ mod tests {
                 emit_legacy_user_token_env: true,
                 file_mount_path: "/tmp".into(),
                 idle_reaper_enabled: false,
+                liveness_enabled: false,
                 idle_timeout_minutes: 15,
                 idle_check_interval_secs: 300,
                 inactive_task_timeout_days: 0,
@@ -1427,6 +1448,53 @@ mod tests {
                 .and_then(|l| l.get("memory"))
                 .map(|q| q.0.as_str()),
             Some("16Gi")
+        );
+    }
+
+    #[test]
+    fn liveness_probe_absent_when_flag_disabled() {
+        // Default config has `liveness_enabled: false` — no liveness probe is
+        // attached, and the startup probe on /health is untouched.
+        let config = test_config();
+        let plan = test_plan();
+
+        let container = build_sandbox_container(&config, "task-1", &plan, None).unwrap();
+        assert!(
+            container.liveness_probe.is_none(),
+            "liveness probe must be absent when K8S_SANDBOX_LIVENESS_ENABLED is off"
+        );
+        assert!(
+            container.startup_probe.is_some(),
+            "startup probe must remain the readiness gate regardless of the flag"
+        );
+    }
+
+    #[test]
+    fn liveness_probe_present_with_conservative_settings_when_flag_enabled() {
+        let mut config = test_config();
+        config.sandbox.liveness_enabled = true;
+        let plan = test_plan();
+
+        let container = build_sandbox_container(&config, "task-1", &plan, None).unwrap();
+        let probe = container
+            .liveness_probe
+            .as_ref()
+            .expect("liveness probe present when flag enabled");
+
+        let http = probe.http_get.as_ref().expect("http_get action set");
+        assert_eq!(http.path.as_deref(), Some("/livez"));
+        assert_eq!(http.port, IntOrString::Int(8001));
+
+        // Conservative timings: ~60s of failures before a restart.
+        assert_eq!(probe.period_seconds, Some(10));
+        assert_eq!(probe.timeout_seconds, Some(5));
+        assert_eq!(probe.failure_threshold, Some(6));
+
+        // The startup probe still targets /health — liveness is additive.
+        let startup = container.startup_probe.as_ref().expect("startup probe set");
+        assert_eq!(
+            startup.http_get.as_ref().and_then(|h| h.path.as_deref()),
+            Some("/health")
         );
     }
 

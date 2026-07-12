@@ -130,6 +130,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let credential_failures = CredentialFailureDetector::default();
     let system_prompt_cache: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 
+    // Liveness heartbeat: the actor loop bumps it, the `/livez` probe reads it.
+    let heartbeat = moatless_sandbox::agent::heartbeat::Heartbeat::new();
+
     let agent_handle = spawn_agent(
         Arc::clone(&config_arc),
         Arc::clone(&agent_state),
@@ -140,6 +143,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         credential_failures.clone(),
         Arc::clone(&credential_dispatcher),
         Arc::clone(&system_prompt_cache),
+        heartbeat.clone(),
     );
     late_injector.set(Box::new(agent_handle.clone()));
 
@@ -148,6 +152,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         events: event_publisher,
         agent: agent_state,
         agent_handle,
+        heartbeat,
         scheduled_jobs,
         backend_client,
         init_phase: Arc::new(RwLock::new(InitPhase::Starting)),
@@ -215,6 +220,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let health_state = state.clone();
     let router = Router::new()
         .route("/health", get(health))
+        .route("/livez", get(livez))
         .with_state(health_state);
 
     // Drive graceful shutdown on SIGTERM/SIGINT. Without this the process rides
@@ -250,5 +256,38 @@ async fn health(State(state): State<SandboxState>) -> impl IntoResponse {
     match *phase {
         InitPhase::Ready => StatusCode::OK,
         _ => StatusCode::SERVICE_UNAVAILABLE,
+    }
+}
+
+/// GET /livez — honest liveness signal for the agent actor.
+///
+/// Returns 200 while the actor loop is alive and 503 once it has wedged or
+/// exited, so K8s can restart a hung-but-running pod that `/health` would keep
+/// reporting healthy. Depends ONLY on the actor — never on backend
+/// reachability, credentials, or disk — so a transient dependency outage can't
+/// trigger a restart that kills an in-flight turn.
+///
+/// Backed by the actor heartbeat: while a turn is `Running` the stamp must be
+/// fresh (the loop beats every iteration and on a periodic tick); when idle the
+/// loop legitimately parks on its command channel, so an open channel suffices.
+async fn livez(State(state): State<SandboxState>) -> impl IntoResponse {
+    use moatless_sandbox::agent::heartbeat::{
+        actor_is_alive, now_millis, HEARTBEAT_STALE_THRESHOLD_MS,
+    };
+    use moatless_sandbox::agent::types::AgentStatus;
+
+    let turn_running = matches!(state.agent.status().await, AgentStatus::Running);
+    let alive = actor_is_alive(
+        now_millis(),
+        state.heartbeat.last_beat_ms(),
+        turn_running,
+        !state.agent_handle.is_closed(),
+        HEARTBEAT_STALE_THRESHOLD_MS,
+    );
+
+    if alive {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
     }
 }

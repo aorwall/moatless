@@ -8,6 +8,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::agent::agent_state::AgentState;
 use crate::agent::handle::AgentHandle;
+use crate::agent::heartbeat::Heartbeat;
 use crate::agent::scheduled_job::ScheduledJobRegistry;
 use crate::backend_client::BackendClient;
 use crate::config::Config;
@@ -30,6 +31,9 @@ pub struct SandboxState {
     pub agent: Arc<AgentState>,
     /// Actor-style agent handle — send messages via `agent_handle.send()`.
     pub agent_handle: AgentHandle,
+    /// Liveness heartbeat bumped by the agent actor loop. Read by the `/livez`
+    /// probe to detect a wedged actor (see [`crate::agent::heartbeat`]).
+    pub heartbeat: Heartbeat,
     /// Registry of deferred-work jobs (Monitor crons + ScheduleWakeup timers)
     /// spawned by the permission handler / agent actor.
     pub scheduled_jobs: Arc<ScheduledJobRegistry>,

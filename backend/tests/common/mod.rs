@@ -126,6 +126,7 @@ pub fn test_config() -> Config {
             emit_legacy_user_token_env: true,
             file_mount_path: "/tmp/test".into(),
             idle_reaper_enabled: false,
+            liveness_enabled: false,
             idle_timeout_minutes: 15,
             idle_check_interval_secs: 300,
             inactive_task_timeout_days: 0,

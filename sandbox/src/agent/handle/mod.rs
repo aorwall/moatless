@@ -167,6 +167,14 @@ impl AgentHandle {
         let _ = self.command_tx.send(AgentCommand::Stop);
     }
 
+    /// Whether the actor loop has exited (its command receiver was dropped).
+    ///
+    /// Used by the `/livez` liveness probe: a closed channel means no further
+    /// agent turn can ever run, so the pod should be restarted.
+    pub fn is_closed(&self) -> bool {
+        self.command_tx.is_closed()
+    }
+
     /// Replay an interrupted agent run on sandbox startup.
     ///
     /// `resume_session_id` is forced through to the CLI as `--resume <id>`,
@@ -201,6 +209,7 @@ pub fn spawn_agent(
     credential_failures: CredentialFailureDetector,
     credential_dispatcher: Arc<Dispatcher>,
     system_prompt_cache: Arc<RwLock<Option<String>>>,
+    heartbeat: super::heartbeat::Heartbeat,
 ) -> AgentHandle {
     let (command_tx, command_rx) = mpsc::unbounded_channel();
 
@@ -215,6 +224,7 @@ pub fn spawn_agent(
         credential_failures,
         credential_dispatcher,
         system_prompt_cache,
+        heartbeat,
     ));
 
     AgentHandle { command_tx }

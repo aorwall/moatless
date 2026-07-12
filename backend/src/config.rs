@@ -308,6 +308,11 @@ pub struct SandboxConfig {
     pub file_mount_path: String,
     /// Whether the idle sandbox reaper is enabled (default: true)
     pub idle_reaper_enabled: bool,
+    /// Whether to attach a liveness probe to the sandbox container so K8s
+    /// restarts a hung-but-alive pod (agent actor wedged while `/health` still
+    /// reports Ready). Default OFF: a false-positive restart kills an in-flight
+    /// agent turn, which is worse than a rare hang. Env `K8S_SANDBOX_LIVENESS_ENABLED`.
+    pub liveness_enabled: bool,
     /// Stop sandboxes idle longer than this (minutes, default: 15)
     pub idle_timeout_minutes: u64,
     /// How often to check for idle sandboxes (seconds, default: 300 = 5 min)
@@ -897,6 +902,7 @@ impl Config {
                 emit_legacy_user_token_env: env_bool("SANDBOX_EMIT_LEGACY_USER_TOKEN", true),
                 file_mount_path: env_str("SANDBOX_FILE_MOUNT_PATH", "/mnt/uploads"),
                 idle_reaper_enabled: env_bool("SANDBOX_IDLE_REAPER_ENABLED", true),
+                liveness_enabled: env_bool("K8S_SANDBOX_LIVENESS_ENABLED", false),
                 idle_timeout_minutes: env_or("SANDBOX_IDLE_TIMEOUT_MINUTES", 15),
                 idle_check_interval_secs: env_or("SANDBOX_IDLE_CHECK_INTERVAL_SECS", 300),
                 inactive_task_timeout_days: env_or("TASK_INACTIVE_TIMEOUT_DAYS", 7),
@@ -1327,6 +1333,7 @@ mod tests {
                 emit_legacy_user_token_env: true,
                 file_mount_path: "/tmp".into(),
                 idle_reaper_enabled: false,
+                liveness_enabled: false,
                 idle_timeout_minutes: 15,
                 idle_check_interval_secs: 300,
                 inactive_task_timeout_days: 0,

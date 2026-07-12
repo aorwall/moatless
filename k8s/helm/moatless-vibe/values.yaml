@@ -502,6 +502,12 @@ kubernetes:
   sandboxGrpcPort: 50052
   # -- Pod startup timeout in seconds
   podStartupTimeout: 120
+  # -- Attach a liveness probe to the sandbox container so Kubernetes restarts a
+  #    hung-but-alive pod (agent actor loop wedged while /health still reports
+  #    Ready). Default off: a false-positive restart kills an in-flight agent
+  #    turn, which is worse than a rare hang. The probe hits /livez, which depends
+  #    only on the agent actor being responsive (never backend/credentials/disk).
+  sandboxLivenessEnabled: false
   # -- Health check interval in seconds
   healthCheckInterval: 30
   # -- Minutes of inactivity before workspace is suspended (0 = disabled)

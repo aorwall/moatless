@@ -231,6 +231,7 @@ fn test_state(backend: Arc<dyn BackendClient>) -> SandboxState {
     let credential_failures = CredentialFailureDetector::default();
     let credential_dispatcher = Arc::new(Dispatcher::new());
     let system_prompt_cache: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+    let heartbeat = moatless_sandbox::agent::heartbeat::Heartbeat::new();
 
     let agent_handle = spawn_agent(
         Arc::clone(&config),
@@ -242,6 +243,7 @@ fn test_state(backend: Arc<dyn BackendClient>) -> SandboxState {
         credential_failures.clone(),
         Arc::clone(&credential_dispatcher),
         Arc::clone(&system_prompt_cache),
+        heartbeat.clone(),
     );
     late_injector.set(Box::new(agent_handle.clone()));
 
@@ -250,6 +252,7 @@ fn test_state(backend: Arc<dyn BackendClient>) -> SandboxState {
         events,
         agent: agent_state,
         agent_handle,
+        heartbeat,
         scheduled_jobs,
         backend_client: backend,
         init_phase: Arc::new(RwLock::new(InitPhase::Ready)),

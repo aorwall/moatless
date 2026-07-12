@@ -287,6 +287,7 @@ fn spawn_test_agent_in(tmp: &TempDir, use_tmux: bool) -> (AgentHandle, Arc<Agent
         credential_failures,
         Arc::clone(&credential_dispatcher),
         Arc::clone(&system_prompt_cache),
+        moatless_sandbox::agent::heartbeat::Heartbeat::new(),
     );
     late_injector.set(Box::new(handle.clone()));
 

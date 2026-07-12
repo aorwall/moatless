@@ -16,6 +16,7 @@ use tracing::{debug, info, warn};
 
 use crate::agent::agent_state::AgentState;
 use crate::agent::codex_exec::CodexExecEvent;
+use crate::agent::heartbeat::{Heartbeat, HEARTBEAT_TICK_INTERVAL};
 use crate::agent::scheduled_job::{JobKind, ScheduledJobRegistry};
 use crate::agent::wakeup_job::WakeupJob;
 use crate::backend_client::BackendClient;
@@ -82,6 +83,7 @@ pub(super) async fn agent_loop(
     credential_failures: CredentialFailureDetector,
     credential_dispatcher: Arc<Dispatcher>,
     system_prompt_cache: Arc<RwLock<Option<String>>>,
+    heartbeat: Heartbeat,
 ) {
     let task_id = config.task_id.clone();
     let mut handle: Option<ActiveHandle> = None;
@@ -127,9 +129,19 @@ pub(super) async fn agent_loop(
     // Agent-lifetime cancel token: survives individual sessions, cancelled on Stop.
     let agent_run_cancel = CancellationToken::new();
 
+    // Liveness heartbeat: bumped every iteration below and on a periodic tick so
+    // the `/livez` probe can tell a wedged actor from a slow-but-alive turn.
+    let mut heartbeat_tick = tokio::time::interval(HEARTBEAT_TICK_INTERVAL);
+    heartbeat_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
     info!(task_id = %task_id, "Agent actor started");
 
     loop {
+        // Prove the actor loop is alive on every iteration. The periodic
+        // `heartbeat_tick` branch below keeps this fresh even while the loop is
+        // parked waiting for runtime messages during a long tool call.
+        heartbeat.beat();
+
         // Turn-level invariant for Codex: a cleared handle with no terminal
         // event published means the turn ended silently. Surface it as an
         // explicit error so the backend can close the turn. Normal terminal
@@ -302,6 +314,13 @@ pub(super) async fn agent_loop(
         }
 
         tokio::select! {
+            _ = heartbeat_tick.tick() => {
+                // Wake periodically so the heartbeat stays fresh while the loop
+                // is otherwise parked on `messages.recv()` (model thinking / a
+                // long-running tool call emits no messages). Falls through to the
+                // top-of-loop `beat()` on the next iteration.
+            }
+
             msg = async {
                 match handle.as_mut() {
                     Some(ActiveHandle::Claude(handle)) => {
