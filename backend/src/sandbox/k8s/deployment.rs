@@ -17,16 +17,27 @@ use crate::config::Config;
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::models::ProvisionRequest;
 
+/// Name + UID of a created (or reused) Deployment.
+///
+/// The `uid` is used to build `ownerReferences` on the Service and IngressRoutes
+/// so K8s garbage collection cascades their deletion when the Deployment is
+/// deleted. It is `None` only when a reused (409) Deployment couldn't be
+/// re-fetched — callers then simply skip owner-referencing (best effort).
+pub struct DeploymentHandle {
+    pub name: String,
+    pub uid: Option<String>,
+}
+
 /// Create a Deployment wrapping the given Pod spec.
 ///
 /// Extracts the pod's `.spec` and wraps it as the Deployment's pod template.
 /// Labels are preserved so the Service selector (`moatless.io/task-id`) still matches.
-/// Returns the deployment name on success.
+/// Returns the deployment name + UID on success.
 pub async fn create_sandbox_deployment(
     k8s: &K8sClient,
     task_id: &str,
     pod: Pod,
-) -> Result<String, SandboxError> {
+) -> Result<DeploymentHandle, SandboxError> {
     let deployments: Api<Deployment> = Api::namespaced(k8s.client.clone(), k8s.namespace());
 
     let deployment_name = generate_deployment_name(task_id);
@@ -105,20 +116,33 @@ pub async fn create_sandbox_deployment(
     }))
     .map_err(|e| SandboxError::PodBuildError(e.to_string()))?;
 
-    match deployments
+    let uid = match deployments
         .create(&PostParams::default(), &deployment)
         .await
     {
-        Ok(_) => {
+        Ok(created) => {
             info!(task_id, deployment_name = %deployment_name, "Deployment created");
+            created.metadata.uid
         }
         Err(kube::Error::Api(ref e)) if e.code == 409 => {
             debug!(task_id, deployment_name = %deployment_name, "Deployment already exists, reusing");
+            // Re-fetch so callers can still owner-reference dependents. A failed
+            // GET is non-fatal: owner-referencing is best-effort.
+            match deployments.get(&deployment_name).await {
+                Ok(existing) => existing.metadata.uid,
+                Err(e) => {
+                    warn!(task_id, error = %e, "Failed to fetch existing Deployment UID");
+                    None
+                }
+            }
         }
         Err(e) => return Err(SandboxError::KubeError(e)),
-    }
+    };
 
-    Ok(deployment_name)
+    Ok(DeploymentHandle {
+        name: deployment_name,
+        uid,
+    })
 }
 
 /// Scale a Deployment to the specified number of replicas.

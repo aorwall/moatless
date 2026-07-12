@@ -15,6 +15,7 @@ use super::client::K8sClient;
 use super::deployment;
 use super::ingress;
 use super::naming::generate_service_name;
+use super::owner_ref;
 use super::pod_builder;
 use super::pod_reader;
 use super::pod_status::{is_sandbox_container_ready, pick_best_pod};
@@ -165,23 +166,38 @@ impl SandboxProvider for K8sSandboxProvider {
         let server_ports: BTreeMap<String, u16> =
             pod_builder::build_servers_map(plan).into_iter().collect();
 
-        // 5. Create Deployment (wraps pod spec) + Service
-        let _deployment_name =
-            deployment::create_sandbox_deployment(&self.k8s, task_id, pod).await?;
+        // 5. Create Deployment (wraps pod spec) first so its UID can own the
+        //    Service and IngressRoutes — K8s garbage collection then cascades
+        //    their deletion when the Deployment is deleted, so a transient
+        //    failure mid-cleanup can't orphan them.
+        let deployment = deployment::create_sandbox_deployment(&self.k8s, task_id, pod).await?;
+        let owner = deployment
+            .uid
+            .as_deref()
+            .map(|uid| owner_ref::deployment_owner_reference(&deployment.name, uid));
+        if owner.is_none() {
+            warn!(task_id = %task_id, "Deployment UID unavailable; Service/IngressRoutes will not be owner-referenced");
+        }
 
         let service_name = service::create_sandbox_service(
             &self.k8s,
             task_id,
             &server_ports,
             self.config.sandbox.grpc_port,
+            owner.as_ref(),
         )
         .await?;
 
         // 5b. Create Traefik IngressRoutes (if proxy_domain is configured)
         if self.config.proxy.domain.is_some() {
-            if let Err(e) =
-                ingress::create_task_ingress_routes(&self.k8s, task_id, &server_ports, &self.config)
-                    .await
+            if let Err(e) = ingress::create_task_ingress_routes(
+                &self.k8s,
+                task_id,
+                &server_ports,
+                &self.config,
+                owner.as_ref(),
+            )
+            .await
             {
                 warn!(task_id = %task_id, error = %e, "Failed to create IngressRoutes");
             }
@@ -308,30 +324,52 @@ impl SandboxProvider for K8sSandboxProvider {
     async fn cleanup(&self, task_id: &str) -> Result<(), SandboxError> {
         info!(task_id = %task_id, "Cleaning up sandbox (deleting all resources)");
 
-        // Delete Deployment (cascades to pods and ReplicaSets)
+        // Delete the Deployment first. Its ownerReferences make the Service and
+        // IngressRoutes children, so K8s garbage collection cascades their
+        // deletion once the Deployment is gone. The explicit Service/IngressRoute
+        // deletes below are best-effort cleanup for resources created before the
+        // ownership chain existed — their failures don't fail cleanup.
+        //
+        // The Deployment and PVC deletes are load-bearing: if either fails we
+        // return an error (rather than the old swallow-to-`Ok(())`) so the
+        // caller can retry and the reaper's orphan-GC pass is a backstop, not
+        // the only safety net. A leaked PVC bills indefinitely.
+        let mut first_err: Option<SandboxError> = None;
+
         if let Err(e) = deployment::delete_deployment(&self.k8s, task_id).await {
             warn!(task_id = %task_id, error = %e, "Failed to delete Deployment");
+            first_err.get_or_insert(SandboxError::KubeError(e));
         }
+        // Best-effort direct deletes (pre-ownership resources). GC covers the
+        // rest via the Deployment's ownerReferences.
         if let Err(e) = service::delete_sandbox_service(&self.k8s, task_id).await {
-            warn!(task_id = %task_id, error = %e, "Failed to delete service");
+            warn!(task_id = %task_id, error = %e, "Failed to delete service (best-effort; GC cascades)");
         }
         if let Err(e) = ingress::delete_task_ingress_routes(&self.k8s, task_id).await {
-            warn!(task_id = %task_id, error = %e, "Failed to delete IngressRoutes");
+            warn!(task_id = %task_id, error = %e, "Failed to delete IngressRoutes (best-effort; GC cascades)");
         }
         if let Err(e) = pvc::delete_task_pvc(&self.k8s, task_id).await {
             warn!(task_id = %task_id, error = %e, "Failed to delete PVC");
+            first_err.get_or_insert(SandboxError::KubeError(e));
         }
 
         // Delete this task's transcript archive from S3 (`<prefix>/<task_id>/...`).
         // The per-task PVC delete above doesn't cover it — transcripts live in the
         // uploads bucket, synced there by the sandbox via backend-proxied gRPC.
         // Best-effort: a leftover object is harmless and the bucket lifecycle rule
-        // eventually expires it. No-op when S3 isn't configured.
+        // eventually expires it. No-op when S3 isn't configured. Run this even on
+        // a K8s delete failure — it's cheap and independent.
         self.delete_task_transcripts(task_id).await;
 
         // Delete this task's `s3`-backend workspace archive too (`<prefix>/<task_id>/`).
         // No-op for `ebs`/`ephemeral` tasks (nothing under the prefix).
         self.delete_task_workspace(task_id).await;
+
+        // Surface a K8s delete failure to the caller instead of the old
+        // swallow-to-`Ok(())`. Skip the "Removed" event — resources may linger.
+        if let Some(e) = first_err {
+            return Err(e);
+        }
 
         if let Some(ref publisher) = self.event_publisher {
             publisher

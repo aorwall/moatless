@@ -14,6 +14,8 @@ use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use k8s_openapi::api::apps::v1::Deployment;
+use k8s_openapi::api::core::v1::{PersistentVolumeClaim, Service};
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::api::{Api, ListParams};
 use moatless_events::TaskSubType;
 use tokio::task::JoinHandle;
@@ -75,6 +77,8 @@ pub fn spawn_task_reaper(
     let interval = Duration::from_secs(config.sandbox.idle_check_interval_secs);
     let default_ttl_minutes = config.sandbox.idle_timeout_minutes as i32;
     let default_inactive_ttl_days = config.sandbox.inactive_task_timeout_days as i32;
+    let orphan_gc_enabled = config.sandbox.orphan_gc_enabled;
+    let orphan_gc_retention_hours = config.sandbox.orphan_gc_retention_hours as i64;
 
     tokio::spawn(async move {
         // Lease duration must exceed the check interval so the lease
@@ -105,6 +109,8 @@ pub fn spawn_task_reaper(
                         &events,
                         default_ttl_minutes,
                         default_inactive_ttl_days,
+                        orphan_gc_enabled,
+                        orphan_gc_retention_hours,
                     )
                     .await
                     {
@@ -141,6 +147,8 @@ async fn run_reap_cycle(
     events: &Option<Arc<dyn EventPublisher>>,
     default_ttl_minutes: i32,
     default_inactive_ttl_days: i32,
+    orphan_gc_enabled: bool,
+    orphan_gc_retention_hours: i64,
 ) -> Result<(), ReaperError> {
     let sandbox_ids = list_running_sandbox_task_ids(k8s).await?;
 
@@ -148,6 +156,15 @@ async fn run_reap_cycle(
     // Independent of the idle/close passes below and best-effort, so a failure
     // here never blocks them.
     reconcile_orphaned_turns(app_state, &sandbox_ids).await;
+
+    // Orphan-GC pass: delete leftover sandbox K8s resources whose task no longer
+    // exists or was closed past the retention window. Runs unconditionally (not
+    // gated on there being running sandboxes/open tasks — the whole point is
+    // resources whose task is gone) and best-effort so it never blocks the
+    // idle/close passes below.
+    if orphan_gc_enabled {
+        gc_orphaned_resources(k8s, tasks, orphan_gc_retention_hours).await;
+    }
 
     let open_ids = match tasks.list_open_task_ids().await {
         Ok(ids) => ids,
@@ -635,6 +652,158 @@ async fn auto_close_task(
     info!(task_id, "Task auto-closed (inactive past TTL)");
 }
 
+/// Outcome of evaluating a labeled sandbox resource for orphan GC.
+#[derive(Debug, PartialEq, Eq)]
+enum OrphanDecision {
+    /// The resource's task is gone, or was closed past the retention window —
+    /// safe to delete.
+    Delete,
+    /// The task is still live (Open), errored (may be retried/inspected), or was
+    /// closed only recently — keep the resource.
+    Keep,
+}
+
+/// Pure decision function: decide whether a task's leftover sandbox resources
+/// are orphans safe to GC.
+///
+/// `task` is the task's `(status, updated_at)` if the row still exists in the
+/// DB, or `None` when it's been deleted. Rules, deliberately conservative:
+/// - Deleted (`None`) → the resources can't belong to any task → delete.
+/// - `Open` → live task → never GC (matches the plan's hard rule).
+/// - `Error` → may be retried or inspected → keep.
+/// - `Closed` → GC only once `updated_at` is older than the retention window; a
+///   missing `updated_at` is treated as "recently changed" → keep.
+fn decide_orphan(
+    task: Option<(TaskStatus, Option<DateTime<Utc>>)>,
+    retention: chrono::Duration,
+    now: DateTime<Utc>,
+) -> OrphanDecision {
+    match task {
+        None => OrphanDecision::Delete,
+        Some((TaskStatus::Closed, updated_at)) => match updated_at {
+            Some(ts) if now - ts > retention => OrphanDecision::Delete,
+            _ => OrphanDecision::Keep,
+        },
+        Some(_) => OrphanDecision::Keep,
+    }
+}
+
+/// Collect the `moatless.io/task-id` label from an iterator of resource metadata
+/// into `ids`.
+fn collect_ids_from_meta<'a>(
+    ids: &mut HashSet<String>,
+    metas: impl Iterator<Item = &'a ObjectMeta>,
+) {
+    for meta in metas {
+        if let Some(id) = meta
+            .labels
+            .as_ref()
+            .and_then(|l| l.get("moatless.io/task-id"))
+        {
+            ids.insert(id.clone());
+        }
+    }
+}
+
+/// Discover every task-id that still has at least one labeled sandbox resource
+/// (Deployment, Service, PVC, or IngressRoute). Best-effort: a failure listing
+/// any one resource type is logged and skipped.
+async fn collect_labeled_task_ids(k8s: &K8sClient) -> HashSet<String> {
+    let ns = k8s.namespace();
+    let lp = ListParams::default().labels("moatless.io/task-id");
+    let mut ids = HashSet::new();
+
+    let deployments: Api<Deployment> = Api::namespaced(k8s.client.clone(), ns);
+    match deployments.list(&lp).await {
+        Ok(list) => collect_ids_from_meta(&mut ids, list.items.iter().map(|d| &d.metadata)),
+        Err(e) => warn!(error = %e, "orphan-gc: failed to list Deployments"),
+    }
+
+    let services: Api<Service> = Api::namespaced(k8s.client.clone(), ns);
+    match services.list(&lp).await {
+        Ok(list) => collect_ids_from_meta(&mut ids, list.items.iter().map(|s| &s.metadata)),
+        Err(e) => warn!(error = %e, "orphan-gc: failed to list Services"),
+    }
+
+    let pvcs: Api<PersistentVolumeClaim> = Api::namespaced(k8s.client.clone(), ns);
+    match pvcs.list(&lp).await {
+        Ok(list) => collect_ids_from_meta(&mut ids, list.items.iter().map(|p| &p.metadata)),
+        Err(e) => warn!(error = %e, "orphan-gc: failed to list PVCs"),
+    }
+
+    for id in crate::sandbox::k8s::ingress::list_ingress_route_task_ids(k8s).await {
+        ids.insert(id);
+    }
+
+    ids
+}
+
+/// Best-effort delete of every labeled K8s resource for a task. Each delete is
+/// idempotent (404 → Ok) and its failure is logged, never propagated.
+async fn delete_orphaned_task_resources(k8s: &K8sClient, task_id: &str) {
+    use crate::sandbox::k8s::{deployment, ingress, pvc, service};
+
+    if let Err(e) = deployment::delete_deployment(k8s, task_id).await {
+        warn!(task_id = %task_id, error = %e, "orphan-gc: failed to delete Deployment");
+    }
+    if let Err(e) = service::delete_sandbox_service(k8s, task_id).await {
+        warn!(task_id = %task_id, error = %e, "orphan-gc: failed to delete Service");
+    }
+    if let Err(e) = ingress::delete_task_ingress_routes(k8s, task_id).await {
+        warn!(task_id = %task_id, error = %e, "orphan-gc: failed to delete IngressRoutes");
+    }
+    if let Err(e) = pvc::delete_task_pvc(k8s, task_id).await {
+        warn!(task_id = %task_id, error = %e, "orphan-gc: failed to delete PVC");
+    }
+}
+
+/// Orphan-GC pass: LIST labeled sandbox resources, then delete those whose task
+/// no longer exists or was closed past `retention_hours`. Never touches
+/// resources for Open (live) or Error tasks. Every deletion is logged at info
+/// with `task_id`. Fully best-effort — errors are logged, never propagated.
+async fn gc_orphaned_resources(
+    k8s: &K8sClient,
+    tasks: &Arc<dyn TaskRepository>,
+    retention_hours: i64,
+) {
+    let retention = chrono::Duration::hours(retention_hours);
+    let now = Utc::now();
+
+    let task_ids = collect_labeled_task_ids(k8s).await;
+    if task_ids.is_empty() {
+        return;
+    }
+
+    let mut gc_count = 0u32;
+    for task_id in task_ids {
+        let task = match tasks.find_by_id_internal(&task_id).await {
+            Ok(Some(t)) => Some((t.status, t.updated_at)),
+            Ok(None) => None,
+            Err(e) => {
+                // A transient DB error must not be mistaken for a deleted task —
+                // skip this task-id this cycle rather than risk deleting live
+                // resources.
+                warn!(task_id = %task_id, error = %e, "orphan-gc: task lookup failed, skipping");
+                continue;
+            }
+        };
+
+        if decide_orphan(task, retention, now) == OrphanDecision::Delete {
+            info!(
+                task_id = %task_id,
+                retention_hours,
+                "orphan-gc: deleting leftover sandbox resources (task deleted or closed past retention)"
+            );
+            delete_orphaned_task_resources(k8s, &task_id).await;
+            gc_count += 1;
+        }
+    }
+
+    if gc_count > 0 {
+        info!(gc_count, "orphan-gc pass complete");
+    }
+}
+
 /// List task IDs of all running sandbox Deployments (replicas > 0).
 async fn list_running_sandbox_task_ids(k8s: &K8sClient) -> Result<Vec<String>, kube::Error> {
     let deployments: Api<Deployment> = Api::namespaced(k8s.client.clone(), k8s.namespace());
@@ -848,5 +1017,100 @@ mod tests {
             decide_reap(60, floor_none, now),
             ReapDecision::Skip("no activity timestamp")
         );
+    }
+
+    // =========================================================================
+    // decide_orphan (orphan-GC pass)
+    // =========================================================================
+
+    fn retention_24h() -> chrono::Duration {
+        chrono::Duration::hours(24)
+    }
+
+    #[test]
+    fn orphan_deleted_task_is_gc_immediately() {
+        // Task row gone from the DB → resources are pure orphans, GC regardless
+        // of any window.
+        let now = Utc::now();
+        assert_eq!(
+            decide_orphan(None, retention_24h(), now),
+            OrphanDecision::Delete
+        );
+    }
+
+    #[test]
+    fn orphan_open_task_is_never_gc() {
+        let now = Utc::now();
+        // Even with a very old updated_at, an Open task is live → keep.
+        let old = now - chrono::Duration::days(30);
+        assert_eq!(
+            decide_orphan(Some((TaskStatus::Open, Some(old))), retention_24h(), now),
+            OrphanDecision::Keep
+        );
+    }
+
+    #[test]
+    fn orphan_error_task_is_never_gc() {
+        let now = Utc::now();
+        let old = now - chrono::Duration::days(30);
+        assert_eq!(
+            decide_orphan(Some((TaskStatus::Error, Some(old))), retention_24h(), now),
+            OrphanDecision::Keep
+        );
+    }
+
+    #[test]
+    fn orphan_closed_task_within_retention_is_kept() {
+        let now = Utc::now();
+        // Closed 1h ago, 24h window → keep.
+        let recent = now - chrono::Duration::hours(1);
+        assert_eq!(
+            decide_orphan(
+                Some((TaskStatus::Closed, Some(recent))),
+                retention_24h(),
+                now
+            ),
+            OrphanDecision::Keep
+        );
+    }
+
+    #[test]
+    fn orphan_closed_task_past_retention_is_gc() {
+        let now = Utc::now();
+        // Closed 25h ago, 24h window → delete.
+        let old = now - chrono::Duration::hours(25);
+        assert_eq!(
+            decide_orphan(Some((TaskStatus::Closed, Some(old))), retention_24h(), now),
+            OrphanDecision::Delete
+        );
+    }
+
+    #[test]
+    fn orphan_closed_task_missing_updated_at_is_kept() {
+        // No updated_at → treat conservatively as recently changed → keep.
+        let now = Utc::now();
+        assert_eq!(
+            decide_orphan(Some((TaskStatus::Closed, None)), retention_24h(), now),
+            OrphanDecision::Keep
+        );
+    }
+
+    #[test]
+    fn collect_ids_from_meta_dedupes_and_skips_unlabeled() {
+        let mut ids = HashSet::new();
+        let labeled = |task_id: &str| ObjectMeta {
+            labels: Some(
+                [("moatless.io/task-id".to_string(), task_id.to_string())]
+                    .into_iter()
+                    .collect(),
+            ),
+            ..Default::default()
+        };
+        let unlabeled = ObjectMeta::default();
+        let metas = vec![labeled("a"), labeled("a"), labeled("b"), unlabeled];
+        collect_ids_from_meta(&mut ids, metas.iter());
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains("a"));
+        assert!(ids.contains("b"));
     }
 }

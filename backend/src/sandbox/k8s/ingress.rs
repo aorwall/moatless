@@ -3,6 +3,7 @@
 //! Creates and deletes `traefik.io/v1alpha1` IngressRoute custom resources
 //! for each server port exposed by a workspace pod.
 
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
 use kube::api::{Api, DynamicObject, ListParams, PostParams};
 use kube::discovery::ApiResource;
 use std::collections::BTreeMap;
@@ -33,11 +34,17 @@ fn ingress_api(k8s: &K8sClient) -> Api<DynamicObject> {
 ///
 /// Each IngressRoute maps `{task_id}--{port}.{proxy_domain}` to the
 /// workspace Service. Idempotent — handles 409 (AlreadyExists) gracefully.
+///
+/// `owner`, when present, is set as each IngressRoute's `ownerReference` (the
+/// task's Deployment) so K8s garbage collection cascades their deletion when
+/// the Deployment is deleted. GC is resource-agnostic, so this works for the
+/// Traefik CRD exactly as it does for built-in resources.
 pub async fn create_task_ingress_routes(
     k8s: &K8sClient,
     task_id: &str,
     server_ports: &BTreeMap<String, u16>,
     config: &Config,
+    owner: Option<&OwnerReference>,
 ) -> Result<(), kube::Error> {
     let proxy_domain = if let Some(d) = config.proxy.domain.as_deref() {
         d
@@ -84,14 +91,19 @@ pub async fn create_task_ingress_routes(
             }],
         });
 
+        let mut metadata = serde_json::json!({
+            "name": route_name,
+            "namespace": k8s.namespace(),
+            "labels": labels,
+        });
+        if let Some(owner) = owner {
+            metadata["ownerReferences"] = serde_json::json!([owner]);
+        }
+
         let data = serde_json::json!({
             "apiVersion": format!("{}/{}", TRAEFIK_GROUP, TRAEFIK_VERSION),
             "kind": TRAEFIK_KIND,
-            "metadata": {
-                "name": route_name,
-                "namespace": k8s.namespace(),
-                "labels": labels,
-            },
+            "metadata": metadata,
             "spec": spec,
         });
 
@@ -112,6 +124,38 @@ pub async fn create_task_ingress_routes(
     }
 
     Ok(())
+}
+
+/// Collect the `moatless.io/task-id` label of every managed IngressRoute.
+///
+/// Used by the reaper's orphan-GC pass to discover tasks that may have leftover
+/// IngressRoutes. Returns an empty vec (not an error) when the Traefik CRD isn't
+/// installed (404) or the list fails — orphan GC is best-effort.
+pub async fn list_ingress_route_task_ids(k8s: &K8sClient) -> Vec<String> {
+    let api = ingress_api(k8s);
+    let lp = ListParams::default().labels("moatless.io/task-id");
+
+    let list = match api.list(&lp).await {
+        Ok(list) => list,
+        Err(kube::Error::Api(ref e)) if e.code == 404 => {
+            debug!("IngressRoute CRD not found (Traefik not installed?), skipping orphan discovery");
+            return Vec::new();
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to list IngressRoutes for orphan discovery");
+            return Vec::new();
+        }
+    };
+
+    list.items
+        .into_iter()
+        .filter_map(|item| {
+            item.metadata
+                .labels
+                .as_ref()
+                .and_then(|labels| labels.get("moatless.io/task-id").cloned())
+        })
+        .collect()
 }
 
 /// Delete all Traefik IngressRoute CRDs for a task.

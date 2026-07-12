@@ -1,6 +1,7 @@
 //! Kubernetes ClusterIP Service lifecycle operations.
 
 use k8s_openapi::api::core::v1::Service;
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
 use kube::api::{Api, PostParams};
 use std::collections::BTreeMap;
 use tracing::{debug, info, warn};
@@ -10,11 +11,16 @@ use super::naming::generate_service_name;
 
 /// Create a ClusterIP Service for a workspace pod.
 /// Idempotent — handles AlreadyExists (409) gracefully.
+///
+/// `owner`, when present, is set as the Service's `ownerReference` (the task's
+/// Deployment) so K8s garbage collection cascades the Service's deletion when
+/// the Deployment is deleted.
 pub async fn create_sandbox_service(
     k8s: &K8sClient,
     task_id: &str,
     server_ports: &BTreeMap<String, u16>,
     grpc_port: u16,
+    owner: Option<&OwnerReference>,
 ) -> Result<String, kube::Error> {
     let services: Api<Service> = Api::namespaced(k8s.client.clone(), k8s.namespace());
     let service_name = generate_service_name(task_id);
@@ -62,14 +68,19 @@ pub async fn create_sandbox_service(
     let mut selector = BTreeMap::new();
     selector.insert("moatless.io/task-id".to_string(), task_id.to_string());
 
+    let mut metadata = serde_json::json!({
+        "name": service_name,
+        "namespace": k8s.namespace(),
+        "labels": labels,
+    });
+    if let Some(owner) = owner {
+        metadata["ownerReferences"] = serde_json::json!([owner]);
+    }
+
     let svc: Service = serde_json::from_value(serde_json::json!({
         "apiVersion": "v1",
         "kind": "Service",
-        "metadata": {
-            "name": service_name,
-            "namespace": k8s.namespace(),
-            "labels": labels,
-        },
+        "metadata": metadata,
         "spec": {
             "type": "ClusterIP",
             "selector": selector,

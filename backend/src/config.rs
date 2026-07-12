@@ -303,6 +303,16 @@ pub struct SandboxConfig {
     /// Auto-close Open tasks inactive for this many days. `0` disables
     /// auto-close. Env: `TASK_INACTIVE_TIMEOUT_DAYS` (default: 7).
     pub inactive_task_timeout_days: u64,
+    /// Whether the reaper's orphan-GC pass is enabled (default: true). When on,
+    /// the reaper deletes labeled sandbox K8s resources (Deployment/Service/
+    /// IngressRoute/PVC) whose task no longer exists or was closed past the
+    /// retention window. Env: `SANDBOX_ORPHAN_GC_ENABLED`.
+    pub orphan_gc_enabled: bool,
+    /// Retention window (hours) before a closed task's leftover sandbox
+    /// resources are orphan-GC'd. Resources for tasks deleted from the DB are
+    /// collected immediately regardless of this window. Env:
+    /// `SANDBOX_ORPHAN_GC_RETENTION_HOURS` (default: 24).
+    pub orphan_gc_retention_hours: u64,
     /// How often the background Codex refresher sweeps `provider_tokens`.
     /// Setting this to 0 disables the sweep entirely (env-var fallback
     /// still works; just no proactive backend refresh). Env:
@@ -849,6 +859,8 @@ impl Config {
                 idle_timeout_minutes: env_or("SANDBOX_IDLE_TIMEOUT_MINUTES", 15),
                 idle_check_interval_secs: env_or("SANDBOX_IDLE_CHECK_INTERVAL_SECS", 300),
                 inactive_task_timeout_days: env_or("TASK_INACTIVE_TIMEOUT_DAYS", 7),
+                orphan_gc_enabled: env_bool("SANDBOX_ORPHAN_GC_ENABLED", true),
+                orphan_gc_retention_hours: env_or("SANDBOX_ORPHAN_GC_RETENTION_HOURS", 24),
                 codex_refresher_interval_secs: env_or("CODEX_REFRESHER_INTERVAL_SECS", 3600),
                 max_crash_restart_count: env_or("SANDBOX_MAX_CRASH_RESTART_COUNT", 5),
                 tolerations_json: env_opt("K8S_SANDBOX_TOLERATIONS"),
@@ -1268,6 +1280,8 @@ mod tests {
                 idle_timeout_minutes: 15,
                 idle_check_interval_secs: 300,
                 inactive_task_timeout_days: 0,
+                orphan_gc_enabled: false,
+                orphan_gc_retention_hours: 24,
                 codex_refresher_interval_secs: 0,
                 max_crash_restart_count: 5,
                 node_selector_json: None,
