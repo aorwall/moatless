@@ -446,6 +446,25 @@ mod tests {
         );
     }
 
+    /// The backend now hands the sandbox a credential-free clone URL (userinfo
+    /// stripped in `pod_builder::redact_url_userinfo`). Cloning still authenticates
+    /// by injecting the provider token from the credential channel (`GIT_TOKEN`).
+    /// Verify both the GitHub and GitLab token flows produce an authenticated URL
+    /// from a redacted input.
+    #[test]
+    fn redacted_url_authenticates_via_injected_token() {
+        // GitHub flow.
+        assert_eq!(
+            inject_token_into_url("https://github.com/owner/repo.git", "ghs_tok"),
+            "https://x-access-token:ghs_tok@github.com/owner/repo.git"
+        );
+        // GitLab flow.
+        assert_eq!(
+            inject_token_into_url("https://gitlab.com/group/repo.git", "glpat_tok"),
+            "https://x-access-token:glpat_tok@gitlab.com/group/repo.git"
+        );
+    }
+
     #[test]
     fn inject_token_ssh_passthrough() {
         let ssh_url = "git@github.com:owner/repo.git";

@@ -839,6 +839,7 @@ mod tests {
             backend_grpc_url: "http://localhost:50051".to_string(),
             backend_api_url: None,
             user_auth_token: None,
+            bootstrap_token: None,
             agent_config: AgentConfig {
                 model: repo_model.map(String::from),
                 ..AgentConfig::default()

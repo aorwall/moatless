@@ -26,7 +26,6 @@ use crate::config::Config;
 use crate::events::EventPublisher;
 use crate::sandbox::client::SandboxClient;
 use crate::sandbox::error::SandboxError;
-use crate::sandbox::jwt;
 use crate::sandbox::models::*;
 use crate::sandbox::provider::SandboxProvider;
 use crate::sandbox::schemas::*;
@@ -105,15 +104,8 @@ impl SandboxProvider for K8sSandboxProvider {
                         new_image = %expected,
                         "Sandbox image changed since stop, rebuilding deployment"
                     );
-                    let token = self.generate_user_auth_token(&request.user_id)?;
-                    deployment::redeploy_with_plan(
-                        &self.k8s,
-                        &self.config,
-                        task_id,
-                        request,
-                        &token,
-                    )
-                    .await?;
+                    deployment::redeploy_with_plan(&self.k8s, &self.config, task_id, request)
+                        .await?;
                 }
                 self.publish_initializing(task_id).await;
                 return Ok(ProvisionResponse {
@@ -123,8 +115,10 @@ impl SandboxProvider for K8sSandboxProvider {
             ExistingPodResult::NotFound => {} // Continue provisioning
         }
 
-        // 2. Generate JWT using user_id directly (no DB lookup)
-        let user_auth_token = self.generate_user_auth_token(&request.user_id)?;
+        // 2. Mint the pod's auth tokens (short-lived bootstrap + optional legacy
+        //    user token during rollout) from user_id directly (no DB lookup). The
+        //    long-lived user token is delivered over the credential channel.
+        let minted_tokens = pod_builder::mint_sandbox_tokens(&self.config, &request.user_id)?;
 
         // 3. Create PVC. A 409 is handled inside create_task_pvc (reuse the
         //    existing PVC), so an Err here is a genuine failure — degrading to
@@ -163,7 +157,7 @@ impl SandboxProvider for K8sSandboxProvider {
             task_id,
             plan,
             pvc_name.as_deref(),
-            Some(&user_auth_token),
+            Some(pod_builder::SandboxAuthTokens::from_minted(&minted_tokens)),
         )
         .map_err(SandboxError::PodBuildError)?;
 
@@ -521,19 +515,6 @@ impl K8sSandboxProvider {
                 )
                 .await;
         }
-    }
-
-    /// Generate the user auth JWT a sandbox pod uses to call back to the backend.
-    fn generate_user_auth_token(&self, user_id: &str) -> Result<String, SandboxError> {
-        let task_token_secret = self
-            .config
-            .sandbox
-            .task_token_secret
-            .as_ref()
-            .ok_or_else(|| SandboxError::ConfigMissing("TASK_TOKEN_SECRET".to_string()))?;
-
-        jwt::generate_user_auth_token(user_id, user_id, task_token_secret)
-            .map_err(|e| SandboxError::JwtError(e.to_string()))
     }
 
     /// Resolve the storage backend of a *running* task from cluster state

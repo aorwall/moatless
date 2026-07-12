@@ -39,7 +39,6 @@ use crate::config::Config;
 use crate::events::EventPublisher;
 use crate::plugin_repo::dao::PluginRepoRepository;
 use crate::repository::dao::RepoRepository;
-use crate::sandbox::jwt;
 use crate::task::dao::{TaskPatch, TaskRepository};
 use crate::task_event::dao::TaskEventRepository;
 
@@ -1258,21 +1257,10 @@ async fn auto_disable_server(
         }
     };
 
-    let Some(secret) = deps.config.sandbox.task_token_secret.as_ref() else {
-        warn!(task_id = %task_id, "TASK_TOKEN_SECRET missing — cannot redeploy after auto-disable");
-        return;
-    };
-    let token = match jwt::generate_user_auth_token(&request.user_id, &request.user_id, secret) {
-        Ok(t) => t,
-        Err(e) => {
-            warn!(task_id = %task_id, error = %e, "Failed to generate auth token for redeploy");
-            return;
-        }
-    };
-
-    if let Err(e) =
-        deployment::redeploy_with_plan(k8s, &deps.config, task_id, &request, &token).await
-    {
+    // Token minting (bootstrap + optional legacy user token) happens inside
+    // redeploy_with_plan from config; a missing TASK_TOKEN_SECRET surfaces as an
+    // error there.
+    if let Err(e) = deployment::redeploy_with_plan(k8s, &deps.config, task_id, &request).await {
         warn!(task_id = %task_id, error = %e, "Failed to redeploy after auto-disabling server");
     } else {
         info!(

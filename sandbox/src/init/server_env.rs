@@ -83,6 +83,7 @@ mod tests {
             backend_grpc_url: "http://backend:50051".to_string(),
             backend_api_url: None,
             user_auth_token: None,
+            bootstrap_token: None,
             agent_config: AgentConfig::default(),
             claude_cli_path: "/usr/local/bin/claude".to_string(),
             codex_cli_path: "/usr/local/bin/codex".to_string(),

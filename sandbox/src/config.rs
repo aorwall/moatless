@@ -132,8 +132,15 @@ pub struct Config {
     pub backend_grpc_url: String,
     /// Backend API URL for legacy HTTP calls (kept for transition)
     pub backend_api_url: Option<String>,
-    /// User auth token for backend API calls
+    /// Long-lived user auth token, when delivered via the legacy `USER_AUTH_TOKEN`
+    /// pod-spec env. On K8s this is now normally absent — the token arrives over
+    /// the `GetCredentials` channel instead — but it is still read as a fallback
+    /// for backward compatibility and for Docker mode.
     pub user_auth_token: Option<String>,
+    /// Short-lived bootstrap token (env `SANDBOX_BOOTSTRAP_TOKEN`) used to
+    /// authenticate only the initial `GetCredentials` call, after which the
+    /// sandbox swaps to the long-lived user token from that response.
+    pub bootstrap_token: Option<String>,
     /// Agent-specific configuration
     pub agent_config: AgentConfig,
     /// Path to the Claude CLI binary
@@ -300,6 +307,8 @@ impl Config {
 
             user_auth_token: env::var("USER_AUTH_TOKEN").ok(),
 
+            bootstrap_token: env::var("SANDBOX_BOOTSTRAP_TOKEN").ok(),
+
             agent_config: parsed.agent_config,
 
             claude_cli_path: env::var("SANDBOX_CLAUDE_EXECUTABLE_PATH")
@@ -339,6 +348,92 @@ impl Config {
             plugin_repos: parsed.plugin_repos,
         }
     }
+
+    /// Filesystem path where the long-lived user auth token is persisted after it
+    /// is fetched over `GetCredentials`.
+    ///
+    /// Written under `workspace_dir` (`/opt/moatless`), which on the default tier
+    /// is an EBS-backed PVC. That volume survives not just container restarts but
+    /// full **pod replacement** (eviction, node death) — which does not call
+    /// `provision()` and so never re-mints tokens. A replacement pod can therefore
+    /// recover with this persisted long-lived token even after its spec's
+    /// short-lived bootstrap token has expired.
+    ///
+    /// On the ephemeral (no-PVC) tier `workspace_dir` is a node-local emptyDir
+    /// that dies with the pod, so this degrades to container-restart durability
+    /// only — no worse than the legacy `data_dir` location.
+    pub fn persisted_user_token_path(&self) -> std::path::PathBuf {
+        std::path::Path::new(&self.workspace_dir)
+            .join(".moatless")
+            .join(".user_auth_token")
+    }
+
+    /// Legacy persisted-token location under `data_dir` (the `shared-data`
+    /// emptyDir). Read as a fallback so a token written by an older sandbox build
+    /// is still honoured after an image upgrade.
+    fn legacy_persisted_user_token_path(&self) -> std::path::PathBuf {
+        std::path::Path::new(&self.data_dir).join(".user_auth_token")
+    }
+
+    /// Resolve the token the sandbox should present on its very first gRPC calls,
+    /// before `GetCredentials` delivers a fresh long-lived token.
+    ///
+    /// Resolution order (most to least durable):
+    /// 1. A previously persisted long-lived token (survives container restart, and
+    ///    pod replacement on the PVC tier). The PVC-backed path is preferred, with
+    ///    the legacy `data_dir` path read as a fallback.
+    /// 2. The legacy `USER_AUTH_TOKEN` env, when present. During the transition
+    ///    (`SANDBOX_EMIT_LEGACY_USER_TOKEN=true`) this long-lived token is still
+    ///    on the pod spec; preferring it keeps stop/start and pod reschedules
+    ///    working even after the short-lived bootstrap token would have expired,
+    ///    at no security cost (it is on the spec either way in this phase).
+    /// 3. The short-lived bootstrap token — the sole auth secret on the pod spec
+    ///    once legacy emission is turned off (`SANDBOX_EMIT_LEGACY_USER_TOKEN=false`).
+    pub fn resolve_initial_auth_token(&self) -> Option<String> {
+        self.resolve_initial_auth_token_with_source()
+            .map(|(token, _)| token)
+    }
+
+    /// Like [`Self::resolve_initial_auth_token`] but also reports which source the
+    /// token came from, so init can tell an expired-bootstrap failure (permanent —
+    /// only re-provisioning helps) apart from a transient backend outage.
+    pub fn resolve_initial_auth_token_with_source(
+        &self,
+    ) -> Option<(String, InitialAuthTokenSource)> {
+        for path in [
+            self.persisted_user_token_path(),
+            self.legacy_persisted_user_token_path(),
+        ] {
+            if let Ok(token) = std::fs::read_to_string(&path) {
+                let token = token.trim();
+                if !token.is_empty() {
+                    return Some((token.to_string(), InitialAuthTokenSource::Persisted));
+                }
+            }
+        }
+        if let Some(token) = self.user_auth_token.clone() {
+            return Some((token, InitialAuthTokenSource::LegacyEnv));
+        }
+        self.bootstrap_token
+            .clone()
+            .map(|token| (token, InitialAuthTokenSource::Bootstrap))
+    }
+}
+
+/// Where the sandbox's initial backend-auth token came from — determines whether
+/// an `Unauthenticated` credential-fetch failure is recoverable.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum InitialAuthTokenSource {
+    /// Long-lived token restored from disk (survives restart; survives pod
+    /// replacement on the PVC tier).
+    Persisted,
+    /// Legacy long-lived `USER_AUTH_TOKEN` env, still on the spec during the
+    /// transition (`SANDBOX_EMIT_LEGACY_USER_TOKEN=true`).
+    LegacyEnv,
+    /// Short-lived bootstrap token — the only auth secret on the spec once legacy
+    /// emission is off. If rejected, it has almost certainly expired and a pod
+    /// restart would present the same expired env, so re-provisioning is required.
+    Bootstrap,
 }
 
 /// Test-only helpers for constructing a [`Config`] without env vars.
@@ -361,6 +456,7 @@ pub(crate) mod test_support {
             backend_grpc_url: "http://backend:50051".to_string(),
             backend_api_url: None,
             user_auth_token: None,
+            bootstrap_token: None,
             agent_config: AgentConfig::default(),
             claude_cli_path: "/usr/local/bin/claude".to_string(),
             codex_cli_path: "/usr/local/bin/codex".to_string(),
@@ -446,7 +542,89 @@ fn parse_repo_config() -> ParsedRepoConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::{derive_repo_name, parse_permission_mode, PermissionMode};
+    use super::test_support::minimal_config;
+    use super::{derive_repo_name, parse_permission_mode, InitialAuthTokenSource, PermissionMode};
+
+    /// Point both persisted-token dirs at empty temp dirs so resolution falls
+    /// through to the env-supplied tokens deterministically.
+    fn config_without_persisted_token() -> (super::Config, tempfile::TempDir) {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut config = minimal_config();
+        config.workspace_dir = tmp.path().display().to_string();
+        config.data_dir = tmp.path().display().to_string();
+        (config, tmp)
+    }
+
+    #[test]
+    fn resolve_initial_auth_token_prefers_legacy_over_bootstrap() {
+        // Phase 1: the long-lived legacy token is still on the spec — prefer it
+        // for reliability across reschedules; bootstrap stays as the fallback.
+        let (mut config, _tmp) = config_without_persisted_token();
+        config.bootstrap_token = Some("boot".to_string());
+        config.user_auth_token = Some("legacy".to_string());
+        assert_eq!(
+            config.resolve_initial_auth_token_with_source(),
+            Some(("legacy".to_string(), InitialAuthTokenSource::LegacyEnv))
+        );
+    }
+
+    #[test]
+    fn resolve_initial_auth_token_uses_bootstrap_when_legacy_absent() {
+        // Phase 2: legacy emission turned off — bootstrap is the only spec secret.
+        let (mut config, _tmp) = config_without_persisted_token();
+        config.bootstrap_token = Some("boot".to_string());
+        config.user_auth_token = None;
+        assert_eq!(
+            config.resolve_initial_auth_token_with_source(),
+            Some(("boot".to_string(), InitialAuthTokenSource::Bootstrap))
+        );
+    }
+
+    #[test]
+    fn resolve_initial_auth_token_prefers_persisted_file() {
+        // The persisted token lives under the PVC-backed workspace dir and wins
+        // over both the legacy env and the bootstrap token.
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut config = minimal_config();
+        config.workspace_dir = tmp.path().display().to_string();
+        config.data_dir = tmp.path().display().to_string();
+        config.bootstrap_token = Some("boot".to_string());
+        config.user_auth_token = Some("legacy".to_string());
+        let path = config.persisted_user_token_path();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "persisted-tok\n").unwrap();
+        assert_eq!(
+            config.resolve_initial_auth_token_with_source(),
+            Some((
+                "persisted-tok".to_string(),
+                InitialAuthTokenSource::Persisted
+            ))
+        );
+    }
+
+    #[test]
+    fn resolve_initial_auth_token_reads_legacy_data_dir_path() {
+        // A token persisted by an older sandbox build (under data_dir) is still
+        // honoured after an image upgrade that moved the primary path to the PVC.
+        let ws = tempfile::TempDir::new().unwrap();
+        let data = tempfile::TempDir::new().unwrap();
+        let mut config = minimal_config();
+        config.workspace_dir = ws.path().display().to_string();
+        config.data_dir = data.path().display().to_string();
+        config.bootstrap_token = Some("boot".to_string());
+        std::fs::write(
+            config.legacy_persisted_user_token_path(),
+            "old-persisted\n",
+        )
+        .unwrap();
+        assert_eq!(
+            config.resolve_initial_auth_token_with_source(),
+            Some((
+                "old-persisted".to_string(),
+                InitialAuthTokenSource::Persisted
+            ))
+        );
+    }
 
     #[test]
     fn parse_permission_mode_accepts_known_values() {

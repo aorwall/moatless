@@ -105,9 +105,16 @@ impl SandboxProvider for DockerSandboxProvider {
             .ok_or_else(|| SandboxError::ConfigMissing("TASK_TOKEN_SECRET".to_string()))?
             .clone();
 
-        let user_auth_token =
-            jwt::generate_user_auth_token(&request.user_id, &request.user_id, &task_token_secret)
-                .map_err(|e| SandboxError::JwtError(e.to_string()))?;
+        // Docker mode is not etcd-exposed, so the long-lived token stays on the
+        // container env (USER_AUTH_TOKEN) as before — only the K8s path moves it
+        // to the credential channel.
+        let user_auth_token = jwt::generate_user_auth_token(
+            &request.user_id,
+            &request.user_id,
+            &task_token_secret,
+            self.config.sandbox.user_token_ttl_secs,
+        )
+        .map_err(|e| SandboxError::JwtError(e.to_string()))?;
 
         // 3. Create workspace and data directories on host
         let workspace_path =

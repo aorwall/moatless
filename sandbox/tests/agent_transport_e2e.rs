@@ -187,6 +187,7 @@ fn test_config(tmp: &TempDir, use_tmux: bool) -> Config {
         backend_grpc_url: "http://localhost:50051".to_string(),
         backend_api_url: None,
         user_auth_token: None,
+        bootstrap_token: None,
         agent_config: AgentConfig::default(),
         claude_cli_path: std::env::var("CLAUDE_CLI_PATH")
             .unwrap_or_else(|_| "/usr/local/bin/claude".to_string()),

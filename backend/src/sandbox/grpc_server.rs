@@ -55,6 +55,12 @@ use crate::task::relations::TaskRelationRepository;
 pub struct CredentialKey;
 
 impl CredentialKey {
+    /// Long-lived user auth token the sandbox uses to authenticate its gRPC
+    /// calls back to the backend. Delivered over this channel (instead of the pod
+    /// spec) and swapped in by the sandbox after its bootstrap-authenticated
+    /// initial fetch; re-minted on every fetch so the 15-min refresher keeps it
+    /// fresh.
+    pub const USER_AUTH_TOKEN: &str = "USER_AUTH_TOKEN";
     pub const GITHUB_TOKEN: &str = "GITHUB_TOKEN";
     pub const GITLAB_TOKEN: &str = "GITLAB_TOKEN";
     pub const GITNESS_TOKEN: &str = "GITNESS_TOKEN";
@@ -171,6 +177,54 @@ impl BackendSandboxServiceImpl {
             .map_err(|e| Status::unauthenticated(format!("Invalid token: {e}")))
     }
 
+    /// Verify auth for the `GetCredentials` call, which uniquely also accepts a
+    /// short-lived bootstrap token (the sandbox presents it before it has the
+    /// long-lived user token). During the sandbox-image rollout an old sandbox
+    /// still presents its long-lived token here, so both are honoured.
+    #[allow(clippy::result_large_err)]
+    fn verify_auth_bootstrap_or_user<T>(
+        &self,
+        request: &Request<T>,
+    ) -> Result<jwt::UserTokenClaims, Status> {
+        let secret = self
+            .task_token_secret
+            .as_ref()
+            .ok_or_else(|| Status::internal("TASK_TOKEN_SECRET not configured"))?;
+
+        let auth_header = request
+            .metadata()
+            .get("authorization")
+            .ok_or_else(|| Status::unauthenticated("Missing authorization header"))?
+            .to_str()
+            .map_err(|_| Status::unauthenticated("Invalid authorization header"))?;
+
+        let token = auth_header
+            .strip_prefix("Bearer ")
+            .ok_or_else(|| Status::unauthenticated("Invalid authorization format"))?;
+
+        jwt::verify_bootstrap_or_user_token(token, secret)
+            .map_err(|e| Status::unauthenticated(format!("Invalid token: {e}")))
+    }
+
+    /// Mint the long-lived user auth token delivered over `GetCredentials`.
+    ///
+    /// The sandbox swaps this in for its bootstrap token and uses it for all
+    /// subsequent gRPC calls. Returns `None` (with a warning) if the secret is
+    /// unset — the sandbox then falls back to whatever token it already holds.
+    fn mint_user_auth_token(&self, user_id: &str, login: &str) -> Option<String> {
+        let secret = self.task_token_secret.as_ref()?;
+        let ttl = self
+            .backend_config
+            .as_ref()
+            .map_or(7 * 24 * 3600, |c| c.sandbox.user_token_ttl_secs);
+        match jwt::generate_user_auth_token(user_id, login, secret, ttl) {
+            Ok(token) => Some(token),
+            Err(e) => {
+                warn!(error = %e, user_id, "Failed to mint user auth token for credentials");
+                None
+            }
+        }
+    }
 }
 
 #[tonic::async_trait]
@@ -533,7 +587,10 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         &self,
         request: Request<GetCredentialsRequest>,
     ) -> Result<Response<GetCredentialsResponse>, Status> {
-        let claims = self.verify_auth(&request)?;
+        // GetCredentials uniquely accepts the short-lived bootstrap token (and,
+        // during rollout, the legacy long-lived token) — this is where the
+        // sandbox trades up to the long-lived user token delivered below.
+        let claims = self.verify_auth_bootstrap_or_user(&request)?;
         let req = request.into_inner();
         tracing::Span::current().record("task_id", req.task_id.as_str());
         tracing::Span::current().record("user_id", claims.user_id.as_str());
@@ -551,7 +608,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             &req.task_id,
         )
         .await;
-        let credentials = resolve_task_credentials(TaskCredentialInputs {
+        let mut credentials = resolve_task_credentials(TaskCredentialInputs {
             task_id: &req.task_id,
             user_id: &claims.user_id,
             team_id: team_id.as_deref(),
@@ -565,6 +622,13 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             credentials_svc: self.credentials_svc.as_ref(),
         })
         .await;
+
+        // Deliver the long-lived user auth token over this channel rather than
+        // the pod spec. The sandbox swaps its bootstrap token for this one and
+        // re-fetches on the 15-min refresh loop, so a rotated token propagates.
+        if let Some(user_token) = self.mint_user_auth_token(&claims.user_id, &claims.login) {
+            credentials.insert(CredentialKey::USER_AUTH_TOKEN.to_string(), user_token);
+        }
         let server_env =
             resolve_server_env(&claims.user_id, team_id.as_deref(), self.secrets.as_ref()).await;
         let ssh_keys =

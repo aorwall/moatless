@@ -5,6 +5,7 @@
 //! Includes an auth interceptor that injects `authorization: Bearer <token>`
 //! metadata on every outbound call.
 
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use sandbox_proto::backend_sandbox_service_client::BackendSandboxServiceClient;
@@ -19,7 +20,7 @@ use sandbox_proto::{
 use tonic::service::interceptor::InterceptedService;
 use tonic::transport::Channel;
 use tonic::{Request, Status};
-use tracing::debug;
+use tracing::{debug, warn};
 
 /// Errors that can occur when constructing a [`BackendGrpcClient`].
 #[derive(Debug, thiserror::Error)]
@@ -127,17 +128,36 @@ pub trait BackendClient: Send + Sync {
         _ok: bool,
     ) {
     }
+
+    /// Replace the Bearer token injected on subsequent gRPC calls.
+    ///
+    /// The sandbox starts with a short-lived *bootstrap* token (enough to
+    /// authenticate the initial `GetCredentials` call) and swaps to the
+    /// long-lived user token delivered in that response. Default no-op so test
+    /// doubles need not implement it.
+    fn update_auth_token(&self, _token: String) {}
 }
 
 /// Auth interceptor that injects a Bearer token on every outbound gRPC call.
+///
+/// The token lives behind a shared `RwLock` so it can be swapped at runtime:
+/// the sandbox boots with a bootstrap token and, after its first
+/// `GetCredentials`, swaps in the long-lived user token without reconnecting.
 #[derive(Clone)]
 pub struct AuthInterceptor {
-    token: Option<String>,
+    token: Arc<RwLock<Option<String>>>,
 }
 
 impl tonic::service::Interceptor for AuthInterceptor {
     fn call(&mut self, mut request: Request<()>) -> Result<Request<()>, Status> {
-        if let Some(ref token) = self.token {
+        // Read-lock is brief and never held across an await (this is a sync
+        // interceptor), so a std RwLock is fine here.
+        let token = self
+            .token
+            .read()
+            .map_err(|_| Status::internal("Auth token lock poisoned"))?
+            .clone();
+        if let Some(token) = token {
             let header_value = format!("Bearer {token}")
                 .parse()
                 .map_err(|_| Status::internal("Invalid auth token format"))?;
@@ -151,6 +171,8 @@ impl tonic::service::Interceptor for AuthInterceptor {
 #[derive(Clone)]
 pub struct BackendGrpcClient {
     client: BackendSandboxServiceClient<InterceptedService<Channel, AuthInterceptor>>,
+    /// Shared handle to the interceptor's token so it can be swapped at runtime.
+    auth_token: Arc<RwLock<Option<String>>>,
 }
 
 impl BackendGrpcClient {
@@ -160,7 +182,8 @@ impl BackendGrpcClient {
     /// is established on the first RPC call. This lets the sandbox start
     /// before the backend gRPC server is ready.
     ///
-    /// The `auth_token` is injected as a Bearer token on every outbound call.
+    /// The `auth_token` is injected as a Bearer token on every outbound call and
+    /// can later be replaced via [`BackendClient::update_auth_token`].
     pub fn connect(url: &str, auth_token: Option<String>) -> Result<Self, BackendGrpcClientError> {
         let channel = Channel::from_shared(url.to_string())?
             .connect_timeout(Duration::from_secs(5))
@@ -169,15 +192,27 @@ impl BackendGrpcClient {
             .keep_alive_timeout(Duration::from_secs(10))
             .connect_lazy();
 
-        let interceptor = AuthInterceptor { token: auth_token };
+        let auth_token = Arc::new(RwLock::new(auth_token));
+        let interceptor = AuthInterceptor {
+            token: Arc::clone(&auth_token),
+        };
         let client = BackendSandboxServiceClient::with_interceptor(channel, interceptor);
 
-        Ok(Self { client })
+        Ok(Self { client, auth_token })
     }
 }
 
 #[async_trait::async_trait]
 impl BackendClient for BackendGrpcClient {
+    fn update_auth_token(&self, token: String) {
+        if let Ok(mut guard) = self.auth_token.write() {
+            *guard = Some(token);
+            debug!("Swapped backend gRPC auth token");
+        } else {
+            warn!("Auth token lock poisoned; keeping previous token");
+        }
+    }
+
     async fn publish_event(&self, req: PublishEventRequest) -> Result<(), tonic::Status> {
         let mut client = self.client.clone();
         let resp = client.publish_event(req).await?;

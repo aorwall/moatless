@@ -66,10 +66,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Starting Moatless Sandbox"
     );
 
-    // Create gRPC client for backend communication (required)
+    // Create gRPC client for backend communication (required). The sandbox
+    // starts with a bootstrap token (or a persisted/legacy long-lived token) and
+    // swaps to the long-lived user token delivered over `GetCredentials`.
     #[allow(clippy::expect_used)] // fail-fast: sandbox cannot operate without backend connectivity
     let backend_client =
-        BackendGrpcClient::connect(&config.backend_grpc_url, config.user_auth_token.clone())
+        BackendGrpcClient::connect(&config.backend_grpc_url, config.resolve_initial_auth_token())
             .expect("Failed to create backend gRPC client");
     info!(url = %config.backend_grpc_url, "Backend gRPC client created (lazy connection)");
 

@@ -15,7 +15,60 @@ use tracing::{debug, info};
 
 use super::naming::generate_pod_name;
 use crate::config::Config;
+use crate::sandbox::error::SandboxError;
+use crate::sandbox::jwt::{self, MintedSandboxTokens};
 use crate::sandbox::models::ProvisionPlan;
+
+/// Auth tokens delivered to a sandbox pod.
+///
+/// The `bootstrap` token is placed on the pod spec (env `SANDBOX_BOOTSTRAP_TOKEN`)
+/// and authenticates only the sandbox's initial `GetCredentials` call. The
+/// long-lived user token is delivered over that credential channel instead of the
+/// pod spec — see `secrets.rs`. `legacy_user_token`, when present, additionally
+/// emits the old `USER_AUTH_TOKEN` env for backward compatibility with sandbox
+/// images that predate the credential-channel delivery (gated by
+/// `SANDBOX_EMIT_LEGACY_USER_TOKEN`).
+#[derive(Clone, Copy)]
+pub struct SandboxAuthTokens<'a> {
+    pub bootstrap: &'a str,
+    pub legacy_user_token: Option<&'a str>,
+}
+
+impl<'a> SandboxAuthTokens<'a> {
+    /// Borrow the owned [`MintedSandboxTokens`] into the pod-spec view.
+    pub fn from_minted(minted: &'a MintedSandboxTokens) -> Self {
+        Self {
+            bootstrap: minted.bootstrap.as_str(),
+            legacy_user_token: minted.legacy_user_token.as_deref(),
+        }
+    }
+}
+
+/// Mint the auth tokens a sandbox pod needs from config.
+///
+/// Produces a short-lived bootstrap token plus, while
+/// `SANDBOX_EMIT_LEGACY_USER_TOKEN` is set, the long-lived user token emitted as
+/// the legacy `USER_AUTH_TOKEN` env. Callers borrow the result into
+/// [`SandboxAuthTokens`] via [`SandboxAuthTokens::from_minted`].
+pub fn mint_sandbox_tokens(
+    config: &Config,
+    user_id: &str,
+) -> Result<MintedSandboxTokens, SandboxError> {
+    let secret = config
+        .sandbox
+        .task_token_secret
+        .as_deref()
+        .ok_or_else(|| SandboxError::ConfigMissing("TASK_TOKEN_SECRET".to_string()))?;
+    jwt::mint_sandbox_tokens(
+        user_id,
+        user_id,
+        secret,
+        config.sandbox.bootstrap_token_ttl_secs,
+        config.sandbox.user_token_ttl_secs,
+        config.sandbox.emit_legacy_user_token_env,
+    )
+    .map_err(|e| SandboxError::JwtError(e.to_string()))
+}
 
 /// Build a complete Pod spec from config + plan (no template).
 ///
@@ -26,7 +79,7 @@ pub fn build_pod(
     task_id: &str,
     plan: &ProvisionPlan,
     pvc_name: Option<&str>,
-    user_auth_token: Option<&str>,
+    tokens: Option<SandboxAuthTokens<'_>>,
 ) -> Result<Pod, String> {
     let pod_name = generate_pod_name(&plan.repo_config.name, task_id);
     let namespace = config.sandbox.namespace.clone();
@@ -49,9 +102,12 @@ pub fn build_pod(
 
     // ── Annotations ─────────────────────────────────────────────────
     let mut annotations = BTreeMap::new();
+    // Redact any embedded credentials (userinfo) so a PAT/password in the clone
+    // URL never lands in the pod spec / etcd. Authentication happens at runtime
+    // via the credential channel + git credential helper, not the URL.
     annotations.insert(
         "moatless.io/repository-url".to_string(),
-        plan.git_clone_url.clone(),
+        redact_url_userinfo(&plan.git_clone_url),
     );
     annotations.insert("moatless.io/created-at".to_string(), chrono_now_iso());
     // Prevent Karpenter from evicting running sandbox pods during node consolidation.
@@ -143,7 +199,7 @@ pub fn build_pod(
     }
 
     // ── Sandbox container ───────────────────────────────────────────
-    let sandbox_container = build_sandbox_container(config, task_id, plan, user_auth_token)?;
+    let sandbox_container = build_sandbox_container(config, task_id, plan, tokens)?;
 
     // ── Server containers ───────────────────────────────────────────
     let server_containers = build_server_containers(config, plan)?;
@@ -431,15 +487,17 @@ fn build_sandbox_container(
     config: &Config,
     task_id: &str,
     plan: &ProvisionPlan,
-    user_auth_token: Option<&str>,
+    tokens: Option<SandboxAuthTokens<'_>>,
 ) -> Result<Container, String> {
     // Resolve image: repo config override → default sandbox image
     let image = resolve_sandbox_image(config, plan);
 
-    // Build env vars
+    // Build env vars. GIT_CLONE_URL is credential-free — the sandbox clones via
+    // the credential channel (GIT_TOKEN) / git credential helper, so no PAT is
+    // embedded in the pod spec.
     let mut env = vec![
         env_var("TASK_ID", task_id),
-        env_var("GIT_CLONE_URL", &plan.git_clone_url),
+        env_var("GIT_CLONE_URL", &redact_url_userinfo(&plan.git_clone_url)),
         env_var(
             "BACKEND_GRPC_URL",
             &format!(
@@ -495,8 +553,16 @@ fn build_sandbox_container(
         env.push(env_var("DEFAULT_CODEX_MODEL", model));
     }
 
-    if let Some(token) = user_auth_token {
-        env.push(env_var("USER_AUTH_TOKEN", token));
+    // Auth tokens. The short-lived bootstrap token is the only auth secret on
+    // the pod spec; it authenticates the initial GetCredentials call, after which
+    // the sandbox swaps to the long-lived token delivered over that channel. The
+    // legacy USER_AUTH_TOKEN env is emitted only for backward compat with old
+    // sandbox images (gated by SANDBOX_EMIT_LEGACY_USER_TOKEN).
+    if let Some(tokens) = tokens {
+        env.push(env_var("SANDBOX_BOOTSTRAP_TOKEN", tokens.bootstrap));
+        if let Some(legacy) = tokens.legacy_user_token {
+            env.push(env_var("USER_AUTH_TOKEN", legacy));
+        }
     }
 
     // Extra env vars from backend config (K8S_SANDBOX_EXTRA_ENV)
@@ -931,6 +997,27 @@ fn env_var(name: &str, value: &str) -> EnvVar {
     }
 }
 
+/// Strip any embedded userinfo (credentials) from an HTTP(S) URL.
+///
+/// `https://user:pat@host/owner/repo.git` → `https://host/owner/repo.git`. Keeps
+/// non-HTTP(S) forms unchanged: an scp-like SSH URL's `git@host:path` user is not
+/// a secret, and there is nothing to strip. Used so a clone URL that embeds a
+/// PAT/password never reaches the pod spec (annotation + `GIT_CLONE_URL` env),
+/// and thus never lands in etcd.
+fn redact_url_userinfo(url: &str) -> String {
+    for scheme in ["https://", "http://"] {
+        if let Some(rest) = url.strip_prefix(scheme) {
+            // Look only within the authority (before the first '/') for userinfo.
+            let authority_end = rest.find('/').unwrap_or(rest.len());
+            if let Some(at) = rest[..authority_end].rfind('@') {
+                return format!("{scheme}{}", &rest[at + 1..]);
+            }
+            return url.to_string();
+        }
+    }
+    url.to_string()
+}
+
 /// Get the current time as an RFC3339 timestamp (e.g. `2026-07-12T10:20:30Z`).
 fn chrono_now_iso() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
@@ -980,6 +1067,9 @@ mod tests {
                 default_storage_mode: "ebs".into(),
                 pod_startup_timeout_secs: 10,
                 task_token_secret: Some("secret".into()),
+                user_token_ttl_secs: 7 * 24 * 3600,
+                bootstrap_token_ttl_secs: 1800,
+                emit_legacy_user_token_env: true,
                 file_mount_path: "/tmp".into(),
                 idle_reaper_enabled: false,
                 idle_timeout_minutes: 15,
@@ -1570,6 +1660,133 @@ mod tests {
             Some(true),
             "sandbox container must not be privileged"
         );
+    }
+
+    #[test]
+    fn redact_url_userinfo_strips_credentials() {
+        assert_eq!(
+            redact_url_userinfo("https://user:pat@github.com/owner/repo.git"),
+            "https://github.com/owner/repo.git"
+        );
+        assert_eq!(
+            redact_url_userinfo("https://oauth2:glpat-xxx@gitlab.com/group/repo.git"),
+            "https://gitlab.com/group/repo.git"
+        );
+        // No userinfo → unchanged.
+        assert_eq!(
+            redact_url_userinfo("https://github.com/owner/repo.git"),
+            "https://github.com/owner/repo.git"
+        );
+        // A '@' in the path (not the authority) must not be treated as userinfo.
+        assert_eq!(
+            redact_url_userinfo("https://host/owner/repo@v1.git"),
+            "https://host/owner/repo@v1.git"
+        );
+        // Non-HTTP(S) (scp-like SSH) forms are left untouched.
+        assert_eq!(
+            redact_url_userinfo("git@github.com:owner/repo.git"),
+            "git@github.com:owner/repo.git"
+        );
+    }
+
+    #[test]
+    fn pod_spec_redacts_clone_url_and_omits_user_token() {
+        let config = test_config();
+        let mut plan = test_plan();
+        plan.git_clone_url = "https://user:secret@github.com/test/repo.git".into();
+
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+
+        // Annotation must not carry the embedded credential.
+        let anno = pod
+            .metadata
+            .annotations
+            .as_ref()
+            .unwrap()
+            .get("moatless.io/repository-url")
+            .unwrap();
+        assert_eq!(anno, "https://github.com/test/repo.git");
+        assert!(!anno.contains("secret"), "annotation leaked credentials");
+
+        // GIT_CLONE_URL env must be credential-free too.
+        let sandbox = pod
+            .spec
+            .as_ref()
+            .unwrap()
+            .containers
+            .iter()
+            .find(|c| c.name == "sandbox")
+            .unwrap();
+        let env = sandbox.env.as_ref().unwrap();
+        let git_url = env.iter().find(|e| e.name == "GIT_CLONE_URL").unwrap();
+        assert_eq!(git_url.value.as_deref(), Some("https://github.com/test/repo.git"));
+
+        // With no tokens passed, neither auth env is present.
+        assert!(env.iter().all(|e| e.name != "USER_AUTH_TOKEN"));
+        assert!(env.iter().all(|e| e.name != "SANDBOX_BOOTSTRAP_TOKEN"));
+    }
+
+    #[test]
+    fn pod_spec_emits_bootstrap_and_optional_legacy_token() {
+        let config = test_config();
+        let plan = test_plan();
+
+        // Bootstrap only (legacy disabled).
+        let pod = build_pod(
+            &config,
+            "task-1",
+            &plan,
+            None,
+            Some(SandboxAuthTokens {
+                bootstrap: "boot-tok",
+                legacy_user_token: None,
+            }),
+        )
+        .unwrap();
+        let env = sandbox_env(&pod);
+        assert_eq!(
+            env.iter()
+                .find(|e| e.name == "SANDBOX_BOOTSTRAP_TOKEN")
+                .and_then(|e| e.value.as_deref()),
+            Some("boot-tok")
+        );
+        assert!(
+            env.iter().all(|e| e.name != "USER_AUTH_TOKEN"),
+            "legacy USER_AUTH_TOKEN must be absent when not requested"
+        );
+
+        // Bootstrap + legacy (transition compat).
+        let pod = build_pod(
+            &config,
+            "task-1",
+            &plan,
+            None,
+            Some(SandboxAuthTokens {
+                bootstrap: "boot-tok",
+                legacy_user_token: Some("legacy-tok"),
+            }),
+        )
+        .unwrap();
+        let env = sandbox_env(&pod);
+        assert_eq!(
+            env.iter()
+                .find(|e| e.name == "USER_AUTH_TOKEN")
+                .and_then(|e| e.value.as_deref()),
+            Some("legacy-tok")
+        );
+    }
+
+    fn sandbox_env(pod: &Pod) -> Vec<k8s_openapi::api::core::v1::EnvVar> {
+        pod.spec
+            .as_ref()
+            .unwrap()
+            .containers
+            .iter()
+            .find(|c| c.name == "sandbox")
+            .unwrap()
+            .env
+            .clone()
+            .unwrap()
     }
 
     /// Default (no `dockerAccess`) → hardened: no dind sidecar, no docker-storage

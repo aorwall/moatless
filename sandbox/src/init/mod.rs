@@ -366,7 +366,13 @@ async fn run_core_init(state: &SandboxState) -> Result<bool, InitError> {
     if let Err(e) = credentials::fetch_and_apply_credentials(state).await {
         let msg = format!("Failed to fetch credentials: {e}");
         publish_sandbox_event(state, "CredentialsFailed", &msg, true).await;
-        return Err(InitError::Transient(msg));
+        // An expired bootstrap token is unrecoverable without re-provisioning
+        // (a pod restart presents the same expired env), so surface it as a
+        // permanent config failure (exit 78) instead of a transient crash loop.
+        return Err(match e {
+            credentials::CredentialFetchError::Permanent(_) => InitError::Permanent(msg),
+            credentials::CredentialFetchError::Transient(_) => InitError::Transient(msg),
+        });
     }
     publish_sandbox_event(
         state,

@@ -204,16 +204,19 @@ pub async fn redeploy_with_plan(
     config: &Config,
     task_id: &str,
     request: &ProvisionRequest,
-    token: &str,
 ) -> Result<(), SandboxError> {
     let pvc_name = pvc::find_task_pvc(k8s, task_id).await;
+
+    // Mint a fresh bootstrap token (+ legacy user token during rollout) for the
+    // rebuilt pod. The long-lived token is delivered over the credential channel.
+    let minted = pod_builder::mint_sandbox_tokens(config, &request.user_id)?;
 
     let pod = pod_builder::build_pod(
         config,
         task_id,
         &request.plan,
         pvc_name.as_deref(),
-        Some(token),
+        Some(pod_builder::SandboxAuthTokens::from_minted(&minted)),
     )
     .map_err(SandboxError::PodBuildError)?;
 

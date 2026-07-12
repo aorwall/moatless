@@ -275,6 +275,23 @@ pub struct SandboxConfig {
     pub pod_startup_timeout_secs: u64,
     /// Secret for signing task auth JWTs
     pub task_token_secret: Option<String>,
+    /// TTL (seconds) for the long-lived user auth token delivered to sandboxes
+    /// over `GetCredentials`. Re-minted on every credential fetch, so this only
+    /// needs to outlive the 15-min refresher gap. Env `SANDBOX_USER_TOKEN_TTL_SECS`
+    /// (default: 604800 = 7 days). Replaces the former hardcoded 90-day expiry.
+    pub user_token_ttl_secs: u64,
+    /// TTL (seconds) for the short-lived bootstrap token placed on the pod spec.
+    /// It only authenticates the sandbox's initial `GetCredentials` call, so a
+    /// minutes-scale value bounds the blast radius of the one token still in
+    /// etcd. Env `SANDBOX_BOOTSTRAP_TOKEN_TTL_SECS` (default: 1800 = 30 min).
+    pub bootstrap_token_ttl_secs: u64,
+    /// Whether to also emit the long-lived `USER_AUTH_TOKEN` env var on the pod
+    /// spec (in addition to the bootstrap token). Kept `true` during the
+    /// sandbox-image rollout so pods still running the old image — which read the
+    /// token from env — keep working. Flip to `false` once every sandbox image
+    /// consumes the credential-channel token, removing the long-lived secret from
+    /// etcd entirely. Env `SANDBOX_EMIT_LEGACY_USER_TOKEN` (default: true).
+    pub emit_legacy_user_token_env: bool,
     /// Mount path inside sandbox pods for uploaded files (default: "/mnt/uploads")
     pub file_mount_path: String,
     /// Whether the idle sandbox reaper is enabled (default: true)
@@ -824,6 +841,9 @@ impl Config {
                 default_storage_mode: env_str("K8S_SANDBOX_DEFAULT_STORAGE_MODE", "ebs"),
                 pod_startup_timeout_secs: env_or("K8S_POD_STARTUP_TIMEOUT_SECS", 120),
                 task_token_secret: env_opt("TASK_TOKEN_SECRET"),
+                user_token_ttl_secs: env_or("SANDBOX_USER_TOKEN_TTL_SECS", 7 * 24 * 3600),
+                bootstrap_token_ttl_secs: env_or("SANDBOX_BOOTSTRAP_TOKEN_TTL_SECS", 1800),
+                emit_legacy_user_token_env: env_bool("SANDBOX_EMIT_LEGACY_USER_TOKEN", true),
                 file_mount_path: env_str("SANDBOX_FILE_MOUNT_PATH", "/mnt/uploads"),
                 idle_reaper_enabled: env_bool("SANDBOX_IDLE_REAPER_ENABLED", true),
                 idle_timeout_minutes: env_or("SANDBOX_IDLE_TIMEOUT_MINUTES", 15),
@@ -1240,6 +1260,9 @@ mod tests {
                 default_storage_mode: "ebs".into(),
                 pod_startup_timeout_secs: 10,
                 task_token_secret: None,
+                user_token_ttl_secs: 7 * 24 * 3600,
+                bootstrap_token_ttl_secs: 1800,
+                emit_legacy_user_token_env: true,
                 file_mount_path: "/tmp".into(),
                 idle_reaper_enabled: false,
                 idle_timeout_minutes: 15,

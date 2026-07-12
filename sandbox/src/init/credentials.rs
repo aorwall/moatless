@@ -19,8 +19,29 @@ use tracing::{info, warn};
 use super::gh_hosts;
 use super::server_env;
 use super::ssh;
-use crate::config::Config;
+use crate::config::{Config, InitialAuthTokenSource};
 use crate::state::SandboxState;
+
+/// Outcome of a failed credential fetch, so init can pick the right exit code.
+#[derive(Debug)]
+pub enum CredentialFetchError {
+    /// Retriable — e.g. the backend is not yet routable, or a temporary error.
+    /// K8s restarts the container and init tries again.
+    Transient(String),
+    /// Unrecoverable without re-provisioning. Emitted when the only credential
+    /// the pod holds is a bootstrap token the backend rejects as expired: retries
+    /// and pod restarts (same ReplicaSet → same expired env) keep failing, so we
+    /// surface an actionable error and stop the crash loop instead.
+    Permanent(String),
+}
+
+impl std::fmt::Display for CredentialFetchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Transient(msg) | Self::Permanent(msg) => f.write_str(msg),
+        }
+    }
+}
 
 /// Keys that must NOT be set in the sandbox process environment via `set_var`.
 ///
@@ -37,6 +58,13 @@ const ENV_SET_BLOCKLIST: &[&str] = &["GITHUB_TOKEN", "GH_TOKEN"];
 /// but must not reach the long-lived agent subprocess for the same staleness
 /// reason as the keys above.
 const AGENT_EXCLUDED_KEYS: &[&str] = &["GITHUB_TOKEN", "GH_TOKEN", "GIT_TOKEN"];
+
+/// Credential key carrying the long-lived user auth token the sandbox uses to
+/// authenticate its gRPC calls back to the backend. Delivered over
+/// `GetCredentials` rather than the pod spec; consumed here (swapped into the
+/// gRPC client + persisted) and removed from the map so it never leaks into the
+/// agent subprocess env, `server.env`, or agent credentials.
+const USER_AUTH_TOKEN_KEY: &str = "USER_AUTH_TOKEN";
 
 /// Produce the credential map passed to the agent subprocess env.
 ///
@@ -67,7 +95,9 @@ pub enum PersistMode {
 ///
 /// Retries with exponential backoff (3s, 6s, 12s... up to 10 attempts).
 /// The backend may not be routable when the sandbox pod first starts.
-pub async fn fetch_and_apply_credentials(state: &SandboxState) -> Result<(), String> {
+pub async fn fetch_and_apply_credentials(
+    state: &SandboxState,
+) -> Result<(), CredentialFetchError> {
     fetch_and_apply_credentials_with_mode(state, PersistMode::Initial).await
 }
 
@@ -77,11 +107,19 @@ pub async fn fetch_and_apply_credentials(state: &SandboxState) -> Result<(), Str
 pub async fn fetch_and_apply_credentials_with_mode(
     state: &SandboxState,
     mode: PersistMode,
-) -> Result<(), String> {
+) -> Result<(), CredentialFetchError> {
     let backend_client = &state.backend_client;
     let task_id = &state.config.task_id;
     let max_retries = 10;
     let mut delay = Duration::from_secs(3);
+
+    // Source of the token we're presenting. If it's a bootstrap token and the
+    // backend rejects it as unauthenticated, that's a permanent failure — see
+    // the error branch below.
+    let token_source = state
+        .config
+        .resolve_initial_auth_token_with_source()
+        .map(|(_, source)| source);
 
     for attempt in 1..=max_retries {
         match backend_client.get_credentials(task_id).await {
@@ -98,6 +136,16 @@ pub async fn fetch_and_apply_credentials_with_mode(
                     attempt,
                     "Credentials fetched successfully"
                 );
+
+                // Consume the long-lived user auth token: swap it into the gRPC
+                // client (replacing the bootstrap token) and persist it so a
+                // container restart can reuse it even after the bootstrap token
+                // has expired. Removed from the map so it is never set as a
+                // process/agent env var or written to server.env.
+                if let Some(user_token) = resp.credentials.remove(USER_AUTH_TOKEN_KEY) {
+                    backend_client.update_auth_token(user_token.clone());
+                    persist_user_auth_token(&state.config, &user_token).await;
+                }
 
                 // Set each credential as an env var for the sandbox process itself
                 // (init-time git clone, `gh` invocations, etc.).
@@ -174,8 +222,22 @@ pub async fn fetch_and_apply_credentials_with_mode(
                 return Ok(());
             }
             Err(e) => {
+                // An Unauthenticated rejection of a bootstrap token means the
+                // short-lived token has expired (a pod that outlived it was
+                // replaced without re-provisioning). Retrying — or letting K8s
+                // restart the container into the same expired env — cannot fix
+                // it; only re-provisioning can. Fail permanently with an
+                // actionable message so the pod watcher stops the crash loop.
+                if is_expired_bootstrap_rejection(mode, e.code(), token_source) {
+                    return Err(CredentialFetchError::Permanent(format!(
+                        "bootstrap token expired; restart the task to re-provision \
+                         (backend rejected credential fetch: {e})"
+                    )));
+                }
                 if attempt == max_retries {
-                    return Err(format!("Failed after {max_retries} attempts: {e}"));
+                    return Err(CredentialFetchError::Transient(format!(
+                        "Failed after {max_retries} attempts: {e}"
+                    )));
                 }
                 warn!(
                     attempt,
@@ -191,6 +253,24 @@ pub async fn fetch_and_apply_credentials_with_mode(
     }
 
     unreachable!()
+}
+
+/// Whether a failed credential fetch is an unrecoverable expired-bootstrap
+/// rejection (→ [`CredentialFetchError::Permanent`]).
+///
+/// True only on the *initial* fetch when the backend returns `Unauthenticated`
+/// and the token the sandbox presented was the short-lived bootstrap token. In
+/// that case neither retrying nor a pod restart (same ReplicaSet → same expired
+/// env) can succeed — only re-provisioning mints a fresh token. Refresh-mode
+/// failures and rejections of a persisted/legacy long-lived token stay transient.
+fn is_expired_bootstrap_rejection(
+    mode: PersistMode,
+    code: tonic::Code,
+    token_source: Option<InitialAuthTokenSource>,
+) -> bool {
+    mode == PersistMode::Initial
+        && code == tonic::Code::Unauthenticated
+        && token_source == Some(InitialAuthTokenSource::Bootstrap)
 }
 
 /// Persist credential files used by local agent runtimes.
@@ -228,6 +308,31 @@ pub async fn persist_agent_credentials(
     }
 
     write_onboarding_flag(&config.claude_config_dir).await;
+}
+
+/// Persist the long-lived user auth token to disk so a container restart can
+/// reuse it (see [`Config::persisted_user_token_path`]).
+///
+/// Best-effort: a write failure only means the sandbox falls back to the
+/// bootstrap/legacy token on the next restart, so failures are logged not fatal.
+async fn persist_user_auth_token(config: &Config, token: &str) {
+    let path = config.persisted_user_token_path();
+    if let Some(parent) = path.parent() {
+        if let Err(e) = fs::create_dir_all(parent).await {
+            warn!(error = %e, "Failed to create dir for persisted user auth token");
+            return;
+        }
+    }
+    match fs::write(&path, token).await {
+        Ok(()) => {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).await;
+            }
+        }
+        Err(e) => warn!(error = %e, "Failed to persist user auth token"),
+    }
 }
 
 /// Write Claude OAuth credentials file.
@@ -345,8 +450,50 @@ mod tests {
 
     use tempfile::TempDir;
 
-    use super::{filter_agent_credentials, persist_agent_credentials, PersistMode};
-    use crate::config::{AgentConfig, Config, ProxyConfig};
+    use super::{
+        filter_agent_credentials, is_expired_bootstrap_rejection, persist_agent_credentials,
+        PersistMode,
+    };
+    use crate::config::{AgentConfig, Config, InitialAuthTokenSource, ProxyConfig};
+
+    #[test]
+    fn expired_bootstrap_rejection_only_on_initial_unauth_bootstrap() {
+        use tonic::Code;
+
+        // The one permanent case: initial fetch, Unauthenticated, bootstrap token.
+        assert!(is_expired_bootstrap_rejection(
+            PersistMode::Initial,
+            Code::Unauthenticated,
+            Some(InitialAuthTokenSource::Bootstrap),
+        ));
+
+        // A long-lived token (persisted or legacy env) rejection stays transient —
+        // it may be a backend blip, and a restart could resolve it.
+        assert!(!is_expired_bootstrap_rejection(
+            PersistMode::Initial,
+            Code::Unauthenticated,
+            Some(InitialAuthTokenSource::Persisted),
+        ));
+        assert!(!is_expired_bootstrap_rejection(
+            PersistMode::Initial,
+            Code::Unauthenticated,
+            Some(InitialAuthTokenSource::LegacyEnv),
+        ));
+
+        // Non-auth failures (e.g. backend unreachable) stay transient.
+        assert!(!is_expired_bootstrap_rejection(
+            PersistMode::Initial,
+            Code::Unavailable,
+            Some(InitialAuthTokenSource::Bootstrap),
+        ));
+
+        // Refresh-mode failures never exit the pod — the loop just retries later.
+        assert!(!is_expired_bootstrap_rejection(
+            PersistMode::Refresh,
+            Code::Unauthenticated,
+            Some(InitialAuthTokenSource::Bootstrap),
+        ));
+    }
 
     fn test_config(tmp: &TempDir) -> Config {
         let home_dir = tmp.path().join("home");
@@ -365,6 +512,7 @@ mod tests {
             backend_grpc_url: "http://backend:50051".to_string(),
             backend_api_url: None,
             user_auth_token: None,
+            bootstrap_token: None,
             agent_config: AgentConfig::default(),
             claude_cli_path: "/usr/local/bin/claude".to_string(),
             codex_cli_path: "/usr/local/bin/codex".to_string(),
