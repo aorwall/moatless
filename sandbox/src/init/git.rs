@@ -122,8 +122,12 @@ pub async fn clone_repository(config: &Config) -> Result<(), String> {
         return Ok(());
     };
 
-    // Skip if already cloned
-    if Path::new(&config.repo_dir).join(".git").exists() {
+    // Skip if already cloned. The workspace-root check covers sandboxes created
+    // before SSH clones moved to `repo_dir` — their checkout lives directly in
+    // `workspace_dir` on a persistent volume.
+    if Path::new(&config.repo_dir).join(".git").exists()
+        || Path::new(&config.workspace_dir).join(".git").exists()
+    {
         info!("Repository already cloned, skipping");
         return Ok(());
     }
@@ -145,7 +149,10 @@ pub async fn clone_repository(config: &Config) -> Result<(), String> {
     // SSH remote: clone the URL directly. Authentication and host-key checking
     // come from the identities/config written to ~/.ssh by credentials.rs — no
     // token injection or `gh` involved (checked first so an SSH URL to a host
-    // with a configured provider still takes the SSH path).
+    // with a configured provider still takes the SSH path). Clones into
+    // `repo_dir` like the other providers — `workspace_dir` is no longer empty
+    // at clone time (e.g. the persisted user token lives under it), and git
+    // refuses to clone into a non-empty directory.
     if is_ssh {
         let mut git_args = vec!["clone", "--depth", "1"];
         if let Some(b) = branch {
@@ -153,7 +160,7 @@ pub async fn clone_repository(config: &Config) -> Result<(), String> {
             git_args.push(b);
         }
         git_args.push(clone_url);
-        git_args.push(&config.workspace_dir);
+        git_args.push(&config.repo_dir);
         return match run_command("git", &git_args).await {
             Ok(()) => {
                 info!("Repository cloned successfully over SSH");
