@@ -314,7 +314,7 @@ fn build_parent_task_section(parent_task_id: &str) -> String {
         "# Parent Task\n\n\
          This task was created by another task (`{parent_task_id}`). \
          When you have completed your work, you MUST report back to the parent task by running:\n\n  \
-         `moat messages send {parent_task_id} --text \"<summary of what you did and the outcome>\"`\n\n\
+         `moat send --task {parent_task_id} --text \"<summary of what you did and the outcome>\"`\n\n\
          Always send this final message — the parent task is waiting for your response."
     )
 }
@@ -503,6 +503,6 @@ mod tests {
         let prompt = build_append_system_prompt(&inputs);
         assert!(prompt.contains("# Parent Task"));
         assert!(prompt.contains("parent-abc"));
-        assert!(prompt.contains("moat messages send parent-abc"));
+        assert!(prompt.contains("moat send --task parent-abc"));
     }
 }

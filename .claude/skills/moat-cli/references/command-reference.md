@@ -314,7 +314,13 @@ Restart the sandbox (deletes pods, Deployment recreates them).
 
 ### `moat messages list <task_id>`
 
-List all messages for a task.
+List messages for a task.
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--limit` | No | Page size (default 50, max 200 — clamped by the backend) |
+| `--before-id` | No | Cursor: fetch messages older than this internal id |
+| `--full` | No | Full-text transcript (role, timestamp, complete text, tool markers) — useful for recovering conversation context |
 
 - **API**: `GET /api/v1/tasks/{task_id}/messages`
 - **Table columns**: ROLE, CONTENT (truncated to 80 chars), CREATED
@@ -322,21 +328,41 @@ List all messages for a task.
 ```bash
 moat messages list <task-id>
 moat messages list <task-id> --json   # Full message content
+moat messages list <task-id> --full   # Full-text transcript
 ```
 
-### `moat messages send <task_id>`
+### `moat messages reply` / `moat messages react`
 
-Send a message to a task.
+Reply to (or react to) a specific inbound message. The backend routes the
+reply to the right destination — Slack thread, Linear comment, GitHub PR
+review reply, or Telegram reply.
+
+```bash
+moat messages reply --message <message-id> --text "On it."
+moat messages react --message <message-id> --emoji thumbsup   # --remove to undo
+```
+
+### `moat send`
+
+Unified send command — drives a task, DMs a user, or passes through an adapter
+destination. **There is no `moat messages send`; sending a message to a task is
+`moat send --task`.**
 
 | Flag | Required | Description |
 |------|----------|-------------|
-| `--text` | Yes | Message content |
+| `--task <id>` | One of task/user/to | Drive the agent on a task |
+| `--mode` | No | Agent mode for `--task`: `edit` or `plan` |
+| `--user <login>` | One of task/user/to | DM a moatless user (pair with `--via slack\|telegram`) |
+| `--to <dest>` | One of task/user/to | Adapter pass-through destination (e.g. `channel:C123`, `issue:LIN-12`); pair with `--via` |
+| `--text` | No | Message text (reads stdin if omitted and piped) |
+| `--file` | No | File(s) to attach; repeatable |
 
-- **API**: `POST /api/v1/tasks/{task_id}/messages`
-- **Body**: `{"message": "{text}"}`
+- **API** (`--task`): `POST /api/v1/tasks/{task_id}/messages`
 
 ```bash
-moat messages send <task-id> --text "Add error handling to the login form"
+moat send --task <task-id> --text "Add error handling to the login form"
+moat send --task <task-id> --mode plan --text "How would you refactor this?"
+moat send --user alice --via slack --text "Build is green."
 ```
 
 ---
@@ -734,7 +760,7 @@ List available tags.
 | `sandbox stop` | POST | `/api/sandbox/v1/tasks/{id}/stop` |
 | `sandbox restart` | POST | `/api/sandbox/v1/tasks/{id}/restart` |
 | `messages list` | GET | `/api/v1/tasks/{id}/messages` |
-| `messages send` | POST | `/api/v1/tasks/{id}/messages` |
+| `send --task` | POST | `/api/v1/tasks/{id}/messages` |
 | `adapters list` | GET | `/api/v1/adapters` |
 | `adapters connections list` | GET | `/api/v1/adapters/connections` |
 | `adapters connections create` | POST | `/api/v1/adapters/connections` |

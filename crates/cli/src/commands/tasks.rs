@@ -219,7 +219,7 @@ pub async fn run(
                 );
             } else {
                 println!(
-                    "Task {} created (status: {}). Sandbox provisioning; send a message with `moat messages send` to start the agent.",
+                    "Task {} created (status: {}). Sandbox provisioning; send a message with `moat send --task <id>` to start the agent.",
                     created.task_id, created.status
                 );
             }

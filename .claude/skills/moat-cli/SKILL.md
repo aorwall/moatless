@@ -69,8 +69,12 @@ Activated automatically when `USER_AUTH_TOKEN` env var is set. Exchanges token f
 | `moat tasks files <id> tree` | Show file tree with git status | `--path` |
 | `moat tasks files <id> read` | Read file content from workspace | `--path` (required) |
 | `moat tasks files <id> list` | List files in workspace | `--path`, `--recursive` |
-| `moat messages list <id>` | List messages for a task | — |
-| `moat messages send <id>` | Send message to a task | `--text` |
+| `moat messages list <id>` | List messages for a task | `--limit`, `--before-id`, `--full` (full-text transcript) |
+| `moat messages reply` | Reply to a specific inbound message (backend routes to Slack thread / Linear comment / GitHub PR reply / Telegram) | `--message <id>`, `--text`, `--file` |
+| `moat messages react` | React to a specific message with an emoji | `--message <id>`, `--emoji`, `--remove` |
+| `moat send --task <id>` | Send a message to a task (drives the agent). There is NO `moat messages send` | `--text`, `--mode` (edit/plan), `--file` |
+| `moat send --user <login>` | DM a moatless user | `--via` (slack/telegram), `--text` |
+| `moat send --to <dest>` | Adapter pass-through send (e.g. `channel:C123`, `issue:LIN-12`) | `--via`, `--connection`, `--text` |
 | `moat gh pr create` | Create a GitHub PR via the backend (auto task binding + footer) | `--title`/`-t`, `--body`/`-b`, `--head`, `--base`, `--draft`, `-R owner/repo`, `--task` |
 | `moat gh pr comment <n>` | Comment on a PR via the backend | `--body`/`-b`, `-R`, `--task` |
 | `moat gh pr reply <n> <comment_id>` | Threaded reply to a PR review comment via the backend (moat-only) | `--body`/`-b`, `-R`, `--task` |
@@ -121,12 +125,27 @@ moat tasks status <task-id>
 # Check what's running
 moat tasks list --status running
 
-# Send follow-up instructions
-moat messages send <task-id> --text "Also add a dark mode toggle"
+# Send follow-up instructions (note: `moat send --task`, NOT `moat messages send`)
+moat send --task <task-id> --text "Also add a dark mode toggle"
 
 # View conversation history
 moat messages list <task-id>
+
+# Recover full conversation context (full-text transcript)
+moat messages list <task-id> --full
 ```
+
+### Task-to-task messaging (parent/child coordination)
+
+From inside a sandbox, report back to a parent task or drive a child task with
+the same command:
+
+```bash
+moat send --task <other-task-id> --text "Status update or instruction"
+```
+
+The recipient agent sees the message attributed to your task id with a reply
+hint baked in.
 
 ### Manage task lifecycle
 

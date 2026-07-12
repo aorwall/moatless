@@ -36,6 +36,26 @@ Use plan mode for non-trivial changes. Identify which codebase area is affected:
 | Frontend UI | `apps/frontend/src/` | React 19 + TypeScript | `frontend-dev-guidelines` |
 | Shared crates | `crates/` | Rust | `backend-dev-guidelines` |
 
+### Sandbox Environment Prerequisites
+
+Moatless task sandboxes may not have the Rust toolchain preinstalled. Check
+first (`which cargo protoc`); if missing, bootstrap before running any cargo
+command:
+
+```bash
+# Rust — rust-toolchain.toml pins 1.94.0, rustup will pick it up automatically
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.94.0
+. "$HOME/.cargo/env"
+
+# protoc — required to build crates/sandbox-proto (tonic/prost codegen)
+sudo apt-get update && sudo apt-get install -y protobuf-compiler
+```
+
+Docker is NOT available inside task sandboxes unless the repository config
+sets `dockerAccess: true` (which adds a dind sidecar). Without it, skip
+`docker/build-*.sh` and Docker Compose phases — run `cargo`/`bun` checks
+directly and note in the PR that image builds were not run.
+
 ### Mandatory Checks After Implementation
 
 Run before proceeding to the next phase:

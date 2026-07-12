@@ -151,7 +151,7 @@ pub async fn send_message_flow(
     let attributed_message = match source_task_id {
         Some(id) => format!(
             "Message from task `{id}`:\n\n{effective_message}\n\n\
-             To reply, run: `moat messages send {id} --text \"<your reply>\"`"
+             To reply, run: `moat send --task {id} --text \"<your reply>\"`"
         ),
         None => effective_message.clone(),
     };

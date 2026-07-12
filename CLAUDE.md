@@ -572,7 +572,12 @@ Key principles:
 
 ## Golden Rule
 
-**Always prefix commands with `rtk`**. If RTK has a dedicated filter, it uses it. If not, it passes through unchanged. This means RTK is always safe to use.
+**If `rtk` is installed, always prefix commands with it.** If RTK has a dedicated filter, it uses it. If not, it passes through unchanged. This means RTK is always safe to use.
+
+**Check availability first**: `rtk` is not preinstalled in Moatless task
+sandboxes. Run `which rtk` once at the start of a session — if it's missing,
+run commands without the prefix (do NOT retry failed `rtk ...` commands or
+attempt to install it).
 
 **Important**: Even in command chains with `&&`, use `rtk`:
 ```bash
