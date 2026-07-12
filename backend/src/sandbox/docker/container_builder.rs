@@ -454,6 +454,8 @@ mod tests {
                 sandbox_resources_cpu_limit: "4".into(),
                 sandbox_resources_memory_request: "2Gi".into(),
                 sandbox_resources_memory_limit: "8Gi".into(),
+                run_as_non_root: false,
+                shared_data_size: "2Gi".into(),
                 storage_enabled: false,
                 storage_size: "1Gi".into(),
                 storage_class: None,

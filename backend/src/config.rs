@@ -260,6 +260,18 @@ pub struct SandboxConfig {
     pub sandbox_resources_memory_request: String,
     /// Memory limit for the sandbox (agent) container (env `K8S_RESOURCE_LIMIT_MEMORY`)
     pub sandbox_resources_memory_limit: String,
+    /// Run the sandbox and server containers as the non-root `moatless` user
+    /// (UID/GID 1000) via a pod-level securityContext (`runAsNonRoot`, `fsGroup`,
+    /// `seccompProfile: RuntimeDefault`). The privileged `dind` sidecar and
+    /// `nvme-setup` init container keep running as root. Defaults to `false` so
+    /// the hardening can roll out per-environment. Env
+    /// `K8S_SANDBOX_RUN_AS_NON_ROOT`.
+    pub run_as_non_root: bool,
+    /// Size cap for the `shared-data` emptyDir mounted at `/opt/moatless/data`
+    /// across the sandbox and server containers. Without a cap this emptyDir can
+    /// grow unbounded and evict the node. Env `K8S_SANDBOX_SHARED_DATA_SIZE`
+    /// (default `2Gi`).
+    pub shared_data_size: String,
     /// Whether PVC storage is enabled for sandbox pods
     pub storage_enabled: bool,
     /// PVC storage size (e.g., "3Gi")
@@ -872,6 +884,8 @@ impl Config {
                 sandbox_resources_cpu_limit: env_str("K8S_RESOURCE_LIMIT_CPU", "4"),
                 sandbox_resources_memory_request: env_str("K8S_RESOURCE_REQUEST_MEMORY", "2Gi"),
                 sandbox_resources_memory_limit: env_str("K8S_RESOURCE_LIMIT_MEMORY", "8Gi"),
+                run_as_non_root: env_bool("K8S_SANDBOX_RUN_AS_NON_ROOT", false),
+                shared_data_size: env_str("K8S_SANDBOX_SHARED_DATA_SIZE", "2Gi"),
                 storage_enabled: env_bool("K8S_SANDBOX_STORAGE_ENABLED", true),
                 storage_size: env_str("K8S_SANDBOX_STORAGE_SIZE", "3Gi"),
                 storage_class: env_opt("K8S_SANDBOX_STORAGE_CLASS"),
@@ -1300,6 +1314,8 @@ mod tests {
                 sandbox_resources_cpu_limit: "4".into(),
                 sandbox_resources_memory_request: "2Gi".into(),
                 sandbox_resources_memory_limit: "8Gi".into(),
+                run_as_non_root: false,
+                shared_data_size: "2Gi".into(),
                 storage_enabled: false,
                 storage_size: "1Gi".into(),
                 storage_class: None,

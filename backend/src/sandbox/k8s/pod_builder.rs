@@ -5,8 +5,9 @@
 
 use k8s_openapi::api::core::v1::{
     Capabilities, Container, ContainerPort, EmptyDirVolumeSource, EnvVar, HTTPGetAction,
-    HostPathVolumeSource, PersistentVolumeClaimVolumeSource, Pod, PodSpec, Probe,
-    ResourceRequirements, SecurityContext, TCPSocketAction, Toleration, Volume, VolumeMount,
+    HostPathVolumeSource, PersistentVolumeClaimVolumeSource, Pod, PodSecurityContext, PodSpec,
+    Probe, ResourceRequirements, SeccompProfile, SecurityContext, TCPSocketAction, Toleration,
+    Volume, VolumeMount,
 };
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
@@ -135,7 +136,12 @@ pub fn build_pod(
         },
         Volume {
             name: "shared-data".to_string(),
-            empty_dir: Some(EmptyDirVolumeSource::default()),
+            empty_dir: Some(EmptyDirVolumeSource {
+                // Bound the shared `/opt/moatless/data` emptyDir so server
+                // artifacts/logs can't grow unbounded and evict the node.
+                size_limit: Some(Quantity(config.sandbox.shared_data_size.clone())),
+                ..Default::default()
+            }),
             ..Default::default()
         },
     ];
@@ -261,6 +267,7 @@ pub fn build_pod(
                 tolerations,
                 node_selector,
                 service_account_name: config.sandbox.service_account_name.clone(),
+                security_context: pod_security_context(config),
                 ..Default::default()
             }
         }),
@@ -345,7 +352,7 @@ fn cache_host_parent(root: &str) -> &str {
 /// fall back to the node root disk (still node-local) — the feature degrades
 /// gracefully rather than failing the pod.
 ///
-/// Deliberately does NOT use `drop_all_security_context()`: `mkfs.ext4` / `mount`
+/// Deliberately does NOT use `app_security_context`: `mkfs.ext4` / `mount`
 /// of the raw block device require full privileges. Scoped to this short-lived
 /// init container; the app containers stay hardened.
 fn build_nvme_setup_container(config: &Config) -> Container {
@@ -389,6 +396,19 @@ fn build_nvme_setup_container(config: &Config) -> Container {
         command: Some(vec!["/bin/sh".to_string(), "-c".to_string()]),
         args: Some(vec![script]),
         security_context: Some(privileged_security_context()),
+        // Modest requests/limits so this short-lived, privileged init container is
+        // schedulable and bounded rather than BestEffort.
+        resources: Some(ResourceRequirements {
+            requests: Some(BTreeMap::from([
+                ("cpu".to_string(), Quantity("50m".to_string())),
+                ("memory".to_string(), Quantity("64Mi".to_string())),
+            ])),
+            limits: Some(BTreeMap::from([
+                ("cpu".to_string(), Quantity("200m".to_string())),
+                ("memory".to_string(), Quantity("256Mi".to_string())),
+            ])),
+            ..Default::default()
+        }),
         volume_mounts: Some(vec![VolumeMount {
             name: "host-mnt".to_string(),
             mount_path: "/host-mnt".to_string(),
@@ -419,7 +439,7 @@ fn docker_access_enabled(plan: &ProvisionPlan) -> bool {
 ///
 /// Deliberately privileged — dockerd needs it to manage cgroups, overlay mounts,
 /// and iptables. Scoped to this sidecar and only attached when a repo opts into
-/// `dockerAccess`; the agent/server containers keep `drop_all_security_context()`.
+/// `dockerAccess`; the agent/server containers keep `app_security_context`.
 fn build_dind_container(config: &Config) -> Container {
     let resources = ResourceRequirements {
         limits: Some(BTreeMap::from([
@@ -719,7 +739,7 @@ fn build_sandbox_container(
         startup_probe: Some(startup_probe),
         volume_mounts: Some(volume_mounts),
         resources: Some(resources),
-        security_context: Some(drop_all_security_context()),
+        security_context: Some(app_security_context(config)),
         ..Default::default()
     })
 }
@@ -887,7 +907,7 @@ fn build_server_containers(
             readiness_probe: Some(readiness_probe),
             volume_mounts: Some(volume_mounts),
             resources: Some(resources),
-            security_context: Some(drop_all_security_context()),
+            security_context: Some(app_security_context(config)),
             ..Default::default()
         });
     }
@@ -952,38 +972,81 @@ fn build_repo_config_json(plan: &ProvisionPlan) -> Option<String> {
     Some(serde_json::Value::Object(map).to_string())
 }
 
-/// Security context that drops all capabilities except those needed at runtime.
+/// Container-level security context for the agent + server containers.
 ///
-/// DAC_OVERRIDE is required because the container runs as root (UID 0) but
-/// the home directory (/home/moatless) is owned by the moatless user (UID 1000).
-/// Without DAC_OVERRIDE, root cannot write to those directories (e.g. gh CLI
-/// config, Claude onboarding flag), causing sandbox init to fail.
+/// Both modes drop ALL capabilities and add back only what the workload needs.
 ///
-/// TODO: Harden by switching to runAsUser: 1000 (moatless) in the pod security
-/// context and removing DAC_OVERRIDE. This requires ensuring all workspace dirs,
-/// volume mounts, and build caches are accessible to UID 1000 (via fsGroup or
-/// proper ownership in the Dockerfile).
-fn drop_all_security_context() -> SecurityContext {
+/// - Non-root (`K8S_SANDBOX_RUN_AS_NON_ROOT=true`): the pod-level securityContext
+///   (see [`pod_security_context`]) runs these containers as UID/GID 1000, and
+///   the image chowns every runtime path to that user (plus `fsGroup: 1000` for
+///   the mounted volumes). Ownership is therefore correct, so `DAC_OVERRIDE` is
+///   no longer needed and is dropped.
+/// - Root (default, flag off): the container runs as UID 0 while `/home/moatless`
+///   and friends are owned by UID 1000, so `DAC_OVERRIDE` is required for root to
+///   write there (gh CLI config, Claude onboarding flag) during init.
+///
+/// `NET_BIND_SERVICE` is kept in both modes so servers can bind privileged ports
+/// if a repo configures one.
+fn app_security_context(config: &Config) -> SecurityContext {
+    let mut add = vec!["NET_BIND_SERVICE".to_string()];
+    if !config.sandbox.run_as_non_root {
+        add.push("DAC_OVERRIDE".to_string());
+    }
     SecurityContext {
         capabilities: Some(Capabilities {
             drop: Some(vec!["ALL".to_string()]),
-            add: Some(vec![
-                "NET_BIND_SERVICE".to_string(),
-                "DAC_OVERRIDE".to_string(),
-            ]),
+            add: Some(add),
         }),
         ..Default::default()
     }
 }
 
-/// Privileged security context for the `nvme-setup` init container.
+/// Pod-level securityContext, populated only when `K8S_SANDBOX_RUN_AS_NON_ROOT`
+/// is enabled.
 ///
-/// Required to `mkfs.ext4` / `mount` the raw instance-store NVMe device. Used
-/// ONLY by the short-lived init container — never by the agent/server
-/// containers, which keep `drop_all_security_context()`.
+/// Runs the pod's containers as the non-root `moatless` user (UID/GID 1000) with
+/// the RuntimeDefault seccomp profile, and sets `fsGroup: 1000` so mounted
+/// volumes (workspace PVC/emptyDir, shared-data, build-cache) are group-writable
+/// by that user. The privileged `dind` sidecar and `nvme-setup` init container
+/// override this back to root at the container level (see
+/// [`privileged_security_context`]).
+///
+/// Returns `None` when the flag is off, leaving the pod at its previous behaviour
+/// (containers run as root).
+fn pod_security_context(config: &Config) -> Option<PodSecurityContext> {
+    config.sandbox.run_as_non_root.then(|| PodSecurityContext {
+        run_as_user: Some(1000),
+        run_as_group: Some(1000),
+        run_as_non_root: Some(true),
+        fs_group: Some(1000),
+        // Only recursively chown/chmod a volume when its root doesn't already
+        // have the right ownership. Without this the kubelet walks the ENTIRE
+        // workspace PVC (node_modules, build caches, many small files) on every
+        // mount, adding large pod-start latency on each start/restart. After the
+        // first mount the root already matches, so the walk is skipped.
+        fs_group_change_policy: Some("OnRootMismatch".to_string()),
+        seccomp_profile: Some(SeccompProfile {
+            type_: "RuntimeDefault".to_string(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    })
+}
+
+/// Privileged security context for the `nvme-setup` init container and the `dind`
+/// sidecar.
+///
+/// Required to `mkfs.ext4` / `mount` the raw instance-store NVMe device (init) and
+/// to run `dockerd` (sidecar). Explicitly pins `runAsUser: 0` / `runAsNonRoot:
+/// false` so these containers keep running as root even when the pod-level
+/// securityContext enables `runAsNonRoot` — otherwise the kubelet would reject
+/// them. Used ONLY by these containers — never by the agent/server containers,
+/// which use [`app_security_context`].
 fn privileged_security_context() -> SecurityContext {
     SecurityContext {
         privileged: Some(true),
+        run_as_user: Some(0),
+        run_as_non_root: Some(false),
         ..Default::default()
     }
 }
@@ -1061,6 +1124,8 @@ mod tests {
                 sandbox_resources_cpu_limit: "4".into(),
                 sandbox_resources_memory_request: "2Gi".into(),
                 sandbox_resources_memory_limit: "8Gi".into(),
+                run_as_non_root: false,
+                shared_data_size: "2Gi".into(),
                 storage_enabled: false,
                 storage_size: "1Gi".into(),
                 storage_class: None,
@@ -1833,5 +1898,176 @@ mod tests {
                 .all(|e| e.name != "DOCKER_HOST"),
             "no DOCKER_HOST env without dockerAccess"
         );
+    }
+
+    /// The shared-data emptyDir is always bounded by `shared_data_size`.
+    #[test]
+    fn shared_data_empty_dir_is_size_capped() {
+        let mut config = test_config();
+        config.sandbox.shared_data_size = "512Mi".into();
+        let plan = test_plan();
+
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        let volumes = pod.spec.as_ref().unwrap().volumes.as_ref().unwrap();
+        let shared = volumes
+            .iter()
+            .find(|v| v.name == "shared-data")
+            .expect("shared-data volume present");
+        assert_eq!(
+            shared
+                .empty_dir
+                .as_ref()
+                .and_then(|e| e.size_limit.as_ref())
+                .map(|q| q.0.as_str()),
+            Some("512Mi"),
+            "shared-data emptyDir must be size-capped"
+        );
+    }
+
+    /// Flag OFF (default): no pod-level securityContext, and the agent/server
+    /// containers keep DAC_OVERRIDE (the root-mode behaviour).
+    #[test]
+    fn run_as_non_root_off_keeps_root_behaviour() {
+        let config = test_config(); // run_as_non_root defaults to false
+        let plan = test_plan();
+
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        let spec = pod.spec.as_ref().unwrap();
+        assert!(
+            spec.security_context.is_none(),
+            "no pod securityContext when the flag is off"
+        );
+
+        for c in &spec.containers {
+            let add = c
+                .security_context
+                .as_ref()
+                .and_then(|s| s.capabilities.as_ref())
+                .and_then(|caps| caps.add.as_ref())
+                .expect("app container has added capabilities");
+            assert!(
+                add.iter().any(|cap| cap == "DAC_OVERRIDE"),
+                "root mode keeps DAC_OVERRIDE on {}",
+                c.name
+            );
+        }
+    }
+
+    /// Flag ON: pod-level securityContext runs containers as UID/GID 1000 with
+    /// fsGroup 1000 + RuntimeDefault seccomp, and the agent/server containers
+    /// drop DAC_OVERRIDE (ownership is now correct) but keep NET_BIND_SERVICE.
+    #[test]
+    fn run_as_non_root_on_sets_pod_security_context_and_drops_dac_override() {
+        let mut config = test_config();
+        config.sandbox.run_as_non_root = true;
+        let plan = test_plan();
+
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        let spec = pod.spec.as_ref().unwrap();
+
+        let psc = spec
+            .security_context
+            .as_ref()
+            .expect("pod securityContext present when the flag is on");
+        assert_eq!(psc.run_as_user, Some(1000));
+        assert_eq!(psc.run_as_group, Some(1000));
+        assert_eq!(psc.run_as_non_root, Some(true));
+        assert_eq!(psc.fs_group, Some(1000));
+        // OnRootMismatch avoids a full recursive chown of the workspace PVC on
+        // every mount (only walks when the volume root ownership is wrong).
+        assert_eq!(
+            psc.fs_group_change_policy.as_deref(),
+            Some("OnRootMismatch")
+        );
+        assert_eq!(
+            psc.seccomp_profile.as_ref().map(|s| s.type_.as_str()),
+            Some("RuntimeDefault")
+        );
+
+        for c in &spec.containers {
+            let caps = c
+                .security_context
+                .as_ref()
+                .and_then(|s| s.capabilities.as_ref())
+                .expect("app container has capabilities");
+            let add = caps.add.as_ref().expect("added capabilities");
+            assert!(
+                !add.iter().any(|cap| cap == "DAC_OVERRIDE"),
+                "non-root mode must drop DAC_OVERRIDE on {}",
+                c.name
+            );
+            assert!(
+                add.iter().any(|cap| cap == "NET_BIND_SERVICE"),
+                "non-root mode keeps NET_BIND_SERVICE on {}",
+                c.name
+            );
+        }
+    }
+
+    /// Even with the flag ON, the privileged `dind` sidecar keeps running as root
+    /// (explicit runAsUser 0 / runAsNonRoot false so the kubelet admits it under
+    /// the pod-level runAsNonRoot).
+    #[test]
+    fn run_as_non_root_on_keeps_dind_root() {
+        let mut config = test_config();
+        config.sandbox.run_as_non_root = true;
+        let mut plan = test_plan();
+        plan.repo_config.docker_access = Some(true);
+
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        let dind = pod
+            .spec
+            .as_ref()
+            .unwrap()
+            .containers
+            .iter()
+            .find(|c| c.name == "dind")
+            .expect("dind sidecar present");
+        let sc = dind.security_context.as_ref().unwrap();
+        assert_eq!(sc.privileged, Some(true));
+        assert_eq!(sc.run_as_user, Some(0));
+        assert_eq!(sc.run_as_non_root, Some(false));
+    }
+
+    /// The `nvme-setup` init container keeps its privileged root context and now
+    /// carries modest resource requests/limits (no longer BestEffort).
+    #[test]
+    fn nvme_setup_init_container_is_root_and_has_resources() {
+        use crate::config::SandboxCacheVolume;
+
+        let mut config = test_config();
+        config.sandbox.run_as_non_root = true;
+        config.sandbox.cache_volumes = vec![SandboxCacheVolume {
+            name: "bun".into(),
+            mount_path: "/bun-cache".into(),
+            env: vec![("BUN_INSTALL_CACHE_DIR".into(), "/bun-cache".into())],
+        }];
+        let plan = test_plan();
+
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        let nvme = pod
+            .spec
+            .as_ref()
+            .unwrap()
+            .init_containers
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|c| c.name == "nvme-setup")
+            .expect("nvme-setup init container present");
+
+        let sc = nvme.security_context.as_ref().unwrap();
+        assert_eq!(sc.privileged, Some(true));
+        assert_eq!(sc.run_as_user, Some(0));
+        assert_eq!(sc.run_as_non_root, Some(false));
+
+        let resources = nvme
+            .resources
+            .as_ref()
+            .expect("nvme-setup must declare resources");
+        assert!(resources.requests.as_ref().is_some_and(|r| r.contains_key("cpu")
+            && r.contains_key("memory")));
+        assert!(resources.limits.as_ref().is_some_and(|l| l.contains_key("cpu")
+            && l.contains_key("memory")));
     }
 }

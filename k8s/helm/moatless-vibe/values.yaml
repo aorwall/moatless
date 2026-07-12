@@ -506,6 +506,18 @@ kubernetes:
   healthCheckInterval: 30
   # -- Minutes of inactivity before workspace is suspended (0 = disabled)
   inactivityTimeoutMinutes: 20
+  # -- Run the sandbox + server containers as the non-root `moatless` user
+  #    (UID/GID 1000) via a pod-level securityContext (runAsNonRoot, fsGroup: 1000,
+  #    seccompProfile: RuntimeDefault). The privileged `dind` sidecar and
+  #    `nvme-setup` init container keep running as root. Defaults to false so the
+  #    hardening can be rolled out per-environment — flip to true once the sandbox
+  #    images (which chown all runtime paths to UID 1000) are deployed and user
+  #    workloads are verified to work without root. Maps to K8S_SANDBOX_RUN_AS_NON_ROOT.
+  sandboxRunAsNonRoot: false
+  # -- Size cap for the shared `/opt/moatless/data` emptyDir (server artifacts/logs)
+  #    mounted across the sandbox + server containers. Bounds node-disk usage so a
+  #    runaway server can't fill the node. Maps to K8S_SANDBOX_SHARED_DATA_SIZE.
+  sandboxSharedDataSize: "2Gi"
   # Sandbox storage configuration (per-task PVC for data persistence)
   sandboxStorage:
     # -- Enable per-task PVC for workspace persistence
