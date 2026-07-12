@@ -132,6 +132,17 @@ spec:
             - name: K8S_SANDBOX_CACHE_INIT_IMAGE
               value: {{ . | quote }}
             {{- end }}
+            {{- with .Values.kubernetes.reconcile }}
+            # Desired-vs-actual reconcile pass in the task reaper (all OFF by default)
+            - name: RECONCILE_REPROVISION_ENABLED
+              value: {{ .reprovisionEnabled | quote }}
+            - name: RECONCILE_PENDING_TIMEOUT_ENABLED
+              value: {{ .pendingTimeoutEnabled | quote }}
+            - name: RECONCILE_PENDING_TIMEOUT_MINUTES
+              value: {{ .pendingTimeoutMinutes | quote }}
+            - name: RECONCILE_MAX_REPROVISION_ATTEMPTS
+              value: {{ .maxReprovisionAttempts | quote }}
+            {{- end }}
             - name: TASK_TOKEN_SECRET
               valueFrom:
                 secretKeyRef:

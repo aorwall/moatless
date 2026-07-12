@@ -560,6 +560,25 @@ kubernetes:
   # Top-level affinity contains anti-affinity for app pods (label: moatless-vibe)
   # which doesn't match sandbox pods (label: moatless-sandbox).
   sandboxAffinity: {}
+  # -- Desired-vs-actual reconcile pass in the task reaper (Phase 4).
+  # A slow, level-based backstop to the edge-triggered pod watcher. Each
+  # remediation class is independent and defaults OFF — enable deliberately.
+  reconcile:
+    # -- Re-provision a Deployment that vanished out-of-band for an Open task
+    # with an in-flight turn (env RECONCILE_REPROVISION_ENABLED).
+    reprovisionEnabled: false
+    # -- Scale a Deployment to 0 and surface an environment error when its pod
+    # is stuck Pending past the deadline (env RECONCILE_PENDING_TIMEOUT_ENABLED).
+    pendingTimeoutEnabled: false
+    # -- Hard deadline in minutes a pod may sit Pending before the pending-timeout
+    # remediation fires (env RECONCILE_PENDING_TIMEOUT_MINUTES). Note: a first-time
+    # pull of a large sandbox image onto a cold node can legitimately approach the
+    # 15-minute default — size this above your worst-case cold-pull time so healthy
+    # pods are never scaled down mid-pull.
+    pendingTimeoutMinutes: 15
+    # -- Max re-provision attempts per task before giving up and surfacing an
+    # environment error (env RECONCILE_MAX_REPROVISION_ATTEMPTS).
+    maxReprovisionAttempts: 3
   # -- Pod security context for sandbox pods
   # fsGroup ensures PVC-backed volumes have proper group ownership (GID 1000)
   sandboxPodSecurityContext:

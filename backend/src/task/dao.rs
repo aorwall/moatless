@@ -83,6 +83,14 @@ pub trait TaskRepository: Send + Sync {
     /// List task IDs of all tasks currently in `status = 'open'`.
     async fn list_open_task_ids(&self) -> Result<Vec<String>, sqlx::Error>;
 
+    /// Batch-fetch the `status` of the given tasks. Tasks with no row are
+    /// omitted from the map — the reaper's reconcile pass treats absence as
+    /// "deleted". One indexed query (`task_id` is the primary key).
+    async fn get_task_statuses(
+        &self,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, TaskStatus>, sqlx::Error>;
+
     /// Upsert a user's read marker for a task. Monotonic — never moves the
     /// stored `last_read_at` backwards, so out-of-order calls are safe.
     async fn mark_task_read(
@@ -593,6 +601,23 @@ impl TaskRepository for PgTaskRepository {
                 .fetch_all(&self.0)
                 .await?;
         Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
+
+    async fn get_task_statuses(
+        &self,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, TaskStatus>, sqlx::Error> {
+        if task_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let rows: Vec<(String, TaskStatus)> =
+            sqlx::query_as(r#"SELECT task_id, status FROM tasks WHERE task_id = ANY($1)"#)
+                .bind(task_ids)
+                .fetch_all(&self.0)
+                .await?;
+
+        Ok(rows.into_iter().collect())
     }
 
     async fn mark_task_read(

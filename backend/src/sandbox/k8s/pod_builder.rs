@@ -1095,6 +1095,12 @@ mod tests {
                 docker_dind_memory_request: "1Gi".into(),
                 docker_dind_memory_limit: "4Gi".into(),
             },
+            reconcile: ReconcileConfig {
+                reprovision_enabled: false,
+                pending_timeout_enabled: false,
+                pending_timeout_minutes: 15,
+                max_reprovision_attempts: 3,
+            },
             proxy: ProxyConfig {
                 domain: None,
                 protocol: "http".into(),
