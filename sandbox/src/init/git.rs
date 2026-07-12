@@ -15,11 +15,7 @@ use crate::config::Config;
 /// For GitHub: uses `gh auth setup-git` + resolves user info via `gh api user`.
 /// For other providers: configures token-based HTTPS auth via git credential helper.
 pub async fn configure_git(config: &Config) -> Result<(), String> {
-    let is_ssh = config
-        .git_clone_url
-        .as_deref()
-        .map(is_ssh_url)
-        .unwrap_or(false);
+    let is_ssh = config.git_clone_url.as_deref().is_some_and(is_ssh_url);
     let is_github = config.git_provider == "github";
 
     if is_ssh {

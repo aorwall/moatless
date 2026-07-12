@@ -353,6 +353,7 @@ pub(crate) mod test_support {
             grpc_port: 50052,
             task_id: "test-task".to_string(),
             workspace_dir: "/tmp/workspace".to_string(),
+            repo_dir: "/tmp/workspace/repo".to_string(),
             data_dir: "/tmp/data".to_string(),
             upload_dir: "/tmp/uploads".to_string(),
             log_level: "info".to_string(),

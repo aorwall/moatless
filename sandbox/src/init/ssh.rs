@@ -149,12 +149,14 @@ fn key_file_name(secret_name: &str) -> String {
 /// trusts a host key on first use — appropriate for the ephemeral sandbox
 /// talking to arbitrary SSH remotes.
 fn render_ssh_config(identity_files: &[String], known_hosts: &str) -> String {
+    use std::fmt::Write;
+
     let mut out = String::from("Host *\n");
     out.push_str("    StrictHostKeyChecking accept-new\n");
-    out.push_str(&format!("    UserKnownHostsFile {known_hosts}\n"));
+    let _ = writeln!(out, "    UserKnownHostsFile {known_hosts}");
     out.push_str("    IdentitiesOnly yes\n");
     for path in identity_files {
-        out.push_str(&format!("    IdentityFile {path}\n"));
+        let _ = writeln!(out, "    IdentityFile {path}");
     }
     out
 }
