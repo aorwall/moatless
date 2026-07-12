@@ -21,16 +21,11 @@ pub struct InsertTaskEvent {
     pub timestamp: String,
 }
 
-/// A task whose most recent `taskTurn` event is `active` — i.e. a turn that
-/// was started but never observed a terminal (`completed`/`error`/`stopped`)
-/// event. Surfaced by [`TaskEventRepository::list_tasks_with_unclosed_active_turn`]
-/// so the reaper can reconcile a turn left stuck after a lost terminal event.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UnclosedTurn {
-    pub task_id: String,
-    pub turn_number: Option<i32>,
-    pub agent_type: Option<String>,
-}
+/// A task with an unclosed turn. The authoritative reaper query now lives on
+/// the `task_turns` table ([`crate::task_turn::dao::TaskTurnRepository::list_unclosed_active_turns`]);
+/// this module keeps the event-log-derived [`TaskEventRepository::active_turn_for_task`]
+/// for the single-task lookup the pod watcher needs. Both share this type.
+pub use crate::task_turn::models::UnclosedTurn;
 
 /// Repository trait for task event persistence.
 #[cfg_attr(test, mockall::automock)]
@@ -48,23 +43,14 @@ pub trait TaskEventRepository: Send + Sync {
         offset: i64,
     ) -> Result<Vec<TaskEvent>, sqlx::Error>;
 
-    /// List tasks whose most recent `taskTurn` event is `active` and older than
-    /// `older_than`. A task appears here only when no terminal `taskTurn` event
-    /// (`completed`/`error`/`stopped`) followed its latest `active` — meaning
-    /// the turn is stuck. The age floor keeps a slow-but-live turn out of the
-    /// result.
-    async fn list_tasks_with_unclosed_active_turn(
-        &self,
-        older_than: DateTime<Utc>,
-    ) -> Result<Vec<UnclosedTurn>, sqlx::Error>;
-
     /// Return the currently-active (unclosed) turn for a single task, if any.
     ///
-    /// Like [`Self::list_tasks_with_unclosed_active_turn`] but scoped to one
-    /// task and with no age floor: yields `Some` only when the task's latest
-    /// `taskTurn` event is `active` (no terminal event has superseded it). Used
-    /// by the pod watcher to attach turn context to a `turn_interrupted` event
-    /// and to suppress it when no turn is in flight.
+    /// Yields `Some` only when the task's latest `taskTurn` event is `active`
+    /// (no terminal event has superseded it). Used by the pod watcher to attach
+    /// turn context to a `turn_interrupted` event and to suppress it when no
+    /// turn is in flight. The reaper's fleet-wide equivalent now reads the
+    /// authoritative `task_turns` table via
+    /// [`crate::task_turn::dao::TaskTurnRepository::list_unclosed_active_turns`].
     async fn active_turn_for_task(
         &self,
         task_id: &str,
@@ -156,42 +142,6 @@ impl TaskEventRepository for PgTaskEventRepository {
         .bind(offset)
         .fetch_all(&self.0)
         .await
-    }
-
-    async fn list_tasks_with_unclosed_active_turn(
-        &self,
-        older_than: DateTime<Utc>,
-    ) -> Result<Vec<UnclosedTurn>, sqlx::Error> {
-        // For each task, take its single most-recent taskTurn event (DISTINCT ON
-        // ordered by created_at desc). A task is stuck when that latest event is
-        // `active` and predates the cutoff — a terminal event would have
-        // produced a newer row and superseded it. Matching on "latest row"
-        // rather than per-turn-number is null-safe and naturally picks the most
-        // recent turn.
-        let rows: Vec<(String, Option<i32>, Option<String>)> = sqlx::query_as(
-            r#"SELECT latest.task_id, latest.turn_number, latest.agent_type
-               FROM (
-                 SELECT DISTINCT ON (task_id)
-                        task_id, sub_type, turn_number, agent_type, created_at
-                 FROM task_events
-                 WHERE type = 'taskTurn'
-                 ORDER BY task_id, created_at DESC, id DESC
-               ) latest
-               WHERE latest.sub_type = 'active'
-                 AND latest.created_at < $1"#,
-        )
-        .bind(older_than)
-        .fetch_all(&self.0)
-        .await?;
-
-        Ok(rows
-            .into_iter()
-            .map(|(task_id, turn_number, agent_type)| UnclosedTurn {
-                task_id,
-                turn_number,
-                agent_type,
-            })
-            .collect())
     }
 
     async fn active_turn_for_task(

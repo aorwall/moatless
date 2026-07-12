@@ -12,6 +12,7 @@ use moatless_events::{AgentSubType, SandboxSubType, TaskSubType, TaskTurnSubType
 
 use crate::state::AppState;
 use crate::task_event::dao::InsertTaskEvent;
+use crate::task_turn::models::classify_turn_transition;
 
 use super::agent_handlers;
 use super::models::{AgentEvent, EventKey};
@@ -276,6 +277,7 @@ impl EventHandlerConsumer {
                 if let Some(payload_str) = extract_field(fields, "payload") {
                     if let Ok(event) = serde_json::from_str::<AgentEvent>(&payload_str) {
                         self.persist_event(&event).await;
+                        self.project_turn_state(&event).await;
                         self.dispatch_event(&event).await;
                     } else {
                         warn!(entry_id = %entry_id, "Failed to parse event payload, ACKing to prevent redelivery");
@@ -330,6 +332,62 @@ impl EventHandlerConsumer {
                 event_id = %event.event_id,
                 error = %e,
                 "Failed to persist event to database"
+            );
+        }
+    }
+
+    /// Idempotent fallback projection of turn state into `task_turns`.
+    ///
+    /// The gRPC ingress now writes turn state transactionally *before*
+    /// publishing (see `task_turn::dao::apply_ingress_event`), so by the time
+    /// this consumer sees the event the row is almost always already current and
+    /// the projection's `WHERE` guards make this a no-op. It stays as a
+    /// rollout/backstop safety net for the rare event that reached Redis without
+    /// the transactional write (e.g. the ingress DB write failed, or the event
+    /// was published by a path that doesn't front the transaction). Touches only
+    /// `task_turns` — the event row stays with `persist_event` and the
+    /// task-status flip with the agent handlers.
+    async fn project_turn_state(&self, event: &AgentEvent) {
+        let Some(transition) =
+            classify_turn_transition(event.event_type.as_str(), &event.sub_type)
+        else {
+            return;
+        };
+        // A terminal row always belongs to the most recent in-flight turn; an
+        // explicit turn_number wins when the event carries one.
+        let turn_number = match event.turn_number {
+            Some(t) => t,
+            None => match self.state.messages.current_turn_number(&event.task_id).await {
+                Ok(t) => t,
+                Err(e) => {
+                    warn!(
+                        task_id = %event.task_id,
+                        error = %e,
+                        "Turn-state fallback: failed to read current turn number"
+                    );
+                    return;
+                }
+            },
+        };
+        let at = chrono::DateTime::parse_from_rfc3339(&event.timestamp)
+            .map_or_else(|_| chrono::Utc::now(), |dt| dt.with_timezone(&chrono::Utc));
+        if let Err(e) = self
+            .state
+            .task_turns
+            .project_turn(
+                &event.task_id,
+                turn_number,
+                event.agent_type.clone(),
+                transition,
+                at,
+            )
+            .await
+        {
+            warn!(
+                task_id = %event.task_id,
+                event_id = %event.event_id,
+                error = %e,
+                "Turn-state fallback projection failed"
             );
         }
     }

@@ -34,6 +34,7 @@ use crate::tag::dao::{PgTagRepository, TagRepository};
 use crate::task::dao::{PgTaskRepository, TaskRepository};
 use crate::task::relations::{PgTaskRelationRepository, TaskRelationRepository};
 use crate::task_event::dao::{PgTaskEventRepository, TaskEventRepository};
+use crate::task_turn::dao::{PgTaskTurnRepository, TaskTurnRepository};
 use crate::task_template::dao::{PgTaskTemplateRepository, TaskTemplateRepository};
 use crate::team::dao::{PgTeamRepository, TeamRepository};
 
@@ -105,6 +106,9 @@ pub struct AppState {
     pub secrets: Arc<SecretService>,
     pub teams: Arc<dyn TeamRepository>,
     pub task_events: Arc<dyn TaskEventRepository>,
+    /// Authoritative per-turn lifecycle state (`task_turns`). Written
+    /// transactionally at the gRPC ingress; the reaper reads it as the backstop.
+    pub task_turns: Arc<dyn TaskTurnRepository>,
     pub task_templates: Arc<dyn TaskTemplateRepository>,
     pub plugin_repos: Arc<dyn PluginRepoRepository>,
     /// Skill discovery service — reads `.claude/skills/` from workspace
@@ -213,6 +217,7 @@ impl AppState {
             secrets,
             teams: Arc::new(PgTeamRepository(pool.clone())),
             task_events: Arc::new(PgTaskEventRepository(pool.clone())),
+            task_turns: Arc::new(PgTaskTurnRepository(pool.clone())),
             task_templates: Arc::new(PgTaskTemplateRepository(pool.clone())),
             plugin_repos,
             skills,

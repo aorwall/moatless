@@ -32,7 +32,7 @@ use crate::sandbox::k8s::client::K8sClient;
 use crate::sandbox::k8s::leader_election::LeaderElection;
 use crate::sandbox::provider::SandboxProvider;
 use crate::state::AppState;
-use crate::task_event::dao::UnclosedTurn;
+use crate::task_turn::models::UnclosedTurn;
 
 /// Minimum age of a stuck `active` turn before the reaper reconciles it.
 ///
@@ -354,7 +354,12 @@ async fn run_reap_cycle(
     Ok(())
 }
 
-/// Reconcile turns stuck `active` because their terminal event was lost.
+/// Reconcile turns stuck open because their terminal event was lost.
+///
+/// Reads the authoritative `task_turns` table (turns still `active` or
+/// `interrupted` past the age floor) rather than deriving openness from the
+/// event log — turn state is now committed transactionally at ingress, so this
+/// is a pure backstop for the rare lost-terminal case.
 ///
 /// A turn is closed only once confirmed genuinely orphaned: either its sandbox
 /// Deployment is gone (not in `running_sandbox_ids`) or its agent reports
@@ -363,8 +368,8 @@ async fn run_reap_cycle(
 async fn reconcile_orphaned_turns(app_state: &AppState, running_sandbox_ids: &[String]) {
     let cutoff = Utc::now() - chrono::Duration::seconds(RECONCILE_STUCK_TURN_THRESHOLD_SECS);
     let stuck = match app_state
-        .task_events
-        .list_tasks_with_unclosed_active_turn(cutoff)
+        .task_turns
+        .list_unclosed_active_turns(cutoff)
         .await
     {
         Ok(v) => v,

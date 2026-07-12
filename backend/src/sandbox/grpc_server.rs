@@ -48,6 +48,8 @@ use crate::secret::service::SecretService;
 use crate::shared_models::AgentType;
 use crate::task::dao::TaskRepository;
 use crate::task::relations::TaskRelationRepository;
+use crate::task_turn::dao::{TaskTurnRepository, TurnStateEvent};
+use crate::task_turn::models::classify_turn_transition;
 
 /// Known credential env var names.
 ///
@@ -100,6 +102,10 @@ pub struct BackendSandboxServiceImpl {
     pub messages: Option<Arc<dyn MessageRepository>>,
     pub provider_tokens: Option<Arc<dyn ProviderTokenRepository>>,
     pub tasks: Option<Arc<dyn TaskRepository>>,
+    /// Authoritative turn-state writer. State-bearing events commit their turn /
+    /// task-status / event rows here transactionally before being published to
+    /// Redis (transactional-outbox ordering).
+    pub task_turns: Option<Arc<dyn TaskTurnRepository>>,
     pub task_relations: Option<Arc<dyn TaskRelationRepository>>,
     pub commands: Option<Arc<dyn CommandRepository>>,
     /// JWT signing key for verifying sandbox auth tokens.
@@ -225,6 +231,69 @@ impl BackendSandboxServiceImpl {
             }
         }
     }
+    /// Resolve the `(turn_number, agent_type)` for a state-bearing ingress
+    /// event. The sandbox's `PublishEventRequest` carries neither, so turn
+    /// number falls back to the task's current max turn (mirroring the
+    /// consumer's `resolve_turn_number`) and agent type is read from the task
+    /// row. Both degrade gracefully to `(1, None)` when repos are unwired.
+    async fn resolve_turn_context(&self, task_id: &str) -> (i32, Option<String>) {
+        let turn_number = match self.messages.as_ref() {
+            Some(m) => m.current_turn_number(task_id).await.unwrap_or(1),
+            None => 1,
+        };
+        let agent_type = match self.tasks.as_ref() {
+            Some(t) => t
+                .find_by_id_internal(task_id)
+                .await
+                .ok()
+                .flatten()
+                .map(|task| task.agent_type.0),
+            None => None,
+        };
+        (turn_number, agent_type)
+    }
+}
+
+/// Transactional-outbox write: commit turn state (when the event bears any),
+/// then publish to Redis. The DB commit is always awaited *before* the publish,
+/// so an event is never fanned out ahead of its committed state. A failed commit
+/// is logged and the publish still happens — the Redis consumer re-applies the
+/// same state idempotently as a fallback.
+#[allow(clippy::too_many_arguments)]
+async fn write_state_then_publish(
+    task_turns: Option<&Arc<dyn TaskTurnRepository>>,
+    publisher: &Arc<dyn EventPublisher>,
+    event_id: &str,
+    task_id: &str,
+    event_type: &str,
+    sub_type: &str,
+    turn_number: Option<i32>,
+    payload: Value,
+    state: Option<TurnStateEvent>,
+) {
+    if let Some(ev) = state {
+        if let Some(turns) = task_turns {
+            if let Err(e) = turns.apply_ingress_event(&ev).await {
+                warn!(
+                    task_id = %task_id,
+                    event_id = %event_id,
+                    error = %e,
+                    "Transactional turn-state write failed; falling back to consumer"
+                );
+            }
+        }
+    }
+    publisher
+        .publish_raw_event_with_id(
+            event_id,
+            task_id,
+            event_type,
+            sub_type,
+            None,
+            turn_number,
+            payload,
+        )
+        .await;
 }
 
 #[tonic::async_trait]
@@ -307,27 +376,54 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             }
         };
 
-        // Use raw publish — the sandbox already provides typed sub_type strings
-        // and the backend doesn't need to re-parse them for the Redis path.
-        publisher
-            .publish_raw_event(
-                &event.task_id,
-                event_type_str,
-                &event.sub_type,
-                None,
-                None,
-                payload,
-            )
-            .await;
-
-        // Echo the sandbox's stable event_id back so retries dedupe on a
-        // consistent id. Fall back to a fresh id for legacy senders that
-        // predate the outbox and don't set one.
+        // Use the sandbox's stable event_id so outbox retries dedupe on a
+        // consistent id (ingress gate above + consumer's `ON CONFLICT
+        // (event_id) DO NOTHING`), and so a transactionally-written
+        // `task_events` row and the published Redis event share one id.
+        // Fall back to a fresh id for legacy senders that predate the
+        // outbox and don't set one.
         let event_id = if event.event_id.is_empty() {
             uuid::Uuid::new_v4().to_string()
         } else {
-            event.event_id
+            event.event_id.clone()
         };
+
+        // State-bearing events (taskTurn.*, agent.completed/error/stopped) commit
+        // their turn / task-status / event rows in ONE transaction BEFORE the
+        // Redis fan-out. Everything else just publishes.
+        let (turn_number, state) =
+            if let Some(transition) = classify_turn_transition(event_type_str, &event.sub_type) {
+                let (turn_number, agent_type) = self.resolve_turn_context(&event.task_id).await;
+                let state = TurnStateEvent {
+                    event_id: event_id.clone(),
+                    task_id: event.task_id.clone(),
+                    event_type: event_type_str.to_string(),
+                    sub_type: event.sub_type.clone(),
+                    is_error: event.sub_type == "error" || event.sub_type == "failed",
+                    agent_type,
+                    turn_number,
+                    payload: payload.clone(),
+                    timestamp: chrono::Utc::now()
+                        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+                    transition,
+                };
+                (Some(turn_number), Some(state))
+            } else {
+                (None, None)
+            };
+
+        write_state_then_publish(
+            self.task_turns.as_ref(),
+            publisher,
+            &event_id,
+            &event.task_id,
+            event_type_str,
+            &event.sub_type,
+            turn_number,
+            payload,
+            state,
+        )
+        .await;
 
         Ok(Response::new(PublishEventResponse { event_id }))
     }
@@ -1556,5 +1652,210 @@ mod tests {
             extract_text(&content[0]),
             "<message_id>msg_1</message_id>\n<source>slack</source>"
         );
+    }
+
+    // =========================================================================
+    // write_state_then_publish — transactional-outbox ordering
+    // =========================================================================
+
+    use std::sync::Mutex as StdMutex;
+
+    use async_trait::async_trait;
+    use chrono::{DateTime, Utc};
+    use moatless_events::{
+        SandboxEventPayload, SandboxSubType, ServerEventPayload, ServerSubType, TaskSubType,
+        TaskTurnSubType,
+    };
+
+    use crate::task_turn::dao::TaskTurnRepository;
+    use crate::task_turn::models::{TurnStatus, TurnTransition, UnclosedTurn};
+
+    /// Shared ordered log of side effects, so we can assert commit-before-publish.
+    type Recorder = Arc<StdMutex<Vec<&'static str>>>;
+
+    /// Turn repo double that records a `"commit"` on `apply_ingress_event`, then
+    /// optionally fails to exercise the publish-still-happens fallback.
+    struct RecordingTurns {
+        rec: Recorder,
+        fail: bool,
+    }
+
+    #[async_trait]
+    impl TaskTurnRepository for RecordingTurns {
+        async fn apply_ingress_event(&self, _ev: &TurnStateEvent) -> Result<(), sqlx::Error> {
+            self.rec.lock().expect("recorder poisoned").push("commit");
+            if self.fail {
+                return Err(sqlx::Error::PoolClosed);
+            }
+            Ok(())
+        }
+
+        async fn project_turn(
+            &self,
+            _task_id: &str,
+            _turn_number: i32,
+            _agent_type: Option<String>,
+            _transition: TurnTransition,
+            _at: DateTime<Utc>,
+        ) -> Result<(), sqlx::Error> {
+            unreachable!("project_turn is the consumer fallback, not the ingress path")
+        }
+
+        async fn list_unclosed_active_turns(
+            &self,
+            _older_than: DateTime<Utc>,
+        ) -> Result<Vec<UnclosedTurn>, sqlx::Error> {
+            unreachable!("list_unclosed_active_turns is the reaper path")
+        }
+    }
+
+    /// Publisher double that records a `"publish"` on `publish_raw_event_with_id`.
+    /// Every other trait method is an unused no-op stub.
+    struct RecordingPublisher {
+        rec: Recorder,
+    }
+
+    #[async_trait]
+    impl EventPublisher for RecordingPublisher {
+        async fn publish_sandbox_event(&self, _: &str, _: SandboxSubType, _: &str) {}
+        async fn publish_sandbox_event_with_payload(
+            &self,
+            _: &str,
+            _: SandboxSubType,
+            _: &SandboxEventPayload,
+        ) {
+        }
+        async fn publish_server_event(&self, _: &str, _: ServerSubType, _: &ServerEventPayload) {}
+        async fn publish_task_event(&self, _: &str, _: TaskSubType, _: Option<&str>, _: Value) {}
+        async fn publish_agent_event(&self, _: &str, _: AgentSubType, _: Option<&str>, _: Value) {}
+        async fn publish_task_turn_event(
+            &self,
+            _: &str,
+            _: TaskTurnSubType,
+            _: Option<&str>,
+            _: Option<i32>,
+            _: Value,
+        ) {
+        }
+        async fn publish_raw_event(&self, _: &str, _: &str, _: &str, _: Option<&str>, _: Option<i32>, _: Value) {
+        }
+        async fn publish_raw_event_with_id(
+            &self,
+            _event_id: &str,
+            _task_id: &str,
+            _event_type: &str,
+            _sub_type: &str,
+            _agent_type: Option<&str>,
+            _turn_number: Option<i32>,
+            _payload: Value,
+        ) {
+            self.rec.lock().expect("recorder poisoned").push("publish");
+        }
+        async fn health_check(&self) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    fn sample_state(event_id: &str) -> TurnStateEvent {
+        TurnStateEvent {
+            event_id: event_id.to_string(),
+            task_id: "task-1".to_string(),
+            event_type: "taskTurn".to_string(),
+            sub_type: "active".to_string(),
+            is_error: false,
+            agent_type: Some("claude-code".to_string()),
+            turn_number: 1,
+            payload: serde_json::json!({}),
+            timestamp: "2026-07-12T00:00:00.000Z".to_string(),
+            transition: TurnTransition::Open,
+        }
+    }
+
+    #[tokio::test]
+    async fn state_is_committed_before_redis_publish() {
+        let rec: Recorder = Arc::new(StdMutex::new(Vec::new()));
+        let turns: Arc<dyn TaskTurnRepository> = Arc::new(RecordingTurns {
+            rec: rec.clone(),
+            fail: false,
+        });
+        let publisher: Arc<dyn EventPublisher> = Arc::new(RecordingPublisher { rec: rec.clone() });
+
+        write_state_then_publish(
+            Some(&turns),
+            &publisher,
+            "evt-1",
+            "task-1",
+            "taskTurn",
+            "active",
+            Some(1),
+            serde_json::json!({}),
+            Some(sample_state("evt-1")),
+        )
+        .await;
+
+        // Transactional-outbox invariant: the DB commit is observed strictly
+        // before the Redis fan-out, never the other way round.
+        assert_eq!(*rec.lock().unwrap(), vec!["commit", "publish"]);
+    }
+
+    #[tokio::test]
+    async fn publish_still_happens_when_commit_fails() {
+        let rec: Recorder = Arc::new(StdMutex::new(Vec::new()));
+        let turns: Arc<dyn TaskTurnRepository> = Arc::new(RecordingTurns {
+            rec: rec.clone(),
+            fail: true,
+        });
+        let publisher: Arc<dyn EventPublisher> = Arc::new(RecordingPublisher { rec: rec.clone() });
+
+        write_state_then_publish(
+            Some(&turns),
+            &publisher,
+            "evt-2",
+            "task-1",
+            "taskTurn",
+            "active",
+            Some(1),
+            serde_json::json!({}),
+            Some(sample_state("evt-2")),
+        )
+        .await;
+
+        // A failed commit is logged and the publish still runs — the consumer
+        // re-applies the projection idempotently as the fallback.
+        assert_eq!(*rec.lock().unwrap(), vec!["commit", "publish"]);
+    }
+
+    #[tokio::test]
+    async fn non_state_event_only_publishes() {
+        let rec: Recorder = Arc::new(StdMutex::new(Vec::new()));
+        let turns: Arc<dyn TaskTurnRepository> = Arc::new(RecordingTurns {
+            rec: rec.clone(),
+            fail: false,
+        });
+        let publisher: Arc<dyn EventPublisher> = Arc::new(RecordingPublisher { rec: rec.clone() });
+
+        // No TurnStateEvent → no transactional write, just fan-out.
+        write_state_then_publish(
+            Some(&turns),
+            &publisher,
+            "evt-3",
+            "task-1",
+            "agent",
+            "message",
+            None,
+            serde_json::json!({}),
+            None,
+        )
+        .await;
+
+        assert_eq!(*rec.lock().unwrap(), vec!["publish"]);
+    }
+
+    #[test]
+    fn terminal_status_str_roundtrips() {
+        // Guards the DB status strings the projection writes.
+        assert_eq!(TurnStatus::Completed.as_str(), "completed");
+        assert_eq!(TurnStatus::Error.as_str(), "error");
+        assert_eq!(TurnStatus::Stopped.as_str(), "stopped");
     }
 }

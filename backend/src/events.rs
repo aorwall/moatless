@@ -165,6 +165,27 @@ pub trait EventPublisher: Send + Sync {
         payload: serde_json::Value,
     );
 
+    /// Publish a raw event under a caller-supplied `event_id`.
+    ///
+    /// Used by the gRPC ingress after a transactional state write: the same
+    /// `event_id` is stamped on the transactionally-written `task_events` row
+    /// and on the published event, so the consumer's `ON CONFLICT (event_id) DO
+    /// NOTHING` dedups the two into one row (transactional-outbox ordering).
+    // reason: mirrors the raw Redis event field set (id + task + type + sub_type
+    // + agent + turn + payload); splitting into a struct would only shuffle the
+    // same fields behind a one-use type.
+    #[allow(clippy::too_many_arguments)]
+    async fn publish_raw_event_with_id(
+        &self,
+        event_id: &str,
+        task_id: &str,
+        event_type: &str,
+        sub_type: &str,
+        agent_type: Option<&str>,
+        turn_number: Option<i32>,
+        payload: serde_json::Value,
+    );
+
     /// Probe the underlying transport. Returns `Ok(())` if a round-trip
     /// completes within a short bound, `Err(message)` otherwise. Used by the
     /// `/ready` Kubernetes readiness probe.
@@ -223,6 +244,7 @@ impl RedisEventPublisher {
         payload: serde_json::Value,
     ) {
         self.publish_event_internal(
+            None,
             task_id,
             event_type.as_str(),
             sub_type.as_str(),
@@ -234,8 +256,15 @@ impl RedisEventPublisher {
     }
 
     /// Internal: publish a generic event to the Redis stream.
+    ///
+    /// `event_id` lets the caller pin the id (transactional-outbox path); when
+    /// `None` a fresh UUIDv4 is generated as before.
+    // reason: one field per Redis event column; a params struct would add a
+    // one-use type without reducing the fan-out surface.
+    #[allow(clippy::too_many_arguments)]
     async fn publish_event_internal(
         &self,
+        event_id: Option<String>,
         task_id: &str,
         event_type: &str,
         sub_type: &str,
@@ -243,7 +272,7 @@ impl RedisEventPublisher {
         turn_number: Option<i32>,
         payload: serde_json::Value,
     ) {
-        let event_id = Uuid::new_v4().to_string();
+        let event_id = event_id.unwrap_or_else(|| Uuid::new_v4().to_string());
         let timestamp = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         let is_error = sub_type == "error" || sub_type == "failed";
 
@@ -482,6 +511,29 @@ impl EventPublisher for RedisEventPublisher {
         payload: serde_json::Value,
     ) {
         self.publish_event_internal(
+            None,
+            task_id,
+            event_type,
+            sub_type,
+            agent_type,
+            turn_number,
+            payload,
+        )
+        .await;
+    }
+
+    async fn publish_raw_event_with_id(
+        &self,
+        event_id: &str,
+        task_id: &str,
+        event_type: &str,
+        sub_type: &str,
+        agent_type: Option<&str>,
+        turn_number: Option<i32>,
+        payload: serde_json::Value,
+    ) {
+        self.publish_event_internal(
+            Some(event_id.to_string()),
             task_id,
             event_type,
             sub_type,
