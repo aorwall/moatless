@@ -83,7 +83,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await;
     let event_publisher = startup::init_event_publisher(&config).await;
     let cancel = CancellationToken::new();
-    let sse_state = startup::init_sse(&config, cancel.clone()).await?;
+    let sse_state = startup::init_sse(&config, db_pool.as_ref(), cancel.clone()).await?;
     let s3_client = startup::init_s3(&config).await;
     startup::install_shutdown_handler(cancel.clone());
     startup::spawn_grpc_server(

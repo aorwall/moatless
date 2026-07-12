@@ -34,6 +34,7 @@ use crate::secret::service::{LocalEnvelopeSecretCipher, SecretService};
 use crate::sse::consumer::RedisStreamConsumer;
 use crate::sse::routes::SseState;
 use crate::task::dao::{PgTaskRepository, TaskRepository};
+use crate::task_event::dao::{PgTaskEventRepository, TaskEventRepository};
 
 // =========================================================================
 // Logging
@@ -137,13 +138,18 @@ pub async fn init_event_publisher(config: &Config) -> Option<Arc<dyn EventPublis
 // =========================================================================
 
 /// Create the SSE broadcast sender and optionally spawn the Redis consumer.
+///
+/// Redis feeds only the live SSE tail (via the broadcast bus). Historical event
+/// replay is served from the `task_events` Postgres table, so `db_pool` is wired
+/// in as the history source for `GET /api/v1/tasks/{task_id}/events`.
 pub async fn init_sse(
     config: &Config,
+    db_pool: Option<&DbPool>,
     cancel: CancellationToken,
 ) -> Result<SseState, redis::RedisError> {
     let (tx, _) = broadcast::channel::<String>(config.sse.broadcast_capacity);
 
-    let redis_conn = if let Some(ref redis_url) = config.redis.url {
+    if let Some(ref redis_url) = config.redis.url {
         let client = redis::Client::open(redis_url.as_str())?;
         let conn = redis::aio::ConnectionManager::new_with_config(
             client,
@@ -151,23 +157,24 @@ pub async fn init_sse(
         )
         .await?;
         let consumer = RedisStreamConsumer::new(
-            conn.clone(),
+            conn,
             config.sse.consumer_id.clone(),
             tx.clone(),
             cancel.clone(),
         );
         tokio::spawn(consumer.run());
         info!(consumer_id = %config.sse.consumer_id, "SSE Redis consumer spawned");
-        Some(conn)
     } else {
         info!("REDIS_URL not set — SSE Redis consumer disabled");
-        None
-    };
+    }
+
+    let task_events: Option<Arc<dyn TaskEventRepository>> =
+        db_pool.map(|pool| Arc::new(PgTaskEventRepository(pool.clone())) as _);
 
     Ok(SseState {
         broadcast: tx,
         cancel,
-        redis: redis_conn,
+        task_events,
     })
 }
 

@@ -3,6 +3,8 @@
 //! Serves `GET /api/v1/events/stream` as an NDJSON stream, fanning out
 //! events from the shared SSE event bus to each connected client.
 
+use std::sync::Arc;
+
 use async_stream::stream;
 use axum::body::Body;
 use axum::extract::{Path, Query, State};
@@ -15,15 +17,17 @@ use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
-use crate::sse::consumer::extract_field;
+use crate::task_event::dao::TaskEventRepository;
+use crate::task_event::models::TaskEvent;
 
 /// Shared state for the SSE route.
 #[derive(Clone)]
 pub struct SseState {
     pub broadcast: broadcast::Sender<String>,
     pub cancel: CancellationToken,
-    /// Optional Redis connection for historical event queries.
-    pub redis: Option<redis::aio::ConnectionManager>,
+    /// Postgres-backed task event history. Serves the historical replay for
+    /// `GET /api/v1/tasks/{task_id}/events`; `None` when the DB is unconfigured.
+    pub task_events: Option<Arc<dyn TaskEventRepository>>,
 }
 
 /// Query parameters for the SSE endpoint.
@@ -133,78 +137,137 @@ async fn sse_handler(State(state): State<SseState>, Query(query): Query<SseQuery
 
 /// Historical task events handler.
 ///
-/// Returns stored events from Redis Streams for a given task, allowing the
-/// frontend to hydrate the Events tab on page reload.
+/// Returns stored events from the `task_events` Postgres table for a given
+/// task, allowing the frontend to hydrate the Events tab on page reload.
+///
+/// History is served from Postgres — not Redis `XRANGE` — because the Redis
+/// stream is trimmed by `MAXLEN` and expires after a 72h TTL, silently
+/// truncating older history. Every event is durably persisted to `task_events`
+/// by the event_handler consumer, so Postgres is the complete source of truth.
+/// Redis is kept strictly for the live SSE tail (`/api/v1/events/stream`).
+///
+/// **Seam with the live tail:** the frontend loads this page first, then opens
+/// the SSE stream. Because the SSE consumer creates its group at the stream
+/// head, an event published between the two calls can appear both here and on
+/// the live stream. Each returned envelope carries its `eventId`, so the client
+/// dedupes across the boundary by id — no gap, no duplicate rendered.
 async fn task_events_handler(
     State(state): State<SseState>,
     Path(task_id): Path<String>,
     Query(query): Query<TaskEventsQuery>,
 ) -> Json<Vec<serde_json::Value>> {
-    let Some(mut conn) = state.redis.clone() else {
+    let Some(repo) = state.task_events.clone() else {
         return Json(vec![]);
     };
 
-    let limit = query.limit.unwrap_or(500).min(2000);
-    let stream_key = format!("task-events:{task_id}");
+    // Preserve the previous XRANGE semantics: default 500, capped at 2000,
+    // oldest-first. `list_events` orders by id ASC with the same LIMIT.
+    let limit = i64::try_from(query.limit.unwrap_or(500).min(2000)).unwrap_or(500);
 
-    // Parse type filters
-    let type_filters: Vec<String> = query
+    // Comma-separated `types` filter maps to a SQL `type = ANY($types)` filter
+    // in `list_events` (an empty/absent filter returns all types).
+    let event_types: Option<Vec<String>> = query
         .types
-        .map(|t| t.split(',').map(|s| s.trim().to_string()).collect())
-        .unwrap_or_default();
+        .map(|t| {
+            t.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect::<Vec<_>>()
+        })
+        .filter(|v| !v.is_empty());
 
-    // XRANGE task-events:{task_id} - + COUNT {limit}
-    let result: redis::Value = match redis::cmd("XRANGE")
-        .arg(&stream_key)
-        .arg("-")
-        .arg("+")
-        .arg("COUNT")
-        .arg(limit)
-        .query_async(&mut conn)
-        .await
-    {
-        Ok(v) => v,
+    let rows = match repo.list_events(&task_id, &event_types, limit, 0).await {
+        Ok(rows) => rows,
         Err(e) => {
-            warn!(task_id = %task_id, error = %e, "Failed to read task events from Redis");
+            warn!(task_id = %task_id, error = %e, "Failed to read task events from Postgres");
             return Json(vec![]);
         }
     };
 
-    let entries = match &result {
-        redis::Value::Array(arr) => arr,
-        _ => return Json(vec![]),
-    };
+    let events = rows.into_iter().map(event_row_to_json).collect();
+    Json(events)
+}
 
-    let mut events = Vec::with_capacity(entries.len());
+/// Reconstruct the SSE `StreamEvent` wire envelope from a persisted row.
+///
+/// This mirrors `moatless_events::StreamEvent`'s serialization exactly (camelCase
+/// keys, `type` for the event type, optional `agentType`/`turnNumber` omitted
+/// when absent), so the payload is byte-for-byte compatible with what the old
+/// Redis `XRANGE` replay produced — the frontend needs no changes.
+fn event_row_to_json(row: TaskEvent) -> serde_json::Value {
+    let mut map = serde_json::Map::new();
+    map.insert("eventId".to_string(), row.event_id.into());
+    map.insert("type".to_string(), row.event_type.into());
+    map.insert("subType".to_string(), row.sub_type.into());
+    map.insert("taskId".to_string(), row.task_id.into());
+    map.insert("timestamp".to_string(), row.timestamp.into());
+    map.insert("isError".to_string(), row.is_error.into());
+    if let Some(agent_type) = row.agent_type {
+        map.insert("agentType".to_string(), agent_type.into());
+    }
+    if let Some(turn_number) = row.turn_number {
+        map.insert("turnNumber".to_string(), turn_number.into());
+    }
+    map.insert("payload".to_string(), row.payload);
+    serde_json::Value::Object(map)
+}
 
-    for entry in entries {
-        let fields = match entry {
-            redis::Value::Array(pair) if pair.len() == 2 => match &pair[1] {
-                redis::Value::Array(f) => f,
-                _ => continue,
-            },
-            _ => continue,
-        };
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use serde_json::json;
 
-        let Some(payload_str) = extract_field(fields, "payload") else {
-            continue;
-        };
-
-        // Apply type filter if specified
-        if !type_filters.is_empty() {
-            let matches = type_filters.iter().any(|t| {
-                let pattern = format!("\"type\":\"{t}\"");
-                payload_str.contains(&pattern)
-            });
-            if !matches {
-                continue;
-            }
-        }
-
-        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&payload_str) {
-            events.push(value);
+    fn sample_row() -> TaskEvent {
+        TaskEvent {
+            id: 1,
+            event_id: "evt-1".to_string(),
+            task_id: "task-1".to_string(),
+            event_type: "sandbox".to_string(),
+            sub_type: "ready".to_string(),
+            is_error: false,
+            agent_type: Some("claude".to_string()),
+            turn_number: Some(3),
+            payload: json!({ "message": "up" }),
+            timestamp: "2026-07-12T00:00:00.000Z".to_string(),
+            created_at: Utc::now(),
         }
     }
 
-    Json(events)
+    #[test]
+    fn maps_row_to_stream_event_envelope() {
+        let value = event_row_to_json(sample_row());
+        assert_eq!(
+            value,
+            json!({
+                "eventId": "evt-1",
+                "type": "sandbox",
+                "subType": "ready",
+                "taskId": "task-1",
+                "timestamp": "2026-07-12T00:00:00.000Z",
+                "isError": false,
+                "agentType": "claude",
+                "turnNumber": 3,
+                "payload": { "message": "up" },
+            })
+        );
+    }
+
+    #[test]
+    fn omits_absent_optional_fields() {
+        let mut row = sample_row();
+        row.agent_type = None;
+        row.turn_number = None;
+        let value = event_row_to_json(row);
+        let obj = value.as_object().expect("object");
+        assert!(!obj.contains_key("agentType"));
+        assert!(!obj.contains_key("turnNumber"));
+        // The base envelope the frontend's `isStreamEvent` guard requires.
+        assert!(obj.contains_key("eventId"));
+        assert!(obj.contains_key("taskId"));
+        assert_eq!(obj["type"], json!("sandbox"));
+        assert_eq!(obj["subType"], json!("ready"));
+        assert_eq!(obj["isError"], json!(false));
+        assert!(obj.contains_key("payload"));
+    }
 }
