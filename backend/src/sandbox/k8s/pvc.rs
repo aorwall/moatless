@@ -94,10 +94,25 @@ pub async fn create_task_pvc(
     }))
     .map_err(kube::Error::SerdeError)?;
 
-    pvcs.create(&PostParams::default(), &pvc).await?;
-    info!(task_id, pvc_name = %pvc_name, storage_size, "Task PVC created");
-
-    Ok(pvc_name)
+    match pvcs.create(&PostParams::default(), &pvc).await {
+        Ok(_) => {
+            info!(task_id, pvc_name = %pvc_name, storage_size, "Task PVC created");
+            Ok(pvc_name)
+        }
+        // A concurrent provision (or a leftover from a prior run) already created
+        // the PVC. Reuse the existing one instead of failing — degrading to
+        // ephemeral storage here would silently drop workspace persistence.
+        Err(kube::Error::Api(ref e)) if e.code == 409 => {
+            if let Some(existing) = find_task_pvc(k8s, task_id).await {
+                info!(task_id, pvc_name = %existing, "PVC already exists (409), reusing existing");
+                Ok(existing)
+            } else {
+                info!(task_id, pvc_name = %pvc_name, "PVC already exists (409), reusing by name");
+                Ok(pvc_name)
+            }
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// Delete all PVCs for a task

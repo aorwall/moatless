@@ -145,6 +145,14 @@ struct PodObservedState {
     failed_since_ms: Option<i64>,
     /// Fire-once guard: a GC delete has been issued for this Failed pod.
     gc_requested: bool,
+    /// An auto-stop (scale Deployment to 0) has been decided for this pod — via
+    /// the crash-restart threshold crossing or the exit-78 fast-fail — but not
+    /// yet confirmed by a successful `scale_deployment` call. Set when the
+    /// decision is made, cleared only on a successful scale-to-0, and retried on
+    /// every subsequent watcher event and in the periodic sweep. Without this, a
+    /// failed scale is lost: `restart_count` stays `>= threshold` so the "new
+    /// crossing" edge never re-fires and the pod crash-loops forever.
+    auto_stop_pending: bool,
 }
 
 impl PodObservedState {
@@ -287,6 +295,7 @@ async fn run_pod_watch(
                 // scheduling_blocked / startup_slow events (fire-once per pod).
                 sweep_pending_pods(k8s, event_publisher, &mut pod_states).await;
                 gc_failed_pods(k8s, &mut pod_states).await;
+                retry_pending_auto_stops(k8s, &mut pod_states).await;
             }
             event = stream.try_next() => {
                 match event {
@@ -609,6 +618,9 @@ async fn process_watcher_event(
                 // a still-stuck pod doesn't re-emit its blocked/slow event.
                 new_state.scheduling_blocked_published = prev.scheduling_blocked_published;
                 new_state.startup_slow_published = prev.startup_slow_published;
+                // Carry a still-pending auto-stop so a scale-to-0 that previously
+                // failed is retried on this event (see the auto-stop block below).
+                new_state.auto_stop_pending = prev.auto_stop_pending;
             }
             // Start (or carry over) the GC clock for pods in the terminal
             // Failed phase — K8s never removes them on its own.
@@ -760,9 +772,9 @@ async fn process_watcher_event(
                     )
                     .await;
 
-                if let Err(e) = deployment::scale_deployment(k8s, &task_id, 0).await {
-                    warn!(task_id = %task_id, error = %e, "Failed to auto-stop permanently failing sandbox");
-                }
+                // Mark the auto-stop as pending; the shared block below performs
+                // (and retries) the scale-to-0 so a transient failure isn't lost.
+                new_state.auto_stop_pending = true;
             }
 
             // Auto-stop sandbox if restart count exceeds threshold
@@ -820,12 +832,36 @@ async fn process_watcher_event(
                         )
                         .await;
 
-                    // Scale deployment to 0
-                    if let Err(e) = deployment::scale_deployment(k8s, &task_id, 0).await {
+                    // Mark the auto-stop as pending; the shared block below does
+                    // the scale-to-0 and retries it if it fails.
+                    new_state.auto_stop_pending = true;
+                }
+            }
+
+            // Perform (or retry) a pending auto-stop scale-to-0. Both the exit-78
+            // fast-fail and the crash-restart threshold set `auto_stop_pending`;
+            // this block is the single point that scales the Deployment to 0 and
+            // clears the flag only on success. A failed scale keeps the flag set,
+            // so the next watcher event for this pod — or the periodic sweep —
+            // retries. Without this retry the crossing edge never re-fires
+            // (`restart_count` stays `>= threshold`) and the pod crash-loops
+            // forever.
+            if new_state.auto_stop_pending && !is_intentional_stop {
+                match deployment::scale_deployment(k8s, &task_id, 0).await {
+                    Ok(()) => {
+                        info!(
+                            task_id = %task_id,
+                            pod_name = %pod_name,
+                            "Auto-stop scale-to-0 succeeded"
+                        );
+                        new_state.auto_stop_pending = false;
+                    }
+                    Err(e) => {
                         warn!(
                             task_id = %task_id,
+                            pod_name = %pod_name,
                             error = %e,
-                            "Failed to auto-stop crash-looping sandbox"
+                            "Failed to auto-stop sandbox; will retry on the next event/sweep"
                         );
                     }
                 }
@@ -1432,6 +1468,7 @@ fn extract_pod_observed_state(pod: &Pod, pod_name: &str, task_id: &str) -> PodOb
         startup_slow_published: false,
         failed_since_ms: None,
         gc_requested: false,
+        auto_stop_pending: false,
     }
 }
 
@@ -1876,6 +1913,42 @@ async fn gc_failed_pods(k8s: &K8sClient, pod_states: &mut HashMap<String, PodObs
                     pod_name = %state.pod_name,
                     error = %e,
                     "Failed to garbage-collect Failed pod; will retry next sweep"
+                );
+            }
+        }
+    }
+}
+
+/// Retry the scale-to-0 for any pod with a still-pending auto-stop.
+///
+/// The watch stream only fires on pod changes, so if the scale-to-0 for a
+/// crash-looping / exit-78 pod failed and the pod then produces no further
+/// watch events, nothing would retry it. This sweep (on the renew tick) closes
+/// that gap: it re-issues the scale for every pod whose `auto_stop_pending` is
+/// still set and clears the flag on success.
+async fn retry_pending_auto_stops(
+    k8s: &K8sClient,
+    pod_states: &mut HashMap<String, PodObservedState>,
+) {
+    for state in pod_states.values_mut() {
+        if !state.auto_stop_pending {
+            continue;
+        }
+        match deployment::scale_deployment(k8s, &state.task_id, 0).await {
+            Ok(()) => {
+                info!(
+                    task_id = %state.task_id,
+                    pod_name = %state.pod_name,
+                    "Auto-stop scale-to-0 succeeded on periodic retry"
+                );
+                state.auto_stop_pending = false;
+            }
+            Err(e) => {
+                warn!(
+                    task_id = %state.task_id,
+                    pod_name = %state.pod_name,
+                    error = %e,
+                    "Auto-stop scale-to-0 still failing; will retry next sweep"
                 );
             }
         }

@@ -931,13 +931,9 @@ fn env_var(name: &str, value: &str) -> EnvVar {
     }
 }
 
-/// Get current time as ISO 8601 string (no chrono dependency — use simple format).
+/// Get the current time as an RFC3339 timestamp (e.g. `2026-07-12T10:20:30Z`).
 fn chrono_now_iso() -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    format!("{now}Z")
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
 
 /// Build servers name→port map from plan.
@@ -1203,6 +1199,17 @@ mod tests {
         let mut plan = test_plan();
         plan.repo_config.docker_image = Some("custom:v2".into());
         assert_eq!(resolve_sandbox_image(&config, &plan), "custom:v2");
+    }
+
+    #[test]
+    fn chrono_now_iso_is_valid_rfc3339() {
+        let ts = chrono_now_iso();
+        // The old "{epoch_seconds}Z" format is not valid RFC3339; this must parse.
+        assert!(
+            chrono::DateTime::parse_from_rfc3339(&ts).is_ok(),
+            "created-at annotation must be valid RFC3339, got {ts:?}"
+        );
+        assert!(ts.ends_with('Z'), "expected UTC 'Z' suffix, got {ts:?}");
     }
 
     #[test]

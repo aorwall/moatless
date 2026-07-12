@@ -183,9 +183,9 @@ pub async fn delete_deployment(k8s: &K8sClient, task_id: &str) -> Result<(), kub
 /// still `Terminating` and holding the EBS attachment, producing a
 /// "Multi-Attach" error that stalls the new pod in `Pending` for 1-6 min.
 /// Scaling to 0 first lets the volume detach before the replacement is created.
-pub async fn restart_deployment(k8s: &K8sClient, task_id: &str) -> Result<(), kube::Error> {
+pub async fn restart_deployment(k8s: &K8sClient, task_id: &str) -> Result<(), SandboxError> {
     scale_deployment(k8s, task_id, 0).await?;
-    wait_for_pods_deleted(k8s, task_id).await;
+    wait_for_pods_deleted(k8s, task_id).await?;
     scale_deployment(k8s, task_id, 1).await?;
     info!(task_id, "Deployment restarted (scaled 0 -> 1 after termination)");
     Ok(())
@@ -227,7 +227,7 @@ pub async fn redeploy_with_plan(
     // delete and recreate a fresh Deployment, so nothing stops the new pod from
     // being scheduled while the old one still holds the ReadWriteOnce PVC on its
     // node -> "Multi-Attach" stall. Blocking on termination closes that window.
-    wait_for_pods_deleted(k8s, task_id).await;
+    wait_for_pods_deleted(k8s, task_id).await?;
 
     create_sandbox_deployment(k8s, task_id, pod).await?;
     info!(task_id, "Deployment redeployed with updated pod spec");
@@ -250,10 +250,15 @@ fn pod_blocks_redeploy(pod: &Pod) -> bool {
 }
 
 /// Poll until no non-terminal pods match the task's label selector (old pod
-/// fully gone), or the timeout elapses. Best-effort: on timeout or list error
-/// we log and return so the caller can proceed rather than block a redeploy
-/// indefinitely.
-pub async fn wait_for_pods_deleted(k8s: &K8sClient, task_id: &str) {
+/// fully gone), or the timeout elapses.
+///
+/// Returns an error on timeout: proceeding while an old pod still holds the
+/// ReadWriteOnce workspace PVC lets the replacement race the attachment and
+/// stall in Pending with a "Multi-Attach" error for minutes — the exact failure
+/// this wait exists to prevent. Callers surface it as an environment error
+/// rather than silently scheduling into the stall. A transient list error is
+/// still treated as best-effort (log and proceed), since it isn't the stall.
+pub async fn wait_for_pods_deleted(k8s: &K8sClient, task_id: &str) -> Result<(), SandboxError> {
     use std::time::Duration;
 
     const POLL_INTERVAL: Duration = Duration::from_secs(2);
@@ -270,7 +275,7 @@ pub async fn wait_for_pods_deleted(k8s: &K8sClient, task_id: &str) {
                 let blocking = list.items.iter().filter(|p| pod_blocks_redeploy(p)).count();
                 if blocking == 0 {
                     debug!(task_id, "All pods terminated, safe to recreate Deployment");
-                    return;
+                    return Ok(());
                 }
                 debug!(
                     task_id,
@@ -280,16 +285,20 @@ pub async fn wait_for_pods_deleted(k8s: &K8sClient, task_id: &str) {
             }
             Err(e) => {
                 warn!(task_id, error = %e, "Failed to list pods while waiting for termination; proceeding");
-                return;
+                return Ok(());
             }
         }
 
         if tokio::time::Instant::now() >= deadline {
             warn!(
                 task_id,
-                "Timed out waiting for old pod(s) to terminate before redeploy; proceeding anyway"
+                "Timed out waiting for old pod(s) to terminate before redeploy"
             );
-            return;
+            return Err(SandboxError::NotReady(format!(
+                "Timed out after {}s waiting for the previous sandbox pod to terminate; \
+                 its workspace volume is still attached. Retry shortly.",
+                TIMEOUT.as_secs()
+            )));
         }
 
         tokio::time::sleep(POLL_INTERVAL).await;

@@ -6,6 +6,7 @@ use futures::stream::BoxStream;
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::Pod;
 use kube::api::{Api, ListParams};
+use moatless_events::SandboxEventPayload;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -16,7 +17,7 @@ use super::ingress;
 use super::naming::generate_service_name;
 use super::pod_builder;
 use super::pod_reader;
-use super::pod_status::is_sandbox_container_ready;
+use super::pod_status::{is_sandbox_container_ready, pick_best_pod};
 use super::pvc;
 use super::service;
 use super::status_resolver::StatusResolver;
@@ -90,7 +91,9 @@ impl SandboxProvider for K8sSandboxProvider {
                     // PVC. Scaling straight to 1 would schedule a new pod that
                     // races that attachment → "Multi-Attach" stall. Wait for the
                     // old pod to fully terminate first (no-op if already gone).
-                    deployment::wait_for_pods_deleted(&self.k8s, task_id).await;
+                    // A timeout here surfaces as an environment error rather than
+                    // scheduling a new pod straight into the stall.
+                    deployment::wait_for_pods_deleted(&self.k8s, task_id).await?;
                     deployment::scale_deployment(&self.k8s, task_id, 1)
                         .await
                         .map_err(SandboxError::KubeError)?;
@@ -123,12 +126,32 @@ impl SandboxProvider for K8sSandboxProvider {
         // 2. Generate JWT using user_id directly (no DB lookup)
         let user_auth_token = self.generate_user_auth_token(&request.user_id)?;
 
-        // 3. Create PVC
+        // 3. Create PVC. A 409 is handled inside create_task_pvc (reuse the
+        //    existing PVC), so an Err here is a genuine failure — degrading to
+        //    ephemeral storage silently drops workspace persistence, so surface
+        //    a visible warning event instead of only logging.
         let pvc_name = match self.create_or_find_pvc(task_id, plan).await {
             Ok(name) if !name.is_empty() => Some(name),
             Ok(_) => None,
             Err(e) => {
                 warn!(task_id = %task_id, error = %e, "Failed to create PVC, proceeding without persistence");
+                if let Some(ref publisher) = self.event_publisher {
+                    publisher
+                        .publish_sandbox_event_with_payload(
+                            task_id,
+                            SandboxStatus::Initializing,
+                            &SandboxEventPayload {
+                                message:
+                                    "Persistent storage unavailable — running with ephemeral \
+                                     storage; workspace changes will not survive a restart."
+                                        .to_string(),
+                                lifecycle_event: Some("storage_degraded".to_string()),
+                                error: Some(e),
+                                ..Default::default()
+                            },
+                        )
+                        .await;
+                }
                 None
             }
         };
@@ -245,9 +268,7 @@ impl SandboxProvider for K8sSandboxProvider {
         // Scale to 0, wait for the pod to terminate (releasing the RWO PVC),
         // then scale back to 1. This also covers the "was stopped" case since
         // restart_deployment always ends at 1 replica.
-        let outcome = deployment::restart_deployment(&self.k8s, task_id)
-            .await
-            .map_err(SandboxError::KubeError);
+        let outcome = deployment::restart_deployment(&self.k8s, task_id).await;
 
         crate::sandbox::metrics::record_restart(backend, started.elapsed());
         outcome?;
@@ -265,14 +286,18 @@ impl SandboxProvider for K8sSandboxProvider {
     ) -> Result<ProvisionResponse, SandboxError> {
         info!(task_id = %task_id, "Redeploying sandbox (deleting Deployment/Service/IngressRoutes, preserving PVC)");
 
-        // 1. Delete Deployment (cascades to pods + ReplicaSets)
-        if let Err(e) = deployment::delete_deployment(&self.k8s, task_id).await {
-            warn!(task_id = %task_id, error = %e, "Failed to delete Deployment during redeploy");
-        }
+        // 1. Delete Deployment (cascades to pods + ReplicaSets). Fail hard on
+        //    error: if the delete fails, the reprovision below hits 409 and
+        //    "reuses" the existing Deployment, so the old pod spec survives and
+        //    the redeploy is silently defeated. `delete_deployment` already
+        //    treats 404 as success, so this only fails on a genuine API error.
+        deployment::delete_deployment(&self.k8s, task_id)
+            .await
+            .map_err(SandboxError::KubeError)?;
         // 1b. Wait for the old pod to fully terminate before reprovisioning, so
         //     the new pod doesn't race the ReadWriteOnce PVC still attached to
         //     the terminating pod's node ("Multi-Attach" stall).
-        deployment::wait_for_pods_deleted(&self.k8s, task_id).await;
+        deployment::wait_for_pods_deleted(&self.k8s, task_id).await?;
         // 2. Delete Service + IngressRoutes (will recreate with new config)
         if let Err(e) = service::delete_sandbox_service(&self.k8s, task_id).await {
             warn!(task_id = %task_id, error = %e, "Failed to delete Service during redeploy");
@@ -647,11 +672,12 @@ impl K8sSandboxProvider {
             }
         };
 
-        if list.items.is_empty() {
+        // During a rolling update (old terminating pod + new starting pod both
+        // present) `list.items[0]` is arbitrary — pick the best pod so we report
+        // the replacement's status, not the dying pod's. Mirrors status_resolver.
+        let Some(pod) = pick_best_pod(&list.items) else {
             return ExistingPodResult::Initializing; // Deployment exists but no pods yet
-        }
-
-        let pod = &list.items[0];
+        };
         let is_terminating = pod.metadata.deletion_timestamp.is_some();
         let raw_phase = pod
             .status

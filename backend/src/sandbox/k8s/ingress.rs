@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use tracing::{debug, info, warn};
 
 use super::client::K8sClient;
-use super::naming::generate_service_name;
+use super::naming::{generate_ingress_route_name, generate_service_name};
 use crate::config::Config;
 
 const TRAEFIK_GROUP: &str = "traefik.io";
@@ -53,13 +53,11 @@ pub async fn create_task_ingress_routes(
     let service_name = generate_service_name(task_id);
 
     for (server_name, port) in server_ports {
-        let route_name = format!("{service_name}-{server_name}");
-        // K8s name max 63 chars
-        let route_name = if route_name.len() > 63 {
-            route_name[..63].to_string()
-        } else {
-            route_name
-        };
+        // The server name is user-supplied (repo config) and unsanitized, so it
+        // may contain multi-byte chars — build the route name via the shared
+        // helper, which sanitizes, truncates char-safely to 63, and trims any
+        // trailing '-'.
+        let route_name = generate_ingress_route_name(&service_name, server_name);
 
         let hostname = format!("{task_id}--{port}.{proxy_domain}");
 

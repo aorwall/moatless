@@ -277,7 +277,8 @@ impl Config {
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(50052),
 
-            task_id: env::var("TASK_ID").unwrap_or_default(),
+            #[allow(clippy::expect_used)] // required env var, crash at startup if missing
+            task_id: env::var("TASK_ID").expect("TASK_ID is required"),
 
             workspace_dir,
             repo_dir,
