@@ -160,6 +160,13 @@ struct PodObservedState {
     /// failed scale is lost: `restart_count` stays `>= threshold` so the "new
     /// crossing" edge never re-fires and the pod crash-loops forever.
     auto_stop_pending: bool,
+    /// Sandbox status most recently published from this pod's lifecycle
+    /// transitions, carried across Apply events. Used to suppress consecutive
+    /// identical publishes from the high-frequency container sub_types
+    /// (restart/crash-loop/terminated), which otherwise fire once per K8s
+    /// watch Apply while a container flaps. Watcher restart resets this —
+    /// acceptable (one extra event per pod after failover).
+    last_published_sandbox_status: Option<SandboxStatus>,
 }
 
 impl PodObservedState {
@@ -511,6 +518,11 @@ async fn process_watcher_event(
                 }
             }
 
+            // Carried across Apply events so a flapping container (one watch
+            // event per restart) publishes each status once, not once per Apply.
+            new_state.last_published_sandbox_status =
+                prev_state.and_then(|p| p.last_published_sandbox_status);
+
             for (sub_type, error_msg) in &transitions {
                 // For intentional stops, downgrade error-level transitions to Stopped
                 let sandbox_status = if is_intentional_stop
@@ -564,6 +576,23 @@ async fn process_watcher_event(
                     );
                 }
 
+                // Metrics and logs above still record every detected edge —
+                // only the event publish is deduplicated.
+                if should_skip_duplicate_publish(
+                    sub_type,
+                    sandbox_status,
+                    new_state.last_published_sandbox_status,
+                ) {
+                    debug!(
+                        task_id = %task_id,
+                        pod_name = %pod_name,
+                        lifecycle_event = %sub_type,
+                        sandbox_status = %sandbox_status,
+                        "Skipping duplicate sandbox status publish"
+                    );
+                    continue;
+                }
+
                 // Involuntary eviction is inherently node-initiated — tag it so
                 // the frontend can render an amber "recovering" chip. Other
                 // intentional-stop initiators are set at their explicit publish
@@ -613,6 +642,7 @@ async fn process_watcher_event(
                         },
                     )
                     .await;
+                new_state.last_published_sandbox_status = Some(sandbox_status);
             }
 
             // Carry over fatal_published from previous state, then reset on recovery.
@@ -1467,6 +1497,7 @@ fn extract_pod_observed_state(pod: &Pod, pod_name: &str, task_id: &str) -> PodOb
         failed_since_ms: None,
         gc_requested: false,
         auto_stop_pending: false,
+        last_published_sandbox_status: None,
     }
 }
 
@@ -2000,6 +2031,28 @@ async fn retry_pending_auto_stops(
     }
 }
 
+/// Lifecycle sub_types that can fire on every K8s watch Apply while a
+/// container flaps (CrashLoopBackOff): one publish per restart cycle otherwise
+/// floods history with identical `initializing` events. Genuine transitions
+/// (`pod_ready`, `pod_failed`, `pod_evicted`, `pod_recovering`,
+/// `pod_scheduled`, `container_oom_killed`, ...) always publish.
+const HIGH_FREQUENCY_LIFECYCLE_SUB_TYPES: &[&str] = &[
+    "container_restarted",
+    "container_crash_loop",
+    "container_terminated",
+];
+
+/// Whether a lifecycle publish should be suppressed: high-frequency container
+/// sub_type AND the sandbox status it maps to matches the last one published
+/// for this pod.
+fn should_skip_duplicate_publish(
+    sub_type: &str,
+    status: SandboxStatus,
+    last_published: Option<SandboxStatus>,
+) -> bool {
+    HIGH_FREQUENCY_LIFECYCLE_SUB_TYPES.contains(&sub_type) && last_published == Some(status)
+}
+
 /// Map a lifecycle event sub_type to the corresponding SandboxStatus.
 fn lifecycle_sub_type_to_sandbox_status(sub_type: &str) -> SandboxStatus {
     match sub_type {
@@ -2528,6 +2581,61 @@ mod tests {
         assert!(!should_emit_startup_slow(
             &s,
             STARTUP_SLOW_THRESHOLD_SECS + 300
+        ));
+    }
+
+    /// High-frequency container sub_types are suppressed only when they would
+    /// repeat the last-published sandbox status; genuine transitions always
+    /// publish regardless of the last-published status.
+    #[test]
+    fn duplicate_publish_suppression() {
+        // A flapping container re-reporting Initializing is suppressed.
+        assert!(should_skip_duplicate_publish(
+            "container_restarted",
+            SandboxStatus::Initializing,
+            Some(SandboxStatus::Initializing)
+        ));
+        assert!(should_skip_duplicate_publish(
+            "container_crash_loop",
+            SandboxStatus::Initializing,
+            Some(SandboxStatus::Initializing)
+        ));
+        assert!(should_skip_duplicate_publish(
+            "container_terminated",
+            SandboxStatus::Initializing,
+            Some(SandboxStatus::Initializing)
+        ));
+
+        // A status change publishes even for high-frequency sub_types.
+        assert!(!should_skip_duplicate_publish(
+            "container_restarted",
+            SandboxStatus::Initializing,
+            Some(SandboxStatus::Ready)
+        ));
+
+        // First publish for a pod (nothing published yet) goes through.
+        assert!(!should_skip_duplicate_publish(
+            "container_restarted",
+            SandboxStatus::Initializing,
+            None
+        ));
+
+        // Genuine transitions are never suppressed, even when repeated.
+        assert!(!should_skip_duplicate_publish(
+            "pod_ready",
+            SandboxStatus::Ready,
+            Some(SandboxStatus::Ready)
+        ));
+        assert!(!should_skip_duplicate_publish(
+            "pod_evicted",
+            SandboxStatus::Error,
+            Some(SandboxStatus::Error)
+        ));
+        // OOM kills stay loud — each one carries a fresh exit code payload.
+        assert!(!should_skip_duplicate_publish(
+            "container_oom_killed",
+            SandboxStatus::Initializing,
+            Some(SandboxStatus::Initializing)
         ));
     }
 }
