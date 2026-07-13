@@ -161,6 +161,20 @@ proxy:
     enabled: false
   # -- Traefik entryPoint name for IngressRoutes ("web" when ALB terminates TLS, "websecure" for direct TLS)
   traefikEntryPoint: "websecure"
+  # -- Edge security-response headers applied to every app IngressRoute (main
+  # domain, API + SPA). Adds HSTS at the ingress so the whole origin is covered,
+  # not just static frontend responses. Requires Traefik CRDs (only wired in
+  # when traefikIngressRoute.enabled). Disable if your external LB already
+  # injects these headers to avoid duplicates.
+  securityHeaders:
+    enabled: true
+    # -- Strict-Transport-Security max-age in seconds (0 disables the header).
+    # Only enable once every host on the domain is HTTPS-ready.
+    stsSeconds: 31536000
+    # -- Add includeSubDomains to the HSTS header
+    stsIncludeSubdomains: true
+    # -- Add preload to the HSTS header (only after meeting preload-list rules)
+    stsPreload: false
 
 # Backend service configuration (proxy + workspace orchestration + auth + tasks + agent + all API routes)
 backend:

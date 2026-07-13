@@ -93,7 +93,13 @@ export default defineConfig(({ mode }) => {
 		},
 		build: {
 			outDir: "dist",
-			sourcemap: true,
+			// Do not publish source maps with the production bundle. Public maps
+			// disclose original source structure, identifiers, and internal API
+			// usage (security assessment 2026-07-13). Dev/preview builds still get
+			// inline maps via Vite's defaults; only the deployed `build` output is
+			// stripped. Use "hidden" + an authenticated error-monitoring upload
+			// pipeline if maps are needed for production error triage.
+			sourcemap: mode === "production" ? false : true,
 			rollupOptions: {
 				output: {
 					manualChunks: {

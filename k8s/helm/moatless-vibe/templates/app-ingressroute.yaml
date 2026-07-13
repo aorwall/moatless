@@ -2,6 +2,10 @@
 {{- $host := (index .Values.ingress.hosts 0).host }}
 {{- $fullname := include "moatless-vibe.fullname" . }}
 {{- $entryPoint := .Values.proxy.traefikEntryPoint | default "web" }}
+{{- $securityMw := "" }}
+{{- if .Values.proxy.securityHeaders.enabled }}
+{{- $securityMw = printf "%s-security-headers" $fullname }}
+{{- end }}
 # Auth routes — NO ForwardAuth (these ARE the auth service)
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
@@ -16,6 +20,11 @@ spec:
   routes:
     - match: "Host(`{{ $host }}`) && PathPrefix(`/api/v1/auth`)"
       kind: Rule
+      {{- if $securityMw }}
+      middlewares:
+        - name: {{ $securityMw }}
+          namespace: {{ .Release.Namespace }}
+      {{- end }}
       services:
         - name: {{ $fullname }}-backend
           port: 8080
@@ -34,6 +43,11 @@ spec:
   routes:
     - match: "Host(`{{ $host }}`) && PathPrefix(`/api/sandbox`)"
       kind: Rule
+      {{- if $securityMw }}
+      middlewares:
+        - name: {{ $securityMw }}
+          namespace: {{ .Release.Namespace }}
+      {{- end }}
       services:
         - name: {{ $fullname }}-backend
           port: 8080
@@ -52,6 +66,11 @@ spec:
   routes:
     - match: "Host(`{{ $host }}`) && PathPrefix(`/api/v1/channels/`) && PathRegexp(`/api/v1/channels/[^/]+/(webhook|slash).*`)"
       kind: Rule
+      {{- if $securityMw }}
+      middlewares:
+        - name: {{ $securityMw }}
+          namespace: {{ .Release.Namespace }}
+      {{- end }}
       services:
         - name: {{ $fullname }}-backend
           port: 8080
@@ -70,6 +89,11 @@ spec:
   routes:
     - match: "Host(`{{ $host }}`) && PathPrefix(`/api/v1/adapters/`) && PathRegexp(`/api/v1/adapters/[^/]+/webhook.*`)"
       kind: Rule
+      {{- if $securityMw }}
+      middlewares:
+        - name: {{ $securityMw }}
+          namespace: {{ .Release.Namespace }}
+      {{- end }}
       services:
         - name: {{ $fullname }}-backend
           port: 8080
@@ -88,6 +112,11 @@ spec:
   routes:
     - match: "Host(`{{ $host }}`) && PathPrefix(`/api/v1/events/stream`)"
       kind: Rule
+      {{- if $securityMw }}
+      middlewares:
+        - name: {{ $securityMw }}
+          namespace: {{ .Release.Namespace }}
+      {{- end }}
       services:
         - name: {{ $fullname }}-backend
           port: 8080
@@ -106,6 +135,11 @@ spec:
   routes:
     - match: "Host(`{{ $host }}`) && PathPrefix(`/api`)"
       kind: Rule
+      {{- if $securityMw }}
+      middlewares:
+        - name: {{ $securityMw }}
+          namespace: {{ .Release.Namespace }}
+      {{- end }}
       services:
         - name: {{ $fullname }}-backend
           port: 8080
@@ -125,6 +159,11 @@ spec:
     - match: "Host(`{{ $host }}`)"
       kind: Rule
       priority: 1
+      {{- if $securityMw }}
+      middlewares:
+        - name: {{ $securityMw }}
+          namespace: {{ .Release.Namespace }}
+      {{- end }}
       services:
         - name: {{ $fullname }}
           port: {{ .Values.service.port }}
