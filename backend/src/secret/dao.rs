@@ -32,6 +32,9 @@ pub struct SecretReplace<'a> {
     pub external_ref: Option<&'a str>,
     pub kms_key_id: Option<&'a str>,
     pub encryption_version: i32,
+    /// `None` preserves the current flag; `Some` sets it (re-enable on set,
+    /// toggle on patch).
+    pub enabled: Option<bool>,
     pub actor_id: &'a str,
 }
 
@@ -154,6 +157,7 @@ impl SecretRepository for PgSecretRepository {
                    external_ref = $7,
                    kms_key_id = $8,
                    encryption_version = $9,
+                   enabled = COALESCE($11, enabled),
                    updated_by = $10,
                    updated_at = now(),
                    version = version + 1
@@ -170,6 +174,7 @@ impl SecretRepository for PgSecretRepository {
         .bind(input.kms_key_id)
         .bind(input.encryption_version)
         .bind(input.actor_id)
+        .bind(input.enabled)
         .fetch_one(&self.0)
         .await
     }

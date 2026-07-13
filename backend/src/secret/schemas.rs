@@ -18,6 +18,7 @@ pub struct SecretMetadataResponse {
     pub kind: SecretKind,
     pub provider: Option<String>,
     pub source: SecretSource,
+    pub enabled: bool,
     pub version: i32,
     pub updated_at: String,
     pub last_used_at: Option<String>,
@@ -36,6 +37,7 @@ impl TryFrom<SecretRecord> for SecretMetadataResponse {
             kind: SecretKind::try_from(record.kind.as_str())?,
             provider: record.provider,
             source,
+            enabled: record.enabled,
             version: record.version,
             updated_at: record.updated_at.to_rfc3339(),
             last_used_at: record.last_used_at.map(|dt| dt.to_rfc3339()),
@@ -86,6 +88,8 @@ pub struct PatchSecretRequest {
     pub provider: Option<String>,
     pub value: Option<String>,
     pub external_ref: Option<String>,
+    /// Toggle the secret active/inactive without touching its value.
+    pub enabled: Option<bool>,
 }
 
 impl std::fmt::Debug for PatchSecretRequest {
@@ -95,6 +99,7 @@ impl std::fmt::Debug for PatchSecretRequest {
             .field("provider", &self.provider)
             .field("value", &self.value.as_ref().map(|_| "[REDACTED]"))
             .field("external_ref", &self.external_ref)
+            .field("enabled", &self.enabled)
             .finish()
     }
 }
@@ -164,6 +169,7 @@ mod tests {
             kind: SecretKind::Env,
             provider: None,
             source: SecretSource::InlineEncrypted,
+            enabled: true,
             version: 1,
             updated_at: Utc::now().to_rfc3339(),
             last_used_at: None,

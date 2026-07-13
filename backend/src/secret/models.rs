@@ -117,6 +117,7 @@ pub struct SecretRecord {
     pub updated_at: DateTime<Utc>,
     pub last_used_at: Option<DateTime<Utc>>,
     pub version: i32,
+    pub enabled: bool,
 }
 
 impl SecretRecord {

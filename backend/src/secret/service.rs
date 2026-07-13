@@ -259,6 +259,8 @@ impl SecretService {
                     external_ref: storage.external_ref.as_deref(),
                     kms_key_id: storage.kms_key_id.as_deref(),
                     encryption_version: storage.encryption_version,
+                    // Setting a fresh value re-enables a disabled secret.
+                    enabled: Some(true),
                     actor_id,
                 })
                 .await?
@@ -342,11 +344,17 @@ impl SecretService {
                 external_ref: storage.external_ref.as_deref(),
                 kms_key_id: storage.kms_key_id.as_deref(),
                 encryption_version: storage.encryption_version,
+                enabled: req.enabled,
                 actor_id,
             })
             .await?;
 
-        self.audit(Some(&record.id), actor_id, "update", &record, "success")
+        let action = match req.enabled {
+            Some(true) => "enable",
+            Some(false) => "disable",
+            None => "update",
+        };
+        self.audit(Some(&record.id), actor_id, action, &record, "success")
             .await?;
         SecretMetadataResponse::try_from(record).map_err(SecretError::Internal)
     }
@@ -414,6 +422,10 @@ impl SecretService {
         let mut resolved = Vec::new();
         for record in records {
             if is_reserved_key(&record.key) {
+                continue;
+            }
+            // Disabled secrets are skipped so the next scope down fills the key.
+            if !record.enabled {
                 continue;
             }
             let value = match self.decrypt_record(&record) {
@@ -738,6 +750,7 @@ mod tests {
             updated_at: chrono::Utc::now(),
             last_used_at: None,
             version: 1,
+            enabled: true,
         };
         assert_eq!(cipher.decrypt(&record).unwrap(), "super-secret");
     }
@@ -857,6 +870,7 @@ mod tests {
             updated_at: chrono::Utc::now(),
             last_used_at: None,
             version: 1,
+            enabled: true,
         }
     }
 
@@ -910,5 +924,34 @@ mod tests {
         let keys = svc.resolve_accessible_ssh_keys("u1", None).await.unwrap();
         assert_eq!(keys["DEPLOY_KEY"], "user-key");
         assert!(!keys.contains_key("CLAUDE_CODE_OAUTH_TOKEN"));
+    }
+
+    // --- disable/enable toggle ---
+
+    #[tokio::test]
+    async fn disabled_user_secret_falls_through_to_global() {
+        let mut user = secret("user", Some("u1"), "env", "CLAUDE_CODE_OAUTH_TOKEN", "user-token");
+        user.enabled = false;
+        let global = secret("global", None, "env", "CLAUDE_CODE_OAUTH_TOKEN", "global-token");
+
+        // Disabled user secret is skipped, so global wins.
+        let svc = service_with(vec![user.clone(), global.clone()]);
+        let resolved = svc.resolve_accessible_plaintext("u1", None).await.unwrap();
+        assert_eq!(resolved["CLAUDE_CODE_OAUTH_TOKEN"], "global-token");
+
+        // Re-enabling the user secret restores the user value.
+        user.enabled = true;
+        let svc = service_with(vec![user, global]);
+        let resolved = svc.resolve_accessible_plaintext("u1", None).await.unwrap();
+        assert_eq!(resolved["CLAUDE_CODE_OAUTH_TOKEN"], "user-token");
+    }
+
+    #[tokio::test]
+    async fn disabled_global_only_secret_is_absent() {
+        let mut global = secret("global", None, "env", "GLOBAL_ONLY", "g");
+        global.enabled = false;
+        let svc = service_with(vec![global]);
+        let resolved = svc.resolve_accessible_plaintext("u1", None).await.unwrap();
+        assert!(!resolved.contains_key("GLOBAL_ONLY"));
     }
 }

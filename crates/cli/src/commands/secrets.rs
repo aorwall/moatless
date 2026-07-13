@@ -94,6 +94,42 @@ pub enum SecretAction {
         #[arg(long, short = 't')]
         target: Option<String>,
     },
+
+    /// Disable a secret (skipped during resolution; keeps its value)
+    Disable {
+        /// Secret key to disable
+        key: String,
+
+        /// Secret scope: user, team, or global
+        #[arg(long, short = 's', default_value = "user")]
+        scope: String,
+
+        /// Scope ID (team ID for team scope)
+        #[arg(long)]
+        scope_id: Option<String>,
+
+        /// Target to match (required if multiple secrets share the same key)
+        #[arg(long, short = 't')]
+        target: Option<String>,
+    },
+
+    /// Enable a previously disabled secret
+    Enable {
+        /// Secret key to enable
+        key: String,
+
+        /// Secret scope: user, team, or global
+        #[arg(long, short = 's', default_value = "user")]
+        scope: String,
+
+        /// Scope ID (team ID for team scope)
+        #[arg(long)]
+        scope_id: Option<String>,
+
+        /// Target to match (required if multiple secrets share the same key)
+        #[arg(long, short = 't')]
+        target: Option<String>,
+    },
 }
 
 pub async fn run(client: &MoatClient, action: SecretAction, json: bool) -> Result<(), ClientError> {
@@ -159,6 +195,40 @@ pub async fn run(client: &MoatClient, action: SecretAction, json: bool) -> Resul
             )
             .await
         }
+        SecretAction::Disable {
+            key,
+            scope,
+            scope_id,
+            target,
+        } => {
+            set_enabled(
+                client,
+                &key,
+                &scope,
+                scope_id.as_deref(),
+                target.as_deref(),
+                false,
+                json,
+            )
+            .await
+        }
+        SecretAction::Enable {
+            key,
+            scope,
+            scope_id,
+            target,
+        } => {
+            set_enabled(
+                client,
+                &key,
+                &scope,
+                scope_id.as_deref(),
+                target.as_deref(),
+                true,
+                json,
+            )
+            .await
+        }
     }
 }
 
@@ -187,7 +257,7 @@ async fn list_secrets(
             return Ok(());
         }
 
-        let headers = &["KEY", "TARGET", "KIND", "SOURCE", "UPDATED"];
+        let headers = &["KEY", "TARGET", "KIND", "SOURCE", "STATE", "UPDATED"];
         let rows: Vec<Vec<String>> = secrets
             .iter()
             .map(|s| {
@@ -208,6 +278,10 @@ async fn list_secrets(
                         .and_then(|v| v.as_str())
                         .unwrap_or("-")
                         .to_string(),
+                    match s.get("enabled").and_then(serde_json::Value::as_bool) {
+                        Some(false) => "disabled".to_string(),
+                        _ => "enabled".to_string(),
+                    },
                     format_timestamp(s.get("updatedAt").and_then(|v| v.as_str())),
                 ]
             })
@@ -358,6 +432,56 @@ async fn remove_secret(
     Ok(())
 }
 
+/// Toggle a secret's `enabled` flag via PATCH without touching its value.
+async fn set_enabled(
+    client: &MoatClient,
+    key: &str,
+    scope: &str,
+    scope_id: Option<&str>,
+    target: Option<&str>,
+    enabled: bool,
+    json: bool,
+) -> Result<(), ClientError> {
+    let secrets = find_secrets_by_key(client, key, scope, scope_id, target).await?;
+
+    if secrets.is_empty() {
+        return Err(ClientError::Other(format!("Secret '{key}' not found")));
+    }
+
+    if secrets.len() > 1 && target.is_none() {
+        let targets: Vec<&str> = secrets
+            .iter()
+            .filter_map(|s| s.get("target").and_then(|v| v.as_str()))
+            .collect();
+        return Err(ClientError::Other(format!(
+            "Multiple secrets match key '{key}' with targets: {}. Use --target to specify.",
+            targets.join(", ")
+        )));
+    }
+
+    let secret = &secrets[0];
+    let id = secret
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ClientError::Other("Secret missing id".into()))?;
+
+    let resp = client
+        .raw_patch(
+            &format!("/api/v1/secrets/{id}"),
+            &serde_json::json!({ "enabled": enabled }),
+        )
+        .await?;
+
+    if json {
+        output::print_json_typed(&resp);
+    } else {
+        let state = if enabled { "enabled" } else { "disabled" };
+        println!("Secret {key} {state}");
+    }
+
+    Ok(())
+}
+
 // Helper functions
 
 fn validate_scope(scope: &str) -> Result<(), ClientError> {
@@ -446,6 +570,13 @@ fn print_secret_detail(secret: &serde_json::Value) {
         println!("Provider:   {provider}");
     }
     println!("Source:     {}", get_str("source"));
+    println!(
+        "State:      {}",
+        match secret.get("enabled").and_then(serde_json::Value::as_bool) {
+            Some(false) => "disabled",
+            _ => "enabled",
+        }
+    );
     println!(
         "Version:    {}",
         secret
