@@ -57,6 +57,10 @@ pub enum RepoAction {
         /// emptyDir, no PVC), or "s3" (node-local emptyDir + git-tree sync to S3)
         #[arg(long)]
         storage_mode: Option<String>,
+        /// Size cap for the dind sidecar's /var/lib/docker emptyDir, e.g. "50Gi"
+        /// (only meaningful with --docker-access; exceeding it evicts the pod)
+        #[arg(long)]
+        docker_storage: Option<String>,
         /// Docker image for sandbox (e.g. "myregistry/my-sandbox:latest")
         #[arg(long)]
         docker_image: Option<String>,
@@ -143,6 +147,10 @@ pub enum RepoAction {
         /// emptyDir, no PVC), or "s3" (node-local emptyDir + git-tree sync to S3)
         #[arg(long)]
         storage_mode: Option<String>,
+        /// Size cap for the dind sidecar's /var/lib/docker emptyDir, e.g. "50Gi"
+        /// (only meaningful with --docker-access; exceeding it evicts the pod)
+        #[arg(long)]
+        docker_storage: Option<String>,
         /// Docker image for sandbox (e.g. "myregistry/my-sandbox:latest")
         #[arg(long)]
         docker_image: Option<String>,
@@ -228,6 +236,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             resource_memory_limit,
             storage,
             storage_mode,
+            docker_storage,
             docker_image,
             docker_access,
             plugins,
@@ -253,6 +262,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 resource_memory_limit,
                 storage,
                 storage_mode,
+                docker_storage,
             );
             let servers = match servers_json {
                 Some(ref json_str) => {
@@ -318,6 +328,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             resource_memory_limit,
             storage,
             storage_mode,
+            docker_storage,
             docker_image,
             docker_access,
             setup_commands,
@@ -341,6 +352,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 resource_memory_limit,
                 storage,
                 storage_mode,
+                docker_storage,
             );
             let servers = match servers_json {
                 Some(ref json_str) => {
@@ -479,13 +491,15 @@ fn build_resource_config(
     memory_limit: Option<String>,
     storage: Option<String>,
     storage_mode: Option<String>,
+    docker_storage: Option<String>,
 ) -> Option<ResourceConfig> {
     let has_any = cpu_request.is_some()
         || cpu_limit.is_some()
         || memory_request.is_some()
         || memory_limit.is_some()
         || storage.is_some()
-        || storage_mode.is_some();
+        || storage_mode.is_some()
+        || docker_storage.is_some();
 
     if !has_any {
         return None;
@@ -520,6 +534,7 @@ fn build_resource_config(
         },
         storage,
         storage_mode,
+        docker_storage,
     })
 }
 
@@ -614,6 +629,9 @@ fn format_repo_detail(r: &RepositoryResponse) {
         }
         if let Some(ref mode) = res.storage_mode {
             println!("Storage mode:      {mode}");
+        }
+        if let Some(ref ds) = res.docker_storage {
+            println!("Docker storage:    {ds}");
         }
     }
     if let Some(ref servers) = r.servers {

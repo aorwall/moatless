@@ -156,6 +156,18 @@ pub async fn stop_handler(
     }
 }
 
+/// Run a multi-step lifecycle sequence on a detached task so it completes even
+/// if the HTTP client disconnects. Axum drops the handler future on disconnect;
+/// a mid-flight drop of a scale-to-0 -> wait -> scale-to-1 sequence leaves the
+/// sandbox half-transitioned (e.g. permanently stuck at 0 replicas).
+async fn run_detached<T: Send + 'static>(
+    fut: impl std::future::Future<Output = Result<T, SandboxError>> + Send + 'static,
+) -> Result<T, SandboxError> {
+    tokio::spawn(fut)
+        .await
+        .map_err(|e| SandboxError::Internal(format!("lifecycle task panicked: {e}")))?
+}
+
 /// Restart a sandbox (stop + start).
 #[utoipa::path(
     post,
@@ -174,7 +186,12 @@ pub async fn restart_handler(
     Path(task_id): Path<String>,
 ) -> Result<StatusCode, SandboxError> {
     info!(task_id = %task_id, "POST /restart");
-    match state.provider.restart(&task_id).await {
+    let outcome = {
+        let provider = state.provider.clone();
+        let task_id = task_id.clone();
+        run_detached(async move { provider.restart(&task_id).await }).await
+    };
+    match outcome {
         Ok(()) => {
             info!(task_id = %task_id, "Restart succeeded");
             record_sandbox_started(&state, &task_id).await;
@@ -233,7 +250,12 @@ pub async fn redeploy_handler(
     )
     .await?;
 
-    match state.provider.redeploy(&task_id, &request).await {
+    let outcome = {
+        let provider = state.provider.clone();
+        let task_id = task_id.clone();
+        run_detached(async move { provider.redeploy(&task_id, &request).await }).await
+    };
+    match outcome {
         Ok(response) => {
             info!(task_id = %task_id, "Redeploy succeeded");
             record_sandbox_started(&state, &task_id).await;

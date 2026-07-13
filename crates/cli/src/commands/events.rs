@@ -188,18 +188,57 @@ fn format_events(items: &[serde_json::Value]) {
             let error_str = if is_error { "YES" } else { "-" }.to_string();
             let payload = e.get("payload").map_or_else(
                 || "{}".to_string(),
-                |v| {
-                    let s = serde_json::to_string(v).unwrap_or_default();
-                    if s.len() > 80 {
-                        format!("{}...", &s[..77])
-                    } else {
-                        s
-                    }
-                },
+                |v| truncate_payload(&serde_json::to_string(v).unwrap_or_default()),
             );
             vec![timestamp, event_type, sub_type, error_str, payload]
         })
         .collect();
 
     output::print_table(headers, &rows);
+}
+
+/// Truncate a payload string to ~80 chars for table display, appending `...`.
+///
+/// Truncates on a UTF-8 char boundary — naive byte slicing panics when the cut
+/// index lands inside a multi-byte character (e.g. an em-dash straddling byte 77).
+fn truncate_payload(s: &str) -> String {
+    if s.len() <= 80 {
+        return s.to_string();
+    }
+    let cut = s
+        .char_indices()
+        .take_while(|(i, _)| *i <= 77)
+        .last()
+        .map_or(0, |(i, _)| i);
+    format!("{}...", &s[..cut])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate_payload;
+
+    #[test]
+    fn short_payload_is_unchanged() {
+        let s = r#"{"message":"Starting"}"#;
+        assert_eq!(truncate_payload(s), s);
+    }
+
+    #[test]
+    fn long_ascii_payload_is_truncated_with_ellipsis() {
+        let s = "a".repeat(200);
+        let out = truncate_payload(&s);
+        assert!(out.ends_with("..."));
+        assert!(out.len() <= 81);
+    }
+
+    #[test]
+    fn does_not_panic_on_multibyte_char_at_boundary() {
+        // An em-dash (3 bytes) positioned so the 77-byte cut lands mid-character.
+        // The pre-fix code sliced at byte 77 and panicked here.
+        let s = format!("{}—{}", "x".repeat(75), "y".repeat(50));
+        let out = truncate_payload(&s);
+        assert!(out.ends_with("..."));
+        // Cut must land on a boundary — the em-dash is kept or dropped whole.
+        assert!(out.is_char_boundary(out.len() - 3));
+    }
 }

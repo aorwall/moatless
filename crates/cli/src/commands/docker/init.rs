@@ -171,7 +171,7 @@ fn prompt_claude_token() -> Result<String, ClientError> {
 fn generate_hex_secret() -> String {
     use std::fmt::Write as _;
     let mut bytes = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    rand::rng().fill_bytes(&mut bytes);
     let mut s = String::with_capacity(bytes.len() * 2);
     for b in bytes {
         let _ = write!(&mut s, "{b:02x}");
@@ -182,7 +182,7 @@ fn generate_hex_secret() -> String {
 fn generate_base64_32() -> String {
     use base64::Engine as _;
     let mut bytes = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    rand::rng().fill_bytes(&mut bytes);
     base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 

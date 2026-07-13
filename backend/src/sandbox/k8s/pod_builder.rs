@@ -237,7 +237,7 @@ pub fn build_pod(
         volumes.push(Volume {
             name: "docker-storage".to_string(),
             empty_dir: Some(EmptyDirVolumeSource {
-                size_limit: Some(Quantity(config.sandbox.docker_dind_storage_size.clone())),
+                size_limit: Some(Quantity(resolve_dind_storage_size(config, plan))),
                 ..Default::default()
             }),
             ..Default::default()
@@ -334,6 +334,23 @@ fn resolve_workspace_size(config: &Config, plan: &ProvisionPlan) -> String {
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map_or_else(|| config.sandbox.storage_size.clone(), ToString::to_string)
+}
+
+/// Resolve the `docker-storage` emptyDir cap for the dind sidecar: a per-repo
+/// `resources.dockerStorage` override wins over the global
+/// `K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE`. Exceeding the cap gets the pod
+/// evicted by the kubelet (wiping dind data), so DB-heavy repos need headroom.
+fn resolve_dind_storage_size(config: &Config, plan: &ProvisionPlan) -> String {
+    plan.repo_config
+        .resources
+        .as_ref()
+        .and_then(|r| r.docker_storage.as_deref())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map_or_else(
+            || config.sandbox.docker_dind_storage_size.clone(),
+            ToString::to_string,
+        )
 }
 
 /// Parent directory of the package-cache root (e.g. `/mnt` for `/mnt/cache`).
@@ -1445,6 +1462,7 @@ mod tests {
             limits: Some(HashMap::from([("memory".to_string(), "16Gi".to_string())])),
             storage: None,
             storage_mode: None,
+            docker_storage: None,
         });
 
         let container =
@@ -1528,6 +1546,7 @@ mod tests {
             limits: None,
             storage: Some("7Gi".into()),
             storage_mode: Some("ephemeral".into()),
+            docker_storage: None,
         });
 
         let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
@@ -1823,6 +1842,54 @@ mod tests {
             sandbox.security_context.as_ref().and_then(|s| s.privileged),
             Some(true),
             "sandbox container must not be privileged"
+        );
+    }
+
+    /// `resources.dockerStorage` overrides the global dind storage cap; unset
+    /// (or blank) falls back to `K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE`.
+    #[test]
+    fn docker_storage_override_sizes_dind_empty_dir() {
+        let config = test_config();
+        let mut plan = test_plan();
+        plan.repo_config.docker_access = Some(true);
+        plan.repo_config.resources = Some(crate::repository::models::ResourceConfig {
+            docker_storage: Some("50Gi".into()),
+            ..Default::default()
+        });
+
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        let ds_limit = pod
+            .spec
+            .as_ref()
+            .unwrap()
+            .volumes
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|v| v.name == "docker-storage")
+            .and_then(|v| v.empty_dir.as_ref())
+            .and_then(|e| e.size_limit.as_ref())
+            .map(|q| q.0.as_str().to_string());
+        assert_eq!(ds_limit.as_deref(), Some("50Gi"));
+
+        // Unset override → global default from config.
+        plan.repo_config.resources = None;
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        let ds_limit = pod
+            .spec
+            .as_ref()
+            .unwrap()
+            .volumes
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|v| v.name == "docker-storage")
+            .and_then(|v| v.empty_dir.as_ref())
+            .and_then(|e| e.size_limit.as_ref())
+            .map(|q| q.0.as_str().to_string());
+        assert_eq!(
+            ds_limit.as_deref(),
+            Some(config.sandbox.docker_dind_storage_size.as_str())
         );
     }
 

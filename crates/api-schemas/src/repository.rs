@@ -36,6 +36,14 @@ pub struct ResourceConfig {
     /// Unknown values are ignored (treated as unset).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage_mode: Option<String>,
+    /// Per-repository size cap for the `dind` sidecar's `/var/lib/docker`
+    /// emptyDir (e.g. "50Gi"). Only meaningful for repos with `dockerAccess`.
+    /// Exceeding the cap gets the pod **evicted** by the kubelet, wiping all
+    /// dind container data — size it above the repo's peak Docker usage
+    /// (images + container writable layers + volumes). When unset, the global
+    /// `K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE` default applies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub docker_storage: Option<String>,
 }
 
 /// Accepted values for [`ResourceConfig::storage_mode`]. `"ebs"` is the built-in
@@ -231,6 +239,28 @@ mod tests {
             value.get("storage_mode").is_none(),
             "snake_case key must not be emitted"
         );
+    }
+
+    #[test]
+    fn resource_config_serializes_docker_storage_as_camel_case() {
+        let cfg = ResourceConfig {
+            docker_storage: Some("50Gi".to_string()),
+            ..Default::default()
+        };
+        let value = serde_json::to_value(&cfg).expect("serialize ResourceConfig");
+        assert_eq!(value.get("dockerStorage"), Some(&serde_json::json!("50Gi")));
+        assert!(
+            value.get("docker_storage").is_none(),
+            "snake_case key must not be emitted"
+        );
+    }
+
+    #[test]
+    fn resource_config_deserializes_camel_case_docker_storage() {
+        let cfg: ResourceConfig =
+            serde_json::from_value(serde_json::json!({ "dockerStorage": "50Gi" }))
+                .expect("deserialize ResourceConfig");
+        assert_eq!(cfg.docker_storage.as_deref(), Some("50Gi"));
     }
 
     #[test]

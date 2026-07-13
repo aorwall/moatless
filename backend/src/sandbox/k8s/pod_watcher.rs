@@ -127,6 +127,14 @@ struct PodObservedState {
     /// Why the pod was disrupted, derived from the `DisruptionTarget` pod
     /// condition reason, falling back to `pod.status.reason`.
     disruption_reason: Option<String>,
+    /// Raw pod-level `status.reason`. Kubelet resource evictions (emptyDir
+    /// sizeLimit, node pressure) set exactly `"Evicted"` here — the container
+    /// states never carry it, so this is the only reliable eviction signal.
+    pod_status_reason: Option<String>,
+    /// Pod-level `status.message` — for evictions this holds the actionable
+    /// cause (e.g. `Usage of EmptyDir volume "docker-storage" exceeds the
+    /// limit "10Gi"`).
+    pod_status_message: Option<String>,
     /// Pod `creationTimestamp` as epoch milliseconds, used to derive
     /// `pending_seconds` on the Pending→scheduled edge.
     created_at_ms: Option<i64>,
@@ -1451,6 +1459,8 @@ fn extract_pod_observed_state(pod: &Pod, pod_name: &str, task_id: &str) -> PodOb
         startup_recorded: false,
         node_name,
         disruption_reason,
+        pod_status_reason: status.and_then(|s| s.reason.clone()),
+        pod_status_message: status.and_then(|s| s.message.clone()),
         created_at_ms,
         scheduling_blocked_published: false,
         startup_slow_published: false,
@@ -1458,6 +1468,29 @@ fn extract_pod_observed_state(pod: &Pod, pod_name: &str, task_id: &str) -> PodOb
         gc_requested: false,
         auto_stop_pending: false,
     }
+}
+
+/// Whether an eviction's kubelet `status.message` names a graceful
+/// node-shutdown or drain cause rather than resource pressure.
+///
+/// Resource-pressure evictions (emptyDir sizeLimit exceeded, node disk/memory
+/// pressure) recur until the cause is fixed and wipe ephemeral data, so they
+/// surface as a fatal `pod_evicted` even when the container drained cleanly.
+/// Graceful node-shutdown / drain evictions instead name a shutdown/drain
+/// cause; K8s reschedules them and #268 keeps them silent on clean exit.
+///
+/// An absent message is treated as resource pressure (returns `false`): a bare
+/// pod-level `status.reason == "Evicted"` is only ever set by the kubelet under
+/// resource pressure, so it should be surfaced.
+fn eviction_is_node_lifecycle(message: Option<&str>) -> bool {
+    let Some(msg) = message else {
+        return false;
+    };
+    let m = msg.to_ascii_lowercase();
+    m.contains("node shutdown")
+        || m.contains("shutting down")
+        || m.contains("terminated in response to")
+        || m.contains("drain")
 }
 
 /// Detect lifecycle transitions between previous and current pod state.
@@ -1532,32 +1565,56 @@ fn detect_transitions(
     if current.phase != prev_phase {
         match current.phase.as_str() {
             "Failed" => {
-                // A pod reaches Failed phase two very different ways:
+                // A pod reaches Failed phase three very different ways:
                 //   * Real failure — the container crashed, was OOM-killed, or
                 //     exited non-zero. Worth a fatal error.
-                //   * Graceful node shutdown — the kubelet fails the pod as its
-                //     node is drained/reclaimed, but the sandbox caught SIGTERM,
-                //     drained, and the container exited 0 ("Completed"). This is
-                //     an involuntary eviction K8s will reschedule, NOT a sandbox
-                //     error. The clean stop is already reported via
+                //   * Graceful node shutdown / drain — the kubelet fails the pod
+                //     as its node is drained/reclaimed, but the sandbox caught
+                //     SIGTERM, drained, and the container exited 0 ("Completed").
+                //     This is an involuntary eviction K8s will reschedule, NOT a
+                //     sandbox error. The clean stop is already reported via
                 //     `sandbox_completed`, so raising a fatal error here would be
-                //     a scary false alarm for a routine reschedule.
+                //     a scary false alarm for a routine reschedule (see #268).
+                //   * Kubelet *resource* eviction — the pod exceeded an emptyDir
+                //     sizeLimit (e.g. the dind `docker-storage` cap) or the node
+                //     hit disk/memory pressure. The kubelet sets the pod-level
+                //     `status.reason` to exactly "Evicted" and carries the cause
+                //     in `status.message`. These wipe the pod's ephemeral data
+                //     and recur until the cause is fixed, so they must surface
+                //     even when the sandbox drained cleanly — which previously
+                //     made them silently look like an idle stop.
                 let clean_exit = current.terminated_reason.as_deref() == Some("Completed")
                     && current.exit_code == Some(0);
-                let is_evicted = current
-                    .terminated_reason
-                    .as_deref()
-                    .is_some_and(|r| r.contains("Evict"));
+                let is_evicted = current.pod_status_reason.as_deref() == Some("Evicted")
+                    || current
+                        .terminated_reason
+                        .as_deref()
+                        .is_some_and(|r| r.contains("Evict"));
+                // A resource-pressure eviction outranks the clean-exit branch; a
+                // node-lifecycle (shutdown/drain) eviction keeps #268's silence
+                // on clean exit. Distinguish by the kubelet cause in
+                // `status.message`.
+                let resource_pressure_eviction = is_evicted
+                    && !eviction_is_node_lifecycle(current.pod_status_message.as_deref());
 
-                if clean_exit {
-                    // Graceful node-shutdown eviction — emit nothing. The
-                    // `sandbox_completed` transition covers the stop and the
-                    // Deployment reschedules the pod; no fatal event.
+                let evicted_message = || {
+                    current.pod_status_message.as_deref().map_or_else(
+                        || "Pod was evicted".to_string(),
+                        |m| format!("Pod evicted: {}", m.trim()),
+                    )
+                };
+
+                if resource_pressure_eviction {
+                    // Surface even on clean exit — the cause recurs until fixed.
+                    events.push(("pod_evicted".to_string(), Some(evicted_message())));
+                } else if clean_exit {
+                    // Graceful node-shutdown/drain eviction, or a clean idle
+                    // stop — emit nothing. `sandbox_completed` covers the stop
+                    // and the Deployment reschedules the pod; no fatal event.
                 } else if is_evicted {
-                    events.push((
-                        "pod_evicted".to_string(),
-                        Some("Pod was evicted".to_string()),
-                    ));
+                    // A node-lifecycle eviction that did NOT drain cleanly —
+                    // still surface it so the user sees the pod went away.
+                    events.push(("pod_evicted".to_string(), Some(evicted_message())));
                 } else {
                     events.push((
                         "pod_failed".to_string(),
@@ -2091,6 +2148,64 @@ mod tests {
         assert!(
             subs.contains(&"pod_failed"),
             "a real crash must raise pod_failed: {subs:?}"
+        );
+    }
+
+    /// A kubelet *resource* eviction (pod `status.reason == "Evicted"`, e.g.
+    /// emptyDir sizeLimit exceeded) must surface `pod_evicted` with the
+    /// actionable `status.message` — even when the sandbox drained cleanly
+    /// (exit 0), which previously (pre-#269) made the eviction silently look
+    /// like a stop under #268's clean-exit-wins ordering.
+    #[test]
+    fn kubelet_eviction_surfaces_even_on_clean_exit() {
+        let mut pod = pod_with_phase_and_containers(
+            "Failed",
+            vec![terminated_container("sandbox", "Completed", 0)],
+        );
+        let status = pod.status.as_mut().expect("test pod has status");
+        status.reason = Some("Evicted".to_string());
+        status.message =
+            Some("Usage of EmptyDir volume \"docker-storage\" exceeds the limit \"10Gi\". ".into());
+
+        let state = extract_pod_observed_state(&pod, "pod-1", "task-1");
+        let transitions = detect_transitions(None, &state);
+
+        let evicted = transitions
+            .iter()
+            .find(|(s, _)| s == "pod_evicted")
+            .expect("eviction must raise pod_evicted");
+        let message = evicted.1.as_deref().unwrap_or_default();
+        assert!(
+            message.contains("docker-storage") && message.contains("10Gi"),
+            "pod_evicted must carry the kubelet's eviction cause, got: {message}"
+        );
+    }
+
+    /// A graceful node-shutdown / drain eviction (pod `status.reason ==
+    /// "Evicted"` but a node-lifecycle `status.message`) that drained cleanly
+    /// stays SILENT — #268's intent, preserved by classifying the cause. K8s
+    /// reschedules it and `sandbox_completed` already reports the clean stop.
+    #[test]
+    fn node_shutdown_eviction_on_clean_exit_stays_silent() {
+        let mut pod = pod_with_phase_and_containers(
+            "Failed",
+            vec![terminated_container("sandbox", "Completed", 0)],
+        );
+        let status = pod.status.as_mut().expect("test pod has status");
+        status.reason = Some("Evicted".to_string());
+        status.message = Some("The node was low on resource: node is shutting down.".into());
+
+        let state = extract_pod_observed_state(&pod, "pod-1", "task-1");
+        let transitions = detect_transitions(None, &state);
+        let subs: Vec<&str> = transitions.iter().map(|(s, _)| s.as_str()).collect::<Vec<_>>();
+
+        assert!(
+            !subs.contains(&"pod_evicted") && !subs.contains(&"pod_failed"),
+            "a clean-exit node-shutdown eviction must stay silent: {subs:?}"
+        );
+        assert!(
+            subs.contains(&"sandbox_completed"),
+            "the clean stop is still reported via sandbox_completed: {subs:?}"
         );
     }
 
