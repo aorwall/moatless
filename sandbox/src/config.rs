@@ -113,8 +113,9 @@ pub struct Config {
     pub task_id: String,
     /// Workspace directory — the persisted *container* dir (e.g.
     /// `/opt/moatless/workspace`). This is the agent's cwd and the root of the
-    /// S3 workspace snapshot; the primary repo lives in [`Self::repo_dir`], a
-    /// subdirectory of this.
+    /// S3 workspace snapshot: **every git repo under this dir** is snapshotted
+    /// (the primary repo in [`Self::repo_dir`] *and* any sibling repos the agent
+    /// cloned alongside it), keyed by workspace-relative path.
     pub workspace_dir: String,
     /// Repository directory — where the primary repo is cloned, a subdirectory
     /// of [`Self::workspace_dir`] named after the repo (e.g.
