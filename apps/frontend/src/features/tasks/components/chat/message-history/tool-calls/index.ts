@@ -1,3 +1,6 @@
 export { CodexToolCall } from './codex-tool-call.tsx'
 export { SubagentToolCall } from './subagent-tool-call.tsx'
 export { type Todo, TodoList } from './todo-list.tsx'
+export { ToolCallComponent } from './tool-call.tsx'
+export { renderToolCalls } from './tool-call-list.tsx'
+export type { ToolCallProps } from './tool-call-props.ts'

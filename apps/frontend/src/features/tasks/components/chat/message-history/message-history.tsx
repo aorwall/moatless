@@ -18,19 +18,16 @@ import { Button } from '@/lib/components/ui/button.tsx'
 import { cn } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/utils/error.ts'
 import { LastAssistantActions } from '../message-actions/last-assistant-actions.tsx'
-import {
-  AssistantMessageComponent,
-  buildToolResultMap,
-  parseMessageContent,
-  renderToolCalls,
-} from './assistant-message.tsx'
+import { AssistantMessageComponent } from './assistant-message.tsx'
 import { EnvironmentIndicator } from './environment-indicator.tsx'
 import { ErrorMessageComponent } from './error-message.tsx'
 import { ExternalSourceMessageComponent } from './external-source-message.tsx'
+import { buildToolResultMap, parseMessageContent } from './message-content.ts'
 import { MessageHistorySkeleton } from './message-history-skeleton.tsx'
 import { SystemMessageComponent } from './system-message.tsx'
 import { ThinkingIndicator } from './thinking-indicator.tsx'
 import { ToolCallGroup } from './tool-call-group.tsx'
+import { renderToolCalls } from './tool-calls/tool-call-list.tsx'
 import { UserMessageComponent } from './user-message.tsx'
 
 type RenderItem =

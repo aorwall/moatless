@@ -1,5 +1,5 @@
 import type { UiMessage } from '@moatless/api-client'
-import { parseMessageContent } from '../message-history/assistant-message'
+import { parseMessageContent } from '../message-history/message-content.ts'
 import { useCopyAction } from './actions/copy-action'
 import { useFeedbackAction } from './actions/feedback-action'
 import { MessageActionBar } from './message-action-bar'
