@@ -38,21 +38,22 @@ function handleAuthError(error: Error) {
 }
 
 /**
- * Mark the backend unreachable when a request fails with a 503 / network
- * error, surfacing the root-level `ServerDownGate`. A successful request
- * clears the flag (see the `QueryCache` `onSuccess` below).
+ * True only for the auth-session probe (`GET /api/v1/auth/me`, tagged via
+ * `meta: { serverHealthProbe: true }`). That single request is the source of
+ * truth for backend reachability — a 503/network failure from any other
+ * endpoint (e.g. a sandbox files/tree fetch) must fail only its own part of
+ * the UI, not surface the full-page `ServerDownGate`.
  */
-function handleServerStatusError(error: Error) {
-  if (isServerUnavailable(error)) {
-    serverStatusStore.setUnavailable(true)
-  }
+function isServerHealthProbe(query: { meta?: Record<string, unknown> | undefined }): boolean {
+  return query.meta?.['serverHealthProbe'] === true
 }
 
 /**
  * Retry only transient server-side failures (500/502/504), at most twice.
  * 4xx responses are non-retriable client errors, and 503/network failures
- * are owned by the `ServerDownGate` flow via `serverStatusStore` — retrying
- * those would only delay the "server unavailable" screen.
+ * are treated as "server unavailable" — retrying those would only delay the
+ * error surfacing (the auth probe drives the `ServerDownGate`; other queries
+ * surface their own local error UI).
  */
 function retryTransientErrors(failureCount: number, error: Error): boolean {
   if (failureCount >= 2 || isServerUnavailable(error)) {
@@ -64,32 +65,36 @@ function retryTransientErrors(failureCount: number, error: Error): boolean {
 
 export const queryClient = new QueryClient({
   queryCache: new QueryCache({
-    onError: (error) => {
+    onError: (error, query) => {
       handleAuthError(error)
-      handleServerStatusError(error)
+      // Only the auth-session probe flips the global "server unavailable"
+      // screen. A 503 from any other endpoint fails just its own part of the
+      // UI (that query's own error state), not the whole app.
+      if (isServerHealthProbe(query) && isServerUnavailable(error)) {
+        serverStatusStore.setUnavailable(true)
+      }
     },
-    onSuccess: () => {
-      // Any successful request means the server is reachable again.
-      serverStatusStore.setUnavailable(false)
+    onSuccess: (_data, query) => {
+      // A successful probe means the server is reachable again. Scoped to the
+      // probe so the flag's lifecycle stays owned by a single request.
+      if (isServerHealthProbe(query)) {
+        serverStatusStore.setUnavailable(false)
+      }
     },
   }),
   // The MutationCache callbacks run for EVERY mutation, unlike
   // `defaultOptions.mutations.onError` which is replaced when a caller
-  // passes its own `onError` — so auth/availability handling lives here.
+  // passes its own `onError` — so auth handling lives here.
   mutationCache: new MutationCache({
     onError: (error, _variables, _context, mutation) => {
       handleAuthError(error)
-      handleServerStatusError(error)
       // Fallback toast for fire-and-forget mutations that surface no error UX
-      // of their own. 401 and 503/network already have dedicated handling
-      // (login redirect / ServerDownGate), so skip those.
+      // of their own. 401 already has dedicated handling (login redirect), so
+      // skip it; a 503 here fails just this mutation, so let it toast.
       const status = (error as { status?: unknown }).status
-      if (!mutation.options.onError && status !== 401 && !isServerUnavailable(error)) {
+      if (!mutation.options.onError && status !== 401) {
         toast.error(getErrorMessage(error))
       }
-    },
-    onSuccess: () => {
-      serverStatusStore.setUnavailable(false)
     },
   }),
   defaultOptions: {

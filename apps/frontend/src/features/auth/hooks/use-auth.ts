@@ -19,6 +19,11 @@ export function authSessionQueryOptions() {
     queryFn: () => unwrapResponse<SessionResponse>(meHandler()),
     retry: false,
     staleTime: 5 * 60 * 1000,
+    // This session probe (`GET /api/v1/auth/me`) is the single source of truth
+    // for backend reachability: only a 503/network failure here flips the
+    // global `ServerDownGate`. A 503 from any other endpoint fails only its own
+    // part of the UI. See `query-client.ts` `QueryCache` callbacks.
+    meta: { serverHealthProbe: true },
   })
 }
 

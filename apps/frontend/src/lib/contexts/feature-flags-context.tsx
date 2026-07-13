@@ -9,7 +9,6 @@ import {
   useState,
 } from 'react'
 import { apiClient } from '@/lib/api/client'
-import { isServerUnavailable, serverStatusStore } from '@/lib/api/server-status'
 import type { FeatureFlagKey } from '@/lib/types/feature-flags'
 
 interface SlackConfig {
@@ -42,13 +41,11 @@ export function FeatureFlagsProvider({ children }: FeatureFlagsProviderProps) {
       try {
         const response = await apiClient.get<FeatureFlagsResponse>('/api/v1/feature-flags')
         setFlags(response)
-      } catch (err) {
-        // This bootstrap call bypasses TanStack Query, so flag the global
-        // server-status store directly when the backend is unreachable.
-        if (isServerUnavailable(err)) {
-          serverStatusStore.setUnavailable(true)
-        }
-        // Set default flags object on error so the app continues to work
+      } catch {
+        // Feature flags are non-critical: on any failure (including a 503 while
+        // the backend restarts) fall back to safe defaults so the app keeps
+        // working. Only the auth-session probe drives the full-page
+        // `ServerDownGate`, so this must NOT flag the global server status.
         setFlags({
           netlify_publish: false,
           figma_clipboard_paste: false,
