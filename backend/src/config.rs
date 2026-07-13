@@ -272,6 +272,21 @@ pub struct SandboxConfig {
     /// grow unbounded and evict the node. Env `K8S_SANDBOX_SHARED_DATA_SIZE`
     /// (default `2Gi`).
     pub shared_data_size: String,
+    /// Size limit for the `build-cache` emptyDir shared by the sandbox and
+    /// server containers. Env `K8S_SANDBOX_BUILD_CACHE_SIZE` (default `1536Mi`).
+    pub build_cache_size: String,
+    /// Persist cargo's downloaded state (registry + git caches) across pod
+    /// replacement by mounting `workspace-data` subPaths at
+    /// `/opt/cargo/registry` and `/opt/cargo/git`. Costs PVC space — bump the
+    /// repo's storage size when enabling (a warm registry is multiple Gi).
+    /// Env `K8S_SANDBOX_PERSIST_TOOLCHAIN` (default `false`).
+    pub persist_toolchain: bool,
+    /// Point `CARGO_TARGET_DIR` at the `build-cache` volume so incremental
+    /// compiles survive container restarts (not pod replacement). Only enable
+    /// together with a `build_cache_size` sized for the repo's target dir —
+    /// overflowing the emptyDir limit evicts the pod. Env
+    /// `K8S_SANDBOX_CARGO_TARGET_ON_BUILD_CACHE` (default `false`).
+    pub cargo_target_on_build_cache: bool,
     /// Whether PVC storage is enabled for sandbox pods
     pub storage_enabled: bool,
     /// PVC storage size (e.g., "3Gi")
@@ -896,6 +911,12 @@ impl Config {
                 sandbox_resources_memory_limit: env_str("K8S_RESOURCE_LIMIT_MEMORY", "8Gi"),
                 run_as_non_root: env_bool("K8S_SANDBOX_RUN_AS_NON_ROOT", false),
                 shared_data_size: env_str("K8S_SANDBOX_SHARED_DATA_SIZE", "2Gi"),
+                build_cache_size: env_str("K8S_SANDBOX_BUILD_CACHE_SIZE", "1536Mi"),
+                persist_toolchain: env_bool("K8S_SANDBOX_PERSIST_TOOLCHAIN", false),
+                cargo_target_on_build_cache: env_bool(
+                    "K8S_SANDBOX_CARGO_TARGET_ON_BUILD_CACHE",
+                    false,
+                ),
                 storage_enabled: env_bool("K8S_SANDBOX_STORAGE_ENABLED", true),
                 storage_size: env_str("K8S_SANDBOX_STORAGE_SIZE", "3Gi"),
                 storage_class: env_opt("K8S_SANDBOX_STORAGE_CLASS"),
@@ -1328,6 +1349,9 @@ mod tests {
                 sandbox_resources_memory_limit: "8Gi".into(),
                 run_as_non_root: false,
                 shared_data_size: "2Gi".into(),
+                build_cache_size: "1536Mi".into(),
+                persist_toolchain: false,
+                cargo_target_on_build_cache: false,
                 storage_enabled: false,
                 storage_size: "1Gi".into(),
                 storage_class: None,

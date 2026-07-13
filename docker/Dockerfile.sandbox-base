@@ -121,10 +121,17 @@ RUN mkdir -p /home/$USERNAME/.cache \
 # inside the sandbox. RUSTUP_HOME/CARGO_HOME live under /opt and are owned by the
 # moatless user so `cargo build`/`cargo install` can write the registry cache and
 # any downloaded toolchains at runtime.
+#
+# RUST_VERSION must stay in lockstep with the workspace pin in
+# rust-toolchain.toml — the `toolchain-drift` CI job fails when they diverge.
+# An unpinned (or drifted) default toolchain forces rustup to download the
+# pinned one at runtime on every fresh pod, which is exactly the multi-hundred-
+# MB install the baked toolchain exists to avoid.
+ARG RUST_VERSION=1.94.0
 ENV RUSTUP_HOME="/opt/rust"
 ENV CARGO_HOME="/opt/cargo"
 ENV PATH="/opt/cargo/bin:$PATH"
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path \
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain "${RUST_VERSION}" \
     && chown -R $USERNAME:$USERNAME /opt/rust /opt/cargo \
     && echo 'export RUSTUP_HOME="/opt/rust"' >> /etc/profile \
     && echo 'export CARGO_HOME="/opt/cargo"' >> /etc/profile \

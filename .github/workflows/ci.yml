@@ -72,6 +72,31 @@ jobs:
             helm:
               - 'k8s/helm/**'
 
+  # ── Sandbox toolchain drift ──
+  # The sandbox base image bakes a Rust toolchain so agents don't download one
+  # at runtime. That only works while the baked version matches the workspace
+  # pin — fail fast when rust-toolchain.toml and Dockerfile.sandbox-base
+  # diverge. Cheap (no checkout beyond the two files), runs on every PR/push
+  # regardless of change filters so drift is caught wherever it's introduced.
+  toolchain-drift:
+    name: Sandbox toolchain drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Compare rust-toolchain.toml with Dockerfile.sandbox-base
+        run: |
+          PINNED=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)
+          BAKED=$(sed -n 's/^ARG RUST_VERSION=\(.*\)$/\1/p' docker/Dockerfile.sandbox-base)
+          echo "rust-toolchain.toml pins ${PINNED:-<missing>}, Dockerfile.sandbox-base bakes ${BAKED:-<missing>}"
+          if [ -z "$PINNED" ] || [ -z "$BAKED" ]; then
+            echo "::error::Could not extract Rust versions — expected 'channel = \"X.Y.Z\"' in rust-toolchain.toml and 'ARG RUST_VERSION=X.Y.Z' in docker/Dockerfile.sandbox-base"
+            exit 1
+          fi
+          if [ "$PINNED" != "$BAKED" ]; then
+            echo "::error::Sandbox base image bakes Rust ${BAKED} but the workspace pins ${PINNED}. Update ARG RUST_VERSION in docker/Dockerfile.sandbox-base (and rebuild sandbox-base) so agents don't re-download the toolchain at runtime."
+            exit 1
+          fi
+
   # ── Rust lint + tests ──
   # The build jobs (here and in cd-ecr.yml) only compile — this is the one
   # place PRs get `cargo clippy -D warnings` and `cargo test`, the same checks

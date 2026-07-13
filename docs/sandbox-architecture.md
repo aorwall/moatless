@@ -733,6 +733,30 @@ Extends base with:
 | Playwright | Latest | Browser automation |
 | Chromium | Shared | At `/opt/playwright-browsers` |
 
+### Rust Toolchain
+
+The base image (`Dockerfile.sandbox-base`) bakes a full Rust toolchain
+(rustup, cargo, clippy, rustfmt) at `RUSTUP_HOME=/opt/rust` /
+`CARGO_HOME=/opt/cargo` so agents never download a toolchain at runtime.
+
+- The baked version (`ARG RUST_VERSION` in `Dockerfile.sandbox-base`) must
+  match the workspace pin in `rust-toolchain.toml`; the `toolchain-drift`
+  job in `ci.yml` fails on divergence. When bumping the workspace toolchain,
+  bump the Dockerfile arg in the same PR (the base image rebuilds on
+  Dockerfile changes).
+- `K8S_SANDBOX_PERSIST_TOOLCHAIN=true` (default off) additionally persists
+  cargo's registry and git caches across pod replacement via `workspace-data`
+  subPath mounts at `/opt/cargo/registry` and `/opt/cargo/git`. Only these
+  cache dirs ride the volume — mounting over all of `/opt/cargo` or
+  `/opt/rust` would shadow the baked toolchain (K8s subPath mounts don't seed
+  from image content). Budget PVC space when enabling: a warm registry is
+  multiple Gi on top of the default 3Gi workspace.
+- `K8S_SANDBOX_CARGO_TARGET_ON_BUILD_CACHE=true` (default off) sets
+  `CARGO_TARGET_DIR=/opt/moatless/build-cache/target` so incremental compiles
+  survive container restarts. Raise `K8S_SANDBOX_BUILD_CACHE_SIZE` (default
+  `1536Mi`) to fit the repo's target dir first — overflowing the emptyDir
+  limit evicts the pod.
+
 ### User
 
 Runs as non-root user `moatless` (UID 1000) with home at `/home/moatless`.

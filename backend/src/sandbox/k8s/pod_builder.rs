@@ -129,7 +129,7 @@ pub fn build_pod(
         Volume {
             name: "build-cache".to_string(),
             empty_dir: Some(EmptyDirVolumeSource {
-                size_limit: Some(Quantity("1536Mi".to_string())),
+                size_limit: Some(Quantity(config.sandbox.build_cache_size.clone())),
                 ..Default::default()
             }),
             ..Default::default()
@@ -626,6 +626,17 @@ fn build_sandbox_container(
         }
     }
 
+    // Incremental Rust compiles survive container restarts when the target
+    // dir rides the `build-cache` emptyDir (opt-in — the volume's size limit
+    // must be raised to fit the repo's target dir first, or the pod gets
+    // evicted for exceeding it).
+    if config.sandbox.cargo_target_on_build_cache {
+        env.push(env_var(
+            "CARGO_TARGET_DIR",
+            "/opt/moatless/build-cache/target",
+        ));
+    }
+
     // Package-manager cache env — point each tool at its mounted cache dir
     // (e.g. MAVEN_OPTS=-Dmaven.repo.local=/maven-cache, BUN_INSTALL_CACHE_DIR).
     for cache in &config.sandbox.cache_volumes {
@@ -713,6 +724,28 @@ fn build_sandbox_container(
             ..Default::default()
         },
     ];
+
+    // Persist cargo's downloaded state across pod replacement (opt-in via
+    // `K8S_SANDBOX_PERSIST_TOOLCHAIN`). Only the registry and git caches ride
+    // the workspace volume: mounting an empty subPath over all of `/opt/cargo`
+    // (or `/opt/rust`) would shadow the toolchain baked into the image — K8s
+    // subPath mounts don't seed from image content — whereas cargo repopulates
+    // an empty registry/git cache transparently. On the ephemeral tier the
+    // subPaths land in the emptyDir and die with the pod (harmless no-op).
+    if config.sandbox.persist_toolchain {
+        volume_mounts.push(VolumeMount {
+            name: "workspace-data".to_string(),
+            mount_path: "/opt/cargo/registry".to_string(),
+            sub_path: Some("cargo-registry".to_string()),
+            ..Default::default()
+        });
+        volume_mounts.push(VolumeMount {
+            name: "workspace-data".to_string(),
+            mount_path: "/opt/cargo/git".to_string(),
+            sub_path: Some("cargo-git".to_string()),
+            ..Default::default()
+        });
+    }
 
     // Package-manager cache mounts — each entry is a subPath (`<name>`) on the
     // single shared `pkg-cache` hostPath volume, surfaced at its `mount_path`.
@@ -1180,6 +1213,9 @@ mod tests {
                 sandbox_resources_memory_limit: "8Gi".into(),
                 run_as_non_root: false,
                 shared_data_size: "2Gi".into(),
+                build_cache_size: "1536Mi".into(),
+                persist_toolchain: false,
+                cargo_target_on_build_cache: false,
                 storage_enabled: false,
                 storage_size: "1Gi".into(),
                 storage_class: None,
@@ -2228,5 +2264,97 @@ mod tests {
             && r.contains_key("memory")));
         assert!(resources.limits.as_ref().is_some_and(|l| l.contains_key("cpu")
             && l.contains_key("memory")));
+    }
+
+    /// The toolchain-persistence and cargo-target flags are off by default —
+    /// no cargo subPath mounts, no CARGO_TARGET_DIR — and the build-cache
+    /// emptyDir is sized from config.
+    #[test]
+    fn toolchain_persistence_flags_default_off() {
+        let config = test_config();
+        let plan = test_plan();
+
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        let volumes = pod.spec.as_ref().unwrap().volumes.as_ref().unwrap();
+        let build_cache = volumes
+            .iter()
+            .find(|v| v.name == "build-cache")
+            .expect("build-cache volume present");
+        assert_eq!(
+            build_cache
+                .empty_dir
+                .as_ref()
+                .and_then(|e| e.size_limit.as_ref())
+                .map(|q| q.0.as_str()),
+            Some("1536Mi")
+        );
+
+        let container = build_sandbox_container(&config, "task-1", &plan, None).unwrap();
+        let mounts = container.volume_mounts.as_ref().unwrap();
+        assert!(
+            !mounts.iter().any(|m| m.mount_path.starts_with("/opt/cargo")),
+            "no cargo mounts without the persist flag"
+        );
+        let env = container.env.as_ref().unwrap();
+        assert!(
+            !env.iter().any(|e| e.name == "CARGO_TARGET_DIR"),
+            "no CARGO_TARGET_DIR without the build-cache flag"
+        );
+    }
+
+    /// With the flags on: cargo registry/git ride `workspace-data` subPaths
+    /// (never all of /opt/cargo — that would shadow the baked toolchain),
+    /// CARGO_TARGET_DIR points at build-cache, and the build-cache size limit
+    /// follows config.
+    #[test]
+    fn toolchain_persistence_flags_enabled() {
+        let mut config = test_config();
+        config.sandbox.persist_toolchain = true;
+        config.sandbox.cargo_target_on_build_cache = true;
+        config.sandbox.build_cache_size = "12Gi".into();
+        let plan = test_plan();
+
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        let volumes = pod.spec.as_ref().unwrap().volumes.as_ref().unwrap();
+        let build_cache = volumes
+            .iter()
+            .find(|v| v.name == "build-cache")
+            .expect("build-cache volume present");
+        assert_eq!(
+            build_cache
+                .empty_dir
+                .as_ref()
+                .and_then(|e| e.size_limit.as_ref())
+                .map(|q| q.0.as_str()),
+            Some("12Gi")
+        );
+
+        let container = build_sandbox_container(&config, "task-1", &plan, None).unwrap();
+        let mounts = container.volume_mounts.as_ref().unwrap();
+        for (mount_path, sub_path) in [
+            ("/opt/cargo/registry", "cargo-registry"),
+            ("/opt/cargo/git", "cargo-git"),
+        ] {
+            let m = mounts
+                .iter()
+                .find(|m| m.mount_path == mount_path)
+                .unwrap_or_else(|| panic!("{mount_path} mount present"));
+            assert_eq!(m.name, "workspace-data");
+            assert_eq!(m.sub_path.as_deref(), Some(sub_path));
+        }
+        assert!(
+            !mounts.iter().any(|m| m.mount_path == "/opt/cargo"),
+            "must never shadow the baked toolchain at /opt/cargo"
+        );
+
+        let env = container.env.as_ref().unwrap();
+        let target = env
+            .iter()
+            .find(|e| e.name == "CARGO_TARGET_DIR")
+            .expect("CARGO_TARGET_DIR set");
+        assert_eq!(
+            target.value.as_deref(),
+            Some("/opt/moatless/build-cache/target")
+        );
     }
 }
