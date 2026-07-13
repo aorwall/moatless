@@ -67,7 +67,16 @@ impl SandboxProvider for K8sSandboxProvider {
         let plan = &request.plan;
 
         // 1. Check for existing pod — never destroy, only reuse, wait, or rebuild on tag change
-        match self.check_existing_pod(task_id).await {
+        let existing = self.check_existing_pod(task_id).await;
+        if !matches!(existing, ExistingPodResult::NotFound) {
+            // A live Deployment can have lost its Service/IngressRoutes: they
+            // are owner-referenced to the Deployment, and the old redeploy path
+            // deleted + recreated it, cascading their deletion without ever
+            // recreating them. Without the Service the backend can't reach the
+            // sandbox over gRPC, so heal before taking any fast path.
+            self.heal_network_resources(task_id, plan).await;
+        }
+        match existing {
             ExistingPodResult::Ready => {
                 info!(task_id = %task_id, "Reusing existing healthy pod");
                 return Ok(ProvisionResponse {
@@ -537,6 +546,62 @@ impl K8sSandboxProvider {
                 }
             }
         }
+    }
+
+    /// Recreate the sandbox Service (and IngressRoutes) if they went missing
+    /// while the Deployment lives on — e.g. cascade-deleted through their
+    /// Deployment `ownerReference` by the old delete+recreate redeploy path.
+    /// Best-effort: failures are logged, not returned, so provisioning still
+    /// proceeds (the notify path surfaces unreachability on its own).
+    async fn heal_network_resources(&self, task_id: &str, plan: &ProvisionPlan) {
+        match service::sandbox_service_exists(&self.k8s, task_id).await {
+            Ok(true) => return,
+            Ok(false) => {}
+            Err(e) => {
+                warn!(task_id = %task_id, error = %e, "Failed to check sandbox Service, skipping network heal");
+                return;
+            }
+        }
+        warn!(task_id = %task_id, "Sandbox Service missing for existing Deployment, recreating");
+
+        let server_ports: BTreeMap<String, u16> =
+            pod_builder::build_servers_map(plan).into_iter().collect();
+        let owner = match deployment::find_deployment(&self.k8s, task_id).await {
+            Ok(Some(dep)) => dep
+                .metadata
+                .name
+                .zip(dep.metadata.uid)
+                .map(|(name, uid)| owner_ref::deployment_owner_reference(&name, &uid)),
+            _ => None,
+        };
+
+        if let Err(e) = service::create_sandbox_service(
+            &self.k8s,
+            task_id,
+            &server_ports,
+            self.config.sandbox.grpc_port,
+            owner.as_ref(),
+        )
+        .await
+        {
+            warn!(task_id = %task_id, error = %e, "Failed to recreate sandbox Service");
+            return;
+        }
+
+        if self.config.proxy.domain.is_some() {
+            if let Err(e) = ingress::create_task_ingress_routes(
+                &self.k8s,
+                task_id,
+                &server_ports,
+                &self.config,
+                owner.as_ref(),
+            )
+            .await
+            {
+                warn!(task_id = %task_id, error = %e, "Failed to recreate IngressRoutes");
+            }
+        }
+        info!(task_id = %task_id, "Recreated missing sandbox Service");
     }
 
     /// Publish an "initializing" event (fire-and-forget).

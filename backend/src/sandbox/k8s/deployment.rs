@@ -28,18 +28,15 @@ pub struct DeploymentHandle {
     pub uid: Option<String>,
 }
 
-/// Create a Deployment wrapping the given Pod spec.
+/// Build the Deployment object wrapping the given Pod spec.
 ///
 /// Extracts the pod's `.spec` and wraps it as the Deployment's pod template.
 /// Labels are preserved so the Service selector (`moatless.io/task-id`) still matches.
-/// Returns the deployment name + UID on success.
-pub async fn create_sandbox_deployment(
-    k8s: &K8sClient,
+fn build_deployment_object(
+    namespace: &str,
     task_id: &str,
     pod: Pod,
-) -> Result<DeploymentHandle, SandboxError> {
-    let deployments: Api<Deployment> = Api::namespaced(k8s.client.clone(), k8s.namespace());
-
+) -> Result<Deployment, SandboxError> {
     let deployment_name = generate_deployment_name(task_id);
     let pod_labels = pod.metadata.labels.clone().unwrap_or_default();
     let pod_annotations = pod.metadata.annotations.clone().unwrap_or_default();
@@ -84,7 +81,7 @@ pub async fn create_sandbox_deployment(
         "kind": "Deployment",
         "metadata": {
             "name": deployment_name,
-            "namespace": k8s.namespace(),
+            "namespace": namespace,
             "labels": labels,
         },
         "spec": {
@@ -115,6 +112,22 @@ pub async fn create_sandbox_deployment(
         }
     }))
     .map_err(|e| SandboxError::PodBuildError(e.to_string()))?;
+
+    Ok(deployment)
+}
+
+/// Create a Deployment wrapping the given Pod spec.
+///
+/// Returns the deployment name + UID on success. An already-existing
+/// Deployment (409) is reused.
+pub async fn create_sandbox_deployment(
+    k8s: &K8sClient,
+    task_id: &str,
+    pod: Pod,
+) -> Result<DeploymentHandle, SandboxError> {
+    let deployments: Api<Deployment> = Api::namespaced(k8s.client.clone(), k8s.namespace());
+    let deployment_name = generate_deployment_name(task_id);
+    let deployment = build_deployment_object(k8s.namespace(), task_id, pod)?;
 
     let uid = match deployments
         .create(&PostParams::default(), &deployment)
@@ -218,9 +231,17 @@ pub async fn restart_deployment(k8s: &K8sClient, task_id: &str) -> Result<(), Sa
 /// Rebuild a task's Deployment from a (possibly filtered) provision request.
 ///
 /// Unlike [`restart_deployment`] (which restarts the *same* Deployment/spec by
-/// scaling it 0 -> 1), this deletes the Deployment and recreates it from a
-/// freshly built pod spec. That is what makes a removed server container
-/// actually disappear from the running pod.
+/// scaling it 0 -> 1), this replaces the Deployment's spec with a freshly built
+/// pod template. That is what makes a removed server container actually
+/// disappear from the running pod.
+///
+/// The replace is done in place (GET + PUT) rather than delete + recreate:
+/// the Service and IngressRoutes carry an `ownerReference` to the Deployment,
+/// so deleting it cascades their deletion via K8s garbage collection — and
+/// this path never recreated them, leaving a live sandbox unreachable over
+/// gRPC with dead preview routes. Replacing preserves the Deployment UID, so
+/// no cascade fires, and the `Recreate` strategy still tears the old pod
+/// fully down (ReadWriteOnce PVC detaches) before scheduling the new one.
 ///
 /// The existing workspace PVC is reused so no data is lost.
 pub async fn redeploy_with_plan(
@@ -244,20 +265,30 @@ pub async fn redeploy_with_plan(
     )
     .map_err(SandboxError::PodBuildError)?;
 
-    // Delete the old Deployment first so create rebuilds from the new spec.
-    delete_deployment(k8s, task_id)
-        .await
-        .map_err(SandboxError::KubeError)?;
+    let deployments: Api<Deployment> = Api::namespaced(k8s.client.clone(), k8s.namespace());
+    let deployment_name = generate_deployment_name(task_id);
+    let mut deployment = build_deployment_object(k8s.namespace(), task_id, pod)?;
 
-    // Wait for the old pod to fully terminate before recreating. The Recreate
-    // strategy only serializes attach/detach *within* one Deployment; here we
-    // delete and recreate a fresh Deployment, so nothing stops the new pod from
-    // being scheduled while the old one still holds the ReadWriteOnce PVC on its
-    // node -> "Multi-Attach" stall. Blocking on termination closes that window.
-    wait_for_pods_deleted(k8s, task_id).await?;
-
-    create_sandbox_deployment(k8s, task_id, pod).await?;
-    info!(task_id, "Deployment redeployed with updated pod spec");
+    match deployments.get(&deployment_name).await {
+        Ok(existing) => {
+            // Replace requires the current resourceVersion for optimistic concurrency.
+            deployment.metadata.resource_version = existing.metadata.resource_version;
+            deployments
+                .replace(&deployment_name, &PostParams::default(), &deployment)
+                .await
+                .map_err(SandboxError::KubeError)?;
+            info!(task_id, deployment_name = %deployment_name, "Deployment replaced in place with updated pod spec");
+        }
+        Err(kube::Error::Api(ref e)) if e.code == 404 => {
+            // No existing Deployment (cleaned up out of band) — create fresh.
+            deployments
+                .create(&PostParams::default(), &deployment)
+                .await
+                .map_err(SandboxError::KubeError)?;
+            info!(task_id, deployment_name = %deployment_name, "Deployment created (was missing during redeploy)");
+        }
+        Err(e) => return Err(SandboxError::KubeError(e)),
+    }
     Ok(())
 }
 
@@ -471,5 +502,59 @@ mod tests {
         assert!(pod_blocks_redeploy(&pod_in_phase(Some("Pending"))));
         // Unknown/missing phase: err on the side of waiting.
         assert!(pod_blocks_redeploy(&pod_in_phase(None)));
+    }
+
+    fn buildable_pod() -> Pod {
+        Pod {
+            metadata: k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta {
+                labels: Some(BTreeMap::from([(
+                    "moatless.io/task-id".to_string(),
+                    "task-1".to_string(),
+                )])),
+                ..Default::default()
+            },
+            spec: Some(PodSpec {
+                containers: vec![container("sandbox", Some("sandbox:v1"))],
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    /// The redeploy path replaces the Deployment in place (PUT), which K8s only
+    /// accepts if the name and the immutable `spec.selector` match the existing
+    /// object. Both must therefore be deterministic functions of the task_id,
+    /// independent of the pod spec being wrapped.
+    #[test]
+    fn build_deployment_object_is_stable_across_pod_specs() {
+        let dep = build_deployment_object("ns", "task-1", buildable_pod())
+            .expect("build should succeed");
+
+        assert_eq!(dep.metadata.name.as_deref(), Some("moatless-ws-task-1"));
+        let spec = dep.spec.as_ref().expect("deployment has a spec");
+        assert_eq!(
+            spec.selector
+                .match_labels
+                .as_ref()
+                .and_then(|l| l.get("moatless.io/task-id"))
+                .map(String::as_str),
+            Some("task-1")
+        );
+        // Recreate is what lets the in-place replace skip the manual
+        // wait-for-termination: the controller tears the old pod down (RWO PVC
+        // detaches) before scheduling the replacement.
+        assert_eq!(
+            spec.strategy.as_ref().and_then(|s| s.type_.as_deref()),
+            Some("Recreate")
+        );
+    }
+
+    #[test]
+    fn build_deployment_object_rejects_non_always_restart_policy() {
+        let mut pod = buildable_pod();
+        if let Some(spec) = pod.spec.as_mut() {
+            spec.restart_policy = Some("Never".to_string());
+        }
+        assert!(build_deployment_object("ns", "task-1", pod).is_err());
     }
 }

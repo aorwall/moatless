@@ -9,6 +9,16 @@ use tracing::{debug, info, warn};
 use super::client::K8sClient;
 use super::naming::generate_service_name;
 
+/// Check whether the task's sandbox Service exists. Returns `Ok(false)` on 404.
+pub async fn sandbox_service_exists(k8s: &K8sClient, task_id: &str) -> Result<bool, kube::Error> {
+    let services: Api<Service> = Api::namespaced(k8s.client.clone(), k8s.namespace());
+    match services.get(&generate_service_name(task_id)).await {
+        Ok(_) => Ok(true),
+        Err(kube::Error::Api(ref e)) if e.code == 404 => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
 /// Create a ClusterIP Service for a workspace pod.
 /// Idempotent — handles AlreadyExists (409) gracefully.
 ///
