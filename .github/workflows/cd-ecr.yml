@@ -38,6 +38,19 @@ on:
         type: string
         default: ''
 
+# Serialize runs per ref. On main this closes the version race: the next
+# monotonic semver is computed from `git describe` in `setup` but the v* tag
+# is only pushed ~20 min later in `tag-release`, so two concurrent main builds
+# would compute the SAME version and overwrite each other's (mutable) ECR tags
+# — this happened on the 0.1.163/0.1.164 deploys. Queued runs start after the
+# previous tag-release has pushed, so they compute the next version correctly.
+# Note GitHub keeps at most one run queued per group: rapid-fire merges may
+# skip intermediate commits, which is fine — the newest queued commit contains
+# them all. PR refs each get their own group and stay parallel.
+concurrency:
+  group: cd-ecr-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
   id-token: write
@@ -72,12 +85,20 @@ jobs:
           #   fp-v* tag                 → tag name (legacy manual release)
           #   push to main              → next monotonic semver (X.Y.Z), bumped
           #                               off the latest v* tag (soap-config pattern)
-          #   anything else (PRs, …)    → short SHA (never auto-deployed)
+          #   anything else (PRs,
+          #     workflow_dispatch, …)   → short SHA (never auto-deployed)
+          #
+          # workflow_dispatch on main deliberately does NOT get the next semver:
+          # dispatch skips tag-release (push-only), so it would publish images
+          # under a semver that is never tagged — the next real push then
+          # recomputes the SAME version and both builds fight over the mutable
+          # ECR tag (the 0.1.164 double-build). Republish a specific version by
+          # passing the `tag` input explicitly.
           if [ -n "$INPUT_TAG" ]; then
             TAG="$INPUT_TAG"
           elif [[ "$GITHUB_REF" == refs/tags/fp-v* ]]; then
             TAG="${GITHUB_REF_NAME}"
-          elif [[ "$GITHUB_REF" == refs/heads/main ]]; then
+          elif [ "$GITHUB_EVENT_NAME" = "push" ] && [[ "$GITHUB_REF" == refs/heads/main ]]; then
             LATEST=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo v0.1.0)
             IFS=. read -r MA MI PA <<< "${LATEST#v}"
             TAG="${MA}.${MI}.$((PA + 1))"
@@ -93,9 +114,11 @@ jobs:
             CHART_VERSION="$INPUT_CHART_VERSION"
           elif [[ "$GITHUB_REF" == refs/tags/fp-v* ]]; then
             CHART_VERSION="${GITHUB_REF_NAME#fp-v}"
-          elif [[ "$GITHUB_REF" == refs/heads/main ]]; then
+          elif [ "$GITHUB_EVENT_NAME" = "push" ] && [[ "$GITHUB_REF" == refs/heads/main ]]; then
             CHART_VERSION="$TAG"
           else
+            # PRs and workflow_dispatch: TAG is a short SHA here, which is not
+            # valid semver on its own — prefix as a pre-release version.
             CHART_VERSION="0.0.0-${TAG}"
           fi
           echo "chart-version=$CHART_VERSION" >> "$GITHUB_OUTPUT"
@@ -601,7 +624,8 @@ jobs:
   #   - the signal Renovate (datasource: github-tags) reads in soap-platform-gitops
   #     to open a backstop bump PR if the instant promote-to-gitops dispatch is missed.
   # Pushed with GITHUB_TOKEN so it does not retrigger workflows (and cd-ecr only
-  # triggers on fp-v* tags, never v*). Idempotent: skips if the tag already exists.
+  # triggers on fp-v* tags, never v*). Idempotent for same-SHA re-runs; fails
+  # loudly if the tag exists at a different commit (version collision).
   tag-release:
     needs:
       - setup
@@ -622,8 +646,18 @@ jobs:
           TAG: ${{ needs.setup.outputs.tag }}
         run: |
           if git rev-parse "v${TAG}" >/dev/null 2>&1; then
-            echo "::notice::Tag v${TAG} already exists — skipping"
-            exit 0
+            # Same-SHA: an idempotent re-run of this workflow — safe to skip.
+            # Different-SHA: another run already released this version from a
+            # different commit, so the (mutable) ECR tags this run just pushed
+            # do not match what v${TAG} points at. Fail loudly instead of
+            # silently dropping the tag — the published images are suspect.
+            EXISTING_SHA=$(git rev-parse "v${TAG}^{commit}")
+            if [ "$EXISTING_SHA" = "${GITHUB_SHA}" ]; then
+              echo "::notice::Tag v${TAG} already exists at this commit — idempotent re-run, skipping"
+              exit 0
+            fi
+            echo "::error::Tag v${TAG} already exists at ${EXISTING_SHA} but this run built ${GITHUB_SHA}. The ${TAG} images in ECR were overwritten by whichever run pushed last — re-run cd-ecr on the desired commit with an explicit tag input to restore consistency."
+            exit 1
           fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
