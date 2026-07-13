@@ -560,7 +560,11 @@ impl EventHandlerConsumer {
                 | AgentSubType::Retrying
                 | AgentSubType::Scheduled
                 | AgentSubType::RecoveryStarted
-                | AgentSubType::RecoveryExhausted,
+                | AgentSubType::RecoveryExhausted
+                // Rate-limited liveness marker from long tool calls — persisted
+                // to task_events (advances the reaper's activity floor) but
+                // never a conversation message.
+                | AgentSubType::Activity,
             )
             | EventKey::Task(
                 TaskSubType::Open

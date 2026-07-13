@@ -166,6 +166,30 @@ pub(super) async fn process_claude_message(
                 .publish_agent_event(ctx.task_id, AgentSubType::Message, payload)
                 .await;
         }
+        SdkMessage::ToolProgress(_) => {
+            // A long-running tool call (e.g. a multi-minute build) streams
+            // progress but emits no assistant/user message, so nothing else
+            // advances the reaper's activity floor and an in-flight turn can
+            // be mistaken for idle. Publish a lightweight liveness event,
+            // rate-limited — the floor only needs minute-level granularity
+            // against a TTL measured in tens of minutes, and a chatty tool
+            // would otherwise flood the event stream.
+            const ACTIVITY_PUBLISH_INTERVAL: std::time::Duration =
+                std::time::Duration::from_secs(60);
+            let due = ctx
+                .last_activity_publish
+                .is_none_or(|at| at.elapsed() >= ACTIVITY_PUBLISH_INTERVAL);
+            if due {
+                *ctx.last_activity_publish = Some(std::time::Instant::now());
+                ctx.events
+                    .publish_agent_event(
+                        ctx.task_id,
+                        AgentSubType::Activity,
+                        serde_json::json!({ "kind": "tool_progress" }),
+                    )
+                    .await;
+            }
+        }
         _ => {
             debug!("Claude SDK message (non-content)");
         }

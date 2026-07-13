@@ -188,6 +188,12 @@ pub enum AgentSubType {
     /// stale session id after a pod restart); the agent fell back to a fresh
     /// session. Previous conversation context is lost. Warning, not an error.
     SessionContextLost,
+    /// Lightweight liveness marker published (rate-limited) while a
+    /// long-running tool call streams progress. Carries no conversation
+    /// content — it exists so the reaper's activity floor keeps advancing
+    /// during a multi-minute tool run instead of freezing at the last
+    /// message. SSE-only downstream; never persisted as a message.
+    Activity,
 }
 
 impl AgentSubType {
@@ -205,6 +211,7 @@ impl AgentSubType {
             Self::RecoveryStarted => "recovery_started",
             Self::RecoveryExhausted => "recovery_exhausted",
             Self::SessionContextLost => "session_context_lost",
+            Self::Activity => "activity",
         }
     }
 
@@ -236,6 +243,7 @@ impl TryFrom<&str> for AgentSubType {
             "recovery_started" => Ok(Self::RecoveryStarted),
             "recovery_exhausted" => Ok(Self::RecoveryExhausted),
             "session_context_lost" => Ok(Self::SessionContextLost),
+            "activity" => Ok(Self::Activity),
             other => Err(format!("unknown AgentSubType: {other}")),
         }
     }
@@ -633,6 +641,20 @@ mod tests {
         );
         // A warning, not an error: the agent continues with a fresh session.
         assert!(!AgentSubType::SessionContextLost.is_error());
+    }
+
+    #[test]
+    fn agent_sub_type_activity_round_trips() {
+        assert_eq!(AgentSubType::Activity.as_str(), "activity");
+        assert_eq!(
+            serde_json::to_string(&AgentSubType::Activity).unwrap(),
+            "\"activity\""
+        );
+        assert_eq!(
+            AgentSubType::try_from("activity"),
+            Ok(AgentSubType::Activity)
+        );
+        assert!(!AgentSubType::Activity.is_error());
     }
 
     #[test]

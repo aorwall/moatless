@@ -65,6 +65,9 @@ pub(super) struct TurnContext<'a> {
     pub(super) spawn_nonce: &'a mut String,
     /// Codex-only.
     pub(super) codex_turn_output: &'a mut String,
+    /// Claude-only: when the last rate-limited `agent.activity` event was
+    /// published (see the `ToolProgress` arm in `process_claude_message`).
+    pub(super) last_activity_publish: &'a mut Option<std::time::Instant>,
 }
 
 /// The actor event loop.
@@ -116,6 +119,9 @@ pub(super) async fn agent_loop(
     // it into the agent/completed payload (lets the UI tell `end_turn` from
     // `max_tokens` / `tool_use` without digging into per-message rows).
     let mut last_stop_reason: Option<String> = None;
+    // When the last rate-limited `agent.activity` liveness event was published
+    // (advances the reaper's idle floor during long tool calls).
+    let mut last_activity_publish: Option<std::time::Instant> = None;
     // Tracks per-prompt credential-recovery retries so a stuck-loop credential
     // can't drive infinite re-tries.
     let mut credential_recovery_attempts: u32 = 0;
@@ -357,6 +363,7 @@ pub(super) async fn agent_loop(
                             tmux_turn_in_flight: &mut tmux_turn_in_flight,
                             spawn_nonce: &mut spawn_nonce,
                             codex_turn_output: &mut codex_turn_output,
+                            last_activity_publish: &mut last_activity_publish,
                         };
                         process_claude_message(
                             sdk_msg,
@@ -508,6 +515,7 @@ pub(super) async fn agent_loop(
                             tmux_turn_in_flight: &mut tmux_turn_in_flight,
                             spawn_nonce: &mut spawn_nonce,
                             codex_turn_output: &mut codex_turn_output,
+                            last_activity_publish: &mut last_activity_publish,
                         };
                         process_codex_message(event, last_model.as_deref(), &mut ctx).await;
                         if was_terminal {
@@ -547,6 +555,7 @@ pub(super) async fn agent_loop(
                             tmux_turn_in_flight: &mut tmux_turn_in_flight,
                             spawn_nonce: &mut spawn_nonce,
                             codex_turn_output: &mut codex_turn_output,
+                            last_activity_publish: &mut last_activity_publish,
                         };
                         handle_codex_stream_error(&error, last_model.as_deref(), &mut ctx).await;
                         codex_turn_active = false;

@@ -371,6 +371,22 @@ async fn run_reap_cycle(
             }
             ReapDecision::Keep => {}
             ReapDecision::Stop => {
+                // Defense in depth: the activity floor can go stale (dropped
+                // events, watcher failover, delivery lag), so ask the agent
+                // itself before pulling the plug. Only a positive "running"
+                // answer skips the stop — an unreadable status (no client,
+                // gRPC error) falls through, otherwise a sandbox with a broken
+                // gRPC path could never be reaped. Costs one gRPC call per
+                // reap candidate per cycle, against a sandbox that is up.
+                if matches!(agent_is_terminal(app_state, task_id).await, Some(false)) {
+                    info!(
+                        task_id = %task_id,
+                        ttl_minutes,
+                        last_activity = ?latest_at,
+                        "Idle floor expired but agent reports running, skipping stop"
+                    );
+                    continue;
+                }
                 info!(
                     task_id = %task_id,
                     ttl_minutes,
