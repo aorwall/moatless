@@ -1,60 +1,14 @@
-import type { CommandResponse, MessageContextInput, UiMessage } from '@moatless/api-client'
-import { Loader2, Sparkles } from 'lucide-react'
-import type React from 'react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { toast } from 'sonner'
-import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
-import { SettingsDialog, useFigmaConfig } from '@/features/settings'
-import { useRepositorySkills } from '@/features/skills'
-import {
-  AskUserQuestionInput,
-  ChatInput,
-  ContextItems,
-  FileAttachments,
-  PlanApprovalInput,
-  Selectors,
-  SendButton,
-  StopButton,
-} from '@/features/tasks/components/chat/chat-input'
-import {
-  AttachmentPopoverContent,
-  PopoverSelector,
-  SelectorButton,
-  SimpleListPopoverContent,
-  useAgentModeSelector,
-  useModelSelector,
-} from '@/features/tasks/components/chat/chat-input/selectors'
+import type { MessageContextInput, UiMessage } from '@moatless/api-client'
+import { useMemo } from 'react'
 import { ChatScrollArea } from '@/features/tasks/components/chat/chat-scroll-area'
-import {
-  CommandAutocomplete,
-  type Suggestion,
-  useCommandAutocomplete,
-} from '@/features/tasks/components/chat/command-autocomplete'
-import {
-  FileAutocomplete,
-  useFileAutocomplete,
-} from '@/features/tasks/components/chat/file-autocomplete'
 import { MessageHistory } from '@/features/tasks/components/chat/message-history'
-import { QueuedMessages } from '@/features/tasks/components/chat/queued-messages'
 import { usePanelControls, useTaskId } from '@/features/tasks/contexts/task-providers'
-import { useFileSearch } from '@/features/tasks/hooks/use-file-search'
 import { useSandboxRetry, useSandboxStatus } from '@/features/tasks/hooks/use-sandbox-status'
-import { useTaskDraftMessage } from '@/features/tasks/hooks/use-task-draft-message'
-import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
-import {
-  useDeleteMessage,
-  useSendMessage,
-  useStopAgent,
-  useTaskCommands,
-  useTaskMessages,
-} from '@/features/tasks/hooks/use-tasks'
-import { Button } from '@/lib/components/ui/button'
-import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
-import { type ClaudeModel, DEFAULT_CLAUDE_MODEL, modelToApiValue } from '@/lib/types/claude-models'
-import type { Question } from '@/lib/types/user-input'
-import { getErrorMessage } from '@/lib/utils/error'
-import { CommandButtons } from './command-buttons'
+import { useTaskMessages } from '@/features/tasks/hooks/use-tasks'
+import { ChatInputSection } from './chat-input-section'
+import { SandboxErrorBanner } from './sandbox-error-banner'
+import { usePendingUserInput } from './use-pending-user-input'
 
 interface ChatContainerProps {
   className?: string
@@ -70,39 +24,14 @@ interface ChatContainerProps {
   collapseToolCalls?: boolean
 }
 
-// Helper function to determine placeholder text based on environment and task status
-function getPlaceholderText(
-  envStatus: string | undefined,
-  isTaskRunning: boolean,
-  status: string | undefined,
-): string {
-  if (envStatus === 'initializing') {
-    return 'Task queued: setting up sandbox...'
-  }
-  if (envStatus === 'error') {
-    return 'Sandbox setup failed. Check error details above.'
-  }
-  if (isTaskRunning) {
-    return 'Task is running... Type your next request'
-  }
-  if (status === 'closed' || status === 'error') {
-    return `Task is ${status}. Type a new request to continue`
-  }
-  return 'Type a new request... (use @ to reference files)'
-}
-
-// Helper function to determine the model value for a task
-function getModelForTask(
-  isModelSelectorEnabled: boolean,
-  lastTurnModel: ClaudeModel | undefined,
-): ClaudeModel {
-  if (!isModelSelectorEnabled) {
-    return DEFAULT_CLAUDE_MODEL
-  }
-  return lastTurnModel || DEFAULT_CLAUDE_MODEL
-}
-
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Chat container with multiple interaction modes
+/**
+ * Composes the chat panel: message history on top, input section below.
+ *
+ * Owns the message list (and state derived from it, like pending user input)
+ * so the history only re-renders when messages change. All per-keystroke
+ * state lives in ChatInputSection, below the history in the tree — typing
+ * must never re-render the transcript.
+ */
 function ChatContainer({
   className,
   contextItems = [],
@@ -111,10 +40,9 @@ function ChatContainer({
   collapseToolCalls = false,
 }: ChatContainerProps) {
   const taskId = useTaskId()
-  const { navigatePreview, registerCommandExecutor } = usePanelControls()
+  const { navigatePreview } = usePanelControls()
 
   const { data: task } = useTaskDetailQuery(taskId)
-  const status = task?.status
 
   // Poll sandbox status only while the task remains open (hook handles gating)
   const sandboxStatusQuery = useSandboxStatus(taskId, task)
@@ -150,395 +78,14 @@ function ChatContainer({
   // Agent running state: driven by sandbox status (updated via SSE events + backend gRPC)
   const isTaskRunning = sandboxStatus?.agentState === 'running'
 
-  // Fetch available commands when task is not running
-  const { data: availableCommands = [] } = useTaskCommands(taskId, {
-    enabled: !!taskId && !isTaskRunning && envStatus === 'ready',
-  })
-
-  // Fetch repo-scoped skills for the task's repository (workspace +
-  // linked plugin repos). Surfaces in the same "/" autocomplete dropdown.
-  const { data: repoSkills = [], error: skillsError } = useRepositorySkills(task?.repositoryId, {
-    enabled: !!task?.repositoryId && !!taskId && !isTaskRunning && envStatus === 'ready',
-  })
-
-  useEffect(() => {
-    if (skillsError) {
-      toast.error('Failed to load repository skills', {
-        description: getErrorMessage(skillsError),
-      })
-    }
-  }, [skillsError])
-
-  // Merge commands + skills for the autocomplete dropdown. Command buttons
-  // bar below is still commands-only.
-  const suggestions = useMemo<Suggestion[]>(
-    () => [
-      ...availableCommands.map((c) => ({ kind: 'command' as const, ...c })),
-      ...repoSkills.map((s) => ({ kind: 'skill' as const, ...s })),
-    ],
-    [availableCommands, repoSkills],
-  )
-
-  // Local state for chat values. The message draft is persisted per task in
-  // localStorage so text survives reloads and switching tasks.
-  const [message, setMessage] = useTaskDraftMessage(taskId)
-  const [resumeConversation] = useState(true)
-  const [startFresh, setStartFresh] = useState(false)
-  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
-
-  // Check Figma configuration status
-  const { data: figmaConfig } = useFigmaConfig()
-
-  // Check if model selector should be shown
-  const isModelSelectorEnabled = useFeatureFlag('SHOW_MODEL_SELECTOR')
-
-  // Task inputs hook with external context management (from props)
-  const taskInputs = useTaskInputs({
-    enableContextItems: true,
-    enableFigma: true,
-    contextItems,
-    onContextItemsChange,
-  })
-
-  // File search mutation (task-specific)
-  const fileSearchMutation = useFileSearch(taskId)
-
-  // File autocomplete hook (generic)
-  const {
-    inputRef: textareaRef,
-    isOpen: isAutocompleteOpen,
-    results: autocompleteResults,
-    selectedIndex: autocompleteSelectedIndex,
-    isLoading: isAutocompleteLoading,
-    error: autocompleteError,
-    handleInputChange,
-    handleKeyDown: handleAutocompleteKeyDown,
-    selectFile,
-  } = useFileAutocomplete({
-    value: message,
-    onValueChange: setMessage,
-    enabled: true,
-    onSearch: fileSearchMutation.mutate,
-    results: fileSearchMutation.data?.files ?? [],
-    isLoading: fileSearchMutation.isPending,
-    error: fileSearchMutation.error,
-  })
-
-  // Command autocomplete hook (client-side filtering, no extra API call)
-  const {
-    isOpen: isCommandAutocompleteOpen,
-    filteredCommands,
-    selectedIndex: commandSelectedIndex,
-    selectedCommand,
-    handleInputChange: handleCommandInputChange,
-    handleKeyDown: handleCommandKeyDown,
-    selectCommand,
-    clearSelectedCommand,
-  } = useCommandAutocomplete({
-    onValueChange: setMessage,
-    suggestions,
-    enabled: !isTaskRunning,
-  })
-
-  // State for controlled selectors with defaults
-  const [selectedModel, setSelectedModel] = useState<ClaudeModel>(
-    getModelForTask(isModelSelectorEnabled, undefined),
-  )
-  const [selectedAgentMode, setSelectedAgentMode] = useState<'edit' | 'plan'>('edit')
-
-  // Initialize selectors with controlled state
-  const modelValue = isModelSelectorEnabled ? selectedModel : DEFAULT_CLAUDE_MODEL
-  const modelOnChange = isModelSelectorEnabled
-    ? setSelectedModel
-    : () => {
-        /* no-op: model selector disabled */
-      }
-  const modelSelector = useModelSelector(modelValue, modelOnChange)
-  const agentModeSelector = useAgentModeSelector(selectedAgentMode, setSelectedAgentMode)
-
-  // Clear state when task changes. The message draft is intentionally NOT
-  // cleared here — useTaskDraftMessage loads the per-task draft on task change.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: taskId is from params and we want to reset state when it changes
-  useEffect(() => {
-    taskInputs.clearAll()
-    // Reset selectors to defaults
-    setSelectedModel(getModelForTask(isModelSelectorEnabled, undefined))
-    setSelectedAgentMode('edit')
-    setStartFresh(false)
-  }, [taskId, isModelSelectorEnabled])
-
-  // Stop agent mutation
-  const stopAgent = useStopAgent(taskId)
-
-  // Task message sending hook
-  const sendMessage = useSendMessage(taskId, {
-    onError: (error) => {
-      toast.error('Failed to send message', {
-        description: getErrorMessage(error),
-      })
-    },
-  })
-
   // Derive queued messages from the messages list
   const queuedMessages = useMemo(
     () => (messages ?? []).filter((m): m is UiMessage => m.role === 'user' && m.isQueued === true),
     [messages],
   )
 
-  // Delete queued message mutation
-  const deleteMessage = useDeleteMessage(taskId)
-
   // Detect pending user input from the last message
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex nested logic to extract pending tool info
-  const pendingUserInput = useMemo(() => {
-    if (!messages || messages.length === 0) {
-      return null
-    }
-
-    const lastMessage = messages.at(-1)
-    if (!lastMessage || lastMessage.role !== 'assistant') {
-      return null
-    }
-
-    if (!lastMessage.hasPendingUserInput) {
-      return null
-    }
-
-    // Find the pending tool call (last tool_use without a result in toolResults)
-    const toolResultIds = new Set(
-      (lastMessage.toolResults ?? []).map((tr) => tr.toolUseId).filter(Boolean),
-    )
-
-    for (let i = lastMessage.content.length - 1; i >= 0; i--) {
-      const content = lastMessage.content[i]
-      if (!content) {
-        continue
-      }
-      if (
-        content.type === 'tool_use' &&
-        content.toolUseId &&
-        !toolResultIds.has(content.toolUseId)
-      ) {
-        if (content.toolName === 'AskUserQuestion' && content.toolInput) {
-          const toolInput = content.toolInput as { questions?: Question[] }
-          if (toolInput.questions && Array.isArray(toolInput.questions)) {
-            return {
-              type: 'AskUserQuestion' as const,
-              questions: toolInput.questions,
-              toolUseId: content.toolUseId,
-            }
-          }
-        }
-        if (content.toolName === 'ExitPlanMode' && content.toolInput) {
-          const toolInput = content.toolInput as { plan?: string }
-          return {
-            type: 'ExitPlanMode' as const,
-            plan: toolInput.plan,
-            toolUseId: content.toolUseId,
-          }
-        }
-      }
-    }
-
-    return null
-  }, [messages])
-
-  // Handlers for user input submission (routed through sendMessage)
-  const handleQuestionSubmit = useCallback(
-    (answers: Record<string, string>) => {
-      sendMessage.mutate({
-        message: '',
-        toolUseId: pendingUserInput?.toolUseId,
-        toolName: 'AskUserQuestion',
-        toolResponse: { answers },
-      })
-    },
-    [sendMessage, pendingUserInput?.toolUseId],
-  )
-
-  const handlePlanApprove = useCallback(() => {
-    sendMessage.mutate({
-      message: '',
-      toolUseId: pendingUserInput?.toolUseId,
-      toolName: 'ExitPlanMode',
-      toolResponse: { approved: true },
-    })
-    // Auto-switch to edit mode after approving plan
-    setSelectedAgentMode('edit')
-  }, [sendMessage, pendingUserInput?.toolUseId])
-
-  const handlePlanReject = useCallback(
-    (feedback?: string) => {
-      sendMessage.mutate({
-        message: '',
-        toolUseId: pendingUserInput?.toolUseId,
-        toolName: 'ExitPlanMode',
-        toolResponse: { approved: false, feedback },
-      })
-    },
-    [sendMessage, pendingUserInput?.toolUseId],
-  )
-
-  // Handle sending message
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Branches by command vs free-text vs start-fresh flag
-  const handleChatSubmit = useCallback(() => {
-    const trimmedMessage = message.trim()
-    if (sendMessage.isPending || !trimmedMessage) {
-      return
-    }
-
-    // If a command was selected from the autocomplete, send as command
-    if (selectedCommand) {
-      // Extract user text after `/{commandName} `
-      const prefix = `/${selectedCommand.name} `
-      const userText = message.startsWith(prefix) ? message.slice(prefix.length).trim() : ''
-
-      const commandData = {
-        message: userText,
-        commandName: selectedCommand.name,
-        resume: selectedCommand.willNotResume !== true,
-        model: isModelSelectorEnabled ? modelToApiValue(selectedModel) : undefined,
-        agentMode: selectedCommand.agentMode || selectedAgentMode,
-        fileIds: taskInputs.getFileIds(),
-        fileUploads: taskInputs.uploadedFiles,
-        contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,
-        startFresh: startFresh || undefined,
-      }
-
-      sendMessage.mutate(commandData, {
-        onSuccess: () => {
-          setMessage('')
-          clearSelectedCommand()
-          taskInputs.clearAll()
-          setStartFresh(false)
-        },
-      })
-      return
-    }
-
-    const messageData = {
-      message: trimmedMessage,
-      resume: resumeConversation,
-      model: isModelSelectorEnabled ? modelToApiValue(selectedModel) : undefined,
-      fileIds: taskInputs.getFileIds(),
-      fileUploads: taskInputs.uploadedFiles,
-      contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,
-      agentMode: selectedAgentMode,
-      startFresh: startFresh || undefined,
-    }
-
-    sendMessage.mutate(messageData, {
-      onSuccess: () => {
-        setMessage('')
-        taskInputs.clearAll()
-        setStartFresh(false)
-      },
-    })
-  }, [
-    sendMessage,
-    message,
-    resumeConversation,
-    selectedModel,
-    selectedAgentMode,
-    selectedCommand,
-    clearSelectedCommand,
-    taskInputs,
-    isModelSelectorEnabled,
-    startFresh,
-    setMessage,
-  ])
-
-  // Handle command button click
-  const handleCommandClick = useCallback(
-    (command: CommandResponse) => {
-      const commandData = {
-        message: '',
-        commandName: command.name,
-        resume: command.willNotResume !== true,
-        model: isModelSelectorEnabled ? modelToApiValue(selectedModel) : undefined,
-        agentMode: command.agentMode || selectedAgentMode,
-        fileIds: taskInputs.getFileIds(),
-        fileUploads: taskInputs.uploadedFiles,
-        contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,
-      }
-
-      sendMessage.mutate(commandData, {
-        onSuccess: () => {
-          taskInputs.clearAll()
-        },
-      })
-    },
-    [sendMessage, isModelSelectorEnabled, selectedModel, selectedAgentMode, taskInputs],
-  )
-
-  // Execute a command by name — used by external callers (e.g. preview troubleshoot button)
-  const executeCommandByName = useCallback(
-    (commandName: string) => {
-      const command = availableCommands.find((c) => c.name === commandName)
-      if (!command) {
-        return
-      }
-
-      const commandData = {
-        message: '',
-        commandName: command.name,
-        resume: command.willNotResume !== true,
-        model: isModelSelectorEnabled ? modelToApiValue(selectedModel) : undefined,
-        agentMode: command.agentMode || selectedAgentMode,
-      }
-      sendMessage.mutate(commandData)
-    },
-    [availableCommands, sendMessage, isModelSelectorEnabled, selectedModel, selectedAgentMode],
-  )
-
-  // Register command executor with panel controls (invoked e.g. by the preview
-  // troubleshoot button). Cleanup unregisters on unmount / executor change.
-  useEffect(
-    () => registerCommandExecutor(executeCommandByName),
-    [registerCommandExecutor, executeCommandByName],
-  )
-
-  // Compute placeholder text using extracted helper
-  const placeholderText = getPlaceholderText(envStatus, isTaskRunning, status)
-
-  // Determine if we can submit based on conditions
-  const canSubmit =
-    !sendMessage.isPending &&
-    (!!message.trim() || taskInputs.contextItems.length > 0 || !!selectedCommand)
-
-  // Handle message changes with autocomplete
-  const handleMessageChange = useCallback(
-    (newMessage: string) => {
-      setMessage(newMessage)
-      // Update autocomplete state based on cursor position
-      if (textareaRef.current) {
-        const cursorPosition = textareaRef.current.selectionStart || 0
-        handleCommandInputChange(newMessage, cursorPosition)
-        handleInputChange(newMessage, cursorPosition)
-      }
-    },
-    [handleCommandInputChange, handleInputChange, textareaRef, setMessage],
-  )
-
-  // Compose key handlers: command autocomplete first, then file autocomplete
-  const handleCombinedKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      handleCommandKeyDown(e)
-      if (!e.defaultPrevented) {
-        handleAutocompleteKeyDown(e)
-      }
-    },
-    [handleCommandKeyDown, handleAutocompleteKeyDown],
-  )
-
-  // Handle Figma import click - check config and open appropriate dialog
-  const handleFigmaImportClick = useCallback(() => {
-    if (figmaConfig?.connected) {
-      taskInputs.setFigmaDialogOpen(true)
-    } else {
-      setSettingsDialogOpen(true)
-    }
-  }, [figmaConfig?.connected, taskInputs])
+  const pendingUserInput = usePendingUserInput(messages)
 
   return (
     <ChatScrollArea className={className}>
@@ -559,190 +106,19 @@ function ChatContainer({
 
       {/* Sandbox error banner with retry button */}
       {envStatus === 'error' && sandboxStatus?.environmentError && (
-        <div className="mx-4 mb-2 px-4 py-3 bg-destructive/10 border border-destructive/20 rounded-lg flex items-center justify-between gap-4">
-          <div className="min-w-0 flex-1">
-            <p className="text-sm text-destructive font-medium">Sandbox setup failed</p>
-            <p className="text-sm text-muted-foreground truncate">
-              {sandboxStatus.environmentError}
-            </p>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => retrySandboxMutation.mutate()}
-            disabled={retrySandboxMutation.isPending}
-          >
-            {retrySandboxMutation.isPending ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Retrying...
-              </>
-            ) : (
-              'Retry'
-            )}
-          </Button>
-        </div>
-      )}
-
-      {/* Command buttons — horizontal bar above chat input */}
-      {!isTaskRunning && availableCommands.length > 0 && !pendingUserInput && (
-        <CommandButtons
-          commands={availableCommands}
-          onCommandClick={handleCommandClick}
-          disabled={sendMessage.isPending}
+        <SandboxErrorBanner
+          errorMessage={sandboxStatus.environmentError}
+          onRetry={() => retrySandboxMutation.mutate()}
+          isRetrying={retrySandboxMutation.isPending}
         />
       )}
 
-      {/* Queued messages stack above chat input */}
-      <QueuedMessages
-        messages={queuedMessages}
-        onRemove={(messageId) => deleteMessage.mutate(messageId)}
-      />
-
-      {/* Conditionally render input based on pending user input */}
-      {pendingUserInput?.type === 'AskUserQuestion' ? (
-        <AskUserQuestionInput
-          questions={pendingUserInput.questions}
-          onSubmit={handleQuestionSubmit}
-          isPending={sendMessage.isPending}
-          error={sendMessage.error as Error | null}
-        />
-      ) : pendingUserInput?.type === 'ExitPlanMode' ? (
-        <PlanApprovalInput
-          plan={pendingUserInput.plan}
-          onApprove={handlePlanApprove}
-          onReject={handlePlanReject}
-          isPending={sendMessage.isPending}
-          error={sendMessage.error as Error | null}
-        />
-      ) : (
-        <ChatInput
-          message={message}
-          onMessageChange={handleMessageChange}
-          onSubmit={handleChatSubmit}
-          loading={sendMessage.isPending}
-          placeholder={placeholderText}
-          canSubmit={canSubmit}
-          textareaRef={textareaRef}
-          onKeyDownCapture={handleCombinedKeyDown}
-          onPaste={taskInputs.handlePaste}
-          positioned={true}
-          autocompleteSlot={
-            isCommandAutocompleteOpen ? (
-              <CommandAutocomplete
-                commands={filteredCommands}
-                selectedIndex={commandSelectedIndex}
-                onSelect={selectCommand}
-                position="above"
-              />
-            ) : (
-              isAutocompleteOpen && (
-                <FileAutocomplete
-                  results={autocompleteResults}
-                  selectedIndex={autocompleteSelectedIndex}
-                  onSelect={selectFile}
-                  isLoading={isAutocompleteLoading}
-                  error={autocompleteError}
-                  position="above"
-                />
-              )
-            )
-          }
-        >
-          {(taskInputs.contextItems.length > 0 || taskInputs.figmaImportPending) && (
-            <ContextItems
-              contexts={taskInputs.contextItems}
-              onRemove={taskInputs.handleRemoveContext}
-              onPreviewUrlClick={navigatePreview}
-              isLoading={taskInputs.figmaImportPending}
-            />
-          )}
-
-          {taskInputs.uploadedFiles.length > 0 && (
-            <FileAttachments
-              files={taskInputs.uploadedFiles}
-              onRemove={taskInputs.handleRemoveFile}
-            />
-          )}
-
-          <div className="flex items-center justify-between gap-2">
-            <Selectors>
-              {isModelSelectorEnabled && (
-                <PopoverSelector
-                  icon={modelSelector.icon}
-                  value={modelSelector.value}
-                  displayValue={modelSelector.displayValue}
-                  tooltip={modelSelector.tooltip}
-                  loading={modelSelector.loading}
-                  disabled={modelSelector.disabled}
-                >
-                  <SimpleListPopoverContent
-                    items={modelSelector.items}
-                    value={modelSelector.value}
-                    onChange={modelSelector.onChange}
-                  />
-                </PopoverSelector>
-              )}
-
-              {!hideAgentModeSelector && (
-                <PopoverSelector
-                  icon={agentModeSelector.icon}
-                  value={agentModeSelector.value}
-                  displayValue={agentModeSelector.displayValue}
-                  tooltip={agentModeSelector.tooltip}
-                  loading={agentModeSelector.loading}
-                  disabled={agentModeSelector.disabled}
-                >
-                  <SimpleListPopoverContent
-                    items={agentModeSelector.items}
-                    value={agentModeSelector.value}
-                    onChange={agentModeSelector.onChange}
-                  />
-                </PopoverSelector>
-              )}
-
-              <SelectorButton
-                icon={Sparkles}
-                label={startFresh ? 'Start fresh: on' : 'Start fresh'}
-                onClick={() => setStartFresh((v) => !v)}
-                className={startFresh ? 'border-primary text-primary' : undefined}
-              />
-            </Selectors>
-
-            <div className="flex items-center gap-2">
-              <PopoverSelector
-                icon={taskInputs.attachmentSelector.icon}
-                value={taskInputs.attachmentSelector.value}
-                displayValue={taskInputs.attachmentSelector.displayValue}
-                tooltip={taskInputs.attachmentSelector.tooltip}
-                loading={taskInputs.attachmentSelector.loading}
-                disabled={taskInputs.attachmentSelector.disabled}
-              >
-                <AttachmentPopoverContent
-                  onFileSelect={(file) => taskInputs.uploadFile.mutate(file)}
-                  onFigmaImport={handleFigmaImportClick}
-                  disabled={taskInputs.uploadFile.isPending}
-                />
-              </PopoverSelector>
-              {isTaskRunning && (
-                <StopButton onClick={() => stopAgent.mutate()} disabled={stopAgent.isPending} />
-              )}
-              <SendButton disabled={!canSubmit} loading={sendMessage.isPending} />
-            </div>
-          </div>
-        </ChatInput>
-      )}
-
-      <FigmaImportDialog
-        open={taskInputs.figmaDialogOpen}
-        onOpenChange={taskInputs.setFigmaDialogOpen}
-        importMutation={taskInputs.figmaUrlImport}
-      />
-
-      <SettingsDialog
-        open={settingsDialogOpen}
-        onOpenChange={setSettingsDialogOpen}
-        defaultSection="figma"
+      <ChatInputSection
+        contextItems={contextItems}
+        onContextItemsChange={onContextItemsChange}
+        hideAgentModeSelector={hideAgentModeSelector}
+        pendingUserInput={pendingUserInput}
+        queuedMessages={queuedMessages}
       />
     </ChatScrollArea>
   )
