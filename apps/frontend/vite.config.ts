@@ -62,7 +62,13 @@ export default defineConfig(({ mode }) => {
 
 	return {
 		plugins: [
-			react(),
+			react({
+				babel: {
+					// React Compiler (C2 experiment, docs/frontend-improvement-plan-2026-07.md).
+					// Auto-memoizes components/hooks; un-compilable ones are skipped safely.
+					plugins: [["babel-plugin-react-compiler", {}]],
+				},
+			}),
 			tsconfigPaths(),
 			tailwindcss(),
 			tanstackRouter({

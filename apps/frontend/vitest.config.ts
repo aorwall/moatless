@@ -5,7 +5,16 @@ import tsconfigPaths from "vite-tsconfig-paths";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
-  plugins: [react(), tsconfigPaths()],
+  plugins: [
+    react({
+      babel: {
+        // Match vite.config.ts: run tests against compiler-transformed components
+        // (C2 experiment, docs/frontend-improvement-plan-2026-07.md).
+        plugins: [["babel-plugin-react-compiler", {}]],
+      },
+    }),
+    tsconfigPaths(),
+  ],
   test: {
     environment: "jsdom",
     globals: true,
