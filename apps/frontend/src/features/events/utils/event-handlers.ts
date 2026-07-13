@@ -174,9 +174,55 @@ const MESSAGE_REFRESH_TOOL_TRIGGERS: ReadonlySet<string> = new Set([
 ])
 
 /**
- * Refetch only the newest page of messages on events that affect what the
- * user is actively reading, instead of invalidating the whole infinite
- * query. Older pages stay cached, scroll position stays put.
+ * Trailing-debounce window for the streaming newest-page refetch. A running
+ * turn emits many `agent.message` events back-to-back; without coalescing each
+ * would fire its own full-page fetch. Turn-final and interactive events bypass
+ * this and refetch immediately (see `invalidateMessagesForEvent`).
+ */
+const STREAMING_REFRESH_DEBOUNCE_MS = 200
+
+/** Per-task pending streaming-refetch timers, keyed by taskId. */
+const pendingMessageRefreshes = new Map<string, ReturnType<typeof setTimeout>>()
+
+function clearPendingRefresh(taskId: string): void {
+  const timer = pendingMessageRefreshes.get(taskId)
+  if (timer !== undefined) {
+    clearTimeout(timer)
+    pendingMessageRefreshes.delete(taskId)
+  }
+}
+
+/** Refetch the newest page now, cancelling any pending debounced refetch. */
+function flushMessageRefresh(queryClient: QueryClient, taskId: string): void {
+  clearPendingRefresh(taskId)
+  refreshNewestMessagesPage(queryClient, taskId).catch(() => {
+    /* swallow: refetch failures surface via the next stream event */
+  })
+}
+
+/** Schedule a trailing-debounced newest-page refetch, resetting the window. */
+function scheduleMessageRefresh(queryClient: QueryClient, taskId: string): void {
+  clearPendingRefresh(taskId)
+  const timer = setTimeout(() => {
+    pendingMessageRefreshes.delete(taskId)
+    refreshNewestMessagesPage(queryClient, taskId).catch(() => {
+      /* swallow: refetch failures surface via the next stream event */
+    })
+  }, STREAMING_REFRESH_DEBOUNCE_MS)
+  pendingMessageRefreshes.set(taskId, timer)
+}
+
+/**
+ * Keep the messages cache fresh on events that affect what the user is reading.
+ *
+ * When the task's chat view is mounted, refetch only the newest page (older
+ * pages stay cached, scroll position stays put) — never the whole infinite
+ * query. When it is not mounted (background runs, sidebar-only tasks), skip the
+ * fetch entirely and just mark the query stale so it reloads lazily on open.
+ *
+ * Streaming `agent.message` events are coalesced into a single trailing
+ * refetch; turn-final events (`taskTurn.completed/error`, `session_init`) and
+ * interactive prompts (`AskUserQuestion`/`ExitPlanMode`) refetch immediately.
  */
 export function invalidateMessagesForEvent(event: Event, queryClient: QueryClient): void {
   if (!event.taskId) {
@@ -202,10 +248,34 @@ export function invalidateMessagesForEvent(event: Event, queryClient: QueryClien
     return
   }
 
-  // Fire-and-forget: errors here are logged elsewhere via the API client.
-  refreshNewestMessagesPage(queryClient, event.taskId).catch(() => {
-    /* swallow: refetch failures surface via the next stream event */
-  })
+  // The global event stream delivers message events for every task the user can
+  // see, but only the task whose chat view is mounted actually observes the
+  // messages infinite query. Refetching the full newest page for a task nobody
+  // is viewing just writes into a cache with no reader — pure waste that scales
+  // with the number of concurrently running agents. Only fetch when the chat
+  // view is on screen; otherwise mark the query stale so it reloads lazily the
+  // next time the user opens that task's chat.
+  const messagesKey = queryKeys.tasks.messages(event.taskId)
+  const observerCount =
+    queryClient.getQueryCache().find({ queryKey: messagesKey })?.getObserversCount() ?? 0
+
+  if (observerCount === 0) {
+    clearPendingRefresh(event.taskId)
+    queryClient.invalidateQueries({ queryKey: messagesKey, refetchType: 'none' })
+    return
+  }
+
+  // Plain streaming message blocks arrive in bursts — coalesce them. Turn-final
+  // events and interactive prompts refetch immediately so the UI reacts at once
+  // (a pending question or completed turn is exactly when the user is waiting).
+  const isStreamingMessage =
+    event.type === 'agent' && event.subType === 'message' && !matchesToolTrigger
+
+  if (isStreamingMessage) {
+    scheduleMessageRefresh(queryClient, event.taskId)
+  } else {
+    flushMessageRefresh(queryClient, event.taskId)
+  }
 }
 
 /**

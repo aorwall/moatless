@@ -1,5 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { queryKeys } from '@/lib/api/query-keys'
 import type {
   AgentEvent,
@@ -198,54 +198,118 @@ describe('event-handlers', () => {
   })
 
   describe('invalidateMessagesForEvent', () => {
-    const queryClient = {} as QueryClient
+    // `observerCount` controls whether the chat view is considered mounted for
+    // the task in the event. `invalidateQueries` captures the stale-marking
+    // path taken when no chat view observes the messages query.
+    let observerCount = 1
+    const invalidateQueriesMock = vi.fn()
+    const findMock = vi.fn(() => ({ getObserversCount: () => observerCount }))
+    const queryClient = {
+      getQueryCache: () => ({ find: findMock }),
+      invalidateQueries: invalidateQueriesMock,
+    } as unknown as QueryClient
 
     beforeEach(() => {
+      observerCount = 1
       refreshNewestMessagesPageMock.mockClear()
+      invalidateQueriesMock.mockClear()
+      findMock.mockClear()
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      // Cancel any timers the debounce left pending so they can't fire into a
+      // later test's assertions.
+      vi.clearAllTimers()
+      vi.useRealTimers()
     })
 
     const trigger = (event: Event) => invalidateMessagesForEvent(event, queryClient)
+
+    const messageEvent = (overrides: Record<string, unknown>): Event =>
+      ({
+        eventId: 'e',
+        taskId: 'task-1',
+        agentType: 'test',
+        isError: false,
+        payload: {},
+        ...overrides,
+      }) as Event
 
     it.each([
       { type: 'taskTurn', subType: 'completed' },
       { type: 'taskTurn', subType: 'error' },
       { type: 'agent', subType: 'session_init' },
-      { type: 'agent', subType: 'message' },
-    ] as const)('refetches the newest page on $type/$subType events', ({ type, subType }) => {
-      trigger({
-        eventId: 'e',
-        type,
-        subType,
-        taskId: 'task-1',
-        agentType: 'test',
-        isError: false,
-        payload: {},
-      } as Event)
+    ] as const)(
+      'refetches immediately on $type/$subType events when the chat view is mounted',
+      ({ type, subType }) => {
+        trigger(messageEvent({ type, subType }))
+
+        expect(refreshNewestMessagesPageMock).toHaveBeenCalledTimes(1)
+        expect(refreshNewestMessagesPageMock).toHaveBeenCalledWith(queryClient, 'task-1')
+        expect(invalidateQueriesMock).not.toHaveBeenCalled()
+      },
+    )
+
+    it('coalesces a burst of streaming agent.message events into one refetch', () => {
+      trigger(messageEvent({ type: 'agent', subType: 'message', taskId: 'task-stream' }))
+      trigger(messageEvent({ type: 'agent', subType: 'message', taskId: 'task-stream' }))
+      trigger(messageEvent({ type: 'agent', subType: 'message', taskId: 'task-stream' }))
+
+      // Nothing fetched yet — the debounce window is still open.
+      expect(refreshNewestMessagesPageMock).not.toHaveBeenCalled()
+
+      vi.advanceTimersByTime(200)
 
       expect(refreshNewestMessagesPageMock).toHaveBeenCalledTimes(1)
-      expect(refreshNewestMessagesPageMock).toHaveBeenCalledWith(queryClient, 'task-1')
+      expect(refreshNewestMessagesPageMock).toHaveBeenCalledWith(queryClient, 'task-stream')
+    })
+
+    it('flushes a pending streaming refetch immediately on a turn-final event', () => {
+      trigger(messageEvent({ type: 'agent', subType: 'message', taskId: 'task-flush' }))
+      expect(refreshNewestMessagesPageMock).not.toHaveBeenCalled()
+
+      trigger(messageEvent({ type: 'taskTurn', subType: 'completed', taskId: 'task-flush' }))
+
+      // Immediate flush; the pending debounce is cancelled so no second fetch.
+      expect(refreshNewestMessagesPageMock).toHaveBeenCalledTimes(1)
+      vi.advanceTimersByTime(200)
+      expect(refreshNewestMessagesPageMock).toHaveBeenCalledTimes(1)
     })
 
     it.each([{ name: 'AskUserQuestion' }, { name: 'ExitPlanMode' }] as const)(
-      'refetches the newest page when $name appears in agent.message',
+      'refetches immediately when $name appears in agent.message',
       ({ name }) => {
-        trigger({
-          eventId: 'e',
-          type: 'agent',
-          subType: 'message',
-          taskId: 'task-tool',
-          agentType: 'test',
-          isError: false,
-          payload: {
-            message: {
-              content: [{ type: 'tool_use', toolUseId: 't1', toolName: name, toolInput: {} }],
+        trigger(
+          messageEvent({
+            type: 'agent',
+            subType: 'message',
+            taskId: 'task-tool',
+            payload: {
+              message: {
+                content: [{ type: 'tool_use', id: 't1', name, input: {} }],
+              },
             },
-          },
-        } as unknown as Event)
+          }),
+        )
 
+        expect(refreshNewestMessagesPageMock).toHaveBeenCalledTimes(1)
         expect(refreshNewestMessagesPageMock).toHaveBeenCalledWith(queryClient, 'task-tool')
       },
     )
+
+    it('marks the query stale without fetching when no chat view is mounted', () => {
+      observerCount = 0
+
+      trigger(messageEvent({ type: 'agent', subType: 'message', taskId: 'task-bg' }))
+      vi.advanceTimersByTime(200)
+
+      expect(refreshNewestMessagesPageMock).not.toHaveBeenCalled()
+      expect(invalidateQueriesMock).toHaveBeenCalledWith({
+        queryKey: queryKeys.tasks.messages('task-bg'),
+        refetchType: 'none',
+      })
+    })
 
     it('ignores events outside the trigger set', () => {
       trigger({
@@ -259,6 +323,7 @@ describe('event-handlers', () => {
       } as AgentEvent)
 
       expect(refreshNewestMessagesPageMock).not.toHaveBeenCalled()
+      expect(invalidateQueriesMock).not.toHaveBeenCalled()
     })
 
     it('ignores events with no taskId', () => {
@@ -273,6 +338,7 @@ describe('event-handlers', () => {
       } as Event)
 
       expect(refreshNewestMessagesPageMock).not.toHaveBeenCalled()
+      expect(invalidateQueriesMock).not.toHaveBeenCalled()
     })
   })
 })
