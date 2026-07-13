@@ -908,7 +908,7 @@ impl Config {
                 sandbox_resources_cpu_request: env_str("K8S_RESOURCE_REQUEST_CPU", "1"),
                 sandbox_resources_cpu_limit: env_str("K8S_RESOURCE_LIMIT_CPU", "4"),
                 sandbox_resources_memory_request: env_str("K8S_RESOURCE_REQUEST_MEMORY", "2Gi"),
-                sandbox_resources_memory_limit: env_str("K8S_RESOURCE_LIMIT_MEMORY", "8Gi"),
+                sandbox_resources_memory_limit: env_str("K8S_RESOURCE_LIMIT_MEMORY", "16Gi"),
                 run_as_non_root: env_bool("K8S_SANDBOX_RUN_AS_NON_ROOT", false),
                 shared_data_size: env_str("K8S_SANDBOX_SHARED_DATA_SIZE", "2Gi"),
                 build_cache_size: env_str("K8S_SANDBOX_BUILD_CACHE_SIZE", "1536Mi"),

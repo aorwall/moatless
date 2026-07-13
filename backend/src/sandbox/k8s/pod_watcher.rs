@@ -1628,6 +1628,22 @@ fn detect_transitions(
                 let resource_pressure_eviction = is_evicted
                     && !eviction_is_node_lifecycle(current.pod_status_message.as_deref());
 
+                // Involuntary node removal — the node object was deleted (spot
+                // reclaim, autoscaler consolidation) and the pod-GC controller
+                // failed the pod with `DeletionByPodGC`, or the node controller
+                // marked it `NodeLost`/`NodeShutdown`/`Terminated`. The Deployment
+                // reschedules onto a new node and the replacement pod emits
+                // `pod_recovering`, so a fatal `pod_failed` here is a false alarm
+                // for a routine reschedule — the same class as #268's graceful
+                // drain, but on the hard node-removal path where the pod never
+                // drained cleanly (so the `clean_exit` branch above misses it).
+                let is_node_removal = current.pod_status_reason.as_deref().is_some_and(|r| {
+                    matches!(
+                        r,
+                        "DeletionByPodGC" | "NodeLost" | "NodeShutdown" | "Terminated"
+                    )
+                });
+
                 let evicted_message = || {
                     current.pod_status_message.as_deref().map_or_else(
                         || "Pod was evicted".to_string(),
@@ -1638,6 +1654,10 @@ fn detect_transitions(
                 if resource_pressure_eviction {
                     // Surface even on clean exit — the cause recurs until fixed.
                     events.push(("pod_evicted".to_string(), Some(evicted_message())));
+                } else if is_node_removal {
+                    // Involuntary node removal that K8s auto-reschedules — emit
+                    // nothing. The replacement pod's `pod_recovering` covers the
+                    // messaging; a fatal `pod_failed` would be a false alarm.
                 } else if clean_exit {
                     // Graceful node-shutdown/drain eviction, or a clean idle
                     // stop — emit nothing. `sandbox_completed` covers the stop
@@ -2259,6 +2279,31 @@ mod tests {
         assert!(
             subs.contains(&"sandbox_completed"),
             "the clean stop is still reported via sandbox_completed: {subs:?}"
+        );
+    }
+
+    /// An involuntary node removal — the node object is deleted (spot reclaim /
+    /// autoscaler consolidation) and the pod-GC controller fails the pod with
+    /// `status.reason == "DeletionByPodGC"`, hard-killing the container (no clean
+    /// exit). K8s reschedules onto a new node and the replacement emits
+    /// `pod_recovering`, so this must NOT raise a fatal `pod_failed`/`pod_evicted`.
+    #[test]
+    fn deletion_by_pod_gc_is_not_fatal() {
+        let mut pod = pod_with_phase_and_containers(
+            "Failed",
+            vec![terminated_container("sandbox", "Error", 137)],
+        );
+        let status = pod.status.as_mut().expect("test pod has status");
+        status.reason = Some("DeletionByPodGC".to_string());
+        status.message = Some("PodGC: node no longer exists".into());
+
+        let state = extract_pod_observed_state(&pod, "pod-1", "task-1");
+        let transitions = detect_transitions(None, &state);
+        let subs: Vec<&str> = transitions.iter().map(|(s, _)| s.as_str()).collect::<Vec<_>>();
+
+        assert!(
+            !subs.contains(&"pod_failed") && !subs.contains(&"pod_evicted"),
+            "a node-removal (DeletionByPodGC) reschedule must not raise a fatal event: {subs:?}"
         );
     }
 
