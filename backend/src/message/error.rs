@@ -13,6 +13,9 @@ pub enum MessageError {
     #[error("Invalid request: {0}")]
     BadRequest(String),
 
+    #[error("Task is closed: {0}")]
+    TaskClosed(String),
+
     #[error("Database error: {0}")]
     Db(#[from] sqlx::Error),
 
@@ -25,6 +28,7 @@ impl IntoResponse for MessageError {
         let (status, message) = match &self {
             MessageError::NotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
             MessageError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            MessageError::TaskClosed(_) => (StatusCode::CONFLICT, self.to_string()),
             MessageError::Db(e) => {
                 tracing::error!(error = %e, "Database error in message handler");
                 (

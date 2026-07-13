@@ -248,11 +248,12 @@ Creating a task with a non-existent repository returns a clear error.
 
 ### TASK-11: Send message to closed task
 
-Sending a message to a closed task causes the system to accept it and reopen the task.
+Sending a message to a closed task is rejected — a closed task is terminal and has no reopen path.
 
 * **Given** a task exists in a closed state
 
 * **When** the user sends a message to the closed task
 
-* **Then** the system accepts the message
-  * **And** the task is reopened to process the new message
+* **Then** the system rejects the message with a conflict error (409)
+  * **And** no message is persisted on the task
+  * **And** the task remains closed

@@ -5,7 +5,7 @@
  *
  * Scenarios:
  *   TASK-10: Create task with invalid repository (404)
- *   TASK-11: Start closed task (400)
+ *   TASK-11: Send message to closed task (409)
  */
 
 import { test, expect } from "../fixtures/api-fixtures";
@@ -29,19 +29,19 @@ test("TASK-10: Create task with invalid repository (404)", async ({ api }) => {
 	expect(body).toBeDefined();
 });
 
-// ─── TASK-11: Send message to closed task (accepted — backend reopens) ──
+// ─── TASK-11: Send message to closed task (rejected — 409) ──────────────
 
-test("TASK-11: Send message to closed task (accepted)", async ({ api }) => {
+test("TASK-11: Send message to closed task (409)", async ({ api }) => {
 	// Setup: create a task, then close it
 	const repo = await api.ensureTemplateRepository();
 	const { taskId } = await createTaskWithMessage(api, repo.id, "Temp task for close test");
 
 	await closeTask(api, taskId);
 
-	// Act: send message to the closed task — backend accepts and reopens
+	// Act: send message to the closed task — a closed task is terminal
 	const response = await sendMessageToClosedTask(api, taskId);
 
-	expect(response.status).toBeLessThan(300);
+	expect(response.status).toBe(409);
 
 	// Cleanup
 	await api.deleteTask(taskId).catch(() => {});

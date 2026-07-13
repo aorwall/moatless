@@ -59,6 +59,23 @@ async fn resolve_command_from_message(
     }
 }
 
+/// Whether the task exists and is in `Closed` status. Fail-open on DB
+/// errors: a DB blip must not silently drop a legitimate message.
+async fn task_is_closed(state: &AppState, task_id: &str) -> bool {
+    match state.tasks.find_by_id_internal(task_id).await {
+        Ok(Some(task)) => task.status == crate::task::models::TaskStatus::Closed,
+        Ok(None) => false,
+        Err(e) => {
+            tracing::warn!(
+                task_id = %task_id,
+                error = %e,
+                "Failed to fetch task status for closed-task guard; proceeding"
+            );
+            false
+        }
+    }
+}
+
 /// The main message flow — called by message handlers, task creation, and external inbound.
 #[allow(clippy::too_many_arguments)]
 pub async fn send_message_flow(
@@ -79,28 +96,22 @@ pub async fn send_message_flow(
     start_fresh: bool,
     sent_by: Option<&str>,
 ) -> Result<(), MessageError> {
-    // Drop inbound external messages aimed at a closed task. A closed task is
-    // terminal (no reopen path) so an adapter comment must not persist a stray
-    // message or wake the agent. Scoped to `external_adapter.is_some()` so
-    // internal/UI sends are unaffected; `Error` tasks stay resumable to match
-    // `start_task` recovery semantics. Backstop for the close-vs-comment race —
-    // steady state, inactive bindings already keep these out of routing.
-    if external_adapter.is_some() {
-        match state.tasks.find_by_id_internal(task_id).await {
-            Ok(Some(task)) if task.status == crate::task::models::TaskStatus::Closed => {
-                tracing::debug!(
-                    task_id = %task_id,
-                    external_adapter,
-                    "Dropping inbound external message for closed task"
-                );
-                return Ok(());
-            }
-            Ok(_) => {}
-            Err(e) => {
-                // Fail-open: a DB blip must not silently drop a legitimate message.
-                tracing::warn!(task_id = %task_id, error = %e, "Failed to fetch task status for closed-task guard; proceeding");
-            }
+    // A closed task is terminal (no reopen path) so no send may persist a
+    // message or wake the agent. Inbound external messages are dropped
+    // silently — backstop for the close-vs-comment race; steady state,
+    // inactive bindings already keep these out of routing. Internal/API sends
+    // surface a 409 so the caller knows nothing was queued. `Error` tasks
+    // stay sendable to match `start_task` recovery semantics.
+    if task_is_closed(state, task_id).await {
+        if let Some(adapter) = external_adapter {
+            tracing::debug!(
+                task_id = %task_id,
+                external_adapter = %adapter,
+                "Dropping inbound external message for closed task"
+            );
+            return Ok(());
         }
+        return Err(MessageError::TaskClosed(task_id.to_string()));
     }
 
     // Dedup: if this external message was already persisted (or was just sent
@@ -477,6 +488,12 @@ pub async fn send_tool_response_flow(
     tool_response: Option<&serde_json::Value>,
     sent_by: Option<&str>,
 ) -> Result<(), MessageError> {
+    // Same closed-task guard as `send_message_flow`. Tool responses only
+    // arrive via the HTTP handler, so a closed task always surfaces the 409.
+    if task_is_closed(state, task_id).await {
+        return Err(MessageError::TaskClosed(task_id.to_string()));
+    }
+
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let msg_uuid = uuid::Uuid::new_v4().to_string();
 

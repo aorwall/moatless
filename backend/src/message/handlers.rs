@@ -25,7 +25,8 @@ use super::transform;
     request_body = SendMessageRequest,
     responses(
         (status = 200, description = "Message sent", body = SendMessageResponse),
-        (status = 404, description = "Task not found", body = crate::error::ErrorBody)
+        (status = 404, description = "Task not found", body = crate::error::ErrorBody),
+        (status = 409, description = "Task is closed", body = crate::error::ErrorBody)
     )
 )]
 pub async fn send_message(

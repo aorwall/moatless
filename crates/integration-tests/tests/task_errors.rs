@@ -22,7 +22,7 @@ async fn task_create_invalid_repository() {
     assert_eq!(resp.status().as_u16(), 404);
 }
 
-// TASK-11: Send message to closed task — backend accepts and reopens
+// TASK-11: Send message to closed task — rejected with 409 (closed is terminal)
 #[tokio::test]
 async fn task_send_message_to_closed_task() {
     let client = test_client();
@@ -52,20 +52,20 @@ async fn task_send_message_to_closed_task() {
     // Close it
     client.api().close_task(&task_id).await.unwrap();
 
-    // Send message — should be accepted (backend reopens)
+    // Send message — rejected: a closed task is terminal
     let resp = raw_api::send_message_raw(
         &http,
         &task_id,
         &serde_json::json!({
-            "message": "This should be accepted",
+            "message": "This should fail because task is closed",
         }),
     )
     .await;
 
-    assert!(
-        resp.status().as_u16() < 300,
-        "expected success, got {}",
-        resp.status()
+    assert_eq!(
+        resp.status().as_u16(),
+        409,
+        "expected 409 Conflict for closed task"
     );
 
     // Cleanup
