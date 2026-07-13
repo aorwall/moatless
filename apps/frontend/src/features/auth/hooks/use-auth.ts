@@ -49,6 +49,10 @@ export function useAuth() {
   // Default to `true` when no entry is present (dev mode, unauthenticated) so
   // we don't flash a reconnect banner before the session loads.
   const githubConnected = githubProvider?.connected ?? true
+  // Codex only appears in `providers` for users who connected it, so the
+  // `?? true` default keeps the banner hidden for everyone else.
+  const codexProvider = providers.find((p) => p.provider === 'codex')
+  const codexConnected = codexProvider?.connected ?? true
 
   return {
     user: session?.user ?? null,
@@ -61,6 +65,7 @@ export function useAuth() {
     refetch,
     providers,
     githubConnected,
+    codexConnected,
     logout,
   }
 }

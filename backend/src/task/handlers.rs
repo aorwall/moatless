@@ -36,6 +36,7 @@ use super::schemas::*;
     request_body = CreateTaskRequest,
     responses(
         (status = 200, description = "Task created", body = CreateTaskResponse),
+        (status = 400, description = "Invalid request or unusable Codex credential", body = crate::error::ErrorBody),
         (status = 403, description = "No access to GitHub repository", body = crate::error::ErrorBody),
         (status = 404, description = "Repository not found", body = crate::error::ErrorBody)
     )
@@ -144,6 +145,28 @@ pub async fn create_task(
             resolved_scope.owner_user_id,
         )
     };
+
+    // Fast-fail codex tasks with no usable credential: a missing connection
+    // or permanent refresh failure would otherwise surface minutes later as
+    // a sandbox that dies on sign-in. Transient refresh errors (upstream
+    // outage) do NOT block creation — the sandbox retries with the stored
+    // blob.
+    if agent_type.as_str() == "codex" {
+        if let Err(crate::credentials::CredentialError::NotFound(reason)) = state
+            .credentials_svc
+            .ensure_fresh_codex_for(&auth.user_id, task_team_id.as_deref(), None)
+            .await
+        {
+            tracing::info!(
+                user_id = %auth.user_id,
+                reason = %reason,
+                "Rejecting codex task creation: no usable Codex credential"
+            );
+            return Err(TaskError::BadRequest(
+                "Your Codex connection is missing or has expired. Reconnect Codex in Settings before creating a Codex task.".to_string(),
+            ));
+        }
+    }
 
     let row = Task {
         task_id: task_id.clone(),

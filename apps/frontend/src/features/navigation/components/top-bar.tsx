@@ -13,8 +13,9 @@ interface TopBarProps {
 
 export function TopBar({ onRepositoriesClick, onSettingsClick }: TopBarProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
-  const { user, isAuthenticated, isAdmin, githubConnected, logout } = useAuth()
+  const { user, isAuthenticated, isAdmin, githubConnected, codexConnected, logout } = useAuth()
   const showReconnectGithub = isAuthenticated && !githubConnected
+  const showReconnectCodex = isAuthenticated && !codexConnected
 
   const handleRepositoriesClick = () => {
     onRepositoriesClick()
@@ -46,6 +47,18 @@ export function TopBar({ onRepositoriesClick, onSettingsClick }: TopBarProps) {
             >
               <AlertTriangle className="mr-1.5 h-4 w-4" />
               Reconnect GitHub
+            </Button>
+          )}
+          {showReconnectCodex && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 border-amber-500/60 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 hover:text-amber-800 dark:text-amber-400 dark:hover:text-amber-300"
+              onClick={onSettingsClick}
+              title="Your Codex sign-in has expired. Click to reconnect."
+            >
+              <AlertTriangle className="mr-1.5 h-4 w-4" />
+              Reconnect Codex
             </Button>
           )}
           <Popover open={isMenuOpen} onOpenChange={setIsMenuOpen}>

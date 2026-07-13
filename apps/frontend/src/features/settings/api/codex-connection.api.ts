@@ -6,6 +6,8 @@ export interface CodexConfigResponse {
   authMethod?: string
   email?: string
   planType?: string
+  /** True when the stored credential needs a fresh sign-in (permanent refresh failure). */
+  needsReconnect?: boolean
 }
 
 export interface CodexDeviceCodeStartResponse {

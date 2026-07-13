@@ -1,4 +1,4 @@
-import { ExternalLink, Loader2, LogOut, Plug } from 'lucide-react'
+import { AlertTriangle, ExternalLink, Loader2, LogOut, Plug } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { CodexDeviceLoginDialog } from '@/features/settings/components/codex-device-login-dialog'
@@ -77,6 +77,7 @@ export function CodexConfigurationSection() {
   }
 
   const isConnected = codexConfig?.connected ?? false
+  const needsReconnect = codexConfig?.needsReconnect ?? false
 
   return (
     <ConfigurationSectionWrapper>
@@ -85,7 +86,22 @@ export function CodexConfigurationSection() {
           Sign in with your ChatGPT account to run Codex inside your sandboxes.
         </p>
 
-        {isConnected ? (
+        {isConnected && needsReconnect ? (
+          <Alert className="mb-4 border-amber-500/60 bg-amber-500/10 text-amber-700 dark:text-amber-400 [&>svg]:text-amber-700 dark:[&>svg]:text-amber-400">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Reconnect needed</AlertTitle>
+            <AlertDescription className="space-y-2">
+              <p className="text-sm">
+                Your Codex sign-in has expired and could not be refreshed. New Codex tasks will fail
+                until you sign in again.
+              </p>
+              <Button size="sm" onClick={() => setLoginOpen(true)}>
+                <ExternalLink className="mr-2 h-4 w-4" />
+                Sign in with ChatGPT
+              </Button>
+            </AlertDescription>
+          </Alert>
+        ) : isConnected ? (
           <Alert className="mb-4">
             <Plug className="h-4 w-4" />
             <AlertTitle>Connected to ChatGPT</AlertTitle>

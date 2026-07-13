@@ -39,6 +39,10 @@ pub struct CodexConfigResponse {
     /// ChatGPT plan type (e.g., "plus", "pro").
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plan_type: Option<String>,
+    /// True when the stored credential hit a permanent refresh failure and
+    /// the user must sign in again. Absent when no credential exists.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub needs_reconnect: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -19,6 +19,12 @@ export interface CodexConfigResponse {
    */
   email?: string | null;
   /**
+   * True when the stored credential hit a permanent refresh failure and
+the user must sign in again. Absent when no credential exists.
+   * @nullable
+   */
+  needsReconnect?: boolean | null;
+  /**
    * ChatGPT plan type (e.g., "plus", "pro").
    * @nullable
    */

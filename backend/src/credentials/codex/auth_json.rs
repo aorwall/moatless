@@ -109,5 +109,6 @@ pub async fn save_codex_auth_for_scope(
         auth_method: Some("auth_json".to_string()),
         email: None,
         plan_type: None,
+        needs_reconnect: Some(false),
     })
 }

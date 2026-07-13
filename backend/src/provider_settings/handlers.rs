@@ -539,6 +539,9 @@ pub async fn get_codex_config(
                 .and_then(|m| m.get("plan_type"))
                 .and_then(|v| v.as_str())
                 .map(std::string::ToString::to_string);
+            // Written by the refresher on permanent refresh failure; cleared
+            // on the next successful save/refresh.
+            let needs_reconnect = metadata.is_some_and(|m| m.get("refresh_failure").is_some());
 
             Ok(Json(CodexConfigResponse {
                 connected: true,
@@ -546,6 +549,7 @@ pub async fn get_codex_config(
                 auth_method,
                 email,
                 plan_type,
+                needs_reconnect: Some(needs_reconnect),
             }))
         }
         None => Ok(Json(CodexConfigResponse {
@@ -554,6 +558,7 @@ pub async fn get_codex_config(
             auth_method: None,
             email: None,
             plan_type: None,
+            needs_reconnect: None,
         })),
     }
 }
@@ -641,6 +646,7 @@ pub async fn admin_delete_global_codex_config(
         auth_method: None,
         email: None,
         plan_type: None,
+        needs_reconnect: None,
     }))
 }
 
@@ -669,6 +675,7 @@ pub async fn delete_codex_config(
         auth_method: None,
         email: None,
         plan_type: None,
+        needs_reconnect: None,
     }))
 }
 

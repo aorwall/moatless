@@ -452,12 +452,52 @@ async fn me_handler(
 /// each provider is currently usable. Returns a best-effort list: DB errors
 /// are logged but surfaced as `connected: false` rather than failing `/me`.
 ///
-/// Scoped to GitHub for now — extend with additional providers as they gain
-/// refreshable credentials.
+/// GitHub is always present; Codex appears only for users who connected it.
 async fn check_provider_connections(state: &AuthState, user_id: &str) -> Vec<ProviderConnection> {
-    let mut out = Vec::with_capacity(1);
+    let mut out = Vec::with_capacity(2);
     out.push(check_github_connection(state, user_id).await);
+    if let Some(codex) = check_codex_connection(state, user_id).await {
+        out.push(codex);
+    }
     out
+}
+
+/// Report the user's personal Codex credential in the `/me` providers array.
+///
+/// Returns `None` when the user has no codex row at all — most users never
+/// connect Codex, and an absent entry keeps the frontend's `?? true` default
+/// from showing a reconnect banner to them. When a row exists, `connected`
+/// is false iff the refresher stamped `metadata.refresh_failure` (permanent
+/// refresh failure — the user must sign in again).
+async fn check_codex_connection(state: &AuthState, user_id: &str) -> Option<ProviderConnection> {
+    let token = match state
+        .provider_tokens_dao
+        .find_provider_token_full(user_id, "codex")
+        .await
+    {
+        Ok(row) => row?,
+        Err(e) => {
+            warn!(
+                error = %e,
+                user_id = %user_id,
+                "Failed to load Codex provider token while building /me response"
+            );
+            return None;
+        }
+    };
+
+    let metadata = token.metadata.as_ref();
+    let needs_reconnect = metadata.is_some_and(|m| m.get("refresh_failure").is_some());
+    let login = metadata
+        .and_then(|m| m.get("email"))
+        .and_then(|v| v.as_str())
+        .map(std::string::ToString::to_string);
+
+    Some(ProviderConnection {
+        provider: "codex".to_string(),
+        connected: !needs_reconnect,
+        login,
+    })
 }
 
 async fn check_github_connection(state: &AuthState, user_id: &str) -> ProviderConnection {
@@ -1521,6 +1561,7 @@ async fn admin_set_codex_provider_token_handler(
             auth_method: Some("auth_json".to_string()),
             email: None,
             plan_type: None,
+            needs_reconnect: Some(false),
         },
     ))
 }
