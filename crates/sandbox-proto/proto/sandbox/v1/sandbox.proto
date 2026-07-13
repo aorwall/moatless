@@ -333,6 +333,13 @@ message GetAgentStatusResponse {
   // ScheduleWakeup timers). Populated from the sandbox-local
   // ScheduledJobRegistry — empty when no jobs are in flight.
   repeated ScheduledJobInfo scheduled_jobs = 4;
+  // Whether the sandbox process tree has live (non-zombie) descendant
+  // processes. Background jobs spawned by the agent CLI (run_in_background
+  // builds, ad-hoc daemons) outlive the CLI subprocess and reparent to the
+  // sandbox process, so this stays true while such work is still running
+  // even after the agent goes idle. Always false in tmux mode and on older
+  // sandbox images (absent field decodes as false = pre-existing behavior).
+  bool busy_processes = 5;
 }
 
 // Snapshot of one registered scheduled job — see sandbox/src/agent/scheduled_job.rs.

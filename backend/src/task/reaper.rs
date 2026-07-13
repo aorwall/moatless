@@ -373,19 +373,39 @@ async fn run_reap_cycle(
             ReapDecision::Stop => {
                 // Defense in depth: the activity floor can go stale (dropped
                 // events, watcher failover, delivery lag), so ask the agent
-                // itself before pulling the plug. Only a positive "running"
-                // answer skips the stop — an unreadable status (no client,
-                // gRPC error) falls through, otherwise a sandbox with a broken
-                // gRPC path could never be reaped. Costs one gRPC call per
-                // reap candidate per cycle, against a sandbox that is up.
-                if matches!(agent_is_terminal(app_state, task_id).await, Some(false)) {
-                    info!(
-                        task_id = %task_id,
-                        ttl_minutes,
-                        last_activity = ?latest_at,
-                        "Idle floor expired but agent reports running, skipping stop"
-                    );
-                    continue;
+                // itself before pulling the plug. A positive "running" answer
+                // skips the stop, and live background processes (e.g. a
+                // `run_in_background` build that outlived the turn) defer it
+                // up to the capped busy-extension window. An unreadable
+                // status (no client, gRPC error) falls through, otherwise a
+                // sandbox with a broken gRPC path could never be reaped.
+                // Costs one gRPC call per reap candidate per cycle, against
+                // a sandbox that is up.
+                if let Some(status) = agent_status_snapshot(app_state, task_id).await {
+                    if !matches!(status.status.as_str(), "idle" | "stopped") {
+                        info!(
+                            task_id = %task_id,
+                            ttl_minutes,
+                            last_activity = ?latest_at,
+                            "Idle floor expired but agent reports running, skipping stop"
+                        );
+                        continue;
+                    }
+                    if status.busy_processes
+                        && busy_extension_active(
+                            reap_floor,
+                            now,
+                            app_state.config.sandbox.busy_extension_max_hours,
+                        )
+                    {
+                        info!(
+                            task_id = %task_id,
+                            ttl_minutes,
+                            last_activity = ?latest_at,
+                            "Idle floor expired but sandbox reports live background processes, deferring stop"
+                        );
+                        continue;
+                    }
                 }
                 info!(
                     task_id = %task_id,
@@ -492,6 +512,17 @@ async fn reconcile_orphaned_turns(
 /// if it's still `running`, and `None` when the status can't be read (no client,
 /// gRPC error) — the caller treats `None` conservatively as "possibly live".
 async fn agent_is_terminal(app_state: &AppState, task_id: &str) -> Option<bool> {
+    agent_status_snapshot(app_state, task_id)
+        .await
+        .map(|resp| matches!(resp.status.as_str(), "idle" | "stopped"))
+}
+
+/// Live agent status straight from the sandbox, `None` when unreachable
+/// (no client, gRPC error).
+async fn agent_status_snapshot(
+    app_state: &AppState,
+    task_id: &str,
+) -> Option<sandbox_proto::GetAgentStatusResponse> {
     let client = match app_state.sandbox.sandbox_client(task_id).await {
         Ok(c) => c,
         Err(e) => {
@@ -500,11 +531,29 @@ async fn agent_is_terminal(app_state: &AppState, task_id: &str) -> Option<bool> 
         }
     };
     match client.get_agent_status().await {
-        Ok(resp) => Some(matches!(resp.status.as_str(), "idle" | "stopped")),
+        Ok(resp) => Some(resp),
         Err(e) => {
             debug!(task_id, error = %e, "reconcile: get_agent_status failed");
             None
         }
+    }
+}
+
+/// Whether live background processes may still defer an idle stop. The busy
+/// extension is capped at `max_hours` past the activity floor so a leaked
+/// daemon can't pin a sandbox forever; `max_hours == 0` disables the
+/// extension, and without a floor there is nothing to anchor the cap to.
+fn busy_extension_active(
+    reap_floor: Option<DateTime<Utc>>,
+    now: DateTime<Utc>,
+    max_hours: i64,
+) -> bool {
+    if max_hours <= 0 {
+        return false;
+    }
+    match reap_floor {
+        Some(floor) => now - floor < chrono::Duration::hours(max_hours),
+        None => false,
     }
 }
 
@@ -1362,6 +1411,28 @@ mod tests {
 
     fn ts(seconds_ago: i64) -> DateTime<Utc> {
         Utc::now() - chrono::Duration::seconds(seconds_ago)
+    }
+
+    // =========================================================================
+    // busy_extension_active
+    // =========================================================================
+
+    #[test]
+    fn busy_extension_holds_within_cap_and_expires_after() {
+        let now = Utc::now();
+        // Floor 1h ago, 4h cap — still within the extension window.
+        assert!(busy_extension_active(Some(ts(3600)), now, 4));
+        // Floor 5h ago, 4h cap — a leaked daemon no longer pins the sandbox.
+        assert!(!busy_extension_active(Some(ts(5 * 3600)), now, 4));
+    }
+
+    #[test]
+    fn busy_extension_disabled_or_unanchored() {
+        let now = Utc::now();
+        // max_hours == 0 disables the extension entirely.
+        assert!(!busy_extension_active(Some(ts(60)), now, 0));
+        // No activity floor — nothing to anchor the cap to.
+        assert!(!busy_extension_active(None, now, 4));
     }
 
     // =========================================================================

@@ -367,6 +367,7 @@ mod tests {
             status: "idle".into(),
             session_id: None,
             last_error: None,
+            busy_processes: false,
             scheduled_jobs: vec![
                 sandbox_proto::ScheduledJobInfo {
                     id: "good".into(),

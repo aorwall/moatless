@@ -103,11 +103,25 @@ impl SandboxService for SandboxServiceImpl {
             })
             .collect();
 
+        // In tmux mode the persistent session keeps the CLI (and tmux server)
+        // alive as descendants even at idle, which would read as always-busy —
+        // report false there, same as older sandbox images.
+        let busy_processes = if self.state.config.use_tmux {
+            false
+        } else {
+            tokio::task::spawn_blocking(|| {
+                crate::process_tree::has_live_descendants(std::process::id())
+            })
+            .await
+            .unwrap_or(false)
+        };
+
         Ok(Response::new(GetAgentStatusResponse {
             status: status.to_string(),
             session_id: self.state.agent.last_session_id().await,
             last_error: self.state.agent.last_error().await,
             scheduled_jobs,
+            busy_processes,
         }))
     }
 
