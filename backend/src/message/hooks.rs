@@ -162,7 +162,7 @@ async fn handle_gh_pr_create(
             info!(
                 task_id,
                 pr_number = pr.number,
-                rule_id = %rule.id,
+                rule_id = rule.as_ref().map_or("<none>", |r| r.id.as_str()),
                 binding_id = %binding.id,
                 "Auto-connected GitHub PR binding for PR created by agent"
             );

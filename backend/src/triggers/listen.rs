@@ -4,7 +4,7 @@
 //! connections/triggers and delegates provider-specific binding destination
 //! construction to the owning provider.
 
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::error::AdapterError;
@@ -56,32 +56,16 @@ async fn connect_binding(
     let (connection, rule) =
         resolve_connection_and_rule(state, provider, source_id, thread_properties).await?;
 
-    let resolved_filter_uid =
-        filter_user_id.map_or_else(|| rule.effective_user_id().to_string(), str::to_string);
-    let filter_user_id = if resolved_filter_uid.is_empty() {
-        None
-    } else {
-        Some(resolved_filter_uid.as_str())
-    };
-
-    let destination = provider.binding_destination_from_existing_thread(
+    let binding = write_binding(
+        state,
+        provider,
+        &connection,
+        Some(&rule),
         source_id,
+        task_id,
         external_thread_id,
         thread_properties,
         filter_user_id,
-    )?;
-
-    let binding = crate::bindings::runtime::upsert_binding(
-        state,
-        &connection,
-        Some(&rule),
-        task_id,
-        provider.connection_provider_key(),
-        destination.subject_kind,
-        &destination.subject_key,
-        destination.destination_config,
-        crate::bindings::runtime::ORIGIN_CONNECTED_THREAD,
-        destination.last_external_event_id,
     )
     .await?;
 
@@ -97,12 +81,104 @@ async fn connect_binding(
     Ok((rule, binding))
 }
 
-async fn resolve_connection_and_rule(
+/// Like [`connect_binding`], but does not require a matching trigger.
+///
+/// Used for outbound binds — e.g. a PR opened by the agent via
+/// `moat gh pr create` — where the connection alone is enough to persist the
+/// task↔thread binding so it appears under the task's Connections. Inbound
+/// delivery still finds the binding by its subject key
+/// (`route_inbound_message` looks up bindings via `find_by_subject`, not by
+/// `trigger_id`). A trigger that resolves to a different connection is ignored
+/// rather than treated as an error.
+#[allow(clippy::too_many_arguments)]
+async fn connect_binding_optional_rule(
+    state: &AppState,
+    provider: &dyn Adapter,
+    source_id: &str,
+    task_id: &str,
+    external_thread_id: &str,
+    thread_properties: &serde_json::Value,
+    filter_user_id: Option<&str>,
+) -> Result<(Option<TaskTriggerRoute>, TaskBinding), AdapterError> {
+    let connection = resolve_connection(state, provider, source_id, thread_properties).await?;
+    let rule =
+        resolve_optional_rule(state, provider, source_id, thread_properties, &connection).await?;
+
+    let binding = write_binding(
+        state,
+        provider,
+        &connection,
+        rule.as_ref(),
+        source_id,
+        task_id,
+        external_thread_id,
+        thread_properties,
+        filter_user_id,
+    )
+    .await?;
+
+    info!(
+        rule_id = rule.as_ref().map_or("<none>", |r| r.id.as_str()),
+        task_id,
+        binding_id = %binding.id,
+        subject_key = %binding.subject_key,
+        provider = provider.provider_key(),
+        "Task connected to integration binding (outbound, trigger optional)"
+    );
+
+    Ok((rule, binding))
+}
+
+/// Build the provider destination and upsert the canonical task binding.
+///
+/// `rule` is optional: outbound binds may have no matching trigger, in which
+/// case `upsert_binding` writes a `NULL` `trigger_id`.
+#[allow(clippy::too_many_arguments)]
+async fn write_binding(
+    state: &AppState,
+    provider: &dyn Adapter,
+    connection: &AdapterConnection,
+    rule: Option<&TaskTriggerRoute>,
+    source_id: &str,
+    task_id: &str,
+    external_thread_id: &str,
+    thread_properties: &serde_json::Value,
+    filter_user_id: Option<&str>,
+) -> Result<TaskBinding, AdapterError> {
+    let resolved_filter_uid = filter_user_id
+        .map(str::to_string)
+        .or_else(|| rule.map(|r| r.effective_user_id().to_string()));
+    let filter_user_id = resolved_filter_uid.as_deref().filter(|s| !s.is_empty());
+
+    let destination = provider.binding_destination_from_existing_thread(
+        source_id,
+        external_thread_id,
+        thread_properties,
+        filter_user_id,
+    )?;
+
+    crate::bindings::runtime::upsert_binding(
+        state,
+        connection,
+        rule,
+        task_id,
+        provider.connection_provider_key(),
+        destination.subject_kind,
+        &destination.subject_key,
+        destination.destination_config,
+        crate::bindings::runtime::ORIGIN_CONNECTED_THREAD,
+        destination.last_external_event_id,
+    )
+    .await
+}
+
+/// Resolve the provider connection for a source. Errors when none exists.
+async fn resolve_connection(
     state: &AppState,
     provider: &dyn Adapter,
     source_id: &str,
     thread_properties: &serde_json::Value,
-) -> Result<(AdapterConnection, TaskTriggerRoute), AdapterError> {
+) -> Result<AdapterConnection, AdapterError> {
     let provider_key = provider.connection_provider_key();
     let scope_value =
         provider.connection_scope_value_from_existing_thread(source_id, thread_properties)?;
@@ -119,12 +195,58 @@ async fn resolve_connection_and_rule(
             .find_by_scope_value(provider_key, "default")
             .await?;
     }
-    let connection = connection.ok_or_else(|| {
+    connection.ok_or_else(|| {
         AdapterError::BadRequest(format!(
             "No {provider_key} provider_connection for scope '{scope_value}'"
         ))
-    })?;
+    })
+}
 
+/// Resolve the trigger for a source, returning `None` when no trigger matches.
+///
+/// A trigger belonging to a different connection is treated as absent (and
+/// logged) so callers that tolerate a missing trigger still succeed.
+async fn resolve_optional_rule(
+    state: &AppState,
+    provider: &dyn Adapter,
+    source_id: &str,
+    thread_properties: &serde_json::Value,
+    connection: &AdapterConnection,
+) -> Result<Option<TaskTriggerRoute>, AdapterError> {
+    let provider_key = provider.connection_provider_key();
+    let source_matcher =
+        provider.trigger_source_matcher_from_existing_thread(source_id, thread_properties)?;
+    let rule_repo = PgTaskTriggerRouteRepository(state.db.clone());
+    let mut rule = rule_repo
+        .find_by_source_matcher(provider_key, &source_matcher)
+        .await?;
+    if rule.is_none() && provider.allow_wildcard_trigger_fallback() {
+        rule = rule_repo.find_wildcard(provider_key).await?;
+    }
+
+    if let Some(rule) = &rule {
+        if rule.connection_id != connection.id {
+            warn!(
+                rule_id = %rule.id,
+                connection_id = %connection.id,
+                "Ignoring task trigger that belongs to a different connection"
+            );
+            return Ok(None);
+        }
+    }
+
+    Ok(rule)
+}
+
+async fn resolve_connection_and_rule(
+    state: &AppState,
+    provider: &dyn Adapter,
+    source_id: &str,
+    thread_properties: &serde_json::Value,
+) -> Result<(AdapterConnection, TaskTriggerRoute), AdapterError> {
+    let connection = resolve_connection(state, provider, source_id, thread_properties).await?;
+
+    let provider_key = provider.connection_provider_key();
     let source_matcher =
         provider.trigger_source_matcher_from_existing_thread(source_id, thread_properties)?;
     let rule_repo = PgTaskTriggerRouteRepository(state.db.clone());
@@ -159,13 +281,13 @@ pub async fn connect_github_binding(
     task_id: &str,
     thread_properties: serde_json::Value,
     filter_user_id: Option<&str>,
-) -> Result<(TaskTriggerRoute, TaskBinding), AdapterError> {
+) -> Result<(Option<TaskTriggerRoute>, TaskBinding), AdapterError> {
     if let Some(provider) = state
         .adapters
         .as_ref()
         .and_then(|providers| providers.get(AdapterKind::GithubPr))
     {
-        return connect_binding(
+        return connect_binding_optional_rule(
             state,
             provider.as_ref(),
             source_id,
@@ -187,7 +309,7 @@ pub async fn connect_github_binding(
         state.github_app_service.clone(),
         state.github_apps.clone(),
     );
-    connect_binding(
+    connect_binding_optional_rule(
         state,
         &provider,
         source_id,
