@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { Bell, Link2, Package, Plug, Terminal } from 'lucide-react'
+import { Bell, KeyRound, Link2, Package, Plug, Terminal } from 'lucide-react'
 import type { ComponentType, SVGProps } from 'react'
 import {
   Sidebar,
@@ -40,6 +40,7 @@ const ADMIN_NAV: AdminNavGroup[] = [
   {
     label: 'System',
     items: [
+      { label: 'Secrets', to: '/admin/secrets', icon: KeyRound },
       { label: 'Marketplaces', to: '/admin/marketplaces', icon: Package },
       { label: 'Commands', to: '/admin/commands', icon: Terminal },
     ],

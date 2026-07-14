@@ -12,9 +12,14 @@ import { Tabs, TabsList, TabsTrigger } from '@/lib/components/ui/tabs'
 
 type EditorScope = 'user' | 'team' | 'global'
 
-export function SecretsPanel() {
+interface SecretsPanelProps {
+  /** Scope tab to select on mount. Defaults to the current user's own secrets. */
+  defaultScope?: EditorScope
+}
+
+export function SecretsPanel({ defaultScope = 'user' }: SecretsPanelProps = {}) {
   const { user, isAdmin } = useAuth()
-  const [scope, setScope] = useState<EditorScope>('user')
+  const [scope, setScope] = useState<EditorScope>(defaultScope)
   const [teamId, setTeamId] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editSecret, setEditSecret] = useState<SecretMetadataResponse | null>(null)

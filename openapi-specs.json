@@ -10540,6 +10540,12 @@
       "PatchSecretRequest": {
         "type": "object",
         "properties": {
+          "enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "externalRef": {
             "type": [
               "string",
@@ -11726,10 +11732,14 @@
           "key",
           "kind",
           "source",
+          "enabled",
           "version",
           "updatedAt"
         ],
         "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
           "id": {
             "type": "string"
           },

@@ -10,6 +10,7 @@ import type { SecretScopeType } from './secretScopeType';
 import type { SecretSource } from './secretSource';
 
 export interface SecretMetadataResponse {
+  enabled: boolean;
   id: string;
   key: string;
   kind: SecretKind;

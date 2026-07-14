@@ -9,6 +9,8 @@ import type { SecretKind } from './secretKind';
 
 export interface PatchSecretRequest {
   /** @nullable */
+  enabled?: boolean | null;
+  /** @nullable */
   externalRef?: string | null;
   kind?: null | SecretKind;
   /** @nullable */

@@ -2,7 +2,7 @@ import type { SecretMetadataResponse } from '@moatless/api-client'
 import { Loader2, Pencil, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { useDeleteSecret } from '@/features/secrets/hooks/use-secrets'
+import { useDeleteSecret, usePatchSecret } from '@/features/secrets/hooks/use-secrets'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,6 +15,7 @@ import {
 } from '@/lib/components/ui/alert-dialog'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
+import { Switch } from '@/lib/components/ui/switch'
 import {
   Table,
   TableBody,
@@ -42,7 +43,27 @@ function formatUpdated(iso: string): string {
 
 export function SecretsList({ secrets, isLoading, error, onEdit }: SecretsListProps) {
   const deleteSecret = useDeleteSecret()
+  const patchSecret = usePatchSecret()
   const [pendingDelete, setPendingDelete] = useState<SecretMetadataResponse | null>(null)
+
+  const togglingId = patchSecret.isPending ? patchSecret.variables?.id : undefined
+
+  const handleToggleEnabled = (secret: SecretMetadataResponse) => {
+    const nextEnabled = !secret.enabled
+    patchSecret.mutate(
+      { id: secret.id, request: { enabled: nextEnabled } },
+      {
+        onSuccess: () => {
+          toast.success(`${secret.key} ${nextEnabled ? 'enabled' : 'disabled'}`)
+        },
+        onError: (err) => {
+          toast.error(`Failed to ${nextEnabled ? 'enable' : 'disable'} ${secret.key}`, {
+            description: getErrorMessage(err),
+          })
+        },
+      },
+    )
+  }
 
   if (isLoading) {
     return (
@@ -94,16 +115,30 @@ export function SecretsList({ secrets, isLoading, error, onEdit }: SecretsListPr
             <TableRow>
               <TableHead>Key</TableHead>
               <TableHead>Kind</TableHead>
+              <TableHead className="w-[110px]">Active</TableHead>
               <TableHead>Updated</TableHead>
               <TableHead className="w-[100px] text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {secrets.map((secret) => (
-              <TableRow key={secret.id}>
+              <TableRow key={secret.id} className={secret.enabled ? undefined : 'opacity-60'}>
                 <TableCell className="font-mono text-sm">{secret.key}</TableCell>
                 <TableCell>
                   <Badge variant="secondary">{secret.kind}</Badge>
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={secret.enabled}
+                      onCheckedChange={() => handleToggleEnabled(secret)}
+                      disabled={togglingId === secret.id}
+                      aria-label={secret.enabled ? `Disable ${secret.key}` : `Enable ${secret.key}`}
+                    />
+                    <span className="text-xs text-muted-foreground">
+                      {secret.enabled ? 'Active' : 'Disabled'}
+                    </span>
+                  </div>
                 </TableCell>
                 <TableCell className="text-sm text-muted-foreground">
                   {formatUpdated(secret.updatedAt)}
