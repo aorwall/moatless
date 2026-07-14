@@ -1,3 +1,5 @@
+import inspectorPlugin from "@moatless/inspector/vite";
+import componentTagger from "@moatless/inspector/vite-tagger";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
@@ -62,6 +64,10 @@ export default defineConfig(({ mode }) => {
 
 	return {
 		plugins: [
+			// Moatless inspector: tag JSX elements with data-component-id at build
+			// time (dev only) so the preview element inspector can map DOM clicks
+			// back to source. Must run before @vitejs/plugin-react compiles JSX.
+			componentTagger(),
 			react({
 				babel: {
 					// React Compiler (C2 experiment, docs/frontend-improvement-plan-2026-07.md).
@@ -77,6 +83,10 @@ export default defineConfig(({ mode }) => {
 				routeFileIgnorePattern:
 					"\\.test\\.(ts|tsx|js|jsx)$|\\.spec\\.(ts|tsx|js|jsx)$",
 			}),
+			// Inject the inspector runtime client into index.html on the dev server
+			// (dev only) so element inspection / console forwarding work when the
+			// frontend is run directly (not behind the preview-server proxy).
+			inspectorPlugin({ serverId: "moatless-frontend" }),
 			...(isRemote && apiKey ? [apiKeyAuthPlugin(target, apiKey)] : []),
 		],
 		server: {

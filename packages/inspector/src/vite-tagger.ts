@@ -55,6 +55,10 @@ export default function componentTagger(options: VitePluginOptions = {}): Plugin
 
   return {
     name: 'component-tagger',
+    // Run before @vitejs/plugin-react (and any other JSX compiler) so the
+    // tagger sees raw JSX/TSX source. Without this the React plugin compiles
+    // JSX to `jsx()` calls first and there are no JSX elements left to tag.
+    enforce: 'pre',
 
     configResolved(config) {
       isDev = config.mode === 'development'
