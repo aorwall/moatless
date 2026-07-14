@@ -79,7 +79,8 @@ impl SandboxService for SandboxServiceImpl {
         &self,
         _request: Request<GetAgentStatusRequest>,
     ) -> Result<Response<GetAgentStatusResponse>, Status> {
-        let status = match self.state.agent.status().await {
+        let agent_status = self.state.agent.status().await;
+        let status = match agent_status {
             AgentStatus::Idle => "idle",
             AgentStatus::Running => "running",
             AgentStatus::Stopped => "stopped",
@@ -114,25 +115,31 @@ impl SandboxService for SandboxServiceImpl {
             })
             .collect();
 
-        // In tmux mode the persistent session keeps the CLI (and tmux server)
-        // alive as descendants even at idle, which would read as always-busy —
-        // report an empty list there, same as older sandbox images. Otherwise
-        // enumerate live descendants once and derive `busy_processes` from it.
-        let background_processes: Vec<BackgroundProcess> = if self.state.config.use_tmux {
-            Vec::new()
-        } else {
-            tokio::task::spawn_blocking(|| {
-                crate::process_tree::live_descendants(std::process::id())
-            })
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .map(|p| BackgroundProcess {
-                pid: p.pid,
-                command: p.command,
-            })
-            .collect()
-        };
+        // Only enumerate live descendants when the agent is idle/stopped. While
+        // a turn is running the sandbox's own `claude -p` subprocess (and its
+        // transient tool/subagent children) are live descendants, so reporting
+        // them would surface the agent's own turn as a phantom "background
+        // process". The signal is only meaningful once the agent is no longer
+        // running, where any live descendant is genuine detached background
+        // work. In tmux mode the persistent session keeps the CLI + tmux server
+        // alive even at idle, which would read as always-busy, so report empty
+        // there as before.
+        let background_processes: Vec<BackgroundProcess> =
+            if should_report_background_processes(self.state.config.use_tmux, agent_status) {
+                tokio::task::spawn_blocking(|| {
+                    crate::process_tree::live_descendants(std::process::id())
+                })
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .map(|p| BackgroundProcess {
+                    pid: p.pid,
+                    command: p.command,
+                })
+                .collect()
+            } else {
+                Vec::new()
+            };
         let busy_processes = !background_processes.is_empty();
 
         Ok(Response::new(GetAgentStatusResponse {
@@ -326,6 +333,18 @@ impl SandboxService for SandboxServiceImpl {
 
 // ── Helpers ──────────────────────────────────────────────────────
 
+/// Whether `GetAgentStatus` should enumerate live descendant processes as
+/// background work. Only meaningful in subprocess mode while the agent is not
+/// running: mid-turn the sandbox's own `claude -p` subprocess (and its tool /
+/// subagent children) are live descendants and would surface as phantom
+/// "background processes"; once the agent is idle/stopped, any live descendant
+/// is genuine detached work. In tmux mode the persistent session keeps the CLI
+/// and tmux server alive even at idle, which would read as always-busy, so it
+/// is never reported.
+fn should_report_background_processes(use_tmux: bool, status: AgentStatus) -> bool {
+    !use_tmux && !matches!(status, AgentStatus::Running)
+}
+
 fn tree_node_to_proto(node: files::tree::FileTreeNode) -> sandbox_proto::FileTreeNode {
     sandbox_proto::FileTreeNode {
         name: node.name,
@@ -351,5 +370,40 @@ fn file_error_to_status(e: files::FileError) -> Status {
             Status::failed_precondition(format!("Path is a directory: {msg}"))
         }
         files::FileError::Io(e) => Status::internal(format!("IO error: {e}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reports_background_processes_only_when_subprocess_and_not_running() {
+        // Subprocess mode: idle/stopped surface genuine detached work...
+        assert!(should_report_background_processes(false, AgentStatus::Idle));
+        assert!(should_report_background_processes(
+            false,
+            AgentStatus::Stopped
+        ));
+        // ...but a running turn's own CLI subprocess must not be reported.
+        assert!(!should_report_background_processes(
+            false,
+            AgentStatus::Running
+        ));
+    }
+
+    #[test]
+    fn never_reports_background_processes_in_tmux_mode() {
+        // The persistent tmux session keeps the CLI + tmux server alive even at
+        // idle, so it would read as always-busy — never report there.
+        assert!(!should_report_background_processes(true, AgentStatus::Idle));
+        assert!(!should_report_background_processes(
+            true,
+            AgentStatus::Running
+        ));
+        assert!(!should_report_background_processes(
+            true,
+            AgentStatus::Stopped
+        ));
     }
 }
