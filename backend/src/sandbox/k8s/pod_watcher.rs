@@ -727,6 +727,12 @@ async fn process_watcher_event(
                 if let Some(ref reason) = terminated_reason {
                     parts.push(format!("Reason: `{reason}`"));
                 }
+                // Name the node-level cause (spot reclaim, drain, preemption) in
+                // the message itself, not just the payload chip, so the root cause
+                // is legible wherever the message is read.
+                if let Some(ref disruption) = new_state.disruption_reason {
+                    parts.push(format!("Disruption: `{disruption}`"));
+                }
                 if let Some(ref logs) = logs {
                     parts.push(format!("Container logs:\n```\n{logs}\n```"));
                 }
@@ -1513,6 +1519,32 @@ fn extract_pod_observed_state(pod: &Pod, pod_name: &str, task_id: &str) -> PodOb
 /// An absent message is treated as resource pressure (returns `false`): a bare
 /// pod-level `status.reason == "Evicted"` is only ever set by the kubelet under
 /// resource pressure, so it should be surfaced.
+/// Whether a disruption reason — from either the pod-level `status.reason` or
+/// the `DisruptionTarget` condition — means the pod's *node* went away rather
+/// than the container itself failing.
+///
+/// Covers the involuntary node-removal family: pod-GC of a pod orphaned by a
+/// deleted node (`DeletionByPodGC`), the node controller losing/shutting down a
+/// node (`NodeLost` / `NodeShutdown` / `Terminated`), and a NoExecute taint
+/// draining the node during a spot reclaim or autoscaler consolidation
+/// (`DeletionByTaintManager`). K8s reschedules all of these onto a new node, so
+/// they are a routine restart (`node_reclaimed`), never a fatal error.
+///
+/// Deliberately excludes `PreemptionByScheduler` (a higher-priority pod bumping
+/// this one — a scheduling decision, not a node loss) and `TerminationByKubelet`
+/// (node resource pressure — handled by the eviction path so recurring evictions
+/// still surface).
+fn is_node_removal_reason(reason: &str) -> bool {
+    matches!(
+        reason,
+        "DeletionByPodGC"
+            | "NodeLost"
+            | "NodeShutdown"
+            | "Terminated"
+            | "DeletionByTaintManager"
+    )
+}
+
 fn eviction_is_node_lifecycle(message: Option<&str>) -> bool {
     let Some(msg) = message else {
         return false;
@@ -1631,18 +1663,28 @@ fn detect_transitions(
                 // Involuntary node removal — the node object was deleted (spot
                 // reclaim, autoscaler consolidation) and the pod-GC controller
                 // failed the pod with `DeletionByPodGC`, or the node controller
-                // marked it `NodeLost`/`NodeShutdown`/`Terminated`. The Deployment
-                // reschedules onto a new node and the replacement pod emits
-                // `pod_recovering`, so a fatal `pod_failed` here is a false alarm
-                // for a routine reschedule — the same class as #268's graceful
-                // drain, but on the hard node-removal path where the pod never
-                // drained cleanly (so the `clean_exit` branch above misses it).
-                let is_node_removal = current.pod_status_reason.as_deref().is_some_and(|r| {
-                    matches!(
-                        r,
-                        "DeletionByPodGC" | "NodeLost" | "NodeShutdown" | "Terminated"
-                    )
-                });
+                // marked it `NodeLost`/`NodeShutdown`/`Terminated`, or a NoExecute
+                // taint drained it (`DeletionByTaintManager`). The Deployment
+                // reschedules onto a new node, so a fatal `pod_failed` here is a
+                // false alarm for a routine reschedule — the same class as #268's
+                // graceful drain, but on the hard node-removal path where the pod
+                // never drained cleanly (so the `clean_exit` branch above misses
+                // it).
+                //
+                // Match on BOTH the pod-level `status.reason` and the structured
+                // `DisruptionTarget` condition (carried in `disruption_reason`):
+                // the reason often lands on the condition first while
+                // `status.reason` is still empty on the watch event that observes
+                // the Failed edge, which previously slipped through here as a
+                // scary fatal `pod_failed`.
+                let is_node_removal = current
+                    .pod_status_reason
+                    .as_deref()
+                    .is_some_and(is_node_removal_reason)
+                    || current
+                        .disruption_reason
+                        .as_deref()
+                        .is_some_and(is_node_removal_reason);
 
                 let evicted_message = || {
                     current.pod_status_message.as_deref().map_or_else(
@@ -1655,9 +1697,13 @@ fn detect_transitions(
                     // Surface even on clean exit — the cause recurs until fixed.
                     events.push(("pod_evicted".to_string(), Some(evicted_message())));
                 } else if is_node_removal {
-                    // Involuntary node removal that K8s auto-reschedules — emit
-                    // nothing. The replacement pod's `pod_recovering` covers the
-                    // messaging; a fatal `pod_failed` would be a false alarm.
+                    // Involuntary node removal that K8s auto-reschedules. This is
+                    // NOT a fatal failure, but it IS the root cause of the restart
+                    // the user sees — so surface it explicitly as `node_reclaimed`
+                    // (a recovering-tone event, not an error) instead of staying
+                    // silent. The node name and disruption reason ride on every
+                    // sandbox event payload, so the UI can name the exact cause.
+                    events.push(("node_reclaimed".to_string(), None));
                 } else if clean_exit {
                     // Graceful node-shutdown/drain eviction, or a clean idle
                     // stop — emit nothing. `sandbox_completed` covers the stop
@@ -2085,7 +2131,11 @@ fn lifecycle_sub_type_to_sandbox_status(sub_type: &str) -> SandboxStatus {
         }
         "pod_ready" => SandboxStatus::Ready,
         "pod_succeeded" | "sandbox_completed" => SandboxStatus::Stopped,
-        "container_restarted" | "pod_recovering" | "pod_scheduled" => SandboxStatus::Initializing,
+        // Node reclaim is an involuntary reschedule, not a failure — treat it as
+        // recovering (Initializing), never Error, so it doesn't read as a crash.
+        "container_restarted" | "pod_recovering" | "pod_scheduled" | "node_reclaimed" => {
+            SandboxStatus::Initializing
+        }
         _ => SandboxStatus::Error,
     }
 }
@@ -2137,6 +2187,9 @@ fn format_sandbox_lifecycle_message(lifecycle_event: &str, error: Option<&str>) 
         },
         "pod_failed" => "Pod failed".to_string(),
         "pod_evicted" => "Pod evicted".to_string(),
+        "node_reclaimed" => {
+            "Node reclaimed — rescheduling onto a new node (work preserved)".to_string()
+        }
         "pod_scheduled" => "Scheduled onto a node".to_string(),
         "pod_succeeded" | "sandbox_completed" => "Completed".to_string(),
         "pod_deleted" => "Pod deleted".to_string(),
@@ -2285,10 +2338,11 @@ mod tests {
     /// An involuntary node removal — the node object is deleted (spot reclaim /
     /// autoscaler consolidation) and the pod-GC controller fails the pod with
     /// `status.reason == "DeletionByPodGC"`, hard-killing the container (no clean
-    /// exit). K8s reschedules onto a new node and the replacement emits
-    /// `pod_recovering`, so this must NOT raise a fatal `pod_failed`/`pod_evicted`.
+    /// exit). K8s reschedules onto a new node, so this must NOT raise a fatal
+    /// `pod_failed`/`pod_evicted`; instead it surfaces the root cause as a
+    /// recovering-tone `node_reclaimed` event.
     #[test]
-    fn deletion_by_pod_gc_is_not_fatal() {
+    fn deletion_by_pod_gc_is_node_reclaimed_not_fatal() {
         let mut pod = pod_with_phase_and_containers(
             "Failed",
             vec![terminated_container("sandbox", "Error", 137)],
@@ -2304,6 +2358,60 @@ mod tests {
         assert!(
             !subs.contains(&"pod_failed") && !subs.contains(&"pod_evicted"),
             "a node-removal (DeletionByPodGC) reschedule must not raise a fatal event: {subs:?}"
+        );
+        assert!(
+            subs.contains(&"node_reclaimed"),
+            "node removal must surface the root cause as node_reclaimed: {subs:?}"
+        );
+        // node_reclaimed is a recovering reschedule, never an Error status.
+        assert!(
+            !matches!(
+                lifecycle_sub_type_to_sandbox_status("node_reclaimed"),
+                SandboxStatus::Error
+            ),
+            "node_reclaimed must not map to an Error sandbox status"
+        );
+    }
+
+    /// The real spot-reclaim shape that previously slipped through as a fatal:
+    /// the node-removal reason arrives on the structured `DisruptionTarget`
+    /// condition while the pod-level `status.reason` is still empty on the watch
+    /// event that first observes the Failed edge. Classification must consult the
+    /// condition (`disruption_reason`), not just `status.reason`, so this is a
+    /// `node_reclaimed` reschedule and NOT a fatal `pod_failed`.
+    #[test]
+    fn node_removal_via_disruption_condition_is_not_fatal() {
+        use k8s_openapi::api::core::v1::PodCondition;
+
+        let mut pod = pod_with_phase_and_containers(
+            "Failed",
+            vec![terminated_container("sandbox", "Error", 137)],
+        );
+        let status = pod.status.as_mut().expect("test pod has status");
+        // status.reason intentionally left unset — the cause is only on the
+        // DisruptionTarget condition (a NoExecute-taint drain / spot reclaim).
+        status.conditions = Some(vec![PodCondition {
+            type_: "DisruptionTarget".to_string(),
+            reason: Some("DeletionByTaintManager".to_string()),
+            ..Default::default()
+        }]);
+
+        let state = extract_pod_observed_state(&pod, "pod-1", "task-1");
+        assert!(
+            state.pod_status_reason.is_none(),
+            "precondition: status.reason must be empty so only the condition carries the cause"
+        );
+
+        let transitions = detect_transitions(None, &state);
+        let subs: Vec<&str> = transitions.iter().map(|(s, _)| s.as_str()).collect::<Vec<_>>();
+
+        assert!(
+            !subs.contains(&"pod_failed") && !subs.contains(&"pod_evicted"),
+            "a condition-sourced node removal must not raise a fatal event: {subs:?}"
+        );
+        assert!(
+            subs.contains(&"node_reclaimed"),
+            "condition-sourced node removal must surface node_reclaimed: {subs:?}"
         );
     }
 

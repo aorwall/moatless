@@ -27,6 +27,23 @@ describe('describeEvent', () => {
     expect(tone).toBe('recovering')
   })
 
+  it('renders node_reclaimed as a recovering reschedule with its cause chip', () => {
+    const { label, tone, chips } = describeEvent(
+      makeEvent({
+        subType: 'initializing',
+        payload: { lifecycleEvent: 'node_reclaimed' },
+        nodeName: 'i-0e89d34c48ac6c99d',
+        disruptionReason: 'DeletionByPodGC',
+      }),
+    )
+    expect(label).toBe('Node reclaimed')
+    // A node reclaim is an involuntary reschedule — amber, NOT a red error.
+    expect(tone).toBe('recovering')
+    // The root cause is surfaced as chips, not just buried in the message.
+    expect(chips).toContainEqual({ label: 'node', value: 'i-0e89d34c48ac6c99d' })
+    expect(chips).toContainEqual({ label: 'cause', value: 'DeletionByPodGC' })
+  })
+
   it('renders idle_reaped as a neutral stop, not an error', () => {
     const { label, tone } = describeEvent(
       makeEvent({ subType: 'stopped', payload: { lifecycleEvent: 'idle_reaped' } }),

@@ -86,6 +86,7 @@ const DESCRIPTORS: Record<string, Descriptor> = {
   sandbox_completed: { label: 'Completed', tone: 'neutral' },
   pod_failed: { label: 'Pod failed', tone: 'error' },
   pod_evicted: { label: 'Evicted', tone: 'recovering' },
+  node_reclaimed: { label: 'Node reclaimed', tone: 'recovering' },
   container_oom_killed: { label: 'Out of memory', tone: 'error' },
   container_terminated: { label: 'Terminated', tone: 'error' },
   container_crash_loop: { label: 'Crash looping', tone: 'error' },

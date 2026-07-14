@@ -119,6 +119,7 @@ old pod's death with the new pod's birth.
 | `container_terminated` | Container exited | Initializing |
 | `container_crash_loop` | CrashLoopBackOff | Initializing |
 | `pod_recovering` | Pod recovering after failure | Initializing |
+| `node_reclaimed` | Node removed (spot reclaim / drain), rescheduling | Initializing |
 | `pod_evicted` | Kubelet eviction / involuntary removal | Error |
 | `pod_failed` | Pod-level failure | Error |
 | `pod_succeeded` / `sandbox_completed` | Clean exit | Stopped |
@@ -140,8 +141,19 @@ only pod-level failures are treated as dead.
   `pod_status_reason` in `DeletionByPodGC` / `NodeLost` / `NodeShutdown` /
   `Terminated`, or exits cleanly while the Deployment still desires a
   replica, the watcher classifies it as an involuntary eviction that K8s
-  will reschedule — `pod_evicted` with recovery expected — instead of
-  `pod_failed`.
+  will reschedule instead of `pod_failed`.
+- **Node reclaim surfaces its root cause** (`node_reclaimed`): a node-removal
+  reschedule is now published as an explicit `node_reclaimed` event
+  (Initializing tone) carrying `node_name` + `disruption_reason`, rather than
+  staying silent — so the timeline explains *why* the sandbox restarted
+  ("Node reclaimed", cause `DeletionByPodGC`) instead of showing a bare stop or
+  a scary `pod_failed`. Classification matches the node-removal reason on
+  **both** the pod-level `status.reason` and the structured `DisruptionTarget`
+  condition (`disruption_reason`); the reason frequently lands on the condition
+  first while `status.reason` is still empty, which previously slipped through
+  as a fatal `pod_failed`. The node-removal set also includes
+  `DeletionByTaintManager` (NoExecute-taint drain during a spot reclaim /
+  autoscaler consolidation).
 - **Intentional-stop awareness**: a stop initiated through the API (scale to
   0) is distinguished from an eviction so the UI doesn't render a
   user-requested stop as a crash. The idle reaper additionally tags its
