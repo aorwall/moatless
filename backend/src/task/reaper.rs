@@ -17,7 +17,7 @@ use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::{PersistentVolumeClaim, Pod, Service};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::api::{Api, ListParams};
-use moatless_events::TaskSubType;
+use moatless_events::{TaskSubType, TaskTurnSubType};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
@@ -34,7 +34,7 @@ use crate::sandbox::k8s::client::K8sClient;
 use crate::sandbox::k8s::leader_election::LeaderElection;
 use crate::sandbox::provider::SandboxProvider;
 use crate::state::AppState;
-use crate::task_turn::models::UnclosedTurn;
+use crate::task_turn::models::{TurnStatus, TurnTransition, UnclosedTurn};
 
 /// Minimum age of a stuck `active` turn before the reaper reconciles it.
 ///
@@ -566,6 +566,30 @@ fn busy_extension_active(
 /// hasn't yet round-tripped into `task_events`) upsert the same message row
 /// instead of stacking duplicates.
 async fn close_orphaned_turn(app_state: &AppState, turn: &UnclosedTurn) {
+    // False-negative guard: if the agent already delivered its final reply for
+    // this turn, the terminal event was merely lost — not the result. Closing
+    // such a turn as `error` surfaces a misleading "stopped without reporting a
+    // result" message even though the answer is right there in the chat. Close
+    // it as `completed` instead.
+    match app_state
+        .messages
+        .last_message_is_completed_reply(&turn.task_id, turn.turn_number)
+        .await
+    {
+        Ok(true) => {
+            close_orphaned_turn_as_completed(app_state, turn).await;
+            return;
+        }
+        Ok(false) => {}
+        Err(e) => {
+            warn!(
+                task_id = %turn.task_id,
+                error = %e,
+                "reconcile: failed to inspect last message; closing turn as error"
+            );
+        }
+    }
+
     let turn_label = turn
         .turn_number
         .map_or_else(|| "unknown".to_string(), |n| n.to_string());
@@ -593,6 +617,70 @@ async fn close_orphaned_turn(app_state: &AppState, turn: &UnclosedTurn) {
         task_id = %turn.task_id,
         turn_number = ?turn.turn_number,
         "Reconciled orphaned active turn"
+    );
+}
+
+/// Close a stuck turn whose agent had already delivered its final reply — its
+/// terminal event was lost, not its result. Projects the turn to `completed`,
+/// returns the task to Open, and emits `taskTurn/completed` so the UI unblocks,
+/// all without appending a spurious error message.
+///
+/// The turn is projected directly (rather than relying solely on the published
+/// event round-tripping) because a lost terminal event is the very failure this
+/// path guards against — if the reconcile event were also lost the turn would
+/// otherwise stay `active` and be reconciled again on the next cycle.
+async fn close_orphaned_turn_as_completed(app_state: &AppState, turn: &UnclosedTurn) {
+    if let Some(turn_number) = turn.turn_number {
+        if let Err(e) = app_state
+            .task_turns
+            .project_turn(
+                &turn.task_id,
+                turn_number,
+                turn.agent_type.clone(),
+                TurnTransition::Terminal(TurnStatus::Completed),
+                Utc::now(),
+            )
+            .await
+        {
+            warn!(
+                task_id = %turn.task_id,
+                error = %e,
+                "reconcile: failed to project orphaned turn as completed"
+            );
+        }
+    }
+
+    // Return the task to Open unless it was closed mid-run (mirrors the agent
+    // terminal handlers — a Closed task is never resurrected by automation).
+    if let Err(e) = app_state
+        .tasks
+        .update_status_if_not_closed(&turn.task_id, TaskStatus::Open)
+        .await
+    {
+        warn!(
+            task_id = %turn.task_id,
+            error = %e,
+            "reconcile: failed to reopen task after completed reconcile"
+        );
+    }
+
+    if let Some(ref events) = app_state.events {
+        events
+            .publish_task_turn_event(
+                &turn.task_id,
+                TaskTurnSubType::Completed,
+                turn.agent_type.as_deref(),
+                turn.turn_number,
+                serde_json::json!({ "reason": "reconciled_orphaned_turn_completed" }),
+            )
+            .await;
+    }
+
+    metrics::counter!("task_turns_reconciled_total").increment(1);
+    info!(
+        task_id = %turn.task_id,
+        turn_number = ?turn.turn_number,
+        "Reconciled orphaned active turn as completed (agent had already replied)"
     );
 }
 

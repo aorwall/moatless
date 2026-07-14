@@ -124,6 +124,22 @@ pub trait MessageRepository: Send + Sync {
     /// block is "Stopped by user request". Used by `handle_agent_stopped` to
     /// drop duplicate stop fan-out events before they accumulate phantom rows.
     async fn last_is_stopped_marker(&self, task_id: &str) -> Result<bool, sqlx::Error>;
+
+    /// Whether the most recent row for a task (optionally scoped to a single
+    /// `turn_number`) is an `assistant` message that finished its turn
+    /// (`assistant_stop_reason = 'end_turn'`) — i.e. the agent already delivered
+    /// its final reply. The orphaned-turn reaper uses this to close a turn whose
+    /// terminal event was merely lost as *completed* instead of surfacing a
+    /// false "stopped without reporting a result" error.
+    ///
+    /// The `turn_number` scope matters: `list_unclosed_active_turns` can return
+    /// a stale open turn while a *later* turn already has a final reply — without
+    /// scoping, that older turn would be wrongly closed as completed.
+    async fn last_message_is_completed_reply(
+        &self,
+        task_id: &str,
+        turn_number: Option<i32>,
+    ) -> Result<bool, sqlx::Error>;
     async fn get_latest_message_times(
         &self,
         task_ids: &[String],
@@ -585,6 +601,34 @@ impl MessageRepository for PgMessageRepository {
             .and_then(|v| v.as_str())
             == Some("Stopped by user request");
         Ok(is_stopped)
+    }
+
+    async fn last_message_is_completed_reply(
+        &self,
+        task_id: &str,
+        turn_number: Option<i32>,
+    ) -> Result<bool, sqlx::Error> {
+        // Scope to the reconciled turn when known: a stale open turn must not be
+        // closed as completed on the strength of a later turn's final reply.
+        let row: Option<(super::models::MessageType, Option<String>)> = sqlx::query_as(
+            r#"SELECT message_type, assistant_stop_reason FROM task_messages
+               WHERE task_id = $1
+                 AND ($2::int IS NULL OR turn_number = $2)
+               ORDER BY timestamp DESC, id DESC
+               LIMIT 1"#,
+        )
+        .bind(task_id)
+        .bind(turn_number)
+        .fetch_optional(&self.0)
+        .await?;
+
+        // A final assistant reply ends with stop_reason `end_turn`; a turn cut
+        // off mid-tool ends with `tool_use` (or no assistant row at all), which
+        // stays a genuine orphan.
+        Ok(matches!(
+            row,
+            Some((super::models::MessageType::Assistant, Some(reason))) if reason == "end_turn"
+        ))
     }
 
     async fn get_latest_message_times(

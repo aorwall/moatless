@@ -432,3 +432,130 @@ async fn delete_queued(pool: PgPool) {
         .unwrap();
     assert!(!deleted_again);
 }
+
+/// Build an `assistant` message row with a controlled `stop_reason`,
+/// `turn_number`, and timestamp so ordering/scoping is deterministic.
+fn make_assistant_row(
+    task_id: &str,
+    uuid: &str,
+    stop_reason: Option<&str>,
+    turn_number: Option<i32>,
+    ts: &str,
+) -> moatless_vibe_backend::message::models::TaskMessage {
+    let mut msg = make_message_row(task_id, uuid);
+    msg.message_type = MessageType::Assistant;
+    msg.message_role = MessageRole::Assistant;
+    msg.assistant_stop_reason = stop_reason.map(ToString::to_string);
+    msg.turn_number = turn_number;
+    msg.timestamp = ts.to_string();
+    msg
+}
+
+#[sqlx::test]
+async fn last_message_is_completed_reply_detects_final_assistant(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+    let repo = PgMessageRepository(pool.clone());
+
+    // No messages yet — not a completed reply.
+    assert!(!repo
+        .last_message_is_completed_reply("task-1", Some(1))
+        .await
+        .unwrap());
+
+    // A user message alone is a genuine orphan (agent never replied).
+    let mut user = make_message_row("task-1", "u-1");
+    user.turn_number = Some(1);
+    message_dao::append(&pool, &user, &[], &[]).await.unwrap();
+    assert!(!repo
+        .last_message_is_completed_reply("task-1", Some(1))
+        .await
+        .unwrap());
+
+    // An assistant message that finished its turn is a completed reply.
+    let done = make_assistant_row(
+        "task-1",
+        "a-1",
+        Some("end_turn"),
+        Some(1),
+        "2026-07-14T11:47:30.000Z",
+    );
+    message_dao::append(&pool, &done, &[], &[]).await.unwrap();
+    assert!(repo
+        .last_message_is_completed_reply("task-1", Some(1))
+        .await
+        .unwrap());
+    // A None scope falls back to the task-wide last message.
+    assert!(repo
+        .last_message_is_completed_reply("task-1", None)
+        .await
+        .unwrap());
+}
+
+#[sqlx::test]
+async fn last_message_is_completed_reply_ignores_mid_tool_interruption(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+    let repo = PgMessageRepository(pool.clone());
+
+    // An assistant message that stopped to call a tool is NOT a final reply —
+    // the turn was cut off mid-tool and stays a genuine orphan.
+    let tool = make_assistant_row(
+        "task-1",
+        "a-1",
+        Some("tool_use"),
+        Some(1),
+        "2026-07-14T11:47:30.000Z",
+    );
+    message_dao::append(&pool, &tool, &[], &[]).await.unwrap();
+    assert!(!repo
+        .last_message_is_completed_reply("task-1", Some(1))
+        .await
+        .unwrap());
+
+    // An assistant message with no stop_reason is likewise not treated as final.
+    let unknown = make_assistant_row("task-1", "a-2", None, Some(1), "2026-07-14T11:47:31.000Z");
+    message_dao::append(&pool, &unknown, &[], &[]).await.unwrap();
+    assert!(!repo
+        .last_message_is_completed_reply("task-1", Some(1))
+        .await
+        .unwrap());
+}
+
+#[sqlx::test]
+async fn last_message_is_completed_reply_is_scoped_to_turn(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+    let repo = PgMessageRepository(pool.clone());
+
+    // Turn 1 was cut off mid-tool (no final reply); turn 2 later finished.
+    let turn1_tool = make_assistant_row(
+        "task-1",
+        "a-1",
+        Some("tool_use"),
+        Some(1),
+        "2026-07-14T11:00:00.000Z",
+    );
+    message_dao::append(&pool, &turn1_tool, &[], &[])
+        .await
+        .unwrap();
+    let turn2_done = make_assistant_row(
+        "task-1",
+        "a-2",
+        Some("end_turn"),
+        Some(2),
+        "2026-07-14T12:00:00.000Z",
+    );
+    message_dao::append(&pool, &turn2_done, &[], &[])
+        .await
+        .unwrap();
+
+    // A stale open turn 1 must NOT be closed as completed on the strength of
+    // turn 2's final reply.
+    assert!(!repo
+        .last_message_is_completed_reply("task-1", Some(1))
+        .await
+        .unwrap());
+    // Turn 2 did finish.
+    assert!(repo
+        .last_message_is_completed_reply("task-1", Some(2))
+        .await
+        .unwrap());
+}
