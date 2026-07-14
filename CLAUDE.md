@@ -261,6 +261,7 @@ This project uses Claude Code's skills system to provide comprehensive developme
 
 For a comprehensive overview of the system architecture, see [Architecture Overview](./docs/architecture-overview.md).
 For sandbox-specific architecture, see [Sandbox Architecture](./docs/sandbox-architecture.md).
+For sandbox lifecycle handling (provisioning, pod watcher, idle reaper, recovery), see [Sandbox Lifecycle](./docs/sandbox-lifecycle.md).
 
 ### Project Structure
 ```

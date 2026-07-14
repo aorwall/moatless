@@ -33,6 +33,9 @@ The sandbox is an isolated per-task execution environment that runs the Claude C
 
 Each sandbox instance is ephemeral and bound to exactly one task. The backend creates a new container/pod per task and communicates with it over gRPC.
 
+For the control-plane side — how the backend provisions, watches, idle-stops,
+recovers, and destroys sandboxes — see [Sandbox Lifecycle & Handling](./sandbox-lifecycle.md).
+
 ---
 
 ## Container Layout
