@@ -78,6 +78,32 @@ RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}" \
 RUN npm install -g pnpm@11.9.0 \
     && (pnpm --version 2>/dev/null || echo "unknown") > /opt/moatless/.pnpm-version
 
+# Rust toolchain. Same rationale as the Codex/Claude/pnpm overrides above: the
+# fork does not build sandbox-base itself (that workflow is gated to the aorwall
+# repo), so the rustup layer in Dockerfile.sandbox-base never reaches the
+# platform-ECR moatless-sandbox image this Dockerfile produces — the deployed
+# base ships without cargo/rustc. Bake it in here so agents can build/test the
+# Rust workspace (backend, sandbox, crates/*, including the claude-agent-sdk E2E
+# tests) without a ~200MB per-pod rustup install on every fresh sandbox.
+#
+# RUST_VERSION must stay in lockstep with the workspace pin in
+# rust-toolchain.toml (1.94.0); an unpinned/drifted default forces rustup to
+# download the pinned toolchain at runtime — exactly what baking it in avoids.
+# RUSTUP_HOME/CARGO_HOME live under /opt owned by the moatless user so
+# `cargo build`/`cargo install` can write the registry cache at runtime.
+ARG RUST_VERSION=1.94.0
+ENV RUSTUP_HOME="/opt/rust"
+ENV CARGO_HOME="/opt/cargo"
+ENV PATH="/opt/cargo/bin:${PATH}"
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
+      --no-modify-path --default-toolchain "${RUST_VERSION}" --profile minimal \
+      --component clippy --component rustfmt \
+    && chown -R moatless:moatless /opt/rust /opt/cargo \
+    && echo 'export RUSTUP_HOME="/opt/rust"' >> /etc/profile \
+    && echo 'export CARGO_HOME="/opt/cargo"' >> /etc/profile \
+    && echo 'export PATH="/opt/cargo/bin:$PATH"' >> /etc/profile \
+    && (cargo --version 2>/dev/null || echo "unknown") > /opt/moatless/.rust-version
+
 # Entrypoint scripts come from the sandbox-tools image so script edits don't
 # invalidate the binary COPY layer below (and vice versa).
 COPY --from=aorwall/moatless-sandbox-tools:latest /tools/docker-entrypoint-sandbox.sh /usr/local/bin/docker-entrypoint-sandbox.sh
