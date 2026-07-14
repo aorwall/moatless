@@ -1665,15 +1665,18 @@ pub async fn resolve_and_process_github_webhook(
         debug!(
             repo = repo_full_name,
             owner = owner_login,
-            "GitHub webhook ignored: no provider_connection / task_trigger"
+            "GitHub webhook ignored: no provider_connection"
         );
         return Ok(GithubWebhookOutcome::Ignored {
             event_type: event_type.to_string(),
-            reason: "no_trigger",
+            reason: "no_connection",
         });
     };
 
-    if !rule.active {
+    // An *inactive* trigger suppresses delivery. A *missing* trigger does not —
+    // events still fan out to existing PR bindings (the binding is the opt-in);
+    // only new-task creation is gated on a trigger, in `route_inbound_message`.
+    if rule.as_ref().is_some_and(|r| !r.active) {
         debug!(
             repo = repo_full_name,
             "GitHub webhook ignored: task trigger inactive"
@@ -1707,8 +1710,17 @@ pub async fn resolve_and_process_github_webhook(
         ));
     }
 
+    // `parse_webhook` only reads the trigger as a config bag (event filter,
+    // source label, sender→user fallback). When no trigger matches, synthesize
+    // a delivery-only one from the connection so the event is still parsed.
+    // Task-creation decisions use the real `rule` below, not this fallback.
+    let rule_for_parse = match &rule {
+        Some(rule) => rule.clone(),
+        None => super::runtime::connection_only_rule(&connection, repo_full_name),
+    };
+
     let result = github_provider
-        .parse_webhook(delivery_id, event_type, &payload, &rule, &state.db)
+        .parse_webhook(delivery_id, event_type, &payload, &rule_for_parse, &state.db)
         .await?;
 
     match result {
@@ -1717,17 +1729,31 @@ pub async fn resolve_and_process_github_webhook(
             let rule = rule.clone();
             let state_clone = state.clone();
             tokio::spawn(async move {
-                if let Err(e) =
-                    super::runtime::route_inbound_message(&state_clone, &connection, &rule, *msg)
-                        .await
+                if let Err(e) = super::runtime::route_inbound_message(
+                    &state_clone,
+                    &connection,
+                    rule.as_ref(),
+                    *msg,
+                )
+                .await
                 {
                     warn!(error = %e, "Failed to route GitHub PR inbound message");
                 }
             });
         }
         GithubPrWebhookResult::CloseTask(info) => {
+            // Auto-close only applies to trigger-created tasks; with no trigger
+            // there is nothing to close.
+            let Some(rule) = rule.clone() else {
+                debug!(
+                    repo = repo_full_name,
+                    "PR closed but no trigger for this repo — nothing to auto-close"
+                );
+                return Ok(GithubWebhookOutcome::Processed {
+                    event_type: event_type.to_string(),
+                });
+            };
             let connection = connection.clone();
-            let rule = rule.clone();
             let state_clone = state.clone();
             tokio::spawn(async move {
                 if let Err(e) =

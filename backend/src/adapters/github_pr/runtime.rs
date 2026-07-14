@@ -37,12 +37,19 @@ pub(crate) const ORIGIN_CONNECTED_THREAD: &str = CONNECTED_THREAD_BINDING_ORIGIN
 /// GitHub PR event, so loop/trigger prompts don't have to restate the origin.
 const PR_ORIGIN_CONTEXT: &str = "This task was created from a GitHub Pull Request.";
 
-/// Look up the connection + trigger for an inbound provider event.
+/// Look up the connection and (optional) trigger for an inbound provider event.
+///
+/// The **connection** is required — without it we can't verify the webhook
+/// signature or identify the tenant. The **trigger** is optional: when no
+/// trigger matches the repo, events are still delivered to any existing PR
+/// bindings (the binding a task created when it opened/connected to the PR is
+/// itself the opt-in). A trigger is only required to *create* a brand-new task
+/// from a PR — [`route_inbound_message`] gates creation on `Some(rule)`.
 pub async fn resolve_provider_event(
     state: &AppState,
     org: &str,
     repo_full_name: &str,
-) -> Result<Option<(AdapterConnection, TaskTriggerRoute)>, AdapterError> {
+) -> Result<Option<(AdapterConnection, Option<TaskTriggerRoute>)>, AdapterError> {
     let connection = PgAdapterConnectionRepository(state.db.clone())
         .find_by_scope_value(ADAPTER, org)
         .await?;
@@ -52,36 +59,83 @@ pub async fn resolve_provider_event(
 
     let rule = PgTaskTriggerRouteRepository(state.db.clone())
         .find_by_source_matcher(ADAPTER, repo_full_name)
-        .await?;
-    let Some(rule) = rule else {
-        return Ok(None);
-    };
-
-    if rule.connection_id != connection.id {
-        debug!(
-            source_matcher = %repo_full_name,
-            "Task trigger belongs to a different connection — refusing to deliver"
-        );
-        return Ok(None);
-    }
+        .await?
+        .filter(|rule| {
+            let same_connection = rule.connection_id == connection.id;
+            if !same_connection {
+                debug!(
+                    source_matcher = %repo_full_name,
+                    "Task trigger belongs to a different connection — ignoring trigger; \
+                     delivering to existing bindings only"
+                );
+            }
+            same_connection
+        });
 
     Ok(Some((connection, rule)))
+}
+
+/// Synthesize a delivery-only trigger route for a connection that has no
+/// matching trigger. Used purely as a config bag for
+/// [`super::adapter::GithubPrAdapter::parse_webhook`] so an inbound event on a
+/// PR a task already connected to is still parsed into an `InboundMessage`.
+///
+/// It is NEVER persisted and NEVER drives task creation — the real
+/// `Option<&TaskTriggerRoute>` gates that in [`route_inbound_message`]. An
+/// empty `event_filter` lets all supported event types through (including
+/// `check_run` failures); `source_matcher` is the repo so message source
+/// labels stay correct.
+pub fn connection_only_rule(
+    connection: &AdapterConnection,
+    repo_full_name: &str,
+) -> TaskTriggerRoute {
+    let now = Utc::now();
+    TaskTriggerRoute {
+        id: format!("virtual:{}", connection.id),
+        provider: ADAPTER.to_string(),
+        connection_id: connection.id.clone(),
+        source_matcher: repo_full_name.to_string(),
+        source_name: None,
+        routing_mode: crate::adapters::models::RoutingMode::BySubject,
+        event_filter: serde_json::json!([]),
+        repository_id: String::new(),
+        prompt_template: None,
+        task_name: None,
+        tag_ids: Vec::new(),
+        run_as_user_id: connection.owner_user_id.clone(),
+        agent_type: String::new(),
+        inactive_ttl_days: None,
+        allow_direct_send: false,
+        provider_config: None,
+        ongoing_task_id: None,
+        close_task_on_close: false,
+        notify_on_success: false,
+        active: true,
+        created_by: connection.created_by.clone(),
+        scope: connection.scope,
+        team_id: connection.team_id.clone(),
+        owner_user_id: connection.owner_user_id.clone(),
+        created_at: now,
+        updated_at: now,
+    }
 }
 
 /// Route an inbound GitHub PR message to one or more tasks via bindings.
 pub async fn route_inbound_message(
     state: &AppState,
     connection: &AdapterConnection,
-    rule: &TaskTriggerRoute,
+    rule: Option<&TaskTriggerRoute>,
     msg: InboundMessage,
 ) -> Result<(), AdapterError> {
-    if !rule.active {
-        debug!(
-            rule_id = %rule.id,
-            source_matcher = %rule.source_matcher,
-            "Ignoring GitHub PR message: task trigger inactive"
-        );
-        return Ok(());
+    if let Some(rule) = rule {
+        if !rule.active {
+            debug!(
+                rule_id = %rule.id,
+                source_matcher = %rule.source_matcher,
+                "Ignoring GitHub PR message: task trigger inactive"
+            );
+            return Ok(());
+        }
     }
 
     let subject_key = subject_key_from_thread_properties(&msg.thread_properties)?;
@@ -133,7 +187,7 @@ pub async fn route_inbound_message(
             match upsert_binding(
                 state,
                 connection,
-                Some(rule),
+                rule,
                 origin_task_id,
                 &subject_key,
                 &msg.thread_properties,
@@ -222,51 +276,66 @@ pub async fn route_inbound_message(
         id.starts_with("github:pr:opened:") || id.starts_with("github:pr:reopened:")
     });
 
+    // Spawning a review task needs a real trigger (repo, agent, prompt config
+    // a bare connection doesn't carry). Without one we still deliver to any
+    // existing bindings above — we just don't create a new task.
     if is_pr_open_event && !has_provider_event_task {
-        // The eager `gh pr create` hook (see backend/src/message/hooks.rs)
-        // upserts a connected_thread binding for the originating task at the
-        // moment the agent created the PR — so by the time pr_opened fires,
-        // the earliest binding is the originating task. Link the new review
-        // task to it as a `related_to` peer (it shares the PR subject_key,
-        // it isn't a child of the originator).
-        let related = originator_binding_summary.as_ref().map(|(task_id, binding_id)| {
-            crate::task::relations::RelatedTask {
-                related_task_id: task_id.clone(),
-                context: serde_json::json!({
-                    "via": "github_pr_webhook",
-                    "adapter": ADAPTER,
-                    "subject_kind": SUBJECT_KIND,
-                    "subject_key": subject_key,
-                    "origin_binding_id": binding_id,
-                }),
-            }
-        });
-        let task_id = create_provider_event_task(state, rule, &msg).await?;
-        if let Some(ref r) = related {
-            crate::task::relations::record_related_to(state.task_relations.as_ref(), &task_id, r)
+        if let Some(rule) = rule {
+            // The eager `gh pr create` hook (see backend/src/message/hooks.rs)
+            // upserts a connected_thread binding for the originating task at the
+            // moment the agent created the PR — so by the time pr_opened fires,
+            // the earliest binding is the originating task. Link the new review
+            // task to it as a `related_to` peer (it shares the PR subject_key,
+            // it isn't a child of the originator).
+            let related = originator_binding_summary.as_ref().map(|(task_id, binding_id)| {
+                crate::task::relations::RelatedTask {
+                    related_task_id: task_id.clone(),
+                    context: serde_json::json!({
+                        "via": "github_pr_webhook",
+                        "adapter": ADAPTER,
+                        "subject_kind": SUBJECT_KIND,
+                        "subject_key": subject_key,
+                        "origin_binding_id": binding_id,
+                    }),
+                }
+            });
+            let task_id = create_provider_event_task(state, rule, &msg).await?;
+            if let Some(ref r) = related {
+                crate::task::relations::record_related_to(
+                    state.task_relations.as_ref(),
+                    &task_id,
+                    r,
+                )
                 .await;
+            }
+            provision_task(state, &task_id).await;
+
+            let binding = upsert_binding(
+                state,
+                connection,
+                Some(rule),
+                &task_id,
+                &subject_key,
+                &msg.thread_properties,
+                ORIGIN_ADAPTER_EVENT,
+            )
+            .await?;
+
+            info!(
+                task_id = %task_id,
+                rule_id = %rule.id,
+                subject_key = %subject_key,
+                "Created provider event task for GitHub PR binding"
+            );
+
+            delivery_targets.insert(0, (binding, true));
+        } else {
+            debug!(
+                subject_key = %subject_key,
+                "PR opened but no trigger for this repo — not creating a review task; \
+                 delivering to existing bindings only"
+            );
         }
-        provision_task(state, &task_id).await;
-
-        let binding = upsert_binding(
-            state,
-            connection,
-            Some(rule),
-            &task_id,
-            &subject_key,
-            &msg.thread_properties,
-            ORIGIN_ADAPTER_EVENT,
-        )
-        .await?;
-
-        info!(
-            task_id = %task_id,
-            rule_id = %rule.id,
-            subject_key = %subject_key,
-            "Created provider event task for GitHub PR binding"
-        );
-
-        delivery_targets.insert(0, (binding, true));
     }
 
     let receipts = crate::triggers::receipts::PgEventReceiptRepository(state.db.clone());
@@ -371,7 +440,8 @@ pub async fn close_tasks_for_pr(
         // wakes the agent on a sandbox we're about to tear down.
         let close_msg = build_close_inbound_message(state, owner, repo, rule, info).await;
         if let Err(e) =
-            deliver_to_binding(state, rule, connection, &binding, &close_msg, false, false).await
+            deliver_to_binding(state, Some(rule), connection, &binding, &close_msg, false, false)
+                .await
         {
             warn!(
                 task_id = %task_id,
@@ -637,7 +707,7 @@ async fn create_provider_event_task(
 
 async fn deliver_to_binding(
     state: &AppState,
-    rule: &TaskTriggerRoute,
+    rule: Option<&TaskTriggerRoute>,
     _connection: &AdapterConnection,
     binding: &TaskBinding,
     msg: &InboundMessage,
@@ -660,6 +730,18 @@ async fn deliver_to_binding(
         }
     }
 
+    // Source label for the message row. Falls back to the repo portion of the
+    // subject key ("owner/repo#N" -> "owner/repo") when there is no trigger.
+    let source_matcher = rule.map_or_else(
+        || {
+            binding
+                .subject_key
+                .split_once('#')
+                .map_or_else(|| binding.subject_key.clone(), |(repo, _)| repo.to_string())
+        },
+        |r| r.source_matcher.clone(),
+    );
+
     if let Err(e) = crate::message::send::send_message_flow(
         state,
         &binding.task_id,
@@ -672,7 +754,7 @@ async fn deliver_to_binding(
         msg.external_event_id.as_deref(),
         Some(ADAPTER_LABEL),
         Some(&binding.subject_key),
-        Some(rule.source_matcher.as_str()),
+        Some(source_matcher.as_str()),
         None,
         None,
         false,
@@ -853,6 +935,52 @@ mod tests {
         let out = truncate(s, 7);
         assert!(out.ends_with("..."));
         assert!(out.len() <= 7);
+    }
+
+    mod connection_only_rule {
+        use super::super::connection_only_rule;
+        use crate::adapters::models::AdapterConnection;
+        use crate::scope::Scope;
+        use chrono::Utc;
+
+        fn connection() -> AdapterConnection {
+            let now = Utc::now();
+            AdapterConnection {
+                id: "pc_org".to_string(),
+                provider: "github".to_string(),
+                connection_kind: "org_webhook".to_string(),
+                scope_value: "acme".to_string(),
+                credential_ref: None,
+                webhook_secret: Some("s3cr3t".to_string()),
+                transport_config: serde_json::json!({}),
+                created_by: "u_owner".to_string(),
+                scope: Scope::User,
+                team_id: Some("personal-u_owner".to_string()),
+                owner_user_id: Some("u_owner".to_string()),
+                created_at: now,
+                updated_at: now,
+            }
+        }
+
+        #[test]
+        fn is_delivery_only_and_cannot_create_tasks() {
+            let rule = connection_only_rule(&connection(), "acme/widget");
+
+            // Active so delivery isn't suppressed, but carries no repo/agent
+            // config — so `route_inbound_message` can never spawn a task from it.
+            assert!(rule.active);
+            assert!(rule.repository_id.is_empty());
+            assert!(rule.agent_type.is_empty());
+            assert!(rule.prompt_template.is_none());
+
+            // Empty event_filter = every supported event type passes (incl. check_run).
+            assert_eq!(rule.event_filter, serde_json::json!([]));
+
+            // Source label + connection linkage stay correct for message rows.
+            assert_eq!(rule.source_matcher, "acme/widget");
+            assert_eq!(rule.connection_id, "pc_org");
+            assert_eq!(rule.run_as_user_id.as_deref(), Some("u_owner"));
+        }
     }
 
     mod self_echo_filter {
