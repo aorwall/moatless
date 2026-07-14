@@ -1,5 +1,19 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["local>soaplabs/renovate-config"],
-  "ignoreDeps": ["node", "bun"]
+  "ignoreDeps": ["node", "bun"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Version pins annotated with `# renovate:` in Dockerfiles and rust-toolchain.toml (ARG *_VERSION, npm -g pkg@ver, channel = \"...\"). Renovate's built-in managers don't see these; the annotation supplies datasource + depName.",
+      "fileMatch": [
+        "(^|/)Dockerfile[^/]*$",
+        "(^|/)rust-toolchain\\.toml$"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: versioning=(?<versioning>\\S+))?\\n[^\\n]*?(?<currentValue>v?\\d+\\.\\d+(?:\\.\\d+)?)"
+      ],
+      "versioningTemplate": "{{#if versioning}}{{versioning}}{{else}}semver{{/if}}"
+    }
+  ]
 }

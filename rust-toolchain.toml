@@ -1,5 +1,9 @@
 [toolchain]
 # Pinned to match CI's `rust:1.94-bookworm` image. sqlx 0.9 requires rustc
 # 1.94+, so an older default `stable` (e.g. 1.93) cannot build the workspace.
+# Renovate keeps this in lockstep with the ARG RUST_VERSION pins in the sandbox
+# Dockerfiles (same depName groups them into one PR); the CI toolchain-drift job
+# enforces the channel↔sandbox-base coupling.
+# renovate: datasource=github-releases depName=rust-lang/rust
 channel = "1.94.0"
 components = ["clippy", "rustfmt"]

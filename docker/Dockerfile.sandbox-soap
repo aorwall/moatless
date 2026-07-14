@@ -6,27 +6,16 @@
 # platform ECR, replaces the prior two-step pipeline.
 #
 # Layer order is volatile-last so a Rust-binary edit only invalidates the
-# final COPY layer, not the JDK / jira / kubectl / go-task layers above it.
+# final COPY layer, not the JDK / kubectl / go-task layers above it.
 
 # Global ARGs declared before any FROM so they're consumable by all stages.
 ARG SANDBOX_BASE=aorwall/moatless-sandbox-base:latest
 
-# Stage 1: rebuild jira-cli from source against current Go to clear stale
-# stdlib CVEs flagged by AWS Inspector on upstream binary releases.
-# Go 1.26.3 fixes CVE-2026-42499, CVE-2026-39823, CVE-2026-39825.
-FROM golang:1.26.3-bookworm AS jira-builder
-ARG JIRA_VERSION=v1.7.0
-ENV CGO_ENABLED=0
-RUN git clone --depth 1 --branch ${JIRA_VERSION} https://github.com/ankitpokhrel/jira-cli.git /src && \
-    cd /src && \
-    go get golang.org/x/net@v0.55.0 && \
-    go mod tidy && \
-    go build -o /go/bin/jira ./cmd/jira
-
-# Stage 2: rebuild go-task from source to clear golang.org/x/net CVE-2026-33814
+# Stage 1: rebuild go-task from source to clear golang.org/x/net CVE-2026-33814
 # and go/stdlib CVEs (CVE-2026-42499, CVE-2026-39823, CVE-2026-39825).
 FROM golang:1.26.3-bookworm AS task-builder
-ARG TASK_VERSION=v3.50.0
+# renovate: datasource=github-releases depName=go-task/task
+ARG TASK_VERSION=v3.52.0
 ENV CGO_ENABLED=0
 RUN git clone --depth 1 --branch ${TASK_VERSION} https://github.com/go-task/task.git /src && \
     cd /src && \
@@ -46,7 +35,8 @@ FROM ${SANDBOX_BASE}
 # `which codex` at this layer's build time would find the existing
 # `/usr/local/bin/codex` symlink first (PATH order), producing a self-loop
 # and ELOOP at runtime ("Too many levels of symbolic links").
-ARG CODEX_CLI_VERSION=0.131.0
+# renovate: datasource=npm depName=@openai/codex
+ARG CODEX_CLI_VERSION=0.144.3
 RUN npm install -g "@openai/codex@${CODEX_CLI_VERSION}" \
     && (codex --version 2>/dev/null || echo "unknown") > /opt/moatless/.codex-cli-version
 
@@ -60,7 +50,8 @@ RUN npm install -g "@openai/codex@${CODEX_CLI_VERSION}" \
 # Do NOT re-run `ln -sf "$(which claude)" /usr/local/bin/claude` here — same
 # self-loop/ELOOP hazard as the Codex note above; npm replaces the binary at the
 # existing symlink target.
-ARG CLAUDE_CLI_VERSION=2.1.170
+# renovate: datasource=npm depName=@anthropic-ai/claude-code
+ARG CLAUDE_CLI_VERSION=2.1.208
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}" \
     && (claude --version 2>/dev/null || echo "unknown") > /opt/moatless/.claude-cli-version
 
@@ -75,7 +66,8 @@ RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}" \
 # GHSA-72r4-9c5j-mj57 / GHSA-fr4h-3cph-29xv — malicious-lockfile path traversal
 # and arbitrary code execution, all fixed by 11.8.0. Pin >=11.8.0 here so the
 # fork's own build bakes in the patched pnpm regardless of the upstream base.
-RUN npm install -g pnpm@11.9.0 \
+# renovate: datasource=npm depName=pnpm
+RUN npm install -g pnpm@11.13.0 \
     && (pnpm --version 2>/dev/null || echo "unknown") > /opt/moatless/.pnpm-version
 
 # Rust toolchain. Same rationale as the Codex/Claude/pnpm overrides above: the
@@ -91,6 +83,7 @@ RUN npm install -g pnpm@11.9.0 \
 # download the pinned toolchain at runtime — exactly what baking it in avoids.
 # RUSTUP_HOME/CARGO_HOME live under /opt owned by the moatless user so
 # `cargo build`/`cargo install` can write the registry cache at runtime.
+# renovate: datasource=github-releases depName=rust-lang/rust
 ARG RUST_VERSION=1.94.0
 ENV RUSTUP_HOME="/opt/rust"
 ENV CARGO_HOME="/opt/cargo"
@@ -125,16 +118,10 @@ RUN apt-get update && \
 
 RUN ln -s /usr/lib/jvm/temurin-25-jdk-* /usr/lib/jvm/temurin-25-jdk
 
-# jira-cli — copy the binary we rebuilt above with current Go.
-COPY --from=jira-builder /go/bin/jira /usr/local/bin/jira
-
-# jira-cli config (the login field is overwritten at runtime by the wrapper).
-COPY docker/.config/jira-config.yml /home/moatless/.config/.jira/.config.yml
-RUN chown -R moatless:moatless /home/moatless/.config/.jira
-
 # kubectl — pinned. v1.36 is compiled with Go 1.24+ which clears the critical
 # go/stdlib CVEs flagged by AWS Inspector for older kubectl builds.
-ARG KUBECTL_VERSION=v1.36.0
+# renovate: datasource=github-releases depName=kubernetes/kubernetes
+ARG KUBECTL_VERSION=v1.36.2
 RUN ARCH=$(dpkg --print-architecture) && \
     curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl" -o /usr/local/bin/kubectl && \
     chmod +x /usr/local/bin/kubectl
@@ -156,7 +143,7 @@ RUN ARCH=$(dpkg --print-architecture | sed 's/amd64/x86_64/;s/arm64/aarch64/') &
 # Volatile layers last — our Rust binaries change on every code edit.
 # The K8s pod spec calls `sandbox` directly (bypassing ENTRYPOINT), so we
 # install the real binary as sandbox-real and write a wrapper at sandbox
-# that sets up Maven settings, jira-cli login, npm/Playwright, and an
+# that sets up Maven settings, npm/Playwright, and an
 # in-cluster kubeconfig before exec'ing the real binary.
 ARG TARGETARCH
 COPY --from=binaries ${TARGETARCH}/sandbox /usr/local/bin/sandbox-real
@@ -224,10 +211,6 @@ EOF
   else
     echo "[codeartifact] could not mint a token (no AWS creds?) — skipping npm/pip/maven auth" >&2
   fi
-fi
-# Update jira-cli login with the git committer's email (set by moatless sandbox)
-if [ -n "$GIT_USER_EMAIL" ]; then
-  sed -i "s/^login: .*/login: ${GIT_USER_EMAIL}/" /home/moatless/.config/.jira/.config.yml
 fi
 # Install npm deps if missing — required before playwright install so the
 # correct @playwright/test version from package.json is used, not the global one.

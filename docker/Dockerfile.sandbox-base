@@ -127,6 +127,7 @@ RUN mkdir -p /home/$USERNAME/.cache \
 # An unpinned (or drifted) default toolchain forces rustup to download the
 # pinned one at runtime on every fresh pod, which is exactly the multi-hundred-
 # MB install the baked toolchain exists to avoid.
+# renovate: datasource=github-releases depName=rust-lang/rust
 ARG RUST_VERSION=1.94.0
 ENV RUSTUP_HOME="/opt/rust"
 ENV CARGO_HOME="/opt/cargo"
