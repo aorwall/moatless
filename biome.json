@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.1.1/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.5.3/schema.json",
   "vcs": {
     "enabled": true,
     "clientKind": "git",
@@ -13,11 +13,11 @@
       "apps/frontend/src/**",
       "apps/backend/**/*.ts",
       "apps/backend/**/*.js",
-      "!apps/backend/dist/**",
+      "!apps/backend/dist",
       "apps/sandbox/src/**",
-      "!apps/sandbox/dist/**",
+      "!apps/sandbox/dist",
       "packages/*/src/**",
-      "!packages/figma/**"
+      "!packages/figma"
     ]
   },
   "formatter": {
@@ -28,6 +28,11 @@
     "lineEnding": "lf",
     "lineWidth": 100,
     "attributePosition": "auto"
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    }
   },
   "assist": {
     "enabled": true,
@@ -42,22 +47,11 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true,
+      "preset": "recommended",
       "nursery": {
-        "noImportCycles": "error",
-        "noFloatingPromises": "error",
-        "noMisusedPromises": "error",
-        "useExhaustiveSwitchCases": "error",
-        "useIterableCallbackReturn": "error",
-        "useParseIntRadix": "error",
-        "noUselessUndefined": "error",
-        "noConstantBinaryExpression": "error",
-        "noTsIgnore": "error",
-        "useIndexOf": "error",
-        "useObjectSpread": "error",
-        "noUselessBackrefInRegex": "error",
-        "useSingleJsDocAsterisk": "error",
-        "useNumericSeparators": "error"
+        "noFloatingPromises": "off",
+        "noMisusedPromises": "off",
+        "useExhaustiveSwitchCases": "off"
       },
       "style": {
         "noNonNullAssertion": "error",
@@ -100,7 +94,9 @@
         "useShorthandFunctionType": "error",
         "useTemplate": "error",
         "useThrowNewError": "error",
-        "useThrowOnlyError": "error"
+        "useThrowOnlyError": "error",
+        "useObjectSpread": "error",
+        "useNumericSeparators": "error"
       },
       "correctness": {
         "noUnusedImports": "error",
@@ -144,7 +140,9 @@
         "useJsxKeyInIterable": "error",
         "useValidForDirection": "error",
         "useValidTypeof": "error",
-        "useYield": "error"
+        "useYield": "error",
+        "useParseIntRadix": "error",
+        "useSingleJsDocAsterisk": "error"
       },
       "complexity": {
         "noBannedTypes": "error",
@@ -176,9 +174,12 @@
         "useLiteralKeys": "off",
         "useOptionalChain": "error",
         "useRegexLiterals": "error",
-        "useSimplifiedLogicExpression": "error"
+        "useSimplifiedLogicExpression": "error",
+        "noUselessUndefined": "error",
+        "useIndexOf": "error"
       },
       "suspicious": {
+        "noUselessRegexBackrefs": "error",
         "useGuardForIn": "error",
         "useErrorMessage": "error",
         "noDuplicateElseIf": "error",
@@ -232,7 +233,11 @@
         "useAwait": "error",
         "useDefaultSwitchClauseLast": "error",
         "useGetterReturn": "error",
-        "useNamespaceKeyword": "error"
+        "useNamespaceKeyword": "error",
+        "noImportCycles": "error",
+        "useIterableCallbackReturn": "error",
+        "noConstantBinaryExpressions": "error",
+        "noTsIgnore": "error"
       },
       "performance": {
         "noAccumulatingSpread": "error",

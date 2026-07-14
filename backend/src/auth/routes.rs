@@ -7,7 +7,7 @@ use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::get;
 use axum::Json;
-use rand::Rng;
+use rand::RngExt;
 use tracing::{info, warn};
 use urlencoding;
 use utoipa::OpenApi;

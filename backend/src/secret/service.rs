@@ -76,7 +76,7 @@ impl SecretCipher for LocalEnvelopeSecretCipher {
             Aes256Gcm::new_from_slice(&data_key).map_err(|_| SecretError::EncryptionFailed)?;
         let value_ciphertext = value_cipher
             .encrypt(
-                Nonce::from_slice(&value_nonce),
+                &Nonce::try_from(&value_nonce[..]).map_err(|_| SecretError::EncryptionFailed)?,
                 Payload {
                     msg: plaintext.as_bytes(),
                     aad: secret_id.as_bytes(),
@@ -88,7 +88,7 @@ impl SecretCipher for LocalEnvelopeSecretCipher {
             .map_err(|_| SecretError::EncryptionFailed)?;
         let encrypted_key_body = key_cipher
             .encrypt(
-                Nonce::from_slice(&key_nonce),
+                &Nonce::try_from(&key_nonce[..]).map_err(|_| SecretError::EncryptionFailed)?,
                 Payload {
                     msg: &data_key,
                     aad: b"moatless-secret-data-key-v1",
@@ -126,7 +126,7 @@ impl SecretCipher for LocalEnvelopeSecretCipher {
             .map_err(|_| SecretError::DecryptionFailed)?;
         let data_key = key_cipher
             .decrypt(
-                Nonce::from_slice(key_nonce),
+                &Nonce::try_from(key_nonce).map_err(|_| SecretError::DecryptionFailed)?,
                 Payload {
                     msg: encrypted_key_body,
                     aad: b"moatless-secret-data-key-v1",
@@ -146,7 +146,7 @@ impl SecretCipher for LocalEnvelopeSecretCipher {
             .ok_or(SecretError::DecryptionFailed)?;
         let plaintext = value_cipher
             .decrypt(
-                Nonce::from_slice(nonce),
+                &Nonce::try_from(nonce).map_err(|_| SecretError::DecryptionFailed)?,
                 Payload {
                     msg: ciphertext,
                     aad: record.id.as_bytes(),

@@ -70,7 +70,7 @@
     "generate:api": "task generate"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.1.1",
+    "@biomejs/biome": "2.5.3",
     "@chromatic-com/storybook": "^5.2.1",
     "@commitlint/cli": "^21.0.2",
     "@commitlint/config-conventional": "^19.8.1",
@@ -92,7 +92,7 @@
     "@vitest/coverage-v8": "^4.0.8",
     "@vitest/ui": "^4.1.9",
     "concurrently": "^9.2.1",
-    "esbuild": "^0.25.12",
+    "esbuild": "^0.28.0",
     "husky": "^9.1.7",
     "knip": "^6.17.1",
     "likec4": "^1.43.0",
@@ -109,8 +109,8 @@
     "@vitest/browser-playwright": "^4.0.8"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "0.2.27",
-    "@figma/rest-api-spec": "^0.34.0",
+    "@anthropic-ai/claude-agent-sdk": "0.3.206",
+    "@figma/rest-api-spec": "^0.41.0",
     "class-variance-authority": "^0.7.1"
   },
   "workspaces": [

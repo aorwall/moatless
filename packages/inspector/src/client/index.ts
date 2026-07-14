@@ -114,6 +114,8 @@ function handleMessage(
     case 'NAVIGATE':
       navigate(payload)
       break
+    default:
+      break
   }
 }
 

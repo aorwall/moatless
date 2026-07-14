@@ -113,7 +113,7 @@ fn cache() -> &'static Cache<String, ExternalStatus> {
     static CACHE: OnceLock<Cache<String, ExternalStatus>> = OnceLock::new();
     CACHE.get_or_init(|| {
         Cache::builder()
-            .time_to_live(Duration::from_secs(120))
+            .time_to_live(Duration::from_mins(2))
             .max_capacity(10_000)
             .build()
     })

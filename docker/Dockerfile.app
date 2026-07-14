@@ -4,7 +4,7 @@
 #
 # Published as: aorwall/moatless-vibe:latest
 
-FROM nginx:1.30-alpine
+FROM nginx:1.31-alpine
 
 # Pull the latest patched Alpine packages on top of the base image. Bump the
 # refresh date to invalidate this layer and force `apk upgrade` to re-pull the

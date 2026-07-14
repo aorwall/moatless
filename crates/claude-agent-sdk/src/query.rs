@@ -242,7 +242,7 @@ pub async fn query(prompt: &str, mut options: ClaudeOptions) -> Result<QueryHand
     // Wait for init response
     let init_timeout = options
         .init_timeout
-        .unwrap_or(std::time::Duration::from_secs(60));
+        .unwrap_or(std::time::Duration::from_mins(1));
 
     info!(
         request_id = %init_id,
@@ -380,7 +380,7 @@ pub async fn query_streaming(mut options: ClaudeOptions) -> Result<QueryHandle> 
     // Wait for init response
     let init_timeout = options
         .init_timeout
-        .unwrap_or(std::time::Duration::from_secs(60));
+        .unwrap_or(std::time::Duration::from_mins(1));
 
     info!(
         request_id = %init_id,

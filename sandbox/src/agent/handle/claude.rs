@@ -175,7 +175,7 @@ pub(super) async fn process_claude_message(
             // against a TTL measured in tens of minutes, and a chatty tool
             // would otherwise flood the event stream.
             const ACTIVITY_PUBLISH_INTERVAL: std::time::Duration =
-                std::time::Duration::from_secs(60);
+                std::time::Duration::from_mins(1);
             let due = ctx
                 .last_activity_publish
                 .is_none_or(|at| at.elapsed() >= ACTIVITY_PUBLISH_INTERVAL);

@@ -6,12 +6,11 @@
 
 use async_trait::async_trait;
 use axum::response::sse::Event;
-use bollard::container::{
-    ListContainersOptions, RemoveContainerOptions, RestartContainerOptions, StartContainerOptions,
-    StopContainerOptions,
+use bollard::models::{EndpointSettings, NetworkConnectRequest};
+use bollard::query_parameters::{
+    CreateContainerOptionsBuilder, ListContainersOptionsBuilder, RemoveContainerOptionsBuilder,
+    RestartContainerOptionsBuilder, StartContainerOptions, StopContainerOptionsBuilder,
 };
-use bollard::models::EndpointSettings;
-use bollard::network::ConnectNetworkOptions;
 use futures::stream::BoxStream;
 use std::sync::Arc;
 use tracing::{error, info, warn};
@@ -69,7 +68,7 @@ impl SandboxProvider for DockerSandboxProvider {
                     self.publish_initializing(task_id).await;
                     self.client
                         .docker
-                        .start_container(&container_name, None::<StartContainerOptions<String>>)
+                        .start_container(&container_name, None::<StartContainerOptions>)
                         .await
                         .map_err(|e| {
                             SandboxError::DockerError(format!("Failed to start container: {e}"))
@@ -157,10 +156,11 @@ impl SandboxProvider for DockerSandboxProvider {
         self.client
             .docker
             .create_container(
-                Some(bollard::container::CreateContainerOptions {
-                    name: &container_name,
-                    platform: None,
-                }),
+                Some(
+                    CreateContainerOptionsBuilder::new()
+                        .name(&container_name)
+                        .build(),
+                ),
                 container_config,
             )
             .await
@@ -171,7 +171,7 @@ impl SandboxProvider for DockerSandboxProvider {
 
         self.client
             .docker
-            .start_container(&container_name, None::<StartContainerOptions<String>>)
+            .start_container(&container_name, None::<StartContainerOptions>)
             .await
             .map_err(|e| SandboxError::DockerError(format!("Failed to start container: {e}")))?;
 
@@ -194,9 +194,9 @@ impl SandboxProvider for DockerSandboxProvider {
                 .docker
                 .connect_network(
                     network,
-                    ConnectNetworkOptions {
+                    NetworkConnectRequest {
                         container: container_name.clone(),
-                        endpoint_config: EndpointSettings::default(),
+                        endpoint_config: Some(EndpointSettings::default()),
                     },
                 )
                 .await
@@ -286,7 +286,7 @@ impl SandboxProvider for DockerSandboxProvider {
 
         self.client
             .docker
-            .stop_container(&container_name, Some(StopContainerOptions { t: 30 }))
+            .stop_container(&container_name, Some(StopContainerOptionsBuilder::new().t(30).build()))
             .await
             .map_err(|e| SandboxError::DockerError(format!("Failed to stop container: {e}")))?;
 
@@ -311,7 +311,7 @@ impl SandboxProvider for DockerSandboxProvider {
 
         self.client
             .docker
-            .restart_container(&container_name, Some(RestartContainerOptions { t: 30 }))
+            .restart_container(&container_name, Some(RestartContainerOptionsBuilder::new().t(30).build()))
             .await
             .map_err(|e| SandboxError::DockerError(format!("Failed to restart container: {e}")))?;
 
@@ -508,7 +508,7 @@ impl DockerSandboxProvider {
                     .docker
                     .start_container(
                         &server_container_name,
-                        None::<StartContainerOptions<String>>,
+                        None::<StartContainerOptions>,
                     )
                     .await
                     .map_err(|e| {
@@ -529,10 +529,11 @@ impl DockerSandboxProvider {
         self.client
             .docker
             .create_container(
-                Some(bollard::container::CreateContainerOptions {
-                    name: &server_container_name,
-                    platform: None,
-                }),
+                Some(
+                    CreateContainerOptionsBuilder::new()
+                        .name(&server_container_name)
+                        .build(),
+                ),
                 server_config,
             )
             .await
@@ -544,7 +545,7 @@ impl DockerSandboxProvider {
             .docker
             .start_container(
                 &server_container_name,
-                None::<StartContainerOptions<String>>,
+                None::<StartContainerOptions>,
             )
             .await
             .map_err(|e| {
@@ -577,11 +578,12 @@ impl DockerSandboxProvider {
         match self
             .client
             .docker
-            .list_containers(Some(ListContainersOptions {
-                all: true,
-                filters,
-                ..Default::default()
-            }))
+            .list_containers(Some(
+                ListContainersOptionsBuilder::new()
+                    .all(true)
+                    .filters(&filters)
+                    .build(),
+            ))
             .await
         {
             Ok(containers) => containers
@@ -605,7 +607,7 @@ impl DockerSandboxProvider {
             if let Err(e) = self
                 .client
                 .docker
-                .stop_container(&name, Some(StopContainerOptions { t: 10 }))
+                .stop_container(&name, Some(StopContainerOptionsBuilder::new().t(10).build()))
                 .await
             {
                 if !matches!(
@@ -627,7 +629,7 @@ impl DockerSandboxProvider {
             if let Err(e) = self
                 .client
                 .docker
-                .restart_container(&name, Some(RestartContainerOptions { t: 10 }))
+                .restart_container(&name, Some(RestartContainerOptionsBuilder::new().t(10).build()))
                 .await
             {
                 warn!(task_id = %task_id, container = %name, error = %e, "Failed to restart server container");
@@ -649,11 +651,12 @@ impl DockerSandboxProvider {
             .docker
             .remove_container(
                 container_name,
-                Some(RemoveContainerOptions {
-                    force: true,
-                    v: true,
-                    ..Default::default()
-                }),
+                Some(
+                    RemoveContainerOptionsBuilder::new()
+                        .force(true)
+                        .v(true)
+                        .build(),
+                ),
             )
             .await
         {

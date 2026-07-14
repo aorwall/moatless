@@ -1,7 +1,7 @@
 //! Telegram pairing — code-based DM access approval.
 
 use chrono::{DateTime, Utc};
-use rand::Rng;
+use rand::RngExt;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 

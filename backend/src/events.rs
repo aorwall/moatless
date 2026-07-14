@@ -51,7 +51,7 @@ const STREAM_KEY_TTL_SECS: u64 = 72 * 60 * 60;
 /// across replicas decorrelate instead of hammering a struggling Redis in
 /// lockstep.
 pub(crate) fn reconnect_backoff_delay(failures: u32) -> std::time::Duration {
-    use rand::Rng;
+    use rand::RngExt;
     const BASE_MS: u64 = 500;
     const CAP_MS: u64 = 30_000;
     let exp = failures.saturating_sub(1).min(20);

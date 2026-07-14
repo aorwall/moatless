@@ -354,7 +354,7 @@ fn parse_cpu_to_millicores(s: &str) -> u64 {
         milli.parse::<u64>().unwrap_or(0)
     } else {
         // Whole cores
-        s.parse::<f64>().map(|v| (v * 1000.0) as u64).unwrap_or(0)
+        s.parse::<f64>().map_or(0, |v| (v * 1000.0) as u64)
     }
 }
 

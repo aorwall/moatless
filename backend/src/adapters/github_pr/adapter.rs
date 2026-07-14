@@ -274,7 +274,7 @@ impl GithubPrAdapter {
             github_app_service,
             github_apps,
             dedup_cache: Cache::builder()
-                .time_to_live(Duration::from_secs(300))
+                .time_to_live(Duration::from_mins(5))
                 .max_capacity(10_000)
                 .build(),
         }

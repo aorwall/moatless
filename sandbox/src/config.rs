@@ -327,15 +327,13 @@ impl Config {
             default_model: env::var("DEFAULT_CLAUDE_CODE_MODEL").ok(),
             default_codex_model: env::var("DEFAULT_CODEX_MODEL").ok(),
             use_tmux: env::var("SANDBOX_USE_TMUX")
-                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-                .unwrap_or(false),
+                .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true")),
             permission_mode: env::var("SANDBOX_PERMISSION_MODE")
                 .ok()
                 .and_then(|v| parse_permission_mode(&v))
                 .unwrap_or(PermissionMode::BypassPermissions),
             workspace_sync_enabled: env::var("WORKSPACE_SYNC_ENABLED")
-                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-                .unwrap_or(false),
+                .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true")),
 
             home_dir,
             codex_home_dir,

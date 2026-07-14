@@ -168,9 +168,11 @@ function RunningActivity({
     <div className="flex flex-col gap-0.5">
       {lines.map((line, index) => {
         const isLast = index === lines.length - 1
+        // Static preview lines never reorder, so a positional key is stable here.
+        const lineKey = `${index}-${line}`
         return (
           <p
-            key={`${index}-${line}`}
+            key={lineKey}
             className={`text-xs truncate leading-snug ${
               isLast ? 'text-sidebar-foreground/80' : 'text-sidebar-foreground/45'
             }`}

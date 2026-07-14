@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-const TTL: Duration = Duration::from_secs(120);
+const TTL: Duration = Duration::from_mins(2);
 
 /// Process-wide cache of recent outbound external ids.
 #[derive(Debug, Default)]

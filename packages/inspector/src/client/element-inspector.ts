@@ -44,9 +44,9 @@ function parseComponentInfo(element: Element | null): ComponentInfo | null {
     return null
   }
 
-  const path = componentId.substring(0, secondLastColon)
-  const line = Number.parseInt(componentId.substring(secondLastColon + 1, lastColon), 10)
-  const column = Number.parseInt(componentId.substring(lastColon + 1), 10)
+  const path = componentId.slice(0, secondLastColon)
+  const line = Number.parseInt(componentId.slice(secondLastColon + 1, lastColon), 10)
+  const column = Number.parseInt(componentId.slice(lastColon + 1), 10)
 
   if (Number.isNaN(line) || Number.isNaN(column)) {
     internalLogger.warn('[Preview Inspector] Invalid line/column in componentId:', componentId)

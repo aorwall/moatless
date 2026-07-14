@@ -13,7 +13,7 @@ ARG SANDBOX_BASE=aorwall/moatless-sandbox-base:latest
 
 # Stage 1: rebuild go-task from source to clear golang.org/x/net CVE-2026-33814
 # and go/stdlib CVEs (CVE-2026-42499, CVE-2026-39823, CVE-2026-39825).
-FROM golang:1.26.3-bookworm AS task-builder
+FROM golang:1.26.5-bookworm AS task-builder
 # renovate: datasource=github-releases depName=go-task/task
 ARG TASK_VERSION=v3.52.0
 ENV CGO_ENABLED=0
@@ -79,12 +79,12 @@ RUN npm install -g pnpm@11.13.0 \
 # tests) without a ~200MB per-pod rustup install on every fresh sandbox.
 #
 # RUST_VERSION must stay in lockstep with the workspace pin in
-# rust-toolchain.toml (1.94.0); an unpinned/drifted default forces rustup to
+# rust-toolchain.toml (1.97.0); an unpinned/drifted default forces rustup to
 # download the pinned toolchain at runtime — exactly what baking it in avoids.
 # RUSTUP_HOME/CARGO_HOME live under /opt owned by the moatless user so
 # `cargo build`/`cargo install` can write the registry cache at runtime.
 # renovate: datasource=github-releases depName=rust-lang/rust
-ARG RUST_VERSION=1.94.0
+ARG RUST_VERSION=1.97.0
 ENV RUSTUP_HOME="/opt/rust"
 ENV CARGO_HOME="/opt/cargo"
 ENV PATH="/opt/cargo/bin:${PATH}"

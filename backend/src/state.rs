@@ -235,7 +235,7 @@ impl AppState {
             tool_call_names: Arc::new(
                 moka::future::Cache::builder()
                     .max_capacity(50_000)
-                    .time_to_live(std::time::Duration::from_secs(1800))
+                    .time_to_live(std::time::Duration::from_mins(30))
                     .build(),
             ),
         }

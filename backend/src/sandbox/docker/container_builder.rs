@@ -7,9 +7,9 @@
 
 use std::collections::HashMap;
 
-use bollard::container::Config as ContainerConfig;
 use bollard::models::{
-    HostConfig, Mount, MountTypeEnum, PortBinding, RestartPolicy, RestartPolicyNameEnum,
+    ContainerCreateBody as ContainerConfig, HostConfig, Mount, MountType, PortBinding,
+    RestartPolicy, RestartPolicyNameEnum,
 };
 
 use super::naming::{
@@ -43,7 +43,7 @@ pub fn build_container_config(
     task_id: &str,
     plan: &ProvisionPlan,
     user_auth_token: Option<&str>,
-) -> ContainerConfig<String> {
+) -> ContainerConfig {
     let container_name = generate_container_name(task_id);
 
     // ── Image ──────────────────────────────────────────────────────
@@ -114,22 +114,17 @@ pub fn build_container_config(
 
     // ── Exposed ports ─────────────────────────────────────────────
     // 8001: sandbox HTTP health, grpc_port: gRPC
-    // bollard uses HashMap<String, HashMap<(), ()>> for exposed ports (Docker API convention)
-    #[allow(clippy::zero_sized_map_values)]
-    let mut exposed_ports: HashMap<String, HashMap<(), ()>> = HashMap::new();
-    #[allow(clippy::zero_sized_map_values)]
-    let empty_map: HashMap<(), ()> = HashMap::new();
-    exposed_ports.insert("8001/tcp".to_string(), empty_map.clone());
-    exposed_ports.insert(
+    // bollard's ContainerCreateBody takes exposed ports as a `Vec<String>`.
+    let exposed_ports: Vec<String> = vec![
+        "8001/tcp".to_string(),
         format!("{}/tcp", config.sandbox.grpc_port),
-        empty_map.clone(),
-    );
+    ];
 
     // ── Port bindings (dynamic host port mapping) ─────────────────
     let mut port_bindings: HashMap<String, Option<Vec<PortBinding>>> = HashMap::new();
 
     // Map sandbox ports
-    for port_key in exposed_ports.keys() {
+    for port_key in &exposed_ports {
         port_bindings.insert(
             port_key.clone(),
             Some(vec![PortBinding {
@@ -148,21 +143,21 @@ pub fn build_container_config(
         Mount {
             target: Some("/opt/moatless/workspace".to_string()),
             source: Some(workspace_host_path),
-            typ: Some(MountTypeEnum::BIND),
+            typ: Some(MountType::BIND),
             read_only: Some(false),
             ..Default::default()
         },
         Mount {
             target: Some("/opt/moatless/data".to_string()),
             source: Some(data_host_path),
-            typ: Some(MountTypeEnum::BIND),
+            typ: Some(MountType::BIND),
             read_only: Some(false),
             ..Default::default()
         },
         Mount {
             target: Some("/opt/moatless/.claude".to_string()),
             source: Some(claude_config_host_path),
-            typ: Some(MountTypeEnum::BIND),
+            typ: Some(MountType::BIND),
             read_only: Some(false),
             ..Default::default()
         },
@@ -178,7 +173,7 @@ pub fn build_container_config(
         mounts.push(Mount {
             target: Some("/var/run/docker.sock".to_string()),
             source: Some(config.docker.socket_path.clone()),
-            typ: Some(MountTypeEnum::BIND),
+            typ: Some(MountType::BIND),
             read_only: Some(false),
             ..Default::default()
         });
@@ -302,7 +297,7 @@ pub fn build_server_container_config(
     task_id: &str,
     server: &ServerConfig,
     sandbox_image: &str,
-) -> ContainerConfig<String> {
+) -> ContainerConfig {
     let container_name = generate_server_container_name(task_id, &server.name);
 
     // ── Image: per-server override → sandbox image fallback.
@@ -366,11 +361,8 @@ pub fn build_server_container_config(
     );
 
     // ── Exposed ports ─────────────────────────────────────────────
-    #[allow(clippy::zero_sized_map_values)]
-    let mut exposed_ports: HashMap<String, HashMap<(), ()>> = HashMap::new();
     let port_key = format!("{}/tcp", server.port);
-    #[allow(clippy::zero_sized_map_values)]
-    exposed_ports.insert(port_key.clone(), HashMap::new());
+    let exposed_ports: Vec<String> = vec![port_key.clone()];
 
     // ── Port bindings (dynamic host port mapping) ─────────────────
     let mut port_bindings: HashMap<String, Option<Vec<PortBinding>>> = HashMap::new();
@@ -389,14 +381,14 @@ pub fn build_server_container_config(
         Mount {
             target: Some("/opt/moatless/workspace".to_string()),
             source: Some(workspace_host_path),
-            typ: Some(MountTypeEnum::BIND),
+            typ: Some(MountType::BIND),
             read_only: Some(false),
             ..Default::default()
         },
         Mount {
             target: Some("/opt/moatless/data".to_string()),
             source: Some(data_host_path),
-            typ: Some(MountTypeEnum::BIND),
+            typ: Some(MountType::BIND),
             read_only: Some(false),
             ..Default::default()
         },
@@ -679,8 +671,8 @@ mod tests {
         let plan = test_plan();
         let cc = build_container_config(&config, "task-1", &plan, None);
         let ports = cc.exposed_ports.unwrap();
-        assert!(ports.contains_key("8001/tcp"));
-        assert!(ports.contains_key("50052/tcp"));
+        assert!(ports.iter().any(|p| p == "8001/tcp"));
+        assert!(ports.iter().any(|p| p == "50052/tcp"));
     }
 
     #[test]
@@ -810,7 +802,7 @@ mod tests {
         let server = test_server_config();
         let cc = build_server_container_config(&config, "task-1", &server, TEST_SANDBOX_IMAGE);
         let ports = cc.exposed_ports.unwrap();
-        assert!(ports.contains_key("3000/tcp"));
+        assert!(ports.iter().any(|p| p == "3000/tcp"));
     }
 
     #[test]

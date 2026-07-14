@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-const TTL: Duration = Duration::from_secs(60 * 60);
+const TTL: Duration = Duration::from_hours(1);
 
 /// Process-wide map of `task_id -> opened-at instant`.
 #[derive(Debug, Default)]

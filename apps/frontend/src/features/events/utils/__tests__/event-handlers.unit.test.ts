@@ -240,16 +240,16 @@ describe('event-handlers', () => {
       { type: 'taskTurn', subType: 'completed' },
       { type: 'taskTurn', subType: 'error' },
       { type: 'agent', subType: 'session_init' },
-    ] as const)(
-      'refetches immediately on $type/$subType events when the chat view is mounted',
-      ({ type, subType }) => {
-        trigger(messageEvent({ type, subType }))
+    ] as const)('refetches immediately on $type/$subType events when the chat view is mounted', ({
+      type,
+      subType,
+    }) => {
+      trigger(messageEvent({ type, subType }))
 
-        expect(refreshNewestMessagesPageMock).toHaveBeenCalledTimes(1)
-        expect(refreshNewestMessagesPageMock).toHaveBeenCalledWith(queryClient, 'task-1')
-        expect(invalidateQueriesMock).not.toHaveBeenCalled()
-      },
-    )
+      expect(refreshNewestMessagesPageMock).toHaveBeenCalledTimes(1)
+      expect(refreshNewestMessagesPageMock).toHaveBeenCalledWith(queryClient, 'task-1')
+      expect(invalidateQueriesMock).not.toHaveBeenCalled()
+    })
 
     it('coalesces a burst of streaming agent.message events into one refetch', () => {
       trigger(messageEvent({ type: 'agent', subType: 'message', taskId: 'task-stream' }))
@@ -277,26 +277,26 @@ describe('event-handlers', () => {
       expect(refreshNewestMessagesPageMock).toHaveBeenCalledTimes(1)
     })
 
-    it.each([{ name: 'AskUserQuestion' }, { name: 'ExitPlanMode' }] as const)(
-      'refetches immediately when $name appears in agent.message',
-      ({ name }) => {
-        trigger(
-          messageEvent({
-            type: 'agent',
-            subType: 'message',
-            taskId: 'task-tool',
-            payload: {
-              message: {
-                content: [{ type: 'tool_use', id: 't1', name, input: {} }],
-              },
+    it.each([
+      { name: 'AskUserQuestion' },
+      { name: 'ExitPlanMode' },
+    ] as const)('refetches immediately when $name appears in agent.message', ({ name }) => {
+      trigger(
+        messageEvent({
+          type: 'agent',
+          subType: 'message',
+          taskId: 'task-tool',
+          payload: {
+            message: {
+              content: [{ type: 'tool_use', id: 't1', name, input: {} }],
             },
-          }),
-        )
+          },
+        }),
+      )
 
-        expect(refreshNewestMessagesPageMock).toHaveBeenCalledTimes(1)
-        expect(refreshNewestMessagesPageMock).toHaveBeenCalledWith(queryClient, 'task-tool')
-      },
-    )
+      expect(refreshNewestMessagesPageMock).toHaveBeenCalledTimes(1)
+      expect(refreshNewestMessagesPageMock).toHaveBeenCalledWith(queryClient, 'task-tool')
+    })
 
     it('marks the query stale without fetching when no chat view is mounted', () => {
       observerCount = 0

@@ -479,7 +479,6 @@ export function useTaskMessages(taskId: string, options?: { enabled?: boolean })
     // Older pages are paginated. Newer messages arrive via targeted refetch
     // of the newest page (see `refreshNewestMessagesPage`).
     getPreviousPageParam: (firstPage) => (firstPage.hasMore ? firstPage.nextBeforeId : undefined),
-    // biome-ignore lint/nursery/noUselessUndefined: TanStack Query's getNextPageParam contract requires returning undefined, not void
     getNextPageParam: () => undefined,
     // Cap the cache so very long tasks don't drag the DOM; oldest pages drop
     // when the user scrolls past the limit and re-fetch on demand.

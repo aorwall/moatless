@@ -71,7 +71,7 @@ jobs:
     steps:
       # fetch-depth: 0 so `git describe --tags` can see the v* release history
       # used to compute the next monotonic semver on push-to-main.
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 0
       - id: compute
@@ -196,9 +196,9 @@ jobs:
     # /__e/node20/bin/node problem.
     runs-on: 16-core
     container:
-      image: rust:1.94-bookworm
+      image: rust:1.97-bookworm
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Install protoc + mold
         run: apt-get update && apt-get install -y --no-install-recommends protobuf-compiler mold
@@ -218,7 +218,7 @@ jobs:
           fi
 
       - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: ". -> target"
           shared-key: ${{ steps.build.outputs.cache_key }}
@@ -253,7 +253,7 @@ jobs:
           ./target/release/moatless-vibe-backend --dump-openapi > openapi-specs.json
 
       - name: Upload OpenAPI spec
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: openapi-spec
           path: openapi-specs.json
@@ -268,7 +268,7 @@ jobs:
 
       - name: Upload backend artifact
         if: github.event_name != 'pull_request' && needs.setup.outputs.build-backend == 'true'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: backend-binary
           path: dist/backend/
@@ -286,7 +286,7 @@ jobs:
 
       - name: Upload sandbox artifact
         if: github.event_name != 'pull_request' && needs.setup.outputs.build-sandbox == 'true'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: sandbox-binaries
           path: dist/sandbox/
@@ -301,7 +301,7 @@ jobs:
 
       - name: Upload moat release asset
         if: github.event_name != 'pull_request' && needs.setup.outputs.build-sandbox == 'true'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: moat-cli
           path: dist/moat/
@@ -313,10 +313,10 @@ jobs:
     needs: setup
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: latest
 
@@ -332,10 +332,10 @@ jobs:
     if: needs.build-binaries.result == 'success'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: latest
 
@@ -343,7 +343,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Download OpenAPI spec
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: openapi-spec
 
@@ -351,7 +351,7 @@ jobs:
         run: cd packages/api-client && bun run generate:client
 
       - name: Upload generated client
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: generated-client
           path: |
@@ -372,10 +372,10 @@ jobs:
       needs.generate-ts-client.result != 'failure'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: latest
 
@@ -384,7 +384,7 @@ jobs:
 
       - name: Download generated client
         if: needs.generate-ts-client.result == 'success'
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: generated-client
 
@@ -395,7 +395,7 @@ jobs:
         run: bun run build
 
       - name: Upload frontend dist
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: frontend-dist
           path: apps/frontend/dist/
@@ -504,8 +504,8 @@ jobs:
     outputs:
       moat-version: ${{ steps.release.outputs.tag }}
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v8
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: moat-cli
           path: dist/moat/
@@ -545,7 +545,7 @@ jobs:
           private-key: ${{ secrets.GITOPS_APP_PRIVATE_KEY }}
           owner: soaplabs
 
-      - uses: peter-evans/repository-dispatch@v4
+      - uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4
         with:
           token: ${{ steps.app-token.outputs.token }}
           repository: soaplabs/soap-platform-ci
@@ -594,7 +594,7 @@ jobs:
           owner: soaplabs
 
       - name: Dispatch promote-to-staging
-        uses: peter-evans/repository-dispatch@v4
+        uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4
         with:
           token: ${{ steps.app-token.outputs.token }}
           repository: soaplabs/soap-platform-gitops
@@ -638,7 +638,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 0
       - name: Create and push vX.Y.Z tag

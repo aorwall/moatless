@@ -15,7 +15,7 @@ use moka::future::Cache;
 /// How long a seen `event_id` is remembered. Comfortably longer than the
 /// outbox's retry window (backoff caps at 30s) so a retried duplicate is still
 /// recognised, yet short enough to bound memory.
-const EVENT_ID_TTL: Duration = Duration::from_secs(300);
+const EVENT_ID_TTL: Duration = Duration::from_mins(5);
 
 /// Max distinct event ids retained across all tasks. LRU eviction past this.
 const MAX_EVENT_IDS: u64 = 50_000;

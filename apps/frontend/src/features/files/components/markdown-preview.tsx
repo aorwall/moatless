@@ -28,6 +28,7 @@ function HighlightedCode({ code, language }: { code: string; language?: string |
         <span key={i}>
           {language && line
             ? highlightLine(line, language).map((token: HighlightToken, j: number) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: syntax tokens within a line never reorder
                 <SyntaxToken key={`${token.type}-${j}`} token={token} />
               ))
             : line}
@@ -47,7 +48,7 @@ function isRelativePath(src: string | undefined): boolean {
 
 function resolveRelativePath(src: string, markdownFilePath: string): string {
   const dir = markdownFilePath.includes('/')
-    ? markdownFilePath.substring(0, markdownFilePath.lastIndexOf('/'))
+    ? markdownFilePath.slice(0, markdownFilePath.lastIndexOf('/'))
     : ''
   const cleanSrc = src.startsWith('./') ? src.slice(2) : src
   return dir ? `${dir}/${cleanSrc}` : cleanSrc

@@ -68,7 +68,7 @@ const CHANNEL_CAPACITY: usize = 256;
 
 /// Default upper bound on waiting for the `SessionStart` hook to fire.
 /// Overridden by `ClaudeOptions.init_timeout`.
-const DEFAULT_SESSION_START_TIMEOUT: Duration = Duration::from_secs(60);
+const DEFAULT_SESSION_START_TIMEOUT: Duration = Duration::from_mins(1);
 
 /// How often the trust-dialog watcher captures the tmux pane while waiting
 /// for SessionStart. Only active in the brief pre-SessionStart window; auto-

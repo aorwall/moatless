@@ -228,7 +228,7 @@ pub(crate) fn spawn_lazy_supervisor(
         // pastes anything we just sit and wait until cancellation.
         let timeout = options
             .init_timeout
-            .unwrap_or(Duration::from_secs(3600));
+            .unwrap_or(Duration::from_hours(1));
 
         // Resume (`--resume <id>`) and `--continue` both append to an EXISTING
         // transcript, so snapshot-diff never sees a new file — target it

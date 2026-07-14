@@ -14,16 +14,16 @@ jobs:
   build:
     runs-on: ubuntu-latest
     container:
-      image: rust:1.94-bookworm
+      image: rust:1.97-bookworm
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Install protoc
         run: apt-get update && apt-get install -y protobuf-compiler
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: ". -> target"
           shared-key: rust-moat-cli-release
@@ -39,7 +39,7 @@ jobs:
           (cd dist && sha256sum moat-linux-amd64 > moat-linux-amd64.sha256)
 
       - name: Create / update GitHub Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3
         with:
           tag_name: ${{ github.ref_name || inputs.tag }}
           files: |

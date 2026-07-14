@@ -6,8 +6,9 @@ description = "gRPC proto definitions for sandbox ↔ backend communication"
 license = "AGPL-3.0-or-later"
 
 [dependencies]
-tonic = "0.12"
-prost = "0.13"
+tonic = "0.14"
+tonic-prost = "0.14"
+prost = "0.14"
 moatless-events = { path = "../events" }
 
 # NOTE: workspace lints intentionally NOT inherited here because this crate
@@ -15,4 +16,4 @@ moatless-events = { path = "../events" }
 # pedantic clippy lints.
 
 [build-dependencies]
-tonic-build = "0.12"
+tonic-prost-build = "0.14"

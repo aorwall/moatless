@@ -115,7 +115,7 @@ impl CredentialService {
     ) -> Self {
         let locks = moka::future::Cache::builder()
             .max_capacity(10_000)
-            .time_to_idle(Duration::from_secs(300))
+            .time_to_idle(Duration::from_mins(5))
             .build();
 
         Self {

@@ -39,7 +39,7 @@ jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 metrics = "0.24"
-metrics-exporter-prometheus = "0.16"
+metrics-exporter-prometheus = "0.18"
 
 # Config
 dotenvy = "0.15"
@@ -55,13 +55,13 @@ uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 
 # HTTP client (OAuth token exchange)
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+reqwest = { version = "0.13", features = ["json", "query", "form", "rustls"], default-features = false }
 
 # Crypto (API key hashing, Slack webhook HMAC)
 sha2 = "0.11"
 hmac = "0.13"
-aes-gcm = "0.10"
-rand = "0.9"
+aes-gcm = "0.11"
+rand = "0.10"
 hex = "0.4"
 base64 = "0.22"
 
@@ -99,10 +99,10 @@ aws-config = "1"
 axum-extra = { version = "0.12", features = ["multipart"] }
 
 # Cron scheduling
-cron = "0.13"
+cron = "0.17"
 
 # ID generation
-nanoid = "0.4"
+nanoid = "0.5"
 
 # CLI parsing (secrets subcommand on the backend binary)
 clap = { version = "4", features = ["derive"] }
@@ -121,14 +121,14 @@ claude-agent-sdk = { path = "../crates/claude-agent-sdk", features = ["openapi"]
 
 # gRPC (sandbox ↔ backend communication)
 sandbox-proto = { path = "../crates/sandbox-proto" }
-tonic = "0.12"
-prost = "0.13"
+tonic = "0.14"
+prost = "0.14"
 
 # URL encoding
 urlencoding = "2"
 
 # Docker Engine API client
-bollard = "0.18"
+bollard = "0.21"
 
 [features]
 # Gate integration tests that need a running PostgreSQL (DATABASE_URL).
@@ -142,7 +142,7 @@ tokio-test = "0.4"
 sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "migrate"] }
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
-mockall = "0.13"
+mockall = "0.15"
 tempfile = "3"
 
 [[example]]

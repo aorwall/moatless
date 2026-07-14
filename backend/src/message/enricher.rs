@@ -100,7 +100,8 @@ async fn build_figma_context_block(
     };
 
     // Generate prompt from stored node metadata
-    let prompt = if let Some(ref metadata) = row.node_metadata {
+    let prompt = {
+        let metadata = row.node_metadata?;
         if let Ok(node) =
             serde_json::from_value::<figma_clipboard::NormalizedNode>(metadata.clone())
         {
@@ -114,11 +115,9 @@ async fn build_figma_context_block(
         } else {
             format!(
                 "Figma design data:\n{}",
-                serde_json::to_string_pretty(metadata).unwrap_or_default()
+                serde_json::to_string_pretty(&metadata).unwrap_or_default()
             )
         }
-    } else {
-        return None;
     };
 
     Some(ContentBlock {

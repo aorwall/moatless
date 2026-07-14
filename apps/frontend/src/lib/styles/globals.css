@@ -15,7 +15,7 @@
  * - border-border, ring-ring (UI elements)
  */
 
-@plugin '@tailwindcss/typography';
+@plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
 

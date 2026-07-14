@@ -69,8 +69,7 @@ function ChatContainer({
   // yields a chronological array — no reverse.
   const messages = useMemo(() => {
     if (!messagesData) {
-      // biome-ignore lint/nursery/noUselessUndefined: a bare `return` makes the useMemo callback void-typed and breaks inference downstream
-      return undefined
+      return
     }
     return messagesData.pages.flatMap((p) => p.messages)
   }, [messagesData])

@@ -121,8 +121,7 @@ pub async fn slack_webhook(
                 &destination.subject_key,
             )
             .await
-            .map(|rows| !rows.is_empty())
-            .unwrap_or(false)
+            .is_ok_and(|rows| !rows.is_empty())
     } else {
         false
     };

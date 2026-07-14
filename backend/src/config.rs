@@ -1047,8 +1047,7 @@ impl Config {
                 session_cookie_name: env_str("SESSION_COOKIE_NAME", "moatless_session"),
                 is_production: env::var("APP_ENV")
                     .or_else(|_| env::var("NODE_ENV"))
-                    .map(|v| v == "production")
-                    .unwrap_or(false),
+                    .is_ok_and(|v| v == "production"),
                 cache_ttl_secs: env_or("AUTH_CACHE_TTL_SECS", 30),
                 session_jwt_secret: env_opt("SESSION_JWT_SECRET"),
                 test_api_key: env_opt("TEST_API_KEY").map(|s| s.trim().to_string()),

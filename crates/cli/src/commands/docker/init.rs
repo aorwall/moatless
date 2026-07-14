@@ -3,7 +3,6 @@
 use std::fs;
 
 use dialoguer::{theme::ColorfulTheme, Password};
-use rand::RngCore;
 use serde::{Deserialize, Serialize};
 
 use super::env_file::{is_placeholder, read_env_map, set_env, write_env_file};
@@ -171,7 +170,7 @@ fn prompt_claude_token() -> Result<String, ClientError> {
 fn generate_hex_secret() -> String {
     use std::fmt::Write as _;
     let mut bytes = [0u8; 32];
-    rand::rng().fill_bytes(&mut bytes);
+    rand::fill(&mut bytes);
     let mut s = String::with_capacity(bytes.len() * 2);
     for b in bytes {
         let _ = write!(&mut s, "{b:02x}");
@@ -182,7 +181,7 @@ fn generate_hex_secret() -> String {
 fn generate_base64_32() -> String {
     use base64::Engine as _;
     let mut bytes = [0u8; 32];
-    rand::rng().fill_bytes(&mut bytes);
+    rand::fill(&mut bytes);
     base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 

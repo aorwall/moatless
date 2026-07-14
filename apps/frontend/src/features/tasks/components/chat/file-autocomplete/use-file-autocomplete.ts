@@ -73,7 +73,7 @@ export function useFileAutocomplete({
       }
 
       // Find the @ symbol before the cursor
-      const textBeforeCursor = value.substring(0, cursorPosition)
+      const textBeforeCursor = value.slice(0, cursorPosition)
       const lastAtIndex = textBeforeCursor.lastIndexOf('@')
 
       if (lastAtIndex === -1) {
@@ -87,7 +87,7 @@ export function useFileAutocomplete({
       }
 
       // Check if we're in a valid @ context
-      const textAfterAt = value.substring(lastAtIndex + 1, cursorPosition)
+      const textAfterAt = value.slice(lastAtIndex + 1, cursorPosition)
       const spaceIndex = textAfterAt.indexOf(' ')
 
       if (spaceIndex !== -1) {
@@ -120,8 +120,8 @@ export function useFileAutocomplete({
       const { cursorPosition, searchTerm } = state
 
       // Replace @searchTerm with @filepath
-      const before = value.substring(0, cursorPosition)
-      const after = value.substring(cursorPosition + searchTerm.length + 1)
+      const before = value.slice(0, cursorPosition)
+      const after = value.slice(cursorPosition + searchTerm.length + 1)
       const newValue = `${before}@${file.path}${after}`
 
       // Update the value through parent

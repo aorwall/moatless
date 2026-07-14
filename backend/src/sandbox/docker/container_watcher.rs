@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use bollard::system::EventsOptions;
+use bollard::query_parameters::EventsOptionsBuilder;
 use futures::StreamExt;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -46,10 +46,7 @@ pub fn spawn_container_lifecycle_watcher(
                 ],
             );
 
-            let opts = EventsOptions {
-                filters,
-                ..Default::default()
-            };
+            let opts = EventsOptionsBuilder::new().filters(&filters).build();
 
             let mut event_stream = client.docker.events(Some(opts));
 

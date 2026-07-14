@@ -167,7 +167,6 @@ export function MobileSidebarDrawer({
 
   return (
     <>
-      {/** biome-ignore lint/a11y/noStaticElementInteractions: backdrop click-to-dismiss mirrors dialog overlay behaviour */}
       <div
         aria-hidden="true"
         onClick={() => setOpenMobile(false)}

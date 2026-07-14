@@ -42,8 +42,7 @@ function formatToolInput(toolInput: UiContentBlock['toolInput']): string {
   }
   const [_key, value] = firstEntry
   const displayValue = typeof value === 'string' ? value : JSON.stringify(value)
-  const truncatedValue =
-    displayValue.length > 50 ? `${displayValue.substring(0, 50)}...` : displayValue
+  const truncatedValue = displayValue.length > 50 ? `${displayValue.slice(0, 50)}...` : displayValue
 
   return entries.length > 1 ? `${truncatedValue} +${entries.length - 1} more` : truncatedValue
 }
@@ -90,6 +89,7 @@ function ExpandedToolResult({
         expandedLines.length > 0 && (
           <div className="bg-muted/30 p-1 text-muted-foreground">
             {expandedLines.map((line, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: output lines render in a fixed order
               <div key={`${content.toolUseId}-${index}`} className="whitespace-pre-wrap break-all">
                 {line || ' '}
               </div>

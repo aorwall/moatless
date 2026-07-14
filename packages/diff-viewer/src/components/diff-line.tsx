@@ -41,6 +41,7 @@ export function DiffLine({ line, language }: DiffLineProps) {
     return (
       <>
         {tokens.map((token, i) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: syntax tokens within a line never reorder
           <SyntaxToken key={`${token.type}-${i}`} token={token} />
         ))}
       </>
@@ -61,6 +62,7 @@ export function DiffLine({ line, language }: DiffLineProps) {
           // Get syntax tokens for this change's content
           const content = language ? (
             highlightLine(change.value, language).map((token, j) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: syntax tokens within a change never reorder
               <SyntaxToken key={`${key}-${token.type}-${j}`} token={token} />
             ))
           ) : (

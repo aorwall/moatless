@@ -48,12 +48,12 @@ moatless-api-schemas = { path = "../crates/api-schemas" }
 
 # gRPC (backend communication — replaces Redis + HTTP polling)
 sandbox-proto = { path = "../crates/sandbox-proto" }
-tonic = "0.12"
-prost = "0.13"
+tonic = "0.14"
+prost = "0.14"
 tokio-stream = "0.1"
 
 # CORS + tracing middleware
-tower-http = { version = "0.6", features = ["cors", "trace"] }
+tower-http = { version = "0.7", features = ["cors", "trace"] }
 
 # Async streams + traits
 futures = "0.3"
@@ -75,7 +75,7 @@ base64 = "0.22"
 # HTTP client for the `s3` storage backend's workspace sync: the sandbox
 # transfers the workspace tar directly to/from S3 via backend-minted presigned
 # URLs (rustls to match the rest of the workspace; no default features).
-reqwest = { version = "0.12", features = ["rustls-tls"], default-features = false }
+reqwest = { version = "0.13", features = ["rustls"], default-features = false }
 
 [dev-dependencies]
 tempfile = "3"

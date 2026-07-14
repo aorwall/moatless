@@ -67,7 +67,7 @@ const SHUTDOWN_FLUSH_TIMEOUT: Duration = Duration::from_secs(10);
 /// Per-transfer HTTP timeout for the direct-to-S3 PUT/GET. Generous enough for a
 /// large tar on a slow in-cluster link, but bounded so a stuck transfer can't
 /// wedge the periodic loop.
-const HTTP_TIMEOUT: Duration = Duration::from_secs(300);
+const HTTP_TIMEOUT: Duration = Duration::from_mins(5);
 
 /// Read the periodic sync interval from `WORKSPACE_SYNC_INTERVAL_SECS`
 /// (default 60s). Returns `None` when set to `0`, which disables the periodic

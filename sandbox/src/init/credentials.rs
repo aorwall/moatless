@@ -247,7 +247,7 @@ pub async fn fetch_and_apply_credentials_with_mode(
                     "Credential fetch failed, retrying"
                 );
                 tokio::time::sleep(delay).await;
-                delay = (delay * 2).min(Duration::from_secs(60));
+                delay = (delay * 2).min(Duration::from_mins(1));
             }
         }
     }

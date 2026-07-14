@@ -67,7 +67,7 @@ impl LinearAdapter {
             oauth_client_secret,
             db,
             dedup_cache: Cache::builder()
-                .time_to_live(Duration::from_secs(300))
+                .time_to_live(Duration::from_mins(5))
                 .max_capacity(10_000)
                 .build(),
         }

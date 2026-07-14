@@ -45,7 +45,7 @@ pub fn build_options(
 
     // Determine session resume
     let (resume, continue_conversation) = resolve_resume(request);
-    let init_timeout = std::time::Duration::from_secs(120);
+    let init_timeout = std::time::Duration::from_mins(2);
 
     // tmux mode always launches the TUI with --dangerously-skip-permissions,
     // which the CLI refuses under root unless IS_SANDBOX=1. The cluster sets

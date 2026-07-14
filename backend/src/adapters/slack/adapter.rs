@@ -166,7 +166,7 @@ impl SlackAdapter {
             signing_secret: signing_secret.to_string(),
             bot_user_id,
             dedup_cache: Cache::builder()
-                .time_to_live(Duration::from_secs(300))
+                .time_to_live(Duration::from_mins(5))
                 .max_capacity(10_000)
                 .build(),
             workspace_id: OnceCell::new(),

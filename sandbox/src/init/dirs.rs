@@ -46,7 +46,7 @@ fn reset_tmp() {
             let mut removed = 0usize;
             for entry in entries.flatten() {
                 let path = entry.path();
-                let result = if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                let result = if entry.file_type().is_ok_and(|t| t.is_dir()) {
                     std::fs::remove_dir_all(&path)
                 } else {
                     std::fs::remove_file(&path)

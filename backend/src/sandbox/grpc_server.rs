@@ -94,7 +94,7 @@ fn workspace_key(prefix: &str, task_id: &str) -> String {
 /// every sync tick, so this only needs to cover a single transfer. Kept short to
 /// bound the blast radius of a leaked URL, but generous enough for a large tar
 /// on a slow link.
-const WORKSPACE_PRESIGN_TTL: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+const WORKSPACE_PRESIGN_TTL: std::time::Duration = std::time::Duration::from_mins(15);
 
 /// gRPC server state — holds event publisher, repository trait objects, and JWT secret.
 pub struct BackendSandboxServiceImpl {

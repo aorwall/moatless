@@ -1,7 +1,7 @@
 //! Session service — create, validate, delete sessions.
 
 use chrono::Utc;
-use rand::Rng;
+use rand::RngExt;
 use tracing::{error, info, warn};
 
 use super::jwt;

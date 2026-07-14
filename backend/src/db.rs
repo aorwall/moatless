@@ -9,7 +9,7 @@ pub async fn create_pool(database_url: &str, max_connections: u32) -> Result<DbP
     PgPoolOptions::new()
         .max_connections(max_connections)
         .acquire_timeout(std::time::Duration::from_secs(5))
-        .idle_timeout(std::time::Duration::from_secs(600))
+        .idle_timeout(std::time::Duration::from_mins(10))
         .connect(database_url)
         .await
 }

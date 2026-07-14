@@ -436,6 +436,7 @@ function EventsSection({ events }: { events: RuntimeEvent[] | null | undefined }
         </TableHeader>
         <TableBody>
           {events.map((event, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: diagnostic events render in a fixed order
             <TableRow key={`${event.reason}-${i}`}>
               <TableCell className="font-mono text-sm">{event.reason}</TableCell>
               <TableCell className="text-sm max-w-md truncate">{event.message}</TableCell>

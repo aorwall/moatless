@@ -5,7 +5,7 @@
 #
 # Build: docker build --build-arg JAVA_VERSION=25 -f docker/Dockerfile.sandbox-java -t sandbox-java:25 .
 
-ARG BASE_IMAGE=eclipse-temurin:25-jdk-noble
+ARG BASE_IMAGE=eclipse-temurin:25.0.3_9-jdk-noble
 FROM ${BASE_IMAGE}
 
 ARG JAVA_VERSION=25
