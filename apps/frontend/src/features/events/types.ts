@@ -1,12 +1,14 @@
 /**
- * UI-facing lifecycle event: a normalized sandbox/server (and turn-interrupted)
- * event shown in the Events tab and recent-events box. Distinct from the raw
- * stream `SandboxEvent` in `@/lib/types/events` — this is the aggregated shape
- * the UI renders, derived from the raw stream via `toLifecycleEvent`.
+ * UI-facing lifecycle event: a normalized event shown in the Events tab and
+ * recent-events box. Covers every persisted event type (agent, task, taskTurn,
+ * sandbox, server) — the live-only UI streams (resources/navigation/preview)
+ * are excluded by `toLifecycleEvent`. Distinct from the raw stream events in
+ * `@/lib/types/events` — this is the aggregated shape the UI renders, derived
+ * from the raw stream via `toLifecycleEvent`.
  */
 export interface LifecycleEvent {
   eventId: string
-  type: 'sandbox' | 'server' | 'taskTurn'
+  type: 'sandbox' | 'server' | 'taskTurn' | 'agent' | 'task'
   subType: string
   timestamp: string
   isError: boolean
@@ -14,6 +16,8 @@ export interface LifecycleEvent {
   reason?: string | undefined
   /** Server name for server events (e.g., "preview", "files") */
   serverName?: string | undefined
+  /** Agent runtime for agent events (e.g., "claude-code-cli"); used as the source label. */
+  agentType?: string | undefined
   /** Node the pod was scheduled on — enables node-level correlation of stops. */
   nodeName?: string | undefined
   /** Why the pod was disrupted (DisruptionTarget reason / pod status reason). */

@@ -118,6 +118,29 @@ describe('describeEvent', () => {
   })
 })
 
+describe('describeEvent — agent/task/turn subtypes', () => {
+  it('labels agent and task subtypes with friendly text', () => {
+    expect(describeEvent(makeEvent({ type: 'agent', subType: 'message' })).label).toBe('Message')
+    expect(describeEvent(makeEvent({ type: 'agent', subType: 'session_init' })).label).toBe(
+      'Session started',
+    )
+    expect(describeEvent(makeEvent({ type: 'task', subType: 'open' })).label).toBe('Task opened')
+    expect(describeEvent(makeEvent({ type: 'taskTurn', subType: 'active' })).label).toBe(
+      'Turn started',
+    )
+    expect(describeEvent(makeEvent({ type: 'taskTurn', subType: 'completed' })).tone).toBe('ok')
+  })
+
+  it('tones agent recovery/error subtypes appropriately', () => {
+    expect(describeEvent(makeEvent({ type: 'agent', subType: 'recovery_started' })).tone).toBe(
+      'recovering',
+    )
+    expect(describeEvent(makeEvent({ type: 'agent', subType: 'recovery_exhausted' })).tone).toBe(
+      'error',
+    )
+  })
+})
+
 describe('getSourceLabel', () => {
   it('labels taskTurn events as "turn"', () => {
     expect(getSourceLabel(makeEvent({ type: 'taskTurn' }))).toBe('turn')
@@ -125,6 +148,17 @@ describe('getSourceLabel', () => {
 
   it('labels server events with the server name', () => {
     expect(getSourceLabel(makeEvent({ type: 'server', serverName: 'preview' }))).toBe('preview')
+  })
+
+  it('labels agent events with the agent runtime, falling back to "agent"', () => {
+    expect(getSourceLabel(makeEvent({ type: 'agent', agentType: 'claude-code-cli' }))).toBe(
+      'claude-code-cli',
+    )
+    expect(getSourceLabel(makeEvent({ type: 'agent' }))).toBe('agent')
+  })
+
+  it('labels task events as "task"', () => {
+    expect(getSourceLabel(makeEvent({ type: 'task' }))).toBe('task')
   })
 })
 

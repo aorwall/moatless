@@ -16,6 +16,12 @@ interface EventLogProps {
   events: LifecycleEvent[]
 }
 
+/** Source-badge color per event type (falls back to orange for sandbox/task/turn). */
+const SOURCE_BADGE_CLASS: Partial<Record<LifecycleEvent['type'], string>> = {
+  server: 'bg-blue-500/10 text-blue-500',
+  agent: 'bg-violet-500/10 text-violet-500',
+}
+
 function EventRow({ event }: { event: LifecycleEvent }) {
   const { label, icon: Icon, tone, chips } = describeEvent(event)
   const message = getDisplayMessage(event)
@@ -30,15 +36,13 @@ function EventRow({ event }: { event: LifecycleEvent }) {
       <span
         className={cn(
           'inline-flex items-center px-1.5 py-0 rounded text-[10px] font-semibold uppercase shrink-0',
-          event.type === 'server'
-            ? 'bg-blue-500/10 text-blue-500'
-            : 'bg-orange-500/10 text-orange-500',
+          SOURCE_BADGE_CLASS[event.type] ?? 'bg-orange-500/10 text-orange-500',
         )}
       >
         {getSourceLabel(event)}
       </span>
       <div className="min-w-0 flex-1">
-        <div className="truncate">
+        <div className="whitespace-pre-wrap break-words">
           <span className={cn('font-semibold', TONE_TEXT_CLASS[tone])}>{label}</span>
           {showMessage && <span className="text-muted-foreground ml-1">{message}</span>}
         </div>
@@ -77,7 +81,7 @@ export function EventLog({ events }: EventLogProps) {
       <div className="flex h-full items-center justify-center p-8 text-center">
         <div className="text-muted-foreground">
           <p className="text-lg font-medium">No events yet</p>
-          <p className="mt-2 text-sm">Sandbox and server lifecycle events will appear here</p>
+          <p className="mt-2 text-sm">Task, agent, sandbox, and server events will appear here</p>
         </div>
       </div>
     )
@@ -87,8 +91,8 @@ export function EventLog({ events }: EventLogProps) {
     <div className="h-full w-full bg-background relative">
       {/* Force the Radix viewport's inner wrapper to `block` (it defaults to
           `display:table`, which sizes to max-content and lets long log lines
-          scroll horizontally / defeat the row `truncate`). This keeps the
-          console vertical-scroll only and clips overlong lines to width. */}
+          scroll horizontally instead of wrapping). This keeps the console
+          vertical-scroll only so long lines wrap to the next row within width. */}
       <ScrollArea
         ref={scrollAreaRef}
         className="h-full w-full [&>[data-slot=scroll-area-viewport]>div]:!block [&>[data-slot=scroll-area-viewport]>div]:!min-w-0"

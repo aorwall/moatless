@@ -13,6 +13,9 @@ export function getSourceLabel(event: LifecycleEvent): string {
   if (event.type === 'taskTurn') {
     return 'turn'
   }
+  if (event.type === 'agent') {
+    return event.agentType ?? 'agent'
+  }
   return event.type
 }
 
@@ -110,6 +113,25 @@ const DESCRIPTORS: Record<string, Descriptor> = {
   failed: { label: 'Failed', tone: 'error' },
   // Task-turn facts.
   turn_interrupted: { label: 'Turn interrupted', tone: 'recovering' },
+  active: { label: 'Turn started', tone: 'neutral' },
+  completed: { label: 'Completed', tone: 'ok' },
+  interrupted: { label: 'Turn interrupted', tone: 'recovering' },
+  // Agent lifecycle.
+  message: { label: 'Message', tone: 'neutral' },
+  session_init: { label: 'Session started', tone: 'neutral' },
+  session_context_lost: { label: 'Session context lost', tone: 'recovering' },
+  scheduled: { label: 'Scheduled', tone: 'neutral', icon: Clock },
+  pending_response: { label: 'Pending response', tone: 'neutral', icon: Clock },
+  activity: { label: 'Activity', tone: 'neutral' },
+  retrying: { label: 'Retrying', tone: 'recovering' },
+  recovery_started: { label: 'Recovery started', tone: 'recovering' },
+  recovery_exhausted: { label: 'Recovery exhausted', tone: 'error' },
+  // Task facts.
+  open: { label: 'Task opened', tone: 'neutral' },
+  created: { label: 'Task created', tone: 'neutral' },
+  closed: { label: 'Task closed', tone: 'neutral' },
+  updated: { label: 'Task updated', tone: 'neutral' },
+  'metadata.updated': { label: 'Metadata updated', tone: 'neutral' },
 }
 
 /** The lifecycleEvent is where the rich sandbox vocabulary lives; fall back to subType. */
