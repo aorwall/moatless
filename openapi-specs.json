@@ -4474,6 +4474,18 @@
                 "null"
               ]
             }
+          },
+          {
+            "name": "followedBy",
+            "in": "query",
+            "description": "When set, restrict results to tasks this user follows. Drives the\npersonal task list (own tasks plus followed tasks from other users).",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
           }
         ],
         "responses": {
@@ -4512,6 +4524,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/CreateTaskResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or unusable Codex credential",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
                 }
               }
             }
@@ -4992,6 +5014,88 @@
         }
       }
     },
+    "/api/v1/tasks/{task_id}/follow": {
+      "post": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Follow a task so it appears in the requesting user's personal task list.\nAny task the user can see may be followed. Idempotent.",
+        "operationId": "follow_task",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Task followed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FollowTaskResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Stop following a task, removing it from the requesting user's personal task\nlist. Idempotent.",
+        "operationId": "unfollow_task",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Task unfollowed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FollowTaskResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tasks/{task_id}/messages": {
       "get": {
         "tags": [
@@ -5111,6 +5215,16 @@
                 }
               }
             }
+          },
+          "409": {
+            "description": "Task is closed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
           }
         }
       }
@@ -5197,6 +5311,41 @@
           },
           "404": {
             "description": "Message not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/read": {
+      "post": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Mark a task's conversation as read for the requesting user, up to now.\nClears the unread indicator; safe to call repeatedly (the stored marker\nonly ever advances).",
+        "operationId": "mark_task_read",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Task marked as read"
+          },
+          "404": {
+            "description": "Task not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -7229,7 +7378,8 @@
           "scheduled",
           "recovery_started",
           "recovery_exhausted",
-          "session_context_lost"
+          "session_context_lost",
+          "activity"
         ]
       },
       "AgentType": {
@@ -7474,6 +7624,45 @@
           "unknown"
         ]
       },
+      "BackgroundProcess": {
+        "type": "object",
+        "description": "A live background process (a `run_in_background` job or ad-hoc daemon) still\nrunning in the sandbox after the agent went idle.",
+        "required": [
+          "pid",
+          "command"
+        ],
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "pid": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "BackgroundWatchJobInfo": {
+        "type": "object",
+        "description": "Watch that re-triggers the agent once the `run_in_background` jobs captured\nat the end of a turn have finished (subprocess mode only).",
+        "required": [
+          "processCount",
+          "commands"
+        ],
+        "properties": {
+          "commands": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "processCount": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "BranchEntry": {
         "type": "object",
         "required": [
@@ -7531,6 +7720,13 @@
               "null"
             ],
             "description": "Email reported by ChatGPT account on the id_token (device-code flow only)."
+          },
+          "needsReconnect": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "True when the stored credential hit a permanent refresh failure and\nthe user must sign in again. Absent when no credential exists."
           },
           "planType": {
             "type": [
@@ -8334,6 +8530,13 @@
               "string",
               "null"
             ]
+          },
+          "dockerAccess": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Opt-in Docker-in-Docker access (privileged `dind` sidecar) — enables\nTestcontainers inside the sandbox. Defaults to false."
           },
           "dockerImage": {
             "type": [
@@ -9437,6 +9640,19 @@
             "items": {
               "$ref": "#/components/schemas/FileTreeNodeDto"
             }
+          }
+        }
+      },
+      "FollowTaskResponse": {
+        "type": "object",
+        "description": "Response for follow/unfollow endpoints, reporting the resulting state.",
+        "required": [
+          "following"
+        ],
+        "properties": {
+          "following": {
+            "type": "boolean",
+            "description": "Whether the requesting user follows the task after the operation."
           }
         }
       },
@@ -10544,7 +10760,8 @@
             "type": [
               "boolean",
               "null"
-            ]
+            ],
+            "description": "Toggle the secret active/inactive without touching its value."
           },
           "externalRef": {
             "type": [
@@ -10926,6 +11143,12 @@
               "null"
             ]
           },
+          "dockerAccess": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "dockerImage": {
             "type": [
               "string",
@@ -11089,6 +11312,13 @@
         "type": "object",
         "description": "Per-repository K8s resource requests/limits configuration.",
         "properties": {
+          "dockerStorage": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Per-repository size cap for the `dind` sidecar's `/var/lib/docker`\nemptyDir (e.g. \"50Gi\"). Only meaningful for repos with `dockerAccess`.\nExceeding the cap gets the pod **evicted** by the kubelet, wiping all\ndind container data — size it above the repo's peak Docker usage\n(images + container writable layers + volumes). When unset, the global\n`K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE` default applies."
+          },
           "limits": {
             "type": [
               "object",
@@ -11125,7 +11355,7 @@
               "string",
               "null"
             ],
-            "description": "Per-repository storage tier: `\"ebs\"` (default — a per-task EBS PVC mounted\nat `/opt/moatless`, surviving pod restarts) or `\"ephemeral\"` (a node-local\nemptyDir, no PVC; transcripts persist only via the S3 sync). Unset / unknown\nvalues are treated as `\"ebs\"`."
+            "description": "Per-repository storage tier. One of [`STORAGE_MODES`]:\n- `\"ebs\"` (default) — a per-task EBS PVC mounted at `/opt/moatless`,\n  surviving pod restarts.\n- `\"ephemeral\"` — a node-local emptyDir, no PVC; transcripts persist only\n  via the S3 sync, the workspace does not survive the pod.\n- `\"s3\"` — a node-local emptyDir plus a direct git-working-tree sync to S3,\n  giving workspace persistence without an EBS attach/detach per restart.\n\nWhen unset, the deployment-wide default applies\n(`K8S_SANDBOX_DEFAULT_STORAGE_MODE`, itself defaulting to `\"ebs\"`).\nUnknown values are ignored (treated as unset)."
           }
         }
       },
@@ -11471,6 +11701,13 @@
           "agentState": {
             "$ref": "#/components/schemas/AgentState"
           },
+          "backgroundProcesses": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BackgroundProcess"
+            },
+            "description": "Live background processes (`run_in_background` jobs, ad-hoc daemons) still\nrunning in the sandbox. Empty when idle with no background work."
+          },
           "canExecute": {
             "type": "boolean"
           },
@@ -11650,6 +11887,27 @@
                     "type": "string",
                     "enum": [
                       "wakeup"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BackgroundWatchJobInfo"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "backgroundWatch"
                     ]
                   }
                 }
@@ -12821,6 +13079,13 @@
             "format": "int32",
             "description": "Inactive TTL in days. The reaper auto-closes the task when no activity\nhas occurred for this many days. `0` means \"never auto-close\"."
           },
+          "isFollowing": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the requesting user follows this task. Followed tasks appear in\nthe user's personal task list. `None` when the response was built\nwithout a requesting-user context."
+          },
           "isRunning": {
             "type": [
               "boolean",
@@ -12829,6 +13094,13 @@
           },
           "lastMessageAt": {
             "type": "string"
+          },
+          "lastReadAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC3339 timestamp of when the requesting user last read this task's\nconversation. `None` if they have never opened it. Compare against\n`last_message_at` to derive unread state."
           },
           "name": {
             "type": [
@@ -13889,6 +14161,13 @@
               "null"
             ]
           },
+          "dockerAccess": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Opt-in Docker-in-Docker access (privileged `dind` sidecar) — enables\nTestcontainers inside the sandbox. Defaults to false."
+          },
           "dockerImage": {
             "type": [
               "string",
@@ -13944,6 +14223,17 @@
               }
             ]
           },
+          "scope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Scope",
+                "description": "Change the repository's access scope (`global`, `team`, or `user`).\nWhen set, `team_id`/`owner_user_id` are re-resolved from the new scope\n(e.g. `global` moves it to the system team with no owner)."
+              }
+            ]
+          },
           "serverStartCommands": {
             "type": [
               "array",
@@ -13983,6 +14273,13 @@
               "string",
               "null"
             ]
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Target team when moving to `team` scope. Ignored for `global`/`user`."
           }
         }
       },

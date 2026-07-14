@@ -18,9 +18,21 @@ use tracing::debug;
 
 use super::error::SandboxError;
 use super::schemas::{
+    BackgroundProcess as SchemaBackgroundProcess,
+    BackgroundWatchJobInfo as SchemaBackgroundWatchJobInfo,
     ScheduledJobInfo as SchemaScheduledJobInfo, ScheduledJobKind,
     WakeupJobInfo as SchemaWakeupJobInfo,
 };
+
+impl SchemaBackgroundProcess {
+    /// Convert a proto `BackgroundProcess` into the API schema.
+    pub fn from_proto(proto: sandbox_proto::BackgroundProcess) -> Self {
+        Self {
+            pid: proto.pid,
+            command: proto.command,
+        }
+    }
+}
 
 impl SchemaScheduledJobInfo {
     /// Convert a proto `ScheduledJobInfo` into the API schema.
@@ -39,6 +51,12 @@ impl SchemaScheduledJobInfo {
                     reason: w.reason,
                     prompt_preview: w.prompt_preview,
                     wakeup_at_unix_ms: w.wakeup_at_unix_ms,
+                })
+            }
+            sandbox_proto::scheduled_job_info::Kind::BackgroundWatch(b) => {
+                ScheduledJobKind::BackgroundWatch(SchemaBackgroundWatchJobInfo {
+                    process_count: b.process_count,
+                    commands: b.commands,
                 })
             }
         };
@@ -347,7 +365,42 @@ mod tests {
                 assert_eq!(w.prompt_preview, "Resume the loop");
                 assert_eq!(w.wakeup_at_unix_ms, 1_700_000_300_000);
             }
+            ScheduledJobKind::BackgroundWatch(_) => panic!("expected wakeup kind"),
         }
+    }
+
+    #[test]
+    fn from_proto_maps_background_watch_kind() {
+        let proto = sandbox_proto::ScheduledJobInfo {
+            id: "job-bg".into(),
+            registered_at_unix_ms: 1_700_000_000_000,
+            kind: Some(sandbox_proto::scheduled_job_info::Kind::BackgroundWatch(
+                sandbox_proto::BackgroundWatchJobInfo {
+                    process_count: 2,
+                    commands: vec!["cargo build".into(), "sleep 30".into()],
+                },
+            )),
+        };
+
+        let job = SchemaScheduledJobInfo::from_proto(proto).expect("background-watch kind");
+        assert_eq!(job.id, "job-bg");
+        match job.kind {
+            ScheduledJobKind::BackgroundWatch(b) => {
+                assert_eq!(b.process_count, 2);
+                assert_eq!(b.commands, vec!["cargo build", "sleep 30"]);
+            }
+            ScheduledJobKind::Wakeup(_) => panic!("expected background-watch kind"),
+        }
+    }
+
+    #[test]
+    fn background_process_from_proto_maps_fields() {
+        let mapped = SchemaBackgroundProcess::from_proto(sandbox_proto::BackgroundProcess {
+            pid: 4321,
+            command: "cargo test --no-run".into(),
+        });
+        assert_eq!(mapped.pid, 4321);
+        assert_eq!(mapped.command, "cargo test --no-run");
     }
 
     #[test]
@@ -368,6 +421,7 @@ mod tests {
             session_id: None,
             last_error: None,
             busy_processes: false,
+            background_processes: vec![],
             scheduled_jobs: vec![
                 sandbox_proto::ScheduledJobInfo {
                     id: "good".into(),

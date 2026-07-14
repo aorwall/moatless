@@ -29,6 +29,7 @@ import type {
   CreateTaskRequest,
   CreateTaskResponse,
   ErrorBody,
+  FollowTaskResponse,
   GetTaskConnectionsParams,
   ListTaskConnectionsParams,
   ListTasksParams,
@@ -331,6 +332,11 @@ export type createTaskResponse200 = {
   status: 200
 }
 
+export type createTaskResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
 export type createTaskResponse403 = {
   data: ErrorBody
   status: 403
@@ -344,7 +350,7 @@ export type createTaskResponse404 = {
 export type createTaskResponseSuccess = (createTaskResponse200) & {
   headers: Headers;
 };
-export type createTaskResponseError = (createTaskResponse403 | createTaskResponse404) & {
+export type createTaskResponseError = (createTaskResponse400 | createTaskResponse403 | createTaskResponse404) & {
   headers: Headers;
 };
 
@@ -965,6 +971,278 @@ export const prefetchGetTaskConnectionsQuery = async <TData = Awaited<ReturnType
 
 
 /**
+ * @summary Follow a task so it appears in the requesting user's personal task list.
+Any task the user can see may be followed. Idempotent.
+ */
+export type followTaskResponse200 = {
+  data: FollowTaskResponse
+  status: 200
+}
+
+export type followTaskResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type followTaskResponseSuccess = (followTaskResponse200) & {
+  headers: Headers;
+};
+export type followTaskResponseError = (followTaskResponse404) & {
+  headers: Headers;
+};
+
+export type followTaskResponse = (followTaskResponseSuccess | followTaskResponseError)
+
+export const getFollowTaskUrl = (taskId: string,) => {
+
+
+  
+
+  return `/api/v1/tasks/${taskId}/follow`
+}
+
+export const followTask = async (taskId: string, options?: RequestInit): Promise<followTaskResponse> => {
+  
+  return customInstance<followTaskResponse>(getFollowTaskUrl(taskId),
+  {      
+    ...options,
+    method: 'POST'
+    
+    
+  }
+);}
+
+
+
+
+export const getFollowTaskMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof followTask>>, TError,{taskId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof followTask>>, TError,{taskId: string}, TContext> => {
+
+const mutationKey = ['followTask'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof followTask>>, {taskId: string}> = (props) => {
+          const {taskId} = props ?? {};
+
+          return  followTask(taskId,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type FollowTaskMutationResult = NonNullable<Awaited<ReturnType<typeof followTask>>>
+    
+    export type FollowTaskMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Follow a task so it appears in the requesting user's personal task list.
+Any task the user can see may be followed. Idempotent.
+ */
+export const useFollowTask = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof followTask>>, TError,{taskId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof followTask>>,
+        TError,
+        {taskId: string},
+        TContext
+      > => {
+      return useMutation(getFollowTaskMutationOptions(options), queryClient);
+    }
+    /**
+ * @summary Stop following a task, removing it from the requesting user's personal task
+list. Idempotent.
+ */
+export type unfollowTaskResponse200 = {
+  data: FollowTaskResponse
+  status: 200
+}
+
+export type unfollowTaskResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type unfollowTaskResponseSuccess = (unfollowTaskResponse200) & {
+  headers: Headers;
+};
+export type unfollowTaskResponseError = (unfollowTaskResponse404) & {
+  headers: Headers;
+};
+
+export type unfollowTaskResponse = (unfollowTaskResponseSuccess | unfollowTaskResponseError)
+
+export const getUnfollowTaskUrl = (taskId: string,) => {
+
+
+  
+
+  return `/api/v1/tasks/${taskId}/follow`
+}
+
+export const unfollowTask = async (taskId: string, options?: RequestInit): Promise<unfollowTaskResponse> => {
+  
+  return customInstance<unfollowTaskResponse>(getUnfollowTaskUrl(taskId),
+  {      
+    ...options,
+    method: 'DELETE'
+    
+    
+  }
+);}
+
+
+
+
+export const getUnfollowTaskMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof unfollowTask>>, TError,{taskId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof unfollowTask>>, TError,{taskId: string}, TContext> => {
+
+const mutationKey = ['unfollowTask'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof unfollowTask>>, {taskId: string}> = (props) => {
+          const {taskId} = props ?? {};
+
+          return  unfollowTask(taskId,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UnfollowTaskMutationResult = NonNullable<Awaited<ReturnType<typeof unfollowTask>>>
+    
+    export type UnfollowTaskMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Stop following a task, removing it from the requesting user's personal task
+list. Idempotent.
+ */
+export const useUnfollowTask = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof unfollowTask>>, TError,{taskId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof unfollowTask>>,
+        TError,
+        {taskId: string},
+        TContext
+      > => {
+      return useMutation(getUnfollowTaskMutationOptions(options), queryClient);
+    }
+    /**
+ * @summary Mark a task's conversation as read for the requesting user, up to now.
+Clears the unread indicator; safe to call repeatedly (the stored marker
+only ever advances).
+ */
+export type markTaskReadResponse204 = {
+  data: void
+  status: 204
+}
+
+export type markTaskReadResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type markTaskReadResponseSuccess = (markTaskReadResponse204) & {
+  headers: Headers;
+};
+export type markTaskReadResponseError = (markTaskReadResponse404) & {
+  headers: Headers;
+};
+
+export type markTaskReadResponse = (markTaskReadResponseSuccess | markTaskReadResponseError)
+
+export const getMarkTaskReadUrl = (taskId: string,) => {
+
+
+  
+
+  return `/api/v1/tasks/${taskId}/read`
+}
+
+export const markTaskRead = async (taskId: string, options?: RequestInit): Promise<markTaskReadResponse> => {
+  
+  return customInstance<markTaskReadResponse>(getMarkTaskReadUrl(taskId),
+  {      
+    ...options,
+    method: 'POST'
+    
+    
+  }
+);}
+
+
+
+
+export const getMarkTaskReadMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof markTaskRead>>, TError,{taskId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof markTaskRead>>, TError,{taskId: string}, TContext> => {
+
+const mutationKey = ['markTaskRead'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof markTaskRead>>, {taskId: string}> = (props) => {
+          const {taskId} = props ?? {};
+
+          return  markTaskRead(taskId,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type MarkTaskReadMutationResult = NonNullable<Awaited<ReturnType<typeof markTaskRead>>>
+    
+    export type MarkTaskReadMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Mark a task's conversation as read for the requesting user, up to now.
+Clears the unread indicator; safe to call repeatedly (the stored marker
+only ever advances).
+ */
+export const useMarkTaskRead = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof markTaskRead>>, TError,{taskId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof markTaskRead>>,
+        TError,
+        {taskId: string},
+        TContext
+      > => {
+      return useMutation(getMarkTaskReadMutationOptions(options), queryClient);
+    }
+    /**
  * @summary Start a task (provision sandbox and begin agent).
  */
 export type startTaskResponse204 = {

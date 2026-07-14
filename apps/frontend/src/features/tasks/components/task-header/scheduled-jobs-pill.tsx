@@ -1,5 +1,5 @@
 import type { ScheduledJobInfo } from '@moatless/api-client'
-import { Clock, Timer } from 'lucide-react'
+import { Activity, Clock, Timer } from 'lucide-react'
 import { formatRelativeTime } from '@/features/tasks/utils/format-relative-time'
 import { Button } from '@/lib/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/popover'
@@ -30,6 +30,23 @@ export function ScheduledJobsPill({ jobs }: Props) {
 }
 
 function ScheduledJobRow({ job }: { job: ScheduledJobInfo }) {
+  if (job.kind === 'backgroundWatch') {
+    const count = job.processCount
+    return (
+      <div className="flex gap-2 px-2 py-1.5 rounded-sm hover:bg-accent">
+        <Activity className="h-3.5 w-3.5 mt-0.5 shrink-0 text-muted-foreground" />
+        <div className="min-w-0 flex-1">
+          <div className="text-xs font-medium truncate">
+            Waiting for {count} background {count === 1 ? 'job' : 'jobs'}
+          </div>
+          <div className="text-[11px] text-muted-foreground truncate">
+            {job.commands.length > 0 ? job.commands.join('; ') : 'Resumes when finished'}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex gap-2 px-2 py-1.5 rounded-sm hover:bg-accent">
       <Timer className="h-3.5 w-3.5 mt-0.5 shrink-0 text-muted-foreground" />

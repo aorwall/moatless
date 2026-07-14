@@ -32,4 +32,24 @@ describe('ScheduledJobsPill', () => {
     expect(screen.getByText('Resume work')).toBeInTheDocument()
     expect(screen.getByText(/^in /)).toBeInTheDocument()
   })
+
+  it('renders a background-watch row describing the watched jobs', () => {
+    const jobs: ScheduledJobInfo[] = [
+      {
+        id: 'bg1',
+        registeredAtUnixMs: 1_700_000_000_000,
+        kind: 'backgroundWatch',
+        processCount: 2,
+        commands: ['cargo build', 'sleep 30'],
+      },
+    ]
+
+    render(<ScheduledJobsPill jobs={jobs} />)
+
+    const trigger = screen.getByTitle('Scheduled jobs')
+    fireEvent.click(trigger)
+
+    expect(screen.getByText('Waiting for 2 background jobs')).toBeInTheDocument()
+    expect(screen.getByText('cargo build; sleep 30')).toBeInTheDocument()
+  })
 })

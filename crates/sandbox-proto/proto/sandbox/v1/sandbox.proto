@@ -340,6 +340,17 @@ message GetAgentStatusResponse {
   // even after the agent goes idle. Always false in tmux mode and on older
   // sandbox images (absent field decodes as false = pre-existing behavior).
   bool busy_processes = 5;
+  // The live background processes behind `busy_processes`, surfaced for the
+  // control-panel UI. Empty in tmux mode and on older sandbox images (an
+  // absent repeated field decodes as an empty list = pre-existing behavior).
+  repeated BackgroundProcess background_processes = 6;
+}
+
+// One live descendant process of the sandbox (a background job).
+message BackgroundProcess {
+  uint32 pid = 1;
+  // Best-effort command line (argv), falling back to the short process name.
+  string command = 2;
 }
 
 // Snapshot of one registered scheduled job — see sandbox/src/agent/scheduled_job.rs.
@@ -352,6 +363,7 @@ message ScheduledJobInfo {
   reserved "monitor";
   oneof kind {
     WakeupJobInfo wakeup = 4;
+    BackgroundWatchJobInfo background_watch = 5;
   }
 }
 
@@ -360,6 +372,14 @@ message WakeupJobInfo {
   // Prompt is truncated for status display.
   string prompt_preview = 2;
   int64 wakeup_at_unix_ms = 3;
+}
+
+// A watch that re-triggers the agent once the `run_in_background` jobs it
+// captured at the end of a turn have finished (subprocess mode only).
+message BackgroundWatchJobInfo {
+  uint32 process_count = 1;
+  // Best-effort command previews of the watched processes.
+  repeated string commands = 2;
 }
 
 message NotifyMessagesRequest {}

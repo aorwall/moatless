@@ -8,7 +8,10 @@
 import type { SecretKind } from './secretKind';
 
 export interface PatchSecretRequest {
-  /** @nullable */
+  /**
+   * Toggle the secret active/inactive without touching its value.
+   * @nullable
+   */
   enabled?: boolean | null;
   /** @nullable */
   externalRef?: string | null;

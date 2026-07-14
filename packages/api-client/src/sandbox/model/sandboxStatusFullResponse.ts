@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AgentState } from './agentState';
+import type { BackgroundProcess } from './backgroundProcess';
 import type { ContainerDiagnostics } from './containerDiagnostics';
 import type { ResourceMetrics } from './resourceMetrics';
 import type { RuntimeEvent } from './runtimeEvent';
@@ -19,6 +20,9 @@ import type { ServerEntry } from './serverEntry';
  */
 export interface SandboxStatusFullResponse {
   agentState: AgentState;
+  /** Live background processes (`run_in_background` jobs, ad-hoc daemons) still
+running in the sandbox. Empty when idle with no background work. */
+  backgroundProcesses?: BackgroundProcess[];
   canExecute: boolean;
   /** @nullable */
   containerDiagnostics?: ContainerDiagnostics[] | null;

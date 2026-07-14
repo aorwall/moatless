@@ -22,10 +22,12 @@ use crate::sandbox::client::SandboxClient;
 use crate::sandbox::models::*;
 use crate::sandbox::schemas::*;
 
-/// Snapshot of the agent's gRPC status response — state + scheduled jobs.
+/// Snapshot of the agent's gRPC status response — state, scheduled jobs, and
+/// live background processes.
 struct AgentStatusSnapshot {
     state: AgentState,
     scheduled_jobs: Vec<ScheduledJobInfo>,
+    background_processes: Vec<BackgroundProcess>,
 }
 
 impl AgentStatusSnapshot {
@@ -33,6 +35,7 @@ impl AgentStatusSnapshot {
         Self {
             state: AgentState::None,
             scheduled_jobs: Vec::new(),
+            background_processes: Vec::new(),
         }
     }
 }
@@ -102,6 +105,7 @@ impl StatusResolver {
             let AgentStatusSnapshot {
                 state: agent_state,
                 scheduled_jobs,
+                background_processes,
             } = self.fetch_agent_state(task_id).await;
 
             // Fetch all container statuses for diagnostics
@@ -119,6 +123,7 @@ impl StatusResolver {
                 container_diagnostics,
                 runtime_events: None,
                 scheduled_jobs,
+                background_processes,
             };
         }
 
@@ -222,6 +227,7 @@ impl StatusResolver {
             container_diagnostics,
             runtime_events,
             scheduled_jobs: Vec::new(),
+            background_processes: Vec::new(),
         }
     }
 
@@ -254,6 +260,11 @@ impl StatusResolver {
                     .scheduled_jobs
                     .into_iter()
                     .filter_map(ScheduledJobInfo::from_proto)
+                    .collect(),
+                background_processes: resp
+                    .background_processes
+                    .into_iter()
+                    .map(BackgroundProcess::from_proto)
                     .collect(),
             },
             Err(e) => {

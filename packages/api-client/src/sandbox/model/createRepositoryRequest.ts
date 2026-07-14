@@ -23,6 +23,12 @@ export interface CreateRepositoryRequest {
   defaultBranch?: string | null;
   /** @nullable */
   description?: string | null;
+  /**
+   * Opt-in Docker-in-Docker access (privileged `dind` sidecar) — enables
+Testcontainers inside the sandbox. Defaults to false.
+   * @nullable
+   */
+  dockerAccess?: boolean | null;
   /** @nullable */
   dockerImage?: string | null;
   /** @nullable */

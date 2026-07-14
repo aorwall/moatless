@@ -15,6 +15,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
 use crate::agent::agent_state::AgentState;
+use crate::agent::background_watch_job::BackgroundWatchJob;
 use crate::agent::codex_exec::CodexExecEvent;
 use crate::agent::heartbeat::{Heartbeat, HEARTBEAT_TICK_INTERVAL};
 use crate::agent::scheduled_job::{JobKind, ScheduledJobRegistry};
@@ -454,6 +455,55 @@ pub(super) async fn agent_loop(
                                         AgentSubType::Scheduled,
                                         serde_json::json!({ "reason": reason }),
                                     ).await;
+                                }
+                            }
+                        }
+
+                        // Subprocess mode: a clean turn end may leave
+                        // `run_in_background` jobs still executing. The CLI
+                        // subprocess that would emit their completion
+                        // notification has exited, so arm a sandbox-local watch
+                        // that re-triggers the agent once those processes
+                        // finish. Latest-wins: re-arming each turn end refreshes
+                        // the watched PID set. Skipped when a retry is queued
+                        // (the agent resumes on its own) or the turn errored.
+                        if let Some(ref result) = retry_candidate {
+                            let turn_failed = matches!(result, ResultMessage::Error(_))
+                                || matches!(result, ResultMessage::Success(s) if s.is_error);
+                            if !config.use_tmux
+                                && handle.is_none()
+                                && retry_state.is_none()
+                                && !turn_failed
+                            {
+                                let sandbox_pid = std::process::id();
+                                let armed = tokio::task::spawn_blocking(move || {
+                                    BackgroundWatchJob::arm(sandbox_pid)
+                                })
+                                .await
+                                .ok()
+                                .flatten();
+                                if let Some(job) = armed {
+                                    let count = job.process_count();
+                                    scheduled_jobs
+                                        .cancel_by_kind(JobKind::BackgroundWatch)
+                                        .await;
+                                    let registered = scheduled_jobs
+                                        .register(Box::new(job), agent_run_cancel.clone())
+                                        .await;
+                                    if registered {
+                                        info!(
+                                            count,
+                                            "Armed background-completion watch after turn end"
+                                        );
+                                        events.publish_agent_event(
+                                            &task_id,
+                                            AgentSubType::Scheduled,
+                                            serde_json::json!({
+                                                "reason": "background_watch",
+                                                "processCount": count,
+                                            }),
+                                        ).await;
+                                    }
                                 }
                             }
                         }

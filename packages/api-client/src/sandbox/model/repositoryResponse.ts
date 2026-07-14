@@ -28,6 +28,8 @@ export interface RepositoryResponse {
   /** @nullable */
   description?: string | null;
   /** @nullable */
+  dockerAccess?: boolean | null;
+  /** @nullable */
   dockerImage?: string | null;
   /** @nullable */
   enableInspector?: boolean | null;

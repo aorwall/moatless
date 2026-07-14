@@ -1,5 +1,6 @@
 import { ExternalLink, Pencil, Timer } from 'lucide-react'
 import { useState } from 'react'
+import { BackgroundProcessesSection } from '@/features/sandbox/components/background-processes-section'
 import { SandboxActionButtons } from '@/features/sandbox/components/sandbox-action-buttons'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
 import { useSandboxStatus } from '@/features/tasks/hooks/use-sandbox-status'
@@ -175,6 +176,11 @@ export function TaskControlPanel({ className }: TaskControlPanelProps) {
             </div>
           </div>
         </section>
+
+        <BackgroundProcessesSection
+          processes={sandboxStatus?.backgroundProcesses ?? []}
+          scheduledJobs={sandboxStatus?.scheduledJobs}
+        />
 
         <section className="rounded-md border">
           <div className="px-3 py-2 text-xs font-medium text-muted-foreground border-b">

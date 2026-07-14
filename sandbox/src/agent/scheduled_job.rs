@@ -78,6 +78,9 @@ impl JobInjector for LateInjector {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JobKind {
     Wakeup,
+    /// Watches `run_in_background` jobs that outlived a turn and re-triggers the
+    /// agent once they finish (subprocess mode only).
+    BackgroundWatch,
 }
 
 /// Read-only view of one Wakeup job.
@@ -90,10 +93,22 @@ pub struct WakeupSnapshot {
     pub wakeup_at_unix_ms: i64,
 }
 
+/// Read-only view of one background-completion watch job.
+#[derive(Debug, Clone)]
+pub struct BackgroundWatchSnapshot {
+    pub id: String,
+    pub registered_at_unix_ms: i64,
+    /// Number of background processes being watched when the snapshot was taken.
+    pub process_count: u32,
+    /// Best-effort command lines of the watched processes (for status display).
+    pub commands: Vec<String>,
+}
+
 /// Tagged union of registered job snapshots.
 #[derive(Debug, Clone)]
 pub enum JobSnapshot {
     Wakeup(WakeupSnapshot),
+    BackgroundWatch(BackgroundWatchSnapshot),
 }
 
 /// Per-job context handed to `ScheduledJob::run`.
@@ -236,6 +251,7 @@ mod tests {
 
     use tokio::time::Instant;
 
+    use super::super::background_watch_job::BackgroundWatchJob;
     use super::super::wakeup_job::WakeupJob;
     use super::*;
 
@@ -366,9 +382,83 @@ mod tests {
 
         let snapshots = registry.list().await;
         assert_eq!(snapshots.len(), 1);
-        let JobSnapshot::Wakeup(snap) = &snapshots[0];
+        let JobSnapshot::Wakeup(snap) = &snapshots[0] else {
+            panic!("expected wakeup snapshot");
+        };
         assert_eq!(snap.id, "toolu_wake_6");
         assert_eq!(snap.reason, "second");
+
+        run_cancel.cancel();
+    }
+
+    #[tokio::test]
+    async fn background_watch_fires_after_process_exits() {
+        let injector = CapturingInjector::default();
+        let registry = ScheduledJobRegistry::new(Arc::new(injector.clone()));
+        let run_cancel = CancellationToken::new();
+
+        let mut child = std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .expect("spawn sleep");
+        let pid = child.id();
+
+        let job = BackgroundWatchJob::new_for_test(
+            vec![pid],
+            Duration::from_millis(20),
+            Duration::from_millis(20),
+        );
+        assert!(registry.register(Box::new(job), run_cancel.clone()).await);
+
+        // While the watched process is alive, nothing is injected.
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        assert!(
+            injector.snapshot().is_empty(),
+            "watch must wait for the process to exit"
+        );
+
+        // Kill + reap → the watch detects completion and wakes the agent.
+        child.kill().expect("kill sleep");
+        child.wait().expect("reap sleep");
+
+        let ok = wait_until(Duration::from_secs(2), || !injector.snapshot().is_empty()).await;
+        assert!(ok, "expected a wake injection after the process exited");
+        assert!(
+            injector.snapshot()[0].contains("background process"),
+            "wake message should reference the finished background work"
+        );
+        assert!(
+            registry.is_empty().await || registry.len().await == 0,
+            "watch should self-clean after firing"
+        );
+
+        run_cancel.cancel();
+    }
+
+    #[tokio::test]
+    async fn background_watch_does_not_wake_when_nothing_survives_settle_window() {
+        let injector = CapturingInjector::default();
+        let registry = ScheduledJobRegistry::new(Arc::new(injector.clone()));
+        let run_cancel = CancellationToken::new();
+
+        // PID 0 is never live, so the settle window filters it out and the watch
+        // exits without ever waking the agent (mirrors the just-exited CLI case).
+        let job = BackgroundWatchJob::new_for_test(
+            vec![0],
+            Duration::from_millis(20),
+            Duration::from_millis(20),
+        );
+        assert!(registry.register(Box::new(job), run_cancel.clone()).await);
+
+        // After the settle window (20ms) the watch finds no live PIDs and exits,
+        // so it self-cleans from the registry and injects nothing.
+        let cleaned = wait_until(Duration::from_millis(500), || false).await;
+        let _ = cleaned; // spends time so the settle window elapses; assert below
+        assert!(
+            injector.snapshot().is_empty(),
+            "no wake should fire when the watch set is empty after settling"
+        );
+        assert!(registry.is_empty().await, "watch should self-clean");
 
         run_cancel.cancel();
     }

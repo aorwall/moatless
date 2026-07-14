@@ -12,6 +12,16 @@ import type { ResourceConfigRequests } from './resourceConfigRequests';
  * Per-repository K8s resource requests/limits configuration.
  */
 export interface ResourceConfig {
+  /**
+   * Per-repository size cap for the `dind` sidecar's `/var/lib/docker`
+emptyDir (e.g. "50Gi"). Only meaningful for repos with `dockerAccess`.
+Exceeding the cap gets the pod **evicted** by the kubelet, wiping all
+dind container data — size it above the repo's peak Docker usage
+(images + container writable layers + volumes). When unset, the global
+`K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE` default applies.
+   * @nullable
+   */
+  dockerStorage?: string | null;
   /** @nullable */
   limits?: ResourceConfigLimits;
   /** @nullable */
@@ -25,10 +35,17 @@ copied into container resource specs.
    */
   storage?: string | null;
   /**
-   * Per-repository storage tier: `"ebs"` (default — a per-task EBS PVC mounted
-at `/opt/moatless`, surviving pod restarts) or `"ephemeral"` (a node-local
-emptyDir, no PVC; transcripts persist only via the S3 sync). Unset / unknown
-values are treated as `"ebs"`.
+   * Per-repository storage tier. One of [`STORAGE_MODES`]:
+- `"ebs"` (default) — a per-task EBS PVC mounted at `/opt/moatless`,
+  surviving pod restarts.
+- `"ephemeral"` — a node-local emptyDir, no PVC; transcripts persist only
+  via the S3 sync, the workspace does not survive the pod.
+- `"s3"` — a node-local emptyDir plus a direct git-working-tree sync to S3,
+  giving workspace persistence without an EBS attach/detach per restart.
+
+When unset, the deployment-wide default applies
+(`K8S_SANDBOX_DEFAULT_STORAGE_MODE`, itself defaulting to `"ebs"`).
+Unknown values are ignored (treated as unset).
    * @nullable
    */
   storageMode?: string | null;

@@ -14,10 +14,12 @@ use crate::sandbox::k8s::pod_status::DEFAULT_SERVER_READINESS_TIMEOUT_SECS;
 use crate::sandbox::models::*;
 use crate::sandbox::schemas::*;
 
-/// Snapshot of the agent's gRPC status response — state + scheduled jobs.
+/// Snapshot of the agent's gRPC status response — state, scheduled jobs, and
+/// live background processes.
 struct AgentStatusSnapshot {
     state: AgentState,
     scheduled_jobs: Vec<ScheduledJobInfo>,
+    background_processes: Vec<BackgroundProcess>,
 }
 
 impl AgentStatusSnapshot {
@@ -25,6 +27,7 @@ impl AgentStatusSnapshot {
         Self {
             state: AgentState::None,
             scheduled_jobs: Vec::new(),
+            background_processes: Vec::new(),
         }
     }
 }
@@ -58,6 +61,7 @@ impl DockerStatusResolver {
             let AgentStatusSnapshot {
                 state: agent_state,
                 scheduled_jobs,
+                background_processes,
             } = self.fetch_agent_state(task_id).await;
             let servers = self.resolve_server_entries(task_id, server_configs).await;
 
@@ -73,6 +77,7 @@ impl DockerStatusResolver {
                 container_diagnostics: None,
                 runtime_events: None,
                 scheduled_jobs,
+                background_processes,
             };
         }
 
@@ -96,6 +101,7 @@ impl DockerStatusResolver {
             container_diagnostics: None,
             runtime_events: None,
             scheduled_jobs: Vec::new(),
+            background_processes: Vec::new(),
         }
     }
 
@@ -181,6 +187,11 @@ impl DockerStatusResolver {
                     .scheduled_jobs
                     .into_iter()
                     .filter_map(ScheduledJobInfo::from_proto)
+                    .collect(),
+                background_processes: resp
+                    .background_processes
+                    .into_iter()
+                    .map(BackgroundProcess::from_proto)
                     .collect(),
             },
             Err(e) => {

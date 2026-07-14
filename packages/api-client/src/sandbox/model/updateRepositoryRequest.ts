@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ResourceConfig } from './resourceConfig';
+import type { Scope } from './scope';
 import type { ServerConfig } from './serverConfig';
 import type { UpdateRepositoryRequestEnvVars } from './updateRepositoryRequestEnvVars';
 
@@ -20,6 +21,12 @@ export interface UpdateRepositoryRequest {
   defaultBranch?: string | null;
   /** @nullable */
   description?: string | null;
+  /**
+   * Opt-in Docker-in-Docker access (privileged `dind` sidecar) — enables
+Testcontainers inside the sandbox. Defaults to false.
+   * @nullable
+   */
+  dockerAccess?: boolean | null;
   /** @nullable */
   dockerImage?: string | null;
   /** @nullable */
@@ -33,6 +40,7 @@ export interface UpdateRepositoryRequest {
   /** @nullable */
   remoteUrl?: string | null;
   resources?: null | ResourceConfig;
+  scope?: null | Scope;
   /** @nullable */
   serverStartCommands?: string[] | null;
   /** @nullable */
@@ -43,4 +51,9 @@ export interface UpdateRepositoryRequest {
   startupTimeoutSeconds?: number | null;
   /** @nullable */
   systemPrompt?: string | null;
+  /**
+   * Target team when moving to `team` scope. Ignored for `global`/`user`.
+   * @nullable
+   */
+  teamId?: string | null;
 }

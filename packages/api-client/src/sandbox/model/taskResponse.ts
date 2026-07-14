@@ -36,8 +36,8 @@ has occurred for this many days. `0` means "never auto-close". */
   inactiveTtlDays: number;
   /**
    * Whether the requesting user follows this task. Followed tasks appear in
-   * the user's personal task list. `None` when the response was built without
-   * a requesting-user context.
+the user's personal task list. `None` when the response was built
+without a requesting-user context.
    * @nullable
    */
   isFollowing?: boolean | null;

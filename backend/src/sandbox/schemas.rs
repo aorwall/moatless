@@ -89,11 +89,21 @@ pub struct WakeupJobInfo {
     pub wakeup_at_unix_ms: i64,
 }
 
+/// Watch that re-triggers the agent once the `run_in_background` jobs captured
+/// at the end of a turn have finished (subprocess mode only).
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundWatchJobInfo {
+    pub process_count: u32,
+    pub commands: Vec<String>,
+}
+
 /// Per-kind payload for a scheduled job.
 #[derive(Debug, Clone, Serialize, ToSchema)]
-#[serde(tag = "kind", rename_all = "lowercase")]
+#[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ScheduledJobKind {
     Wakeup(WakeupJobInfo),
+    BackgroundWatch(BackgroundWatchJobInfo),
 }
 
 /// Snapshot of one scheduled job currently registered in the sandbox.
@@ -104,6 +114,15 @@ pub struct ScheduledJobInfo {
     pub registered_at_unix_ms: i64,
     #[serde(flatten)]
     pub kind: ScheduledJobKind,
+}
+
+/// A live background process (a `run_in_background` job or ad-hoc daemon) still
+/// running in the sandbox after the agent went idle.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundProcess {
+    pub pid: u32,
+    pub command: String,
 }
 
 /// Full sandbox status response to frontend (matches TS SandboxStatusFullResponse)
@@ -125,6 +144,10 @@ pub struct SandboxStatusFullResponse {
     pub runtime_events: Option<Vec<RuntimeEvent>>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub scheduled_jobs: Vec<ScheduledJobInfo>,
+    /// Live background processes (`run_in_background` jobs, ad-hoc daemons) still
+    /// running in the sandbox. Empty when idle with no background work.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub background_processes: Vec<BackgroundProcess>,
 }
 
 /// Server status response proxied from sandbox pod.
@@ -429,9 +452,11 @@ mod tests {
             container_diagnostics: None,
             runtime_events: None,
             scheduled_jobs: vec![],
+            background_processes: vec![],
         };
         let json = serde_json::to_value(&resp).unwrap();
         assert!(json.get("scheduledJobs").is_none());
+        assert!(json.get("backgroundProcesses").is_none());
     }
 
     #[test]
@@ -456,6 +481,7 @@ mod tests {
                     wakeup_at_unix_ms: 5,
                 }),
             }],
+            background_processes: vec![],
         };
         let json = serde_json::to_value(&resp).unwrap();
         let arr = json
@@ -465,5 +491,50 @@ mod tests {
         assert_eq!(arr.len(), 1);
         assert_eq!(arr[0]["kind"], "wakeup");
         assert_eq!(arr[0]["reason"], "ping");
+    }
+
+    #[test]
+    fn background_processes_serialized_camel_case() {
+        let resp = SandboxStatusFullResponse {
+            sandbox_state: SandboxState::Exists,
+            environment_status: SandboxStatus::Ready,
+            environment_error: None,
+            agent_state: AgentState::Idle,
+            servers: vec![],
+            sandbox_ready: true,
+            can_execute: true,
+            resources: None,
+            container_diagnostics: None,
+            runtime_events: None,
+            scheduled_jobs: vec![],
+            background_processes: vec![BackgroundProcess {
+                pid: 1234,
+                command: "cargo test --no-run".into(),
+            }],
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        let arr = json
+            .get("backgroundProcesses")
+            .and_then(|v| v.as_array())
+            .expect("backgroundProcesses present when non-empty");
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["pid"], 1234);
+        assert_eq!(arr[0]["command"], "cargo test --no-run");
+    }
+
+    #[test]
+    fn background_watch_scheduled_job_serialized_with_camel_case_kind() {
+        let job = ScheduledJobInfo {
+            id: "bg1".into(),
+            registered_at_unix_ms: 7,
+            kind: ScheduledJobKind::BackgroundWatch(BackgroundWatchJobInfo {
+                process_count: 3,
+                commands: vec!["sleep 30".into()],
+            }),
+        };
+        let json = serde_json::to_value(&job).unwrap();
+        assert_eq!(json["kind"], "backgroundWatch");
+        assert_eq!(json["processCount"], 3);
+        assert_eq!(json["commands"][0], "sleep 30");
     }
 }

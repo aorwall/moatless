@@ -209,11 +209,16 @@ export type sendMessageResponse404 = {
   data: ErrorBody
   status: 404
 }
+
+export type sendMessageResponse409 = {
+  data: ErrorBody
+  status: 409
+}
     
 export type sendMessageResponseSuccess = (sendMessageResponse200) & {
   headers: Headers;
 };
-export type sendMessageResponseError = (sendMessageResponse404) & {
+export type sendMessageResponseError = (sendMessageResponse404 | sendMessageResponse409) & {
   headers: Headers;
 };
 

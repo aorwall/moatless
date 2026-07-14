@@ -9,12 +9,13 @@ use tracing::info;
 
 use sandbox_proto::sandbox_service_server::SandboxService;
 use sandbox_proto::{
-    scheduled_job_info, ExecuteAgentRequest, ExecuteAgentResponse, GetAgentStatusRequest,
-    GetAgentStatusResponse, GetFileTreeRequest, GetFileTreeResponse, ListFilesRequest,
-    ListFilesResponse, NotifyMessagesRequest, NotifyMessagesResponse, ReadFileRequest,
-    ReadFileResponse, RefreshCredentialRequest, RefreshCredentialResponse, ScheduledJobInfo,
-    SearchFilesByNameRequest, SearchFilesByNameResponse, StopAgentRequest, StopAgentResponse,
-    WakeupJobInfo, WriteFileRequest, WriteFileResponse,
+    scheduled_job_info, BackgroundProcess, BackgroundWatchJobInfo, ExecuteAgentRequest,
+    ExecuteAgentResponse, GetAgentStatusRequest, GetAgentStatusResponse, GetFileTreeRequest,
+    GetFileTreeResponse, ListFilesRequest, ListFilesResponse, NotifyMessagesRequest,
+    NotifyMessagesResponse, ReadFileRequest, ReadFileResponse, RefreshCredentialRequest,
+    RefreshCredentialResponse, ScheduledJobInfo, SearchFilesByNameRequest,
+    SearchFilesByNameResponse, StopAgentRequest, StopAgentResponse, WakeupJobInfo,
+    WriteFileRequest, WriteFileResponse,
 };
 
 use moatless_events::AgentSubType;
@@ -100,21 +101,39 @@ impl SandboxService for SandboxServiceImpl {
                         wakeup_at_unix_ms: w.wakeup_at_unix_ms,
                     })),
                 },
+                JobSnapshot::BackgroundWatch(b) => ScheduledJobInfo {
+                    id: b.id,
+                    registered_at_unix_ms: b.registered_at_unix_ms,
+                    kind: Some(scheduled_job_info::Kind::BackgroundWatch(
+                        BackgroundWatchJobInfo {
+                            process_count: b.process_count,
+                            commands: b.commands,
+                        },
+                    )),
+                },
             })
             .collect();
 
         // In tmux mode the persistent session keeps the CLI (and tmux server)
         // alive as descendants even at idle, which would read as always-busy —
-        // report false there, same as older sandbox images.
-        let busy_processes = if self.state.config.use_tmux {
-            false
+        // report an empty list there, same as older sandbox images. Otherwise
+        // enumerate live descendants once and derive `busy_processes` from it.
+        let background_processes: Vec<BackgroundProcess> = if self.state.config.use_tmux {
+            Vec::new()
         } else {
             tokio::task::spawn_blocking(|| {
-                crate::process_tree::has_live_descendants(std::process::id())
+                crate::process_tree::live_descendants(std::process::id())
             })
             .await
-            .unwrap_or(false)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|p| BackgroundProcess {
+                pid: p.pid,
+                command: p.command,
+            })
+            .collect()
         };
+        let busy_processes = !background_processes.is_empty();
 
         Ok(Response::new(GetAgentStatusResponse {
             status: status.to_string(),
@@ -122,6 +141,7 @@ impl SandboxService for SandboxServiceImpl {
             last_error: self.state.agent.last_error().await,
             scheduled_jobs,
             busy_processes,
+            background_processes,
         }))
     }
 
