@@ -459,14 +459,18 @@ pub(super) async fn agent_loop(
                             }
                         }
 
-                        // Subprocess mode: a clean turn end may leave
-                        // `run_in_background` jobs still executing. The CLI
-                        // subprocess that would emit their completion
-                        // notification has exited, so arm a sandbox-local watch
-                        // that re-triggers the agent once those processes
-                        // finish. Latest-wins: re-arming each turn end refreshes
-                        // the watched PID set. Skipped when a retry is queued
-                        // (the agent resumes on its own) or the turn errored.
+                        // Subprocess mode: a clean turn end can leave a detached
+                        // background process (e.g. `setsid`/`nohup … &`) still
+                        // executing. CLI-managed `run_in_background` shells are
+                        // disabled in this mode (see build_options) because the
+                        // one-shot `claude -p` process kills them at turn end;
+                        // detached processes survive but the exited CLI can't
+                        // emit their completion notification, so arm a
+                        // sandbox-local watch that re-triggers the agent once
+                        // those processes finish. Latest-wins: re-arming each
+                        // turn end refreshes the watched PID set. Skipped when a
+                        // retry is queued (the agent resumes on its own) or the
+                        // turn errored.
                         if let Some(ref result) = retry_candidate {
                             let turn_failed = matches!(result, ResultMessage::Error(_))
                                 || matches!(result, ResultMessage::Success(s) if s.is_error);

@@ -57,7 +57,20 @@ pub fn build_options(
             .or_insert_with(|| "1".to_string());
         Some(env)
     } else {
-        env
+        // Subprocess mode: each turn is a one-shot `claude -p` process. Claude
+        // Code terminates any CLI-managed `run_in_background` Bash shell a few
+        // seconds after the final result once stdin closes (see
+        // https://code.claude.com/docs/en/headless), so a job the agent
+        // "backgrounds" this way is killed at turn end rather than left
+        // running — it never surfaces as a live process and never completes.
+        // Disable that path so the agent keeps work in the foreground instead
+        // of starting jobs that die silently. A genuinely detached process
+        // (`setsid`/`nohup … &`) is not CLI-managed, survives the turn, and is
+        // still covered by the post-turn background-completion watch.
+        let mut env = env.unwrap_or_default();
+        env.entry("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS".to_string())
+            .or_insert_with(|| "1".to_string());
+        Some(env)
     };
 
     info!(
@@ -368,12 +381,24 @@ mod tests {
         let options = build_test_options(true);
         let env = options.env.expect("env set in tmux mode");
         assert_eq!(env.get("IS_SANDBOX").map(String::as_str), Some("1"));
+        // tmux keeps the persistent session alive, so CLI-managed background
+        // tasks work there and must NOT be disabled.
+        assert!(!env.contains_key("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"));
     }
 
     #[test]
-    fn subprocess_mode_leaves_env_untouched() {
+    fn subprocess_mode_disables_cli_background_tasks() {
+        // CLI-managed `run_in_background` Bash shells are killed shortly after
+        // the one-shot `claude -p` turn ends, so subprocess mode disables them.
         let options = build_test_options(false);
-        assert!(options.env.is_none());
+        let env = options.env.expect("env set in subprocess mode");
+        assert_eq!(
+            env.get("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS")
+                .map(String::as_str),
+            Some("1")
+        );
+        // IS_SANDBOX is a tmux-only flag; it must not leak into subprocess mode.
+        assert!(!env.contains_key("IS_SANDBOX"));
     }
 
     #[test]

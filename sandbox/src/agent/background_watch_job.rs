@@ -103,7 +103,7 @@ impl BackgroundWatchJob {
             commands: vec!["sleep".to_string()],
             poll_interval,
             confirm_delay,
-            deadline: Instant::now() + Duration::from_secs(3600),
+            deadline: Instant::now() + Duration::from_hours(1),
         }
     }
 
