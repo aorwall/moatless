@@ -117,8 +117,8 @@ pub async fn run_init(state: SandboxState) {
     // Phase 1: Core init — must complete before health returns 200.
     // Returns whether the workspace was rebuilt from a fresh clone (ephemeral
     // pre-restart state lost) so we can warn a resuming agent.
-    let workspace_recloned = match run_core_init(&state).await {
-        Ok(recloned) => recloned,
+    let workspace_origin = match run_core_init(&state).await {
+        Ok(origin) => origin,
         Err(e) => {
             error!(error = %e, "Core initialization failed");
             // Write termination message for K8s to surface in pod status.
@@ -164,7 +164,7 @@ pub async fn run_init(state: SandboxState) {
             "Pending messages present on startup; skipping interrupted-run replay"
         );
     } else {
-        recover_interrupted_run(&state, workspace_recloned).await;
+        recover_interrupted_run(&state, workspace_origin).await;
     }
 
     // Fetch any messages that arrived during initialization.
@@ -239,20 +239,70 @@ pub async fn run_init(state: SandboxState) {
     spawn_codex_auth_watcher(&state).await;
 }
 
+/// How the workspace came to exist on this start — determines what (if anything)
+/// a resuming agent must be warned lost across the restart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WorkspaceOrigin {
+    /// Repo persisted in place (EBS/PVC volume already held it) or this is a
+    /// fresh task — nothing was lost, so no restart note is needed.
+    Persisted,
+    /// Restored byte-for-byte from an S3 snapshot (the `s3` storage backend).
+    /// The git tree — committed history plus uncommitted, non-gitignored changes
+    /// — and out-of-repo files are intact, but gitignored build artifacts inside
+    /// repos were NOT in the snapshot and are gone.
+    RestoredFromSnapshot,
+    /// Rebuilt from a fresh `git clone` — all ephemeral pre-restart state (incl.
+    /// unpushed commits and uncommitted changes) may be gone.
+    Recloned,
+}
+
+impl WorkspaceOrigin {
+    /// The `<sandbox-restart-note>` to prepend to a resumed turn, or `None` when
+    /// nothing was lost and the agent needs no warning.
+    fn restart_note(self, workspace_dir: &str) -> Option<String> {
+        match self {
+            Self::Persisted => None,
+            Self::RestoredFromSnapshot => Some(workspace_restored_note(workspace_dir)),
+            Self::Recloned => Some(workspace_recloned_note(workspace_dir)),
+        }
+    }
+}
+
+/// Note prepended to a resumed turn when the workspace was restored from an S3
+/// snapshot across a restart (e.g. the pod was replaced, or evicted for exceeding
+/// its workspace volume size limit). The git tree is intact, but gitignored build
+/// artifacts are not part of the snapshot, so they were wiped and must be rebuilt.
+fn workspace_restored_note(workspace_dir: &str) -> String {
+    format!(
+        "<sandbox-restart-note>\n\
+         This sandbox was restarted — the pod was replaced or evicted (a common \
+         cause is the workspace volume exceeding its size limit, e.g. from large \
+         build outputs) — and the repository at {workspace_dir} was restored from \
+         a snapshot. Your committed history and uncommitted, non-gitignored \
+         changes are intact and present. However, gitignored build artifacts and \
+         dependencies inside git repos (e.g. target, node_modules, dist, .venv) \
+         were NOT part of the snapshot and have been wiped. Re-run install/build \
+         steps (e.g. `cargo build`, `bun install`) before relying on compiled \
+         output. To avoid another eviction, keep build artifacts from growing \
+         without bound — clean stale targets if the workspace gets large.\n\
+         </sandbox-restart-note>\n\n"
+    )
+}
+
 /// Note prepended to a resumed turn when the workspace was rebuilt from a fresh
 /// clone across the restart, so the agent knows its pre-restart scratch state is
 /// gone rather than silently working against a reset tree.
 fn workspace_recloned_note(workspace_dir: &str) -> String {
     format!(
         "<sandbox-restart-note>\n\
-         This sandbox was restarted and the repository at {workspace_dir} was \
-         rebuilt from a fresh `git clone`. Committed, pushed git content is \
-         present, but ephemeral state from before the restart is gone: gitignored \
-         dependencies and build artifacts (e.g. node_modules, target, dist, \
-         .venv), and any files created outside the git repository. Any local \
-         commits or uncommitted changes that were never pushed may also be \
-         missing. Re-run install/build steps and verify your working state \
-         before continuing.\n\
+         This sandbox was restarted (the pod was replaced or evicted) and the \
+         repository at {workspace_dir} was rebuilt from a fresh `git clone`. \
+         Committed, pushed git content is present, but ephemeral state from \
+         before the restart is gone: gitignored dependencies and build artifacts \
+         (e.g. node_modules, target, dist, .venv), and any files created outside \
+         the git repository. Any local commits or uncommitted changes that were \
+         never pushed may also be missing. Re-run install/build steps and verify \
+         your working state before continuing.\n\
          </sandbox-restart-note>\n\n"
     )
 }
@@ -267,10 +317,11 @@ fn workspace_recloned_note(workspace_dir: &str) -> String {
 /// `agent.recovery_started` event). If we get back a turn we feed it through
 /// the existing `--resume <session_id>` path; otherwise this is a no-op.
 ///
-/// When `workspace_recloned` is set, the workspace was rebuilt from a fresh
-/// clone on this restart, so a `<sandbox-restart-note>` is prepended to the
-/// resumed prompt to tell the agent its ephemeral pre-restart state is gone.
-async fn recover_interrupted_run(state: &SandboxState, workspace_recloned: bool) {
+/// When `origin` indicates the workspace was rebuilt from a fresh clone or
+/// restored from an S3 snapshot on this restart, a `<sandbox-restart-note>` is
+/// prepended to the resumed prompt telling the agent exactly what pre-restart
+/// state (unpushed commits, or just gitignored build artifacts) is gone.
+async fn recover_interrupted_run(state: &SandboxState, origin: WorkspaceOrigin) {
     let task_id = &state.config.task_id;
     match state.backend_client.recover_interrupted_run(task_id).await {
         Ok(Some(turn)) => {
@@ -278,19 +329,15 @@ async fn recover_interrupted_run(state: &SandboxState, workspace_recloned: bool)
                 task_id = %task_id,
                 session_id = %turn.session_id,
                 turn_number = turn.turn_number,
-                workspace_recloned,
+                workspace_origin = ?origin,
                 "Resuming interrupted agent run"
             );
-            // If the workspace was re-cloned on this restart, prepend a note so
-            // the resuming agent doesn't assume its prior scratch state survived.
-            let prompt_text = if workspace_recloned {
-                format!(
-                    "{}{}",
-                    workspace_recloned_note(&state.config.repo_dir),
-                    turn.prompt_text
-                )
-            } else {
-                turn.prompt_text
+            // Prepend a restart note so the resuming agent doesn't assume its
+            // prior scratch state survived. Which note depends on how the
+            // workspace was reconstituted (see `WorkspaceOrigin`).
+            let prompt_text = match origin.restart_note(&state.config.repo_dir) {
+                Some(note) => format!("{note}{}", turn.prompt_text),
+                None => turn.prompt_text,
             };
             state.agent_handle.recover(
                 prompt_text,
@@ -343,10 +390,12 @@ async fn spawn_codex_auth_watcher(state: &SandboxState) {
 /// 5. Clone repository (fatal on failure)
 /// 6. Sync plugins (non-fatal)
 ///
-/// Runs Phase 1 core init. Returns `true` when the workspace was rebuilt from a
-/// fresh clone (ephemeral pre-restart state lost), so the caller can warn a
-/// resuming agent; `false` when the repo was fully restored / persisted.
-async fn run_core_init(state: &SandboxState) -> Result<bool, InitError> {
+/// Runs Phase 1 core init. Returns how the workspace was reconstituted (see
+/// [`WorkspaceOrigin`]) so the caller can warn a resuming agent about exactly
+/// what pre-restart state was lost — a fresh clone loses everything ephemeral,
+/// an S3 snapshot restore loses only gitignored build artifacts, and a persisted
+/// volume loses nothing.
+async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitError> {
     // 1. Ensure directories exist
     dirs::ensure_directories(&state.config);
 
@@ -572,7 +621,18 @@ async fn run_core_init(state: &SandboxState) -> Result<bool, InitError> {
         workspace_sync::download_on_start(state).await;
     }
 
-    Ok(workspace_recloned)
+    // Report how the workspace was reconstituted so a resuming agent gets the
+    // right restart note. A full S3 restore keeps the git tree but drops
+    // gitignored build artifacts; a fresh clone drops all ephemeral state; a
+    // pre-existing volume (or fresh task) lost nothing.
+    let origin = if restored_full_repo {
+        WorkspaceOrigin::RestoredFromSnapshot
+    } else if workspace_recloned {
+        WorkspaceOrigin::Recloned
+    } else {
+        WorkspaceOrigin::Persisted
+    };
+    Ok(origin)
 }
 
 /// Phase 2: Workspace setup.
@@ -608,4 +668,43 @@ async fn run_workspace_setup(state: &SandboxState) {
         false,
     )
     .await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const WS: &str = "/opt/moatless/workspace/repo";
+
+    #[test]
+    fn persisted_origin_emits_no_restart_note() {
+        assert_eq!(WorkspaceOrigin::Persisted.restart_note(WS), None);
+    }
+
+    #[test]
+    fn snapshot_restore_warns_about_wiped_build_artifacts_only() {
+        let note = WorkspaceOrigin::RestoredFromSnapshot
+            .restart_note(WS)
+            .expect("snapshot restore must warn the agent");
+        assert!(note.contains("<sandbox-restart-note>"));
+        assert!(note.contains(WS));
+        // Must tell the agent the git tree survived but build artifacts did not.
+        assert!(note.contains("restored from"));
+        assert!(note.contains("target"));
+        assert!(note.contains("evicted"));
+        // Must NOT scare the agent about losing uncommitted work — the S3
+        // snapshot preserves the non-gitignored working tree.
+        assert!(!note.contains("never pushed may also be missing"));
+    }
+
+    #[test]
+    fn reclone_warns_about_full_ephemeral_loss() {
+        let note = WorkspaceOrigin::Recloned
+            .restart_note(WS)
+            .expect("a fresh reclone must warn the agent");
+        assert!(note.contains("<sandbox-restart-note>"));
+        assert!(note.contains("fresh `git clone`"));
+        // A reclone can lose unpushed commits — the snapshot path cannot.
+        assert!(note.contains("never pushed may also be missing"));
+    }
 }
