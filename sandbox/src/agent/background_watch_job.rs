@@ -38,7 +38,7 @@ const CONFIRM_DELAY: Duration = Duration::from_secs(3);
 /// Hard cap on how long a single watch runs before giving up without waking the
 /// agent. Mirrors the backend's `busy_extension_max_hours` default so a stuck
 /// daemon can't hold a watch (or defer idle-reaping) indefinitely.
-const MAX_WATCH_DURATION: Duration = Duration::from_secs(4 * 60 * 60);
+const MAX_WATCH_DURATION: Duration = Duration::from_hours(4);
 
 /// How many command previews to keep in the status snapshot / wake prompt.
 const MAX_COMMAND_PREVIEWS: usize = 5;
@@ -219,8 +219,7 @@ impl ScheduledJob for BackgroundWatchJob {
 fn unix_now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
+        .map_or(0, |d| d.as_millis() as i64)
 }
 
 #[cfg(test)]
