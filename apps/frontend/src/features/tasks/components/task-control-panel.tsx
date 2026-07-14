@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils'
 import { TaskConnectionsSection } from './task-connections-section'
 import { EditTaskDialog } from './task-header/edit-task-dialog'
 import { TaskInfoSection } from './task-header/task-info-section'
+import { TaskRelationsSection } from './task-relations-section'
 
 /** Idle stop: minutes of inactivity before the sandbox is stopped (0 = never). */
 const IDLE_STOP_PRESETS: Array<{ label: string; minutes: number }> = [
@@ -119,6 +120,8 @@ export function TaskControlPanel({ className }: TaskControlPanelProps) {
           </div>
           <TaskInfoSection task={task} />
         </section>
+
+        <TaskRelationsSection task={task} />
 
         {/* Sandbox state + lifecycle controls */}
         <section className="rounded-md border">

@@ -73,6 +73,7 @@ export function useTasksList(
     createdBy?: string
     followedBy?: string
     repositoryId?: string
+    parentTaskId?: string
   },
   options?: Omit<UseQueryOptions<ListTasksResponse>, 'queryKey' | 'queryFn'>,
 ) {

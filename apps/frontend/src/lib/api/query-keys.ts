@@ -14,6 +14,7 @@ export const queryKeys = {
       createdBy?: string
       followedBy?: string
       repositoryId?: string
+      parentTaskId?: string
     }) => [...queryKeys.tasks.lists(), filters] as const,
 
     detail: (taskId: string) => [...queryKeys.tasks.all, 'detail', taskId] as const,

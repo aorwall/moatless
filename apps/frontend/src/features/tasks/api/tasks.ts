@@ -56,6 +56,7 @@ export const tasksApi = {
     createdBy?: string
     followedBy?: string
     repositoryId?: string
+    parentTaskId?: string
   }): Promise<ListTasksResponse> {
     const status = params?.status || (params?.activeOnly ? 'open' : undefined)
     return await unwrapResponse(
@@ -67,6 +68,7 @@ export const tasksApi = {
         ...(params?.createdBy !== undefined && { createdBy: params.createdBy }),
         ...(params?.followedBy !== undefined && { followedBy: params.followedBy }),
         ...(params?.repositoryId !== undefined && { repositoryId: params.repositoryId }),
+        ...(params?.parentTaskId !== undefined && { parentTaskId: params.parentTaskId }),
       }),
     )
   },
