@@ -559,3 +559,63 @@ async fn last_message_is_completed_reply_is_scoped_to_turn(pool: PgPool) {
         .await
         .unwrap());
 }
+
+#[sqlx::test]
+async fn last_message_is_completed_reply_detects_coalesced_later_reply(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+    let repo = PgMessageRepository(pool.clone());
+
+    // Turn 1 was part of the same sandbox batch, but lifecycle/result events
+    // were attributed to turn 2 by current-turn resolution. Because turn 1 has
+    // no substantive assistant/system/result state, the reaper can close it
+    // silently as completed instead of surfacing a false orphan error.
+    let mut turn1_user = make_message_row("task-1", "u-1");
+    turn1_user.message_type = MessageType::User;
+    turn1_user.message_role = MessageRole::User;
+    turn1_user.turn_number = Some(1);
+    turn1_user.timestamp = "2026-07-14T11:00:00.000Z".to_string();
+    message_dao::append(&pool, &turn1_user, &[], &[])
+        .await
+        .unwrap();
+
+    let mut empty_placeholder = make_assistant_row(
+        "task-1",
+        "a-empty",
+        None,
+        Some(1),
+        "2026-07-14T11:00:01.000Z",
+    );
+    empty_placeholder.message_content = serde_json::json!([]);
+    message_dao::append(&pool, &empty_placeholder, &[], &[])
+        .await
+        .unwrap();
+
+    let mut turn2_user = make_message_row("task-1", "u-2");
+    turn2_user.message_type = MessageType::User;
+    turn2_user.message_role = MessageRole::User;
+    turn2_user.turn_number = Some(2);
+    turn2_user.timestamp = "2026-07-14T11:00:02.000Z".to_string();
+    message_dao::append(&pool, &turn2_user, &[], &[])
+        .await
+        .unwrap();
+
+    let turn2_done = make_assistant_row(
+        "task-1",
+        "a-2",
+        Some("end_turn"),
+        Some(2),
+        "2026-07-14T11:01:00.000Z",
+    );
+    message_dao::append(&pool, &turn2_done, &[], &[])
+        .await
+        .unwrap();
+
+    assert!(repo
+        .last_message_is_completed_reply("task-1", Some(1))
+        .await
+        .unwrap());
+    assert!(repo
+        .last_message_is_completed_reply("task-1", Some(2))
+        .await
+        .unwrap());
+}

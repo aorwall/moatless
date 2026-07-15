@@ -98,7 +98,9 @@ pub async fn download_on_start(state: &SandboxState) {
     }
 
     match extract_tar(tar, dir.clone()).await {
-        Ok(()) => info!(task_id = %task_id, dir = %dir.display(), "Restored transcript from backend"),
+        Ok(()) => {
+            info!(task_id = %task_id, dir = %dir.display(), "Restored transcript from backend");
+        }
         Err(e) => {
             warn!(task_id = %task_id, dir = %dir.display(), error = %e, "Failed to extract transcript (non-fatal)");
         }

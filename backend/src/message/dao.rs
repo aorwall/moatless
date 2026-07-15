@@ -125,12 +125,18 @@ pub trait MessageRepository: Send + Sync {
     /// drop duplicate stop fan-out events before they accumulate phantom rows.
     async fn last_is_stopped_marker(&self, task_id: &str) -> Result<bool, sqlx::Error>;
 
-    /// Whether the most recent row for a task (optionally scoped to a single
-    /// `turn_number`) is an `assistant` message that finished its turn
-    /// (`assistant_stop_reason = 'end_turn'`) — i.e. the agent already delivered
-    /// its final reply. The orphaned-turn reaper uses this to close a turn whose
-    /// terminal event was merely lost as *completed* instead of surfacing a
-    /// false "stopped without reporting a result" error.
+    /// Whether a turn has already been satisfied by a final assistant reply.
+    /// The primary check is scoped to `turn_number`: the most recent row for
+    /// that turn must be an `assistant` message with
+    /// `assistant_stop_reason = 'end_turn'`.
+    ///
+    /// The orphaned-turn reaper also needs to recognize the batched-message
+    /// shape where the sandbox coalesced multiple pending user messages into
+    /// one agent run and all lifecycle/result rows were attributed to the later
+    /// sibling turn. In that case an older user-only turn may be considered
+    /// completed on the strength of the task's latest later-turn final reply.
+    /// Older turns with substantive assistant/system/result rows are not
+    /// treated this way; those remain genuine interrupted/orphan candidates.
     ///
     /// The `turn_number` scope matters: `list_unclosed_active_turns` can return
     /// a stale open turn while a *later* turn already has a final reply — without
@@ -608,8 +614,10 @@ impl MessageRepository for PgMessageRepository {
         task_id: &str,
         turn_number: Option<i32>,
     ) -> Result<bool, sqlx::Error> {
-        // Scope to the reconciled turn when known: a stale open turn must not be
-        // closed as completed on the strength of a later turn's final reply.
+        // Scope to the reconciled turn first: a stale open turn must not be
+        // closed as completed on the strength of a later turn's final reply
+        // when it already has substantive assistant/system/result state of its
+        // own (for example, a mid-tool interruption).
         let row: Option<(super::models::MessageType, Option<String>)> = sqlx::query_as(
             r#"SELECT message_type, assistant_stop_reason FROM task_messages
                WHERE task_id = $1
@@ -625,10 +633,65 @@ impl MessageRepository for PgMessageRepository {
         // A final assistant reply ends with stop_reason `end_turn`; a turn cut
         // off mid-tool ends with `tool_use` (or no assistant row at all), which
         // stays a genuine orphan.
-        Ok(matches!(
+        if matches!(
             row,
             Some((super::models::MessageType::Assistant, Some(reason))) if reason == "end_turn"
-        ))
+        ) {
+            return Ok(true);
+        }
+
+        let Some(turn_number) = turn_number else {
+            return Ok(false);
+        };
+
+        // Coalesced pending-message run: the orphaned lower turn contains only
+        // the inbound user message (plus possible empty assistant placeholders),
+        // while the actual final assistant reply was attributed to a later
+        // sibling turn by MAX(turn_number)-at-event-arrival resolution.
+        let (has_user, has_substantive_non_user, latest_later_completed): (bool, bool, bool) =
+            sqlx::query_as(
+                r#"SELECT
+                     EXISTS (
+                       SELECT 1 FROM task_messages
+                       WHERE task_id = $1
+                         AND turn_number = $2
+                         AND message_type = 'user'
+                     ) AS has_user,
+                     EXISTS (
+                       SELECT 1 FROM task_messages
+                       WHERE task_id = $1
+                         AND turn_number = $2
+                         AND message_type <> 'user'
+                         AND NOT (
+                           message_type = 'assistant'
+                           AND assistant_stop_reason IS NULL
+                           AND COALESCE(
+                             jsonb_array_length(
+                               CASE
+                                 WHEN jsonb_typeof(message_content) = 'array' THEN message_content
+                                 ELSE '[]'::jsonb
+                               END
+                             ),
+                             0
+                           ) = 0
+                         )
+                     ) AS has_substantive_non_user,
+                     COALESCE((
+                       SELECT message_type = 'assistant'
+                          AND assistant_stop_reason = 'end_turn'
+                          AND COALESCE(turn_number > $2, false)
+                       FROM task_messages
+                       WHERE task_id = $1
+                       ORDER BY timestamp DESC, id DESC
+                       LIMIT 1
+                     ), false) AS latest_later_completed"#,
+            )
+            .bind(task_id)
+            .bind(turn_number)
+            .fetch_one(&self.0)
+            .await?;
+
+        Ok(has_user && !has_substantive_non_user && latest_later_completed)
     }
 
     async fn get_latest_message_times(
