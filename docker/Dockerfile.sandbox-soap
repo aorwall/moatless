@@ -140,7 +140,7 @@ RUN set -eux; \
       -o /usr/libexec/docker/cli-plugins/docker-buildx; \
     chmod +x /usr/libexec/docker/cli-plugins/docker-buildx; \
     zig version; \
-    cargo zigbuild --version; \
+    cargo-zigbuild --version; \
     docker buildx version
 
 # Entrypoint scripts come from the sandbox-tools image so script edits don't
