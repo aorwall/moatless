@@ -1243,6 +1243,106 @@ export const useMarkTaskRead = <TError = ErrorType<ErrorBody>,
       return useMutation(getMarkTaskReadMutationOptions(options), queryClient);
     }
     /**
+ * Flips a `Closed` task back to `Open` so it can be started and chatted with
+again. No sandbox is provisioned here — that happens on the next `start` or
+inbound message, at which point the sandbox restores any retained S3 state
+(Claude transcript + `s3`-mode workspace) keyed by `task_id`. Whether that
+state still exists depends on `SANDBOX_RETAIN_STORAGE_ON_CLOSE` having been
+set when the task was closed; if not, the task reopens with a fresh
+sandbox. External bindings deactivated on close are left inactive.
+ * @summary Reopen a previously closed task.
+ */
+export type reopenTaskResponse200 = {
+  data: TaskResponse
+  status: 200
+}
+
+export type reopenTaskResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type reopenTaskResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type reopenTaskResponseSuccess = (reopenTaskResponse200) & {
+  headers: Headers;
+};
+export type reopenTaskResponseError = (reopenTaskResponse400 | reopenTaskResponse404) & {
+  headers: Headers;
+};
+
+export type reopenTaskResponse = (reopenTaskResponseSuccess | reopenTaskResponseError)
+
+export const getReopenTaskUrl = (taskId: string,) => {
+
+
+  
+
+  return `/api/v1/tasks/${taskId}/reopen`
+}
+
+export const reopenTask = async (taskId: string, options?: RequestInit): Promise<reopenTaskResponse> => {
+  
+  return customInstance<reopenTaskResponse>(getReopenTaskUrl(taskId),
+  {      
+    ...options,
+    method: 'POST'
+    
+    
+  }
+);}
+
+
+
+
+export const getReopenTaskMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reopenTask>>, TError,{taskId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof reopenTask>>, TError,{taskId: string}, TContext> => {
+
+const mutationKey = ['reopenTask'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof reopenTask>>, {taskId: string}> = (props) => {
+          const {taskId} = props ?? {};
+
+          return  reopenTask(taskId,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReopenTaskMutationResult = NonNullable<Awaited<ReturnType<typeof reopenTask>>>
+    
+    export type ReopenTaskMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Reopen a previously closed task.
+ */
+export const useReopenTask = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reopenTask>>, TError,{taskId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof reopenTask>>,
+        TError,
+        {taskId: string},
+        TContext
+      > => {
+      return useMutation(getReopenTaskMutationOptions(options), queryClient);
+    }
+    /**
  * @summary Start a task (provision sandbox and begin agent).
  */
 export type startTaskResponse204 = {

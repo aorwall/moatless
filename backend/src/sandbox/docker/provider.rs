@@ -338,7 +338,10 @@ impl SandboxProvider for DockerSandboxProvider {
         self.provision(task_id, request).await
     }
 
-    async fn cleanup(&self, task_id: &str) -> Result<(), SandboxError> {
+    async fn cleanup(&self, task_id: &str, _retain_storage: bool) -> Result<(), SandboxError> {
+        // Docker mode has no S3-backed storage sync, so `retain_storage` is a
+        // no-op here — there is nothing to preserve or delete beyond the
+        // containers themselves.
         info!(task_id = %task_id, "Cleaning up Docker sandbox");
 
         // Remove server containers first

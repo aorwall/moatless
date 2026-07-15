@@ -1220,6 +1220,7 @@ mod tests {
                 storage_size: "1Gi".into(),
                 storage_class: None,
                 default_storage_mode: "ebs".into(),
+                retain_storage_on_close: false,
                 pod_startup_timeout_secs: 10,
                 task_token_secret: Some("secret".into()),
                 user_token_ttl_secs: 7 * 24 * 3600,

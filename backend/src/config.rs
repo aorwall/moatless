@@ -298,6 +298,14 @@ pub struct SandboxConfig {
     /// One of `ebs` / `ephemeral` / `s3`; unknown values fall back to `ebs`.
     /// A per-repo `storage_mode` always overrides this.
     pub default_storage_mode: String,
+    /// When `true`, closing a task preserves its S3-backed storage (Claude
+    /// transcript archive + `s3`-mode workspace archive) instead of deleting it.
+    /// This is what makes a closed task revivable via `POST /tasks/{id}/reopen`
+    /// — the retained archives are restored on the next provision. K8s
+    /// resources (Deployment/Service/PVC/IngressRoutes) are still torn down.
+    /// Env `SANDBOX_RETAIN_STORAGE_ON_CLOSE` (default: `false`). Permanent
+    /// task deletion always removes storage regardless of this flag.
+    pub retain_storage_on_close: bool,
     /// Pod startup timeout in seconds
     pub pod_startup_timeout_secs: u64,
     /// Secret for signing task auth JWTs
@@ -921,6 +929,7 @@ impl Config {
                 storage_size: env_str("K8S_SANDBOX_STORAGE_SIZE", "3Gi"),
                 storage_class: env_opt("K8S_SANDBOX_STORAGE_CLASS"),
                 default_storage_mode: env_str("K8S_SANDBOX_DEFAULT_STORAGE_MODE", "ebs"),
+                retain_storage_on_close: env_bool("SANDBOX_RETAIN_STORAGE_ON_CLOSE", false),
                 pod_startup_timeout_secs: env_or("K8S_POD_STARTUP_TIMEOUT_SECS", 120),
                 task_token_secret: env_opt("TASK_TOKEN_SECRET"),
                 user_token_ttl_secs: env_or("SANDBOX_USER_TOKEN_TTL_SECS", 7 * 24 * 3600),
@@ -1355,6 +1364,7 @@ mod tests {
                 storage_size: "1Gi".into(),
                 storage_class: None,
                 default_storage_mode: "ebs".into(),
+                retain_storage_on_close: false,
                 pod_startup_timeout_secs: 10,
                 task_token_secret: None,
                 user_token_ttl_secs: 7 * 24 * 3600,

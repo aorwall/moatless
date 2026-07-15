@@ -286,7 +286,7 @@ pub async fn cleanup_handler(
     Path(task_id): Path<String>,
 ) -> Result<StatusCode, SandboxError> {
     info!(task_id = %task_id, "POST /cleanup");
-    match state.provider.cleanup(&task_id).await {
+    match state.provider.cleanup(&task_id, false).await {
         Ok(()) => {
             info!(task_id = %task_id, "Cleanup succeeded");
             Ok(StatusCode::NO_CONTENT)

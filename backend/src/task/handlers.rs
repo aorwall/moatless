@@ -723,8 +723,9 @@ pub async fn delete_task(
     // (exit 137). Best-effort — never blocks teardown.
     crate::sandbox::notify::stop_agent_for_task(&state, &task_id).await;
 
-    // Cleanup workspace (best-effort)
-    if let Err(e) = state.sandbox.cleanup(&task_id).await {
+    // Cleanup workspace (best-effort). Permanent deletion removes S3 storage
+    // too — never retain here.
+    if let Err(e) = state.sandbox.cleanup(&task_id, false).await {
         tracing::warn!(task_id = %task_id, error = %e, "Failed to cleanup workspace on delete");
     }
 
@@ -867,8 +868,10 @@ pub async fn close_task(
     // (exit 137). Best-effort — never blocks teardown.
     crate::sandbox::notify::stop_agent_for_task(&state, &task_id).await;
 
-    // Cleanup sandbox (best-effort)
-    if let Err(e) = state.sandbox.cleanup(&task_id).await {
+    // Cleanup sandbox (best-effort). Preserve S3 storage when configured so the
+    // task can later be revived via reopen.
+    let retain_storage = state.config.sandbox.retain_storage_on_close;
+    if let Err(e) = state.sandbox.cleanup(&task_id, retain_storage).await {
         tracing::warn!(task_id = %task_id, error = %e, "Failed to cleanup sandbox on close");
     }
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task closed");
@@ -895,6 +898,81 @@ pub async fn close_task(
                 TaskSubType::Closed,
                 Some(row.agent_type.as_str()),
                 serde_json::json!({}),
+            )
+            .await;
+    }
+
+    let updated = state
+        .tasks
+        .find_by_id(&task_id, &auth.scope_context())
+        .await?
+        .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
+
+    let resp = enrich_task(&updated, &state, &auth.user_id).await?;
+    Ok(Json(resp))
+}
+
+/// Reopen a previously closed task.
+///
+/// Flips a `Closed` task back to `Open` so it can be started and chatted with
+/// again. No sandbox is provisioned here — that happens on the next `start` or
+/// inbound message, at which point the sandbox restores any retained S3 state
+/// (Claude transcript + `s3`-mode workspace) keyed by `task_id`. Whether that
+/// state still exists depends on `SANDBOX_RETAIN_STORAGE_ON_CLOSE` having been
+/// set when the task was closed; if not, the task reopens with a fresh
+/// sandbox. External bindings deactivated on close are left inactive.
+#[utoipa::path(
+    post,
+    path = "/api/v1/tasks/{task_id}/reopen",
+    tag = "tasks",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    responses(
+        (status = 200, description = "Task reopened", body = TaskResponse),
+        (status = 400, description = "Task is not closed", body = crate::error::ErrorBody),
+        (status = 404, description = "Task not found", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn reopen_task(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(task_id): Path<String>,
+) -> Result<Json<TaskResponse>, TaskError> {
+    let row = state
+        .tasks
+        .find_by_id(&task_id, &auth.scope_context())
+        .await?
+        .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
+    ensure_can_control_task(&state, &auth, &task_resource(&row)).await?;
+
+    if row.status != TaskStatus::Closed {
+        return Err(TaskError::BadRequest(format!(
+            "Cannot reopen task in '{}' status (only closed tasks can be reopened)",
+            row.status
+        )));
+    }
+
+    state
+        .tasks
+        .update_task(
+            &task_id,
+            &TaskPatch {
+                status: Some(TaskStatus::Open),
+                ..Default::default()
+            },
+        )
+        .await?;
+
+    tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task reopened");
+
+    if let Some(ref events) = state.events {
+        events
+            .publish_task_event(
+                &task_id,
+                TaskSubType::Open,
+                Some(row.agent_type.as_str()),
+                serde_json::json!({"reason": "reopened"}),
             )
             .await;
     }

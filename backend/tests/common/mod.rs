@@ -67,7 +67,7 @@ impl SandboxProvider for MockSandboxProvider {
         Err(SandboxError::Internal("mock: not implemented".into()))
     }
 
-    async fn cleanup(&self, _task_id: &str) -> Result<(), SandboxError> {
+    async fn cleanup(&self, _task_id: &str, _retain_storage: bool) -> Result<(), SandboxError> {
         Ok(()) // best-effort in handlers
     }
 
@@ -119,6 +119,7 @@ pub fn test_config() -> Config {
             storage_size: "1Gi".into(),
             storage_class: None,
             default_storage_mode: "ebs".into(),
+            retain_storage_on_close: false,
             pod_startup_timeout_secs: 10,
             task_token_secret: None,
             user_token_ttl_secs: 7 * 24 * 3600,

@@ -57,7 +57,13 @@ pub trait SandboxProvider: Send + Sync {
     ) -> Result<ProvisionResponse, SandboxError>;
 
     /// Fully clean up a sandbox (remove all resources).
-    async fn cleanup(&self, task_id: &str) -> Result<(), SandboxError>;
+    ///
+    /// When `retain_storage` is `true`, S3-backed archives (Claude transcript +
+    /// `s3`-mode workspace) are preserved so the task can later be revived via
+    /// reopen; K8s resources (Deployment/Service/PVC/IngressRoutes) are torn
+    /// down regardless. When `false`, everything — including S3 archives — is
+    /// removed (permanent deletion).
+    async fn cleanup(&self, task_id: &str, retain_storage: bool) -> Result<(), SandboxError>;
 
     /// Fetch observed container statuses from the runtime (K8s pods / Docker).
     ///

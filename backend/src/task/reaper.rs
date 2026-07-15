@@ -830,7 +830,9 @@ async fn auto_close_task(
     // exits promptly instead of riding its full termination grace until SIGKILL
     // (exit 137). Best-effort — an already-idle agent makes this a no-op.
     crate::sandbox::notify::stop_agent_for_task(app_state, task_id).await;
-    if let Err(e) = sandbox.cleanup(task_id).await {
+    // Auto-closed tasks are revivable too when storage retention is enabled.
+    let retain_storage = app_state.config.sandbox.retain_storage_on_close;
+    if let Err(e) = sandbox.cleanup(task_id, retain_storage).await {
         warn!(task_id, error = %e, "auto-close: sandbox.cleanup failed (continuing)");
     }
 

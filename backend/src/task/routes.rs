@@ -21,6 +21,7 @@ use crate::state::AppState;
         handlers::follow_task,
         handlers::unfollow_task,
         handlers::close_task,
+        handlers::reopen_task,
         handlers::start_task,
         handlers::stop_task,
         handlers::set_task_tags,
@@ -42,6 +43,7 @@ pub fn task_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenApi) 
             handlers::delete_task
         ))
         .routes(routes!(handlers::close_task))
+        .routes(routes!(handlers::reopen_task))
         .routes(routes!(handlers::mark_task_read))
         .routes(routes!(handlers::follow_task, handlers::unfollow_task))
         .routes(routes!(handlers::start_task))

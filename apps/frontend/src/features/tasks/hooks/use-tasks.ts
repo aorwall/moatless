@@ -599,6 +599,61 @@ export function useCloseTask(taskId: string, options?: UseMutationOptions<TaskRe
   })
 }
 
+/**
+ * Reopen a previously closed task (flips `closed` → `open`).
+ *
+ * The backend does not provision a sandbox here — that happens on the next
+ * start/message, at which point any retained S3 state is restored. This mirrors
+ * `useCloseTask` optimistically: the detail cache flips back to `open` and the
+ * task lists are refetched so the reopened row reappears.
+ */
+export function useReopenTask(taskId: string, options?: UseMutationOptions<TaskResponse, Error>) {
+  const queryClient = useQueryClient()
+
+  return useMutation<TaskResponse, Error, void>({
+    ...options,
+    mutationKey: ['tasks', taskId, 'reopen'],
+    mutationFn: () => tasksApi.reopenTask(taskId),
+    onMutate: () => {
+      // Snapshot the previous task data for potential rollback.
+      const previousTask = queryClient.getQueryData<TaskResponse>(queryKeys.tasks.detail(taskId))
+
+      // Optimistically flip the detail cache to 'open'.
+      if (previousTask) {
+        const updatedTask = { ...previousTask, status: 'open' as const }
+        queryClient.setQueryData<TaskResponse>(queryKeys.tasks.detail(taskId), updatedTask)
+        updateTaskInLists(queryClient, taskId, updatedTask)
+      }
+
+      return { previousTask }
+    },
+    onError: (err, variables, onMutateResult, mutationContext) => {
+      // Rollback on error.
+      if (
+        onMutateResult &&
+        typeof onMutateResult === 'object' &&
+        'previousTask' in onMutateResult &&
+        onMutateResult.previousTask
+      ) {
+        queryClient.setQueryData(queryKeys.tasks.detail(taskId), onMutateResult.previousTask)
+        updateTaskInLists(queryClient, taskId, onMutateResult.previousTask)
+      }
+      options?.onError?.(err, variables, onMutateResult, mutationContext)
+    },
+    onSettled: async () => {
+      // Refetch task lists so the reopened row reappears where relevant.
+      await queryClient.refetchQueries({
+        queryKey: queryKeys.tasks.lists(),
+        exact: false,
+        type: 'active',
+      })
+    },
+    onSuccess: (data, variables, onMutateResult, mutationContext) => {
+      options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
+    },
+  })
+}
+
 export function useUpdateTaskVisibility(
   taskId: string,
   options?: UseMutationOptions<{ success: true }, Error, 'private' | 'public'>,

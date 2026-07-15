@@ -29,6 +29,7 @@ import {
   getTaskConnections as getTaskConnectionsHandler,
   getTask as getTaskHandler,
   listTasks as listTasksHandler,
+  reopenTask as reopenTaskHandler,
   stopTask as stopAgentHandler,
   updateTaskMetadata as updateTaskMetadataHandler,
   updateTtl as updateTaskTtlHandler,
@@ -189,6 +190,10 @@ export const tasksApi = {
 
   async closeTask(taskId: string): Promise<TaskResponse> {
     return await unwrapResponse(closeTaskHandler(taskId))
+  },
+
+  async reopenTask(taskId: string): Promise<TaskResponse> {
+    return await unwrapResponse(reopenTaskHandler(taskId))
   },
 
   // Mark the task's conversation as read for the current user (clears the

@@ -330,8 +330,8 @@ impl SandboxProvider for K8sSandboxProvider {
         self.provision(task_id, request).await
     }
 
-    async fn cleanup(&self, task_id: &str) -> Result<(), SandboxError> {
-        info!(task_id = %task_id, "Cleaning up sandbox (deleting all resources)");
+    async fn cleanup(&self, task_id: &str, retain_storage: bool) -> Result<(), SandboxError> {
+        info!(task_id = %task_id, retain_storage, "Cleaning up sandbox (deleting all resources)");
 
         // Delete the Deployment first. Its ownerReferences make the Service and
         // IngressRoutes children, so K8s garbage collection cascades their
@@ -362,17 +362,26 @@ impl SandboxProvider for K8sSandboxProvider {
             first_err.get_or_insert(SandboxError::KubeError(e));
         }
 
-        // Delete this task's transcript archive from S3 (`<prefix>/<task_id>/...`).
-        // The per-task PVC delete above doesn't cover it — transcripts live in the
-        // uploads bucket, synced there by the sandbox via backend-proxied gRPC.
-        // Best-effort: a leftover object is harmless and the bucket lifecycle rule
-        // eventually expires it. No-op when S3 isn't configured. Run this even on
-        // a K8s delete failure — it's cheap and independent.
-        self.delete_task_transcripts(task_id).await;
+        if retain_storage {
+            // Soft close: keep the S3 archives so the task can be revived. The
+            // sandbox's restore-on-start (workspace) and download-on-start
+            // (transcript) are keyed purely by task_id, so a later reprovision
+            // picks them back up transparently. K8s resources (incl. PVC) are
+            // still gone — only the S3-backed state survives.
+            info!(task_id = %task_id, "Retaining S3 archives on close (revivable)");
+        } else {
+            // Delete this task's transcript archive from S3 (`<prefix>/<task_id>/...`).
+            // The per-task PVC delete above doesn't cover it — transcripts live in the
+            // uploads bucket, synced there by the sandbox via backend-proxied gRPC.
+            // Best-effort: a leftover object is harmless and the bucket lifecycle rule
+            // eventually expires it. No-op when S3 isn't configured. Run this even on
+            // a K8s delete failure — it's cheap and independent.
+            self.delete_task_transcripts(task_id).await;
 
-        // Delete this task's `s3`-backend workspace archive too (`<prefix>/<task_id>/`).
-        // No-op for `ebs`/`ephemeral` tasks (nothing under the prefix).
-        self.delete_task_workspace(task_id).await;
+            // Delete this task's `s3`-backend workspace archive too (`<prefix>/<task_id>/`).
+            // No-op for `ebs`/`ephemeral` tasks (nothing under the prefix).
+            self.delete_task_workspace(task_id).await;
+        }
 
         // Surface a K8s delete failure to the caller instead of the old
         // swallow-to-`Ok(())`. Skip the "Removed" event — resources may linger.

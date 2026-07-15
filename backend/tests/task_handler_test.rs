@@ -14,7 +14,8 @@ use sqlx::PgPool;
 use tower::ServiceExt;
 
 use moatless_vibe_backend::repository::dao as repository_dao;
-use moatless_vibe_backend::task::dao as task_dao;
+use moatless_vibe_backend::task::dao::{self as task_dao, PgTaskRepository, TaskPatch, TaskRepository};
+use moatless_vibe_backend::task::models::TaskStatus;
 use moatless_vibe_backend::task::routes::task_router;
 
 use common::{
@@ -125,4 +126,65 @@ async fn delete_task_handler(pool: PgPool) {
         .await
         .unwrap();
     assert!(found.is_none());
+}
+
+/// Set an existing task to `Closed` (mirrors the close handler's DB effect).
+async fn set_closed(pool: &PgPool, task_id: &str) {
+    PgTaskRepository(pool.clone())
+        .update_task(
+            task_id,
+            &TaskPatch {
+                status: Some(TaskStatus::Closed),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+}
+
+#[sqlx::test]
+async fn reopen_closed_task_200(pool: PgPool) {
+    seed_repo(&pool).await;
+    let row = make_task_row("task-reopen", "user-1");
+    task_dao::insert_task(&pool, &row).await.unwrap();
+    set_closed(&pool, "task-reopen").await;
+
+    let app = build_router(pool.clone());
+    let req = authed_request("POST", "/api/v1/tasks/task-reopen/reopen", "user-1");
+    let resp = app.oneshot(req).await.unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_json(resp).await;
+    assert_eq!(body["taskId"], "task-reopen");
+    assert_eq!(body["status"], "open");
+
+    // Persisted, not just echoed.
+    let found = task_dao::find_by_id(&pool, "task-reopen", "user-1")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(found.status, TaskStatus::Open);
+}
+
+#[sqlx::test]
+async fn reopen_open_task_400(pool: PgPool) {
+    seed_repo(&pool).await;
+    let row = make_task_row("task-open-reopen", "user-1");
+    task_dao::insert_task(&pool, &row).await.unwrap();
+
+    let app = build_router(pool);
+    let req = authed_request("POST", "/api/v1/tasks/task-open-reopen/reopen", "user-1");
+    let resp = app.oneshot(req).await.unwrap();
+
+    // Only closed tasks can be reopened.
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[sqlx::test]
+async fn reopen_nonexistent_404(pool: PgPool) {
+    let app = build_router(pool);
+    let req = authed_request("POST", "/api/v1/tasks/nope/reopen", "user-1");
+    let resp = app.oneshot(req).await.unwrap();
+
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }

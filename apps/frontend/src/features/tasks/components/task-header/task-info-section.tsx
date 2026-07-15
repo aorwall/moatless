@@ -1,11 +1,21 @@
 import type { TaskResponse } from '@moatless/api-client'
 import { useNavigate } from '@tanstack/react-router'
-import { Bell, BellOff, ExternalLink, GitBranch, Globe, Lock, XCircle } from 'lucide-react'
+import {
+  Bell,
+  BellOff,
+  ExternalLink,
+  GitBranch,
+  Globe,
+  Lock,
+  RotateCcw,
+  XCircle,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { formatTimestamp } from '@/features/task-connections'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
 import {
   useCloseTask,
+  useReopenTask,
   useToggleTaskFollow,
   useUpdateTaskTtl,
   useUpdateTaskVisibility,
@@ -49,6 +59,10 @@ export function TaskInfoSection({ task }: TaskInfoSectionProps) {
     onSuccess: () => navigate({ to: '/' }),
     onError: (err) => toast.error('Failed to close task', { description: err.message }),
   })
+  const reopenTask = useReopenTask(taskId, {
+    onSuccess: () => toast.success('Task reopened'),
+    onError: (err) => toast.error('Failed to reopen task', { description: err.message }),
+  })
   const isClosed = task.status === 'closed'
   const totalCost = task.totalCostUsd ?? 0
   const createdBy = task.createdByDisplayName ?? task.createdBy
@@ -73,7 +87,18 @@ export function TaskInfoSection({ task }: TaskInfoSectionProps) {
           <Badge variant={isClosed ? 'secondary' : 'default'} className="h-5 text-xs">
             {task.status}
           </Badge>
-          {!isClosed && (
+          {isClosed ? (
+            <button
+              type="button"
+              disabled={reopenTask.isPending}
+              onClick={() => reopenTask.mutate()}
+              title="Reopen task to continue chatting"
+              className="inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-xs transition-colors hover:bg-muted disabled:opacity-50"
+            >
+              <RotateCcw className="h-3 w-3" />
+              Reopen
+            </button>
+          ) : (
             <button
               type="button"
               disabled={closeTask.isPending}

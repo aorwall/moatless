@@ -1062,7 +1062,8 @@ async fn close_active_bindings_for_issue(
         // SIGKILL (exit 137). Best-effort — never blocks teardown.
         crate::sandbox::notify::stop_agent_for_task(state, &binding.task_id).await;
 
-        if let Err(e) = state.sandbox.cleanup(&binding.task_id).await {
+        let retain_storage = state.config.sandbox.retain_storage_on_close;
+        if let Err(e) = state.sandbox.cleanup(&binding.task_id, retain_storage).await {
             warn!(task_id = %binding.task_id, error = %e, "Failed to cleanup sandbox on Linear close");
         }
 
