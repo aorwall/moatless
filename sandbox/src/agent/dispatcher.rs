@@ -18,7 +18,7 @@ use crate::files::uploads::fetch_uploads_for_messages;
 use crate::state::SandboxState;
 
 use super::prompt::PromptResponse;
-use super::types::{content_blocks_from_proto, ContentBlock};
+use super::types::{ContentBlock, content_blocks_from_proto};
 
 /// Dispatch pending messages to the agent.
 ///
@@ -178,6 +178,12 @@ async fn resolve_pending_prompt(state: &SandboxState) {
         return;
     }
 
+    let Some(prompt_message) = proto_messages.first() else {
+        return;
+    };
+    let prompt_response_uuid = prompt_message.uuid.clone();
+    let has_remaining_messages = proto_messages.len() > 1;
+
     let Some(prompt) = state.agent.take_pending_prompt().await else {
         // Prompt was already consumed between our check and take —
         // fall through to normal dispatch
@@ -188,7 +194,7 @@ async fn resolve_pending_prompt(state: &SandboxState) {
         return;
     };
 
-    let text = extract_text_from_messages(&proto_messages);
+    let text = extract_text_from_messages(std::slice::from_ref(prompt_message));
 
     info!(tool = ?prompt.tool_name, "Resolving interactive prompt with pending message");
 
@@ -205,7 +211,50 @@ async fn resolve_pending_prompt(state: &SandboxState) {
         }
     };
 
-    let _ = prompt.sender.send(response);
+    if prompt.sender.send(response).is_err() {
+        warn!("Pending prompt receiver dropped before response was delivered");
+        return;
+    }
+
+    if let Some(uuid) = prompt_response_uuid {
+        acknowledge_prompt_messages(state, vec![uuid]).await;
+    }
+
+    if has_remaining_messages {
+        let state = state.clone();
+        tokio::spawn(schedule_dispatch(state));
+    }
+}
+
+fn schedule_dispatch(
+    state: SandboxState,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>> {
+    Box::pin(async move {
+        dispatch_pending_messages(state).await;
+    })
+}
+
+async fn acknowledge_prompt_messages(state: &SandboxState, uuids: Vec<String>) {
+    if uuids.is_empty() {
+        return;
+    }
+
+    let Some(session_id) = state.agent.last_session_id().await else {
+        warn!(
+            task_id = %state.config.task_id,
+            count = uuids.len(),
+            "Cannot acknowledge prompt response messages without an active session id"
+        );
+        return;
+    };
+
+    if let Err(e) = state
+        .backend_client
+        .acknowledge_messages(&state.config.task_id, uuids, &session_id)
+        .await
+    {
+        warn!(error = %e, "Failed to acknowledge prompt response messages");
+    }
 }
 
 fn extract_model(messages: &[sandbox_proto::PendingMessage]) -> Option<String> {

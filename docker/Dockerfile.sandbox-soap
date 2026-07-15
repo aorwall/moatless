@@ -151,11 +151,13 @@ COPY --from=aorwall/moatless-sandbox-tools:latest /tools/moatless-git-cred /usr/
 RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/sync-plugins.sh /usr/local/bin/moatless-git-cred
 
 # Eclipse Temurin JDK 25 + Maven + postgresql-client.
+# protobuf-compiler provides `protoc` for Rust tonic/prost builds inside SOAP
+# sandboxes; this Dockerfile cannot rely on the upstream sandbox-base rebuild.
 # apt-get upgrade pulls security patches for everything inherited from the base
 # image (notably gh, docker-ce-cli — Go binaries that age out of CVE compliance).
 RUN apt-get update && \
     apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends wget apt-transport-https gpg maven postgresql-client unzip protobuf-compiler && \
+    apt-get install -y --no-install-recommends wget apt-transport-https gpg maven postgresql-client protobuf-compiler unzip && \
     wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor -o /etc/apt/keyrings/adoptium.gpg && \
     echo "deb [signed-by=/etc/apt/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb $(. /etc/os-release && echo $VERSION_CODENAME) main" > /etc/apt/sources.list.d/adoptium.list && \
     apt-get update && \

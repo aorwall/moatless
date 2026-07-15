@@ -14,11 +14,12 @@ use std::time::Duration;
 
 use moatless_sandbox::agent::agent_state::AgentState;
 use moatless_sandbox::agent::handle::spawn_agent;
+use moatless_sandbox::agent::prompt::{PendingPrompt, PromptResponse, PromptToolName};
 use moatless_sandbox::agent::types::AgentStatus;
 use moatless_sandbox::backend_client::BackendClient;
 use moatless_sandbox::config::Config;
-use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
 use moatless_sandbox::credentials::Dispatcher;
+use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
 use moatless_sandbox::events::GrpcEventPublisher;
 use moatless_sandbox::init::InitPhase;
 use moatless_sandbox::state::SandboxState;
@@ -35,6 +36,7 @@ use tokio_util::sync::CancellationToken;
 
 struct MockBackendClient {
     message_batches: Mutex<Vec<Vec<PendingMessage>>>,
+    acknowledgments: Mutex<Vec<(String, Vec<String>, String)>>,
     publish_count: AtomicUsize,
     ack_count: AtomicUsize,
     get_pending_count: AtomicUsize,
@@ -44,6 +46,7 @@ impl MockBackendClient {
     fn new(batches: Vec<Vec<PendingMessage>>) -> Self {
         Self {
             message_batches: Mutex::new(batches),
+            acknowledgments: Mutex::new(Vec::new()),
             publish_count: AtomicUsize::new(0),
             ack_count: AtomicUsize::new(0),
             get_pending_count: AtomicUsize::new(0),
@@ -61,6 +64,10 @@ impl MockBackendClient {
 
     fn get_pending_count(&self) -> usize {
         self.get_pending_count.load(Ordering::SeqCst)
+    }
+
+    fn acknowledgments(&self) -> Vec<(String, Vec<String>, String)> {
+        self.acknowledgments.lock().unwrap().clone()
     }
 }
 
@@ -86,10 +93,15 @@ impl BackendClient for MockBackendClient {
 
     async fn acknowledge_messages(
         &self,
-        _task_id: &str,
-        _message_uuids: Vec<String>,
-        _session_id: &str,
+        task_id: &str,
+        message_uuids: Vec<String>,
+        session_id: &str,
     ) -> Result<(), tonic::Status> {
+        self.acknowledgments.lock().unwrap().push((
+            task_id.to_string(),
+            message_uuids,
+            session_id.to_string(),
+        ));
         self.ack_count.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
@@ -360,6 +372,83 @@ async fn redispatch_skipped_when_circuit_breaker_active() {
         backend.get_pending_count(),
         1,
         "circuit breaker active — no re-fetch should happen"
+    );
+}
+
+#[tokio::test]
+async fn prompt_response_acknowledges_consumed_message() {
+    let backend = Arc::new(MockBackendClient::new(vec![vec![
+        make_text_message("yes, proceed", Some("prompt-reply-1")),
+        make_text_message("normal follow-up", Some("follow-up-1")),
+    ]]));
+    let state = test_state(Arc::clone(&backend) as _);
+    state
+        .agent
+        .set_session_id("session-active".to_string())
+        .await;
+
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    state
+        .agent
+        .set_pending_prompt(PendingPrompt {
+            tool_name: PromptToolName::AskUserQuestion,
+            input: serde_json::json!({"question": "Proceed?"}),
+            sender: tx,
+        })
+        .await;
+
+    moatless_sandbox::agent::dispatcher::dispatch_pending_messages(state.clone()).await;
+
+    match rx.await.expect("prompt response should be delivered") {
+        PromptResponse::AskUserAnswer { answers } => {
+            assert_eq!(answers["text"], "yes, proceed");
+        }
+        other => panic!("expected AskUserAnswer, got {other:?}"),
+    }
+
+    assert_eq!(backend.ack_count(), 1);
+    assert_eq!(
+        backend.acknowledgments(),
+        vec![(
+            "test-task-1".to_string(),
+            vec!["prompt-reply-1".to_string()],
+            "session-active".to_string()
+        )]
+    );
+    assert!(
+        backend.get_pending_count() >= 1,
+        "the follow-up remains pending for a later dispatch"
+    );
+}
+
+#[tokio::test]
+async fn prompt_response_without_session_is_not_acknowledged() {
+    let backend = Arc::new(MockBackendClient::new(vec![vec![make_text_message(
+        "yes, proceed",
+        Some("prompt-reply-1"),
+    )]]));
+    let state = test_state(Arc::clone(&backend) as _);
+
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    state
+        .agent
+        .set_pending_prompt(PendingPrompt {
+            tool_name: PromptToolName::AskUserQuestion,
+            input: serde_json::json!({"question": "Proceed?"}),
+            sender: tx,
+        })
+        .await;
+
+    moatless_sandbox::agent::dispatcher::dispatch_pending_messages(state.clone()).await;
+
+    assert!(
+        rx.await.is_ok(),
+        "prompt response should still be delivered"
+    );
+    assert_eq!(
+        backend.ack_count(),
+        0,
+        "cannot acknowledge without a session id"
     );
 }
 
