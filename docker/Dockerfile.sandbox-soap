@@ -97,6 +97,52 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
     && echo 'export PATH="/opt/cargo/bin:$PATH"' >> /etc/profile \
     && (cargo --version 2>/dev/null || echo "unknown") > /opt/moatless/.rust-version
 
+# E2E cross-compile toolchain (cargo-zigbuild + zig) and docker buildx.
+#
+# The Rust SDK/sandbox E2E harness (crates/claude-agent-sdk/scripts/test-docker.sh)
+# cross-compiles the test binaries with `cargo zigbuild` — zig acts as the linker
+# so the binaries stay compatible with the older glibc in the slim/sandbox-base
+# target image — then assembles the runner image with
+# `docker build --build-context binaries=...`, which needs BuildKit/buildx.
+# Baking these in lets an agent run the whole harness from this sandbox with
+# nothing but the checked-out repo (protoc for the prost crates is installed in
+# the apt layer below; docker + the compose plugin ship in the base).
+#
+# zig links glibc-target binaries even on a same-arch host, so it is required
+# regardless of the sandbox's own architecture. cargo-zigbuild is left unpinned
+# to match .github/workflows/e2e.yml (`cargo install --locked cargo-zigbuild`).
+# renovate: datasource=github-releases depName=ziglang/zig
+ARG ZIG_VERSION=0.13.0
+# renovate: datasource=github-releases depName=docker/buildx
+ARG BUILDX_VERSION=v0.30.1
+RUN set -eux; \
+    apt_arch="$(dpkg --print-architecture)"; \
+    case "$apt_arch" in \
+      amd64) zig_arch="x86_64"; bx_arch="amd64" ;; \
+      arm64) zig_arch="aarch64"; bx_arch="arm64" ;; \
+      *) echo "unsupported arch: $apt_arch" >&2; exit 1 ;; \
+    esac; \
+    rust_target="${zig_arch}-unknown-linux-gnu"; \
+    # rustup ships the host target's std already; make it explicit so a drifted
+    # host default can't leave zigbuild without the target std.
+    rustup target add "$rust_target"; \
+    cargo install --locked cargo-zigbuild; \
+    chown -R moatless:moatless /opt/cargo; \
+    # zig — the linker cargo-zigbuild invokes.
+    curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/zig-linux-${zig_arch}-${ZIG_VERSION}.tar.xz" -o /tmp/zig.tar.xz; \
+    mkdir -p /opt/zig; \
+    tar -xJf /tmp/zig.tar.xz -C /opt/zig --strip-components=1; \
+    rm /tmp/zig.tar.xz; \
+    ln -sf /opt/zig/zig /usr/local/bin/zig; \
+    # docker buildx cli-plugin — required for `docker build --build-context`.
+    mkdir -p /usr/libexec/docker/cli-plugins; \
+    curl -fsSL "https://github.com/docker/buildx/releases/download/${BUILDX_VERSION}/buildx-${BUILDX_VERSION}.linux-${bx_arch}" \
+      -o /usr/libexec/docker/cli-plugins/docker-buildx; \
+    chmod +x /usr/libexec/docker/cli-plugins/docker-buildx; \
+    zig version; \
+    cargo zigbuild --version; \
+    docker buildx version
+
 # Entrypoint scripts come from the sandbox-tools image so script edits don't
 # invalidate the binary COPY layer below (and vice versa).
 COPY --from=aorwall/moatless-sandbox-tools:latest /tools/docker-entrypoint-sandbox.sh /usr/local/bin/docker-entrypoint-sandbox.sh
@@ -109,7 +155,7 @@ RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/sync-plu
 # image (notably gh, docker-ce-cli — Go binaries that age out of CVE compliance).
 RUN apt-get update && \
     apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends wget apt-transport-https gpg maven postgresql-client unzip && \
+    apt-get install -y --no-install-recommends wget apt-transport-https gpg maven postgresql-client unzip protobuf-compiler && \
     wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor -o /etc/apt/keyrings/adoptium.gpg && \
     echo "deb [signed-by=/etc/apt/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb $(. /etc/os-release && echo $VERSION_CODENAME) main" > /etc/apt/sources.list.d/adoptium.list && \
     apt-get update && \

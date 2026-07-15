@@ -62,13 +62,23 @@ const TEST_MODEL: &str = "claude-haiku-4-5-20251001";
 /// permission gate. A pure arithmetic reply needs no tools.
 const TEST_PROMPT: &str = "What is 2+2? Reply with only the number.";
 
+/// Codex model under test. `None` lets `codex_exec::resolve_codex_model` fall
+/// through to `DEFAULT_CODEX_MODEL` (`gpt-5.5`); override with `CODEX_TEST_MODEL`
+/// to pin a cheaper model.
+fn codex_test_model() -> Option<String> {
+    std::env::var("CODEX_TEST_MODEL").ok()
+}
+
 // ── Auth token from the host environment ────────────────────────────────────
 
 /// Auth credentials forwarded to the agent subprocess. The actor's
 /// `start_session` calls `BackendClient::get_credentials` and OVERWRITES the
 /// in-pod credentials map with the result, so the token must be returned here
 /// (preloading the `credentials` RwLock alone would be clobbered).
-/// `filter_agent_credentials` retains both Claude auth keys.
+/// `filter_agent_credentials` retains both Claude auth keys and the Codex keys
+/// (`OPENAI_API_KEY` / `CODEX_AUTH_JSON`); each executor uses only what it
+/// needs, so returning the superset is harmless for both the Claude and Codex
+/// paths.
 fn auth_credentials() -> HashMap<String, String> {
     let mut creds = HashMap::new();
     if let Ok(token) = std::env::var("CLAUDE_CODE_OAUTH_TOKEN") {
@@ -76,6 +86,14 @@ fn auth_credentials() -> HashMap<String, String> {
     }
     if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
         creds.insert("ANTHROPIC_API_KEY".to_string(), key);
+    }
+    // Codex CLI auth: an API key is forwarded to the `codex exec` child env;
+    // CODEX_AUTH_JSON (ChatGPT-account tokens) is written to ~/.codex/auth.json.
+    if let Ok(key) = std::env::var("OPENAI_API_KEY") {
+        creds.insert("OPENAI_API_KEY".to_string(), key);
+    }
+    if let Ok(json) = std::env::var("CODEX_AUTH_JSON") {
+        creds.insert("CODEX_AUTH_JSON".to_string(), json);
     }
     creds
 }
@@ -362,6 +380,39 @@ async fn run_agent_roundtrip(use_tmux: bool) {
     handle.stop();
 }
 
+/// Codex roundtrip body: drives the production `spawn_agent` path with
+/// `agent_type = "codex"`, which routes through `codex_exec::start` — the real
+/// `codex exec --json` subprocess used in the cluster (NOT the standalone
+/// in-process `codex-sdk` crate). Codex ignores `use_tmux` and always runs one
+/// `codex exec` per turn, so this mirrors `run_agent_roundtrip` without the
+/// tmux/`session_context_lost` assertions (both are Claude-specific).
+async fn run_codex_roundtrip() {
+    init_tracing();
+    let (handle, agent_state, _events, _tmp) = spawn_test_agent(false);
+
+    let ack = handle.send(
+        TEST_PROMPT.to_string(),
+        codex_test_model(),
+        Some("codex".to_string()),
+        None, // agent_mode
+        None, // resume_session_id
+    );
+    let session_id = tokio::time::timeout(Duration::from_secs(90), ack)
+        .await
+        .expect("timed out waiting for Codex session start")
+        .expect("Codex session failed to start (ack sender dropped)");
+    assert!(!session_id.is_empty(), "expected a non-empty Codex session id");
+
+    // Codex's first turn (cold auth + model warmup) can be slower than Claude.
+    wait_until_not_running(&agent_state, Duration::from_secs(180), "codex roundtrip").await;
+
+    let error = agent_state.last_error().await;
+    assert!(error.is_none(), "Codex agent finished with error: {error:?}");
+    assert_eq!(agent_state.status().await, AgentStatus::Idle);
+
+    handle.stop();
+}
+
 /// Restart-resume body: turn 1 runs on actor A, then A is stopped (killing the
 /// CLI session — the pod-restart analogue) and turn 2 runs on a FRESH actor B
 /// with `resume_session_id`. This exercises the tmux JSONL-discovery resume
@@ -579,6 +630,19 @@ async fn test_spawn_agent_subprocess() {
         return;
     }
     run_agent_roundtrip(false).await;
+}
+
+/// Codex CLI transport (`codex exec --json` subprocess). Gated on `CODEX_E2E=1`.
+/// Needs the `codex` CLI on PATH (baked into the sandbox base image) and
+/// `OPENAI_API_KEY` (or `CODEX_AUTH_JSON`).
+#[tokio::test]
+#[ignore]
+async fn test_spawn_agent_codex() {
+    if std::env::var("CODEX_E2E").as_deref() != Ok("1") {
+        eprintln!("Skipping Codex E2E test (set CODEX_E2E=1 to run)");
+        return;
+    }
+    run_codex_roundtrip().await;
 }
 
 /// Tmux transport. Gated on `CLAUDE_TMUX_E2E=1` and requires `tmux` on PATH.

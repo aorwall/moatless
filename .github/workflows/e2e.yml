@@ -1,0 +1,113 @@
+name: E2E (manual)
+
+# End-to-end suites are expensive (live Claude/Codex/OpenAI calls, full Docker
+# stack) and need secrets, so they stay OFF automatic CI — matching the
+# `#[ignore]` gating in the crates. Trigger this manually (Actions → E2E → Run
+# workflow) or on a schedule via the fork's own automation.
+#
+# Required repo secrets (set the ones you need for the parts you enable):
+#   CLAUDE_CODE_OAUTH_TOKEN | ANTHROPIC_API_KEY  — agent tier + claude-sdk
+#   OPENAI_API_KEY                               — codex-sdk
+#   E2E_GITHUB_PAT                               — repo-clone / Playwright api suite
+
+on:
+  workflow_dispatch:
+    inputs:
+      integration_tier:
+        description: 'Rust integration-tests tier (crates/integration-tests)'
+        type: choice
+        default: 'db'
+        options: ['none', 'db', 'sandbox', 'agent', 'all']
+      playwright_suite:
+        description: 'Playwright suite (tests/api, tests/ui)'
+        type: choice
+        default: 'api'
+        options: ['none', 'api', 'ui', 'all']
+      run_claude_sdk:
+        description: 'Run claude-agent-sdk smoke test in Docker'
+        type: boolean
+        default: false
+      run_codex_sdk:
+        description: 'Run the Codex CLI E2E in Docker (codex exec, sandbox base image)'
+        type: boolean
+        default: false
+
+jobs:
+  # ── Rust integration-tests crate against the full Docker stack ──
+  integration-tests:
+    name: Integration tests (${{ inputs.integration_tier }})
+    if: inputs.integration_tier != 'none'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: Run integration tests in Docker
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_PAT: ${{ secrets.E2E_GITHUB_PAT }}
+          SECRETS_ENCRYPTION_KEY: ${{ secrets.SECRETS_ENCRYPTION_KEY }}
+        run: docker-compose/test-runner.sh --tier "${{ inputs.integration_tier }}"
+
+  # ── Playwright API / UI suites against the full Docker stack ──
+  playwright:
+    name: Playwright (${{ inputs.playwright_suite }})
+    if: inputs.playwright_suite != 'none'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Run Playwright suite in Docker
+        env:
+          GITHUB_PAT: ${{ secrets.E2E_GITHUB_PAT }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SECRETS_ENCRYPTION_KEY: ${{ secrets.SECRETS_ENCRYPTION_KEY }}
+        run: docker-compose/playwright-runner.sh --suite "${{ inputs.playwright_suite }}"
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ inputs.playwright_suite }}
+          path: test-results/
+          if-no-files-found: ignore
+
+  # ── claude-agent-sdk smoke test in Docker (pinned CLI) ──
+  claude-sdk:
+    name: claude-agent-sdk (Docker smoke)
+    if: inputs.run_claude_sdk
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install cross-compile toolchain
+        run: |
+          rustup target add x86_64-unknown-linux-gnu
+          cargo install --locked cargo-zigbuild
+          pipx install ziglang || pip3 install ziglang
+      - name: Run claude-agent-sdk smoke test in Docker
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: ./crates/claude-agent-sdk/scripts/test-docker.sh smoke
+
+  # ── Codex CLI E2E in Docker ──
+  # Runs the production `codex exec` path (sandbox/tests/agent_transport_e2e.rs::
+  # test_spawn_agent_codex) inside the sandbox base image, which already ships the
+  # pinned `codex` CLI — no external Codex source checkout needed. This matches how
+  # the sandbox actually runs Codex at runtime (NOT the in-process codex-sdk crate).
+  codex-sdk:
+    name: Codex CLI (Docker E2E)
+    if: inputs.run_codex_sdk
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install cross-compile toolchain
+        run: |
+          rustup target add x86_64-unknown-linux-gnu
+          cargo install --locked cargo-zigbuild
+          pipx install ziglang || pip3 install ziglang
+      - name: Run Codex CLI E2E in Docker
+        env:
+          # The sandbox base image is pulled by the harness (SANDBOX_BASE arg).
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: ./crates/claude-agent-sdk/scripts/test-docker.sh codex-transport

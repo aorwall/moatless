@@ -27,10 +27,10 @@ ROOT_DIR="$(cd "$CRATE_DIR/../.." && pwd)"
 MODE="${1:-sdk-e2e}"
 TEST_FILTER="${2:-}"
 
-# The `sandbox-transport` mode runs the moatless-sandbox both-transports agent
-# test (subprocess + tmux) inside the real sandbox base image (ships the pinned
-# `claude` CLI + `tmux`). All other modes use the slim Dockerfile.test image.
-if [ "$MODE" = "sandbox-transport" ]; then
+# The `sandbox-transport` and `codex-transport` modes run moatless-sandbox agent
+# tests inside the real sandbox base image (ships the pinned `claude` CLI, `tmux`
+# AND the `codex` CLI). All other modes use the slim Dockerfile.test image.
+if [ "$MODE" = "sandbox-transport" ] || [ "$MODE" = "codex-transport" ]; then
     IMAGE_NAME="moatless-sandbox-e2e"
 else
     IMAGE_NAME="claude-sdk-test"
@@ -42,7 +42,7 @@ fi
 # Override with SANDBOX_E2E_ARCH=arm64 if you've built a local arm64 base via
 # `docker/build-sandbox.sh --local --only base`. Other modes use the multi-arch
 # Dockerfile.test base, so match the host arch.
-if [ "$MODE" = "sandbox-transport" ]; then
+if [ "$MODE" = "sandbox-transport" ] || [ "$MODE" = "codex-transport" ]; then
     DEFAULT_ARCH="amd64"
 else
     case "$(uname -m)" in
@@ -153,7 +153,7 @@ if [ "${SKIP_BUILD:-0}" != "1" ]; then
 
     echo ""
     echo "=== Building Docker test image: $IMAGE_NAME ==="
-    if [ "$MODE" = "sandbox-transport" ]; then
+    if [ "$MODE" = "sandbox-transport" ] || [ "$MODE" = "codex-transport" ]; then
         # Run inside the real sandbox base image (pinned claude CLI + tmux).
         # Requires aorwall/moatless-sandbox-base:latest locally — build it with
         # `docker/build-sandbox.sh --local --only base` or override via SANDBOX_BASE.
@@ -217,19 +217,31 @@ case "$MODE" in
             TEST_CMD="CLAUDE_SDK_E2E=1 CLAUDE_TMUX_E2E=1 /test-bins/agent-transport-e2e --ignored --nocapture --test-threads=1"
         fi
         ;;
+    codex-transport)
+        # Drives the production spawn_agent path for Codex (`codex exec --json`
+        # subprocess) inside the sandbox base image, which ships the `codex` CLI.
+        # Reuses the agent-transport-e2e binary; the codex test self-gates on
+        # CODEX_E2E. Serial (--test-threads=1) to keep one live CLI at a time.
+        if [ -n "$TEST_FILTER" ]; then
+            TEST_CMD="CODEX_E2E=1 /test-bins/agent-transport-e2e --ignored --nocapture --test-threads=1 $TEST_FILTER"
+        else
+            TEST_CMD="CODEX_E2E=1 /test-bins/agent-transport-e2e --ignored --nocapture --test-threads=1 test_spawn_agent_codex"
+        fi
+        ;;
     all)
         TEST_CMD="CLAUDE_SDK_E2E=1 /test-bins/sdk-e2e --ignored --nocapture && CLAUDE_SDK_E2E=1 /test-bins/sandbox-e2e --ignored --nocapture"
         ;;
     *)
         echo "Unknown mode: $MODE"
         echo ""
-        echo "Usage: $0 {sdk-e2e|smoke|sandbox-e2e|sandbox-transport|all|build} [test_filter]"
+        echo "Usage: $0 {sdk-e2e|smoke|sandbox-e2e|sandbox-transport|codex-transport|all|build} [test_filter]"
         echo ""
         echo "Modes:"
         echo "  sdk-e2e           Run claude-agent-sdk E2E tests (default)"
         echo "  smoke             Run claude-agent-sdk smoke tests (version check + roundtrip + --resume)"
         echo "  sandbox-e2e       Run moatless-sandbox E2E tests"
         echo "  sandbox-transport Run the spawn_agent both-transports test (subprocess + tmux) in the sandbox base image"
+        echo "  codex-transport   Run the spawn_agent Codex CLI test (codex exec) in the sandbox base image"
         echo "  all               Run all E2E tests"
         echo "  build             Build Docker image only"
         echo ""
@@ -237,6 +249,7 @@ case "$MODE" in
         echo "  $0 smoke                          # Run smoke tests against the pinned CLI"
         echo "  $0 sdk-e2e test_simple_query      # Run a single test"
         echo "  $0 sandbox-transport              # Both transports in the sandbox image"
+        echo "  OPENAI_API_KEY=sk-... $0 codex-transport   # Codex CLI path in the sandbox image"
         echo "  SKIP_BUILD=1 $0 sdk-e2e           # Skip image rebuild"
         exit 1
         ;;
@@ -255,6 +268,10 @@ docker run --rm \
     -e ANTHROPIC_API_KEY \
     -e CLAUDE_SDK_E2E=1 \
     -e CLAUDE_TMUX_E2E \
+    -e CODEX_E2E \
+    -e OPENAI_API_KEY \
+    -e CODEX_AUTH_JSON \
+    -e CODEX_TEST_MODEL \
     -e RUST_LOG="${RUST_LOG:-claude_agent_sdk=debug,moatless_sandbox=debug}" \
     "$IMAGE_NAME" \
     "$TEST_CMD"

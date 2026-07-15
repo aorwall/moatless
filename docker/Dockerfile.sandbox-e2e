@@ -1,7 +1,10 @@
 # Dockerfile for running pre-compiled moatless-sandbox E2E test binaries inside
-# the real sandbox base image — which ships the exact pinned `claude` CLI + `tmux`.
-# This makes the both-transports agent test (subprocess + tmux) runnable
-# hermetically against production tooling.
+# the real sandbox base image — which ships the exact pinned `claude` CLI, `tmux`
+# AND the `codex` CLI. This makes the both-transports agent test (subprocess +
+# tmux) and the Codex CLI test (`codex exec`) runnable hermetically against
+# production tooling. The harness selects which via the run command:
+#   sandbox-transport → CLAUDE_SDK_E2E/CLAUDE_TMUX_E2E, both claude transports
+#   codex-transport   → CODEX_E2E + OPENAI_API_KEY, the codex exec path
 #
 # IMPORTANT: this image mirrors the *cluster* runtime so the tmux transport's
 # cold-start failure modes are reproduced (and guarded) locally:
@@ -42,7 +45,7 @@ ENV IS_SANDBOX=1
 # Run as root (default user of the base image) — do NOT switch to `moatless`.
 WORKDIR /opt/moatless
 
-RUN claude --version && tmux -V
+RUN claude --version && tmux -V && codex --version
 
 ENTRYPOINT ["sh", "-c"]
 # Default: run both transports. The test bodies self-skip unless the matching

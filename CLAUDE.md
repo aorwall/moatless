@@ -83,6 +83,32 @@ task test:compose -- --keep-running --test message_acknowledgment
 The test runner (`docker-compose/test-runner.sh`) handles the full lifecycle:
 build images → start Postgres/Redis/backend → reset DB → run tests → tear down.
 
+### Playwright E2E in Docker (`docker-compose/playwright-runner.sh`)
+```bash
+# API-only chains (needs GITHUB_PAT), browser suite, or both. Runs the suites
+# inside a container (docker/Dockerfile.e2e) on the compose network.
+task test:compose:e2e                       # API suite (default)
+task test:compose:e2e -- --suite ui         # browser suite (builds frontend)
+task test:compose:e2e -- --suite all        # both
+```
+
+### SDK E2E in Docker (`crates/*/scripts/test-docker.sh`)
+```bash
+# claude-agent-sdk against the pinned Claude CLI (slim image)
+task test:sdk:claude:docker -- smoke        # or: sdk-e2e / sandbox-transport
+# Codex CLI path — how the sandbox actually runs Codex (`codex exec`), in the
+# sandbox base image (ships the codex CLI). Runs test_spawn_agent_codex.
+OPENAI_API_KEY=sk-... task test:sdk:codex:docker
+```
+
+> The standalone `codex-sdk` crate (in-process app-server) is **not** used by the
+> sandbox runtime and has no Docker harness — test it manually per
+> `crates/codex-sdk/CLAUDE.md`. The Docker path above exercises the production
+> `codex exec` CLI in `sandbox/src/agent/codex_exec.rs`.
+
+All of the above also run on demand via the manual `E2E (manual)` GitHub
+workflow (`.github/workflows/e2e.yml`).
+
 Test tiers:
 - **db**: Non-ignored tests — task CRUD, repo CRUD, auth, channels (no sandbox)
 - **sandbox**: `SANDBOX_E2E=1` — file operations, sandbox lifecycle

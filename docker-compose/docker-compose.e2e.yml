@@ -1,0 +1,50 @@
+# E2E overlay: adds a Playwright runner service on top of the base stack.
+#
+# Usage (via docker-compose/playwright-runner.sh):
+#   docker compose -f docker-compose/docker-compose.yml \
+#                  -f docker-compose/docker-compose.ci.yml \
+#                  -f docker-compose/docker-compose.e2e.yml \
+#                  run --rm e2e
+#
+# The e2e service joins the `moatless` network (reaches `backend`/`frontend` by
+# name), mounts the repo for the Playwright sources, and mounts the docker
+# socket so tests/api/helpers/db-reset.ts can `docker exec moatless-postgres`.
+
+services:
+  e2e:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.e2e
+    image: ${E2E_IMAGE:-moatless-vibe-e2e:latest}
+    container_name: moatless-e2e
+    labels:
+      - "created-by=moatless"
+      - "moatless.service=e2e"
+      - "moatless.ecosystem=core"
+    depends_on:
+      - backend
+    environment:
+      # Suite selector (api|ui|all) — see docker/e2e-entrypoint.sh
+      E2E_SUITE: ${E2E_SUITE:-api}
+      # In-network URLs; the entrypoint fills per-suite defaults when unset.
+      DOCKER_COMPOSE_URL: ${DOCKER_COMPOSE_URL:-}
+      BACKEND_PORT: "8080"
+      # tests/api/global-setup.ts + db-reset.ts
+      GITHUB_PAT: ${GITHUB_PAT:-}
+      POSTGRES_USER: ${POSTGRES_USER:-moatless}
+      POSTGRES_DB: ${POSTGRES_DB:-moatless}
+      # Deterministic Playwright behavior (workers=1, retries, forbidOnly)
+      CI: ${CI:-1}
+    volumes:
+      # Repo root (docker-compose/ lives under it) — Playwright sources + configs
+      - ..:/workspace
+      # Persist installed deps + browsers across runs; keep host node_modules clean
+      - e2e_node_modules:/workspace/node_modules
+      # db-reset.ts shells out to `docker exec moatless-postgres`
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - moatless
+
+volumes:
+  e2e_node_modules:
+    driver: local

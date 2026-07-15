@@ -87,39 +87,39 @@ The project follows a test pyramid approach:
 ### Spawned Backend Tests
 
 ```bash
-# Run all spawned E2E tests
+# Run the API E2E suite (tests/api, no browser) — the canonical entrypoint
 bun run test:e2e
 
-# Run with UI mode (interactive)
+# Same, explicit alias
+bun run test:e2e:api
+
+# Run the browser (UI) suite (tests/ui, Chromium)
 bun run test:e2e:ui
 
-# Run with browser visible
-bun run test:e2e:headed
-
-# Run with debugger
-bun run test:e2e:debug
-
-# Run specific test file
-bun run test:e2e -- tests/e2e/smoke.spec.ts
+# Run a specific chain
+bun run test:e2e -- tests/api/chains/task-crud.spec.ts
 ```
 
-### Docker-Compose Tests
+These run against a stack you start yourself (`cd docker-compose && ./dev-docker.sh`).
+
+### Containerized (Docker) Tests
+
+The `test:e2e:docker*` scripts run the suites inside a container on the compose
+network (build stack → wait for health → run → tear down), via
+`docker-compose/playwright-runner.sh`:
 
 ```bash
-# 1. Start the docker-compose environment
-cd docker-compose && ./dev-docker.sh
+# API suite (default)
+bun run test:e2e:docker            # or: task test:compose:e2e
 
-# 2. Run Docker E2E tests (in another terminal)
-bun run test:e2e:docker
+# Browser suite (builds the frontend image)
+bun run test:e2e:docker:ui         # or: task test:compose:e2e -- --suite ui
 
-# Run with UI mode
-bun run test:e2e:docker:ui
+# Both suites
+bun run test:e2e:docker:all        # or: task test:compose:e2e -- --suite all
 
-# Run with debugger
-bun run test:e2e:docker:debug
-
-# Run specific test file
-bun run test:e2e:docker -- tests/e2e/docker/specs/docker-workflow.spec.ts
+# Forward args to Playwright (e.g. a single chain)
+bun run test:e2e:docker -- tests/api/chains/task-crud.spec.ts
 ```
 
 ### Environment Variables

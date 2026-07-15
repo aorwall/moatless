@@ -320,6 +320,23 @@ tasks:
     cmds:
       - docker-compose/test-runner.sh --tier all
 
+  test:compose:e2e:
+    desc: Run Playwright E2E suite in Docker (suite via -- --suite api|ui|all)
+    cmds:
+      - docker-compose/playwright-runner.sh {{.CLI_ARGS}}
+
+  # ── SDK Docker E2E ─────────────────────────────────────────────
+
+  test:sdk:claude:docker:
+    desc: Run claude-agent-sdk in Docker (mode via -- sdk-e2e|smoke|sandbox-transport|all)
+    cmds:
+      - ./crates/claude-agent-sdk/scripts/test-docker.sh {{.CLI_ARGS}}
+
+  test:sdk:codex:docker:
+    desc: Run the Codex CLI E2E in Docker (codex exec, in the sandbox base image; needs OPENAI_API_KEY)
+    cmds:
+      - ./crates/claude-agent-sdk/scripts/test-docker.sh codex-transport {{.CLI_ARGS}}
+
   # ── Cleanup ────────────────────────────────────────────────────
 
   clean:workers:
