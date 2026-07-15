@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 import { useFileContent } from '../hooks/use-file-content'
 import { usePierreOptions } from '../lib/use-pierre-theme'
 import { DiffFileView } from './diff-file-view'
+import { HtmlPreview } from './html-preview'
 import { MarkdownPreview } from './markdown-preview'
 
 type ViewMode = 'code' | 'diff' | 'preview'
@@ -13,6 +14,15 @@ type ViewMode = 'code' | 'diff' | 'preview'
 function isMarkdownFile(filePath: string): boolean {
   const ext = filePath.split('.').pop()?.toLowerCase() || ''
   return ext === 'md' || ext === 'mdx'
+}
+
+function isHtmlFile(filePath: string): boolean {
+  const ext = filePath.split('.').pop()?.toLowerCase() || ''
+  return ext === 'html' || ext === 'htm'
+}
+
+function isPreviewable(filePath: string): boolean {
+  return isMarkdownFile(filePath) || isHtmlFile(filePath)
 }
 
 function isImageMediaType(mediaType: string | undefined): boolean {
@@ -117,6 +127,7 @@ function FileContentArea({
   taskId: string
 }) {
   const isMarkdown = isMarkdownFile(filePath)
+  const isHtml = isHtmlFile(filePath)
   const canDiff = data.isModified && data.oldContent !== undefined
   const pierreOptions = usePierreOptions()
 
@@ -126,6 +137,10 @@ function FileContentArea({
 
   if (viewMode === 'preview' && isMarkdown) {
     return <MarkdownPreview content={data.content} taskId={taskId} filePath={filePath} />
+  }
+
+  if (viewMode === 'preview' && isHtml) {
+    return <HtmlPreview content={data.content} filePath={filePath} />
   }
 
   if (viewMode === 'diff' && canDiff) {
@@ -154,17 +169,17 @@ interface FileViewerProps {
 export function FileViewer({ taskId, filePath }: FileViewerProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('code')
   const { data, isLoading, error } = useFileContent(taskId, filePath, true)
-  const isMarkdown = filePath ? isMarkdownFile(filePath) : false
+  const canPreview = filePath ? isPreviewable(filePath) : false
   const canDiff = data?.isModified && data?.oldContent !== undefined
 
   useEffect(() => {
     if (viewMode === 'diff' && !canDiff) {
       setViewMode('code')
     }
-    if (viewMode === 'preview' && !isMarkdown) {
+    if (viewMode === 'preview' && !canPreview) {
       setViewMode('code')
     }
-  }, [viewMode, canDiff, isMarkdown])
+  }, [viewMode, canDiff, canPreview])
 
   if (!filePath) {
     return (
@@ -213,7 +228,7 @@ export function FileViewer({ taskId, filePath }: FileViewerProps) {
   }
 
   const languageLabel = getLanguageLabel(filePath)
-  const showToggle = canDiff || isMarkdown
+  const showToggle = canDiff || canPreview
 
   return (
     <div className="h-full flex flex-col">
@@ -261,7 +276,7 @@ export function FileViewer({ taskId, filePath }: FileViewerProps) {
                   Diff
                 </button>
               )}
-              {isMarkdown && (
+              {canPreview && (
                 <button
                   type="button"
                   onClick={() => setViewMode('preview')}
