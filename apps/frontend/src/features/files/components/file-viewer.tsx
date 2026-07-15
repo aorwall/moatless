@@ -1,6 +1,6 @@
 import { File as PierreFile } from '@pierre/diffs/react'
 import { Code, Eye, FileQuestion, GitCompareArrows, Music } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { Skeleton } from '@/lib/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { useFileContent } from '../hooks/use-file-content'
@@ -9,7 +9,7 @@ import { DiffFileView } from './diff-file-view'
 import { HtmlPreview } from './html-preview'
 import { MarkdownPreview } from './markdown-preview'
 
-type ViewMode = 'code' | 'diff' | 'preview'
+export type FileViewMode = 'code' | 'diff' | 'preview'
 
 function isMarkdownFile(filePath: string): boolean {
   const ext = filePath.split('.').pop()?.toLowerCase() || ''
@@ -21,7 +21,7 @@ function isHtmlFile(filePath: string): boolean {
   return ext === 'html' || ext === 'htm'
 }
 
-function isPreviewable(filePath: string): boolean {
+export function isPreviewable(filePath: string): boolean {
   return isMarkdownFile(filePath) || isHtmlFile(filePath)
 }
 
@@ -123,7 +123,7 @@ function FileContentArea({
     isModified?: boolean
   }
   filePath: string
-  viewMode: ViewMode
+  viewMode: FileViewMode
   taskId: string
 }) {
   const isMarkdown = isMarkdownFile(filePath)
@@ -164,22 +164,32 @@ function FileContentArea({
 interface FileViewerProps {
   taskId: string
   filePath: string | undefined
+  viewMode: FileViewMode
+  onViewModeChange: (viewMode: FileViewMode) => void
+  hideHeaderActions?: boolean
+  hideViewModeControls?: boolean
 }
 
-export function FileViewer({ taskId, filePath }: FileViewerProps) {
-  const [viewMode, setViewMode] = useState<ViewMode>('code')
+export function FileViewer({
+  taskId,
+  filePath,
+  viewMode,
+  onViewModeChange,
+  hideHeaderActions = false,
+  hideViewModeControls = false,
+}: FileViewerProps) {
   const { data, isLoading, error } = useFileContent(taskId, filePath, true)
   const canPreview = filePath ? isPreviewable(filePath) : false
   const canDiff = data?.isModified && data?.oldContent !== undefined
 
   useEffect(() => {
-    if (viewMode === 'diff' && !canDiff) {
-      setViewMode('code')
+    if (viewMode === 'diff' && !isLoading && !canDiff) {
+      onViewModeChange('code')
     }
     if (viewMode === 'preview' && !canPreview) {
-      setViewMode('code')
+      onViewModeChange('code')
     }
-  }, [viewMode, canDiff, canPreview])
+  }, [viewMode, isLoading, canDiff, canPreview, onViewModeChange])
 
   if (!filePath) {
     return (
@@ -228,7 +238,7 @@ export function FileViewer({ taskId, filePath }: FileViewerProps) {
   }
 
   const languageLabel = getLanguageLabel(filePath)
-  const showToggle = canDiff || canPreview
+  const showToggle = !hideViewModeControls && (canDiff || canPreview)
 
   return (
     <div className="h-full flex flex-col">
@@ -239,61 +249,63 @@ export function FileViewer({ taskId, filePath }: FileViewerProps) {
             {languageLabel}
           </span>
         </div>
-        <div className="flex items-center gap-2 shrink-0 ml-2">
-          {data.isModified && (
-            <div className="flex items-center gap-2 text-xs">
-              <span style={{ color: 'var(--git-added)' }}>+{data.additions}</span>
-              <span style={{ color: 'var(--git-deleted)' }}>&minus;{data.deletions}</span>
-            </div>
-          )}
-          {showToggle && (
-            <div className="flex items-center rounded-md overflow-hidden border">
-              <button
-                type="button"
-                onClick={() => setViewMode('code')}
-                className={cn(
-                  'flex items-center gap-1 px-2 py-1 text-xs transition-colors',
-                  viewMode === 'code'
-                    ? 'text-foreground bg-muted'
-                    : 'text-muted-foreground hover:text-foreground',
+        {!hideHeaderActions && (
+          <div className="flex items-center gap-2 shrink-0 ml-2">
+            {data.isModified && (
+              <div className="flex items-center gap-2 text-xs">
+                <span style={{ color: 'var(--git-added)' }}>+{data.additions}</span>
+                <span style={{ color: 'var(--git-deleted)' }}>&minus;{data.deletions}</span>
+              </div>
+            )}
+            {showToggle && (
+              <div className="flex items-center rounded-md overflow-hidden border">
+                <button
+                  type="button"
+                  onClick={() => onViewModeChange('code')}
+                  className={cn(
+                    'flex items-center gap-1 px-2 py-1 text-xs transition-colors',
+                    viewMode === 'code'
+                      ? 'text-foreground bg-muted'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  <Code className="w-3.5 h-3.5" />
+                  Code
+                </button>
+                {canDiff && (
+                  <button
+                    type="button"
+                    onClick={() => onViewModeChange('diff')}
+                    className={cn(
+                      'flex items-center gap-1 px-2 py-1 text-xs transition-colors',
+                      viewMode === 'diff'
+                        ? 'text-foreground bg-muted'
+                        : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    <GitCompareArrows className="w-3.5 h-3.5" />
+                    Diff
+                  </button>
                 )}
-              >
-                <Code className="w-3.5 h-3.5" />
-                Code
-              </button>
-              {canDiff && (
-                <button
-                  type="button"
-                  onClick={() => setViewMode('diff')}
-                  className={cn(
-                    'flex items-center gap-1 px-2 py-1 text-xs transition-colors',
-                    viewMode === 'diff'
-                      ? 'text-foreground bg-muted'
-                      : 'text-muted-foreground hover:text-foreground',
-                  )}
-                >
-                  <GitCompareArrows className="w-3.5 h-3.5" />
-                  Diff
-                </button>
-              )}
-              {canPreview && (
-                <button
-                  type="button"
-                  onClick={() => setViewMode('preview')}
-                  className={cn(
-                    'flex items-center gap-1 px-2 py-1 text-xs transition-colors',
-                    viewMode === 'preview'
-                      ? 'text-foreground bg-muted'
-                      : 'text-muted-foreground hover:text-foreground',
-                  )}
-                >
-                  <Eye className="w-3.5 h-3.5" />
-                  Preview
-                </button>
-              )}
-            </div>
-          )}
-        </div>
+                {canPreview && (
+                  <button
+                    type="button"
+                    onClick={() => onViewModeChange('preview')}
+                    className={cn(
+                      'flex items-center gap-1 px-2 py-1 text-xs transition-colors',
+                      viewMode === 'preview'
+                        ? 'text-foreground bg-muted'
+                        : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    Preview
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="flex-1 overflow-auto">

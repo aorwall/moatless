@@ -1,4 +1,6 @@
-import { LazyFileExplorer } from '@/features/files'
+import { useNavigate, useSearch } from '@tanstack/react-router'
+import { useEffect } from 'react'
+import { FilesWorkspaceControls, LazyFileExplorer } from '@/features/files'
 import { SandboxStatusOverlay } from '@/features/preview'
 import { ViewTabs } from '@/features/preview/components/view-tabs'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
@@ -7,12 +9,15 @@ import { useTaskId } from '../contexts/task-providers'
 import { useSandboxRetry, useSandboxStatus } from '../hooks/use-sandbox-status'
 import { useTaskDetailQuery } from '../hooks/use-task-queries'
 import { useTaskView } from '../hooks/use-task-view'
+import type { TaskSearch } from '../types/task-search-schema'
 
 /**
  * Files view: the file explorer, gated behind a sandbox-readiness overlay.
  * Self-contained — fetches its own sandbox status and retry mutation.
  */
 export function FilesPanel() {
+  const navigate = useNavigate()
+  const search = useSearch({ strict: false }) as TaskSearch
   const taskId = useTaskId()
   const taskQuery = useTaskDetailQuery(taskId)
   const { data: sandboxStatus } = useSandboxStatus(taskId, taskQuery.data)
@@ -22,11 +27,29 @@ export function FilesPanel() {
 
   const isSandboxReady = sandboxStatus?.environmentStatus === 'ready'
 
+  useEffect(() => {
+    if (search.path === undefined && search.device === undefined) {
+      return
+    }
+
+    navigate({
+      to: '.',
+      search: (prev) => {
+        const { path: _path, device: _device, ...rest } = prev as TaskSearch
+        return rest
+      },
+      replace: true,
+    }).catch(() => {
+      /* ignore: URL cleanup */
+    })
+  }, [navigate, search.path, search.device])
+
   return (
     <ErrorBoundary componentName="File Explorer">
       <div className="h-full flex flex-col">
         <WorkspaceHeader
           leading={<ViewTabs servers={servers ?? []} activeView={view} onViewChange={setView} />}
+          centerContent={<FilesWorkspaceControls taskId={taskId} />}
         />
         <div className="flex-1 min-h-0 relative">
           {isSandboxReady ? (

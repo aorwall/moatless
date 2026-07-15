@@ -22,6 +22,7 @@ import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as AuthCallbackRouteImport } from './routes/auth/callback'
 import { Route as TasksTaskIdIndexRouteImport } from './routes/tasks/$task-id/index'
 import { Route as TasksTaskIdKioskRouteImport } from './routes/tasks/$task-id/kiosk'
+import { Route as TasksTaskIdFileRouteImport } from './routes/tasks/$task-id/file'
 import { Route as OauthGithubCallbackRouteImport } from './routes/oauth/github/callback'
 import { Route as OauthFigmaCallbackRouteImport } from './routes/oauth/figma/callback'
 
@@ -179,6 +180,11 @@ const TasksTaskIdKioskRoute = TasksTaskIdKioskRouteImport.update({
   path: '/$task-id/kiosk',
   getParentRoute: () => TasksRoute,
 } as any)
+const TasksTaskIdFileRoute = TasksTaskIdFileRouteImport.update({
+  id: '/$task-id/file',
+  path: '/$task-id/file',
+  getParentRoute: () => TasksRoute,
+} as any)
 const OauthGithubCallbackRoute = OauthGithubCallbackRouteImport.update({
   id: '/oauth/github/callback',
   path: '/oauth/github/callback',
@@ -246,6 +252,7 @@ export interface FileRoutesByFullPath {
   '/sandbox/': typeof SandboxIndexLazyRoute
   '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
   '/oauth/github/callback': typeof OauthGithubCallbackRoute
+  '/tasks/$task-id/file': typeof TasksTaskIdFileRoute
   '/tasks/$task-id/kiosk': typeof TasksTaskIdKioskRoute
   '/admin/triggers/new': typeof AdminTriggersNewLazyRoute
   '/tasks/$task-id': typeof TasksTaskIdIndexRoute
@@ -273,6 +280,7 @@ export interface FileRoutesByTo {
   '/sandbox': typeof SandboxIndexLazyRoute
   '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
   '/oauth/github/callback': typeof OauthGithubCallbackRoute
+  '/tasks/$task-id/file': typeof TasksTaskIdFileRoute
   '/tasks/$task-id/kiosk': typeof TasksTaskIdKioskRoute
   '/admin/triggers/new': typeof AdminTriggersNewLazyRoute
   '/tasks/$task-id': typeof TasksTaskIdIndexRoute
@@ -304,6 +312,7 @@ export interface FileRoutesById {
   '/sandbox/': typeof SandboxIndexLazyRoute
   '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
   '/oauth/github/callback': typeof OauthGithubCallbackRoute
+  '/tasks/$task-id/file': typeof TasksTaskIdFileRoute
   '/tasks/$task-id/kiosk': typeof TasksTaskIdKioskRoute
   '/admin/triggers/new': typeof AdminTriggersNewLazyRoute
   '/tasks/$task-id/': typeof TasksTaskIdIndexRoute
@@ -336,6 +345,7 @@ export interface FileRouteTypes {
     | '/sandbox/'
     | '/oauth/figma/callback'
     | '/oauth/github/callback'
+    | '/tasks/$task-id/file'
     | '/tasks/$task-id/kiosk'
     | '/admin/triggers/new'
     | '/tasks/$task-id'
@@ -363,6 +373,7 @@ export interface FileRouteTypes {
     | '/sandbox'
     | '/oauth/figma/callback'
     | '/oauth/github/callback'
+    | '/tasks/$task-id/file'
     | '/tasks/$task-id/kiosk'
     | '/admin/triggers/new'
     | '/tasks/$task-id'
@@ -393,6 +404,7 @@ export interface FileRouteTypes {
     | '/sandbox/'
     | '/oauth/figma/callback'
     | '/oauth/github/callback'
+    | '/tasks/$task-id/file'
     | '/tasks/$task-id/kiosk'
     | '/admin/triggers/new'
     | '/tasks/$task-id/'
@@ -579,6 +591,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TasksTaskIdKioskRouteImport
       parentRoute: typeof TasksRoute
     }
+    '/tasks/$task-id/file': {
+      id: '/tasks/$task-id/file'
+      path: '/$task-id/file'
+      fullPath: '/tasks/$task-id/file'
+      preLoaderRoute: typeof TasksTaskIdFileRouteImport
+      parentRoute: typeof TasksRoute
+    }
     '/oauth/github/callback': {
       id: '/oauth/github/callback'
       path: '/oauth/github/callback'
@@ -658,12 +677,14 @@ const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
 
 interface TasksRouteChildren {
   TasksIndexRoute: typeof TasksIndexRoute
+  TasksTaskIdFileRoute: typeof TasksTaskIdFileRoute
   TasksTaskIdKioskRoute: typeof TasksTaskIdKioskRoute
   TasksTaskIdIndexRoute: typeof TasksTaskIdIndexRoute
 }
 
 const TasksRouteChildren: TasksRouteChildren = {
   TasksIndexRoute: TasksIndexRoute,
+  TasksTaskIdFileRoute: TasksTaskIdFileRoute,
   TasksTaskIdKioskRoute: TasksTaskIdKioskRoute,
   TasksTaskIdIndexRoute: TasksTaskIdIndexRoute,
 }

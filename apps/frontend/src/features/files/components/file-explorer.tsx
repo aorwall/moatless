@@ -1,6 +1,7 @@
 import { Search } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useFileSearch } from '../hooks/use-file-search'
+import { useFileViewState } from '../hooks/use-file-view-state'
 import { useSelectedFile } from '../hooks/use-selected-file'
 import '../styles/file-explorer.css'
 import { FileTree } from './file-tree'
@@ -16,6 +17,7 @@ interface FileExplorerProps {
 
 export function FileExplorer({ taskId }: FileExplorerProps) {
   const { selectedFile, setSelectedFile } = useSelectedFile()
+  const { fileView, setFileView, isExplorerCollapsed } = useFileViewState()
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH)
   const [isResizing, setIsResizing] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
@@ -122,22 +124,36 @@ export function FileExplorer({ taskId }: FileExplorerProps) {
         className="flex-1 flex overflow-hidden"
         style={{ cursor: isResizing ? 'col-resize' : undefined }}
       >
-        <div
-          className="flex-shrink-0 overflow-hidden border-r"
-          style={{ width: `${sidebarWidth}px` }}
-        >
-          <FileTree taskId={taskId} selectedPath={selectedFile} onFileSelect={handleFileSelect} />
-        </div>
+        {!isExplorerCollapsed && (
+          <>
+            <div
+              className="flex-shrink-0 overflow-hidden border-r"
+              style={{ width: `${sidebarWidth}px` }}
+            >
+              <FileTree
+                taskId={taskId}
+                selectedPath={selectedFile}
+                onFileSelect={handleFileSelect}
+              />
+            </div>
 
-        {/* biome-ignore lint/a11y/noStaticElementInteractions: resize handle requires mouse interaction */}
-        <div
-          className="w-1 cursor-col-resize hover:bg-ring transition-colors flex-shrink-0"
-          onMouseDown={handleMouseDown}
-          style={isResizing ? { background: 'var(--ring)' } : undefined}
-        />
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: resize handle requires mouse interaction */}
+            <div
+              className="w-1 cursor-col-resize hover:bg-ring transition-colors flex-shrink-0"
+              onMouseDown={handleMouseDown}
+              style={isResizing ? { background: 'var(--ring)' } : undefined}
+            />
+          </>
+        )}
 
         <div className="flex-1 min-w-0 overflow-hidden">
-          <FileViewer taskId={taskId} filePath={selectedFile} />
+          <FileViewer
+            taskId={taskId}
+            filePath={selectedFile}
+            viewMode={fileView}
+            onViewModeChange={setFileView}
+            hideViewModeControls
+          />
         </div>
       </div>
     </div>

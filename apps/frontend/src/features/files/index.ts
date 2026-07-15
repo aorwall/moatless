@@ -1,2 +1,4 @@
 export { FileExplorer } from './components/file-explorer'
+export { FilesWorkspaceControls } from './components/files-workspace-controls'
 export { LazyFileExplorer } from './components/lazy-file-explorer'
+export { LazyFileOnlyViewer } from './components/lazy-file-only-viewer'

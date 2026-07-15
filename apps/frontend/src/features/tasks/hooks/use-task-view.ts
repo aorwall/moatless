@@ -82,7 +82,14 @@ export function useTaskView({ servers, fallback }: UseTaskViewOptions = {}): Use
   const setView = (newView: TaskView) => {
     navigate({
       to: '.',
-      search: (prev) => ({ ...prev, view: newView }) as TaskSearch,
+      search: (prev) => {
+        if (newView === 'files') {
+          const { path: _path, device: _device, ...rest } = prev as TaskSearch
+          return { ...rest, view: newView }
+        }
+
+        return { ...prev, view: newView } as TaskSearch
+      },
       replace: true, // Use replace to avoid polluting browser history
     }).catch(() => {
       /* ignore: navigate() for URL param updates only rejects on framework errors */

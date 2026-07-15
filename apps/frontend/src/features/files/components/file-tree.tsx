@@ -146,23 +146,25 @@ export function FileTree({ taskId, selectedPath, onFileSelect }: FileTreeProps) 
   return (
     <div className="h-full w-full flex flex-col">
       <div className="p-3 flex-shrink-0 space-y-2 border-b">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <h3 className="text-sm font-medium">Files</h3>
-          {hasChanges && (
-            <button
-              type="button"
-              onClick={() => setShowOnlyChanged((prev) => !prev)}
-              className={cn(
-                'h-7 px-2 text-xs rounded flex items-center gap-1 transition-colors',
-                showOnlyChanged
-                  ? 'bg-primary text-primary-foreground'
-                  : 'border border-border hover:bg-accent',
-              )}
-            >
-              <Filter className="h-3 w-3" />
-              Changed
-            </button>
-          )}
+          <div className="flex items-center gap-1">
+            {hasChanges && (
+              <button
+                type="button"
+                onClick={() => setShowOnlyChanged((prev) => !prev)}
+                className={cn(
+                  'h-7 px-2 text-xs rounded flex items-center gap-1 transition-colors',
+                  showOnlyChanged
+                    ? 'bg-primary text-primary-foreground'
+                    : 'border border-border hover:bg-accent',
+                )}
+              >
+                <Filter className="h-3 w-3" />
+                Changed
+              </button>
+            )}
+          </div>
         </div>
         {hasChanges && (
           <div className="flex items-center gap-3 text-xs">
