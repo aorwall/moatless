@@ -15,7 +15,9 @@ mod common;
 use chrono::{Duration, Utc};
 use moatless_vibe_backend::task::dao::{self as task_dao};
 use moatless_vibe_backend::task::models::TaskStatus;
-use moatless_vibe_backend::task_turn::dao::{PgTaskTurnRepository, TaskTurnRepository, TurnStateEvent};
+use moatless_vibe_backend::task_turn::dao::{
+    PgTaskTurnRepository, TaskTurnRepository, TurnStateEvent,
+};
 use moatless_vibe_backend::task_turn::models::{TurnStatus, TurnTransition};
 use sqlx::PgPool;
 
@@ -69,9 +71,15 @@ async fn open_then_terminal_closes_and_is_not_resurrected(pool: PgPool) {
     let repo = PgTaskTurnRepository(pool.clone());
     let task = "task-turn-1";
 
-    repo.apply_ingress_event(&ingress_event(task, 1, "e1", "active", TurnTransition::Open))
-        .await
-        .unwrap();
+    repo.apply_ingress_event(&ingress_event(
+        task,
+        1,
+        "e1",
+        "active",
+        TurnTransition::Open,
+    ))
+    .await
+    .unwrap();
     let (status, ended, agent) = turn_row(&pool, task, 1).await.unwrap();
     assert_eq!(status, "active");
     assert!(!ended, "active turn has no ended_at");
@@ -92,9 +100,15 @@ async fn open_then_terminal_closes_and_is_not_resurrected(pool: PgPool) {
     assert!(ended, "terminal turn stamps ended_at");
 
     // A re-delivered `active` for the same turn must NOT resurrect a closed turn.
-    repo.apply_ingress_event(&ingress_event(task, 1, "e1", "active", TurnTransition::Open))
-        .await
-        .unwrap();
+    repo.apply_ingress_event(&ingress_event(
+        task,
+        1,
+        "e1",
+        "active",
+        TurnTransition::Open,
+    ))
+    .await
+    .unwrap();
     let (status, _, _) = turn_row(&pool, task, 1).await.unwrap();
     assert_eq!(status, "completed", "terminal turn stays terminal");
 }
@@ -104,9 +118,15 @@ async fn terminal_redelivery_preserves_first_status(pool: PgPool) {
     let repo = PgTaskTurnRepository(pool.clone());
     let task = "task-turn-2";
 
-    repo.apply_ingress_event(&ingress_event(task, 1, "e1", "active", TurnTransition::Open))
-        .await
-        .unwrap();
+    repo.apply_ingress_event(&ingress_event(
+        task,
+        1,
+        "e1",
+        "active",
+        TurnTransition::Open,
+    ))
+    .await
+    .unwrap();
     repo.apply_ingress_event(&ingress_event(
         task,
         1,
@@ -136,9 +156,15 @@ async fn interrupted_then_resumed(pool: PgPool) {
     let repo = PgTaskTurnRepository(pool.clone());
     let task = "task-turn-3";
 
-    repo.apply_ingress_event(&ingress_event(task, 1, "e1", "active", TurnTransition::Open))
-        .await
-        .unwrap();
+    repo.apply_ingress_event(&ingress_event(
+        task,
+        1,
+        "e1",
+        "active",
+        TurnTransition::Open,
+    ))
+    .await
+    .unwrap();
     repo.apply_ingress_event(&ingress_event(
         task,
         1,
@@ -152,9 +178,15 @@ async fn interrupted_then_resumed(pool: PgPool) {
     assert_eq!(status, "interrupted");
 
     // Resume: an `active` re-opens an interrupted turn.
-    repo.apply_ingress_event(&ingress_event(task, 1, "e3", "active", TurnTransition::Open))
-        .await
-        .unwrap();
+    repo.apply_ingress_event(&ingress_event(
+        task,
+        1,
+        "e3",
+        "active",
+        TurnTransition::Open,
+    ))
+    .await
+    .unwrap();
     let (status, ended, _) = turn_row(&pool, task, 1).await.unwrap();
     assert_eq!(status, "active");
     assert!(!ended);
@@ -185,20 +217,31 @@ async fn ingress_writes_event_row_idempotently(pool: PgPool) {
     let repo = PgTaskTurnRepository(pool.clone());
     let task = "task-turn-5";
 
-    repo.apply_ingress_event(&ingress_event(task, 1, "shared-id", "active", TurnTransition::Open))
-        .await
-        .unwrap();
+    repo.apply_ingress_event(&ingress_event(
+        task,
+        1,
+        "shared-id",
+        "active",
+        TurnTransition::Open,
+    ))
+    .await
+    .unwrap();
     // Same event_id again (redelivery) — ON CONFLICT DO NOTHING keeps one row.
-    repo.apply_ingress_event(&ingress_event(task, 1, "shared-id", "active", TurnTransition::Open))
+    repo.apply_ingress_event(&ingress_event(
+        task,
+        1,
+        "shared-id",
+        "active",
+        TurnTransition::Open,
+    ))
+    .await
+    .unwrap();
+
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM task_events WHERE event_id = $1")
+        .bind("shared-id")
+        .fetch_one(&pool)
         .await
         .unwrap();
-
-    let count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM task_events WHERE event_id = $1")
-            .bind("shared-id")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
     assert_eq!(count, 1, "event row deduped on event_id");
 }
 
@@ -243,7 +286,11 @@ async fn terminal_reopens_task_but_not_when_closed(pool: PgPool) {
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(status, TaskStatus::Open.as_str(), "terminal reopens a live task");
+    assert_eq!(
+        status,
+        TaskStatus::Open.as_str(),
+        "terminal reopens a live task"
+    );
 
     // A Closed task is never resurrected by an automated terminal event.
     let closed_task = make_task_row("task-closed", "user-1");
@@ -278,17 +325,29 @@ async fn project_turn_is_idempotent_fallback(pool: PgPool) {
     let now = Utc::now();
 
     // The consumer fallback touches only task_turns (no event row).
-    repo.project_turn(task, 1, Some("codex".to_string()), TurnTransition::Open, now)
-        .await
-        .unwrap();
+    repo.project_turn(
+        task,
+        1,
+        Some("codex".to_string()),
+        TurnTransition::Open,
+        now,
+    )
+    .await
+    .unwrap();
     let (status, _, agent) = turn_row(&pool, task, 1).await.unwrap();
     assert_eq!(status, "active");
     assert_eq!(agent.as_deref(), Some("codex"));
 
     // Re-applying the same Open is a no-op (row already current).
-    repo.project_turn(task, 1, Some("codex".to_string()), TurnTransition::Open, now)
-        .await
-        .unwrap();
+    repo.project_turn(
+        task,
+        1,
+        Some("codex".to_string()),
+        TurnTransition::Open,
+        now,
+    )
+    .await
+    .unwrap();
     let (status, _, _) = turn_row(&pool, task, 1).await.unwrap();
     assert_eq!(status, "active");
 
@@ -353,10 +412,7 @@ async fn backfill_recovers_open_turns_from_event_log(pool: PgPool) {
     // Simulate the pre-migration event log: task A's latest taskTurn is active,
     // task B's latest is completed (closed). The migration's backfill already ran
     // on an empty table, so we re-run the same statement against seeded events.
-    let insert_event = |task_id: &'static str,
-                        sub_type: &'static str,
-                        turn: i32,
-                        secs_ago: i64| {
+    let insert_event = |task_id: &'static str, sub_type: &'static str, turn: i32, secs_ago: i64| {
         let pool = pool.clone();
         async move {
             sqlx::query(
@@ -399,7 +455,10 @@ async fn backfill_recovers_open_turns_from_event_log(pool: PgPool) {
     .await
     .unwrap();
 
-    assert!(turn_row(&pool, "task-a", 1).await.is_some(), "active turn backfilled");
+    assert!(
+        turn_row(&pool, "task-a", 1).await.is_some(),
+        "active turn backfilled"
+    );
     let (status, _, _) = turn_row(&pool, "task-a", 1).await.unwrap();
     assert_eq!(status, "active");
     assert!(

@@ -40,6 +40,7 @@ use crate::events::EventPublisher;
 use crate::plugin_repo::dao::PluginRepoRepository;
 use crate::repository::dao::RepoRepository;
 use crate::task::dao::{TaskPatch, TaskRepository};
+use crate::task::models::{SandboxDesiredState, SandboxStopReason};
 use crate::task_event::dao::TaskEventRepository;
 
 /// Optional DB + config dependencies the watcher needs to auto-disable a
@@ -309,7 +310,7 @@ async fn run_pod_watch(
                 // scheduling_blocked / startup_slow events (fire-once per pod).
                 sweep_pending_pods(k8s, event_publisher, &mut pod_states).await;
                 gc_failed_pods(k8s, &mut pod_states).await;
-                retry_pending_auto_stops(k8s, &mut pod_states).await;
+                retry_pending_auto_stops(k8s, &mut pod_states, deps).await;
             }
             event = stream.try_next() => {
                 match event {
@@ -898,6 +899,7 @@ async fn process_watcher_event(
                             "Auto-stop scale-to-0 succeeded"
                         );
                         new_state.auto_stop_pending = false;
+                        record_crash_autostop_intent(deps, &task_id).await;
                     }
                     Err(e) => {
                         warn!(
@@ -996,8 +998,11 @@ async fn process_watcher_event(
                     .collect();
 
                 for sc in candidates {
-                    let server_name =
-                        sc.name.strip_suffix("-server").unwrap_or(&sc.name).to_string();
+                    let server_name = sc
+                        .name
+                        .strip_suffix("-server")
+                        .unwrap_or(&sc.name)
+                        .to_string();
                     auto_disable_server(
                         k8s,
                         &task_id,
@@ -1041,16 +1046,29 @@ async fn process_watcher_event(
             let siblings = sibling_pods_for_task(pod_states, &task_id, pod_name);
 
             if siblings.is_empty() {
-                // Distinguish Stopped vs Removed by checking if Deployment still exists
+                // Distinguish Stopped vs Removed vs Recovering. A Deployment
+                // that still desires replicas is replacing this pod after an
+                // involuntary disruption, so publishing `stopped` here would
+                // incorrectly make a recoverable eviction look intentional.
                 let sandbox_status = match deployment::find_deployment(k8s, &task_id).await {
-                    Ok(Some(_)) => {
-                        // Deployment still exists (replicas=0 after stop) → Stopped
-                        info!(
-                            task_id = %task_id,
-                            pod_name = %pod_name,
-                            "Pod deleted (Deployment exists) — publishing stopped"
-                        );
-                        SandboxStatus::Stopped
+                    Ok(Some(dep)) => {
+                        let desired = dep.spec.as_ref().and_then(|s| s.replicas).unwrap_or(1);
+                        if desired == 0 {
+                            info!(
+                                task_id = %task_id,
+                                pod_name = %pod_name,
+                                "Pod deleted (Deployment scaled to 0) — publishing stopped"
+                            );
+                            Some(SandboxStatus::Stopped)
+                        } else {
+                            info!(
+                                task_id = %task_id,
+                                pod_name = %pod_name,
+                                desired_replicas = desired,
+                                "Pod deleted while Deployment still desires replicas — treating as recovering"
+                            );
+                            None
+                        }
                     }
                     Ok(None) => {
                         // No Deployment → fully cleaned up
@@ -1059,7 +1077,7 @@ async fn process_watcher_event(
                             pod_name = %pod_name,
                             "Pod deleted (no Deployment) — publishing removed"
                         );
-                        SandboxStatus::Removed
+                        Some(SandboxStatus::Removed)
                     }
                     Err(e) => {
                         warn!(
@@ -1067,8 +1085,12 @@ async fn process_watcher_event(
                             error = %e,
                             "Failed to check Deployment on pod delete, defaulting to Removed"
                         );
-                        SandboxStatus::Removed
+                        Some(SandboxStatus::Removed)
                     }
+                };
+
+                let Some(sandbox_status) = sandbox_status else {
+                    return;
                 };
 
                 // Publish server events for each server in the deleted pod
@@ -1315,6 +1337,25 @@ async fn auto_disable_server(
     }
 }
 
+async fn record_crash_autostop_intent(deps: &WatcherDeps, task_id: &str) {
+    let Some(tasks) = deps.tasks.as_ref() else {
+        return;
+    };
+    if let Err(e) = tasks
+        .update_task(
+            task_id,
+            &TaskPatch {
+                sandbox_desired_state: Some(SandboxDesiredState::Stopped),
+                sandbox_stop_reason: Some(Some(SandboxStopReason::Error)),
+                ..Default::default()
+            },
+        )
+        .await
+    {
+        warn!(task_id = %task_id, error = %e, "Failed to persist crash auto-stop intent");
+    }
+}
+
 /// Extract the task ID from a pod's labels.
 fn extract_task_id(pod: &Pod) -> Option<String> {
     pod.metadata
@@ -1537,11 +1578,7 @@ fn extract_pod_observed_state(pod: &Pod, pod_name: &str, task_id: &str) -> PodOb
 fn is_node_removal_reason(reason: &str) -> bool {
     matches!(
         reason,
-        "DeletionByPodGC"
-            | "NodeLost"
-            | "NodeShutdown"
-            | "Terminated"
-            | "DeletionByTaintManager"
+        "DeletionByPodGC" | "NodeLost" | "NodeShutdown" | "Terminated" | "DeletionByTaintManager"
     )
 }
 
@@ -1872,8 +1909,13 @@ async fn emit_turn_interrupted_if_active(
     };
 
     let message = match cause {
-        Some(c) => format!("Turn interrupted — sandbox pod terminated involuntarily ({c}). Resuming when it reschedules."),
-        None => "Turn interrupted — sandbox pod terminated involuntarily. Resuming when it reschedules.".to_string(),
+        Some(c) => format!(
+            "Turn interrupted — sandbox pod terminated involuntarily ({c}). Resuming when it reschedules."
+        ),
+        None => {
+            "Turn interrupted — sandbox pod terminated involuntarily. Resuming when it reschedules."
+                .to_string()
+        }
     };
     let mut payload = serde_json::json!({ "message": message });
     if let Some(c) = cause {
@@ -2071,6 +2113,7 @@ async fn gc_failed_pods(k8s: &K8sClient, pod_states: &mut HashMap<String, PodObs
 async fn retry_pending_auto_stops(
     k8s: &K8sClient,
     pod_states: &mut HashMap<String, PodObservedState>,
+    deps: &WatcherDeps,
 ) {
     for state in pod_states.values_mut() {
         if !state.auto_stop_pending {
@@ -2084,6 +2127,7 @@ async fn retry_pending_auto_stops(
                     "Auto-stop scale-to-0 succeeded on periodic retry"
                 );
                 state.auto_stop_pending = false;
+                record_crash_autostop_intent(deps, &state.task_id).await;
             }
             Err(e) => {
                 warn!(
@@ -2247,7 +2291,10 @@ mod tests {
         );
         let state = extract_pod_observed_state(&pod, "pod-1", "task-1");
         let transitions = detect_transitions(None, &state);
-        let subs: Vec<&str> = transitions.iter().map(|(s, _)| s.as_str()).collect::<Vec<_>>();
+        let subs: Vec<&str> = transitions
+            .iter()
+            .map(|(s, _)| s.as_str())
+            .collect::<Vec<_>>();
 
         assert!(
             !subs.contains(&"pod_failed") && !subs.contains(&"pod_evicted"),
@@ -2269,7 +2316,10 @@ mod tests {
         );
         let state = extract_pod_observed_state(&pod, "pod-1", "task-1");
         let transitions = detect_transitions(None, &state);
-        let subs: Vec<&str> = transitions.iter().map(|(s, _)| s.as_str()).collect::<Vec<_>>();
+        let subs: Vec<&str> = transitions
+            .iter()
+            .map(|(s, _)| s.as_str())
+            .collect::<Vec<_>>();
 
         assert!(
             subs.contains(&"pod_failed"),
@@ -2323,7 +2373,10 @@ mod tests {
 
         let state = extract_pod_observed_state(&pod, "pod-1", "task-1");
         let transitions = detect_transitions(None, &state);
-        let subs: Vec<&str> = transitions.iter().map(|(s, _)| s.as_str()).collect::<Vec<_>>();
+        let subs: Vec<&str> = transitions
+            .iter()
+            .map(|(s, _)| s.as_str())
+            .collect::<Vec<_>>();
 
         assert!(
             !subs.contains(&"pod_evicted") && !subs.contains(&"pod_failed"),
@@ -2353,7 +2406,10 @@ mod tests {
 
         let state = extract_pod_observed_state(&pod, "pod-1", "task-1");
         let transitions = detect_transitions(None, &state);
-        let subs: Vec<&str> = transitions.iter().map(|(s, _)| s.as_str()).collect::<Vec<_>>();
+        let subs: Vec<&str> = transitions
+            .iter()
+            .map(|(s, _)| s.as_str())
+            .collect::<Vec<_>>();
 
         assert!(
             !subs.contains(&"pod_failed") && !subs.contains(&"pod_evicted"),
@@ -2403,7 +2459,10 @@ mod tests {
         );
 
         let transitions = detect_transitions(None, &state);
-        let subs: Vec<&str> = transitions.iter().map(|(s, _)| s.as_str()).collect::<Vec<_>>();
+        let subs: Vec<&str> = transitions
+            .iter()
+            .map(|(s, _)| s.as_str())
+            .collect::<Vec<_>>();
 
         assert!(
             !subs.contains(&"pod_failed") && !subs.contains(&"pod_evicted"),
@@ -2428,7 +2487,10 @@ mod tests {
         assert_eq!(state.exit_code, Some(1));
         assert_eq!(state.terminated_reason.as_deref(), Some("Error"));
         assert_eq!(state.effective_exit_code(), Some(1));
-        assert_eq!(state.effective_terminated_reason().as_deref(), Some("Error"));
+        assert_eq!(
+            state.effective_terminated_reason().as_deref(),
+            Some("Error")
+        );
     }
 
     /// After K8s restarts the container the *current* state is Running, but the

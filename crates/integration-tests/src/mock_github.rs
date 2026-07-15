@@ -182,15 +182,13 @@ fn route(method: &str, path: &str) -> (&'static str, serde_json::Value) {
             }),
         ),
         // POST /repos/{owner}/{repo}/issues/{n}/comments
-        ("POST", ["repos", _, _, "issues", _, "comments"]) => (
-            "201 Created",
-            serde_json::json!({ "id": MOCK_COMMENT_ID }),
-        ),
+        ("POST", ["repos", _, _, "issues", _, "comments"]) => {
+            ("201 Created", serde_json::json!({ "id": MOCK_COMMENT_ID }))
+        }
         // POST /repos/{owner}/{repo}/pulls/{n}/comments/{cid}/replies
-        ("POST", ["repos", _, _, "pulls", _, "comments", _, "replies"]) => (
-            "201 Created",
-            serde_json::json!({ "id": MOCK_REPLY_ID }),
-        ),
+        ("POST", ["repos", _, _, "pulls", _, "comments", _, "replies"]) => {
+            ("201 Created", serde_json::json!({ "id": MOCK_REPLY_ID }))
+        }
         // GET /repos/{owner}/{repo} (default-branch lookup) and
         // GET /repos/{owner}/{repo}/pulls/{n} (PR fetch in hooks/runtime)
         ("GET", ["repos", ..]) => (

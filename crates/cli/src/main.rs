@@ -483,4 +483,3 @@ fn is_status_command_standalone(cmd: &StandaloneCommands) -> bool {
             )
     )
 }
-

@@ -119,14 +119,13 @@ impl LinearAgentApi {
         .await
         .map_err(AdapterError::Db)?;
 
-        let (access_token, refresh_token, expires_at, metadata) =
-            full.ok_or_else(|| {
-                AdapterError::AdapterApi(
-                    "No Linear OAuth token registered — \
+        let (access_token, refresh_token, expires_at, metadata) = full.ok_or_else(|| {
+            AdapterError::AdapterApi(
+                "No Linear OAuth token registered — \
                      run `moat adapters install --adapter linear` first"
-                        .to_string(),
-                )
-            })?;
+                    .to_string(),
+            )
+        })?;
 
         if !needs_refresh(expires_at) {
             return Ok(access_token);
@@ -266,9 +265,7 @@ impl LinearAgentApi {
             .form(&form)
             .send()
             .await
-            .map_err(|e| {
-                AdapterError::AdapterApi(format!("Linear refresh request failed: {e}"))
-            })?;
+            .map_err(|e| AdapterError::AdapterApi(format!("Linear refresh request failed: {e}")))?;
 
         let status = resp.status();
         let text = resp.text().await.map_err(|e| {

@@ -48,10 +48,7 @@ impl CredentialService {
 
         // Step 1: skip the backend refresh when the sandbox watcher is the
         // active refresher for any task within this scope.
-        if self
-            .any_other_open_codex_task(&scope, except_task_id)
-            .await
-        {
+        if self.any_other_open_codex_task(&scope, except_task_id).await {
             debug!(
                 scope = %scope.display(),
                 "ensure_fresh_codex: skipping backend refresh (open codex task in flight)"
@@ -320,12 +317,11 @@ pub(super) async fn codex_refresh_inner(
     // up waiters on a slow refresh. The lock key embeds the scope kind so
     // a user named "foo" and a team named "foo" don't collide.
     let lock_key: String = scope.advisory_id_input();
-    let acquired: bool = sqlx::query_scalar(
-        "SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0))",
-    )
-    .bind(&lock_key)
-    .fetch_one(&mut *tx)
-    .await?;
+    let acquired: bool =
+        sqlx::query_scalar("SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind(&lock_key)
+            .fetch_one(&mut *tx)
+            .await?;
 
     let scope_where = scope.where_clause("$1");
     let scope_bind = scope.bind_value();
@@ -338,9 +334,7 @@ pub(super) async fn codex_refresh_inner(
             scope = %scope.display(),
             "ensure_fresh_codex: another replica holds the advisory lock, returning current row"
         );
-        let read_sql = format!(
-            "SELECT access_token FROM provider_tokens WHERE {scope_where}",
-        );
+        let read_sql = format!("SELECT access_token FROM provider_tokens WHERE {scope_where}");
         let row: Option<(String,)> = sqlx::query_as(AssertSqlSafe(read_sql))
             .bind(scope_bind)
             .fetch_optional(db)
@@ -436,9 +430,8 @@ pub(super) async fn codex_refresh_inner(
                 // Someone (sandbox watcher) wrote underneath us; commit the
                 // empty tx and return their value.
                 tx.commit().await?;
-                let read_sql = format!(
-                    "SELECT access_token FROM provider_tokens WHERE {scope_where}",
-                );
+                let read_sql =
+                    format!("SELECT access_token FROM provider_tokens WHERE {scope_where}");
                 let row: Option<(String,)> = sqlx::query_as(AssertSqlSafe(read_sql))
                     .bind(scope_bind)
                     .fetch_optional(db)
@@ -527,8 +520,7 @@ mod tests {
 
     fn make_jwt_with_exp(exp_secs: i64) -> String {
         use base64::Engine as _;
-        let header =
-            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b"{\"alg\":\"none\"}");
+        let header = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b"{\"alg\":\"none\"}");
         let body = base64::engine::general_purpose::URL_SAFE_NO_PAD
             .encode(serde_json::to_vec(&serde_json::json!({ "exp": exp_secs })).unwrap());
         format!("{header}.{body}.sig")

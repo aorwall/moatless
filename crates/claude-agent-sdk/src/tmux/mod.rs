@@ -53,9 +53,7 @@ use crate::types::options::ClaudeOptions;
 pub use self::session::has_resumable_transcript;
 
 use self::hooks::{spawn_reader, HookHarness, HookLine};
-use self::session::{
-    list_jsonl_stems, resolve_project_dir, resolve_resume_target, TmuxSession,
-};
+use self::session::{list_jsonl_stems, resolve_project_dir, resolve_resume_target, TmuxSession};
 use self::tailer::{
     discover_transcript_path, spawn_hook_listener, spawn_lazy_supervisor, spawn_supervisor,
     synth_system_init, HookState, TailTarget,
@@ -81,20 +79,19 @@ pub async fn query_tmux(prompt: &str, mut options: ClaudeOptions) -> Result<Quer
     warn_on_ignored_options(&options);
 
     let project_dir = resolve_project_dir(&options)?;
-    tokio::fs::create_dir_all(&project_dir)
-        .await
-        .map_err(|e| crate::error::SdkError::Internal(format!(
+    tokio::fs::create_dir_all(&project_dir).await.map_err(|e| {
+        crate::error::SdkError::Internal(format!(
             "Failed to create project dir {}: {e}",
             project_dir.display()
-        )))?;
+        ))
+    })?;
 
     // Resume / --continue: the JSONL already contains prior turns, so the
     // tailer must seek to EOF (otherwise we'd replay old records). We learn
     // this from the options — checking `before.contains(stem)` would be
     // wrong because Claude's project-dir encoding doesn't always match ours
     // (it also collapses `_` in path components).
-    let resume_mode =
-        options.resume.is_some() || options.continue_conversation == Some(true);
+    let resume_mode = options.resume.is_some() || options.continue_conversation == Some(true);
 
     let before = list_jsonl_stems(&project_dir).await?;
 
@@ -114,12 +111,10 @@ pub async fn query_tmux(prompt: &str, mut options: ClaudeOptions) -> Result<Quer
 
     // Spawn the hook listener BEFORE the session so any hook lines that
     // arrive immediately after spawn are captured.
-    let (_listener_handle, state_rx) =
-        spawn_hook_listener(hook_rx, cancellation_token.clone());
+    let (_listener_handle, state_rx) = spawn_hook_listener(hook_rx, cancellation_token.clone());
 
-    let session = Arc::new(
-        TmuxSession::spawn(&options, Some(harness.settings_json.as_str())).await?,
-    );
+    let session =
+        Arc::new(TmuxSession::spawn(&options, Some(harness.settings_json.as_str())).await?);
 
     let writer = Arc::new(TmuxPasteWriter {
         session_name: session.session_name.clone(),
@@ -169,22 +164,21 @@ pub async fn query_tmux(prompt: &str, mut options: ClaudeOptions) -> Result<Quer
     // first turns). See [`resolve_resume_target`].
     let resume_target = resolve_resume_target(&options, &project_dir).await;
 
-    let jsonl_path =
-        match discover_transcript_path(
-            state_rx.clone(),
-            project_dir.clone(),
-            before,
-            resume_target,
-            init_timeout,
-        )
-        .await
-        {
-            Ok(p) => p,
-            Err(e) => {
-                session.kill().await;
-                return Err(e);
-            }
-        };
+    let jsonl_path = match discover_transcript_path(
+        state_rx.clone(),
+        project_dir.clone(),
+        before,
+        resume_target,
+        init_timeout,
+    )
+    .await
+    {
+        Ok(p) => p,
+        Err(e) => {
+            session.kill().await;
+            return Err(e);
+        }
+    };
     let start_at_end = resume_mode;
     if resume_mode {
         debug!(path = %jsonl_path.display(), "Resume mode — tailing from EOF");
@@ -243,12 +237,12 @@ pub async fn query_tmux_streaming(mut options: ClaudeOptions) -> Result<QueryHan
     warn_on_ignored_options(&options);
 
     let project_dir = resolve_project_dir(&options)?;
-    tokio::fs::create_dir_all(&project_dir)
-        .await
-        .map_err(|e| crate::error::SdkError::Internal(format!(
+    tokio::fs::create_dir_all(&project_dir).await.map_err(|e| {
+        crate::error::SdkError::Internal(format!(
             "Failed to create project dir {}: {e}",
             project_dir.display()
-        )))?;
+        ))
+    })?;
 
     let before = list_jsonl_stems(&project_dir).await?;
 
@@ -266,12 +260,10 @@ pub async fn query_tmux_streaming(mut options: ClaudeOptions) -> Result<QueryHan
         cancellation_token.clone(),
     )?;
 
-    let (_listener_handle, state_rx) =
-        spawn_hook_listener(hook_rx, cancellation_token.clone());
+    let (_listener_handle, state_rx) = spawn_hook_listener(hook_rx, cancellation_token.clone());
 
-    let session = Arc::new(
-        TmuxSession::spawn(&options, Some(harness.settings_json.as_str())).await?,
-    );
+    let session =
+        Arc::new(TmuxSession::spawn(&options, Some(harness.settings_json.as_str())).await?);
 
     let writer = Arc::new(TmuxPasteWriter {
         session_name: session.session_name.clone(),
@@ -338,7 +330,9 @@ fn warn_on_ignored_options(options: &ClaudeOptions) {
 /// by claude when a hook fires) can locate the FIFO. The env map is created
 /// on demand.
 fn inject_fifo_env(options: &mut ClaudeOptions, harness: &HookHarness) {
-    let env = options.env.get_or_insert_with(std::collections::HashMap::new);
+    let env = options
+        .env
+        .get_or_insert_with(std::collections::HashMap::new);
     env.insert(
         "CLAUDE_P_FIFO".to_string(),
         harness.fifo_path.display().to_string(),
@@ -560,6 +554,9 @@ mod tests {
     #[test]
     fn pane_tail_lossy_handles_invalid_utf8() {
         let out = pane_tail_lossy(&[0xff, 0xfe, b'o', b'k'], 2048);
-        assert!(out.ends_with("ok"), "lossy conversion should keep ascii tail: {out}");
+        assert!(
+            out.ends_with("ok"),
+            "lossy conversion should keep ascii tail: {out}"
+        );
     }
 }

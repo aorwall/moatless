@@ -367,7 +367,10 @@ mod tests {
         });
         let env: LinearWebhookEnvelope = serde_json::from_value(raw).expect("parse");
         let session = env.agent_session.expect("session present");
-        assert!(session.comment.is_none(), "assignment-initiated session has no comment");
+        assert!(
+            session.comment.is_none(),
+            "assignment-initiated session has no comment"
+        );
     }
 
     #[test]
@@ -478,8 +481,7 @@ mod tests {
         assert_eq!(env.event_type, "Comment");
         assert_eq!(env.action, "create");
         let data = env.data.expect("data present");
-        let comment: CommentPayloadData =
-            serde_json::from_value(data).expect("parse comment");
+        let comment: CommentPayloadData = serde_json::from_value(data).expect("parse comment");
         assert_eq!(comment.id, "comment-100");
         assert_eq!(comment.body, "any update here?");
         assert_eq!(comment.resolved_issue_id(), Some("issue-12"));
@@ -521,10 +523,7 @@ mod tests {
         assert_eq!(issue.identifier, "ENG-9");
         assert_eq!(issue.state_kind(), "completed");
         assert_eq!(issue.resolved_team_id(), Some("team-1"));
-        assert_eq!(
-            notif.actor.expect("actor").id,
-            "user-1"
-        );
+        assert_eq!(notif.actor.expect("actor").id, "user-1");
     }
 
     #[test]
@@ -563,8 +562,7 @@ mod tests {
         });
         let env: LinearWebhookEnvelope = serde_json::from_value(raw).expect("parse");
         let data = env.data.expect("data present");
-        let comment: CommentPayloadData =
-            serde_json::from_value(data).expect("parse comment");
+        let comment: CommentPayloadData = serde_json::from_value(data).expect("parse comment");
         assert!(comment.issue_id.is_none());
         assert_eq!(comment.resolved_issue_id(), Some("issue-13"));
         let issue = comment.issue.expect("nested issue");

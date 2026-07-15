@@ -11650,6 +11650,15 @@
           }
         }
       },
+      "SandboxDesiredState": {
+        "type": "string",
+        "description": "Persisted application intent for a task's sandbox lifecycle.",
+        "enum": [
+          "running",
+          "stopped",
+          "removed"
+        ]
+      },
       "SandboxEventPayload": {
         "type": "object",
         "description": "Sandbox event payload — typed payload for sandbox lifecycle events.\n\nUsed by the pod watcher and provider to publish structured events\ninstead of raw `serde_json::Value`.",
@@ -11820,6 +11829,17 @@
             }
           }
         }
+      },
+      "SandboxStopReason": {
+        "type": "string",
+        "description": "Reason the persisted sandbox intent moved away from `running`.",
+        "enum": [
+          "user",
+          "idle_reaper",
+          "cleanup",
+          "system",
+          "error"
+        ]
       },
       "SaveCodexAuthRequest": {
         "type": "object",
@@ -13070,7 +13090,9 @@
           "scope",
           "tags",
           "ttlMinutes",
-          "inactiveTtlDays"
+          "inactiveTtlDays",
+          "sandboxDesiredState",
+          "sandboxDesiredStateUpdatedAt"
         ],
         "properties": {
           "agentState": {
@@ -13190,12 +13212,31 @@
               "null"
             ]
           },
+          "sandboxDesiredState": {
+            "$ref": "#/components/schemas/SandboxDesiredState",
+            "description": "Persisted target state for the task's sandbox. This is application\nintent, not live infrastructure status."
+          },
+          "sandboxDesiredStateUpdatedAt": {
+            "type": "string",
+            "description": "RFC3339 timestamp for the last desired-state transition."
+          },
           "sandboxStartedAt": {
             "type": [
               "string",
               "null"
             ],
             "description": "RFC3339 timestamp of when the sandbox was last started. `None` if the\ntask has never had a sandbox running."
+          },
+          "sandboxStopReason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SandboxStopReason",
+                "description": "Reason the sandbox was intentionally moved away from `running`, if any."
+              }
+            ]
           },
           "scope": {
             "$ref": "#/components/schemas/Scope"

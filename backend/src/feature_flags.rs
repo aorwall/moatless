@@ -53,8 +53,7 @@ pub async fn get_feature_flags() -> Json<FeatureFlagsResponse> {
 
 /// Read a boolean feature flag from an environment variable.
 fn env_flag(name: &str, default: bool) -> bool {
-    std::env::var(name)
-        .map_or(default, |v| v == "true" || v == "1")
+    std::env::var(name).map_or(default, |v| v == "true" || v == "1")
 }
 
 #[cfg(test)]

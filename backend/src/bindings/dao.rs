@@ -80,10 +80,7 @@ pub trait TaskBindingRepository: Send + Sync {
     /// Batch-fetch full binding rows (including `destination_config` and the
     /// `external_status*` columns) for a set of tasks. Drives the
     /// task-connections admin view.
-    async fn find_by_task_ids(
-        &self,
-        task_ids: &[String],
-    ) -> Result<Vec<TaskBinding>, sqlx::Error>;
+    async fn find_by_task_ids(&self, task_ids: &[String]) -> Result<Vec<TaskBinding>, sqlx::Error>;
 }
 
 pub struct PgTaskBindingRepository(pub DbPool);
@@ -237,10 +234,7 @@ impl TaskBindingRepository for PgTaskBindingRepository {
         PgTaskBindingRepository::update_external_status(self, id, status, state_kind, raw).await
     }
 
-    async fn find_by_task_ids(
-        &self,
-        task_ids: &[String],
-    ) -> Result<Vec<TaskBinding>, sqlx::Error> {
+    async fn find_by_task_ids(&self, task_ids: &[String]) -> Result<Vec<TaskBinding>, sqlx::Error> {
         PgTaskBindingRepository::find_by_task_ids(self, task_ids).await
     }
 }
@@ -289,10 +283,12 @@ const TASK_BINDING_SELECT: &str = r#"
 
 impl PgTaskBindingRepository {
     pub async fn find_by_id(&self, id: &str) -> Result<Option<TaskBinding>, sqlx::Error> {
-        sqlx::query_as::<_, TaskBinding>(AssertSqlSafe(format!("{TASK_BINDING_SELECT} WHERE id = $1")))
-            .bind(id)
-            .fetch_optional(&self.0)
-            .await
+        sqlx::query_as::<_, TaskBinding>(AssertSqlSafe(format!(
+            "{TASK_BINDING_SELECT} WHERE id = $1"
+        )))
+        .bind(id)
+        .fetch_optional(&self.0)
+        .await
     }
 
     pub async fn find_by_subject(

@@ -611,11 +611,7 @@ mod tests {
         config.workspace_dir = ws.path().display().to_string();
         config.data_dir = data.path().display().to_string();
         config.bootstrap_token = Some("boot".to_string());
-        std::fs::write(
-            config.legacy_persisted_user_token_path(),
-            "old-persisted\n",
-        )
-        .unwrap();
+        std::fs::write(config.legacy_persisted_user_token_path(), "old-persisted\n").unwrap();
         assert_eq!(
             config.resolve_initial_auth_token_with_source(),
             Some((
@@ -627,7 +623,10 @@ mod tests {
 
     #[test]
     fn parse_permission_mode_accepts_known_values() {
-        assert_eq!(parse_permission_mode("default"), Some(PermissionMode::Default));
+        assert_eq!(
+            parse_permission_mode("default"),
+            Some(PermissionMode::Default)
+        );
         assert_eq!(
             parse_permission_mode("acceptEdits"),
             Some(PermissionMode::AcceptEdits)
@@ -641,7 +640,10 @@ mod tests {
             parse_permission_mode("delegate"),
             Some(PermissionMode::Delegate)
         );
-        assert_eq!(parse_permission_mode("dontAsk"), Some(PermissionMode::DontAsk));
+        assert_eq!(
+            parse_permission_mode("dontAsk"),
+            Some(PermissionMode::DontAsk)
+        );
     }
 
     #[test]
@@ -665,7 +667,10 @@ mod tests {
 
     #[test]
     fn derive_repo_name_handles_common_url_shapes() {
-        assert_eq!(derive_repo_name("https://github.com/owner/repo.git"), "repo");
+        assert_eq!(
+            derive_repo_name("https://github.com/owner/repo.git"),
+            "repo"
+        );
         assert_eq!(derive_repo_name("https://github.com/owner/repo"), "repo");
         assert_eq!(derive_repo_name("git@github.com:owner/repo.git"), "repo");
         assert_eq!(derive_repo_name("https://host/owner/repo/"), "repo");

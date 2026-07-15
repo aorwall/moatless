@@ -6,6 +6,8 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AgentType } from './agentType';
+import type { SandboxDesiredState } from './sandboxDesiredState';
+import type { SandboxStopReason } from './sandboxStopReason';
 import type { Scope } from './scope';
 import type { TagResponse } from './tagResponse';
 import type { TaskBindingSummary } from './taskBindingSummary';
@@ -66,12 +68,18 @@ backward compatibility with clients that pre-date the relations field.
   repositoryId: string;
   /** @nullable */
   repositoryName?: string | null;
+  /** Persisted target state for the task's sandbox. This is application
+intent, not live infrastructure status. */
+  sandboxDesiredState: SandboxDesiredState;
+  /** RFC3339 timestamp for the last desired-state transition. */
+  sandboxDesiredStateUpdatedAt: string;
   /**
    * RFC3339 timestamp of when the sandbox was last started. `None` if the
 task has never had a sandbox running.
    * @nullable
    */
   sandboxStartedAt?: string | null;
+  sandboxStopReason?: null | SandboxStopReason;
   scope: Scope;
   /** @nullable */
   shortId?: string | null;

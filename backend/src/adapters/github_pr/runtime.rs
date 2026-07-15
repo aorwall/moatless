@@ -16,7 +16,7 @@ use crate::bindings::dao::PgTaskBindingRepository;
 use crate::shared_models::AgentType;
 use crate::state::AppState;
 use crate::task::dao::TaskPatch;
-use crate::task::models::{Task, TaskStatus, Visibility};
+use crate::task::models::{SandboxDesiredState, SandboxStopReason, Task, TaskStatus, Visibility};
 use crate::triggers::rule_dao::PgTaskTriggerRouteRepository;
 
 use super::adapter::{resolve_user_or_fallback, PrCloseInfo};
@@ -211,9 +211,8 @@ pub async fn route_inbound_message(
     // Capture the earliest binding (if any) so we can wire a `related_to`
     // relation when a brand-new task is spawned from this PR event. Must
     // happen before the loop below consumes `bindings`.
-    let originator_binding_summary: Option<(String, String)> = bindings
-        .first()
-        .map(|b| (b.task_id.clone(), b.id.clone()));
+    let originator_binding_summary: Option<(String, String)> =
+        bindings.first().map(|b| (b.task_id.clone(), b.id.clone()));
 
     let mut delivery_targets: Vec<(TaskBinding, bool)> = Vec::new();
     for binding in bindings {
@@ -287,18 +286,20 @@ pub async fn route_inbound_message(
             // the earliest binding is the originating task. Link the new review
             // task to it as a `related_to` peer (it shares the PR subject_key,
             // it isn't a child of the originator).
-            let related = originator_binding_summary.as_ref().map(|(task_id, binding_id)| {
-                crate::task::relations::RelatedTask {
-                    related_task_id: task_id.clone(),
-                    context: serde_json::json!({
-                        "via": "github_pr_webhook",
-                        "adapter": ADAPTER,
-                        "subject_kind": SUBJECT_KIND,
-                        "subject_key": subject_key,
-                        "origin_binding_id": binding_id,
-                    }),
-                }
-            });
+            let related = originator_binding_summary
+                .as_ref()
+                .map(
+                    |(task_id, binding_id)| crate::task::relations::RelatedTask {
+                        related_task_id: task_id.clone(),
+                        context: serde_json::json!({
+                            "via": "github_pr_webhook",
+                            "adapter": ADAPTER,
+                            "subject_kind": SUBJECT_KIND,
+                            "subject_key": subject_key,
+                            "origin_binding_id": binding_id,
+                        }),
+                    },
+                );
             let task_id = create_provider_event_task(state, rule, &msg).await?;
             if let Some(ref r) = related {
                 crate::task::relations::record_related_to(
@@ -439,9 +440,16 @@ pub async fn close_tasks_for_pr(
         // `resume = false` only persists the message; it never provisions or
         // wakes the agent on a sandbox we're about to tear down.
         let close_msg = build_close_inbound_message(state, owner, repo, rule, info).await;
-        if let Err(e) =
-            deliver_to_binding(state, Some(rule), connection, &binding, &close_msg, false, false)
-                .await
+        if let Err(e) = deliver_to_binding(
+            state,
+            Some(rule),
+            connection,
+            &binding,
+            &close_msg,
+            false,
+            false,
+        )
+        .await
         {
             warn!(
                 task_id = %task_id,
@@ -462,6 +470,8 @@ pub async fn close_tasks_for_pr(
                 task_id,
                 &TaskPatch {
                     status: Some(TaskStatus::Closed),
+                    sandbox_desired_state: Some(SandboxDesiredState::Removed),
+                    sandbox_stop_reason: Some(Some(SandboxStopReason::Cleanup)),
                     ..Default::default()
                 },
             )
@@ -666,6 +676,9 @@ async fn create_provider_event_task(
             Some(parts.join("\n\n"))
         },
         sandbox_started_at: None,
+        sandbox_desired_state: SandboxDesiredState::Running,
+        sandbox_stop_reason: None,
+        sandbox_desired_state_updated_at: chrono::Utc::now(),
         headless: true,
         ttl_minutes: crate::task::models::DEFAULT_TTL_MINUTES,
         inactive_ttl_days: rule

@@ -93,7 +93,10 @@ pub(crate) fn bucket_tool(name: &str) -> &'static str {
 
 /// Normalise an optional agent-type label to a non-empty owned string.
 fn agent_label(agent_type: Option<&str>) -> String {
-    agent_type.filter(|s| !s.is_empty()).unwrap_or("unknown").to_string()
+    agent_type
+        .filter(|s| !s.is_empty())
+        .unwrap_or("unknown")
+        .to_string()
 }
 
 /// Register metric descriptions with the Prometheus recorder.

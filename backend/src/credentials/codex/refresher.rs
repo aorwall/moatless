@@ -46,9 +46,7 @@ pub fn spawn_codex_refresher(
 
     tokio::spawn(async move {
         // Lease duration must exceed the check interval — use 2x as buffer.
-        let lease_duration_secs: i32 = (interval.as_secs() * 2)
-            .try_into()
-            .unwrap_or(i32::MAX);
+        let lease_duration_secs: i32 = (interval.as_secs() * 2).try_into().unwrap_or(i32::MAX);
         let leader_election = LeaderElection::new_with_name(
             &k8s,
             identity.clone(),
@@ -117,7 +115,10 @@ async fn run_sweep(
             (Some("team"), _, Some(tid)) => CodexScope::team(tid),
             (Some("global"), _, _) => CodexScope::Global,
             other => {
-                warn!(?other, "Codex refresher: skipping row with unrecognized scope shape");
+                warn!(
+                    ?other,
+                    "Codex refresher: skipping row with unrecognized scope shape"
+                );
                 continue;
             }
         };

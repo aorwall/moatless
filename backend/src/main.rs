@@ -262,9 +262,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(pool) = db_pool {
         // Build the GitHub App registry once and share it between AppState and
         // the adapter layer so they hit the same token cache.
-        let github_apps = Arc::new(
-            crate::auth::github_app_registry::GitHubAppRegistry::from_config(&config),
-        );
+        let github_apps =
+            Arc::new(crate::auth::github_app_registry::GitHubAppRegistry::from_config(&config));
         let adapter_registry =
             adapters::Adapters::from_config(&config, pool.clone(), github_apps.clone()).await;
         let app_state = AppState::new(
@@ -576,8 +575,5 @@ fn spawn_codex_refresher(
         std::time::Duration::from_secs(interval_secs),
         cancel,
     );
-    info!(
-        interval_secs,
-        "Codex refresher spawned"
-    );
+    info!(interval_secs, "Codex refresher spawned");
 }

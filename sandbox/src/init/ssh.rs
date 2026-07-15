@@ -87,7 +87,10 @@ pub async fn materialize_ssh_keys(config: &Config, ssh_keys: &HashMap<String, St
     match fs::write(&config_path, config_body).await {
         Ok(()) => {
             set_mode(&config_path, KEY_FILE_MODE).await;
-            info!(keys = identity_files.len(), "Configured SSH identities for git/ssh");
+            info!(
+                keys = identity_files.len(),
+                "Configured SSH identities for git/ssh"
+            );
         }
         Err(e) => {
             warn!(error = %e, "Failed to write ~/.ssh/config");
@@ -138,7 +141,13 @@ async fn wire_git_ssh_command(config_path: &str) {
 fn key_file_name(secret_name: &str) -> String {
     let sanitized: String = secret_name
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
         .collect();
     format!("moatless_{sanitized}")
 }
@@ -178,7 +187,10 @@ mod tests {
 
     #[test]
     fn key_file_name_sanitizes() {
-        assert_eq!(key_file_name("GIT_SSH_PRIVATE_KEY"), "moatless_git_ssh_private_key");
+        assert_eq!(
+            key_file_name("GIT_SSH_PRIVATE_KEY"),
+            "moatless_git_ssh_private_key"
+        );
         assert_eq!(key_file_name("DEPLOY-KEY.1"), "moatless_deploy_key_1");
     }
 
@@ -193,7 +205,10 @@ mod tests {
     #[test]
     fn render_config_lists_all_identities() {
         let cfg = render_ssh_config(
-            &["/home/m/.ssh/moatless_a".to_string(), "/home/m/.ssh/moatless_b".to_string()],
+            &[
+                "/home/m/.ssh/moatless_a".to_string(),
+                "/home/m/.ssh/moatless_b".to_string(),
+            ],
             "/home/m/.ssh/known_hosts",
         );
         assert!(cfg.contains("Host *"));
@@ -211,7 +226,10 @@ mod tests {
         config.home_dir = tmp.path().display().to_string();
 
         let mut keys = HashMap::new();
-        keys.insert("GIT_SSH_PRIVATE_KEY".to_string(), "PRIVATE-KEY-BODY".to_string());
+        keys.insert(
+            "GIT_SSH_PRIVATE_KEY".to_string(),
+            "PRIVATE-KEY-BODY".to_string(),
+        );
         materialize_ssh_keys(&config, &keys).await;
 
         let key_path = tmp.path().join(".ssh/moatless_git_ssh_private_key");

@@ -248,7 +248,10 @@ mod tests {
             Some(serde_json::json!({"ignored_title_patterns": ["^chore\\(deps", "^deps[:(]"]})),
         );
         let cfg = GithubPrRuleConfig::from_rule(&rule);
-        assert_eq!(cfg.ignored_title_patterns, vec!["^chore\\(deps", "^deps[:(]"]);
+        assert_eq!(
+            cfg.ignored_title_patterns,
+            vec!["^chore\\(deps", "^deps[:(]"]
+        );
     }
 
     #[test]

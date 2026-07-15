@@ -112,7 +112,10 @@ async fn dispatch_webhook(
         .find_by_external_account("linear", org_id)
         .await?;
     let Some(connection) = connection else {
-        info!(org_id, "Linear webhook ignored: no integration_connection registered");
+        info!(
+            org_id,
+            "Linear webhook ignored: no integration_connection registered"
+        );
         return Ok(envelope.event_type.clone());
     };
 
@@ -240,7 +243,10 @@ fn dedup_key(envelope: &LinearWebhookEnvelope) -> String {
         )
     });
 
-    format!("{}:{}:{}", envelope.event_type, envelope.action, resource_id)
+    format!(
+        "{}:{}:{}",
+        envelope.event_type, envelope.action, resource_id
+    )
 }
 
 async fn handle_issue_event(
@@ -259,14 +265,13 @@ async fn handle_issue_event(
         return Ok(());
     };
 
-    let issue: super::webhook_payloads::IssuePayload =
-        match serde_json::from_value(data.clone()) {
-            Ok(i) => i,
-            Err(e) => {
-                debug!(error = %e, "Failed to parse IssuePayload — ignoring");
-                return Ok(());
-            }
-        };
+    let issue: super::webhook_payloads::IssuePayload = match serde_json::from_value(data.clone()) {
+        Ok(i) => i,
+        Err(e) => {
+            debug!(error = %e, "Failed to parse IssuePayload — ignoring");
+            return Ok(());
+        }
+    };
 
     let Some(team_id) = issue.resolved_team_id().map(str::to_string) else {
         debug!(issue = %issue.identifier, "Issue.update missing team_id — ignoring");

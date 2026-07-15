@@ -433,6 +433,95 @@ async fn delete_queued(pool: PgPool) {
     assert!(!deleted_again);
 }
 
+async fn seed_acknowledged_turn(pool: &PgPool, task_id: &str, uuid: &str, turn_number: i32) {
+    let mut msg = make_message_row(task_id, uuid);
+    msg.session_id = Some(format!("session-{turn_number}"));
+    msg.agent_session_id = Some(format!("session-{turn_number}"));
+    msg.turn_number = Some(turn_number);
+    msg.sent_at = Some(chrono::Utc::now());
+    message_dao::append(pool, &msg, &[], &[]).await.unwrap();
+}
+
+async fn seed_turn_event(
+    pool: &PgPool,
+    task_id: &str,
+    event_type: &str,
+    sub_type: &str,
+    turn_number: i32,
+) {
+    sqlx::query(
+        r#"INSERT INTO task_events
+               (event_id, task_id, type, sub_type, turn_number, agent_type, payload, timestamp)
+           VALUES ($1, $2, $3, $4, $5, 'claude-code', '{}'::jsonb, '')"#,
+    )
+    .bind(format!("{task_id}-{event_type}-{sub_type}-{turn_number}"))
+    .bind(task_id)
+    .bind(event_type)
+    .bind(sub_type)
+    .bind(turn_number)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+#[sqlx::test]
+async fn find_interrupted_turn_returns_acknowledged_unfinished_turn(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+    seed_acknowledged_turn(&pool, "task-1", "interrupted-user", 1).await;
+
+    let repo = PgMessageRepository(pool.clone());
+    let interrupted = repo
+        .find_interrupted_turn("task-1")
+        .await
+        .unwrap()
+        .expect("expected interrupted turn");
+
+    assert_eq!(interrupted.turn_number, 1);
+    assert_eq!(interrupted.session_id, "session-1");
+}
+
+#[sqlx::test]
+async fn find_interrupted_turn_suppresses_terminal_agent_event(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+    seed_acknowledged_turn(&pool, "task-1", "agent-completed-user", 1).await;
+    seed_turn_event(&pool, "task-1", "agent", "completed", 1).await;
+
+    let repo = PgMessageRepository(pool.clone());
+    assert!(repo
+        .find_interrupted_turn("task-1")
+        .await
+        .unwrap()
+        .is_none());
+}
+
+#[sqlx::test]
+async fn find_interrupted_turn_suppresses_terminal_task_turn_event(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+    seed_acknowledged_turn(&pool, "task-1", "turn-completed-user", 1).await;
+    seed_turn_event(&pool, "task-1", "taskTurn", "completed", 1).await;
+
+    let repo = PgMessageRepository(pool.clone());
+    assert!(repo
+        .find_interrupted_turn("task-1")
+        .await
+        .unwrap()
+        .is_none());
+}
+
+#[sqlx::test]
+async fn find_interrupted_turn_suppresses_explicit_sandbox_stop(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+    seed_acknowledged_turn(&pool, "task-1", "sandbox-stopped-user", 1).await;
+    seed_turn_event(&pool, "task-1", "sandbox", "stopped", 1).await;
+
+    let repo = PgMessageRepository(pool.clone());
+    assert!(repo
+        .find_interrupted_turn("task-1")
+        .await
+        .unwrap()
+        .is_none());
+}
+
 /// Build an `assistant` message row with a controlled `stop_reason`,
 /// `turn_number`, and timestamp so ordering/scoping is deterministic.
 fn make_assistant_row(
@@ -513,7 +602,9 @@ async fn last_message_is_completed_reply_ignores_mid_tool_interruption(pool: PgP
 
     // An assistant message with no stop_reason is likewise not treated as final.
     let unknown = make_assistant_row("task-1", "a-2", None, Some(1), "2026-07-14T11:47:31.000Z");
-    message_dao::append(&pool, &unknown, &[], &[]).await.unwrap();
+    message_dao::append(&pool, &unknown, &[], &[])
+        .await
+        .unwrap();
     assert!(!repo
         .last_message_is_completed_reply("task-1", Some(1))
         .await

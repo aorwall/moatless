@@ -93,15 +93,7 @@ impl TmuxPasteWriter {
 
         // 2. Paste with bracket-paste mode (-p) and delete the buffer after (-d).
         let status = tmux_command(&self.socket)
-            .args([
-                "paste-buffer",
-                "-t",
-                target,
-                "-b",
-                &buffer_name,
-                "-p",
-                "-d",
-            ])
+            .args(["paste-buffer", "-t", target, "-b", &buffer_name, "-p", "-d"])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
@@ -369,10 +361,7 @@ mod tests {
                 ]
             }
         });
-        assert_eq!(
-            extract_user_text(&v).as_deref(),
-            Some("line one\nline two")
-        );
+        assert_eq!(extract_user_text(&v).as_deref(), Some("line one\nline two"));
     }
 
     #[test]
@@ -483,10 +472,9 @@ mod tests {
         // wrapper (the cluster prepends it to every message), so it matches on
         // the wrapper's presence in the active input region — a reliable
         // "input box non-empty" signal, which is all submit-confirmation needs.
-        let needle = submit_needle(
-            "<sent_by>aorwall-frankpenny</sent_by>\nReply with exactly: DIAGN-A-OK",
-        )
-        .expect("needle");
+        let needle =
+            submit_needle("<sent_by>aorwall-frankpenny</sent_by>\nReply with exactly: DIAGN-A-OK")
+                .expect("needle");
         assert!(input_region_contains(pane.as_bytes(), &needle));
     }
 
@@ -495,6 +483,9 @@ mod tests {
         // No input marker in the capture → can't locate the input region →
         // assume submitted (no spurious re-send).
         let needle = submit_needle("Reply with just OK to confirm").expect("needle");
-        assert!(!input_region_contains(b"some pane with no marker at all", &needle));
+        assert!(!input_region_contains(
+            b"some pane with no marker at all",
+            &needle
+        ));
     }
 }

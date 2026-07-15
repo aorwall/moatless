@@ -6,7 +6,9 @@ use crate::scope::Scope;
 use crate::shared_models::AgentType;
 
 // Re-export enums from the shared crate.
-pub use moatless_api_schemas::enums::{TaskStatus, Visibility};
+pub use moatless_api_schemas::enums::{
+    SandboxDesiredState, SandboxStopReason, TaskStatus, Visibility,
+};
 
 /// Default idle TTL in minutes for newly inserted tasks when the caller has no
 /// access to platform config (e.g. integration runtimes). Matches the
@@ -52,6 +54,9 @@ pub struct Task {
     pub updated_at: Option<DateTime<Utc>>,
     pub append_system_prompt: Option<String>,
     pub sandbox_started_at: Option<DateTime<Utc>>,
+    pub sandbox_desired_state: SandboxDesiredState,
+    pub sandbox_stop_reason: Option<SandboxStopReason>,
+    pub sandbox_desired_state_updated_at: DateTime<Utc>,
     pub headless: bool,
     /// Idle TTL in minutes. The reaper stops the sandbox when no activity has
     /// occurred for this many minutes. `0` means "indefinite — never reap".
@@ -119,5 +124,23 @@ mod tests {
     fn visibility_try_from() {
         assert_eq!(Visibility::try_from("public"), Ok(Visibility::Public));
         assert!(Visibility::try_from("invalid").is_err());
+    }
+
+    #[test]
+    fn sandbox_desired_state_try_from() {
+        assert_eq!(
+            SandboxDesiredState::try_from("running"),
+            Ok(SandboxDesiredState::Running)
+        );
+        assert!(SandboxDesiredState::try_from("invalid").is_err());
+    }
+
+    #[test]
+    fn sandbox_stop_reason_try_from() {
+        assert_eq!(
+            SandboxStopReason::try_from("idle_reaper"),
+            Ok(SandboxStopReason::IdleReaper)
+        );
+        assert!(SandboxStopReason::try_from("invalid").is_err());
     }
 }

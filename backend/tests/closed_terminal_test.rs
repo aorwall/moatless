@@ -21,7 +21,9 @@ use moatless_vibe_backend::event_handler::agent_handlers::{
 };
 use moatless_vibe_backend::event_handler::models::AgentEvent;
 use moatless_vibe_backend::repository::dao as repository_dao;
-use moatless_vibe_backend::task::dao::{self as task_dao, PgTaskRepository, TaskPatch, TaskRepository};
+use moatless_vibe_backend::task::dao::{
+    self as task_dao, PgTaskRepository, TaskPatch, TaskRepository,
+};
 use moatless_vibe_backend::task::models::TaskStatus;
 use sqlx::PgPool;
 
@@ -55,7 +57,12 @@ async fn status_of(pool: &PgPool, task_id: &str) -> TaskStatus {
         .status
 }
 
-fn terminal_event(event_id: &str, task_id: &str, sub_type: &str, payload: serde_json::Value) -> AgentEvent {
+fn terminal_event(
+    event_id: &str,
+    task_id: &str,
+    sub_type: &str,
+    payload: serde_json::Value,
+) -> AgentEvent {
     let value = serde_json::json!({
         "eventId": event_id,
         "type": "agent",

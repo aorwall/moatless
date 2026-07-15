@@ -45,7 +45,9 @@ pub async fn run(
     match action {
         UserAction::SetEmail { email } => {
             let body = serde_json::json!({ "email": email });
-            let resp = moat.raw_patch(&format!("/api/v1/users/{login}"), &body).await?;
+            let resp = moat
+                .raw_patch(&format!("/api/v1/users/{login}"), &body)
+                .await?;
             if json {
                 output::print_json_typed(&resp);
             } else {
@@ -56,7 +58,9 @@ pub async fn run(
 
         UserAction::SetName { name } => {
             let body = serde_json::json!({ "name": name });
-            let resp = moat.raw_patch(&format!("/api/v1/users/{login}"), &body).await?;
+            let resp = moat
+                .raw_patch(&format!("/api/v1/users/{login}"), &body)
+                .await?;
             if json {
                 output::print_json_typed(&resp);
             } else {

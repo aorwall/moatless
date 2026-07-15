@@ -23,7 +23,7 @@ use crate::bindings::dao::PgTaskBindingRepository;
 use crate::shared_models::AgentType;
 use crate::state::AppState;
 use crate::task::dao::TaskPatch;
-use crate::task::models::{Task, TaskStatus, Visibility};
+use crate::task::models::{SandboxDesiredState, SandboxStopReason, Task, TaskStatus, Visibility};
 use crate::triggers::rule_dao::PgTaskTriggerRouteRepository;
 
 use super::agent_api::{default_http_client, ActivityKind, LinearAgentApi};
@@ -75,9 +75,10 @@ pub async fn handle_session_created(
     rules: &[TaskTriggerRoute],
     session: &AgentSession,
 ) -> Result<(), AdapterError> {
-    let issue = session.issue.as_ref().ok_or_else(|| {
-        AdapterError::BadRequest("AgentSession missing issue payload".into())
-    })?;
+    let issue = session
+        .issue
+        .as_ref()
+        .ok_or_else(|| AdapterError::BadRequest("AgentSession missing issue payload".into()))?;
 
     // Emit an ephemeral heartbeat thought synchronously so Linear sees
     // activity within the 10s window. Marked ephemeral so the next
@@ -224,7 +225,10 @@ pub async fn handle_session_prompted(
         .collect();
 
     if bindings.is_empty() {
-        warn!(session_id, "No active Linear binding for prompted session — ignoring");
+        warn!(
+            session_id,
+            "No active Linear binding for prompted session — ignoring"
+        );
         return Ok(());
     }
 
@@ -244,7 +248,10 @@ pub async fn handle_session_prompted(
         // Re-open the Linear turn gate for this follow-up prompt so the
         // next agent run's events flow through to Linear's UI.
         state.linear_active_turns.open(&binding.task_id);
-        let external_event_id = format!("linear:prompt:{session_id}:{}", Utc::now().timestamp_millis());
+        let external_event_id = format!(
+            "linear:prompt:{session_id}:{}",
+            Utc::now().timestamp_millis()
+        );
         if let Err(e) = crate::message::send::send_message_flow(
             state,
             &binding.task_id,
@@ -323,12 +330,7 @@ pub async fn handle_comment_created(
 
     let binding_repo = PgTaskBindingRepository(state.db.clone());
     let bindings: Vec<TaskBinding> = binding_repo
-        .find_active_by_destination_field(
-            ADAPTER,
-            super::SUBJECT_KIND_ISSUE,
-            "issue_id",
-            issue_id,
-        )
+        .find_active_by_destination_field(ADAPTER, super::SUBJECT_KIND_ISSUE, "issue_id", issue_id)
         .await?
         .into_iter()
         // Skip bindings whose task has closed — a closed task is terminal and
@@ -449,10 +451,7 @@ pub async fn handle_issue_update(
     let new_state_id = issue.state.as_ref().map(|s| s.id.as_str());
 
     // Only act on real state transitions.
-    if prev_state_id.is_none()
-        || new_state_id.is_none()
-        || prev_state_id == new_state_id
-    {
+    if prev_state_id.is_none() || new_state_id.is_none() || prev_state_id == new_state_id {
         return Ok(());
     }
 
@@ -467,13 +466,7 @@ pub async fn handle_issue_update(
     let rule_config = LinearRuleConfig::from_rule(rule);
 
     // Forward a state-change notification to every bound task (best-effort).
-    notify_bindings_of_state_change(
-        state,
-        connection,
-        issue,
-        new_state_id.unwrap_or(""),
-    )
-    .await;
+    notify_bindings_of_state_change(state, connection, issue, new_state_id.unwrap_or("")).await;
 
     if rule_config.close_task_on_close
         && rule_config.terminal_states.iter().any(|s| s == state_kind)
@@ -920,8 +913,7 @@ async fn notify_bindings_of_state_change(
         .filter(|b| b.connection_id == connection.id)
     {
         // Dedup on (issue, new state id) so Linear re-deliveries collapse.
-        let external_event_id =
-            format!("linear:issue-state:{}:{new_state_id}", issue.id);
+        let external_event_id = format!("linear:issue-state:{}:{new_state_id}", issue.id);
         if let Err(e) = crate::message::send::send_message_flow(
             state,
             &binding.task_id,
@@ -963,7 +955,10 @@ async fn close_active_bindings_for_issue(
     // Look up every active binding tied to this issue — both `@mention`/
     // assignment sessions (`linear_agent_session`) and status-entry tasks
     // (`linear_issue`), so either kind auto-closes when the issue goes terminal.
-    let subject_kinds = vec![SUBJECT_KIND.to_string(), super::SUBJECT_KIND_ISSUE.to_string()];
+    let subject_kinds = vec![
+        SUBJECT_KIND.to_string(),
+        super::SUBJECT_KIND_ISSUE.to_string(),
+    ];
     let rows = sqlx::query_as::<_, TaskBinding>(
         "SELECT id, task_id, adapter_kind AS provider, subject_kind, subject_key, connection_id, \
                 trigger_id, destination_config, metadata, last_external_event_id, \
@@ -1057,22 +1052,14 @@ async fn close_active_bindings_for_issue(
             }
         }
 
-        // Stop the agent gracefully before tearing down K8s resources so the
-        // pod exits promptly instead of riding its full termination grace until
-        // SIGKILL (exit 137). Best-effort — never blocks teardown.
-        crate::sandbox::notify::stop_agent_for_task(state, &binding.task_id).await;
-
-        let retain_storage = state.config.sandbox.retain_storage_on_close;
-        if let Err(e) = state.sandbox.cleanup(&binding.task_id, retain_storage).await {
-            warn!(task_id = %binding.task_id, error = %e, "Failed to cleanup sandbox on Linear close");
-        }
-
         if let Err(e) = state
             .tasks
             .update_task(
                 &binding.task_id,
                 &TaskPatch {
                     status: Some(TaskStatus::Closed),
+                    sandbox_desired_state: Some(SandboxDesiredState::Removed),
+                    sandbox_stop_reason: Some(Some(SandboxStopReason::Cleanup)),
                     ..Default::default()
                 },
             )
@@ -1080,6 +1067,20 @@ async fn close_active_bindings_for_issue(
         {
             warn!(task_id = %binding.task_id, error = %e, "Failed to close task");
             continue;
+        }
+
+        // Stop the agent gracefully before tearing down K8s resources so the
+        // pod exits promptly instead of riding its full termination grace until
+        // SIGKILL (exit 137). Best-effort with Closed already committed.
+        crate::sandbox::notify::stop_agent_for_task(state, &binding.task_id).await;
+
+        let retain_storage = state.config.sandbox.retain_storage_on_close;
+        if let Err(e) = state
+            .sandbox
+            .cleanup(&binding.task_id, retain_storage)
+            .await
+        {
+            warn!(task_id = %binding.task_id, error = %e, "Failed to cleanup sandbox on Linear close");
         }
 
         // A closed task is terminal — deactivate its bindings so later comments
@@ -1121,9 +1122,10 @@ async fn provision_session_task(
     rule: &TaskTriggerRoute,
     session: &AgentSession,
 ) -> Result<(), AdapterError> {
-    let issue = session.issue.as_ref().ok_or_else(|| {
-        AdapterError::BadRequest("AgentSession missing issue".into())
-    })?;
+    let issue = session
+        .issue
+        .as_ref()
+        .ok_or_else(|| AdapterError::BadRequest("AgentSession missing issue".into()))?;
 
     // Idempotency guard: if a binding already exists for this session id, a
     // retry is re-delivering `created` (e.g. cross-pod, where the per-pod
@@ -1183,8 +1185,7 @@ async fn provision_session_task(
     // Create the task first, then the binding.
     let task_id = create_provider_event_task(state, rule, session).await?;
     if let Some(ref r) = related {
-        crate::task::relations::record_related_to(state.task_relations.as_ref(), &task_id, r)
-            .await;
+        crate::task::relations::record_related_to(state.task_relations.as_ref(), &task_id, r).await;
     }
     // Open the Linear turn gate before provisioning so subsequent sandbox
     // lifecycle / agent events on this task surface in Linear's UI.
@@ -1273,10 +1274,7 @@ async fn provision_session_task(
         None,
         None,
         false,
-        session
-            .creator
-            .as_ref()
-            .map(|c| c.id.as_str()),
+        session.creator.as_ref().map(|c| c.id.as_str()),
     )
     .await
     {
@@ -1350,12 +1348,12 @@ async fn create_provider_event_task(
     rule: &TaskTriggerRoute,
     session: &AgentSession,
 ) -> Result<String, AdapterError> {
-    let issue = session.issue.as_ref().ok_or_else(|| {
-        AdapterError::BadRequest("AgentSession missing issue".into())
-    })?;
+    let issue = session
+        .issue
+        .as_ref()
+        .ok_or_else(|| AdapterError::BadRequest("AgentSession missing issue".into()))?;
     let preview = build_inbound_text(session);
-    let task_id =
-        insert_event_task(state, rule, &issue.identifier, &issue.title, &preview).await?;
+    let task_id = insert_event_task(state, rule, &issue.identifier, &issue.title, &preview).await?;
     info!(task_id = %task_id, rule_id = %rule.id, "Created task from Linear AgentSession");
     Ok(task_id)
 }
@@ -1434,6 +1432,9 @@ async fn insert_event_task(
             }
         },
         sandbox_started_at: None,
+        sandbox_desired_state: SandboxDesiredState::Running,
+        sandbox_stop_reason: None,
+        sandbox_desired_state_updated_at: chrono::Utc::now(),
         headless: true,
         ttl_minutes: crate::task::models::DEFAULT_TTL_MINUTES,
         inactive_ttl_days: rule
@@ -1523,11 +1524,7 @@ fn truncate(s: &str, max: usize) -> String {
 }
 
 pub(crate) fn task_url(state: &AppState, task_id: &str) -> String {
-    let base = state
-        .config
-        .auth
-        .frontend_url
-        .trim_end_matches('/');
+    let base = state.config.auth.frontend_url.trim_end_matches('/');
     format!("{base}/tasks/{task_id}")
 }
 
@@ -1546,11 +1543,7 @@ fn format_attachment_title(prefix: &str, name: Option<&str>) -> String {
     }
 }
 
-pub(crate) async fn task_attachment_title(
-    state: &AppState,
-    task_id: &str,
-    prefix: &str,
-) -> String {
+pub(crate) async fn task_attachment_title(state: &AppState, task_id: &str, prefix: &str) -> String {
     match state.tasks.find_by_id_internal(task_id).await {
         Ok(Some(task)) => format_attachment_title(prefix, task.name.as_deref()),
         Ok(None) => prefix.to_string(),
@@ -1783,13 +1776,7 @@ pub async fn notify_linear_message_activities(
                 let parameter = summarize_tool_input(tool_name, input);
                 for (api, session_id) in &sessions {
                     if let Err(e) = api
-                        .agent_activity_create_action(
-                            session_id,
-                            tool_name,
-                            &parameter,
-                            None,
-                            true,
-                        )
+                        .agent_activity_create_action(session_id, tool_name, &parameter, None, true)
                         .await
                     {
                         warn!(
@@ -1858,8 +1845,7 @@ pub async fn notify_linear_tool_results(
             Ok(None) => {
                 debug!(
                     task_id,
-                    tool_use_id,
-                    "notify_linear_tool_results: tool_use lookup returned no row"
+                    tool_use_id, "notify_linear_tool_results: tool_use lookup returned no row"
                 );
                 continue;
             }
@@ -1999,7 +1985,10 @@ mod tests {
         }
     }
 
-    fn session_with(comment: Option<AgentSessionComment>, prompt_context: Option<String>) -> AgentSession {
+    fn session_with(
+        comment: Option<AgentSessionComment>,
+        prompt_context: Option<String>,
+    ) -> AgentSession {
         AgentSession {
             id: "session-1".into(),
             issue: Some(issue()),
@@ -2109,10 +2098,7 @@ mod tests {
     #[test]
     fn summarize_tool_input_grep_with_path() {
         let input = serde_json::json!({ "pattern": "TODO", "path": "backend/src" });
-        assert_eq!(
-            summarize_tool_input("Grep", &input),
-            "TODO in backend/src"
-        );
+        assert_eq!(summarize_tool_input("Grep", &input), "TODO in backend/src");
     }
 
     #[test]
@@ -2237,4 +2223,3 @@ mod tests {
         );
     }
 }
-

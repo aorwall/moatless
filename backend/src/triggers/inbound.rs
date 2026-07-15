@@ -5,7 +5,7 @@ use tracing::{info, warn};
 use crate::adapters::models::TriggerContext;
 use crate::shared_models::{AgentMode, AgentType};
 use crate::state::AppState;
-use crate::task::models::{Task, TaskStatus, Visibility};
+use crate::task::models::{SandboxDesiredState, Task, TaskStatus, Visibility};
 
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::InboundMessage;
@@ -100,6 +100,9 @@ pub(crate) async fn create_task_for_external_message(
             }
         },
         sandbox_started_at: None,
+        sandbox_desired_state: SandboxDesiredState::Running,
+        sandbox_stop_reason: None,
+        sandbox_desired_state_updated_at: chrono::Utc::now(),
         headless: true,
         ttl_minutes: crate::task::models::DEFAULT_TTL_MINUTES,
         inactive_ttl_days: config

@@ -377,9 +377,9 @@ async fn pr_create_and_comment_bind_task_via_mock_github() {
         .unwrap();
     assert_eq!(reply.id, MOCK_REPLY_ID);
     assert!(
-        reply
-            .html_url
-            .ends_with(&format!("/pull/{MOCK_PR_NUMBER}#discussion_r{MOCK_REPLY_ID}")),
+        reply.html_url.ends_with(&format!(
+            "/pull/{MOCK_PR_NUMBER}#discussion_r{MOCK_REPLY_ID}"
+        )),
         "unexpected reply url: {}",
         reply.html_url
     );
@@ -397,7 +397,11 @@ async fn pr_create_and_comment_bind_task_via_mock_github() {
     assert_eq!(reply_req.body["body"].as_str(), Some("reply from e2e test"));
 
     let bindings = client.api().list_task_bindings(&task_id).await.unwrap();
-    assert_eq!(bindings.len(), 1, "reply binds the same PR — still one binding");
+    assert_eq!(
+        bindings.len(),
+        1,
+        "reply binds the same PR — still one binding"
+    );
 
     // Cleanup
     cleanup_task(&client, &task_id).await;

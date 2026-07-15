@@ -23,7 +23,7 @@ use moatless_vibe_backend::sandbox::provider::SandboxProvider;
 use moatless_vibe_backend::sandbox::schemas::*;
 use moatless_vibe_backend::shared_models::AgentType;
 use moatless_vibe_backend::state::AppState;
-use moatless_vibe_backend::task::models::{Task, TaskStatus, Visibility};
+use moatless_vibe_backend::task::models::{SandboxDesiredState, Task, TaskStatus, Visibility};
 
 // =========================================================================
 // Mock sandbox provider
@@ -304,6 +304,9 @@ pub fn make_task_row(task_id: &str, user_id: &str) -> Task {
         updated_at: None,
         append_system_prompt: None,
         sandbox_started_at: None,
+        sandbox_desired_state: SandboxDesiredState::Running,
+        sandbox_stop_reason: None,
+        sandbox_desired_state_updated_at: chrono::Utc::now(),
         headless: false,
         ttl_minutes: 15,
         inactive_ttl_days: 7,

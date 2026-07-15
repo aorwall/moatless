@@ -138,7 +138,9 @@ pub async fn list_ingress_route_task_ids(k8s: &K8sClient) -> Vec<String> {
     let list = match api.list(&lp).await {
         Ok(list) => list,
         Err(kube::Error::Api(ref e)) if e.code == 404 => {
-            debug!("IngressRoute CRD not found (Traefik not installed?), skipping orphan discovery");
+            debug!(
+                "IngressRoute CRD not found (Traefik not installed?), skipping orphan discovery"
+            );
             return Vec::new();
         }
         Err(e) => {

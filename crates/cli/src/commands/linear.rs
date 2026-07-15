@@ -217,7 +217,10 @@ async fn run_issue(
 ) -> Result<(), Box<dyn std::error::Error>> {
     match action {
         IssueAction::Get { id, connection } => {
-            let resp = client.api().linear_get_issue(&id, connection.as_deref()).await?;
+            let resp = client
+                .api()
+                .linear_get_issue(&id, connection.as_deref())
+                .await?;
             print_issue(&resp.data, json);
             Ok(())
         }
@@ -423,7 +426,8 @@ async fn run_graphql(
             let (k, v) = raw
                 .split_once('=')
                 .ok_or_else(|| format!("--var must be KEY=VALUE, got `{raw}`"))?;
-            let parsed = serde_json::from_str::<Value>(v).unwrap_or_else(|_| Value::String(v.to_string()));
+            let parsed =
+                serde_json::from_str::<Value>(v).unwrap_or_else(|_| Value::String(v.to_string()));
             map.insert(k.to_string(), parsed);
         }
         Some(serde_json::to_value(map)?)
@@ -486,4 +490,3 @@ fn print_issue(issue: &Value, json: bool) {
         println!("  url:      {url}");
     }
 }
-

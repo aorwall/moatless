@@ -822,10 +822,7 @@ mod tests {
         assert_eq!(c.status, CommandExecutionStatus::Unknown);
     }
 
-    fn model_test_config(
-        repo_model: Option<&str>,
-        default_codex_model: Option<&str>,
-    ) -> Config {
+    fn model_test_config(repo_model: Option<&str>, default_codex_model: Option<&str>) -> Config {
         use crate::config::{AgentConfig, ProxyConfig};
         Config {
             port: 0,

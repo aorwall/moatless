@@ -18,7 +18,7 @@ use crate::extractors::AuthUser;
 use crate::scope::{Scope, ScopedResource};
 use crate::shared_models::{AgentMode, AgentType};
 use crate::state::AppState;
-use crate::task::models::{TaskStatus, Visibility};
+use crate::task::models::{SandboxDesiredState, SandboxStopReason, TaskStatus, Visibility};
 
 use crate::repository::models::{RepositoryKind, RepositoryProvider};
 
@@ -198,6 +198,9 @@ pub async fn create_task(
         updated_at: None,
         append_system_prompt: None,
         sandbox_started_at: None,
+        sandbox_desired_state: SandboxDesiredState::Running,
+        sandbox_stop_reason: None,
+        sandbox_desired_state_updated_at: chrono::Utc::now(),
         headless: req.headless.unwrap_or(false),
         ttl_minutes: state.config.sandbox.idle_timeout_minutes as i32,
         inactive_ttl_days: state.config.sandbox.inactive_task_timeout_days as i32,
@@ -246,12 +249,8 @@ async fn insert_and_provision_task(
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, repository_id = %row.repository_id, "Task created");
 
     if let Some(parent) = parent {
-        crate::task::relations::record_created_by(
-            state.task_relations.as_ref(),
-            task_id,
-            parent,
-        )
-        .await;
+        crate::task::relations::record_created_by(state.task_relations.as_ref(), task_id, parent)
+            .await;
     }
 
     // Emit task event
@@ -546,10 +545,7 @@ pub async fn list_tasks(
                 })
                 .collect();
 
-            let relations = all_relations
-                .get(&row.task_id)
-                .cloned()
-                .unwrap_or_default();
+            let relations = all_relations.get(&row.task_id).cloned().unwrap_or_default();
 
             let mut resp =
                 build_task_response(row, tags, display_name, repo_name, bindings, relations);
@@ -868,6 +864,19 @@ pub async fn close_task(
     // (exit 137). Best-effort — never blocks teardown.
     crate::sandbox::notify::stop_agent_for_task(&state, &task_id).await;
 
+    state
+        .tasks
+        .update_task(
+            &task_id,
+            &TaskPatch {
+                status: Some(TaskStatus::Closed),
+                sandbox_desired_state: Some(SandboxDesiredState::Removed),
+                sandbox_stop_reason: Some(Some(SandboxStopReason::Cleanup)),
+                ..Default::default()
+            },
+        )
+        .await?;
+
     // Cleanup sandbox (best-effort). Preserve S3 storage when configured so the
     // task can later be revived via reopen.
     let retain_storage = state.config.sandbox.retain_storage_on_close;
@@ -875,17 +884,6 @@ pub async fn close_task(
         tracing::warn!(task_id = %task_id, error = %e, "Failed to cleanup sandbox on close");
     }
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task closed");
-
-    state
-        .tasks
-        .update_task(
-            &task_id,
-            &TaskPatch {
-                status: Some(TaskStatus::Closed),
-                ..Default::default()
-            },
-        )
-        .await?;
 
     // A closed task is terminal — stop its external listeners so inbound
     // comments don't resurrect it.
@@ -1077,6 +1075,18 @@ pub async fn start_task(
     // tables pick up the latest committed settings. Never fails the start.
     maybe_sync_repo_config_on_start(&state, &auth, &repo).await;
 
+    state
+        .tasks
+        .update_task(
+            &task_id,
+            &TaskPatch {
+                sandbox_desired_state: Some(SandboxDesiredState::Running),
+                sandbox_stop_reason: Some(None),
+                ..Default::default()
+            },
+        )
+        .await?;
+
     let request = crate::sandbox::auto_provision::build_provision_request(
         state.tasks.as_ref(),
         state.repositories.as_ref(),
@@ -1213,13 +1223,15 @@ pub async fn stop_task(
         }
     }
 
-    // Update task status
+    // Update task status and record that this was an intentional user stop.
     state
         .tasks
         .update_task(
             &task_id,
             &TaskPatch {
                 status: Some(TaskStatus::Open),
+                sandbox_desired_state: Some(SandboxDesiredState::Stopped),
+                sandbox_stop_reason: Some(Some(SandboxStopReason::User)),
                 ..Default::default()
             },
         )
@@ -1561,6 +1573,9 @@ fn build_task_response(
         ttl_minutes: row.ttl_minutes,
         inactive_ttl_days: row.inactive_ttl_days,
         sandbox_started_at: row.sandbox_started_at.map(|t| t.to_rfc3339()),
+        sandbox_desired_state: row.sandbox_desired_state,
+        sandbox_stop_reason: row.sandbox_stop_reason,
+        sandbox_desired_state_updated_at: row.sandbox_desired_state_updated_at.to_rfc3339(),
         // Populated per-request by callers that know the requesting user.
         last_read_at: None,
         is_following: None,

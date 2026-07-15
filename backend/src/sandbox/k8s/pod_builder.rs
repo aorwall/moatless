@@ -388,7 +388,11 @@ fn build_nvme_setup_container(config: &Config) -> Container {
     // Inside the container the parent is bind-mounted at `/host-mnt`, so the
     // NVMe mount target is `/host-mnt/<basename-of-cache-root>`.
     let root = config.sandbox.cache_host_root.trim_end_matches('/');
-    let basename = root.rsplit('/').next().filter(|s| !s.is_empty()).unwrap_or("cache");
+    let basename = root
+        .rsplit('/')
+        .next()
+        .filter(|s| !s.is_empty())
+        .unwrap_or("cache");
     let cache_dir = format!("/host-mnt/{basename}");
 
     // mkdir/chmod each cache subdir AFTER the mount block so it runs whether the
@@ -1473,8 +1477,7 @@ mod tests {
         let config = test_config();
         let plan = test_plan();
 
-        let container =
-            build_sandbox_container(&config, "task-1", &plan, None).unwrap();
+        let container = build_sandbox_container(&config, "task-1", &plan, None).unwrap();
         let resources = container
             .resources
             .as_ref()
@@ -1503,8 +1506,7 @@ mod tests {
             docker_storage: None,
         });
 
-        let container =
-            build_sandbox_container(&config, "task-1", &plan, None).unwrap();
+        let container = build_sandbox_container(&config, "task-1", &plan, None).unwrap();
         let resources = container.resources.as_ref().unwrap();
         assert_eq!(
             resources
@@ -1606,9 +1608,7 @@ mod tests {
 
         // No PVC volume should be present.
         assert!(
-            volumes
-                .iter()
-                .all(|v| v.persistent_volume_claim.is_none()),
+            volumes.iter().all(|v| v.persistent_volume_claim.is_none()),
             "ephemeral tier must not reference a PVC"
         );
 
@@ -1704,7 +1704,11 @@ mod tests {
         // plus the host-mnt parent volume for the init container.
         let volumes = spec.volumes.as_ref().unwrap();
         let pkg: Vec<_> = volumes.iter().filter(|v| v.name == "pkg-cache").collect();
-        assert_eq!(pkg.len(), 1, "exactly one shared pkg-cache volume for N caches");
+        assert_eq!(
+            pkg.len(),
+            1,
+            "exactly one shared pkg-cache volume for N caches"
+        );
         let hp = pkg[0]
             .host_path
             .as_ref()
@@ -1739,7 +1743,10 @@ mod tests {
             .iter()
             .find(|m| m.name == "host-mnt")
             .unwrap();
-        assert_eq!(init_mount.mount_propagation.as_deref(), Some("Bidirectional"));
+        assert_eq!(
+            init_mount.mount_propagation.as_deref(),
+            Some("Bidirectional")
+        );
         let init_script = nvme.args.as_ref().unwrap().join("\n");
         assert!(init_script.contains("mkfs.ext4 -F /dev/nvme1n1"));
         assert!(init_script.contains("/host-mnt/cache/maven"));
@@ -1763,8 +1770,11 @@ mod tests {
         let env = container.env.as_ref().unwrap();
         assert!(env.iter().any(|e| e.name == "MAVEN_OPTS"
             && e.value.as_deref() == Some("-Dmaven.repo.local=/maven-cache")));
-        assert!(env.iter().any(|e| e.name == "BUN_INSTALL_CACHE_DIR"
-            && e.value.as_deref() == Some("/bun-cache")));
+        assert!(
+            env.iter()
+                .any(|e| e.name == "BUN_INSTALL_CACHE_DIR"
+                    && e.value.as_deref() == Some("/bun-cache"))
+        );
 
         // Caches are scoped to the agent container — server containers must not
         // mount the shared package cache.
@@ -1865,13 +1875,15 @@ mod tests {
             .unwrap();
         let env = sandbox.env.as_ref().unwrap();
         assert!(
-            env.iter().any(|e| e.name == "DOCKER_HOST"
-                && e.value.as_deref() == Some("tcp://localhost:2375")),
+            env.iter()
+                .any(|e| e.name == "DOCKER_HOST"
+                    && e.value.as_deref() == Some("tcp://localhost:2375")),
             "sandbox must point DOCKER_HOST at the dind sidecar"
         );
         assert!(
-            env.iter().any(|e| e.name == "TESTCONTAINERS_RYUK_DISABLED"
-                && e.value.as_deref() == Some("true")),
+            env.iter()
+                .any(|e| e.name == "TESTCONTAINERS_RYUK_DISABLED"
+                    && e.value.as_deref() == Some("true")),
             "Ryuk must be disabled for the dind topology"
         );
 
@@ -1988,7 +2000,10 @@ mod tests {
             .unwrap();
         let env = sandbox.env.as_ref().unwrap();
         let git_url = env.iter().find(|e| e.name == "GIT_CLONE_URL").unwrap();
-        assert_eq!(git_url.value.as_deref(), Some("https://github.com/test/repo.git"));
+        assert_eq!(
+            git_url.value.as_deref(),
+            Some("https://github.com/test/repo.git")
+        );
 
         // With no tokens passed, neither auth env is present.
         assert!(env.iter().all(|e| e.name != "USER_AUTH_TOKEN"));
@@ -2261,10 +2276,14 @@ mod tests {
             .resources
             .as_ref()
             .expect("nvme-setup must declare resources");
-        assert!(resources.requests.as_ref().is_some_and(|r| r.contains_key("cpu")
-            && r.contains_key("memory")));
-        assert!(resources.limits.as_ref().is_some_and(|l| l.contains_key("cpu")
-            && l.contains_key("memory")));
+        assert!(resources
+            .requests
+            .as_ref()
+            .is_some_and(|r| r.contains_key("cpu") && r.contains_key("memory")));
+        assert!(resources
+            .limits
+            .as_ref()
+            .is_some_and(|l| l.contains_key("cpu") && l.contains_key("memory")));
     }
 
     /// The toolchain-persistence and cargo-target flags are off by default —
@@ -2293,7 +2312,9 @@ mod tests {
         let container = build_sandbox_container(&config, "task-1", &plan, None).unwrap();
         let mounts = container.volume_mounts.as_ref().unwrap();
         assert!(
-            !mounts.iter().any(|m| m.mount_path.starts_with("/opt/cargo")),
+            !mounts
+                .iter()
+                .any(|m| m.mount_path.starts_with("/opt/cargo")),
             "no cargo mounts without the persist flag"
         );
         let env = container.env.as_ref().unwrap();

@@ -20,8 +20,8 @@ use sandbox_proto::{
     GetSystemPromptResponse, GetWorkspaceSyncUrlsRequest, GetWorkspaceSyncUrlsResponse,
     InterruptedTurn as ProtoInterruptedTurn, PublishEventRequest, PublishEventResponse,
     RecoverInterruptedRunRequest, RecoverInterruptedRunResponse, ReportWorkspaceSyncRequest,
-    ReportWorkspaceSyncResponse, TranscriptChunk, UpdateCredentialRequest, UpdateCredentialResponse,
-    UploadTranscriptResponse,
+    ReportWorkspaceSyncResponse, TranscriptChunk, UpdateCredentialRequest,
+    UpdateCredentialResponse, UploadTranscriptResponse,
 };
 
 use crate::agent::prompt;
@@ -391,26 +391,26 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         // State-bearing events (taskTurn.*, agent.completed/error/stopped) commit
         // their turn / task-status / event rows in ONE transaction BEFORE the
         // Redis fan-out. Everything else just publishes.
-        let (turn_number, state) =
-            if let Some(transition) = classify_turn_transition(event_type_str, &event.sub_type) {
-                let (turn_number, agent_type) = self.resolve_turn_context(&event.task_id).await;
-                let state = TurnStateEvent {
-                    event_id: event_id.clone(),
-                    task_id: event.task_id.clone(),
-                    event_type: event_type_str.to_string(),
-                    sub_type: event.sub_type.clone(),
-                    is_error: event.sub_type == "error" || event.sub_type == "failed",
-                    agent_type,
-                    turn_number,
-                    payload: payload.clone(),
-                    timestamp: chrono::Utc::now()
-                        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
-                    transition,
-                };
-                (Some(turn_number), Some(state))
-            } else {
-                (None, None)
+        let (turn_number, state) = if let Some(transition) =
+            classify_turn_transition(event_type_str, &event.sub_type)
+        {
+            let (turn_number, agent_type) = self.resolve_turn_context(&event.task_id).await;
+            let state = TurnStateEvent {
+                event_id: event_id.clone(),
+                task_id: event.task_id.clone(),
+                event_type: event_type_str.to_string(),
+                sub_type: event.sub_type.clone(),
+                is_error: event.sub_type == "error" || event.sub_type == "failed",
+                agent_type,
+                turn_number,
+                payload: payload.clone(),
+                timestamp: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+                transition,
             };
+            (Some(turn_number), Some(state))
+        } else {
+            (None, None)
+        };
 
         write_state_then_publish(
             self.task_turns.as_ref(),
@@ -1209,11 +1209,12 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             return Ok(Response::new(RecoverInterruptedRunResponse { turn: None }));
         };
 
-        // Load the task once: gate Closed tasks (terminal — no replay, and don't
+        // Load the task once: gate Closed tasks and tasks that no longer desire
+        // a running sandbox (terminal/intentional stop — no replay, and don't
         // burn a recovery attempt) and reuse the row for `agent_type` below.
         // Placed before `find_interrupted_turn` / `increment_recovery_attempts`.
-        // Fail open on unknown (None / DB-error): only a confirmed-Closed task
-        // is gated.
+        // Fail open on unknown (None / DB-error): only confirmed terminal or
+        // stopped intent is gated.
         let task = if let Some(ref tasks) = self.tasks {
             tasks.find_by_id_internal(&req.task_id).await.ok().flatten()
         } else {
@@ -1224,6 +1225,17 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             Some(crate::task::models::TaskStatus::Closed)
         ) {
             debug!(task_id = %req.task_id, "recover_interrupted_run: task is Closed, skipping recovery");
+            return Ok(Response::new(RecoverInterruptedRunResponse { turn: None }));
+        }
+        if matches!(
+            task.as_ref().map(|t| t.sandbox_desired_state),
+            Some(crate::task::models::SandboxDesiredState::Stopped)
+                | Some(crate::task::models::SandboxDesiredState::Removed)
+        ) {
+            debug!(
+                task_id = %req.task_id,
+                "recover_interrupted_run: task does not desire a running sandbox, skipping recovery"
+            );
             return Ok(Response::new(RecoverInterruptedRunResponse { turn: None }));
         }
 
@@ -1603,8 +1615,7 @@ mod tests {
     #[test]
     fn external_row_without_adapter_drops_source_tag() {
         let cache = HashMap::new();
-        let header =
-            build_message_header("msg_abc", Some("ext-id"), None, None, None, &cache);
+        let header = build_message_header("msg_abc", Some("ext-id"), None, None, None, &cache);
         assert_eq!(header, "<message_id>msg_abc</message_id>\n\n");
     }
 
@@ -1629,7 +1640,10 @@ mod tests {
     #[test]
     fn prepend_header_targets_first_text_block() {
         let mut content = vec![text_block("hello")];
-        prepend_header(&mut content, "<message_id>msg_1</message_id>\n<source>slack</source>\n\n");
+        prepend_header(
+            &mut content,
+            "<message_id>msg_1</message_id>\n<source>slack</source>\n\n",
+        );
         assert_eq!(
             extract_text(&content[0]),
             "<message_id>msg_1</message_id>\n<source>slack</source>\n\nhello"
@@ -1646,7 +1660,10 @@ mod tests {
                 },
             )),
         }];
-        prepend_header(&mut content, "<message_id>msg_1</message_id>\n<source>slack</source>\n\n");
+        prepend_header(
+            &mut content,
+            "<message_id>msg_1</message_id>\n<source>slack</source>\n\n",
+        );
         assert_eq!(content.len(), 2);
         assert_eq!(
             extract_text(&content[0]),
@@ -1737,7 +1754,15 @@ mod tests {
             _: Value,
         ) {
         }
-        async fn publish_raw_event(&self, _: &str, _: &str, _: &str, _: Option<&str>, _: Option<i32>, _: Value) {
+        async fn publish_raw_event(
+            &self,
+            _: &str,
+            _: &str,
+            _: &str,
+            _: Option<&str>,
+            _: Option<i32>,
+            _: Value,
+        ) {
         }
         async fn publish_raw_event_with_id(
             &self,

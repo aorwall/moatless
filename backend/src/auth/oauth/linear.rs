@@ -245,7 +245,10 @@ impl OAuthProvider for LinearOAuthProvider {
         let identity = self.fetch_install_identity(&tokens.access_token).await?;
         Ok(ProviderUserInfo {
             id: identity.agent_viewer_id.clone(),
-            login: identity.agent_viewer_name.clone().unwrap_or(identity.agent_viewer_id),
+            login: identity
+                .agent_viewer_name
+                .clone()
+                .unwrap_or(identity.agent_viewer_id),
             email: identity.agent_viewer_email,
             name: identity.agent_viewer_name,
             avatar_url: None,

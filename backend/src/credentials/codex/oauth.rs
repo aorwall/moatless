@@ -657,8 +657,7 @@ mod tests {
 
     #[test]
     fn classify_refresh_error_extracts_code_from_object_form() {
-        let body = serde_json::json!({ "error": { "code": "refresh_token_reused" } })
-            .to_string();
+        let body = serde_json::json!({ "error": { "code": "refresh_token_reused" } }).to_string();
         let err = classify_refresh_error(StatusCode::BAD_REQUEST, body);
         match err {
             RefreshTokenError::Permanent { reason, .. } => {

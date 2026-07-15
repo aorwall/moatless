@@ -97,7 +97,10 @@ async fn task_connections_scope_respected() {
 
     let task = alice_with_team
         .api()
-        .create_task(&task_request(team_repo.id.clone(), "Scoped connections task"))
+        .create_task(&task_request(
+            team_repo.id.clone(),
+            "Scoped connections task",
+        ))
         .await
         .unwrap();
     let task_id = task.task_id;

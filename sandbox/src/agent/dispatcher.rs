@@ -18,7 +18,7 @@ use crate::files::uploads::fetch_uploads_for_messages;
 use crate::state::SandboxState;
 
 use super::prompt::PromptResponse;
-use super::types::{ContentBlock, content_blocks_from_proto};
+use super::types::{content_blocks_from_proto, ContentBlock};
 
 /// Dispatch pending messages to the agent.
 ///

@@ -81,12 +81,18 @@ mod tests {
     fn falls_back_to_view_task_without_name() {
         assert_eq!(
             render_footer("https://app.example.com/", "abc", None),
-            Some("\n\n---\nMoatless task: [View task](https://app.example.com/tasks/abc)".to_string())
+            Some(
+                "\n\n---\nMoatless task: [View task](https://app.example.com/tasks/abc)"
+                    .to_string()
+            )
         );
         // Whitespace-only name is treated as no name.
         assert_eq!(
             render_footer("https://app.example.com", "abc", Some("   ")),
-            Some("\n\n---\nMoatless task: [View task](https://app.example.com/tasks/abc)".to_string())
+            Some(
+                "\n\n---\nMoatless task: [View task](https://app.example.com/tasks/abc)"
+                    .to_string()
+            )
         );
     }
 

@@ -344,7 +344,11 @@ impl BackendClient for BackendGrpcClient {
                 .chunks(CHUNK_SIZE)
                 .enumerate()
                 .map(|(i, c)| TranscriptChunk {
-                    task_id: if i == 0 { task_id.clone() } else { String::new() },
+                    task_id: if i == 0 {
+                        task_id.clone()
+                    } else {
+                        String::new()
+                    },
                     data: c.to_vec(),
                 })
                 .collect()

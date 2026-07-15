@@ -416,9 +416,7 @@ async fn fill_user_provider_tokens(
                     warn!(error = %e, user_id, "Failed to resolve GitHub token for sandbox");
                 }
             }
-        } else if let Ok(Some(row)) =
-            provider_tokens.find_provider_token(user_id, "github").await
-        {
+        } else if let Ok(Some(row)) = provider_tokens.find_provider_token(user_id, "github").await {
             // Registry not wired (legacy code paths without GitHubAppRegistry):
             // fall back to the raw token. We can't refresh or mint here.
             credentials.insert(GITHUB_TOKEN.to_string(), row.access_token);

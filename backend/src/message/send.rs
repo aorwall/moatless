@@ -5,6 +5,7 @@ use crate::message::models::{ContentBlockType, MessageRole, MessageType};
 use crate::shared_models::AgentMode;
 use crate::state::AppState;
 use crate::task::dao::TaskPatch;
+use crate::task::models::SandboxDesiredState;
 use crate::task::schemas::{FileContextData, MessageContextInput};
 
 use super::contexts::message_context_input_to_row;
@@ -304,13 +305,15 @@ pub async fn send_message_flow(
 
     tracing::info!(task_id = %task_id, command_name = ?msg_row.command_name, "Message persisted");
 
-    // Update task last_message_at (running state is derived on frontend)
+    // A new user message is an explicit wake-up path after idle/user stops.
     state
         .tasks
         .update_task(
             task_id,
             &TaskPatch {
                 last_message_at: Some(now),
+                sandbox_desired_state: Some(SandboxDesiredState::Running),
+                sandbox_stop_reason: Some(None),
                 ..Default::default()
             },
         )

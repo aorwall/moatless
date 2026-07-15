@@ -34,6 +34,13 @@ sandbox namespace. The Deployment's `replicas` field is the on/off switch —
 stop is *scale to 0*, start is *scale to 1* — so a stopped sandbox keeps its
 PVC and restarts cheaply.
 
+The task row also persists the control-plane intent for that sandbox:
+`sandbox_desired_state` is `running`, `stopped`, or `removed`, with
+`sandbox_stop_reason` explaining intentional transitions away from running
+(`user`, `idle_reaper`, `cleanup`, `system`, or `error`). This intent is
+distinct from observed Kubernetes status. It is the durable answer to "should
+recovery try to bring this sandbox back right now?"
+
 ```
                  provision                    pod ready
   NotCreated ──────────────▶ Initializing ──────────────▶ Ready
@@ -233,6 +240,9 @@ table), so a turn stuck `active` > 5 minutes is a rare lost-terminal-event
 case. The reaper force-closes it only after confirming it's genuinely
 orphaned: the Deployment is gone, or the agent itself reports terminal.
 Tasks currently being re-provisioned by the reconcile pass are left alone.
+Tasks whose persisted sandbox intent is not `running` are also left alone:
+an explicit user stop, idle stop, cleanup, or crash auto-stop should not be
+converted into a failed turn while the next user message can still retry it.
 
 ### 5. Reconcile pass (config-gated, default OFF)
 
@@ -241,6 +251,8 @@ Desired-vs-actual remediation, all classes opt-in:
 - `RECONCILE_REPROVISION_ENABLED`: re-provision tasks whose turn is stuck
   active but whose sandbox resources vanished (bounded by
   `RECONCILE_MAX_REPROVISION_ATTEMPTS`, default 3, per leader lifetime).
+  Re-provisioning only runs while `sandbox_desired_state = 'running'`; a
+  stopped or removed task is not recreated just because an old turn is open.
 - `RECONCILE_PENDING_TIMEOUT_ENABLED`: scale to 0 pods stuck `Pending`
   longer than `RECONCILE_PENDING_TIMEOUT_MINUTES` (default 15) —
   unschedulable pods otherwise wait forever.
@@ -267,6 +279,12 @@ ownerReferences cascade for resources that predate it or escaped it.
 - **Stuck provisioning**: `K8S_POD_STARTUP_TIMEOUT_SECS` (120) bounds the
   provision call; the pending-pod reconcile class (opt-in) is the backstop
   for pods that stay unschedulable afterwards.
+- **Interrupted-turn recovery**: on sandbox startup, the backend only replays
+  an acknowledged user turn when it lacks terminal agent, task-turn, or
+  explicit sandbox-stop events and the task still desires a running sandbox.
+  A new user message is the wake-up path after stop/error: message persistence
+  flips `sandbox_desired_state` back to `running` and clears
+  `sandbox_stop_reason` before provisioning/notification continues.
 - **Backend deploys**: sandbox pods are independent Deployments; a backend
   rollout changes leaders (Lease-based) but doesn't touch running sandboxes.
 
@@ -278,6 +296,11 @@ ownerReferences cascade for resources that predate it or escaped it.
 | **Start** | Scale to 1; auto-provision from DB if resources are missing | — |
 | **Restart** | Delete pods; the Deployment recreates them | — |
 | **Cleanup / Close / Delete** | Delete *all* task resources (Deployment, Service, PVC, Secret, IngressRoutes — the Service deletion was a missing cascade step fixed in PR #287) | No |
+
+These operations update persisted intent before or as they act: create/start
+and new messages set `running`; user stop sets `stopped/user`; idle reaping
+sets `stopped/idle_reaper`; crash-loop auto-stop sets `stopped/error`; cleanup
+and close set `removed/cleanup`.
 
 **Closed is terminal.** Sending a message to a Closed task returns **409
 Conflict** (PR #295) instead of silently reviving nothing — the sandbox is

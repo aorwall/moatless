@@ -885,8 +885,20 @@ mod tests {
     #[tokio::test]
     async fn user_scoped_secret_overrides_global() {
         let svc = service_with(vec![
-            secret("global", None, "env", "CLAUDE_CODE_OAUTH_TOKEN", "global-token"),
-            secret("user", Some("u1"), "env", "CLAUDE_CODE_OAUTH_TOKEN", "user-token"),
+            secret(
+                "global",
+                None,
+                "env",
+                "CLAUDE_CODE_OAUTH_TOKEN",
+                "global-token",
+            ),
+            secret(
+                "user",
+                Some("u1"),
+                "env",
+                "CLAUDE_CODE_OAUTH_TOKEN",
+                "user-token",
+            ),
             secret("global", None, "env", "GLOBAL_ONLY", "g"),
         ]);
         let resolved = svc.resolve_accessible_plaintext("u1", None).await.unwrap();
@@ -930,9 +942,21 @@ mod tests {
 
     #[tokio::test]
     async fn disabled_user_secret_falls_through_to_global() {
-        let mut user = secret("user", Some("u1"), "env", "CLAUDE_CODE_OAUTH_TOKEN", "user-token");
+        let mut user = secret(
+            "user",
+            Some("u1"),
+            "env",
+            "CLAUDE_CODE_OAUTH_TOKEN",
+            "user-token",
+        );
         user.enabled = false;
-        let global = secret("global", None, "env", "CLAUDE_CODE_OAUTH_TOKEN", "global-token");
+        let global = secret(
+            "global",
+            None,
+            "env",
+            "CLAUDE_CODE_OAUTH_TOKEN",
+            "global-token",
+        );
 
         // Disabled user secret is skipped, so global wins.
         let svc = service_with(vec![user.clone(), global.clone()]);

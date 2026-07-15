@@ -23,18 +23,18 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
 use super::dao::{TaskPatch, TaskRepository};
-use super::models::TaskStatus;
+use super::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
 use crate::config::{Config, ReconcileConfig};
 use crate::event_handler::agent_handlers;
 use crate::event_handler::models::AgentEvent;
 use crate::events::EventPublisher;
-use moatless_events::{EventType, SandboxEventPayload, SandboxSubType};
 use crate::message::dao::MessageRepository;
 use crate::sandbox::k8s::client::K8sClient;
 use crate::sandbox::k8s::leader_election::LeaderElection;
 use crate::sandbox::provider::SandboxProvider;
 use crate::state::AppState;
 use crate::task_turn::models::{TurnStatus, TurnTransition, UnclosedTurn};
+use moatless_events::{EventType, SandboxEventPayload, SandboxSubType};
 
 /// Minimum age of a stuck `active` turn before the reaper reconciles it.
 ///
@@ -228,7 +228,8 @@ async fn run_reap_cycle(
     };
 
     // Union the two sets so we fetch activity timestamps for everything we may act on.
-    let mut all_ids_set: HashSet<String> = HashSet::with_capacity(sandbox_ids.len() + open_ids.len());
+    let mut all_ids_set: HashSet<String> =
+        HashSet::with_capacity(sandbox_ids.len() + open_ids.len());
     all_ids_set.extend(sandbox_ids.iter().cloned());
     all_ids_set.extend(open_ids.iter().cloned());
 
@@ -267,7 +268,11 @@ async fn run_reap_cycle(
     // emits no new conversation message and no lifecycle transition, so without
     // this the idle floor freezes at the last user message / sandbox start and
     // the reaper stops a working agent mid tool call.
-    match app_state.task_events.get_latest_agent_activity(&all_ids).await {
+    match app_state
+        .task_events
+        .get_latest_agent_activity(&all_ids)
+        .await
+    {
         Ok(activity_times) => merge_newest(&mut latest_times, activity_times),
         Err(e) => {
             warn!(error = %e, "Failed to fetch agent activity times, idle floor omits tool-call activity");
@@ -420,6 +425,19 @@ async fn run_reap_cycle(
                 crate::sandbox::notify::stop_agent_for_task(app_state, task_id).await;
                 match sandbox.stop(task_id).await {
                     Ok(()) => {
+                        if let Err(e) = tasks
+                            .update_task(
+                                task_id,
+                                &TaskPatch {
+                                    sandbox_desired_state: Some(SandboxDesiredState::Stopped),
+                                    sandbox_stop_reason: Some(Some(SandboxStopReason::IdleReaper)),
+                                    ..Default::default()
+                                },
+                            )
+                            .await
+                        {
+                            warn!(task_id = %task_id, error = %e, "Failed to persist idle sandbox stop intent");
+                        }
                         info!(task_id = %task_id, "Idle sandbox stopped successfully");
                         stopped_count += 1;
                         // Emit a distinctly-tagged stop so the UI can render
@@ -490,10 +508,20 @@ async fn reconcile_orphaned_turns(
             debug!(task_id = %turn.task_id, "reconcile: turn owned by re-provision, skipping close");
             continue;
         }
+        if !task_desires_running(app_state, &turn.task_id).await {
+            debug!(
+                task_id = %turn.task_id,
+                "reconcile: task does not desire a running sandbox, leaving turn for retry"
+            );
+            continue;
+        }
         let orphaned = if running.contains(turn.task_id.as_str()) {
             // Sandbox is up — only orphaned if the agent has gone terminal.
             // Unknown status ⇒ conservative skip (treat as possibly live).
-            matches!(agent_is_terminal(app_state, &turn.task_id).await, Some(true))
+            matches!(
+                agent_is_terminal(app_state, &turn.task_id).await,
+                Some(true)
+            )
         } else {
             // No running Deployment ⇒ nothing can still be driving the turn.
             true
@@ -505,6 +533,17 @@ async fn reconcile_orphaned_turns(
         }
 
         close_orphaned_turn(app_state, turn).await;
+    }
+}
+
+async fn task_desires_running(app_state: &AppState, task_id: &str) -> bool {
+    match app_state.tasks.find_by_id_internal(task_id).await {
+        Ok(Some(task)) => task.sandbox_desired_state == SandboxDesiredState::Running,
+        Ok(None) => false,
+        Err(e) => {
+            warn!(task_id, error = %e, "reconcile: task lookup failed for desired state");
+            false
+        }
     }
 }
 
@@ -817,6 +856,8 @@ async fn auto_close_task(
             task_id,
             &TaskPatch {
                 status: Some(TaskStatus::Closed),
+                sandbox_desired_state: Some(SandboxDesiredState::Removed),
+                sandbox_stop_reason: Some(Some(SandboxStopReason::Cleanup)),
                 ..Default::default()
             },
         )
@@ -1149,6 +1190,8 @@ struct DeploymentReconcileInput {
     task_present: bool,
     /// The task's status is `Open` (a live, resumable task).
     task_open: bool,
+    /// The persisted sandbox intent still wants a running sandbox.
+    sandbox_wants_running: bool,
     /// The task has an in-flight (unclosed active) turn.
     has_active_turn: bool,
     /// A recent explicit stop was observed (user/agent stopped) — never fight it.
@@ -1169,6 +1212,7 @@ fn decide_deployment_reconcile(i: &DeploymentReconcileInput) -> ReconcileAction 
         && !i.deployment_present
         && i.task_present
         && i.task_open
+        && i.sandbox_wants_running
         && i.has_active_turn
         && !i.recent_explicit_stop
         && i.reprovision_attempts < i.max_reprovision_attempts
@@ -1213,8 +1257,7 @@ async fn run_reconcile_pass(
 ) -> HashSet<String> {
     let mut reprovisioned: HashSet<String> = HashSet::new();
 
-    let deployment_ids: HashSet<&str> =
-        deployments.iter().map(|d| d.task_id.as_str()).collect();
+    let deployment_ids: HashSet<&str> = deployments.iter().map(|d| d.task_id.as_str()).collect();
 
     // ---- Class 1: re-provision missing Deployments for in-flight turns ----
     if reconcile.reprovision_enabled {
@@ -1244,11 +1287,13 @@ async fn run_reconcile_pass(
                             .get(id)
                             .is_some_and(|(sub_type, _)| sub_type == "stopped");
                         let attempts = reprovision_attempts.get(id).copied().unwrap_or(0);
+                        let sandbox_wants_running = task_desires_running(app_state, id).await;
                         let action = decide_deployment_reconcile(&DeploymentReconcileInput {
                             reprovision_enabled: true,
                             deployment_present: false,
                             task_present: statuses.contains_key(id),
                             task_open: statuses.get(id).copied() == Some(TaskStatus::Open),
+                            sandbox_wants_running,
                             has_active_turn: true,
                             recent_explicit_stop,
                             reprovision_attempts: attempts,
@@ -1260,9 +1305,16 @@ async fn run_reconcile_pass(
                         // Keep the turn open while we recover; drop it only if this
                         // attempt exhausts the budget (then the orphaned-turn closer
                         // finalises it and surfaces the error).
-                        let exhausted =
-                            reprovision_task(app_state, tasks, sandbox, events, reconcile, id, reprovision_attempts)
-                                .await;
+                        let exhausted = reprovision_task(
+                            app_state,
+                            tasks,
+                            sandbox,
+                            events,
+                            reconcile,
+                            id,
+                            reprovision_attempts,
+                        )
+                        .await;
                         if !exhausted {
                             reprovisioned.insert(id.clone());
                         }
@@ -1605,8 +1657,7 @@ mod tests {
     fn close_beyond_ttl_closes() {
         let now = Utc::now();
         // 7-day TTL, last activity 8 days ago → close.
-        let decision =
-            decide_close(7, Some(now - chrono::Duration::days(8)), now);
+        let decision = decide_close(7, Some(now - chrono::Duration::days(8)), now);
         assert_eq!(decision, CloseDecision::Close);
     }
 
@@ -1614,8 +1665,7 @@ mod tests {
     fn close_within_ttl_keeps() {
         let now = Utc::now();
         // 7-day TTL, last activity 1 day ago → keep.
-        let decision =
-            decide_close(7, Some(now - chrono::Duration::days(1)), now);
+        let decision = decide_close(7, Some(now - chrono::Duration::days(1)), now);
         assert_eq!(decision, CloseDecision::Keep);
     }
 
@@ -1816,6 +1866,7 @@ mod tests {
             deployment_present: true,
             task_present: true,
             task_open: true,
+            sandbox_wants_running: true,
             has_active_turn: true,
             recent_explicit_stop: false,
             reprovision_attempts: 0,
@@ -1860,6 +1911,16 @@ mod tests {
         let input = DeploymentReconcileInput {
             deployment_present: false,
             recent_explicit_stop: true,
+            ..healthy_input()
+        };
+        assert_eq!(decide_deployment_reconcile(&input), ReconcileAction::None);
+    }
+
+    #[test]
+    fn reconcile_never_fights_persisted_stopped_intent() {
+        let input = DeploymentReconcileInput {
+            deployment_present: false,
+            sandbox_wants_running: false,
             ..healthy_input()
         };
         assert_eq!(decide_deployment_reconcile(&input), ReconcileAction::None);

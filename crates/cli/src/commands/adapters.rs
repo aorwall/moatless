@@ -351,9 +351,7 @@ fn run_install(client: &MoatClient, adapter: &str, print_only: bool) -> Result<(
     }
     println!("Opening {url} in your browser…");
     if let Err(e) = open::that(&url) {
-        println!(
-            "Could not open browser automatically ({e}). Visit this URL manually:\n  {url}"
-        );
+        println!("Could not open browser automatically ({e}). Visit this URL manually:\n  {url}");
     }
     Ok(())
 }
@@ -816,9 +814,7 @@ fn parse_json_opt(value: Option<&str>) -> Result<Option<serde_json::Value>, Clie
 fn parse_kv(raw: &str) -> Result<(String, String), ClientError> {
     raw.split_once('=')
         .map(|(k, v)| (k.to_string(), v.to_string()))
-        .ok_or_else(|| {
-            ClientError::Other(format!("Expected KEY=VALUE, got '{raw}' (missing '=')"))
-        })
+        .ok_or_else(|| ClientError::Other(format!("Expected KEY=VALUE, got '{raw}' (missing '=')")))
 }
 
 /// JSON-coerce a CLI value: parse as JSON when valid, else a JSON string.
@@ -842,7 +838,9 @@ fn apply_config_ops(
     }
     let mut obj = base.unwrap_or_else(|| serde_json::json!({}));
     let map = obj.as_object_mut().ok_or_else(|| {
-        ClientError::Other("adapter_config must be a JSON object to apply --set/--append/--unset".to_string())
+        ClientError::Other(
+            "adapter_config must be a JSON object to apply --set/--append/--unset".to_string(),
+        )
     })?;
     for key in unsets {
         map.remove(&key);
@@ -857,7 +855,9 @@ fn apply_config_ops(
             .entry(key.clone())
             .or_insert_with(|| serde_json::Value::Array(Vec::new()));
         let arr = entry.as_array_mut().ok_or_else(|| {
-            ClientError::Other(format!("--append target '{key}' exists but is not an array"))
+            ClientError::Other(format!(
+                "--append target '{key}' exists but is not an array"
+            ))
         })?;
         arr.push(coerce_value(&value));
     }
@@ -1032,8 +1032,13 @@ mod tests {
             out,
             Some(serde_json::json!({"ignored_title_patterns": ["^chore\\(deps"]}))
         );
-        let out = apply_config_ops(out, vec![], v(&["ignored_title_patterns=^deps[:(]"]), vec![])
-            .unwrap();
+        let out = apply_config_ops(
+            out,
+            vec![],
+            v(&["ignored_title_patterns=^deps[:(]"]),
+            vec![],
+        )
+        .unwrap();
         assert_eq!(
             out,
             Some(serde_json::json!({"ignored_title_patterns": ["^chore\\(deps", "^deps[:(]"]}))

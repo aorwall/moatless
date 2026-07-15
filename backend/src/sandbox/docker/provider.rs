@@ -286,7 +286,10 @@ impl SandboxProvider for DockerSandboxProvider {
 
         self.client
             .docker
-            .stop_container(&container_name, Some(StopContainerOptionsBuilder::new().t(30).build()))
+            .stop_container(
+                &container_name,
+                Some(StopContainerOptionsBuilder::new().t(30).build()),
+            )
             .await
             .map_err(|e| SandboxError::DockerError(format!("Failed to stop container: {e}")))?;
 
@@ -311,7 +314,10 @@ impl SandboxProvider for DockerSandboxProvider {
 
         self.client
             .docker
-            .restart_container(&container_name, Some(RestartContainerOptionsBuilder::new().t(30).build()))
+            .restart_container(
+                &container_name,
+                Some(RestartContainerOptionsBuilder::new().t(30).build()),
+            )
             .await
             .map_err(|e| SandboxError::DockerError(format!("Failed to restart container: {e}")))?;
 
@@ -509,10 +515,7 @@ impl DockerSandboxProvider {
                 info!(task_id = %task_id, server = %server.name, "Starting existing server container");
                 self.client
                     .docker
-                    .start_container(
-                        &server_container_name,
-                        None::<StartContainerOptions>,
-                    )
+                    .start_container(&server_container_name, None::<StartContainerOptions>)
                     .await
                     .map_err(|e| {
                         SandboxError::DockerError(format!("Failed to start server container: {e}"))
@@ -546,10 +549,7 @@ impl DockerSandboxProvider {
 
         self.client
             .docker
-            .start_container(
-                &server_container_name,
-                None::<StartContainerOptions>,
-            )
+            .start_container(&server_container_name, None::<StartContainerOptions>)
             .await
             .map_err(|e| {
                 SandboxError::DockerError(format!("Failed to start server container: {e}"))
@@ -610,7 +610,10 @@ impl DockerSandboxProvider {
             if let Err(e) = self
                 .client
                 .docker
-                .stop_container(&name, Some(StopContainerOptionsBuilder::new().t(10).build()))
+                .stop_container(
+                    &name,
+                    Some(StopContainerOptionsBuilder::new().t(10).build()),
+                )
                 .await
             {
                 if !matches!(
@@ -632,7 +635,10 @@ impl DockerSandboxProvider {
             if let Err(e) = self
                 .client
                 .docker
-                .restart_container(&name, Some(RestartContainerOptionsBuilder::new().t(10).build()))
+                .restart_container(
+                    &name,
+                    Some(RestartContainerOptionsBuilder::new().t(10).build()),
+                )
                 .await
             {
                 warn!(task_id = %task_id, container = %name, error = %e, "Failed to restart server container");

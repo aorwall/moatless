@@ -54,7 +54,10 @@ pub enum SdkError {
     #[error("Hook FIFO setup failed: {0}")]
     HookFifoFailed(std::io::Error),
 
-    #[error("Session did not start within {timeout_ms}ms (no SessionStart hook fired){}", pane_suffix(pane_tail))]
+    #[error(
+        "Session did not start within {timeout_ms}ms (no SessionStart hook fired){}",
+        pane_suffix(pane_tail)
+    )]
     SessionStartTimeout {
         timeout_ms: u64,
         pane_tail: Option<String>,
@@ -145,7 +148,10 @@ mod tests {
     fn with_pane_tail_only_fills_startup_variants() {
         // Startup variants get the tail...
         let died = SdkError::TmuxSessionDied { pane_tail: None }.with_pane_tail(Some("x".into()));
-        assert!(matches!(died, SdkError::TmuxSessionDied { pane_tail: Some(_) }));
+        assert!(matches!(
+            died,
+            SdkError::TmuxSessionDied { pane_tail: Some(_) }
+        ));
 
         // ...other variants are returned unchanged.
         let other = SdkError::TransportClosed.with_pane_tail(Some("x".into()));

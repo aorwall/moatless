@@ -18,8 +18,8 @@ use moatless_sandbox::agent::prompt::{PendingPrompt, PromptResponse, PromptToolN
 use moatless_sandbox::agent::types::AgentStatus;
 use moatless_sandbox::backend_client::BackendClient;
 use moatless_sandbox::config::Config;
-use moatless_sandbox::credentials::Dispatcher;
 use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
+use moatless_sandbox::credentials::Dispatcher;
 use moatless_sandbox::events::GrpcEventPublisher;
 use moatless_sandbox::init::InitPhase;
 use moatless_sandbox::state::SandboxState;

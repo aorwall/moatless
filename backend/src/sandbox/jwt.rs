@@ -49,7 +49,10 @@ fn now_secs() -> u64 {
         .as_secs()
 }
 
-fn encode_claims(claims: &UserTokenClaims, secret: &str) -> Result<String, jsonwebtoken::errors::Error> {
+fn encode_claims(
+    claims: &UserTokenClaims,
+    secret: &str,
+) -> Result<String, jsonwebtoken::errors::Error> {
     encode(
         &Header::default(),
         claims,
@@ -136,7 +139,12 @@ pub fn mint_sandbox_tokens(
 ) -> Result<MintedSandboxTokens, jsonwebtoken::errors::Error> {
     let bootstrap = generate_bootstrap_token(user_id, login, secret, bootstrap_ttl_secs)?;
     let legacy_user_token = if emit_legacy {
-        Some(generate_user_auth_token(user_id, login, secret, user_ttl_secs)?)
+        Some(generate_user_auth_token(
+            user_id,
+            login,
+            secret,
+            user_ttl_secs,
+        )?)
     } else {
         None
     };
@@ -150,7 +158,10 @@ pub fn mint_sandbox_tokens(
 ///
 /// `aud` is validated by the callers below so a bootstrap token can be accepted
 /// on exactly one RPC and rejected everywhere else.
-fn decode_claims(token: &str, secret: &str) -> Result<UserTokenClaims, jsonwebtoken::errors::Error> {
+fn decode_claims(
+    token: &str,
+    secret: &str,
+) -> Result<UserTokenClaims, jsonwebtoken::errors::Error> {
     let mut validation = Validation::default();
     validation.set_issuer(&["moatless-vibe-backend"]);
     // Audience is checked manually by the callers; disable library-side aud

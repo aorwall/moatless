@@ -251,8 +251,7 @@ async fn trigger_by_subject_closed_task_not_resurrected() {
 
     // First message in the thread creates a task.
     let thread = format!("thread-closed-{suffix}");
-    let (status, task_id) =
-        send_webhook(&http, &trigger_id, "First message", Some(&thread)).await;
+    let (status, task_id) = send_webhook(&http, &trigger_id, "First message", Some(&thread)).await;
     assert_eq!(status, 200);
     let first_task_id = task_id.expect("should return task_id");
     task_ids.push(first_task_id.clone());

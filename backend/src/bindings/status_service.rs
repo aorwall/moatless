@@ -205,7 +205,10 @@ async fn fetch_github(
         .as_any()
         .downcast_ref::<GithubPrAdapter>()?;
 
-    let token = match adapter.resolve_token_for_user(created_by, Some(&owner)).await {
+    let token = match adapter
+        .resolve_token_for_user(created_by, Some(&owner))
+        .await
+    {
         Ok(token) => token,
         Err(e) => {
             tracing::warn!(

@@ -48,9 +48,7 @@ pub(crate) enum HookState {
     #[default]
     Pending,
     /// `SessionStart` hook fired — the TUI is up and accepting input.
-    SessionStarted {
-        session_id: Option<String>,
-    },
+    SessionStarted { session_id: Option<String> },
     /// `Stop` hook fired — turn finished. May fire multiple times for a
     /// streaming session; each update overwrites the previous one.
     TurnEnded {
@@ -178,10 +176,7 @@ async fn snapshot_diff_for_new(
 pub(crate) fn spawn_hook_listener(
     hook_rx: mpsc::UnboundedReceiver<HookLine>,
     cancellation_token: CancellationToken,
-) -> (
-    tokio::task::JoinHandle<()>,
-    watch::Receiver<HookState>,
-) {
+) -> (tokio::task::JoinHandle<()>, watch::Receiver<HookState>) {
     let (state_tx, state_rx) = watch::channel(HookState::Pending);
     let handle = tokio::spawn(async move {
         hook_listener(hook_rx, state_tx, cancellation_token).await;
@@ -226,16 +221,13 @@ pub(crate) fn spawn_lazy_supervisor(
     tokio::spawn(async move {
         // Honor options.init_timeout as an upper bound, but if the user never
         // pastes anything we just sit and wait until cancellation.
-        let timeout = options
-            .init_timeout
-            .unwrap_or(Duration::from_hours(1));
+        let timeout = options.init_timeout.unwrap_or(Duration::from_hours(1));
 
         // Resume (`--resume <id>`) and `--continue` both append to an EXISTING
         // transcript, so snapshot-diff never sees a new file — target it
         // directly instead of waiting on the turn-end Stop hook. See
         // [`super::session::resolve_resume_target`].
-        let resume_target =
-            super::session::resolve_resume_target(&options, &project_dir).await;
+        let resume_target = super::session::resolve_resume_target(&options, &project_dir).await;
 
         let discover_rx = state_rx.clone();
         let before_for_discover = before.clone();
@@ -288,8 +280,7 @@ pub(crate) fn spawn_lazy_supervisor(
         // encoding doesn't always match ours (it replaces underscores in
         // path components too), so the file may exist on disk under a name
         // our snapshot-diff didn't see.
-        let start_at_end = options.resume.is_some()
-            || options.continue_conversation == Some(true);
+        let start_at_end = options.resume.is_some() || options.continue_conversation == Some(true);
 
         let target = TailTarget {
             path: jsonl_path,
@@ -509,7 +500,10 @@ async fn hook_listener(
                 });
             }
             HookEvent::Unknown => {
-                debug!(payload_len = line.payload.len(), "hook_listener: unknown event");
+                debug!(
+                    payload_len = line.payload.len(),
+                    "hook_listener: unknown event"
+                );
             }
         }
     }
@@ -626,7 +620,9 @@ async fn liveness_loop(
                 session_name = %session.session_name,
                 "tmux session disappeared"
             );
-            let _ = tx.send(Err(SdkError::TmuxSessionDied { pane_tail: None })).await;
+            let _ = tx
+                .send(Err(SdkError::TmuxSessionDied { pane_tail: None }))
+                .await;
             cancellation_token.cancel();
             return;
         }
@@ -717,10 +713,15 @@ mod tests {
 
         let (_tx, state_rx) = watch::channel(HookState::Pending);
         let before = HashSet::new();
-        let err =
-            discover_transcript_path(state_rx, polled_dir, before, None, Duration::from_millis(400))
-                .await
-                .expect_err("discovery must fail when polling the wrong directory");
+        let err = discover_transcript_path(
+            state_rx,
+            polled_dir,
+            before,
+            None,
+            Duration::from_millis(400),
+        )
+        .await
+        .expect_err("discovery must fail when polling the wrong directory");
         assert!(matches!(err, SdkError::JsonlNotFound { .. }));
 
         let _ = std::fs::remove_dir_all(&base);

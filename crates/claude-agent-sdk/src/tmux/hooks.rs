@@ -44,18 +44,15 @@ impl HookHarness {
     /// Build a fresh harness: create the temp dir, mkfifo, write the relay
     /// script, and assemble the inline settings JSON.
     pub(crate) fn create() -> Result<Self> {
-        let tmp_root = std::env::var_os("TMPDIR")
-            .map_or_else(|| PathBuf::from("/tmp"), PathBuf::from);
+        let tmp_root =
+            std::env::var_os("TMPDIR").map_or_else(|| PathBuf::from("/tmp"), PathBuf::from);
 
         let pid = std::process::id();
         let uuid = uuid::Uuid::new_v4().simple().to_string();
         let tmp_dir = tmp_root.join(format!("claude-sdk-tmux-{pid}-{uuid}"));
 
         std::fs::create_dir_all(&tmp_dir).map_err(|e| {
-            SdkError::HookHarnessFailed(format!(
-                "create tmp dir {}: {e}",
-                tmp_dir.display()
-            ))
+            SdkError::HookHarnessFailed(format!("create tmp dir {}: {e}", tmp_dir.display()))
         })?;
 
         let fifo_path = tmp_dir.join("events.fifo");
@@ -139,9 +136,8 @@ fn build_settings_json(script_path: &Path) -> Result<String> {
             "Stop": [entry("Stop")],
         },
     });
-    serde_json::to_string(&settings).map_err(|e| {
-        SdkError::HookHarnessFailed(format!("serialize settings JSON: {e}"))
-    })
+    serde_json::to_string(&settings)
+        .map_err(|e| SdkError::HookHarnessFailed(format!("serialize settings JSON: {e}")))
 }
 
 /// Hook events we recognize. Anything else is `Unknown`.
@@ -326,7 +322,10 @@ mod tests {
             .expect("SessionStart array");
         assert_eq!(ss.len(), 1);
         let entry = &ss[0];
-        assert_eq!(entry.get("matcher").and_then(serde_json::Value::as_str), Some("*"));
+        assert_eq!(
+            entry.get("matcher").and_then(serde_json::Value::as_str),
+            Some("*")
+        );
         let cmd_arr = entry
             .get("hooks")
             .and_then(serde_json::Value::as_array)
@@ -434,8 +433,8 @@ mod tests {
         let token = CancellationToken::new();
         let (tx, mut rx) = mpsc::unbounded_channel();
 
-        let _handle = spawn_reader(harness.fifo_path.clone(), tx, token.clone())
-            .expect("spawn reader");
+        let _handle =
+            spawn_reader(harness.fifo_path.clone(), tx, token.clone()).expect("spawn reader");
 
         // Write one event line via the relay script (simulating claude firing
         // the hook). The script opens the FIFO for write and appends a line.

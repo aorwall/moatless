@@ -265,13 +265,8 @@ impl CredentialService {
             // fan out to that user's running sandboxes. Team / global
             // rotations go through `broadcast_to_scope` directly from
             // `ensure_fresh_codex`.
-            self.broadcast_to_scope(
-                &CodexScope::user(user_id),
-                except_task_id,
-                key,
-                value,
-            )
-            .await;
+            self.broadcast_to_scope(&CodexScope::user(user_id), except_task_id, key, value)
+                .await;
         }
 
         Ok(())

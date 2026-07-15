@@ -70,7 +70,8 @@ pub async fn get_issue(
     Query(params): Query<LinearConnectionParams>,
 ) -> Result<Json<LinearIssueResponse>, AdapterError> {
     let ctx = auth.scope_context();
-    let (_connection, api) = resolve_linear_api(&state, &ctx, params.connection_id.as_deref()).await?;
+    let (_connection, api) =
+        resolve_linear_api(&state, &ctx, params.connection_id.as_deref()).await?;
     let data = api.get_issue(&id).await?;
     Ok(Json(LinearIssueResponse {
         data,
@@ -234,7 +235,9 @@ pub async fn update_issue(
 
     let parent_id = match req.parent.as_deref() {
         Some("null") | Some("") => Some(Value::Null),
-        other => resolve_optional_issue(&api, other).await?.map(Value::String),
+        other => resolve_optional_issue(&api, other)
+            .await?
+            .map(Value::String),
     };
 
     let cycle_id = match req.cycle.as_deref() {
@@ -245,7 +248,9 @@ pub async fn update_issue(
                 .pointer("/team/id")
                 .and_then(Value::as_str)
                 .ok_or_else(|| {
-                    AdapterError::AdapterApi("Issue is missing team.id (cannot resolve cycle)".into())
+                    AdapterError::AdapterApi(
+                        "Issue is missing team.id (cannot resolve cycle)".into(),
+                    )
                 })?
                 .to_string();
             resolve_cycle_id(&api, &team_id, Some(c)).await?
@@ -340,10 +345,12 @@ pub async fn create_comment(
         .to_string();
 
     let body = match req.task_id.as_deref() {
-        Some(task_id) => match crate::adapters::footer::task_comment_footer(&state, task_id).await {
-            Some(footer) => format!("{}{}", req.body, footer),
-            None => req.body.clone(),
-        },
+        Some(task_id) => {
+            match crate::adapters::footer::task_comment_footer(&state, task_id).await {
+                Some(footer) => format!("{}{}", req.body, footer),
+                None => req.body.clone(),
+            }
+        }
         None => req.body.clone(),
     };
     let comment = api.create_comment(&issue_uuid, &body).await?;
@@ -558,9 +565,10 @@ async fn resolve_optional(
     if looks_like_uuid(value) {
         return Ok(Some(value.to_string()));
     }
-    let lookup = api.lookup(kind, value).await?.ok_or_else(|| {
-        AdapterError::NotFound(format!("Linear {kind:?} `{value}` not found"))
-    })?;
+    let lookup = api
+        .lookup(kind, value)
+        .await?
+        .ok_or_else(|| AdapterError::NotFound(format!("Linear {kind:?} `{value}` not found")))?;
     Ok(Some(lookup.id))
 }
 
@@ -588,7 +596,10 @@ async fn resolve_team_id(api: &LinearAgentApi, value: &str) -> Result<String, Ad
             "variables": { "key": value }
         }))
         .await?;
-    if let Some(id) = by_key.pointer("/data/teams/nodes/0/id").and_then(Value::as_str) {
+    if let Some(id) = by_key
+        .pointer("/data/teams/nodes/0/id")
+        .and_then(Value::as_str)
+    {
         return Ok(id.to_string());
     }
     let lookup = api
@@ -735,7 +746,10 @@ async fn default_assignee_from_caller(
     let user = match state.users.get_user(user_id).await {
         Ok(Some(u)) => u,
         Ok(None) => {
-            warn!(user_id, "assignee default: caller not found; leaving issue unassigned");
+            warn!(
+                user_id,
+                "assignee default: caller not found; leaving issue unassigned"
+            );
             return None;
         }
         Err(e) => {
@@ -744,13 +758,20 @@ async fn default_assignee_from_caller(
         }
     };
     let Some(email) = user.email else {
-        warn!(user_id, "assignee default: caller has no email; leaving issue unassigned");
+        warn!(
+            user_id,
+            "assignee default: caller has no email; leaving issue unassigned"
+        );
         return None;
     };
     match resolve_user_opt(api, &email).await {
         Ok(Some(u)) => Some(u.id),
         Ok(None) => {
-            warn!(user_id, email, "assignee default: no Linear user matches caller email; leaving issue unassigned");
+            warn!(
+                user_id,
+                email,
+                "assignee default: no Linear user matches caller email; leaving issue unassigned"
+            );
             None
         }
         Err(e) => {
@@ -802,7 +823,9 @@ async fn resolve_cycle_id(
             .map(str::to_string));
     }
     let number: i64 = value.parse().map_err(|_| {
-        AdapterError::BadRequest(format!("Invalid cycle value `{value}` (use a number or `active`)"))
+        AdapterError::BadRequest(format!(
+            "Invalid cycle value `{value}` (use a number or `active`)"
+        ))
     })?;
     let by_number = api
         .graphql(json!({

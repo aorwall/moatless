@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use clap::Subcommand;
 use moatless_api_schemas::enums::{RepositoryKind, RepositoryProvider, Scope};
 use moatless_api_schemas::repository::{
-    CreateRepositoryRequest, is_valid_storage_mode, RepositoryResponse, ResourceConfig,
-    ServerConfig, STORAGE_MODES, UpdateRepositoryRequest,
+    is_valid_storage_mode, CreateRepositoryRequest, RepositoryResponse, ResourceConfig,
+    ServerConfig, UpdateRepositoryRequest, STORAGE_MODES,
 };
 
 use crate::client::{ClientError, MoatClient};

@@ -112,7 +112,9 @@ async fn background_bash_is_killed_when_print_process_exits() {
     // Keep the handle alive for the whole test so the CLI child exits on its
     // own (natural post-result cleanup) rather than being SIGKILLed by us
     // dropping the transport.
-    let mut handle = query(&prompt, options).await.expect("failed to start query");
+    let mut handle = query(&prompt, options)
+        .await
+        .expect("failed to start query");
 
     let started = Instant::now();
     let mut saw_result = false;
@@ -205,7 +207,11 @@ async fn background_bash_survives_under_tmux() {
         eprintln!("Skipping tmux background E2E test (set CLAUDE_TMUX_E2E=1 to run)");
         return;
     }
-    if std::process::Command::new("tmux").arg("-V").output().is_err() {
+    if std::process::Command::new("tmux")
+        .arg("-V")
+        .output()
+        .is_err()
+    {
         eprintln!("Skipping tmux background E2E test: `tmux` not on PATH");
         return;
     }

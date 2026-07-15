@@ -227,16 +227,18 @@ pub async fn route_inbound_message(
         // when an earlier task produced the resource. We link the new task
         // to it as `related_to` (peer sharing the same external artifact),
         // not as a parent.
-        let related = bindings.first().map(|b| crate::task::relations::RelatedTask {
-            related_task_id: b.task_id.clone(),
-            context: serde_json::json!({
-                "via": "binding_webhook",
-                "adapter": provider_label,
-                "subject_kind": subject_kind,
-                "subject_key": subject_key,
-                "origin_binding_id": b.id,
-            }),
-        });
+        let related = bindings
+            .first()
+            .map(|b| crate::task::relations::RelatedTask {
+                related_task_id: b.task_id.clone(),
+                context: serde_json::json!({
+                    "via": "binding_webhook",
+                    "adapter": provider_label,
+                    "subject_kind": subject_kind,
+                    "subject_key": subject_key,
+                    "origin_binding_id": b.id,
+                }),
+            });
         let config = trigger_context(rule, provider_label);
         let task_id =
             inbound::create_task_for_external_message(state, &config, &msg, command.as_ref())
@@ -334,7 +336,11 @@ pub async fn route_inbound_message(
         .await
         {
             Ok(()) => {
-                let reason = if this_is_new { "new_task" } else { "existing_task" };
+                let reason = if this_is_new {
+                    "new_task"
+                } else {
+                    "existing_task"
+                };
                 record_inbound(provider_label, "success", reason, &rule.id, &connection.id);
             }
             Err(e) => {

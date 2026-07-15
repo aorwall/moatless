@@ -109,8 +109,7 @@ impl LinearRuleConfig {
     /// containing the new state. An explicit empty `trigger_states` therefore
     /// disables status-entry creation even when the flag is set.
     pub fn creates_on_status(&self, state_name: &str) -> bool {
-        self.create_on_status_entry
-            && self.trigger_states.iter().any(|s| s == state_name)
+        self.create_on_status_entry && self.trigger_states.iter().any(|s| s == state_name)
     }
 
     /// Whether `project_id` passes this listener's project allowlist. An empty
@@ -172,9 +171,7 @@ pub fn select_spawn_rule<'a>(
     // Tier 1 — first project-scoped rule that admits this issue's project + labels.
     if let Some(scoped) = rules.iter().find(|r| {
         let cfg = LinearRuleConfig::from_rule(r);
-        !cfg.project_ids.is_empty()
-            && cfg.project_allowed(project_id)
-            && cfg.labels_allowed(labels)
+        !cfg.project_ids.is_empty() && cfg.project_allowed(project_id) && cfg.labels_allowed(labels)
     }) {
         return Some(scoped);
     }
@@ -316,10 +313,8 @@ mod tests {
         // Absent or empty → no transition.
         let none = LinearRuleConfig::from_rule(&rule_with(serde_json::json!({}), true));
         assert_eq!(none.start_state, None);
-        let empty = LinearRuleConfig::from_rule(&rule_with(
-            serde_json::json!({ "start_state": "" }),
-            true,
-        ));
+        let empty =
+            LinearRuleConfig::from_rule(&rule_with(serde_json::json!({ "start_state": "" }), true));
         assert_eq!(empty.start_state, None);
     }
 
@@ -492,7 +487,10 @@ mod tests {
         let rules = vec![first, second];
         let picked =
             select_spawn_rule(&rules, Some("vuln"), &["a".to_string(), "b".to_string()]).unwrap();
-        assert_eq!(LinearRuleConfig::from_rule(picked).require_labels, vec!["a"]);
+        assert_eq!(
+            LinearRuleConfig::from_rule(picked).require_labels,
+            vec!["a"]
+        );
     }
 
     #[test]

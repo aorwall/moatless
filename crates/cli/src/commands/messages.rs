@@ -1,9 +1,7 @@
 //! Message commands: list, reply, react.
 
 use clap::Subcommand;
-use moatless_api_schemas::message::{
-    AddMessageReactionRequest, ReplyToMessageRequest, UiMessage,
-};
+use moatless_api_schemas::message::{AddMessageReactionRequest, ReplyToMessageRequest, UiMessage};
 
 use crate::client::MoatClient;
 use crate::commands::misc::{read_text_or_stdin, upload_files};

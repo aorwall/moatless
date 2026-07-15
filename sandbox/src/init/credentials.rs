@@ -95,9 +95,7 @@ pub enum PersistMode {
 ///
 /// Retries with exponential backoff (3s, 6s, 12s... up to 10 attempts).
 /// The backend may not be routable when the sandbox pod first starts.
-pub async fn fetch_and_apply_credentials(
-    state: &SandboxState,
-) -> Result<(), CredentialFetchError> {
+pub async fn fetch_and_apply_credentials(state: &SandboxState) -> Result<(), CredentialFetchError> {
     fetch_and_apply_credentials_with_mode(state, PersistMode::Initial).await
 }
 
@@ -207,10 +205,7 @@ pub async fn fetch_and_apply_credentials_with_mode(
                 // dir), which only the sandbox knows, so inject it here as the source
                 // of truth — overriding any container-level WORKSPACE_PATH default.
                 let mut server_env = resp.server_env.clone();
-                server_env.insert(
-                    "WORKSPACE_PATH".to_string(),
-                    state.config.repo_dir.clone(),
-                );
+                server_env.insert("WORKSPACE_PATH".to_string(), state.config.repo_dir.clone());
                 server_env::write_server_env_file(&state.config, &server_env).await;
 
                 // Materialize SSH private keys into ~/.ssh so git/ssh can use

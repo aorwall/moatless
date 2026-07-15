@@ -127,7 +127,10 @@ pub fn any_pid_live(pids: &[u32]) -> bool {
 /// subprocess from a freshly-captured watch set after a short settle window,
 /// leaving only genuine background work.
 pub fn live_pids(pids: &[u32]) -> Vec<u32> {
-    pids.iter().copied().filter(|&pid| pid_is_live(pid)).collect()
+    pids.iter()
+        .copied()
+        .filter(|&pid| pid_is_live(pid))
+        .collect()
 }
 
 // /proc is Linux-only; dev machines (macOS) skip these.
@@ -191,7 +194,9 @@ mod tests {
         child.wait().expect("reap sleep");
 
         assert!(
-            !live_descendants(child_pid).iter().any(|p| p.pid == child_pid),
+            !live_descendants(child_pid)
+                .iter()
+                .any(|p| p.pid == child_pid),
             "a reaped leaf has no live descendants of its own"
         );
         assert!(!any_pid_live(&[child_pid]));

@@ -279,10 +279,7 @@ async fn refresh_stale_statuses(
 
     let targets: Vec<TaskBinding> = bindings
         .iter()
-        .filter(|b| {
-            is_refreshable(b)
-                && b.external_status_updated_at.is_none_or(|ts| ts < cutoff)
-        })
+        .filter(|b| is_refreshable(b) && b.external_status_updated_at.is_none_or(|ts| ts < cutoff))
         .cloned()
         .collect();
 

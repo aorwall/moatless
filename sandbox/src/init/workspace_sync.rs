@@ -131,19 +131,38 @@ pub async fn restore_on_start(state: &SandboxState) -> bool {
             warn!(task_id = %task_id, error = %e, "Workspace download failed (non-fatal); will clone");
             state
                 .backend_client
-                .report_workspace_sync(task_id, "download", 0, started.elapsed().as_millis() as u64, false)
+                .report_workspace_sync(
+                    task_id,
+                    "download",
+                    0,
+                    started.elapsed().as_millis() as u64,
+                    false,
+                )
                 .await;
             return false;
         }
     };
 
     let size = bytes.len() as u64;
-    match extract_workspace(bytes, workspace_dir.clone(), repo_dir.clone(), primary_prefix).await {
+    match extract_workspace(
+        bytes,
+        workspace_dir.clone(),
+        repo_dir.clone(),
+        primary_prefix,
+    )
+    .await
+    {
         Ok(true) => {
             info!(task_id = %task_id, bytes = size, dir = %workspace_dir.display(), "Restored repos from S3 (skipping clone)");
             state
                 .backend_client
-                .report_workspace_sync(task_id, "download", size, started.elapsed().as_millis() as u64, true)
+                .report_workspace_sync(
+                    task_id,
+                    "download",
+                    size,
+                    started.elapsed().as_millis() as u64,
+                    true,
+                )
                 .await;
             true
         }
@@ -156,7 +175,13 @@ pub async fn restore_on_start(state: &SandboxState) -> bool {
             clear_dir_contents(&repo_dir).await;
             state
                 .backend_client
-                .report_workspace_sync(task_id, "download", size, started.elapsed().as_millis() as u64, false)
+                .report_workspace_sync(
+                    task_id,
+                    "download",
+                    size,
+                    started.elapsed().as_millis() as u64,
+                    false,
+                )
                 .await;
             false
         }
@@ -200,7 +225,13 @@ pub async fn download_on_start(state: &SandboxState) {
             warn!(task_id = %task_id, error = %e, "Workspace download failed (non-fatal)");
             state
                 .backend_client
-                .report_workspace_sync(task_id, "download", 0, started.elapsed().as_millis() as u64, false)
+                .report_workspace_sync(
+                    task_id,
+                    "download",
+                    0,
+                    started.elapsed().as_millis() as u64,
+                    false,
+                )
                 .await;
             return;
         }
@@ -219,7 +250,13 @@ pub async fn download_on_start(state: &SandboxState) {
     };
     state
         .backend_client
-        .report_workspace_sync(task_id, "download", size, started.elapsed().as_millis() as u64, ok)
+        .report_workspace_sync(
+            task_id,
+            "download",
+            size,
+            started.elapsed().as_millis() as u64,
+            ok,
+        )
         .await;
 }
 
@@ -261,7 +298,13 @@ pub async fn upload(state: &SandboxState) {
     };
     state
         .backend_client
-        .report_workspace_sync(task_id, "upload", bytes, started.elapsed().as_millis() as u64, ok)
+        .report_workspace_sync(
+            task_id,
+            "upload",
+            bytes,
+            started.elapsed().as_millis() as u64,
+            ok,
+        )
         .await;
 }
 
@@ -415,9 +458,7 @@ fn append_tree(builder: &mut tar::Builder<Vec<u8>>, root: &Path, dir: &Path) -> 
             }
         } else if meta.is_file() {
             let name = rel_from(root, &path);
-            if !name.is_empty()
-                && builder.append_path_with_name(&path, &name).is_ok()
-            {
+            if !name.is_empty() && builder.append_path_with_name(&path, &name).is_ok() {
                 any = true;
             }
         }
@@ -750,7 +791,9 @@ mod tests {
         tokio::fs::write(primary.join("main.rs"), b"fn main() {}\n")
             .await
             .unwrap();
-        tokio::fs::create_dir_all(primary.join("target")).await.unwrap();
+        tokio::fs::create_dir_all(primary.join("target"))
+            .await
+            .unwrap();
         tokio::fs::write(primary.join("target").join("app.jar"), b"BINARY\n")
             .await
             .unwrap();
@@ -767,7 +810,9 @@ mod tests {
         tokio::fs::write(ws.join("notes.txt"), b"scratch\n")
             .await
             .unwrap();
-        tokio::fs::create_dir_all(ws.join("artifacts")).await.unwrap();
+        tokio::fs::create_dir_all(ws.join("artifacts"))
+            .await
+            .unwrap();
         tokio::fs::write(ws.join("artifacts").join("build.log"), b"ok\n")
             .await
             .unwrap();
@@ -779,14 +824,10 @@ mod tests {
         // repo's subdir name.
         let dst = tmp.path().join("restored-ws");
         tokio::fs::create_dir_all(&dst).await.unwrap();
-        let restored = extract_workspace(
-            tar,
-            dst.clone(),
-            dst.join("soap-tm"),
-            "soap-tm".to_string(),
-        )
-        .await
-        .unwrap();
+        let restored =
+            extract_workspace(tar, dst.clone(), dst.join("soap-tm"), "soap-tm".to_string())
+                .await
+                .unwrap();
         assert!(restored, "primary repo present → skip clone");
 
         // Both repos restored, each a complete repo.

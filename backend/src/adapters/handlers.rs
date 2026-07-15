@@ -2,7 +2,8 @@ use axum::extract::{Path, Query, State};
 use axum::Json;
 use chrono::Utc;
 use moatless_api_schemas::adapters::{
-    AdapterConnectionResponse, AdapterSendRequest, AdapterSendResponse, CreateAdapterConnectionRequest,
+    AdapterConnectionResponse, AdapterSendRequest, AdapterSendResponse,
+    CreateAdapterConnectionRequest,
 };
 use moatless_api_schemas::user::{SendDmRequest, SendDmResponse};
 
@@ -152,9 +153,9 @@ pub async fn adapter_send(
         .adapters
         .as_ref()
         .ok_or_else(|| AdapterError::AdapterNotConfigured("adapters not configured".into()))?;
-    let provider = providers.get(req.adapter).ok_or_else(|| {
-        AdapterError::AdapterNotConfigured(req.adapter.as_str().to_string())
-    })?;
+    let provider = providers
+        .get(req.adapter)
+        .ok_or_else(|| AdapterError::AdapterNotConfigured(req.adapter.as_str().to_string()))?;
 
     let files = resolve_files(&state, &req.file_ids).await;
     if !files.is_empty() && !provider.supports_files() {
@@ -313,9 +314,7 @@ pub async fn send_user_dm(
             let slack = provider
                 .as_any()
                 .downcast_ref::<SlackAdapter>()
-                .ok_or_else(|| {
-                    AdapterError::Internal("Slack adapter downcast failed".into())
-                })?;
+                .ok_or_else(|| AdapterError::Internal("Slack adapter downcast failed".into()))?;
             let dm_channel = slack.open_dm(&provider_user_id).await?;
             format!("dm:{dm_channel}")
         }

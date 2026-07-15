@@ -41,7 +41,10 @@ async fn main() -> claude_agent_sdk::Result<()> {
     while let Some(msg) = handle.messages.recv().await {
         match msg? {
             SdkMessage::System(init) => {
-                println!("System init: session={} model={}", init.session_id, init.model);
+                println!(
+                    "System init: session={} model={}",
+                    init.session_id, init.model
+                );
             }
             SdkMessage::Assistant(assistant) => {
                 for block in &assistant.message.content {

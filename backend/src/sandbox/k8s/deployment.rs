@@ -224,7 +224,10 @@ pub async fn restart_deployment(k8s: &K8sClient, task_id: &str) -> Result<(), Sa
     scale_deployment(k8s, task_id, 0).await?;
     wait_for_pods_deleted(k8s, task_id).await?;
     scale_deployment(k8s, task_id, 1).await?;
-    info!(task_id, "Deployment restarted (scaled 0 -> 1 after termination)");
+    info!(
+        task_id,
+        "Deployment restarted (scaled 0 -> 1 after termination)"
+    );
     Ok(())
 }
 
@@ -459,15 +462,15 @@ mod tests {
             container("web-server", Some("server:latest")),
             container("sandbox", Some("sandbox:v2")),
         ]);
-        assert_eq!(deployment_sandbox_image(&dep).as_deref(), Some("sandbox:v2"));
+        assert_eq!(
+            deployment_sandbox_image(&dep).as_deref(),
+            Some("sandbox:v2")
+        );
     }
 
     #[test]
     fn deployment_sandbox_image_none_when_no_sandbox_container() {
-        let dep = deployment_with_containers(vec![container(
-            "web-server",
-            Some("server:latest"),
-        )]);
+        let dep = deployment_with_containers(vec![container("web-server", Some("server:latest"))]);
         assert_eq!(deployment_sandbox_image(&dep), None);
     }
 
@@ -527,8 +530,8 @@ mod tests {
     /// independent of the pod spec being wrapped.
     #[test]
     fn build_deployment_object_is_stable_across_pod_specs() {
-        let dep = build_deployment_object("ns", "task-1", buildable_pod())
-            .expect("build should succeed");
+        let dep =
+            build_deployment_object("ns", "task-1", buildable_pod()).expect("build should succeed");
 
         assert_eq!(dep.metadata.name.as_deref(), Some("moatless-ws-task-1"));
         let spec = dep.spec.as_ref().expect("deployment has a spec");

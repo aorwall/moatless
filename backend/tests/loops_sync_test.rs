@@ -109,7 +109,8 @@ async fn insert_manual_trigger(pool: &PgPool, repo_id: &str) {
     .unwrap();
 }
 
-const GITHUB_LOOP: &str = "---\non: github_pr\nagentType: claude-code\ntags: [review]\n---\n\nReview this PR.\n";
+const GITHUB_LOOP: &str =
+    "---\non: github_pr\nagentType: claude-code\ntags: [review]\n---\n\nReview this PR.\n";
 const SCHEDULE_LOOP: &str = "---\non: schedule\nschedule:\n  cron: \"0 0 6 * * MON-FRI *\"\n  timezone: Europe/Stockholm\n  message: \"Run the daily check.\"\n---\n\nDaily health check.\n";
 const SLACK_LOOP: &str = "---\non: slack\nsourceMatcher: C0000000001\nteamId: T0000000001\nroutingMode: ongoing\nadapterConfig:\n  allow_bot_messages: true\n  trigger: all_messages\n---\n\nTriage CI failures posted to #notifications-cicd.\n";
 const LINEAR_LOOP: &str = "---\non: linear\nsourceMatcher: team-uuid-eng\ntriggerStates: [Ready]\nprojectIds: [proj-launch]\nstartState: In Progress\n---\n\nPick up the Linear ticket and implement it.\n";
@@ -142,7 +143,11 @@ async fn sync_creates_then_reconciles_loops(pool: PgPool) {
     assert_eq!(summary.created, 2, "both loops created");
     assert_eq!(summary.updated, 0);
     assert_eq!(summary.removed, 0);
-    assert!(summary.skipped.is_empty(), "nothing skipped: {:?}", summary.skipped);
+    assert!(
+        summary.skipped.is_empty(),
+        "nothing skipped: {:?}",
+        summary.skipped
+    );
 
     // github_pr loop -> adapter_event trigger pointed at owner/repo.
     let gh = sqlx::query(
@@ -157,9 +162,15 @@ async fn sync_creates_then_reconciles_loops(pool: PgPool) {
     .await
     .unwrap();
     assert_eq!(gh.get::<String, _>("kind"), "adapter_event");
-    assert_eq!(gh.get::<Option<String>, _>("name").as_deref(), Some("java-review"));
+    assert_eq!(
+        gh.get::<Option<String>, _>("name").as_deref(),
+        Some("java-review")
+    );
     assert_eq!(gh.get::<String, _>("agent_type"), "claude-code");
-    assert_eq!(gh.get::<Option<String>, _>("prompt").as_deref(), Some("Review this PR."));
+    assert_eq!(
+        gh.get::<Option<String>, _>("prompt").as_deref(),
+        Some("Review this PR.")
+    );
     assert_eq!(gh.get::<String, _>("adapter_kind"), "github");
     assert_eq!(gh.get::<String, _>("source_matcher"), "test/repo");
 
@@ -175,11 +186,21 @@ async fn sync_creates_then_reconciles_loops(pool: PgPool) {
     .await
     .unwrap();
     assert_eq!(sched.get::<String, _>("kind"), "schedule");
-    assert_eq!(sched.get::<String, _>("cron_expression"), "0 0 6 * * MON-FRI *");
+    assert_eq!(
+        sched.get::<String, _>("cron_expression"),
+        "0 0 6 * * MON-FRI *"
+    );
     assert_eq!(sched.get::<String, _>("timezone"), "Europe/Stockholm");
-    assert_eq!(sched.get::<String, _>("message_template"), "Run the daily check.");
+    assert_eq!(
+        sched.get::<String, _>("message_template"),
+        "Run the daily check."
+    );
 
-    assert_eq!(count_manual_triggers(&pool).await, 1, "manual trigger untouched");
+    assert_eq!(
+        count_manual_triggers(&pool).await,
+        1,
+        "manual trigger untouched"
+    );
 
     // Re-sync dropping the github_pr loop: it should be removed, schedule kept,
     // manual trigger still untouched.
@@ -197,7 +218,11 @@ async fn sync_creates_then_reconciles_loops(pool: PgPool) {
     .await
     .unwrap();
     assert_eq!(remaining, 1, "only the schedule loop remains");
-    assert_eq!(count_manual_triggers(&pool).await, 1, "manual trigger still untouched");
+    assert_eq!(
+        count_manual_triggers(&pool).await,
+        1,
+        "manual trigger still untouched"
+    );
 }
 
 #[sqlx::test]
@@ -247,7 +272,11 @@ async fn sync_creates_slack_loop(pool: PgPool) {
     let summary = sync_loops(&state, &repo, &auth, loops).await.unwrap();
     assert_eq!(summary.created, 1, "slack loop created");
     assert_eq!(summary.updated, 0);
-    assert!(summary.skipped.is_empty(), "nothing skipped: {:?}", summary.skipped);
+    assert!(
+        summary.skipped.is_empty(),
+        "nothing skipped: {:?}",
+        summary.skipped
+    );
 
     // slack loop -> adapter_event trigger pointed at the channel via the
     // team's connection, with the ongoing routing mode flowing through.
@@ -270,7 +299,8 @@ async fn sync_creates_slack_loop(pool: PgPool) {
     assert_eq!(row.get::<String, _>("connection_id"), "conn_T0000000001");
     let cfg: serde_json::Value = row.get("adapter_config");
     assert_eq!(
-        cfg.get("allow_bot_messages").and_then(serde_json::Value::as_bool),
+        cfg.get("allow_bot_messages")
+            .and_then(serde_json::Value::as_bool),
         Some(true)
     );
     assert_eq!(
@@ -293,7 +323,11 @@ async fn sync_creates_linear_loop(pool: PgPool) {
     let loops = vec![parse_loop(LINEAR_LOOP, "ready-pool").unwrap()];
     let summary = sync_loops(&state, &repo, &auth, loops).await.unwrap();
     assert_eq!(summary.created, 1, "linear loop created");
-    assert!(summary.skipped.is_empty(), "nothing skipped: {:?}", summary.skipped);
+    assert!(
+        summary.skipped.is_empty(),
+        "nothing skipped: {:?}",
+        summary.skipped
+    );
 
     // linear loop -> adapter_event trigger pointed at the team uuid via the
     // single linear connection, with status/project filters in adapter_config
@@ -315,12 +349,22 @@ async fn sync_creates_linear_loop(pool: PgPool) {
     assert_eq!(row.get::<String, _>("connection_id"), "conn_org-acme");
     let cfg: serde_json::Value = row.get("adapter_config");
     assert_eq!(
-        cfg.get("create_on_status_entry").and_then(serde_json::Value::as_bool),
+        cfg.get("create_on_status_entry")
+            .and_then(serde_json::Value::as_bool),
         Some(true)
     );
-    assert_eq!(cfg.get("trigger_states"), Some(&serde_json::json!(["Ready"])));
-    assert_eq!(cfg.get("project_ids"), Some(&serde_json::json!(["proj-launch"])));
-    assert_eq!(cfg.get("start_state"), Some(&serde_json::json!("In Progress")));
+    assert_eq!(
+        cfg.get("trigger_states"),
+        Some(&serde_json::json!(["Ready"]))
+    );
+    assert_eq!(
+        cfg.get("project_ids"),
+        Some(&serde_json::json!(["proj-launch"]))
+    );
+    assert_eq!(
+        cfg.get("start_state"),
+        Some(&serde_json::json!("In Progress"))
+    );
 }
 
 #[sqlx::test]

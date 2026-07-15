@@ -3,7 +3,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::bindings::TaskBindingSummary;
-use crate::enums::{Scope, TaskRelationType, TaskStatus, Visibility};
+use crate::enums::{
+    SandboxDesiredState, SandboxStopReason, Scope, TaskRelationType, TaskStatus, Visibility,
+};
 use crate::shared::{AgentMode, AgentType};
 
 /// A typed link from one task to another, with optional JSON context.
@@ -229,6 +231,14 @@ pub struct TaskResponse {
     /// task has never had a sandbox running.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sandbox_started_at: Option<String>,
+    /// Persisted target state for the task's sandbox. This is application
+    /// intent, not live infrastructure status.
+    pub sandbox_desired_state: SandboxDesiredState,
+    /// Reason the sandbox was intentionally moved away from `running`, if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sandbox_stop_reason: Option<SandboxStopReason>,
+    /// RFC3339 timestamp for the last desired-state transition.
+    pub sandbox_desired_state_updated_at: String,
     /// RFC3339 timestamp of when the requesting user last read this task's
     /// conversation. `None` if they have never opened it. Compare against
     /// `last_message_at` to derive unread state.

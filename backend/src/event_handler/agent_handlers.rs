@@ -192,13 +192,15 @@ async fn notify_linear_response_for_completion(state: &AppState, task_id: &str) 
         return;
     }
 
-    tokio::spawn(crate::adapters::linear::agent_runtime::notify_linear_status(
-        state.clone(),
-        task_id.to_string(),
-        crate::adapters::linear::agent_api::ActivityKind::Response,
-        body,
-        false,
-    ));
+    tokio::spawn(
+        crate::adapters::linear::agent_runtime::notify_linear_status(
+            state.clone(),
+            task_id.to_string(),
+            crate::adapters::linear::agent_api::ActivityKind::Response,
+            body,
+            false,
+        ),
+    );
 }
 
 /// Concatenate every `text` block from a `message_content` JSON array into a
@@ -967,11 +969,7 @@ async fn record_tool_call_metrics(
 /// then a persisted-row lookup, finally `"unknown"`. The DB fallback covers
 /// cross-process / post-restart misses where the assistant tool_use block was
 /// never seen by this process.
-async fn resolve_tool_label(
-    state: &AppState,
-    task_id: &str,
-    tool_use_id: &str,
-) -> &'static str {
+async fn resolve_tool_label(state: &AppState, task_id: &str, tool_use_id: &str) -> &'static str {
     if let Some(label) = state.tool_call_names.get(tool_use_id).await {
         return label;
     }

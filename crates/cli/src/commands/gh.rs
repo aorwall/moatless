@@ -16,7 +16,9 @@
 //! double-posting.
 
 use clap::Parser;
-use moatless_api_schemas::github::{GithubCommentRequest, GithubCreatePrRequest, GithubReplyRequest};
+use moatless_api_schemas::github::{
+    GithubCommentRequest, GithubCreatePrRequest, GithubReplyRequest,
+};
 
 use crate::client::MoatClient;
 use crate::config::Config;
@@ -448,7 +450,10 @@ mod tests {
             None
         );
         // Missing comment_id entirely also falls through.
-        assert_eq!(parse_typed(&argv(&["pr", "reply", "42", "--body", "x"])), None);
+        assert_eq!(
+            parse_typed(&argv(&["pr", "reply", "42", "--body", "x"])),
+            None
+        );
     }
 
     #[test]

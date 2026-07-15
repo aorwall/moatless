@@ -52,7 +52,9 @@ pub async fn sync_repo_loops(
 
     let token = resolve_github_token(state, auth).await;
     let fetcher = GitHubLoopFetcher::new(loop_http_client());
-    let files = fetcher.fetch_loop_files(remote_url, token.as_deref()).await?;
+    let files = fetcher
+        .fetch_loop_files(remote_url, token.as_deref())
+        .await?;
 
     let parsed: Vec<ParsedLoop> = files
         .iter()
@@ -385,7 +387,9 @@ async fn resolve_loop(
             )
         }
         other => {
-            return Ok(ResolveOutcome::Skipped(format!("unknown `on` value: {other}")));
+            return Ok(ResolveOutcome::Skipped(format!(
+                "unknown `on` value: {other}"
+            )));
         }
     };
 
@@ -418,10 +422,7 @@ async fn upsert_loop(
         .created_by
         .clone()
         .unwrap_or_else(|| auth.user_id.clone());
-    let trigger_name = resolved
-        .name
-        .clone()
-        .or_else(|| Some(parsed.name.clone()));
+    let trigger_name = resolved.name.clone().or_else(|| Some(parsed.name.clone()));
 
     let mut tx = state.db.begin().await?;
 
@@ -674,7 +675,8 @@ mod tests {
 
     #[test]
     fn run_as_prefers_frontmatter() {
-        let got = resolve_run_as_user_id(Some("u_fm"), Some("u_cfg"), Some("u_owner"), Some("u_cb"));
+        let got =
+            resolve_run_as_user_id(Some("u_fm"), Some("u_cfg"), Some("u_owner"), Some("u_cb"));
         assert_eq!(got.as_deref(), Some("u_fm"));
     }
 

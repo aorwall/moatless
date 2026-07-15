@@ -447,15 +447,11 @@ impl SandboxProvider for K8sSandboxProvider {
         .map_err(|e| SandboxError::Internal(format!("Failed to create gRPC client: {e}")))
     }
 
-    async fn bulk_environment_status(
-        &self,
-        task_ids: &[String],
-    ) -> HashMap<String, SandboxStatus> {
+    async fn bulk_environment_status(&self, task_ids: &[String]) -> HashMap<String, SandboxStatus> {
         if task_ids.is_empty() {
             return HashMap::new();
         }
-        let wanted: std::collections::HashSet<&str> =
-            task_ids.iter().map(String::as_str).collect();
+        let wanted: std::collections::HashSet<&str> = task_ids.iter().map(String::as_str).collect();
 
         // One cluster-wide LIST of managed Deployments; the Deployment status
         // (desired vs ready replicas) tells us stopped/starting/ready without
@@ -518,8 +514,7 @@ fn deployment_has_workspace_sync(dep: &Deployment) -> bool {
                 c.name == "sandbox"
                     && c.env.as_ref().is_some_and(|env| {
                         env.iter().any(|e| {
-                            e.name == "WORKSPACE_SYNC_ENABLED"
-                                && e.value.as_deref() == Some("true")
+                            e.name == "WORKSPACE_SYNC_ENABLED" && e.value.as_deref() == Some("true")
                         })
                     })
             })
@@ -693,7 +688,9 @@ impl K8sSandboxProvider {
         );
         match crate::file_storage::s3::delete_objects_by_prefix(s3, bucket, &prefix).await {
             Ok(0) => {}
-            Ok(n) => info!(task_id, deleted = n, prefix = %prefix, "Deleted task transcripts from S3"),
+            Ok(n) => {
+                info!(task_id, deleted = n, prefix = %prefix, "Deleted task transcripts from S3");
+            }
             Err(e) => {
                 warn!(task_id, error = %e, prefix = %prefix, "Failed to delete task transcripts from S3");
             }
@@ -718,7 +715,9 @@ impl K8sSandboxProvider {
         );
         match crate::file_storage::s3::delete_objects_by_prefix(s3, bucket, &prefix).await {
             Ok(0) => {}
-            Ok(n) => info!(task_id, deleted = n, prefix = %prefix, "Deleted task workspace from S3"),
+            Ok(n) => {
+                info!(task_id, deleted = n, prefix = %prefix, "Deleted task workspace from S3");
+            }
             Err(e) => {
                 warn!(task_id, error = %e, prefix = %prefix, "Failed to delete task workspace from S3");
             }

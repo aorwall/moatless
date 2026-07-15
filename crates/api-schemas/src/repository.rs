@@ -234,7 +234,10 @@ mod tests {
             ..Default::default()
         };
         let value = serde_json::to_value(&cfg).expect("serialize ResourceConfig");
-        assert_eq!(value.get("storageMode"), Some(&serde_json::json!("ephemeral")));
+        assert_eq!(
+            value.get("storageMode"),
+            Some(&serde_json::json!("ephemeral"))
+        );
         assert!(
             value.get("storage_mode").is_none(),
             "snake_case key must not be emitted"

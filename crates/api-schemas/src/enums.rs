@@ -70,6 +70,146 @@ impl sqlx::Encode<'_, sqlx::Postgres> for TaskStatus {
 }
 
 // =============================================================================
+// SandboxDesiredState
+// =============================================================================
+
+/// Persisted application intent for a task's sandbox lifecycle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum SandboxDesiredState {
+    Running,
+    Stopped,
+    Removed,
+}
+
+impl SandboxDesiredState {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Running => "running",
+            Self::Stopped => "stopped",
+            Self::Removed => "removed",
+        }
+    }
+}
+
+impl std::fmt::Display for SandboxDesiredState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl TryFrom<&str> for SandboxDesiredState {
+    type Error = String;
+    fn try_from(s: &str) -> Result<Self, String> {
+        match s {
+            "running" => Ok(Self::Running),
+            "stopped" => Ok(Self::Stopped),
+            "removed" => Ok(Self::Removed),
+            other => Err(format!("unknown SandboxDesiredState: {other:?}")),
+        }
+    }
+}
+
+#[cfg(feature = "database")]
+impl sqlx::Type<sqlx::Postgres> for SandboxDesiredState {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        <String as sqlx::Type<sqlx::Postgres>>::type_info()
+    }
+}
+
+#[cfg(feature = "database")]
+impl<'r> sqlx::Decode<'r, sqlx::Postgres> for SandboxDesiredState {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+        let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
+        SandboxDesiredState::try_from(s.as_str()).map_err(Into::into)
+    }
+}
+
+#[cfg(feature = "database")]
+impl sqlx::Encode<'_, sqlx::Postgres> for SandboxDesiredState {
+    fn encode_by_ref(
+        &self,
+        buf: &mut sqlx::postgres::PgArgumentBuffer,
+    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
+        <&str as sqlx::Encode<sqlx::Postgres>>::encode_by_ref(&self.as_str(), buf)
+    }
+}
+
+// =============================================================================
+// SandboxStopReason
+// =============================================================================
+
+/// Reason the persisted sandbox intent moved away from `running`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum SandboxStopReason {
+    User,
+    IdleReaper,
+    Cleanup,
+    System,
+    Error,
+}
+
+impl SandboxStopReason {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::User => "user",
+            Self::IdleReaper => "idle_reaper",
+            Self::Cleanup => "cleanup",
+            Self::System => "system",
+            Self::Error => "error",
+        }
+    }
+}
+
+impl std::fmt::Display for SandboxStopReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl TryFrom<&str> for SandboxStopReason {
+    type Error = String;
+    fn try_from(s: &str) -> Result<Self, String> {
+        match s {
+            "user" => Ok(Self::User),
+            "idle_reaper" => Ok(Self::IdleReaper),
+            "cleanup" => Ok(Self::Cleanup),
+            "system" => Ok(Self::System),
+            "error" => Ok(Self::Error),
+            other => Err(format!("unknown SandboxStopReason: {other:?}")),
+        }
+    }
+}
+
+#[cfg(feature = "database")]
+impl sqlx::Type<sqlx::Postgres> for SandboxStopReason {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        <String as sqlx::Type<sqlx::Postgres>>::type_info()
+    }
+}
+
+#[cfg(feature = "database")]
+impl<'r> sqlx::Decode<'r, sqlx::Postgres> for SandboxStopReason {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+        let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
+        SandboxStopReason::try_from(s.as_str()).map_err(Into::into)
+    }
+}
+
+#[cfg(feature = "database")]
+impl sqlx::Encode<'_, sqlx::Postgres> for SandboxStopReason {
+    fn encode_by_ref(
+        &self,
+        buf: &mut sqlx::postgres::PgArgumentBuffer,
+    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
+        <&str as sqlx::Encode<sqlx::Postgres>>::encode_by_ref(&self.as_str(), buf)
+    }
+}
+
+// =============================================================================
 // TaskRelationType
 // =============================================================================
 
@@ -770,8 +910,7 @@ mod tests {
             "\"related_to\""
         );
 
-        let parsed: TaskRelationType =
-            serde_json::from_str("\"related_to\"").expect("deserialize");
+        let parsed: TaskRelationType = serde_json::from_str("\"related_to\"").expect("deserialize");
         assert_eq!(parsed, TaskRelationType::RelatedTo);
     }
 

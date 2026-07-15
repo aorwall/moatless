@@ -78,7 +78,10 @@ pub async fn ensure_sandbox_and_notify(state: &AppState, task_id: &str) -> Resul
     // resumable to match `start_task`'s recovery semantics.
     match state.tasks.find_by_id_internal(task_id).await {
         Ok(Some(task)) if task.status == crate::task::models::TaskStatus::Closed => {
-            tracing::debug!(task_id, "Task is closed — skipping sandbox provision/notify");
+            tracing::debug!(
+                task_id,
+                "Task is closed — skipping sandbox provision/notify"
+            );
             return Ok(());
         }
         Ok(_) => {}

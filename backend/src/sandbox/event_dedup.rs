@@ -83,7 +83,9 @@ impl EventDedup {
                 );
             }
         }
-        self.last_sequence.insert(task_id.to_string(), sequence).await;
+        self.last_sequence
+            .insert(task_id.to_string(), sequence)
+            .await;
     }
 }
 

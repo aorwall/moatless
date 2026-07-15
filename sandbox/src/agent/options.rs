@@ -430,7 +430,9 @@ mod tests {
         request.system_prompt = Some("BACKEND-PROMPT".to_string());
         let append = build_prompt_append(&config, &request);
         let note_idx = append.find("## Workspace layout").expect("note present");
-        let backend_idx = append.find("BACKEND-PROMPT").expect("backend prompt present");
+        let backend_idx = append
+            .find("BACKEND-PROMPT")
+            .expect("backend prompt present");
         assert!(note_idx < backend_idx, "layout note must come first");
     }
 }

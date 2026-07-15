@@ -189,8 +189,7 @@ pub(super) async fn agent_loop(
                     // the live session's fingerprint, otherwise paste the
                     // message into the running TUI as a new turn.
                     let fresh_system_prompt =
-                        fetch_system_prompt(&*backend_client, &task_id, &system_prompt_cache)
-                            .await;
+                        fetch_system_prompt(&*backend_client, &task_id, &system_prompt_cache).await;
                     let restart = tmux_session.as_ref().is_none_or(|info| {
                         info.needs_restart(&send, fresh_system_prompt.as_deref(), &session_id)
                     });

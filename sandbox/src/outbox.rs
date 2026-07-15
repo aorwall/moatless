@@ -49,7 +49,9 @@ pub const EVENTS_DROPPED_SUB_TYPE: &str = "events_dropped";
 fn backoff_for(attempt: u32) -> Duration {
     // Saturating shift keeps large attempt counts from overflowing before the
     // `.min` clamps them to the cap.
-    let factor = 1u64.checked_shl(attempt.saturating_sub(1)).unwrap_or(u64::MAX);
+    let factor = 1u64
+        .checked_shl(attempt.saturating_sub(1))
+        .unwrap_or(u64::MAX);
     BASE_BACKOFF
         .saturating_mul(factor.min(u32::MAX as u64) as u32)
         .min(MAX_BACKOFF)
@@ -422,8 +424,7 @@ impl Drainer {
             "reason": "outbox_overflow",
             "dropped_count": count,
         });
-        let proto_event_type: sandbox_proto::EventType =
-            moatless_events::EventType::Sandbox.into();
+        let proto_event_type: sandbox_proto::EventType = moatless_events::EventType::Sandbox.into();
         PublishEventRequest {
             task_id: self.task_id.clone(),
             event_type: proto_event_type as i32,
@@ -519,10 +520,7 @@ mod tests {
             Ok(())
         }
 
-        async fn get_credentials(
-            &self,
-            _task_id: &str,
-        ) -> Result<GetCredentialsResponse, Status> {
+        async fn get_credentials(&self, _task_id: &str) -> Result<GetCredentialsResponse, Status> {
             Ok(GetCredentialsResponse::default())
         }
 
@@ -592,11 +590,15 @@ mod tests {
         let mut buf = EventBuffer::new(3, usize::MAX);
 
         // Fill: two non-lifecycle, one lifecycle.
-        assert!(buf.push(QueuedEvent::new(agent_event("message"))).is_empty());
+        assert!(buf
+            .push(QueuedEvent::new(agent_event("message")))
+            .is_empty());
         assert!(buf
             .push(QueuedEvent::new(task_turn_event("active")))
             .is_empty());
-        assert!(buf.push(QueuedEvent::new(agent_event("message"))).is_empty());
+        assert!(buf
+            .push(QueuedEvent::new(agent_event("message")))
+            .is_empty());
         assert_eq!(buf.len(), 3);
 
         // Over cap: oldest non-lifecycle (index 0) is evicted, not the taskTurn.
@@ -622,9 +624,7 @@ mod tests {
         assert!(buf
             .push(QueuedEvent::new(agent_event("completed")))
             .is_empty());
-        assert!(buf
-            .push(QueuedEvent::new(agent_event("error")))
-            .is_empty());
+        assert!(buf.push(QueuedEvent::new(agent_event("error"))).is_empty());
         let dropped = buf.push(QueuedEvent::new(agent_event("stopped")));
         assert!(dropped.is_empty());
         assert_eq!(buf.len(), 4);
@@ -637,7 +637,9 @@ mod tests {
         // Each agent_event: payload "{}" (2) + sub_type "message" (7) + task "task-1" (6)
         // + a uuid event_id (36) = 51 bytes, already over the 40-byte cap, but a
         // single event is never dropped below itself — it's the only entry.
-        assert!(buf.push(QueuedEvent::new(agent_event("message"))).is_empty());
+        assert!(buf
+            .push(QueuedEvent::new(agent_event("message")))
+            .is_empty());
         assert_eq!(buf.len(), 1);
         // A second push must evict the first to try to get back under budget.
         let dropped = buf.push(QueuedEvent::new(agent_event("message")));
@@ -661,7 +663,13 @@ mod tests {
         let sub_types: Vec<_> = got.iter().map(|r| r.sub_type.clone()).collect();
         assert_eq!(
             sub_types,
-            vec!["message-0", "message-1", "message-2", "message-3", "message-4"]
+            vec![
+                "message-0",
+                "message-1",
+                "message-2",
+                "message-3",
+                "message-4"
+            ]
         );
         // Sequences are assigned in transmission order, contiguous from 1.
         let seqs: Vec<_> = got.iter().map(|r| r.sequence).collect();
@@ -700,8 +708,13 @@ mod tests {
         let cancel = CancellationToken::new();
         // Cap of 2 events so a burst forces eviction. Keep the backend blocked
         // until after the burst so events pile up in the buffer.
-        let outbox =
-            EventOutbox::spawn_with_caps(backend, "task-1".to_string(), cancel.clone(), 2, usize::MAX);
+        let outbox = EventOutbox::spawn_with_caps(
+            backend,
+            "task-1".to_string(),
+            cancel.clone(),
+            2,
+            usize::MAX,
+        );
 
         // Fire a burst of non-lifecycle events; some must be evicted.
         for i in 0..10 {

@@ -403,9 +403,7 @@ impl GitHubAppService {
                 .header("User-Agent", "moatless-vibe-backend")
                 .send()
                 .await
-                .map_err(|e| {
-                    AuthError::OAuth(format!("GitHub installation lookup failed: {e}"))
-                })?;
+                .map_err(|e| AuthError::OAuth(format!("GitHub installation lookup failed: {e}")))?;
 
             if resp.status() == reqwest::StatusCode::NOT_FOUND {
                 continue;
@@ -497,10 +495,7 @@ impl GitHubAppService {
         let identity = BotIdentity {
             login: bot_login.clone(),
             user_id: user.id,
-            email: format!(
-                "{}+{}@users.noreply.github.com",
-                user.id, bot_login
-            ),
+            email: format!("{}+{}@users.noreply.github.com", user.id, bot_login),
         };
         info!(
             app_key = %self.key,

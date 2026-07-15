@@ -69,9 +69,7 @@ impl TurnAccumulator {
         self.accumulated_usage.input_tokens += usage.input_tokens;
         self.accumulated_usage.output_tokens += usage.output_tokens;
         self.accumulated_usage.cache_read_input_tokens = Some(
-            self.accumulated_usage
-                .cache_read_input_tokens
-                .unwrap_or(0)
+            self.accumulated_usage.cache_read_input_tokens.unwrap_or(0)
                 + usage.cache_read_input_tokens.unwrap_or(0),
         );
         self.accumulated_usage.cache_creation_input_tokens = Some(
@@ -163,15 +161,10 @@ fn translate_assistant(mut value: Value, acc: &mut TurnAccumulator) -> Translate
             }
             // Pull out the most recent text block for the synthesized Result
             // and accumulate usage.
-            let last_text = msg
-                .message
-                .content
-                .iter()
-                .rev()
-                .find_map(|b| match b {
-                    crate::types::content::ContentBlock::Text { text } => Some(text.clone()),
-                    _ => None,
-                });
+            let last_text = msg.message.content.iter().rev().find_map(|b| match b {
+                crate::types::content::ContentBlock::Text { text } => Some(text.clone()),
+                _ => None,
+            });
             if let Some(usage) = &msg.message.usage {
                 acc.accumulate(usage, last_text, msg.uuid.clone());
             } else {
@@ -260,10 +253,7 @@ fn translate_user(mut value: Value) -> Translated {
 }
 
 fn translate_system(value: Value, acc: &mut TurnAccumulator) -> Translated {
-    let subtype = value
-        .get("subtype")
-        .and_then(Value::as_str)
-        .unwrap_or("");
+    let subtype = value.get("subtype").and_then(Value::as_str).unwrap_or("");
 
     match subtype {
         "compact_boundary" => translate_compact_boundary(value),
@@ -368,25 +358,19 @@ fn translate_turn_duration(value: &Value, acc: &mut TurnAccumulator) -> Translat
         Some(o) => o,
         None => return Translated::Skip,
     };
-    let uuid = obj
-        .get("uuid")
-        .and_then(Value::as_str)
-        .map_or_else(
-            || {
-                acc.last_assistant_uuid
-                    .clone()
-                    .unwrap_or_else(|| format!("tmux-turn-{}", acc.turn_number + 1))
-            },
-            std::string::ToString::to_string,
-        );
+    let uuid = obj.get("uuid").and_then(Value::as_str).map_or_else(
+        || {
+            acc.last_assistant_uuid
+                .clone()
+                .unwrap_or_else(|| format!("tmux-turn-{}", acc.turn_number + 1))
+        },
+        std::string::ToString::to_string,
+    );
     let session_id = obj
         .get("sessionId")
         .and_then(Value::as_str)
         .map_or_else(|| acc.session_id.clone(), std::string::ToString::to_string);
-    let duration_ms = obj
-        .get("durationMs")
-        .and_then(Value::as_u64)
-        .unwrap_or(0);
+    let duration_ms = obj.get("durationMs").and_then(Value::as_u64).unwrap_or(0);
 
     let result = ResultSuccess {
         uuid,
@@ -404,9 +388,7 @@ fn translate_turn_duration(value: &Value, acc: &mut TurnAccumulator) -> Translat
     };
 
     acc.reset();
-    Translated::One(Box::new(SdkMessage::Result(ResultMessage::Success(
-        result,
-    ))))
+    Translated::One(Box::new(SdkMessage::Result(ResultMessage::Success(result))))
 }
 
 /// Rename a key on the top-level object in-place.
@@ -534,7 +516,10 @@ mod tests {
             Translated::Skip => panic!("API-error record was dropped instead of surfaced"),
         }
         assert!(a.api_error, "api_error flag must be set");
-        assert_eq!(a.last_text, "There's an issue with the selected model (fable).");
+        assert_eq!(
+            a.last_text,
+            "There's an issue with the selected model (fable)."
+        );
 
         // The synthesized turn_duration Result must be a loud failure.
         let td = json!({"type": "system", "subtype": "turn_duration", "durationMs": 731});
@@ -566,7 +551,10 @@ mod tests {
 
         // Record itself is skipped (unparseable) but the flag/text are captured.
         matches!(translate_record(value, &mut a), Translated::Skip);
-        assert!(a.api_error, "api_error flag must be set even on parse failure");
+        assert!(
+            a.api_error,
+            "api_error flag must be set even on parse failure"
+        );
         assert_eq!(a.last_text, "Overloaded, try again.");
     }
 
@@ -804,10 +792,8 @@ mod tests {
 
     #[test]
     fn stop_payload_fallback_emits_result_from_last_assistant_message() {
-        let payload =
-            r#"{"last_assistant_message":"final answer","session_id":"sess-9"}"#;
-        let msg = translate_stop_payload_fallback(payload, "default-sid")
-            .expect("expected Some");
+        let payload = r#"{"last_assistant_message":"final answer","session_id":"sess-9"}"#;
+        let msg = translate_stop_payload_fallback(payload, "default-sid").expect("expected Some");
         match msg {
             SdkMessage::Result(ResultMessage::Success(r)) => {
                 assert_eq!(r.result, "final answer");
@@ -827,8 +813,7 @@ mod tests {
     #[test]
     fn stop_payload_fallback_uses_fallback_session_id_when_missing() {
         let payload = r#"{"last_assistant_message":"hi"}"#;
-        let msg = translate_stop_payload_fallback(payload, "fallback-sid")
-            .expect("expected Some");
+        let msg = translate_stop_payload_fallback(payload, "fallback-sid").expect("expected Some");
         if let SdkMessage::Result(ResultMessage::Success(r)) = msg {
             assert_eq!(r.session_id, "fallback-sid");
         } else {

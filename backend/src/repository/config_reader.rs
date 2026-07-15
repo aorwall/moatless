@@ -280,7 +280,15 @@ mod tests {
     async fn moatless_dir_exists_fails_open_for_non_github() {
         // Non-GitHub providers have no cheap probe wired — the gate must not
         // skip them, so the check reports the directory as present.
-        assert!(moatless_dir_exists("https://gitness.example.com/x/y.git", None, None, RepositoryProvider::Gitness).await);
+        assert!(
+            moatless_dir_exists(
+                "https://gitness.example.com/x/y.git",
+                None,
+                None,
+                RepositoryProvider::Gitness
+            )
+            .await
+        );
     }
 
     #[test]
@@ -376,7 +384,10 @@ mod tests {
             .resources
             .expect("resources field set")
             .expect("resources value present");
-        assert_eq!(value.get("storageMode"), Some(&serde_json::json!("ephemeral")));
+        assert_eq!(
+            value.get("storageMode"),
+            Some(&serde_json::json!("ephemeral"))
+        );
         assert_eq!(value.get("storage"), Some(&serde_json::json!("8Gi")));
         assert!(
             value.get("storage_mode").is_none(),

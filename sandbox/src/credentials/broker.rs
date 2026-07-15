@@ -198,11 +198,7 @@ mod tests {
             Ok(None)
         }
 
-        async fn upload_transcript(
-            &self,
-            _: &str,
-            _: Vec<u8>,
-        ) -> Result<(), tonic::Status> {
+        async fn upload_transcript(&self, _: &str, _: Vec<u8>) -> Result<(), tonic::Status> {
             Ok(())
         }
 

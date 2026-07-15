@@ -15,7 +15,7 @@ use crate::adapters::common::{
 };
 use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::error::AdapterError;
-use crate::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, OutboundReply, TaskBinding};
+use crate::adapters::models::{OutboundReply, TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN};
 use crate::bindings::dao::PgTaskBindingRepository;
 use crate::bindings::outbound::resolve_files;
 use crate::bindings::reply::ReplyService;
@@ -164,8 +164,7 @@ pub async fn add_message_reaction(
     Json(req): Json<AddMessageReactionRequest>,
 ) -> Result<Json<MessageReactionResponse>, AdapterError> {
     let ctx = auth.scope_context();
-    let (binding, ext_id, provider_key) =
-        resolve_message_target(&state, &ctx, &message_id).await?;
+    let (binding, ext_id, provider_key) = resolve_message_target(&state, &ctx, &message_id).await?;
     let providers = state
         .adapters
         .as_ref()
@@ -174,7 +173,9 @@ pub async fn add_message_reaction(
         .get_by_name(&provider_key)
         .ok_or_else(|| AdapterError::BadRequest(format!("Unknown adapter `{provider_key}`")))?;
     let binding_ctx = crate::bindings::runtime::binding_context(&binding);
-    let external_id = adapter.add_reaction(&binding_ctx, &ext_id, &req.emoji).await?;
+    let external_id = adapter
+        .add_reaction(&binding_ctx, &ext_id, &req.emoji)
+        .await?;
     Ok(Json(MessageReactionResponse {
         ok: true,
         external_id,
@@ -197,8 +198,7 @@ pub async fn remove_message_reaction(
     Path((message_id, emoji)): Path<(String, String)>,
 ) -> Result<Json<MessageReactionResponse>, AdapterError> {
     let ctx = auth.scope_context();
-    let (binding, ext_id, provider_key) =
-        resolve_message_target(&state, &ctx, &message_id).await?;
+    let (binding, ext_id, provider_key) = resolve_message_target(&state, &ctx, &message_id).await?;
     let providers = state
         .adapters
         .as_ref()
@@ -207,7 +207,9 @@ pub async fn remove_message_reaction(
         .get_by_name(&provider_key)
         .ok_or_else(|| AdapterError::BadRequest(format!("Unknown adapter `{provider_key}`")))?;
     let binding_ctx = crate::bindings::runtime::binding_context(&binding);
-    adapter.remove_reaction(&binding_ctx, &ext_id, &emoji).await?;
+    adapter
+        .remove_reaction(&binding_ctx, &ext_id, &emoji)
+        .await?;
     Ok(Json(MessageReactionResponse {
         ok: true,
         external_id: None,
@@ -337,8 +339,7 @@ async fn append_internal_assistant_reply(
         .await
         .map_err(|e| AdapterError::Internal(format!("Failed to read turn number: {e}")))?;
     let content = serde_json::json!([{ "type": "text", "text": text }]);
-    let mut msg =
-        TaskMessage::new_user_message(task_id.to_string(), uuid, content, now);
+    let mut msg = TaskMessage::new_user_message(task_id.to_string(), uuid, content, now);
     msg.message_type = MessageType::Assistant;
     msg.message_role = MessageRole::Assistant;
     msg.user_type = "assistant".to_string();
@@ -523,9 +524,8 @@ mod tests {
         ];
         let candidates = vec!["slack".to_string()];
 
-        let selected =
-            select_binding_for_reply(&rows, &candidates, Some("T06:C0A:thread_b"))
-                .expect("binding B should be selected");
+        let selected = select_binding_for_reply(&rows, &candidates, Some("T06:C0A:thread_b"))
+            .expect("binding B should be selected");
         assert_eq!(selected.id, "bind_b");
     }
 
@@ -554,9 +554,8 @@ mod tests {
         ];
         let candidates = vec!["slack".to_string()];
 
-        let selected =
-            select_binding_for_reply(&rows, &candidates, Some("T06:C0A:thread_unknown"))
-                .expect("fallback to first slack binding");
+        let selected = select_binding_for_reply(&rows, &candidates, Some("T06:C0A:thread_unknown"))
+            .expect("fallback to first slack binding");
         assert_eq!(selected.id, "bind_a");
     }
 
@@ -567,7 +566,12 @@ mod tests {
         // the spawning ingress binding, not the first agent-owned row.
         let rows = vec![
             binding_origin("bind_owned", "slack", "T06:C0A:thread_b", "task_owned"),
-            binding_origin("bind_ingress", "slack", "T06:C0A:thread_a", ADAPTER_EVENT_BINDING_ORIGIN),
+            binding_origin(
+                "bind_ingress",
+                "slack",
+                "T06:C0A:thread_a",
+                ADAPTER_EVENT_BINDING_ORIGIN,
+            ),
         ];
         let candidates = vec!["slack".to_string()];
 
@@ -581,8 +585,18 @@ mod tests {
         // Ambiguous: two ingress bindings and no subject_key — don't guess
         // between them, degrade to first provider match.
         let rows = vec![
-            binding_origin("bind_a", "slack", "T06:C0A:thread_a", ADAPTER_EVENT_BINDING_ORIGIN),
-            binding_origin("bind_b", "slack", "T06:C0A:thread_b", ADAPTER_EVENT_BINDING_ORIGIN),
+            binding_origin(
+                "bind_a",
+                "slack",
+                "T06:C0A:thread_a",
+                ADAPTER_EVENT_BINDING_ORIGIN,
+            ),
+            binding_origin(
+                "bind_b",
+                "slack",
+                "T06:C0A:thread_b",
+                ADAPTER_EVENT_BINDING_ORIGIN,
+            ),
         ];
         let candidates = vec!["slack".to_string()];
 

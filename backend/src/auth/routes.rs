@@ -223,10 +223,7 @@ pub fn auth_router(state: AuthState) -> (axum::Router, utoipa::openapi::OpenApi)
         .route("/api/v1/auth/auth0", get(auth0_init_handler))
         .route("/api/v1/auth/auth0/callback", get(auth0_callback_handler))
         .route("/api/v1/auth/linear/install", get(linear_install_handler))
-        .route(
-            "/api/v1/auth/linear/callback",
-            get(linear_callback_handler),
-        )
+        .route("/api/v1/auth/linear/callback", get(linear_callback_handler))
         .route("/api/v1/auth/logout", get(logout_get_handler))
         .with_state(state);
 
@@ -1864,9 +1861,7 @@ async fn resolve_team_ids_on_login(
 /// Returns 302 to Linear's authorization URL with `actor=app` and the
 /// workspace agent scopes. Sets an `oauth_state` cookie for CSRF.
 /// Returns 503 when Linear OAuth credentials aren't configured.
-async fn linear_install_handler(
-    State(state): State<AuthState>,
-) -> Result<Response, AuthError> {
+async fn linear_install_handler(State(state): State<AuthState>) -> Result<Response, AuthError> {
     let Some(provider) = state.providers.linear.as_ref() else {
         return Err(AuthError::Config(
             "Linear OAuth not configured (set LINEAR_OAUTH_CLIENT_ID, \
@@ -1876,9 +1871,9 @@ async fn linear_install_handler(
     };
 
     let csrf_state = generate_csrf_state();
-    let auth_url = provider.generate_auth_url(&csrf_state).ok_or_else(|| {
-        AuthError::Config("Failed to generate Linear OAuth URL".to_string())
-    })?;
+    let auth_url = provider
+        .generate_auth_url(&csrf_state)
+        .ok_or_else(|| AuthError::Config("Failed to generate Linear OAuth URL".to_string()))?;
 
     let state_cookie = cookie::build_oauth_state_cookie(&state.config, &csrf_state);
     let mut headers = HeaderMap::new();
@@ -1908,9 +1903,11 @@ async fn linear_callback_handler(
     headers: HeaderMap,
     axum::extract::Query(query): axum::extract::Query<super::schemas::OAuthCallbackQuery>,
 ) -> Result<Response, AuthError> {
-    let provider = state.providers.linear.as_ref().ok_or_else(|| {
-        AuthError::Config("Linear OAuth not configured".into())
-    })?;
+    let provider = state
+        .providers
+        .linear
+        .as_ref()
+        .ok_or_else(|| AuthError::Config("Linear OAuth not configured".into()))?;
 
     let stored_state = cookie::get_cookie_value(&headers, "oauth_state");
     match (stored_state.as_deref(), query.state.as_deref()) {

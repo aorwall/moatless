@@ -210,10 +210,12 @@ mod tests {
         assert!(is_session_unavailable_error(&SdkError::TmuxSessionDied {
             pane_tail: None
         }));
-        assert!(is_session_unavailable_error(&SdkError::SessionStartTimeout {
-            timeout_ms: 5000,
-            pane_tail: None,
-        }));
+        assert!(is_session_unavailable_error(
+            &SdkError::SessionStartTimeout {
+                timeout_ms: 5000,
+                pane_tail: None,
+            }
+        ));
         assert!(is_session_unavailable_error(&SdkError::ProcessExit {
             code: Some(1),
             signal: None

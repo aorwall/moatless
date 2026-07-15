@@ -34,8 +34,7 @@ pub(crate) const SANDBOX_RESTART_DURATION_SECONDS: &str =
 
 /// Duration of one workspace sync in seconds by `direction` (histogram).
 /// Reported by the sandbox for the `s3` backend only.
-pub(crate) const WORKSPACE_SYNC_DURATION_SECONDS: &str =
-    "moatless_workspace_sync_duration_seconds";
+pub(crate) const WORKSPACE_SYNC_DURATION_SECONDS: &str = "moatless_workspace_sync_duration_seconds";
 
 /// Size of one workspace sync tar in bytes by `direction` (histogram). The
 /// `_sum` gives total bytes moved (rate → bytes/s); buckets show the size

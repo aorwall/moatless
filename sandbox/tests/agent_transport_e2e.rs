@@ -117,7 +117,11 @@ impl BackendClient for NoopBackend {
         self.events
             .lock()
             .expect("event log poisoned")
-            .push(format!("{}/{}", req.event_type().as_str_name(), req.sub_type));
+            .push(format!(
+                "{}/{}",
+                req.event_type().as_str_name(),
+                req.sub_type
+            ));
         Ok(())
     }
 
@@ -401,13 +405,19 @@ async fn run_codex_roundtrip() {
         .await
         .expect("timed out waiting for Codex session start")
         .expect("Codex session failed to start (ack sender dropped)");
-    assert!(!session_id.is_empty(), "expected a non-empty Codex session id");
+    assert!(
+        !session_id.is_empty(),
+        "expected a non-empty Codex session id"
+    );
 
     // Codex's first turn (cold auth + model warmup) can be slower than Claude.
     wait_until_not_running(&agent_state, Duration::from_secs(180), "codex roundtrip").await;
 
     let error = agent_state.last_error().await;
-    assert!(error.is_none(), "Codex agent finished with error: {error:?}");
+    assert!(
+        error.is_none(),
+        "Codex agent finished with error: {error:?}"
+    );
     assert_eq!(agent_state.status().await, AgentStatus::Idle);
 
     handle.stop();
@@ -458,12 +468,18 @@ async fn run_agent_resume(use_tmux: bool) {
         .await
         .expect("turn 2: timed out waiting for session start")
         .expect("turn 2: session failed to start (ack sender dropped)");
-    assert!(!resumed_id.is_empty(), "expected a non-empty resumed session id");
+    assert!(
+        !resumed_id.is_empty(),
+        "expected a non-empty resumed session id"
+    );
 
     wait_until_not_running(&agent_state, Duration::from_secs(120), "turn 2").await;
 
     let error = agent_state.last_error().await;
-    assert!(error.is_none(), "turn 2 (resume) finished with error: {error:?}");
+    assert!(
+        error.is_none(),
+        "turn 2 (resume) finished with error: {error:?}"
+    );
     assert_eq!(agent_state.status().await, AgentStatus::Idle);
 
     handle.stop();

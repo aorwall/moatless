@@ -70,9 +70,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // starts with a bootstrap token (or a persisted/legacy long-lived token) and
     // swaps to the long-lived user token delivered over `GetCredentials`.
     #[allow(clippy::expect_used)] // fail-fast: sandbox cannot operate without backend connectivity
-    let backend_client =
-        BackendGrpcClient::connect(&config.backend_grpc_url, config.resolve_initial_auth_token())
-            .expect("Failed to create backend gRPC client");
+    let backend_client = BackendGrpcClient::connect(
+        &config.backend_grpc_url,
+        config.resolve_initial_auth_token(),
+    )
+    .expect("Failed to create backend gRPC client");
     info!(url = %config.backend_grpc_url, "Backend gRPC client created (lazy connection)");
 
     // Wrap backend client in Arc for shared ownership

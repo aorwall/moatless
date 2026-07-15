@@ -203,7 +203,10 @@ mod tests {
             fs::read_link(ws.join("CLAUDE.md")).unwrap(),
             Path::new("my-repo/CLAUDE.md"),
         );
-        assert_eq!(fs::read_to_string(ws.join("CLAUDE.md")).unwrap(), "instructions");
+        assert_eq!(
+            fs::read_to_string(ws.join("CLAUDE.md")).unwrap(),
+            "instructions"
+        );
     }
 
     #[test]
@@ -235,7 +238,10 @@ mod tests {
 
         let count = bridge_repo_config_to_workspace(ws, &repo);
         assert_eq!(count, 2); // foo under .claude + .agents; CLAUDE.md skipped
-        assert_eq!(fs::read_to_string(ws.join("CLAUDE.md")).unwrap(), "authored");
+        assert_eq!(
+            fs::read_to_string(ws.join("CLAUDE.md")).unwrap(),
+            "authored"
+        );
         assert!(fs::read_link(ws.join("CLAUDE.md")).is_err());
     }
 

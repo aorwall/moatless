@@ -1309,7 +1309,10 @@ async fn run_subagent_fields_captured(backend: Backend) {
     let has_id = assistants.iter().any(|a| a.message.id.is_some());
     let has_stop_reason = assistants.iter().any(|a| a.message.stop_reason.is_some());
 
-    assert!(has_model, "Expected at least one assistant message with model");
+    assert!(
+        has_model,
+        "Expected at least one assistant message with model"
+    );
     assert!(has_id, "Expected at least one assistant message with id");
     // stop_reason may only appear on the final assistant message of each turn
     println!("has_stop_reason: {has_stop_reason}");
@@ -1444,12 +1447,17 @@ async fn run_diagnose_empty_result_after_trailing_tool_use(backend: Backend) {
     for (i, msg) in messages.iter().enumerate() {
         match msg {
             SdkMessage::System(init) => {
-                eprintln!("[{i}] System init: model={} session={}", init.model, init.session_id);
+                eprintln!(
+                    "[{i}] System init: model={} session={}",
+                    init.model, init.session_id
+                );
             }
             SdkMessage::Assistant(a) => {
                 eprintln!(
                     "[{i}] Assistant id={:?} model={:?} stop_reason={:?} blocks={}",
-                    a.message.id, a.message.model, a.message.stop_reason,
+                    a.message.id,
+                    a.message.model,
+                    a.message.stop_reason,
                     a.message.content.len()
                 );
                 for (b, block) in a.message.content.iter().enumerate() {
@@ -1471,11 +1479,16 @@ async fn run_diagnose_empty_result_after_trailing_tool_use(backend: Backend) {
             SdkMessage::User(u) => {
                 eprintln!(
                     "[{i}] User (tool result) blocks={} tool_use_result_present={}",
-                    u.message.content.len(), u.tool_use_result.is_some()
+                    u.message.content.len(),
+                    u.tool_use_result.is_some()
                 );
                 for (b, block) in u.message.content.iter().enumerate() {
                     match block {
-                        ContentBlock::ToolResult { tool_use_id, content, is_error } => {
+                        ContentBlock::ToolResult {
+                            tool_use_id,
+                            content,
+                            is_error,
+                        } => {
                             let summary = match content {
                                 Some(serde_json::Value::String(s)) => s.clone(),
                                 Some(other) => other.to_string(),
@@ -1501,10 +1514,16 @@ async fn run_diagnose_empty_result_after_trailing_tool_use(backend: Backend) {
                 );
                 eprintln!("      result.result.len() = {}", s.result.len());
                 eprintln!("      result.result = {:?}", s.result);
-                eprintln!("      model_usage keys: {:?}", s.model_usage.keys().collect::<Vec<_>>());
+                eprintln!(
+                    "      model_usage keys: {:?}",
+                    s.model_usage.keys().collect::<Vec<_>>()
+                );
             }
             SdkMessage::Result(ResultMessage::Error(e)) => {
-                eprintln!("[{i}] Result:Error subtype={} errors={:?}", e.subtype, e.errors);
+                eprintln!(
+                    "[{i}] Result:Error subtype={} errors={:?}",
+                    e.subtype, e.errors
+                );
             }
             other => eprintln!("[{i}] {:?}", std::mem::discriminant(other)),
         }
@@ -1514,7 +1533,10 @@ async fn run_diagnose_empty_result_after_trailing_tool_use(backend: Backend) {
     let assistant_text = extract_assistant_text(&messages);
     let assistant_emitted_tool_use = messages.iter().any(|m| {
         if let SdkMessage::Assistant(a) = m {
-            a.message.content.iter().any(|b| matches!(b, ContentBlock::ToolUse { .. }))
+            a.message
+                .content
+                .iter()
+                .any(|b| matches!(b, ContentBlock::ToolUse { .. }))
         } else {
             false
         }
@@ -1522,9 +1544,17 @@ async fn run_diagnose_empty_result_after_trailing_tool_use(backend: Backend) {
     let result_text = extract_result_text(&messages).unwrap_or_default();
 
     eprintln!("--- summary ---");
-    eprintln!("assistant emitted text? {} (len={})", !assistant_text.is_empty(), assistant_text.len());
+    eprintln!(
+        "assistant emitted text? {} (len={})",
+        !assistant_text.is_empty(),
+        assistant_text.len()
+    );
     eprintln!("assistant emitted tool_use? {assistant_emitted_tool_use}");
-    eprintln!("result.result empty? {} (len={})", result_text.is_empty(), result_text.len());
+    eprintln!(
+        "result.result empty? {} (len={})",
+        result_text.is_empty(),
+        result_text.len()
+    );
     eprintln!("=== END DIAGNOSTIC ===\n");
 
     assert!(
@@ -1953,9 +1983,7 @@ async fn test_sandbox_restart_resume_tmux() {
                 "post-restart turn must keep the same session_id"
             );
         }
-        eprintln!(
-            "Resume across restart preserved session_id {session_id}, recalled all facts."
-        );
+        eprintln!("Resume across restart preserved session_id {session_id}, recalled all facts.");
 
         resumed.close();
     };
@@ -1964,4 +1992,3 @@ async fn test_sandbox_restart_resume_tmux() {
         .await
         .expect("Test timed out");
 }
-

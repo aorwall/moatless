@@ -111,8 +111,10 @@ impl GithubPrApi {
         pr_number: u64,
         body: &str,
     ) -> Result<u64, AdapterError> {
-        let url =
-            format!("{}/repos/{owner}/{repo}/issues/{pr_number}/comments", self.base_url);
+        let url = format!(
+            "{}/repos/{owner}/{repo}/issues/{pr_number}/comments",
+            self.base_url
+        );
 
         // Truncate if needed
         let body = if body.len() > MAX_COMMENT_LENGTH {
@@ -219,7 +221,9 @@ impl GithubPrApi {
         data.get("default_branch")
             .and_then(serde_json::Value::as_str)
             .map(str::to_string)
-            .ok_or_else(|| AdapterError::AdapterApi("GitHub get_repo: missing default_branch".into()))
+            .ok_or_else(|| {
+                AdapterError::AdapterApi("GitHub get_repo: missing default_branch".into())
+            })
     }
 
     /// Reply to a PR review comment (threaded review reply).
@@ -235,7 +239,8 @@ impl GithubPrApi {
         body: &str,
     ) -> Result<u64, AdapterError> {
         let url = format!(
-            "{}/repos/{owner}/{repo}/pulls/{pull_number}/comments/{comment_id}/replies", self.base_url
+            "{}/repos/{owner}/{repo}/pulls/{pull_number}/comments/{comment_id}/replies",
+            self.base_url
         );
 
         let body = if body.len() > MAX_COMMENT_LENGTH {
@@ -313,7 +318,8 @@ impl GithubPrApi {
         content: &str,
     ) -> Result<u64, AdapterError> {
         let url = format!(
-            "{}/repos/{owner}/{repo}/issues/comments/{comment_id}/reactions", self.base_url
+            "{}/repos/{owner}/{repo}/issues/comments/{comment_id}/reactions",
+            self.base_url
         );
         self.create_reaction(&url, content).await
     }
@@ -327,7 +333,8 @@ impl GithubPrApi {
         content: &str,
     ) -> Result<u64, AdapterError> {
         let url = format!(
-            "{}/repos/{owner}/{repo}/pulls/comments/{comment_id}/reactions", self.base_url
+            "{}/repos/{owner}/{repo}/pulls/comments/{comment_id}/reactions",
+            self.base_url
         );
         self.create_reaction(&url, content).await
     }
@@ -338,9 +345,7 @@ impl GithubPrApi {
             .json(&serde_json::json!({ "content": content }))
             .send()
             .await
-            .map_err(|e| {
-                AdapterError::AdapterApi(format!("GitHub create_reaction failed: {e}"))
-            })?;
+            .map_err(|e| AdapterError::AdapterApi(format!("GitHub create_reaction failed: {e}")))?;
 
         let status = resp.status();
         // GitHub returns 200 (existing) or 201 (created); both contain the reaction body.
@@ -358,9 +363,7 @@ impl GithubPrApi {
         let reaction_id = data
             .get("id")
             .and_then(serde_json::Value::as_u64)
-            .ok_or_else(|| {
-                AdapterError::AdapterApi("GitHub create_reaction: missing id".into())
-            })?;
+            .ok_or_else(|| AdapterError::AdapterApi("GitHub create_reaction: missing id".into()))?;
         Ok(reaction_id)
     }
 
@@ -372,7 +375,8 @@ impl GithubPrApi {
         comment_id: u64,
     ) -> Result<Vec<ReactionInfo>, AdapterError> {
         let url = format!(
-            "{}/repos/{owner}/{repo}/issues/comments/{comment_id}/reactions", self.base_url
+            "{}/repos/{owner}/{repo}/issues/comments/{comment_id}/reactions",
+            self.base_url
         );
         self.list_reactions(&url).await
     }
@@ -385,7 +389,8 @@ impl GithubPrApi {
         comment_id: u64,
     ) -> Result<Vec<ReactionInfo>, AdapterError> {
         let url = format!(
-            "{}/repos/{owner}/{repo}/pulls/comments/{comment_id}/reactions", self.base_url
+            "{}/repos/{owner}/{repo}/pulls/comments/{comment_id}/reactions",
+            self.base_url
         );
         self.list_reactions(&url).await
     }
@@ -420,7 +425,8 @@ impl GithubPrApi {
         reaction_id: u64,
     ) -> Result<(), AdapterError> {
         let url = format!(
-            "{}/repos/{owner}/{repo}/issues/comments/{comment_id}/reactions/{reaction_id}", self.base_url
+            "{}/repos/{owner}/{repo}/issues/comments/{comment_id}/reactions/{reaction_id}",
+            self.base_url
         );
         self.delete_reaction(&url).await
     }
@@ -434,7 +440,8 @@ impl GithubPrApi {
         reaction_id: u64,
     ) -> Result<(), AdapterError> {
         let url = format!(
-            "{}/repos/{owner}/{repo}/pulls/comments/{comment_id}/reactions/{reaction_id}", self.base_url
+            "{}/repos/{owner}/{repo}/pulls/comments/{comment_id}/reactions/{reaction_id}",
+            self.base_url
         );
         self.delete_reaction(&url).await
     }
@@ -444,9 +451,7 @@ impl GithubPrApi {
             .request(reqwest::Method::DELETE, url)
             .send()
             .await
-            .map_err(|e| {
-                AdapterError::AdapterApi(format!("GitHub delete_reaction failed: {e}"))
-            })?;
+            .map_err(|e| AdapterError::AdapterApi(format!("GitHub delete_reaction failed: {e}")))?;
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();

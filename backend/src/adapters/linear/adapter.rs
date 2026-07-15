@@ -131,7 +131,6 @@ impl LinearAdapter {
         self.dedup_cache.insert(key.to_string(), ()).await;
         true
     }
-
 }
 
 #[async_trait::async_trait]
@@ -198,9 +197,7 @@ impl Adapter for LinearAdapter {
         let issue_uuid = issue
             .get("id")
             .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| {
-                AdapterError::AdapterApi("Linear issue payload missing id".into())
-            })?
+            .ok_or_else(|| AdapterError::AdapterApi("Linear issue payload missing id".into()))?
             .to_string();
         let identifier = issue
             .get("identifier")
@@ -379,6 +376,9 @@ mod tests {
     fn comment_body_without_footer_is_just_text() {
         let body = build_comment_body(&reply("hi", None));
         assert_eq!(body, "hi");
-        assert_eq!(parse_task_id_from_body("https://app.example.com", &body), None);
+        assert_eq!(
+            parse_task_id_from_body("https://app.example.com", &body),
+            None
+        );
     }
 }

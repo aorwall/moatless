@@ -73,15 +73,15 @@ fn pr_opened_text(p: &PrOpenedText<'_>) -> String {
 /// are compiled case-insensitively; an invalid regex is logged and treated as
 /// non-matching so one bad user-supplied pattern can't drop every event.
 fn title_is_ignored(title: &str, patterns: &[String]) -> bool {
-    patterns.iter().any(|p| {
-        match regex::RegexBuilder::new(p).case_insensitive(true).build() {
+    patterns.iter().any(
+        |p| match regex::RegexBuilder::new(p).case_insensitive(true).build() {
             Ok(re) => re.is_match(title),
             Err(e) => {
                 warn!(pattern = %p, error = %e, "Invalid ignored_title_patterns regex; skipping");
                 false
             }
-        }
-    })
+        },
+    )
 }
 
 /// Task message for an `issue_comment` webhook. Carries the PR/issue number
@@ -188,7 +188,9 @@ pub enum GithubPrWebhookResult {
 /// Outcome of `resolve_and_process_github_webhook`, surfaced so the HTTP
 /// handler can emit accurate metrics per outcome / reason / event_type.
 pub enum GithubWebhookOutcome {
-    Processed { event_type: String },
+    Processed {
+        event_type: String,
+    },
     Ignored {
         event_type: String,
         reason: &'static str,
@@ -582,7 +584,10 @@ impl GithubPrAdapter {
 
         tokio::spawn(async move {
             let repo = PgTaskBindingRepository(db);
-            let bindings = match repo.find_by_subject("github", "github_pr", &subject_key).await {
+            let bindings = match repo
+                .find_by_subject("github", "github_pr", &subject_key)
+                .await
+            {
                 Ok(rows) => rows,
                 Err(e) => {
                     warn!(
@@ -689,7 +694,10 @@ impl GithubPrAdapter {
         if !rule_config.ignored_title_patterns.is_empty()
             && title_is_ignored(title, &rule_config.ignored_title_patterns)
         {
-            info!(title, "GitHub PR skipped: title matches ignored_title_patterns");
+            info!(
+                title,
+                "GitHub PR skipped: title matches ignored_title_patterns"
+            );
             return Ok(GithubPrWebhookResult::Ignore);
         }
 
@@ -1610,7 +1618,6 @@ impl Adapter for GithubPrAdapter {
         }
         Ok(())
     }
-
 }
 
 /// Process a GitHub webhook: verify signature, parse, and route.
@@ -1720,7 +1727,13 @@ pub async fn resolve_and_process_github_webhook(
     };
 
     let result = github_provider
-        .parse_webhook(delivery_id, event_type, &payload, &rule_for_parse, &state.db)
+        .parse_webhook(
+            delivery_id,
+            event_type,
+            &payload,
+            &rule_for_parse,
+            &state.db,
+        )
         .await?;
 
     match result {
@@ -2086,7 +2099,10 @@ mod tests {
     #[test]
     fn outbound_user_id_none_when_nothing_present() {
         let binding = binding_with_filter(None);
-        assert_eq!(GithubPrAdapter::outbound_user_id(None, &binding, None), None);
+        assert_eq!(
+            GithubPrAdapter::outbound_user_id(None, &binding, None),
+            None
+        );
     }
 
     /// Full issue_comment payload from a given sender, suitable for
@@ -2121,8 +2137,7 @@ mod tests {
         );
         let mut rule = fake_rule();
         // Mixed case in config vs payload — match must be case-insensitive.
-        rule.provider_config =
-            Some(serde_json::json!({"ignored_senders": ["Linear-Code[bot]"]}));
+        rule.provider_config = Some(serde_json::json!({"ignored_senders": ["Linear-Code[bot]"]}));
         let db = fake_db_pool();
 
         let result = provider

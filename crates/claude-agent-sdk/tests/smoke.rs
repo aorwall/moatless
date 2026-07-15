@@ -1,8 +1,4 @@
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::print_stderr
-)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stderr)]
 //! Smoke test for claude-agent-sdk.
 //!
 //! Verifies:
@@ -77,9 +73,7 @@ fn base_options(cwd: &Path) -> ClaudeOptions {
 }
 
 async fn run_one_shot(prompt: &str, options: ClaudeOptions) -> Vec<SdkMessage> {
-    let mut handle = query(prompt, options)
-        .await
-        .expect("failed to start query");
+    let mut handle = query(prompt, options).await.expect("failed to start query");
     let mut messages = Vec::new();
     while let Some(msg) = handle.messages.recv().await {
         let msg = msg.expect("message error");

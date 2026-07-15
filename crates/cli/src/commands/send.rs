@@ -130,12 +130,8 @@ pub async fn run(
     }
 
     if let Some(destination) = args.to {
-        let via = args
-            .via
-            .as_deref()
-            .ok_or("--via is required with --to")?;
-        let adapter = AdapterKind::parse(via)
-            .ok_or_else(|| format!("Unknown adapter: {via}"))?;
+        let via = args.via.as_deref().ok_or("--via is required with --to")?;
+        let adapter = AdapterKind::parse(via).ok_or_else(|| format!("Unknown adapter: {via}"))?;
         let req = AdapterSendRequest {
             adapter,
             connection_id: args.connection,

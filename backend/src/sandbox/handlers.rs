@@ -19,6 +19,7 @@ use super::models::*;
 use super::routes::SandboxApiState;
 use super::schemas::*;
 use crate::task::dao::TaskPatch;
+use crate::task::models::{SandboxDesiredState, SandboxStopReason};
 
 /// Provision a new sandbox for a task.
 ///
@@ -146,6 +147,7 @@ pub async fn stop_handler(
     info!(task_id = %task_id, "POST /stop");
     match state.provider.stop(&task_id).await {
         Ok(()) => {
+            record_sandbox_stopped(&state, &task_id, SandboxStopReason::User).await;
             info!(task_id = %task_id, "Stop succeeded");
             Ok(StatusCode::NO_CONTENT)
         }
@@ -288,6 +290,7 @@ pub async fn cleanup_handler(
     info!(task_id = %task_id, "POST /cleanup");
     match state.provider.cleanup(&task_id, false).await {
         Ok(()) => {
+            record_sandbox_removed(&state, &task_id).await;
             info!(task_id = %task_id, "Cleanup succeeded");
             Ok(StatusCode::NO_CONTENT)
         }
@@ -385,10 +388,38 @@ async fn record_sandbox_started(state: &SandboxApiState, task_id: &str) {
     if let Some(ref tasks) = state.tasks {
         let patch = TaskPatch {
             sandbox_started_at: Some(Utc::now()),
+            sandbox_desired_state: Some(SandboxDesiredState::Running),
+            sandbox_stop_reason: Some(None),
             ..Default::default()
         };
         if let Err(e) = tasks.update_task(task_id, &patch).await {
             warn!(task_id = %task_id, error = %e, "Failed to update sandbox_started_at");
+        }
+    }
+}
+
+async fn record_sandbox_stopped(state: &SandboxApiState, task_id: &str, reason: SandboxStopReason) {
+    if let Some(ref tasks) = state.tasks {
+        let patch = TaskPatch {
+            sandbox_desired_state: Some(SandboxDesiredState::Stopped),
+            sandbox_stop_reason: Some(Some(reason)),
+            ..Default::default()
+        };
+        if let Err(e) = tasks.update_task(task_id, &patch).await {
+            warn!(task_id = %task_id, error = %e, "Failed to update sandbox stopped intent");
+        }
+    }
+}
+
+async fn record_sandbox_removed(state: &SandboxApiState, task_id: &str) {
+    if let Some(ref tasks) = state.tasks {
+        let patch = TaskPatch {
+            sandbox_desired_state: Some(SandboxDesiredState::Removed),
+            sandbox_stop_reason: Some(Some(SandboxStopReason::Cleanup)),
+            ..Default::default()
+        };
+        if let Err(e) = tasks.update_task(task_id, &patch).await {
+            warn!(task_id = %task_id, error = %e, "Failed to update sandbox removed intent");
         }
     }
 }

@@ -83,7 +83,10 @@ mod tests {
         let loop_ = parse_loop(content, "java-review").expect("valid loop parses");
         assert_eq!(loop_.name, "java-review");
         assert_eq!(loop_.frontmatter.on, "github_pr");
-        assert_eq!(loop_.frontmatter.tags.as_deref(), Some(&["review".to_string()][..]));
+        assert_eq!(
+            loop_.frontmatter.tags.as_deref(),
+            Some(&["review".to_string()][..])
+        );
         assert_eq!(loop_.prompt_body, "Review this PR.");
         // Absent inactiveTtlDays inherits the platform default (None).
         assert_eq!(loop_.frontmatter.inactive_ttl_days, None);
@@ -113,7 +116,10 @@ mod tests {
         let content = "---\non: slack\nsourceMatcher: C0000000001\nteamId: T0000000001\nroutingMode: ongoing\nadapterConfig:\n  allow_bot_messages: true\n  trigger: all_messages\n---\n\nMonitor CI failures and triage them.\n";
         let loop_ = parse_loop(content, "e2e-triage").expect("slack loop parses");
         assert_eq!(loop_.frontmatter.on, "slack");
-        assert_eq!(loop_.frontmatter.source_matcher.as_deref(), Some("C0000000001"));
+        assert_eq!(
+            loop_.frontmatter.source_matcher.as_deref(),
+            Some("C0000000001")
+        );
         assert_eq!(loop_.frontmatter.team_id.as_deref(), Some("T0000000001"));
         assert_eq!(loop_.frontmatter.routing_mode.as_deref(), Some("ongoing"));
         let cfg = loop_
@@ -122,7 +128,8 @@ mod tests {
             .as_ref()
             .expect("adapterConfig present");
         assert_eq!(
-            cfg.get("allow_bot_messages").and_then(serde_json::Value::as_bool),
+            cfg.get("allow_bot_messages")
+                .and_then(serde_json::Value::as_bool),
             Some(true)
         );
         assert_eq!(
@@ -137,7 +144,10 @@ mod tests {
         let content = "---\non: linear\nsourceMatcher: team-uuid-123\ntriggerStates: [Ready]\nprojectIds: [proj-abc]\nrequireLabels: [agent]\n---\n\nPick up the ticket and implement it.\n";
         let loop_ = parse_loop(content, "ready-pool").expect("linear loop parses");
         assert_eq!(loop_.frontmatter.on, "linear");
-        assert_eq!(loop_.frontmatter.source_matcher.as_deref(), Some("team-uuid-123"));
+        assert_eq!(
+            loop_.frontmatter.source_matcher.as_deref(),
+            Some("team-uuid-123")
+        );
         assert_eq!(
             loop_.frontmatter.trigger_states.as_deref(),
             Some(&["Ready".to_string()][..])
@@ -172,7 +182,8 @@ mod tests {
 
     #[test]
     fn tolerates_bom_and_crlf() {
-        let content = "\u{feff}---\r\non: github_pr\r\nagentType: claude-code\r\n---\r\n\r\nBody here.\r\n";
+        let content =
+            "\u{feff}---\r\non: github_pr\r\nagentType: claude-code\r\n---\r\n\r\nBody here.\r\n";
         let loop_ = parse_loop(content, "bom").expect("bom+crlf parses");
         assert_eq!(loop_.frontmatter.on, "github_pr");
         assert_eq!(loop_.frontmatter.agent_type.as_deref(), Some("claude-code"));

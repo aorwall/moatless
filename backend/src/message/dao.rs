@@ -69,10 +69,7 @@ pub struct InterruptedTurn {
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait MessageRepository: Send + Sync {
-    async fn get_all(
-        &self,
-        task_id: &str,
-    ) -> Result<MessagePage, sqlx::Error>;
+    async fn get_all(&self, task_id: &str) -> Result<MessagePage, sqlx::Error>;
 
     async fn append(
         &self,
@@ -256,10 +253,7 @@ pub struct PgMessageRepository(pub DbPool);
 
 #[async_trait]
 impl MessageRepository for PgMessageRepository {
-    async fn get_all(
-        &self,
-        task_id: &str,
-    ) -> Result<MessagePage, sqlx::Error> {
+    async fn get_all(&self, task_id: &str) -> Result<MessagePage, sqlx::Error> {
         let (messages, contexts, blocks) = tokio::try_join!(
             sqlx::query_as::<_, TaskMessage>(
                 r#"SELECT * FROM task_messages
@@ -1021,8 +1015,11 @@ impl MessageRepository for PgMessageRepository {
                    SELECT 1 FROM task_events e
                    WHERE e.task_id = m.task_id
                      AND e.turn_number = m.turn_number
-                     AND e.event_type = 'agent'
-                     AND e.sub_type IN ('completed', 'error', 'stopped')
+                     AND (
+                       (e.type = 'agent' AND e.sub_type IN ('completed', 'error', 'stopped'))
+                       OR (e.type = 'taskTurn' AND e.sub_type IN ('completed', 'error', 'stopped'))
+                       OR (e.type = 'sandbox' AND e.sub_type = 'stopped')
+                     )
                  )
                ORDER BY m.turn_number DESC
                LIMIT 1"#,

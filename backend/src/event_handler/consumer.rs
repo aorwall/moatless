@@ -348,8 +348,7 @@ impl EventHandlerConsumer {
     /// `task_turns` — the event row stays with `persist_event` and the
     /// task-status flip with the agent handlers.
     async fn project_turn_state(&self, event: &AgentEvent) {
-        let Some(transition) =
-            classify_turn_transition(event.event_type.as_str(), &event.sub_type)
+        let Some(transition) = classify_turn_transition(event.event_type.as_str(), &event.sub_type)
         else {
             return;
         };
@@ -357,7 +356,12 @@ impl EventHandlerConsumer {
         // explicit turn_number wins when the event carries one.
         let turn_number = match event.turn_number {
             Some(t) => t,
-            None => match self.state.messages.current_turn_number(&event.task_id).await {
+            None => match self
+                .state
+                .messages
+                .current_turn_number(&event.task_id)
+                .await
+            {
                 Ok(t) => t,
                 Err(e) => {
                     warn!(
