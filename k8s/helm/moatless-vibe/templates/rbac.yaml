@@ -91,6 +91,17 @@ subjects:
   - kind: ServiceAccount
     name: {{ include "moatless-vibe.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
+  {{- /*
+    When sandbox pods run under a dedicated ServiceAccount (kubernetes.sandboxServiceAccount),
+    bind it here too so in-sandbox troubleshooting (`kubectl get events`, `kubectl top pods`)
+    works. Read-only get/list on events + metrics.k8s.io/pods — no escalation. When the value
+    is empty, sandboxes fall back to the backend SA (already a subject above), so this is a no-op.
+  */ -}}
+  {{- if .Values.kubernetes.sandboxServiceAccount }}
+  - kind: ServiceAccount
+    name: {{ .Values.kubernetes.sandboxServiceAccount }}
+    namespace: {{ $sandboxNamespace }}
+  {{- end }}
 roleRef:
   kind: Role
   name: {{ include "moatless-vibe.fullname" . }}-observability

@@ -168,6 +168,7 @@ pub async fn run(
             }
         }
         TaskAction::Get { task_id } => {
+            let task_id = resolve_task_id(client, &task_id).await?;
             let task = client.api().get_task(&task_id).await?;
             if json {
                 output::print_json_typed(&task);
@@ -225,12 +226,16 @@ pub async fn run(
             }
         }
         TaskAction::Children { task_id } => {
-            let parent = task_id
-                .or_else(|| config.task_id().map(String::from))
-                .ok_or_else(|| ClientError::Api {
-                    status: 400,
-                    body: "No task_id provided and TASK_ID not set".to_string(),
-                })?;
+            let parent = match task_id {
+                Some(task_ref) => resolve_task_id(client, &task_ref).await?,
+                None => config
+                    .task_id()
+                    .map(String::from)
+                    .ok_or_else(|| ClientError::Api {
+                        status: 400,
+                        body: "No task_id provided and TASK_ID not set".to_string(),
+                    })?,
+            };
             let query = ListTasksQuery {
                 limit: None,
                 offset: None,
@@ -249,14 +254,17 @@ pub async fn run(
             }
         }
         TaskAction::Start { task_id } => {
+            let task_id = resolve_task_id(client, &task_id).await?;
             client.api().start_task(&task_id).await?;
             println!("Task {task_id} started.");
         }
         TaskAction::Stop { task_id } => {
+            let task_id = resolve_task_id(client, &task_id).await?;
             client.api().stop_task(&task_id).await?;
             println!("Task {task_id} stopped.");
         }
         TaskAction::Close { task_id } => {
+            let task_id = resolve_task_id(client, &task_id).await?;
             client.api().close_task(&task_id).await?;
             println!("Task {task_id} closed.");
         }
@@ -265,6 +273,7 @@ pub async fn run(
             name,
             description,
         } => {
+            let task_id = resolve_task_id(client, &task_id).await?;
             if name.is_none() && description.is_none() {
                 return Err(ClientError::Api {
                     status: 400,
@@ -284,6 +293,7 @@ pub async fn run(
             ttl_minutes,
             inactive_ttl_days,
         } => {
+            let task_id = resolve_task_id(client, &task_id).await?;
             if ttl_minutes.is_none() && inactive_ttl_days.is_none() {
                 return Err(ClientError::Api {
                     status: 400,
@@ -305,6 +315,7 @@ pub async fn run(
             }
         }
         TaskAction::Status { task_id } => {
+            let task_id = resolve_task_id(client, &task_id).await?;
             let status = client.api().sandbox_status(&task_id).await?;
             if json {
                 output::print_json_typed(&status);
@@ -319,6 +330,7 @@ pub async fn run(
                     body: "Cannot restart the entire sandbox from within it. Use `moat tasks logs $TASK_ID --server <name>` to diagnose server issues.".to_string(),
                 });
             }
+            let task_id = resolve_task_id(client, &task_id).await?;
             client.api().restart_sandbox(&task_id).await?;
             println!("Sandbox for {task_id} restarted.");
         }
@@ -329,6 +341,7 @@ pub async fn run(
                     body: "Cannot redeploy the sandbox from within it.".to_string(),
                 });
             }
+            let task_id = resolve_task_id(client, &task_id).await?;
             let resp = client.api().redeploy_sandbox(&task_id).await?;
             println!(
                 "Sandbox for {task_id} redeployed (status: {:?}).",
@@ -340,9 +353,11 @@ pub async fn run(
             server,
             previous,
         } => {
+            let task_id = resolve_task_id(client, &task_id).await?;
             stream_logs(client, &task_id, &server, previous).await?;
         }
         TaskAction::Diagnose { task_id, limit } => {
+            let task_id = resolve_task_id(client, &task_id).await?;
             run_diagnose(client, &task_id, limit, json).await?;
         }
         TaskAction::Preview {
@@ -350,6 +365,7 @@ pub async fn run(
             server,
             path,
         } => {
+            let task_id = resolve_task_id(client, &task_id).await?;
             let status = client.api().sandbox_status(&task_id).await?;
             let entry = status
                 .servers
@@ -380,6 +396,7 @@ pub async fn run(
             print!("{body}");
         }
         TaskAction::Files { task_id, action } => {
+            let task_id = resolve_task_id(client, &task_id).await?;
             run_file_action(client, &task_id, action, json).await?;
         }
     }
@@ -397,16 +414,57 @@ fn parse_task_status(s: &str) -> Option<TaskStatus> {
 
 fn format_task_list(list: &ListTasksResponse) {
     let rows: Vec<Vec<String>> = list.items.iter().map(format_task_row).collect();
-    output::print_table(&["TASK_ID", "STATUS", "TITLE", "REPO"], &rows);
+    output::print_table(&["TASK_ID", "SHORT", "STATUS", "TITLE", "REPO"], &rows);
 }
 
 fn format_task_row(t: &TaskResponse) -> Vec<String> {
     vec![
         t.task_id.clone(),
+        t.short_id.as_deref().unwrap_or("-").to_string(),
         t.status.to_string(),
         t.title.chars().take(50).collect(),
         t.repository_name.as_deref().unwrap_or("-").to_string(),
     ]
+}
+
+/// True if `s` looks like a full task_id (UUID: 36 chars with 4 hyphens).
+fn looks_like_task_id(s: &str) -> bool {
+    s.len() == 36 && s.chars().filter(|c| *c == '-').count() == 4
+}
+
+/// Resolve a task reference to a full task_id.
+///
+/// Accepts either a full task_id (UUID — passed through) or the 8-char shortId
+/// shown in the UI, which is looked up among the most recent tasks. Short ids
+/// are unique, so the first match wins.
+async fn resolve_task_id(client: &MoatClient, task_ref: &str) -> Result<String, ClientError> {
+    if looks_like_task_id(task_ref) {
+        return Ok(task_ref.to_string());
+    }
+    let query = ListTasksQuery {
+        limit: Some(200),
+        offset: None,
+        status: None,
+        repository_id: None,
+        created_by: None,
+        tag: None,
+        parent_task_id: None,
+        followed_by: None,
+    };
+    let list = client.api().list_tasks(&query).await?;
+    match list
+        .items
+        .iter()
+        .find(|t| t.short_id.as_deref() == Some(task_ref))
+    {
+        Some(t) => Ok(t.task_id.clone()),
+        None => Err(ClientError::Api {
+            status: 404,
+            body: format!(
+                "No task found for '{task_ref}'. Pass a full task_id (UUID), or run 'moat tasks list' — short ids resolve only among the 200 most recent tasks."
+            ),
+        }),
+    }
 }
 
 /// Resolve a repo argument to a repository ID.
@@ -447,6 +505,7 @@ async fn resolve_repo_id(client: &MoatClient, repo_arg: &str) -> Result<String, 
 
 fn format_task_detail(t: &TaskResponse) {
     println!("Task:    {}", t.task_id);
+    println!("ShortId: {}", t.short_id.as_deref().unwrap_or("-"));
     println!("Title:   {}", t.title);
     println!("Status:  {}", t.status);
     println!("Repo:    {}", t.repository_name.as_deref().unwrap_or("-"));
@@ -878,5 +937,28 @@ fn format_file_tree(resp: &serde_json::Value) {
                 print_tree_node(child, depth + 1);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::looks_like_task_id;
+
+    #[test]
+    fn recognizes_full_uuid_task_id() {
+        assert!(looks_like_task_id("1f0d0ebb-0a8e-49c2-94ff-77e8ea50b8bb"));
+        assert!(looks_like_task_id("873cc644-04af-415d-9e15-fe167f4d15dd"));
+    }
+
+    #[test]
+    fn rejects_short_id_and_junk() {
+        // 8-char shortIds shown in the UI must NOT be treated as full ids.
+        assert!(!looks_like_task_id("K9PCBWwH"));
+        assert!(!looks_like_task_id("Gs0d_Tcb"));
+        assert!(!looks_like_task_id(""));
+        // Right length, wrong hyphen count.
+        assert!(!looks_like_task_id(
+            "1f0d0ebb00a8e049c2094ff077e8ea50b8bbxx"
+        ));
     }
 }

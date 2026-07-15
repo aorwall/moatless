@@ -153,7 +153,13 @@ List tasks with optional filtering.
 | `--limit` | 50 | Maximum number of results |
 
 - **API**: `GET /api/v1/tasks?limit={limit}&status={status}`
-- **Table columns**: TASK_ID, STATUS, TITLE, REPO
+- **Table columns**: TASK_ID, SHORT, STATUS, TITLE, REPO
+
+The `SHORT` column is the 8-char shortId shown in the UI. Most `moat tasks <cmd> <id>`
+commands (`get`, `status`, `diagnose`, `logs`, `start`, `stop`, `close`, `update`,
+`ttl`, `restart`, `redeploy`, `preview`, `files`, `children`) accept **either** the
+full `task_id` (UUID) or a shortId — the CLI resolves a shortId against the 200 most
+recent tasks before calling the API. Pass the full UUID for older tasks.
 
 ```bash
 moat tasks list
@@ -163,12 +169,14 @@ moat tasks list --status completed --limit 10
 
 ### `moat tasks get <task_id>`
 
-Get detailed info for a specific task.
+Get detailed info for a specific task. Accepts a shortId or full UUID.
+The detail output includes both `Task` (UUID) and `ShortId` lines.
 
 - **API**: `GET /api/v1/tasks/{task_id}`
 
 ```bash
-moat tasks get abc123
+moat tasks get abc123        # full UUID
+moat tasks get K9PCBWwH      # shortId (from the UI / SHORT column)
 ```
 
 ### `moat tasks create`
@@ -207,11 +215,12 @@ moat tasks create --repo <repo-id> --name "Independent task" --no-parent
 List child tasks of a parent.
 
 - If `task_id` omitted, uses `$TASK_ID` env var
+- An explicit `task_id` may be a shortId or full UUID (resolved before querying)
 - **API**: `GET /api/v1/tasks?parentTaskId={parent}`
 
 ```bash
 moat tasks children                    # uses $TASK_ID
-moat tasks children <parent-task-id>   # explicit parent
+moat tasks children <parent-task-id>   # explicit parent (shortId or UUID)
 ```
 
 ### `moat tasks start <task_id>`
