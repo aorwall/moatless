@@ -4,8 +4,9 @@
 //! blocks on `axum::serve` and is SIGKILLed (exit 137) at the end of the pod's
 //! ~30s termination grace period on *every* teardown — idle-down, node drain,
 //! eviction, and PR-close. That churn is the source of the exit-137 kills seen
-//! in production. Installing a SIGTERM/SIGINT handler that stops the agent and
-//! cancels the lifecycle token lets the process drain and exit promptly.
+//! in production. Installing a SIGTERM/SIGINT handler that stops the agent,
+//! flushes CLI session state, and cancels the lifecycle token lets the process
+//! drain and exit promptly.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -25,7 +26,7 @@ use crate::state::SandboxState;
 const OUTBOX_FLUSH_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Side effects to run when a shutdown signal arrives: stop the running agent
-/// (best-effort), flush the Claude transcript to S3, then cancel the lifecycle
+/// (best-effort), flush CLI session state to S3, then cancel the lifecycle
 /// token so background tasks and both servers wind down.
 ///
 /// Extracted from the signal handler so it can be unit-tested without raising a
@@ -52,18 +53,14 @@ pub async fn perform_shutdown(
     // Bounded so it can't blow the pod's 30s grace period — the transcript and
     // workspace flushes below already budget ~22s worst case.
     if let Some(state) = state {
-        state
-            .events
-            .outbox()
-            .flush(OUTBOX_FLUSH_TIMEOUT)
-            .await;
+        state.events.outbox().flush(OUTBOX_FLUSH_TIMEOUT).await;
     }
 
-    // Flush the transcript AFTER the agent has stopped (so the active `.jsonl` is
-    // flushed by the CLI) and BEFORE cancelling the lifecycle token (which stops
-    // the periodic sync). On a graceful kill — including a spot reclaim's 2-min
-    // drain → SIGTERM — this persists the final delta with no loss. Bounded
-    // internally so it can't blow the pod's 30s grace period.
+    // Flush CLI session state AFTER the agent has stopped (so active JSONL
+    // files are flushed by the CLI) and BEFORE cancelling the lifecycle token
+    // (which stops the periodic sync). On a graceful kill — including a spot
+    // reclaim's 2-min drain → SIGTERM — this persists the final delta with no
+    // loss. Bounded internally so it can't blow the pod's 30s grace period.
     if let Some(state) = state {
         crate::init::transcript_sync::flush_on_shutdown(state).await;
 

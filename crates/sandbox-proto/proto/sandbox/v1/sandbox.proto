@@ -40,24 +40,25 @@ service BackendSandboxService {
   // Detect whether the previous agent run for a task was interrupted (the
   // sandbox crashed/restarted before any terminal `agent.completed/error/
   // stopped` event was emitted) and, if so, return the data needed to replay
-  // it via `claude --resume <session_id>`. Called once on sandbox startup,
+  // it via the agent's `--resume <session_id>` path. Called once on sandbox startup,
   // before pending-message dispatch.
   rpc RecoverInterruptedRun(RecoverInterruptedRunRequest) returns (RecoverInterruptedRunResponse);
 
-  // Upload the sandbox's Claude transcript archive (a tar of
-  // `$CLAUDE_CONFIG_DIR/projects/<dashed-cwd>/`) to S3 via the backend. The
-  // sandbox is AWS-credential-less by design, so all S3 I/O is proxied through
-  // the backend over this JWT-authed gRPC. Client-streaming because a transcript
-  // can exceed tonic's unary message cap; the backend reassembles the chunks and
+  // Upload the sandbox's CLI session-state archive to S3 via the backend. The
+  // archive includes Claude transcripts (`$CLAUDE_CONFIG_DIR/projects/...`) and
+  // Codex rollout sessions (`$CODEX_HOME/sessions/...`). The sandbox is
+  // AWS-credential-less by design, so all S3 I/O is proxied through the backend
+  // over this JWT-authed gRPC. Client-streaming because a session archive can
+  // exceed tonic's unary message cap; the backend reassembles the chunks and
   // `put_object`s to `<bucket>/<prefix>/<task_id>/transcripts.tar`. Called
   // periodically and on graceful shutdown. Auth via gRPC metadata.
   rpc UploadTranscript(stream TranscriptChunk) returns (UploadTranscriptResponse);
 
-  // Download the task's transcript archive previously stored by UploadTranscript,
-  // streamed back chunk by chunk. The sandbox untars it into
-  // `$CLAUDE_CONFIG_DIR/projects/<dashed-cwd>/` on startup so `--resume` history
-  // survives the PVC lifecycle (and exists at all for the ephemeral tier). An
-  // empty stream means "no transcript stored yet". Auth via gRPC metadata.
+  // Download the task's session-state archive previously stored by
+  // UploadTranscript, streamed back chunk by chunk. The sandbox untars it into
+  // the Claude and Codex session dirs on startup so `--resume` history survives
+  // the PVC lifecycle (and exists at all for the ephemeral tier). An empty
+  // stream means "no session archive stored yet". Auth via gRPC metadata.
   rpc DownloadTranscript(DownloadTranscriptRequest) returns (stream TranscriptChunk);
 
   // Mint short-lived, single-object presigned S3 URLs for the task's workspace
