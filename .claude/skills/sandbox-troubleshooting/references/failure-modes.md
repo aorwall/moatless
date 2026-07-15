@@ -4,13 +4,13 @@
 
 | Symptom / event | How to confirm | Root cause | Fix |
 |---|---|---|---|
-| `container_oom_killed`, exit 137 | `terminated_reason=OOMKilled` on a container | Container cgroup memory limit exceeded (often N parallel subagents + build children) | Raise the **limit**: `moat repos update <repo> --resource-memory-limit 24Gi` → `moat tasks restart`. Cluster default: `K8S_RESOURCE_LIMIT_MEMORY` in `backend/src/config.rs` + Helm `values.yaml` |
+| `container_oom_killed`, exit 137 | `containerDiagnostics[].terminatedReason=OOMKilled` on a container | Container cgroup memory limit exceeded (often N parallel subagents + build children) | Raise the **limit**: `moat repos update <repo> --resource-memory-limit 24Gi` → `moat tasks restart`. Cluster default: `K8S_RESOURCE_LIMIT_MEMORY` in `backend/src/config.rs` + Helm `values.yaml` |
 | `pod_evicted`, "Usage of EmptyDir volume … exceeds the limit" | `status.reason=Evicted` in pod JSON; `runtimeEvents` in `moat tasks diagnose` | An emptyDir volume exceeded its `sizeLimit` (build artifacts, logs) | Clean the dir or raise the size knob (below) |
 | `node_reclaimed` / `DeletionByPodGC` / `NodeLost` / `NodeShutdown` / `Terminated` / `DeletionByTaintManager` | `kubectl get node <old-node>` → `NotFound` | **Benign** spot-node reclamation; pod auto-reschedules | None — expected. Not a real failure |
 | `container_crash_loop` / `CrashLoopBackOff` | `waitingReason=CrashLoopBackOff` on sandbox container | Sandbox binary crashing on startup | `moat tasks logs <task> --server sandbox --previous`; crash-looping declared after `SANDBOX_MAX_CRASH_RESTART_COUNT` (default 5) |
 | Stuck `Initializing`, `/health` 503 | `moat tasks diagnose` waitingReason; `runtimeEvents` | Image pull, scheduling, or volume-bind problem | `ImagePullBackOff`/`ErrImagePull`/`InvalidImageName`/`CreateContainerConfigError` → fix image/secret; no-node → check node pool |
 | Server (preview/files) `failed` | `moat tasks status` per-server error; `--server preview --previous` logs | Bad start command / port / build failure | `moat repos get <repo>` → fix `--servers-json` → `moat tasks redeploy` |
-| Idle-stopped | `sandbox/stopped` event, `lifecycle_event: idle_reaped` | Reaper stopped an idle sandbox past TTL | `moat tasks start <task>` (PVC preserved) |
+| Idle-stopped | `sandbox/stopped` event, `payload.lifecycleEvent: idle_reaped` | Reaper stopped an idle sandbox past TTL | `moat tasks start <task>` (PVC preserved) |
 | `turn_interrupted` taskTurn event | correlate with a sandbox event at same UTC timestamp | Pod terminated involuntarily mid-turn (eviction/OOM/reclaim) | Diagnose the paired sandbox event; not itself an error |
 
 ## Volume size knobs (emptyDir eviction sources)

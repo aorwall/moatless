@@ -11,7 +11,11 @@ moat tasks diagnose $TASK_ID [--limit 50]
 
 # Current environment / agent / per-server status
 moat tasks status $TASK_ID
-moat tasks status $TASK_ID --json | jq '.containerDiagnostics'   # restarts, exit codes, OOM, cpu/mem
+# Plain status .containerDiagnostics carries only: name, state, restartCount.
+# `moat tasks diagnose` enriches each entry with cpuMillicores + memoryMb, and
+# terminated containers add exitCode/lastExitCode/terminatedReason/waitingReason:
+moat tasks status $TASK_ID --json | jq '.containerDiagnostics'
+moat tasks diagnose $TASK_ID --json | jq '.status.containerDiagnostics'   # + cpu/mem, exit, OOM reason
 
 # Durable event history (the source of truth once a pod is gone)
 moat events list $TASK_ID --types sandbox,server --limit 400 --json
@@ -19,11 +23,16 @@ moat events list $TASK_ID --errors                 # only isError:true
 moat events list $TASK_ID --follow                 # live SSE tail
 
 # Filter events to a time window (events are UTC!)
+# NOTE: event payload keys are camelCase (lifecycleEvent, serverName, eventType) —
+#       snake_case (lifecycle_event) silently returns empty. VALUES stay snake_case
+#       (pod_scheduled, container_oom_killed, idle_reaped, ...).
 moat events list $TASK_ID --limit 400 --json \
-  | jq -r '.[] | "\(.timestamp) [\(.type)/\(.subType)] err=\(.isError) \(.payload.lifecycle_event // "")"' \
+  | jq -r '.[] | "\(.timestamp) [\(.type)/\(.subType)] err=\(.isError) \(.payload.lifecycleEvent // "")"' \
   | tail -80
 
 # Live logs for one container (server: sandbox | preview | files | <name>-server)
+# NOTE: `moat tasks logs` STREAMS/follows (blocking, no --tail/--follow flag) — wrap
+#       in `timeout 15 …` for a snapshot, or use `kubectl logs --tail=N` for a bounded read.
 moat tasks logs $TASK_ID --server sandbox
 moat tasks logs $TASK_ID --server preview --previous   # crashed/restarted instance
 # NOTE: --previous returns 503 once the pod is fully gone; use the event stream instead.
@@ -33,9 +42,13 @@ moat messages list $TASK_ID --full                 # full transcript (roles, tim
 moat messages list $TASK_ID                         # compact preview table (newest 50)
 moat messages list $TASK_ID --limit 200             # bigger page (max 200)
 moat messages list $TASK_ID --before-id <id>        # page further back (cursor from prev page)
-# JSON shape: { messages: [{ role, timestamp, content, messageType, turnNumber, usage, ... }],
+# JSON shape: { messages: [{ role, timestamp, content, messageType, turnNumber, usage,
+#              model, agentMode, toolResults, sessionId, messageId, ... }],
 #              totalCount, hasMore, nextBeforeId }  — page with --before-id $(… .nextBeforeId)
-moat messages list $TASK_ID --json | jq -r '.messages[] | "\(.timestamp) \(.role): \(.content)"'
+# `content` is an ARRAY of typed blocks (thinking / text / tool_use), not a string —
+# extract text with: .content[]? | select(.type=="text") | .text
+moat messages list $TASK_ID --json \
+  | jq -r '.messages[] | "\(.timestamp) \(.role): \([.content[]? | select(.type=="text") | .text] | join(" "))"'
 
 # Files in the workspace
 moat tasks files $TASK_ID tree
@@ -85,8 +98,10 @@ kubectl top nodes
 kubectl scale deploy moatless-ws-$TASK_ID -n $NS --replicas=0   # stop
 kubectl scale deploy moatless-ws-$TASK_ID -n $NS --replicas=1   # start
 
-# Shell into a container
-kubectl exec -it $POD -n $NS -c sandbox -- bash
+# Shell into a container — FORBIDDEN for the moatless-sandbox SA (can't create
+# pods/exec); needs an admin kubeconfig. From inside a sandbox use `moat tasks
+# files`/`moat tasks logs` instead of exec.
+kubectl exec -it $POD -n $NS -c sandbox -- bash   # admin-only
 ```
 
 ## Backend logs & metrics (needs backend/cluster access, not the sandbox SA)

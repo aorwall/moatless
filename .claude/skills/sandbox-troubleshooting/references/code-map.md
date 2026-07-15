@@ -38,9 +38,10 @@ sequence, gRPC API, preview-server state machine).
 - `ServerSubType`: `installing | starting | started | stopped | failed`
 - `AgentSubType`: `... | error | recovery_exhausted | activity | ...` — `is_error()` ⇒ `error`, `recovery_exhausted`
 - `TaskTurnSubType`: `active | completed | error | stopped | turn_interrupted`
-- Sandbox `payload.lifecycle_event` values to grep: `container_oom_killed`,
-  `container_crash_loop`, `pod_evicted`, `pod_failed`, `node_reclaimed`,
-  `idle_reaped`, `environment_error`.
+- Sandbox `payload.lifecycleEvent` values to grep (event JSON key is camelCase;
+  values are snake_case): `container_oom_killed`, `container_crash_loop`,
+  `pod_evicted`, `pod_failed`, `node_reclaimed`, `idle_reaped`, `environment_error`.
+  (The Prometheus label for the same field is snake_case — `lifecycle_event` — see below.)
 
 ## Prometheus metrics (verified names, `GET /metrics`)
 

@@ -7,7 +7,8 @@ symptom→cause→fix lookup table and all knobs are in
 
 ## Sandbox restarted / turn interrupted
 1. `moat events list <task_id> --types sandbox,server --limit 400 --json` — read
-   the sandbox `lifecycle_event`s around the restart time (**events are UTC —
+   the sandbox `payload.lifecycleEvent`s around the restart time (event JSON keys
+   are camelCase; **events are UTC —
    widen the window before narrowing; a local-vs-UTC mismatch silently returns
    nothing**).
 2. Classify the cause:
@@ -29,7 +30,9 @@ symptom→cause→fix lookup table and all knobs are in
   volume not bound). See `docs/sandbox-lifecycle.md`.
 
 ## OOMKilled
-- Confirm: `terminated_reason=OOMKilled`, `exit_code=137` on a container.
+- Confirm via `moat tasks diagnose --json`: a container's
+  `containerDiagnostics[].terminatedReason == "OOMKilled"` with `exitCode == 137`
+  (camelCase in the API; the `/metrics` label equivalents are `reason`/`exit_code`).
 - Cross-check what was running: read the task transcript
   (`moat messages list <task_id> --full`) — parallel subagents + build children
   are the usual cause.
@@ -68,7 +71,7 @@ symptom→cause→fix lookup table and all knobs are in
 ## Idle-stopped unexpectedly
 - The reaper stops a sandbox only when TTL is exceeded **and** a live gRPC
   `GetAgentStatus` confirms idle with no busy processes. Look for a
-  `sandbox/stopped` event with `lifecycle_event: "idle_reaped"`.
+  `sandbox/stopped` event with `payload.lifecycleEvent: "idle_reaped"`.
 - Just `moat tasks start <task_id>` to resume (PVC state is preserved).
 
 ## restart vs redeploy vs raise-limits

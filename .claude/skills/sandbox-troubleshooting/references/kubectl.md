@@ -22,7 +22,7 @@ kubectl auth can-i --list -n moatless
 | `kubectl get events` / describe events | ✅ | via the `-observability` RoleBinding (chart ≥ 0.1.1) |
 | `kubectl get nodes` / `kubectl top nodes` | ✅ | node CPU/mem — for node-pressure checks |
 | `kubectl top pods` / pods.metrics | ✅ | via the `-observability` RoleBinding (needs metrics-server) |
-| `kubectl exec` / `kubectl port-forward` | ✅ | shell in / forward ports |
+| `kubectl exec` / `kubectl port-forward` | ❌ | **Forbidden** — SA can't `create pods/exec` or `pods/portforward` (needs admin/backend SA) |
 | `kubectl scale deploy` (patch) | ✅ | patch allowed; **no delete/create** |
 | `kubectl get secret <name>` | ✅ | get only, not list |
 | `kubectl get pvc` | ❌ | Forbidden |
@@ -110,8 +110,10 @@ If you still see `Forbidden`:
 
 ## Still Forbidden from a sandbox
 
-`kubectl get pvc`, `kubectl get role/rolebinding`, and deployment
+`kubectl get pvc`, `kubectl get role/rolebinding`, `secret` **list** (get by
+name works), `kubectl exec`, `kubectl port-forward`, and deployment
 create/delete remain denied to the `moatless-sandbox` SA by design. These need
 an **admin kubeconfig** (or the backend SA). Prefer the `moat` CLI where it
-covers the need (e.g. `moat tasks diagnose` surfaces PVC-related runtime events
-without a direct `get pvc`).
+covers the need — e.g. `moat tasks diagnose` surfaces PVC-related runtime events
+without a direct `get pvc`, and `moat tasks logs` / `moat tasks files` replace
+the need to `exec` into the pod.
