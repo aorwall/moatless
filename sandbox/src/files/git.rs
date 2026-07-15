@@ -64,6 +64,17 @@ struct CompareRef {
     reference: String,
 }
 
+/// A git repository discovered within the workspace.
+#[derive(Debug, Clone)]
+pub struct GitRepo {
+    /// Absolute path to the repository root.
+    pub abs_path: String,
+    /// Path prefix relative to the workspace dir. Empty when the workspace
+    /// root is itself a repo, otherwise the subdirectory name
+    /// (e.g. `"moatless-vibe"`).
+    pub prefix: String,
+}
+
 // ─── Helper ──────────────────────────────────────────────────────
 
 async fn run_git(
@@ -114,6 +125,85 @@ pub async fn is_git_repository(workspace_dir: &str) -> bool {
     run_git(workspace_dir, &["rev-parse", "--git-dir"], 5)
         .await
         .is_ok()
+}
+
+/// Discover git repositories within the workspace directory.
+///
+/// The file browser is rooted at the workspace directory rather than a single
+/// repo, so change overlays must be computed per-repo. Repos are always cloned
+/// into first-level subdirectories of the workspace, so the immediate
+/// (non-hidden) subdirectories are scanned and each one that is a git
+/// repository is returned with its directory name as the prefix. Repos are
+/// sorted by prefix for deterministic ordering.
+pub async fn discover_git_repos(workspace_dir: &str) -> Vec<GitRepo> {
+    let mut entries = match tokio::fs::read_dir(workspace_dir).await {
+        Ok(entries) => entries,
+        Err(e) => {
+            warn!(error = %e, dir = %workspace_dir, "Failed to scan workspace for git repos");
+            return Vec::new();
+        }
+    };
+
+    let mut repos = Vec::new();
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let file_type = match entry.file_type().await {
+            Ok(ft) => ft,
+            Err(_) => continue,
+        };
+        if !file_type.is_dir() {
+            continue;
+        }
+
+        // Skip hidden dirs (covers `.git` and caches). Every other visible child
+        // is probed directly, so a repo is never missed just because its
+        // directory name resembles a build dir (e.g. `target`, `node_modules`).
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') {
+            continue;
+        }
+
+        let abs_path = entry.path().to_string_lossy().to_string();
+        if is_git_repository(&abs_path).await {
+            repos.push(GitRepo {
+                abs_path,
+                prefix: name,
+            });
+        }
+    }
+
+    repos.sort_by(|a, b| a.prefix.cmp(&b.prefix));
+    repos
+}
+
+/// Resolve which discovered repo a workspace-relative path belongs to.
+///
+/// Returns the owning repo and the path relative to that repo's root, picking
+/// the most specific (longest prefix) match when repos are nested.
+fn resolve_repo_for_path<'a>(
+    repos: &'a [GitRepo],
+    file_path: &str,
+) -> Option<(&'a GitRepo, String)> {
+    let mut best: Option<(&'a GitRepo, String)> = None;
+    for repo in repos {
+        let rel = if repo.prefix.is_empty() {
+            Some(file_path.to_string())
+        } else {
+            file_path
+                .strip_prefix(&format!("{}/", repo.prefix))
+                .map(ToString::to_string)
+        };
+
+        if let Some(rel) = rel {
+            let is_better = match &best {
+                Some((current, _)) => repo.prefix.len() > current.prefix.len(),
+                None => true,
+            };
+            if is_better {
+                best = Some((repo, rel));
+            }
+        }
+    }
+    best
 }
 
 /// Detect base branch (main or master).
@@ -368,14 +458,42 @@ fn count_changes(chunk: &str) -> (i32, i32) {
 
 /// Get detailed git diff information for the workspace.
 ///
-/// Returns file-by-file change info with status, additions, deletions.
-/// Gracefully returns an empty result if git is not available or the
-/// workspace is not a git repository.
+/// The file browser is rooted at the workspace directory, which may contain
+/// one or more git repositories (either the root itself, or sibling repos in
+/// subdirectories). Diffs are computed per-repo and merged, with each file's
+/// path prefixed by its repo's workspace-relative location so it lines up with
+/// the file tree. Returns an empty result when no git repositories are found.
 pub async fn get_git_diff_detailed(workspace_dir: &str) -> GitDiffResponse {
-    if !is_git_repository(workspace_dir).await {
+    let repos = discover_git_repos(workspace_dir).await;
+    if repos.is_empty() {
         return GitDiffResponse::default();
     }
 
+    let mut combined = GitDiffResponse::default();
+    for repo in &repos {
+        let mut resp = get_repo_diff_detailed(&repo.abs_path).await;
+
+        // Prefix filenames with the repo's workspace-relative path so they
+        // match the tree paths built from the workspace root.
+        if !repo.prefix.is_empty() {
+            for file in &mut resp.files {
+                file.filename = format!("{}/{}", repo.prefix, file.filename);
+            }
+        }
+
+        combined.files.append(&mut resp.files);
+        combined.total_additions += resp.total_additions;
+        combined.total_deletions += resp.total_deletions;
+        if combined.compare_base.is_empty() {
+            combined.compare_base = resp.compare_base;
+        }
+    }
+
+    combined
+}
+
+/// Get detailed git diff information for a single repository root.
+async fn get_repo_diff_detailed(workspace_dir: &str) -> GitDiffResponse {
     let (diff_string, compare_base) = get_diff_string(workspace_dir).await;
     let (staged, _modified, untracked) = match get_git_status(workspace_dir).await {
         Ok(s) => s,
@@ -424,10 +542,17 @@ pub async fn get_git_diff_detailed(workspace_dir: &str) -> GitDiffResponse {
 }
 
 /// Get change info for a specific file (used by read-file-with-changes).
+///
+/// `file_path` is relative to the workspace root; it is resolved to the git
+/// repository that owns it (the workspace root itself, or a sibling repo in a
+/// subdirectory) and the diff is computed relative to that repo.
 pub async fn get_file_change_info(workspace_dir: &str, file_path: &str) -> FileChangeInfo {
-    if !is_git_repository(workspace_dir).await {
+    let repos = discover_git_repos(workspace_dir).await;
+    let Some((repo, file_path)) = resolve_repo_for_path(&repos, file_path) else {
         return FileChangeInfo::default();
-    }
+    };
+    let workspace_dir = repo.abs_path.as_str();
+    let file_path = file_path.as_str();
 
     let compare_ref = get_best_compare_reference(workspace_dir).await;
     let compare_base = &compare_ref.reference;
@@ -526,5 +651,139 @@ mod tests {
         let (add, del) = count_changes(chunk);
         assert_eq!(add, 2);
         assert_eq!(del, 1);
+    }
+
+    fn repo(prefix: &str) -> GitRepo {
+        GitRepo {
+            abs_path: format!("/ws/{prefix}"),
+            prefix: prefix.to_string(),
+        }
+    }
+
+    #[test]
+    fn resolve_repo_root_repo() {
+        let repos = vec![GitRepo {
+            abs_path: "/ws".to_string(),
+            prefix: String::new(),
+        }];
+        let (r, rel) = resolve_repo_for_path(&repos, "src/main.rs").unwrap();
+        assert_eq!(r.prefix, "");
+        assert_eq!(rel, "src/main.rs");
+    }
+
+    #[test]
+    fn resolve_repo_by_prefix() {
+        let repos = vec![repo("app"), repo("lib")];
+        let (r, rel) = resolve_repo_for_path(&repos, "lib/src/x.rs").unwrap();
+        assert_eq!(r.prefix, "lib");
+        assert_eq!(rel, "src/x.rs");
+    }
+
+    #[test]
+    fn resolve_repo_prefers_longest_prefix() {
+        let repos = vec![repo("app"), repo("app/nested")];
+        let (r, rel) = resolve_repo_for_path(&repos, "app/nested/src/x.rs").unwrap();
+        assert_eq!(r.prefix, "app/nested");
+        assert_eq!(rel, "src/x.rs");
+    }
+
+    #[test]
+    fn resolve_repo_no_match() {
+        let repos = vec![repo("app")];
+        assert!(resolve_repo_for_path(&repos, "other/x.rs").is_none());
+    }
+
+    async fn git_init(dir: &std::path::Path) {
+        for args in [
+            vec!["init", "-q"],
+            vec!["config", "user.email", "t@t.co"],
+            vec!["config", "user.name", "t"],
+        ] {
+            Command::new("git")
+                .args(&args)
+                .current_dir(dir)
+                .output()
+                .await
+                .unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn discover_repos_scans_first_level_only() {
+        // A repo at the workspace root itself is not discovered — repos are
+        // always cloned into first-level subdirectories, so only those are
+        // scanned.
+        let tmp = tempfile::TempDir::new().unwrap();
+        git_init(tmp.path()).await;
+
+        let repos = discover_git_repos(tmp.path().to_str().unwrap()).await;
+        assert!(repos.is_empty());
+    }
+
+    #[tokio::test]
+    async fn discover_repos_in_subdirs() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        // Workspace root is NOT a repo; some subdirs are, one is not. A repo
+        // whose dir name resembles a build dir (`target`) must still be found,
+        // while hidden dirs (`.hidden`) are skipped.
+        std::fs::create_dir(root.join("repo-a")).unwrap();
+        std::fs::create_dir(root.join("repo-b")).unwrap();
+        std::fs::create_dir(root.join("target")).unwrap();
+        std::fs::create_dir(root.join("plain")).unwrap();
+        std::fs::create_dir(root.join(".hidden")).unwrap();
+        git_init(&root.join("repo-a")).await;
+        git_init(&root.join("repo-b")).await;
+        git_init(&root.join("target")).await;
+        git_init(&root.join(".hidden")).await;
+
+        let repos = discover_git_repos(root.to_str().unwrap()).await;
+        let prefixes: Vec<&str> = repos.iter().map(|r| r.prefix.as_str()).collect();
+        assert_eq!(prefixes, vec!["repo-a", "repo-b", "target"]);
+    }
+
+    async fn git_commit_all(dir: &std::path::Path, msg: &str) {
+        for args in [vec!["add", "-A"], vec!["commit", "-q", "-m", msg]] {
+            Command::new("git")
+                .args(&args)
+                .current_dir(dir)
+                .output()
+                .await
+                .unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn diff_detailed_prefixes_subdir_repo_files() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        let repo_dir = root.join("my-repo");
+        std::fs::create_dir(&repo_dir).unwrap();
+        git_init(&repo_dir).await;
+
+        // Commit a tracked file, then modify it and add an untracked file.
+        std::fs::write(repo_dir.join("tracked.txt"), "one\n").unwrap();
+        git_commit_all(&repo_dir, "init").await;
+        std::fs::write(repo_dir.join("tracked.txt"), "one\ntwo\n").unwrap();
+        std::fs::write(repo_dir.join("new.txt"), "brand new\n").unwrap();
+
+        let resp = get_git_diff_detailed(root.to_str().unwrap()).await;
+        let names: HashSet<&str> = resp.files.iter().map(|f| f.filename.as_str()).collect();
+
+        // Filenames are prefixed with the repo's workspace-relative directory so
+        // they line up with the file tree rooted at the workspace.
+        assert!(
+            names.contains("my-repo/tracked.txt"),
+            "expected prefixed tracked file, got {names:?}"
+        );
+        assert!(
+            names.contains("my-repo/new.txt"),
+            "expected prefixed untracked file, got {names:?}"
+        );
+
+        // get_file_change_info resolves the workspace-relative path back to the repo.
+        let info = get_file_change_info(root.to_str().unwrap(), "my-repo/tracked.txt").await;
+        assert!(info.is_modified);
+        assert_eq!(info.additions, 1);
     }
 }

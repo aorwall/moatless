@@ -196,8 +196,10 @@ impl SandboxService for SandboxServiceImpl {
     // The file browser API is rooted at the workspace directory (`WORKSPACE_DIR`,
     // e.g. `/opt/moatless/workspace`) rather than the primary repo subdirectory,
     // so the frontend exposes the entire workspace. Git change overlays are
-    // computed relative to the same root and degrade gracefully (no badges) when
-    // the workspace root is not itself a git repository.
+    // computed per-repo: every git repository found within the workspace (the
+    // root itself, or sibling repos in subdirectories) contributes changes,
+    // with file paths prefixed by the repo's workspace-relative location so they
+    // line up with the tree. Degrades gracefully (no badges) when no repos exist.
 
     #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
     async fn get_file_tree(
