@@ -106,14 +106,14 @@ pub trait MessageRepository: Send + Sync {
     /// to. The `IS NULL` guard makes it a no-op for Claude/tmux (whose assistant
     /// rows already carry inline usage), so it's safe to call for every
     /// transport. Returns `true` when a row was updated.
-    async fn backfill_last_assistant_usage(
+    async fn backfill_last_assistant_usage<'a>(
         &self,
-        task_id: &str,
+        task_id: &'a str,
         input_tokens: Option<i32>,
         output_tokens: Option<i32>,
         cache_creation_input_tokens: Option<i32>,
         cache_read_input_tokens: Option<i32>,
-        assistant_usage: Option<&serde_json::Value>,
+        assistant_usage: Option<&'a serde_json::Value>,
     ) -> Result<bool, sqlx::Error>;
 
     async fn get_latest_session_id(&self, task_id: &str) -> Result<Option<String>, sqlx::Error>;
@@ -497,14 +497,14 @@ impl MessageRepository for PgMessageRepository {
         .await
     }
 
-    async fn backfill_last_assistant_usage(
+    async fn backfill_last_assistant_usage<'a>(
         &self,
-        task_id: &str,
+        task_id: &'a str,
         input_tokens: Option<i32>,
         output_tokens: Option<i32>,
         cache_creation_input_tokens: Option<i32>,
         cache_read_input_tokens: Option<i32>,
-        assistant_usage: Option<&serde_json::Value>,
+        assistant_usage: Option<&'a serde_json::Value>,
     ) -> Result<bool, sqlx::Error> {
         // Target the single most recent assistant row that still lacks usage,
         // via a subquery so the `IS NULL` guard both selects and gates the write.
