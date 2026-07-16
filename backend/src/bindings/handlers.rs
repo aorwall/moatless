@@ -23,9 +23,9 @@ use crate::extractors::AuthUser;
 use crate::message::models::{
     ContentBlockType, MessageRole, MessageType, TaskMessage, TaskMessageContentBlock,
 };
-use crate::scope::ScopeContext;
 use crate::state::AppState;
 use crate::triggers::rule_dao::PgTaskTriggerRouteRepository;
+use moatless_backend_core::scope::ScopeContext;
 
 #[utoipa::path(
     get,

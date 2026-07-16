@@ -4,8 +4,8 @@ use crate::adapters::common::{binding_descriptor, load_adapter_connection_for_au
 use crate::adapters::error::AdapterError;
 use crate::bindings::dao::PgTaskBindingRepository;
 use crate::bindings::outbound;
-use crate::scope::ScopeContext;
 use crate::state::AppState;
+use moatless_backend_core::scope::ScopeContext;
 
 pub struct ReplyService<'a> {
     state: &'a AppState,

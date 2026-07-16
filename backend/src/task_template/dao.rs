@@ -5,7 +5,7 @@ use sqlx::AssertSqlSafe;
 
 use super::models::TaskTemplate;
 use crate::db::DbPool;
-use crate::scope::{Scope, ScopeContext, ScopedEntity};
+use moatless_backend_core::scope::{Scope, ScopeContext, ScopedEntity};
 
 /// Patch struct for partial updates.
 #[derive(Default)]

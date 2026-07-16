@@ -2002,8 +2002,8 @@ mod tests {
 
     fn fake_rule() -> TaskTriggerRoute {
         use crate::adapters::models::RoutingMode;
-        use crate::scope::Scope;
         use chrono::Utc;
+        use moatless_backend_core::scope::Scope;
         TaskTriggerRoute {
             id: "ir_test".into(),
             provider: "github".into(),

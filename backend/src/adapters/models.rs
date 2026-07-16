@@ -3,7 +3,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::scope::Scope;
+use moatless_backend_core::scope::Scope;
 
 /// Persisted `task_bindings.origin` value for bindings created from inbound
 /// provider events. The stored value remains `ingress` for existing database

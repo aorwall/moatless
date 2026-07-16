@@ -15,8 +15,8 @@ use axum::response::{IntoResponse, Response};
 
 use crate::auth::identity::AuthIdentity;
 use crate::sandbox::jwt;
-use crate::scope::ScopeContext;
 use crate::state::AppState;
+use moatless_backend_core::scope::ScopeContext;
 
 /// Authenticated user extracted from request extensions, user token, or dev-mode headers.
 #[derive(Debug, Clone)]

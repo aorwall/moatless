@@ -8,8 +8,8 @@ use tracing::info;
 
 use crate::access_control::{ensure_can_write_resource, resolve_scope_for_create};
 use crate::extractors::AuthUser;
-use crate::scope::ScopedResource;
 use crate::state::AppState;
+use moatless_backend_core::scope::ScopedResource;
 
 use super::dao::TaskTemplatePatch;
 use super::error::TaskTemplateError;

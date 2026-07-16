@@ -32,8 +32,8 @@ use crate::adapters::AdapterKind;
 use crate::bindings::dao::PgTaskBindingRepository;
 use crate::bindings::runtime::upsert_binding;
 use crate::extractors::AuthUser;
-use crate::scope::ScopeContext;
 use crate::state::AppState;
+use moatless_backend_core::scope::ScopeContext;
 
 use super::adapter::LinearAdapter;
 use super::agent_api::{LinearAgentApi, LookupKind};

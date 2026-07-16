@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use sqlx::AssertSqlSafe;
 
 use crate::db::DbPool;
-use crate::scope::{Scope, ScopeContext, ScopedEntity};
+use moatless_backend_core::scope::{Scope, ScopeContext, ScopedEntity};
 
 use crate::adapters::models::RoutingMode;
 

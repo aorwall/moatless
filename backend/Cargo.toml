@@ -116,6 +116,9 @@ moatless-events = { path = "../crates/events", features = ["openapi"] }
 # Shared API schemas (DTOs shared with CLI)
 moatless-api-schemas = { path = "../crates/api-schemas", features = ["openapi", "database"] }
 
+# Pure backend access-control policy and scope types
+moatless-backend-core = { path = "../crates/backend-core" }
+
 # Claude agent SDK types (for OpenAPI schema generation)
 claude-agent-sdk = { path = "../crates/claude-agent-sdk", features = ["openapi"] }
 

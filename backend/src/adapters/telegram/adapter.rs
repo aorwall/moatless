@@ -428,7 +428,7 @@ impl Adapter for TelegramAdapter {
                 allow_direct_send: false,
                 provider_config: None,
                 ongoing_task_id: None,
-                scope: crate::scope::Scope::Global,
+                scope: moatless_backend_core::scope::Scope::Global,
                 team_id: None,
                 task_name: None,
                 tag_ids: vec![],
@@ -690,7 +690,7 @@ mod tests {
     use super::*;
     use crate::adapters::models::{RoutingMode, TaskTriggerRoute};
     use crate::adapters::Adapter;
-    use crate::scope::Scope;
+    use moatless_backend_core::scope::Scope;
 
     #[test]
     fn strip_mention_with_at() {
@@ -920,7 +920,7 @@ mod tests {
             allow_direct_send: false,
             provider_config: None,
             ongoing_task_id: None,
-            scope: crate::scope::Scope::User,
+            scope: moatless_backend_core::scope::Scope::User,
             team_id: None,
             task_name: None,
             tag_ids: vec![],

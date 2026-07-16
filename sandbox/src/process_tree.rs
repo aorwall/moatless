@@ -176,16 +176,25 @@ mod tests {
             .expect("spawn sleep");
         let child_pid = child.id();
 
-        let procs = live_descendants(std::process::id());
-        let found = procs
-            .iter()
-            .find(|p| p.pid == child_pid)
-            .expect("spawned sleep should appear among live descendants");
-        assert!(
-            found.command.contains("sleep"),
-            "command should reflect the process argv, got {:?}",
-            found.command
-        );
+        // `spawn()` returns as soon as the child PID exists — before it has
+        // finished `exec`-ing into /bin/sleep. Until the exec lands,
+        // /proc/<pid>/cmdline still reflects this test binary's argv, so poll
+        // briefly until the descendant surfaces with its own command.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let found = loop {
+            if let Some(proc) = live_descendants(std::process::id())
+                .into_iter()
+                .find(|p| p.pid == child_pid && p.command.contains("sleep"))
+            {
+                break proc;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "spawned sleep should appear among live descendants with its argv"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        };
+        assert!(found.command.contains("sleep"));
 
         // any_pid_live tracks the specific pid while alive, and flips after exit.
         assert!(any_pid_live(&[child_pid]));

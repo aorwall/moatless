@@ -204,8 +204,8 @@ pub fn rules_need_issue_fetch(rules: &[TaskTriggerRoute]) -> bool {
 mod tests {
     use super::*;
     use crate::adapters::models::RoutingMode;
-    use crate::scope::Scope;
     use chrono::Utc;
+    use moatless_backend_core::scope::Scope;
 
     fn rule_with(
         provider_config: serde_json::Value,

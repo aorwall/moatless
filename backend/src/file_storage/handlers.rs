@@ -10,8 +10,8 @@ use axum_extra::extract::Multipart;
 use super::models::FileMetadata;
 use crate::access_control::resolve_scope_for_create;
 use crate::extractors::AuthUser;
-use crate::scope::ScopedResource;
 use crate::state::AppState;
+use moatless_backend_core::scope::ScopedResource;
 
 use super::error::FileStorageError;
 use super::s3;
@@ -71,18 +71,22 @@ pub async fn upload_file(
 
     let file_id = uuid::Uuid::new_v4().to_string();
     let s3_key = format!("{}/{}", state.config.s3.key_prefix, file_id);
-    let resolved_scope =
-        resolve_scope_for_create(&state, &auth, Some(crate::scope::Scope::User), None)
-            .await
-            .map_err(|e| match e {
-                crate::access_control::AccessControlError::BadRequest(msg) => {
-                    FileStorageError::BadRequest(msg)
-                }
-                crate::access_control::AccessControlError::Forbidden(msg) => {
-                    FileStorageError::Forbidden(msg)
-                }
-                crate::access_control::AccessControlError::Db(err) => FileStorageError::Db(err),
-            })?;
+    let resolved_scope = resolve_scope_for_create(
+        &state,
+        &auth,
+        Some(moatless_backend_core::scope::Scope::User),
+        None,
+    )
+    .await
+    .map_err(|e| match e {
+        crate::access_control::AccessControlError::BadRequest(msg) => {
+            FileStorageError::BadRequest(msg)
+        }
+        crate::access_control::AccessControlError::Forbidden(msg) => {
+            FileStorageError::Forbidden(msg)
+        }
+        crate::access_control::AccessControlError::Db(err) => FileStorageError::Db(err),
+    })?;
 
     // Upload to S3
     s3::put_object(s3_client, bucket, &s3_key, data.clone(), &content_type)

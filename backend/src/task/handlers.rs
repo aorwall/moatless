@@ -15,10 +15,10 @@ use super::dao::{TaskFilter, TaskPatch};
 use super::models::Task;
 use super::relations::{CreatedByParent, TaskRelationType};
 use crate::extractors::AuthUser;
-use crate::scope::{Scope, ScopedResource};
 use crate::shared_models::{AgentMode, AgentType};
 use crate::state::AppState;
 use crate::task::models::{SandboxDesiredState, SandboxStopReason, TaskStatus, Visibility};
+use moatless_backend_core::scope::{Scope, ScopedResource};
 
 use crate::repository::models::{RepositoryKind, RepositoryProvider};
 

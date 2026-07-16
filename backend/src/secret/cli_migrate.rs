@@ -12,7 +12,7 @@ use super::models::{looks_like_secret_key, SecretKind, SecretScopeType};
 use super::schemas::PutSecretRequest;
 use super::service::SecretService;
 use crate::db::DbPool;
-use crate::scope::ScopeContext;
+use moatless_backend_core::scope::ScopeContext;
 
 #[derive(Debug, Clone, Copy)]
 pub struct MigrateOptions {

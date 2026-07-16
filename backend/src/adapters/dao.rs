@@ -3,7 +3,7 @@
 use sqlx::AssertSqlSafe;
 
 use crate::db::DbPool;
-use crate::scope::{ScopeContext, ScopedEntity};
+use moatless_backend_core::scope::{ScopeContext, ScopedEntity};
 
 use crate::adapters::models::AdapterConnection;
 

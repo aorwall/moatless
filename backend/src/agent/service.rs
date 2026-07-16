@@ -4,8 +4,8 @@ use std::collections::HashSet;
 
 use super::catalog::{catalog, AgentEntry};
 use super::schemas::{AgentDescriptor, AgentModel};
-use crate::scope::ScopeContext;
 use crate::state::AppState;
+use moatless_backend_core::scope::ScopeContext;
 
 /// Materialize the full catalog with `installed` populated per the given scope.
 pub async fn list_agents(state: &AppState, ctx: &ScopeContext) -> Vec<AgentDescriptor> {

@@ -11,9 +11,9 @@ use moatless_api_schemas::loops::{LoopSyncSummary, SyncConfigResponse};
 use crate::access_control::{ensure_can_write_resource, resolve_scope_for_create};
 use crate::extractors::AuthUser;
 use crate::loops::sync::sync_repo_loops;
-use crate::scope::ScopedResource;
 use crate::secret::models::looks_like_secret_key;
 use crate::state::AppState;
+use moatless_backend_core::scope::ScopedResource;
 
 use super::config_reader::{config_to_patch, fetch_moatless_config};
 use super::dao::RepositoryPatch;

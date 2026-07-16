@@ -8,8 +8,8 @@ use sqlx::AssertSqlSafe;
 
 use super::models::{SandboxDesiredState, SandboxStopReason, Task, TaskStatus, Visibility};
 use crate::db::DbPool;
-use crate::scope::{Scope, ScopeContext, ScopedEntity};
 use crate::shared_models::AgentType;
+use moatless_backend_core::scope::{Scope, ScopeContext, ScopedEntity};
 
 /// Filter struct for task listing queries.
 pub struct TaskFilter {

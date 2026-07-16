@@ -15,9 +15,9 @@ use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, TaskBinding};
 use crate::extractors::AuthUser;
-use crate::scope::{ScopeContext, ScopedResource};
 use crate::state::AppState;
 use crate::triggers::dao::{PgTriggerRepository, TriggerRecord, TriggerSourceRow};
+use moatless_backend_core::scope::{ScopeContext, ScopedResource};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]

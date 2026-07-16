@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, Utc};
 
-use crate::scope::Scope;
+use moatless_backend_core::scope::Scope;
 
 // =============================================================================
 // FileMetadata (DB)

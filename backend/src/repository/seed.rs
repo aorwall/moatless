@@ -6,7 +6,7 @@ use tracing::info;
 use super::dao::RepoRepository;
 use super::models::{Repository, RepositoryKind, RepositoryProvider};
 use crate::access_control::SYSTEM_TEAM_ID;
-use crate::scope::Scope;
+use moatless_backend_core::scope::Scope;
 
 /// Insert default template repositories if they don't already exist.
 ///

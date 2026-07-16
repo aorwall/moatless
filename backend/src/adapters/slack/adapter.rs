@@ -963,7 +963,7 @@ impl Adapter for SlackAdapter {
                 allow_direct_send: false,
                 provider_config: None,
                 ongoing_task_id: None,
-                scope: crate::scope::Scope::Global,
+                scope: moatless_backend_core::scope::Scope::Global,
                 team_id: None,
                 task_name: None,
                 tag_ids: vec![],
@@ -1181,7 +1181,7 @@ mod tests {
     use super::*;
     use crate::adapters::models::{RoutingMode, TaskTriggerRoute};
     use crate::adapters::Adapter;
-    use crate::scope::Scope;
+    use moatless_backend_core::scope::Scope;
 
     #[test]
     fn reply_instructions_include_identity_with_bot_id() {

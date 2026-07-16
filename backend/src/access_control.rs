@@ -5,9 +5,9 @@ use chrono::Utc;
 use crate::auth::models::UserRole;
 use crate::auth::users::User;
 use crate::extractors::AuthUser;
-use crate::scope::{Scope, ScopeContext, ScopedResource, TeamRole};
 use crate::state::AppState;
 use crate::team::models::Team;
+use moatless_backend_core::scope::{Scope, ScopeContext, ScopedResource, TeamRole};
 
 pub const SYSTEM_TEAM_ID: &str = "system";
 

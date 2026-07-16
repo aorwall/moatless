@@ -19,7 +19,7 @@ use super::schemas::{
     ValidateSecretsResponse,
 };
 use crate::config::SecretsConfig;
-use crate::scope::ScopeContext;
+use moatless_backend_core::scope::ScopeContext;
 
 const ENCRYPTION_VERSION: i32 = 1;
 const NONCE_LEN: usize = 12;

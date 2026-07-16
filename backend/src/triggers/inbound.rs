@@ -74,7 +74,7 @@ pub(crate) async fn create_task_for_external_message(
         visibility: Visibility::Private,
         scope: config.scope,
         team_id: config.team_id.clone(),
-        owner_user_id: (config.scope == crate::scope::Scope::User)
+        owner_user_id: (config.scope == moatless_backend_core::scope::Scope::User)
             .then(|| config.effective_user_id().to_string()),
         created_at_db: None,
         updated_at: None,

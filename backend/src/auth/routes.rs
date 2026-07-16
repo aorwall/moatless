@@ -16,7 +16,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use crate::config::{AuthProvider, Config};
 use crate::db::DbPool;
 use crate::error::ErrorBody;
-use crate::scope::ScopeContext;
+use moatless_backend_core::scope::ScopeContext;
 
 use super::api_key;
 use super::api_keys::ApiKeyRepository;
@@ -1956,7 +1956,7 @@ async fn linear_callback_handler(
             .map_or_else(|| "system".to_string(), |c| c.created_by.clone()),
         scope: existing
             .as_ref()
-            .map_or(crate::scope::Scope::Global, |c| c.scope),
+            .map_or(moatless_backend_core::scope::Scope::Global, |c| c.scope),
         team_id: existing.as_ref().and_then(|c| c.team_id.clone()),
         owner_user_id: existing.as_ref().and_then(|c| c.owner_user_id.clone()),
         created_at: existing.as_ref().map_or(now, |c| c.created_at),

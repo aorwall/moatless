@@ -107,8 +107,8 @@ pub(crate) fn ignored_title_patterns(provider_config: Option<&serde_json::Value>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scope::Scope;
     use chrono::Utc;
+    use moatless_backend_core::scope::Scope;
 
     fn rule_with(
         events_filter: serde_json::Value,

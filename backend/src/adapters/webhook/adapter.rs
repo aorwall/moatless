@@ -216,7 +216,7 @@ mod tests {
             allow_direct_send: false,
             provider_config,
             ongoing_task_id: None,
-            scope: crate::scope::Scope::User,
+            scope: moatless_backend_core::scope::Scope::User,
             team_id: None,
             task_name: None,
             tag_ids: vec![],

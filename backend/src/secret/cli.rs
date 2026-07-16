@@ -19,7 +19,7 @@ use super::schemas::PutSecretRequest;
 use super::service::{LocalEnvelopeSecretCipher, SecretService};
 use crate::config::Config;
 use crate::db;
-use crate::scope::ScopeContext;
+use moatless_backend_core::scope::ScopeContext;
 
 #[derive(Args, Debug)]
 pub struct SecretsCli {

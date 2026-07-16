@@ -653,7 +653,7 @@ async fn create_provider_event_task(
         visibility: Visibility::Public,
         scope: rule.scope,
         team_id: rule.team_id.clone(),
-        owner_user_id: (rule.scope == crate::scope::Scope::User)
+        owner_user_id: (rule.scope == moatless_backend_core::scope::Scope::User)
             .then(|| rule.effective_user_id().to_string()),
         created_at_db: None,
         updated_at: None,
@@ -954,8 +954,8 @@ mod tests {
     mod connection_only_rule {
         use super::super::connection_only_rule;
         use crate::adapters::models::AdapterConnection;
-        use crate::scope::Scope;
         use chrono::Utc;
+        use moatless_backend_core::scope::Scope;
 
         fn connection() -> AdapterConnection {
             let now = Utc::now();

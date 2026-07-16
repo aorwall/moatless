@@ -1409,7 +1409,7 @@ async fn insert_event_task(
         visibility: Visibility::Public,
         scope: rule.scope,
         team_id: rule.team_id.clone(),
-        owner_user_id: (rule.scope == crate::scope::Scope::User)
+        owner_user_id: (rule.scope == moatless_backend_core::scope::Scope::User)
             .then(|| rule.effective_user_id().to_string()),
         created_at_db: None,
         updated_at: None,
