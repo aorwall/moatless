@@ -106,6 +106,39 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
         tracing::warn!(task_id = %event.task_id, error = %e, "Failed to update task after completion");
     }
 
+    // Backfill turn token usage onto the assistant reply. Codex reports usage
+    // only on this terminal result (its assistant message carries none), so
+    // without this the token counts never reach a DB message. The DAO guards on
+    // `assistant_usage IS NULL`, so this is a no-op for Claude/tmux (whose
+    // assistant rows already carry inline usage). The raw `usage` object is kept
+    // whole (e.g. Codex `reasoning_output_tokens`) alongside the typed columns.
+    if let Some(usage) = sdk_result.usage.as_ref() {
+        let raw_usage = event.payload.get("usage");
+        match state
+            .messages
+            .backfill_last_assistant_usage(
+                &event.task_id,
+                usage.input_tokens.map(|v| v as i32),
+                usage.output_tokens.map(|v| v as i32),
+                usage.cache_creation_input_tokens.map(|v| v as i32),
+                usage.cache_read_input_tokens.map(|v| v as i32),
+                raw_usage,
+            )
+            .await
+        {
+            Ok(true) => tracing::debug!(
+                task_id = %event.task_id,
+                "Backfilled assistant-message usage from completion result"
+            ),
+            Ok(false) => {}
+            Err(e) => tracing::warn!(
+                task_id = %event.task_id,
+                error = %e,
+                "Failed to backfill assistant usage after completion"
+            ),
+        }
+    }
+
     // Reopen only if the task isn't already Closed. A Closed task is terminal
     // against automated re-open — the returned `reopened` gates the
     // `TaskSubType::Open` SSE event below so a closed task emits no phantom Open.
@@ -729,6 +762,10 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
             .and_then(|u| u.get("cache_read_input_tokens"))
             .and_then(serde_json::Value::as_i64)
             .map(|v| v as i32),
+        // Persist the whole usage object (ephemeral cache-write breakdown,
+        // server tool use, service tier) so cost is derivable downstream even
+        // when the transport reports no total_cost_usd (tmux).
+        assistant_usage: usage.cloned(),
         tool_use_result,
         sdk_metadata,
         attachments: None,
@@ -1057,6 +1094,7 @@ fn build_result_message_row(
         assistant_usage_output_tokens: None,
         assistant_usage_cache_creation_input_tokens: None,
         assistant_usage_cache_read_input_tokens: None,
+        assistant_usage: None,
         tool_use_result: None,
         sdk_metadata: None,
         attachments: None,

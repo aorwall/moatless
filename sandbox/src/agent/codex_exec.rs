@@ -70,6 +70,10 @@ pub struct Usage {
     pub input_tokens: i64,
     pub cached_input_tokens: i64,
     pub output_tokens: i64,
+    /// Reasoning tokens billed as output by Codex. Absent on older codex CLIs,
+    /// so default to 0 rather than failing the whole turn.completed parse.
+    #[serde(default)]
+    pub reasoning_output_tokens: i64,
 }
 
 #[derive(Debug, Deserialize)]

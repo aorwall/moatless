@@ -47,6 +47,130 @@ async fn append_and_get_all(pool: PgPool) {
     assert!(blocks.is_empty());
 }
 
+/// The full raw `assistant_usage` blob (including the ephemeral cache-write
+/// breakdown that the typed columns don't capture) round-trips through the
+/// `task_messages` column. This is the data cost is derived from when the
+/// transport reports no `total_cost_usd` (tmux).
+#[sqlx::test]
+async fn append_persists_assistant_usage(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+
+    let usage = serde_json::json!({
+        "input_tokens": 10,
+        "output_tokens": 197,
+        "cache_creation_input_tokens": 3980,
+        "cache_read_input_tokens": 18111,
+        "cache_creation": {
+            "ephemeral_1h_input_tokens": 3980,
+            "ephemeral_5m_input_tokens": 0
+        },
+        "server_tool_use": { "web_search_requests": 0, "web_fetch_requests": 0 },
+        "service_tier": "standard"
+    });
+
+    let mut msg = make_message_row("task-1", "usage-msg-1");
+    msg.assistant_message_model = Some("claude-haiku-4-5-20251001".to_string());
+    msg.assistant_usage = Some(usage.clone());
+
+    message_dao::append(&pool, &msg, &[], &[]).await.unwrap();
+
+    let (messages, _, _) = message_dao::get_all(&pool, "task-1").await.unwrap();
+    assert_eq!(messages.len(), 1);
+    let stored = &messages[0];
+    assert_eq!(
+        stored.assistant_message_model.as_deref(),
+        Some("claude-haiku-4-5-20251001")
+    );
+    assert_eq!(stored.assistant_usage.as_ref(), Some(&usage));
+    // The ephemeral cache-write breakdown (absent from the typed columns) is
+    // preserved for downstream cost derivation.
+    assert_eq!(
+        stored
+            .assistant_usage
+            .as_ref()
+            .and_then(|u| u.get("cache_creation"))
+            .and_then(|c| c.get("ephemeral_1h_input_tokens"))
+            .and_then(serde_json::Value::as_i64),
+        Some(3980)
+    );
+}
+
+/// Codex reports token usage only on the terminal result — its assistant
+/// message row is inserted with no usage. `backfill_last_assistant_usage` fills
+/// the most recent assistant row (guarded by `assistant_usage IS NULL`), so the
+/// turn's tokens + raw usage blob (incl. `reasoning_output_tokens`) land on the
+/// message. A second call is a no-op because the row now has usage.
+#[sqlx::test]
+async fn backfill_fills_last_assistant_usage_once(pool: PgPool) {
+    use moatless_vibe_backend::message::models::{MessageRole, MessageType};
+
+    seed_task(&pool, "task-1", "user-1").await;
+
+    // Assistant reply inserted WITHOUT usage (the Codex shape).
+    let mut assistant = make_message_row("task-1", "codex-assistant-1");
+    assistant.message_type = MessageType::Assistant;
+    assistant.message_role = MessageRole::Assistant;
+    assistant.assistant_message_model = Some("gpt-5.5".to_string());
+    message_dao::append(&pool, &assistant, &[], &[])
+        .await
+        .unwrap();
+
+    let usage = serde_json::json!({
+        "input_tokens": 10943,
+        "output_tokens": 5,
+        "cache_read_input_tokens": 9088,
+        "cache_creation_input_tokens": serde_json::Value::Null,
+        "reasoning_output_tokens": 128
+    });
+
+    let updated = message_dao::backfill_last_assistant_usage(
+        &pool,
+        "task-1",
+        Some(10943),
+        Some(5),
+        None,
+        Some(9088),
+        Some(&usage),
+    )
+    .await
+    .unwrap();
+    assert!(updated, "expected the assistant row to be backfilled");
+
+    let (messages, _, _) = message_dao::get_all(&pool, "task-1").await.unwrap();
+    let stored = messages
+        .iter()
+        .find(|m| m.uuid == "codex-assistant-1")
+        .expect("assistant row present");
+    assert_eq!(stored.assistant_usage_input_tokens, Some(10943));
+    assert_eq!(stored.assistant_usage_output_tokens, Some(5));
+    assert_eq!(stored.assistant_usage_cache_read_input_tokens, Some(9088));
+    assert_eq!(stored.assistant_message_model.as_deref(), Some("gpt-5.5"));
+    assert_eq!(stored.assistant_usage.as_ref(), Some(&usage));
+    // Codex reasoning tokens survive in the raw blob.
+    assert_eq!(
+        stored
+            .assistant_usage
+            .as_ref()
+            .and_then(|u| u.get("reasoning_output_tokens"))
+            .and_then(serde_json::Value::as_i64),
+        Some(128)
+    );
+
+    // Idempotent: the row now has usage, so a second backfill touches nothing.
+    let again = message_dao::backfill_last_assistant_usage(
+        &pool,
+        "task-1",
+        Some(1),
+        Some(1),
+        None,
+        Some(1),
+        Some(&serde_json::json!({"input_tokens": 1})),
+    )
+    .await
+    .unwrap();
+    assert!(!again, "second backfill must be a no-op (usage already set)");
+}
+
 #[sqlx::test]
 async fn append_with_contexts_and_blocks(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;

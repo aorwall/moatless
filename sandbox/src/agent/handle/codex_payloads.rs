@@ -692,6 +692,7 @@ pub(super) fn codex_result_payload(
                 "output_tokens": usage.output_tokens,
                 "cache_read_input_tokens": usage.cached_input_tokens,
                 "cache_creation_input_tokens": serde_json::Value::Null,
+                "reasoning_output_tokens": usage.reasoning_output_tokens,
             }),
         );
     }
@@ -974,6 +975,7 @@ mod tests {
                 input_tokens: 12,
                 cached_input_tokens: 3,
                 output_tokens: 4,
+                reasoning_output_tokens: 7,
             }),
             Some("gpt-5"),
         );
@@ -983,6 +985,7 @@ mod tests {
         assert!(payload.get("error").is_none());
         assert_eq!(payload["usage"]["input_tokens"], 12);
         assert_eq!(payload["usage"]["cache_read_input_tokens"], 3);
+        assert_eq!(payload["usage"]["reasoning_output_tokens"], 7);
         assert_eq!(payload["model"], "gpt-5");
     }
 

@@ -95,6 +95,27 @@ pub trait MessageRepository: Send + Sync {
         &self,
         task_id: &str,
     ) -> Result<Option<TaskMessage>, sqlx::Error>;
+
+    /// Backfill token usage onto the most recent `assistant` row for the task,
+    /// but ONLY when that row has no usage yet (`assistant_usage IS NULL`).
+    ///
+    /// Codex reports token counts only on the terminal `turn.completed` event —
+    /// its assistant message carries none — so unlike Claude the usage never
+    /// reaches the per-message columns at insert time. `handle_agent_completed`
+    /// calls this to attach the turn's usage to the assistant reply it belongs
+    /// to. The `IS NULL` guard makes it a no-op for Claude/tmux (whose assistant
+    /// rows already carry inline usage), so it's safe to call for every
+    /// transport. Returns `true` when a row was updated.
+    async fn backfill_last_assistant_usage(
+        &self,
+        task_id: &str,
+        input_tokens: Option<i32>,
+        output_tokens: Option<i32>,
+        cache_creation_input_tokens: Option<i32>,
+        cache_read_input_tokens: Option<i32>,
+        assistant_usage: Option<&serde_json::Value>,
+    ) -> Result<bool, sqlx::Error>;
+
     async fn get_latest_session_id(&self, task_id: &str) -> Result<Option<String>, sqlx::Error>;
     async fn get_latest_agent_session_id(
         &self,
@@ -308,13 +329,13 @@ impl MessageRepository for PgMessageRepository {
                 will_not_resume, run_metrics,
                 agent_mode, model, resume, external_event_id,
                 external_adapter, external_source_name, command_name, source_task_id,
-                start_fresh, sent_by, external_subject_key
+                start_fresh, sent_by, external_subject_key, assistant_usage
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
                 $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
                 $31, $32, $33, $34, $35, $36, $37, $38, $39, $40,
-                $41
+                $41, $42
             )
             ON CONFLICT (uuid) DO UPDATE SET
                 message_type = EXCLUDED.message_type,
@@ -367,6 +388,7 @@ impl MessageRepository for PgMessageRepository {
         .bind(msg.start_fresh)
         .bind(&msg.sent_by)
         .bind(&msg.external_subject_key)
+        .bind(&msg.assistant_usage)
         .fetch_one(&mut *tx)
         .await?;
 
@@ -473,6 +495,45 @@ impl MessageRepository for PgMessageRepository {
         .bind(task_id)
         .fetch_optional(&self.0)
         .await
+    }
+
+    async fn backfill_last_assistant_usage(
+        &self,
+        task_id: &str,
+        input_tokens: Option<i32>,
+        output_tokens: Option<i32>,
+        cache_creation_input_tokens: Option<i32>,
+        cache_read_input_tokens: Option<i32>,
+        assistant_usage: Option<&serde_json::Value>,
+    ) -> Result<bool, sqlx::Error> {
+        // Target the single most recent assistant row that still lacks usage,
+        // via a subquery so the `IS NULL` guard both selects and gates the write.
+        let result = sqlx::query(
+            r#"UPDATE task_messages SET
+                   assistant_usage_input_tokens = $2,
+                   assistant_usage_output_tokens = $3,
+                   assistant_usage_cache_creation_input_tokens = $4,
+                   assistant_usage_cache_read_input_tokens = $5,
+                   assistant_usage = $6
+               WHERE id = (
+                   SELECT id FROM task_messages
+                   WHERE task_id = $1
+                     AND message_type = 'assistant'
+                     AND assistant_usage IS NULL
+                   ORDER BY timestamp DESC, id DESC
+                   LIMIT 1
+               )"#,
+        )
+        .bind(task_id)
+        .bind(input_tokens)
+        .bind(output_tokens)
+        .bind(cache_creation_input_tokens)
+        .bind(cache_read_input_tokens)
+        .bind(assistant_usage)
+        .execute(&self.0)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
     }
 
     async fn get_latest_session_id(&self, task_id: &str) -> Result<Option<String>, sqlx::Error> {
@@ -1236,6 +1297,28 @@ pub async fn get_last_assistant_message(
 ) -> Result<Option<TaskMessage>, sqlx::Error> {
     PgMessageRepository(pool.clone())
         .get_last_assistant_message(task_id)
+        .await
+}
+
+/// Backfill usage onto the last assistant message (convenience wrapper).
+pub async fn backfill_last_assistant_usage(
+    pool: &DbPool,
+    task_id: &str,
+    input_tokens: Option<i32>,
+    output_tokens: Option<i32>,
+    cache_creation_input_tokens: Option<i32>,
+    cache_read_input_tokens: Option<i32>,
+    assistant_usage: Option<&serde_json::Value>,
+) -> Result<bool, sqlx::Error> {
+    PgMessageRepository(pool.clone())
+        .backfill_last_assistant_usage(
+            task_id,
+            input_tokens,
+            output_tokens,
+            cache_creation_input_tokens,
+            cache_read_input_tokens,
+            assistant_usage,
+        )
         .await
 }
 

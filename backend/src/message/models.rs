@@ -105,6 +105,11 @@ pub struct TaskMessage {
     pub assistant_usage_output_tokens: Option<i32>,
     pub assistant_usage_cache_creation_input_tokens: Option<i32>,
     pub assistant_usage_cache_read_input_tokens: Option<i32>,
+    /// Complete raw token-usage object from the assistant message (input/output
+    /// tokens, ephemeral cache-write breakdown, cache reads, server tool use,
+    /// service tier). Kept whole so cost can be derived downstream from
+    /// tokens + model — the tmux transport never reports `total_cost_usd`.
+    pub assistant_usage: Option<serde_json::Value>,
     pub tool_use_result: Option<serde_json::Value>,
     pub sdk_metadata: Option<serde_json::Value>,
     pub attachments: Option<serde_json::Value>,
@@ -168,6 +173,7 @@ impl TaskMessage {
             assistant_usage_output_tokens: None,
             assistant_usage_cache_creation_input_tokens: None,
             assistant_usage_cache_read_input_tokens: None,
+            assistant_usage: None,
             tool_use_result: None,
             sdk_metadata: None,
             attachments: None,
