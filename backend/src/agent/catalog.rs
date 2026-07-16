@@ -146,10 +146,43 @@ pub const CODEX: AgentEntry = AgentEntry {
     credential_keys: &[CODEX_AUTH_JSON, OPENAI_API_KEY],
     provider_token_providers: &["codex", "openai"],
     default_model: "default",
-    models: &[ModelEntry {
-        id: "default",
-        label: "Default",
-    }],
+    // "Default" resolves to `DEFAULT_CODEX_MODEL` (`gpt-5.5`) in the sandbox —
+    // see `sandbox/src/agent/codex_exec.rs`. The explicit entries below mirror
+    // the current Codex CLI model picker (`gpt-5.6-sol` is its current default).
+    models: &[
+        ModelEntry {
+            id: "default",
+            label: "Default",
+        },
+        ModelEntry {
+            id: "gpt-5.6-sol",
+            label: "GPT-5.6 Sol",
+        },
+        ModelEntry {
+            id: "gpt-5.6-terra",
+            label: "GPT-5.6 Terra",
+        },
+        ModelEntry {
+            id: "gpt-5.6-luna",
+            label: "GPT-5.6 Luna",
+        },
+        ModelEntry {
+            id: "gpt-5.5",
+            label: "GPT-5.5",
+        },
+        ModelEntry {
+            id: "gpt-5.4",
+            label: "GPT-5.4",
+        },
+        ModelEntry {
+            id: "gpt-5.4-mini",
+            label: "GPT-5.4 Mini",
+        },
+        ModelEntry {
+            id: "gpt-5.3-codex-spark",
+            label: "GPT-5.3 Codex Spark",
+        },
+    ],
     missing_credential_hint: "Add CODEX_AUTH_JSON or OPENAI_API_KEY in Settings \u{2192} Secrets",
 };
 

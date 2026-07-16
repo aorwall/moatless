@@ -1,6 +1,7 @@
 import type { MessageContextInput, UiMessage } from '@moatless/api-client'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
+import { useAgentAvailability } from '@/features/agents/hooks/use-agent-availability'
 import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
 import { SettingsDialog, useFigmaConfig } from '@/features/settings'
 import { useRepositorySkills } from '@/features/skills'
@@ -12,6 +13,7 @@ import {
   PlanApprovalInput,
 } from '@/features/tasks/components/chat/chat-input'
 import {
+  DEFAULT_AGENT_TYPE,
   useAgentModeSelector,
   useModelSelector,
 } from '@/features/tasks/components/chat/chat-input/selectors'
@@ -66,17 +68,6 @@ function getPlaceholderText(
     return `Task is ${status}. Type a new request to continue`
   }
   return 'Type a new request... (use @ to reference files)'
-}
-
-// Helper function to determine the model value for a task
-function getModelForTask(
-  isModelSelectorEnabled: boolean,
-  lastTurnModel: ClaudeModel | undefined,
-): ClaudeModel {
-  if (!isModelSelectorEnabled) {
-    return DEFAULT_CLAUDE_MODEL
-  }
-  return lastTurnModel || DEFAULT_CLAUDE_MODEL
 }
 
 /**
@@ -176,9 +167,7 @@ export function ChatInputSection({
   })
 
   // State for controlled selectors with defaults
-  const [selectedModel, setSelectedModel] = useState<ClaudeModel>(
-    getModelForTask(isModelSelectorEnabled, undefined),
-  )
+  const [selectedModel, setSelectedModel] = useState<ClaudeModel>(DEFAULT_CLAUDE_MODEL)
   const [selectedAgentMode, setSelectedAgentMode] = useState<'edit' | 'plan'>('edit')
 
   // Initialize selectors with controlled state
@@ -188,7 +177,23 @@ export function ChatInputSection({
     : () => {
         /* no-op: model selector disabled */
       }
-  const modelSelector = useModelSelector(modelValue, modelOnChange)
+
+  // Resolve the task's agent from the catalog so the model list + default are
+  // scoped to whatever agent actually runs this task (e.g. codex, fable) rather
+  // than the hard-coded Claude fallback. Also resets the selection when the
+  // current model isn't offered by the task's agent.
+  const { selectedAgent } = useAgentAvailability({
+    agentType: task?.agentType ?? DEFAULT_AGENT_TYPE,
+    model: selectedModel,
+    onModelChange: setSelectedModel,
+  })
+
+  const modelSelector = useModelSelector<ClaudeModel>(
+    modelValue,
+    modelOnChange,
+    selectedAgent?.models,
+    selectedAgent?.defaultModel ?? DEFAULT_CLAUDE_MODEL,
+  )
   const agentModeSelector = useAgentModeSelector(selectedAgentMode, setSelectedAgentMode)
 
   // Clear state when task changes. The message draft is intentionally NOT
@@ -196,11 +201,12 @@ export function ChatInputSection({
   // biome-ignore lint/correctness/useExhaustiveDependencies: taskId is from params and we want to reset state when it changes
   useEffect(() => {
     taskInputs.clearAll()
-    // Reset selectors to defaults
-    setSelectedModel(getModelForTask(isModelSelectorEnabled, undefined))
+    // Reset selectors to defaults. useAgentAvailability re-derives the correct
+    // per-agent default once the task's agent catalog entry resolves.
+    setSelectedModel(DEFAULT_CLAUDE_MODEL)
     setSelectedAgentMode('edit')
     setStartFresh(false)
-  }, [taskId, isModelSelectorEnabled])
+  }, [taskId])
 
   // Stop agent mutation
   const stopAgent = useStopAgent(taskId)
