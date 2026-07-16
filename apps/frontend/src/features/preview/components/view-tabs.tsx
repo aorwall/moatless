@@ -1,5 +1,14 @@
 import type { ServerEntry } from '@moatless/api-client'
-import { FileText, type LucideIcon, Monitor, Server, SlidersHorizontal } from 'lucide-react'
+import {
+  ChevronDown,
+  FileText,
+  Globe,
+  type LucideIcon,
+  Server,
+  SlidersHorizontal,
+} from 'lucide-react'
+import { useState } from 'react'
+import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/popover'
 import { cn } from '@/lib/utils'
 
 interface ViewTabsProps {
@@ -14,7 +23,7 @@ export const SANDBOX_VIEW = 'sandbox'
 
 /** Pick an icon for a server tab based on its name. */
 function iconForServer(name: string): LucideIcon {
-  return name === 'preview' ? Monitor : Server
+  return name === 'preview' ? Globe : Server
 }
 
 /** Small colored dot indicating server status */
@@ -40,61 +49,151 @@ function StatusDot({ status }: { status: ServerEntry['status'] }) {
   )
 }
 
+/** Shared classes for a single segmented-control button. */
+function tabClasses(isActive: boolean, isFirst: boolean, isLast: boolean) {
+  return cn(
+    'px-2.5 py-1 text-sm font-medium transition-colors flex items-center gap-1.5',
+    isFirst && 'rounded-l-md',
+    isLast && 'rounded-r-md',
+    isActive
+      ? 'bg-background text-foreground shadow-sm'
+      : 'text-muted-foreground hover:text-foreground',
+  )
+}
+
+/**
+ * Consolidated preview-server picker. When a repository exposes more than one
+ * server we collapse the individual server tabs into a single globe dropdown so
+ * the header doesn't grow an icon per server. The trigger reflects the active
+ * (or default) server's status and label; the menu lists every server.
+ */
+function ServerDropdown({
+  servers,
+  activeView,
+  onViewChange,
+  isFirst,
+  isLast,
+}: {
+  servers: ServerEntry[]
+  activeView: string
+  onViewChange: (view: string) => void
+  isFirst: boolean
+  isLast: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const isActive = servers.some((s) => s.name === activeView)
+  const displayed =
+    servers.find((s) => s.name === activeView) ?? servers.find((s) => s.default) ?? servers[0]
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          title="Select preview server"
+          aria-label="Select preview server"
+          className={tabClasses(isActive, isFirst, isLast)}
+        >
+          {displayed && <StatusDot status={displayed.status} />}
+          <Globe className="h-3.5 w-3.5" />
+          <ChevronDown className="h-3 w-3 opacity-60" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-56 p-1">
+        <div className="flex flex-col">
+          {servers.map((server) => {
+            const Icon = iconForServer(server.name)
+            return (
+              <button
+                key={server.name}
+                type="button"
+                className={cn(
+                  'flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-left transition-colors',
+                  server.name === activeView
+                    ? 'bg-accent text-accent-foreground'
+                    : 'hover:bg-accent hover:text-accent-foreground',
+                )}
+                onClick={() => {
+                  onViewChange(server.name)
+                  setOpen(false)
+                }}
+              >
+                <StatusDot status={server.status} />
+                <Icon className="h-3.5 w-3.5 flex-shrink-0" />
+                <span className="truncate">{server.label}</span>
+              </button>
+            )
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 /**
  * Dynamic workspace view tabs.
- * Renders a tab for Files, each available server, and the Sandbox controls.
- * Server names are used directly as view identifiers.
+ * Renders a tab for Files, the available server(s), and the Sandbox controls.
+ * A single server renders as one globe tab; multiple servers collapse into a
+ * globe dropdown. Server names are used directly as view identifiers.
  */
 export function ViewTabs({ servers, activeView, onViewChange, className }: ViewTabsProps) {
   const sorted = servers.toSorted((a, b) => (b.default ? 1 : 0) - (a.default ? 1 : 0))
-  // Only label the server tabs when there's more than one to disambiguate;
-  // Files and Sandbox are always icon-only.
-  const showServerLabels = sorted.length > 1
-  const allTabs: Array<{
-    id: string
-    label: string
-    status?: ServerEntry['status']
-    icon: LucideIcon
-    showLabel: boolean
-  }> = [
-    { id: 'files', label: 'Files', icon: FileText, showLabel: false },
-    ...sorted.map((server) => ({
-      id: server.name,
-      label: server.label,
-      status: server.status,
-      icon: iconForServer(server.name),
-      showLabel: showServerLabels,
-    })),
-    // Sandbox controls — always last, always available.
-    { id: SANDBOX_VIEW, label: 'Sandbox', icon: SlidersHorizontal, showLabel: false },
-  ]
+  const hasMultipleServers = sorted.length > 1
+
+  // Files is always first; Sandbox is always last. The server slot in between is
+  // either a single tab or the consolidated dropdown.
+  const filesActive = activeView === 'files'
+  const sandboxActive = activeView === SANDBOX_VIEW
 
   return (
     <div className={cn('flex items-center border rounded-md bg-muted/30 flex-shrink-0', className)}>
-      {allTabs.map((tab, index) => {
-        const Icon = tab.icon
-        return (
-          <button
-            key={tab.id}
-            type="button"
-            title={tab.label}
-            aria-label={tab.label}
-            className={cn(
-              'px-2.5 py-1 text-sm font-medium transition-colors flex items-center gap-1.5',
-              index === 0 && 'rounded-l-md',
-              index === allTabs.length - 1 && 'rounded-r-md',
-              activeView === tab.id
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-            onClick={() => onViewChange(tab.id)}
-          >
-            {tab.status && <StatusDot status={tab.status} />}
-            <Icon className="h-3.5 w-3.5" />
-            {tab.showLabel && <span>{tab.label}</span>}
-          </button>
-        )
-      })}
+      <button
+        type="button"
+        title="Files"
+        aria-label="Files"
+        className={tabClasses(filesActive, true, false)}
+        onClick={() => onViewChange('files')}
+      >
+        <FileText className="h-3.5 w-3.5" />
+      </button>
+
+      {hasMultipleServers ? (
+        <ServerDropdown
+          servers={sorted}
+          activeView={activeView}
+          onViewChange={onViewChange}
+          isFirst={false}
+          isLast={false}
+        />
+      ) : (
+        sorted.map((server) => {
+          const Icon = iconForServer(server.name)
+          const isActive = activeView === server.name
+          return (
+            <button
+              key={server.name}
+              type="button"
+              title={server.label}
+              aria-label={server.label}
+              className={tabClasses(isActive, false, false)}
+              onClick={() => onViewChange(server.name)}
+            >
+              <StatusDot status={server.status} />
+              <Icon className="h-3.5 w-3.5" />
+            </button>
+          )
+        })
+      )}
+
+      <button
+        type="button"
+        title="Sandbox"
+        aria-label="Sandbox"
+        className={tabClasses(sandboxActive, false, true)}
+        onClick={() => onViewChange(SANDBOX_VIEW)}
+      >
+        <SlidersHorizontal className="h-3.5 w-3.5" />
+      </button>
     </div>
   )
 }
