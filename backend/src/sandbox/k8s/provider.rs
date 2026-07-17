@@ -431,7 +431,13 @@ impl SandboxProvider for K8sSandboxProvider {
         .await
         {
             Ok(stream) => Ok(stream),
-            Err(pod_reader::LogStreamError::NoPod(msg)) => Err(SandboxError::NotReady(msg)),
+            Err(
+                pod_reader::LogStreamError::NoPod(msg)
+                | pod_reader::LogStreamError::NotStarted(msg),
+            ) => Err(SandboxError::NotReady(msg)),
+            Err(pod_reader::LogStreamError::NoPreviousLogs(msg)) => {
+                Err(SandboxError::NotFound(msg))
+            }
             Err(pod_reader::LogStreamError::Other(msg)) => Err(SandboxError::Internal(msg)),
         }
     }

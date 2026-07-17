@@ -80,13 +80,14 @@ pub enum ClientError {
 
 /// Classify gRPC errors into appropriate `SandboxError` variants.
 ///
-/// - `Unavailable`/`DeadlineExceeded` → `NotReady` (503)
+/// - `Unavailable`/`DeadlineExceeded`/`Cancelled` → `NotReady` (503)
+///   (tonic's transport timeout surfaces as `Cancelled` with "Timeout expired")
 /// - `NotFound` → `NotFound` (404)
 /// - `FailedPrecondition`/`InvalidArgument` → `BadRequest` (400)
 /// - everything else → `Internal` (500)
 pub fn classify_grpc_error(e: tonic::Status, operation: &str) -> SandboxError {
     match e.code() {
-        tonic::Code::Unavailable | tonic::Code::DeadlineExceeded => {
+        tonic::Code::Unavailable | tonic::Code::DeadlineExceeded | tonic::Code::Cancelled => {
             SandboxError::NotReady(format!("Sandbox unreachable: {operation}"))
         }
         tonic::Code::NotFound => SandboxError::NotFound(e.message().to_string()),
@@ -341,6 +342,30 @@ impl SandboxClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn classify_unreachable_codes_as_not_ready() {
+        for status in [
+            tonic::Status::unavailable("connection refused"),
+            tonic::Status::deadline_exceeded("deadline"),
+            tonic::Status::cancelled("Timeout expired"),
+        ] {
+            let err = classify_grpc_error(status, "get_file_tree");
+            assert!(matches!(err, SandboxError::NotReady(_)), "got {err:?}");
+        }
+    }
+
+    #[test]
+    fn classify_not_found_and_internal() {
+        assert!(matches!(
+            classify_grpc_error(tonic::Status::not_found("missing"), "read_file"),
+            SandboxError::NotFound(_)
+        ));
+        assert!(matches!(
+            classify_grpc_error(tonic::Status::internal("boom"), "read_file"),
+            SandboxError::Internal(_)
+        ));
+    }
 
     #[test]
     fn from_proto_maps_wakeup_kind() {

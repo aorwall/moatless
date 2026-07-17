@@ -16,13 +16,34 @@ use super::pod_status::{extract_all_container_statuses, extract_container_observ
 use crate::sandbox::models::ContainerObservedStatus;
 use crate::sandbox::schemas::RuntimeEvent;
 
-/// Errors from log streaming, distinguishing "no pod" from other failures.
+/// Errors from log streaming, distinguishing "not ready yet" from other failures.
 #[derive(Debug)]
 pub enum LogStreamError {
     /// No pod found for the given task — sandbox not running.
     NoPod(String),
+    /// Container exists but has not started yet (e.g. PodInitializing) — no logs available.
+    NotStarted(String),
+    /// No previous instance of the container to read logs from.
+    NoPreviousLogs(String),
     /// Other streaming error.
     Other(String),
+}
+
+/// K8s rejects log reads with 400 while a container is waiting to start
+/// (PodInitializing, ContainerCreating, ...). Returns the API message if so.
+fn container_waiting_message(e: &kube::Error) -> Option<&str> {
+    match e {
+        kube::Error::Api(api) if api.code == 400 && api.message.contains("waiting to start") => {
+            Some(&api.message)
+        }
+        _ => None,
+    }
+}
+
+/// K8s rejects `previous: true` log reads with 400 when the container has no
+/// terminated predecessor.
+fn no_previous_container(e: &kube::Error) -> bool {
+    matches!(e, kube::Error::Api(api) if api.code == 400 && api.message.contains("not found"))
 }
 
 /// Fetch server container statuses from K8s API.
@@ -158,7 +179,15 @@ pub async fn stream_container_logs_k8s(
         let prev_stream = pods_api
             .log_stream(&pod_name, &prev_params)
             .await
-            .map_err(|e| LogStreamError::Other(format!("Failed to fetch previous logs: {e}")))?;
+            .map_err(|e| {
+                if no_previous_container(&e) {
+                    LogStreamError::NoPreviousLogs(format!(
+                        "No previous logs for container {container_name}"
+                    ))
+                } else {
+                    LogStreamError::Other(format!("Failed to fetch previous logs: {e}"))
+                }
+            })?;
 
         let event_stream = async_stream::stream! {
             use futures::AsyncBufReadExt;
@@ -216,9 +245,14 @@ pub async fn stream_container_logs_k8s(
                 .log_stream(&pod_name, &prev_params)
                 .await
                 .map_err(|prev_err| {
-                    LogStreamError::Other(format!(
-                        "Live log stream failed ({live_err}), previous logs also failed ({prev_err})"
-                    ))
+                    // A container that never started has no logs, live or previous.
+                    if let Some(msg) = container_waiting_message(&live_err) {
+                        LogStreamError::NotStarted(msg.to_string())
+                    } else {
+                        LogStreamError::Other(format!(
+                            "Live log stream failed ({live_err}), previous logs also failed ({prev_err})"
+                        ))
+                    }
                 })?;
 
             let event_stream = async_stream::stream! {
@@ -375,5 +409,43 @@ fn parse_memory_to_bytes(s: &str) -> u64 {
     } else {
         // Plain bytes
         s.parse::<u64>().unwrap_or(0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn api_error(code: u16, message: &str) -> kube::Error {
+        kube::Error::Api(Box::new(
+            kube::core::Status::failure(message, "BadRequest").with_code(code),
+        ))
+    }
+
+    #[test]
+    fn detects_container_waiting_to_start() {
+        let e = api_error(
+            400,
+            "container \"sandbox\" in pod \"p\" is waiting to start: PodInitializing",
+        );
+        assert!(container_waiting_message(&e).is_some());
+        assert!(!no_previous_container(&e));
+    }
+
+    #[test]
+    fn detects_missing_previous_container() {
+        let e = api_error(
+            400,
+            "previous terminated container \"sandbox\" in pod \"p\" not found",
+        );
+        assert!(no_previous_container(&e));
+        assert!(container_waiting_message(&e).is_none());
+    }
+
+    #[test]
+    fn other_errors_are_not_classified() {
+        let e = api_error(500, "etcd unavailable");
+        assert!(container_waiting_message(&e).is_none());
+        assert!(!no_previous_container(&e));
     }
 }

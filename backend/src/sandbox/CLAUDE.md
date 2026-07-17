@@ -64,7 +64,7 @@ The unified task reaper lives in `task/reaper.rs` (not in this module). It is a 
 
 ### gRPC Communication
 
-`SandboxClient` (`client.rs`) calls sandbox pods via gRPC: execute-agent, stop-agent, notify-messages, file operations (tree, read, write, list, search-by-name), and search-files. Uses lazy connection with 5s connect timeout, 10s request timeout. The `classify_grpc_error()` function maps gRPC errors to `SandboxError` (Unavailable→NotReady/503, others→Internal/500).
+`SandboxClient` (`client.rs`) calls sandbox pods via gRPC: execute-agent, stop-agent, notify-messages, file operations (tree, read, write, list, search-by-name), and search-files. Uses lazy connection with 5s connect timeout, 10s request timeout. The `classify_grpc_error()` function maps gRPC errors to `SandboxError` (Unavailable/DeadlineExceeded/Cancelled→NotReady/503, NotFound→404, FailedPrecondition/InvalidArgument→400, others→Internal/500).
 
 File operation handlers (`file_handlers.rs`) call `provider.sandbox_client()` to get a ready `SandboxClient`, then invoke file methods directly — no provider-level duplication.
 
@@ -84,7 +84,7 @@ File operation handlers (`file_handlers.rs`) call `provider.sandbox_client()` to
 |------|----------|---------|
 | `SandboxClient` | `client.rs` | gRPC client wrapper for sandbox pod calls |
 | `ClientError` | `client.rs` | Error constructing a `SandboxClient` |
-| `classify_grpc_error()` | `client.rs` | Maps `tonic::Status` → `SandboxError` (Unavailable→NotReady, else→Internal) |
+| `classify_grpc_error()` | `client.rs` | Maps `tonic::Status` → `SandboxError` (Unavailable/DeadlineExceeded/Cancelled→NotReady, else→Internal) |
 | `ServerConfig` | `models.rs` | Data-driven server definition: name, port, docker_image, start_commands, env_vars, default, enable_inspector |
 | `ServerSnapshot` | `models.rs` | Cached server state: config fields + runtime status/error. Built via `from_config(&ServerConfig, status)` |
 | `ServerCapabilities` | `models.rs` | Derived from `enable_inspector` via `server_capabilities_from_config()` / `server_capabilities_from_snapshot()` |
