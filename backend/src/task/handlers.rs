@@ -1,7 +1,9 @@
 //! Task HTTP handlers — coordinate repository calls + enrichment.
 
-use axum::extract::{Path, Query, State};
+use std::collections::HashSet;
+
 use axum::Json;
+use axum::extract::{Path, Query, State};
 
 use moatless_events::{SandboxEventPayload, SandboxStatus, SandboxSubType, TaskSubType};
 
@@ -22,7 +24,7 @@ use moatless_backend_core::scope::{Scope, ScopedResource};
 
 use crate::repository::models::{RepositoryKind, RepositoryProvider};
 
-use crate::bindings::dao::{get_bindings_for_tasks, PgTaskBindingRepository};
+use crate::bindings::dao::{PgTaskBindingRepository, get_bindings_for_tasks};
 use crate::bindings::schemas::TaskBindingSummary;
 
 use super::error::TaskError;
@@ -889,15 +891,82 @@ pub async fn close_task(
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
     ensure_can_control_task(&state, &auth, &task_resource(&row)).await?;
 
+    let mut visited = HashSet::new();
+    close_task_tree(&state, &task_id, &mut visited).await?;
+    tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task closed");
+
+    let updated = state
+        .tasks
+        .find_by_id(&task_id, &auth.scope_context())
+        .await?
+        .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
+
+    let resp = enrich_task(&updated, &state, &auth.user_id).await?;
+    Ok(Json(resp))
+}
+
+async fn close_task_tree(
+    state: &AppState,
+    task_id: &str,
+    visited: &mut HashSet<String>,
+) -> Result<(), TaskError> {
+    let mut stack = vec![task_id.to_string()];
+    let mut close_order = Vec::new();
+
+    while let Some(current_task_id) = stack.pop() {
+        if !visited.insert(current_task_id.clone()) {
+            continue;
+        }
+
+        match state
+            .task_relations
+            .list_incoming(&current_task_id, Some(TaskRelationType::CreatedBy))
+            .await
+        {
+            Ok(relations) => {
+                for relation in relations {
+                    stack.push(relation.from_task_id);
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    task_id = %current_task_id,
+                    error = %e,
+                    "Failed to list child tasks during close cascade"
+                );
+                return Err(TaskError::Db(e));
+            }
+        }
+
+        close_order.push(current_task_id);
+    }
+
+    for current_task_id in close_order.into_iter().rev() {
+        close_single_task(state, &current_task_id).await?;
+    }
+
+    Ok(())
+}
+
+async fn close_single_task(state: &AppState, task_id: &str) -> Result<(), TaskError> {
+    let Some(row) = state.tasks.find_by_id_internal(task_id).await? else {
+        tracing::warn!(task_id, "close cascade: task vanished mid-close");
+        return Ok(());
+    };
+
+    if row.status == TaskStatus::Closed {
+        return Ok(());
+    }
+
     // Stop the agent gracefully before tearing down the sandbox so the pod
     // exits promptly instead of riding its full termination grace until SIGKILL
     // (exit 137). Best-effort — never blocks teardown.
-    crate::sandbox::notify::stop_agent_for_task(&state, &task_id).await;
+    crate::sandbox::notify::stop_agent_for_task(state, task_id).await;
 
     state
         .tasks
         .update_task(
-            &task_id,
+            task_id,
             &TaskPatch {
                 status: Some(TaskStatus::Closed),
                 sandbox_desired_state: Some(SandboxDesiredState::Removed),
@@ -910,19 +979,18 @@ pub async fn close_task(
     // Cleanup sandbox (best-effort). Preserve S3 storage when configured so the
     // task can later be revived via reopen.
     let retain_storage = state.config.sandbox.retain_storage_on_close;
-    if let Err(e) = state.sandbox.cleanup(&task_id, retain_storage).await {
-        tracing::warn!(task_id = %task_id, error = %e, "Failed to cleanup sandbox on close");
+    if let Err(e) = state.sandbox.cleanup(task_id, retain_storage).await {
+        tracing::warn!(task_id, error = %e, "Failed to cleanup sandbox on close");
     }
-    tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task closed");
 
     // A closed task is terminal — stop its external listeners so inbound
     // comments don't resurrect it.
-    deactivate_task_bindings(&state, &task_id).await;
+    deactivate_task_bindings(state, task_id).await;
 
     if let Some(ref events) = state.events {
         events
             .publish_task_event(
-                &task_id,
+                task_id,
                 TaskSubType::Closed,
                 Some(row.agent_type.as_str()),
                 serde_json::json!({}),
@@ -930,14 +998,7 @@ pub async fn close_task(
             .await;
     }
 
-    let updated = state
-        .tasks
-        .find_by_id(&task_id, &auth.scope_context())
-        .await?
-        .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
-
-    let resp = enrich_task(&updated, &state, &auth.user_id).await?;
-    Ok(Json(resp))
+    Ok(())
 }
 
 /// Reopen a previously closed task.

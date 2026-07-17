@@ -159,6 +159,9 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
     // error path is handled by `handle_agent_error`, which already emits an
     // `error` activity, so this branch is success-only.
     notify_linear_response_for_completion(state, &event.task_id).await;
+    if reopened {
+        notify_parent_task_of_child_terminal(state, event, ChildTerminalOutcome::Completed).await;
+    }
 
     // Close the Linear turn gate as the last step so post-turn stragglers
     // (Sandbox(Stopped), late tool_results) don't pile up in Linear.
@@ -476,13 +479,17 @@ pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
     // single guard also keeps the reaper from re-opening a closed task: the
     // synthetic error still appends its message row + `taskTurn.error` (the UI
     // unblocks), but the status stays Closed.
-    if let Err(e) = state
+    let child_not_closed = match state
         .tasks
         .update_status_if_not_closed(&event.task_id, TaskStatus::Open)
         .await
     {
-        tracing::warn!(task_id = %event.task_id, error = %e, "Failed to update task status after error");
-    }
+        Ok(changed) => changed,
+        Err(e) => {
+            tracing::warn!(task_id = %event.task_id, error = %e, "Failed to update task status after error");
+            false
+        }
+    };
 
     if let Some(ref events) = state.events {
         // Include message_id in payload for outbound integration tracking
@@ -502,10 +509,120 @@ pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
             .await;
     }
 
+    if child_not_closed {
+        notify_parent_task_of_child_terminal(
+            state,
+            event,
+            ChildTerminalOutcome::Errored(error_msg.to_string()),
+        )
+        .await;
+    }
+
     // Close the Linear turn gate after the consumer's adjacent
     // notify_linear_status(Error) spawn has been issued. Also covers
     // `handle_sandbox_fatal` transitively.
     state.linear_active_turns.close(&event.task_id);
+}
+
+enum ChildTerminalOutcome {
+    Completed,
+    Errored(String),
+}
+
+async fn notify_parent_task_of_child_terminal(
+    state: &AppState,
+    event: &AgentEvent,
+    outcome: ChildTerminalOutcome,
+) {
+    let relation = match state.task_relations.find_created_by(&event.task_id).await {
+        Ok(Some(relation)) => relation,
+        Ok(None) => return,
+        Err(e) => {
+            tracing::warn!(
+                task_id = %event.task_id,
+                error = %e,
+                "Failed to load parent task relation for child terminal notification"
+            );
+            return;
+        }
+    };
+
+    let message = match outcome {
+        ChildTerminalOutcome::Completed => {
+            let summary = match state
+                .messages
+                .get_last_assistant_message(&event.task_id)
+                .await
+            {
+                Ok(Some(msg)) => collect_assistant_text(&msg.message_content),
+                Ok(None) => String::new(),
+                Err(e) => {
+                    tracing::warn!(
+                        task_id = %event.task_id,
+                        error = %e,
+                        "Failed to load child task assistant summary for parent notification"
+                    );
+                    String::new()
+                }
+            };
+            if summary.trim().is_empty() {
+                format!("Child task `{}` completed.", event.task_id)
+            } else {
+                format!("Child task `{}` completed.\n\n{}", event.task_id, summary)
+            }
+        }
+        ChildTerminalOutcome::Errored(error_msg) => {
+            format!(
+                "Child task `{}` errored.\n\nError: {}",
+                event.task_id, error_msg
+            )
+        }
+    };
+
+    match crate::message::send::send_message_flow(
+        state,
+        &relation.to_task_id,
+        &message,
+        None,
+        None,
+        &[],
+        &[],
+        true,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some(&event.task_id),
+        false,
+        None,
+    )
+    .await
+    {
+        Ok(()) => {
+            if let Err(error_msg) =
+                crate::sandbox::notify::ensure_sandbox_and_notify(state, &relation.to_task_id).await
+            {
+                crate::message::send::persist_error_result(state, &relation.to_task_id, &error_msg)
+                    .await;
+            }
+        }
+        Err(crate::message::error::MessageError::TaskClosed(_)) => {
+            tracing::debug!(
+                task_id = %event.task_id,
+                parent_task_id = %relation.to_task_id,
+                "Skipping child terminal notification because parent task is closed"
+            );
+        }
+        Err(e) => {
+            tracing::warn!(
+                task_id = %event.task_id,
+                parent_task_id = %relation.to_task_id,
+                error = %e,
+                "Failed to notify parent task about child terminal state"
+            );
+        }
+    }
 }
 
 /// Handle `sandbox.fatal` event — delegates to `handle_agent_error` to create

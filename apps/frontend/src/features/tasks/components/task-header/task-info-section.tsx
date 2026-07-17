@@ -17,12 +17,24 @@ import { useTaskStatisticsQuery } from '@/features/tasks/hooks/use-task-queries'
 import {
   useCloseTask,
   useReopenTask,
+  useTasksList,
   useToggleTaskFollow,
   useUpdateTaskTtl,
   useUpdateTaskVisibility,
 } from '@/features/tasks/hooks/use-tasks'
 import { formatRelativeTime } from '@/features/tasks/utils/format-relative-time'
 import { getIdleStopDeadlineMs } from '@/features/tasks/utils/task-ttl'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/lib/components/ui/alert-dialog'
 import { Badge } from '@/lib/components/ui/badge'
 import {
   Select,
@@ -47,16 +59,14 @@ interface TaskInfoSectionProps {
   task: TaskResponse
 }
 
-export function TaskInfoSection({ task }: TaskInfoSectionProps) {
-  const now = useNow(60_000)
-  const taskId = useTaskId()
+function TaskStatusControls({
+  taskId,
+  status,
+}: {
+  taskId: string
+  status: TaskResponse['status']
+}) {
   const navigate = useNavigate()
-  const updateVisibility = useUpdateTaskVisibility(taskId)
-  const updateTtl = useUpdateTaskTtl(taskId)
-  const statisticsQuery = useTaskStatisticsQuery(taskId)
-  const toggleFollow = useToggleTaskFollow(taskId, {
-    onError: (err) => toast.error('Failed to update follow', { description: err.message }),
-  })
   const closeTask = useCloseTask(taskId, {
     onSuccess: () => navigate({ to: '/' }),
     onError: (err) => toast.error('Failed to close task', { description: err.message }),
@@ -64,6 +74,88 @@ export function TaskInfoSection({ task }: TaskInfoSectionProps) {
   const reopenTask = useReopenTask(taskId, {
     onSuccess: () => toast.success('Task reopened'),
     onError: (err) => toast.error('Failed to reopen task', { description: err.message }),
+  })
+  const isClosed = status === 'closed'
+  const childrenQuery = useTasksList(
+    { parentTaskId: taskId, limit: 50 },
+    { enabled: !isClosed, staleTime: 30_000 },
+  )
+  const childCount = childrenQuery.data?.pagination.total
+  const childCountKnown = childCount !== undefined && !childrenQuery.isError
+  const hasChildren = childCountKnown && childCount > 0
+  const closeDisabled = closeTask.isPending || !childCountKnown
+  const closeButton = (
+    <button
+      type="button"
+      disabled={closeDisabled}
+      onClick={hasChildren ? undefined : () => closeTask.mutate()}
+      title={
+        childCountKnown
+          ? hasChildren
+            ? 'Close task and child tasks'
+            : 'Close task'
+          : 'Checking child tasks'
+      }
+      className="inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-xs text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
+    >
+      <XCircle className="h-3 w-3" />
+      Close
+    </button>
+  )
+
+  return (
+    <div className="flex items-center gap-2">
+      <Badge variant={isClosed ? 'secondary' : 'default'} className="h-5 text-xs">
+        {status}
+      </Badge>
+      {isClosed ? (
+        <button
+          type="button"
+          disabled={reopenTask.isPending}
+          onClick={() => reopenTask.mutate()}
+          title="Reopen task to continue chatting"
+          className="inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-xs transition-colors hover:bg-muted disabled:opacity-50"
+        >
+          <RotateCcw className="h-3 w-3" />
+          Reopen
+        </button>
+      ) : hasChildren ? (
+        <AlertDialog>
+          <AlertDialogTrigger asChild>{closeButton}</AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Close parent task?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Closing this task will also close {childCount}{' '}
+                {childCount === 1 ? 'child task' : 'child tasks'} and stop their sandboxes.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-white hover:bg-destructive/90"
+                onClick={() => closeTask.mutate()}
+              >
+                Close all
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      ) : (
+        closeButton
+      )}
+    </div>
+  )
+}
+
+export function TaskInfoSection({ task }: TaskInfoSectionProps) {
+  const now = useNow(60_000)
+  const taskId = useTaskId()
+  const updateVisibility = useUpdateTaskVisibility(taskId)
+  const updateTtl = useUpdateTaskTtl(taskId)
+  const statisticsQuery = useTaskStatisticsQuery(taskId)
+  const toggleFollow = useToggleTaskFollow(taskId, {
+    onError: (err) => toast.error('Failed to update follow', { description: err.message }),
   })
   const isClosed = task.status === 'closed'
   const totalCost = task.totalCostUsd ?? 0
@@ -85,34 +177,7 @@ export function TaskInfoSection({ task }: TaskInfoSectionProps) {
         </Field>
       )}
       <Field label="Status">
-        <div className="flex items-center gap-2">
-          <Badge variant={isClosed ? 'secondary' : 'default'} className="h-5 text-xs">
-            {task.status}
-          </Badge>
-          {isClosed ? (
-            <button
-              type="button"
-              disabled={reopenTask.isPending}
-              onClick={() => reopenTask.mutate()}
-              title="Reopen task to continue chatting"
-              className="inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-xs transition-colors hover:bg-muted disabled:opacity-50"
-            >
-              <RotateCcw className="h-3 w-3" />
-              Reopen
-            </button>
-          ) : (
-            <button
-              type="button"
-              disabled={closeTask.isPending}
-              onClick={() => closeTask.mutate()}
-              title="Close task"
-              className="inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-xs text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
-            >
-              <XCircle className="h-3 w-3" />
-              Close
-            </button>
-          )}
-        </div>
+        <TaskStatusControls taskId={taskId} status={task.status} />
       </Field>
       <Field label="Visibility">
         <button
