@@ -476,6 +476,15 @@ impl GithubPrAdapter {
         Ok((owner, repo, pr_number))
     }
 
+    /// Whether this delivery id was already seen (a GitHub redelivery of the
+    /// same `X-GitHub-Delivery`). Read-only: the cache *insert* happens in
+    /// [`Self::parse_webhook`] on first delivery, so gating additional paths
+    /// (post-merge CI, merge-conflict) on this read suppresses redeliveries
+    /// without swallowing the first delivery. An empty id never dedups.
+    pub(crate) async fn is_duplicate_delivery(&self, delivery_id: &str) -> bool {
+        !delivery_id.is_empty() && self.dedup_cache.get(delivery_id).await.is_some()
+    }
+
     /// Parse a GitHub webhook into an `InboundMessage`.
     pub async fn parse_webhook(
         &self,
@@ -495,9 +504,7 @@ impl GithubPrAdapter {
         self.dedup_cache.insert(delivery_id.to_string(), ()).await;
 
         // Filter by events_filter config
-        if !rule_config.events_filter.is_empty()
-            && !rule_config.events_filter.iter().any(|e| e == event_type)
-        {
+        if rule_config.event_filtered_out(event_type) {
             debug!(event_type, "GitHub event filtered out by task trigger");
             return Ok(GithubPrWebhookResult::Ignore);
         }
@@ -516,12 +523,7 @@ impl GithubPrAdapter {
         // override per trigger via `provider_config.ignored_senders`). Applies
         // to ALL event types, including `pull_request` opened/closed — ignored
         // means ignored.
-        if !sender_login.is_empty()
-            && rule_config
-                .ignored_senders
-                .iter()
-                .any(|s| s.eq_ignore_ascii_case(sender_login))
-        {
+        if rule_config.is_ignored_sender(sender_login) {
             debug!(
                 sender_login,
                 event_type, "GitHub event dropped: sender in ignored_senders"
@@ -1865,6 +1867,229 @@ async fn check_pr_merge_conflict(
     .await;
 }
 
+/// Conclusions of a `workflow_run` worth announcing after a merge. Skips noise
+/// (`skipped`, `neutral`, `stale`) and in-progress/absent conclusions.
+const POST_MERGE_NOTIFY_CONCLUSIONS: &[&str] = &[
+    "success",
+    "failure",
+    "timed_out",
+    "cancelled",
+    "action_required",
+    "startup_failure",
+];
+
+/// Parsed fields of a base-branch `workflow_run.completed` event.
+struct PostMergeRun {
+    run_id: u64,
+    name: String,
+    conclusion: String,
+    head_sha: String,
+    head_branch: String,
+    html_url: String,
+}
+
+/// Extract a post-merge `workflow_run` from a webhook payload, or `None` when
+/// the event is not a completed push-triggered run worth announcing.
+///
+/// Gates cheaply (no API calls): the run must be `completed`, triggered by a
+/// `push` (a merge to the base branch — PR-branch runs are `pull_request` and
+/// already covered by `check_run`/`check_suite`), carry no associated PRs in
+/// its payload (present only for PR runs), and have an announce-worthy
+/// conclusion. The base-branch confirmation + PR resolution happen later, in
+/// the spawned task, since they require an API token.
+fn parse_post_merge_run(payload: &serde_json::Value) -> Option<PostMergeRun> {
+    let action = payload.get("action").and_then(serde_json::Value::as_str)?;
+    if action != "completed" {
+        return None;
+    }
+    let wr = payload.get("workflow_run")?;
+
+    if wr.get("event").and_then(serde_json::Value::as_str) != Some("push") {
+        return None;
+    }
+    // PR-triggered runs list their PRs here; a base-branch push run does not.
+    if wr
+        .get("pull_requests")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|prs| !prs.is_empty())
+    {
+        return None;
+    }
+
+    let conclusion = wr
+        .get("conclusion")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("");
+    if !POST_MERGE_NOTIFY_CONCLUSIONS.contains(&conclusion) {
+        return None;
+    }
+
+    let head_sha = wr
+        .get("head_sha")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("");
+    if head_sha.is_empty() {
+        return None;
+    }
+
+    Some(PostMergeRun {
+        run_id: wr.get("id").and_then(serde_json::Value::as_u64).unwrap_or(0),
+        name: wr
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("workflow")
+            .to_string(),
+        conclusion: conclusion.to_string(),
+        head_sha: head_sha.to_string(),
+        head_branch: wr
+            .get("head_branch")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        html_url: wr
+            .get("html_url")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+    })
+}
+
+/// Render the post-merge CI notification body.
+fn post_merge_ci_text(run: &PostMergeRun, owner: &str, repo: &str, pr_number: u64) -> String {
+    let success = run.conclusion.eq_ignore_ascii_case("success");
+    let heading = if success {
+        format!("## ✅ Post-merge CI passed: {}", run.name)
+    } else {
+        format!("## ❌ Post-merge CI {}: {}", run.conclusion, run.name)
+    };
+    let short_sha = &run.head_sha[..7.min(run.head_sha.len())];
+    let mut text = format!(
+        "{heading}\n\n\
+         The `{branch}` branch build for merged PR {owner}/{repo}#{pr_number} \
+         finished with **{conclusion}**.\n\
+         **Commit:** `{short_sha}`\n",
+        branch = run.head_branch,
+        conclusion = run.conclusion,
+    );
+    if !run.html_url.is_empty() {
+        let _ = writeln!(text, "**Link:** {}", run.html_url);
+    }
+    text
+}
+
+/// Post-merge CI notification: on a base-branch `workflow_run` completing,
+/// resolve the merged PR from the commit sha and notify every task still
+/// connected to that PR.
+///
+/// Runs in a spawned task so it never blocks webhook ack. Skips entirely when
+/// the run isn't on the repo's default branch, when no merged PR produced the
+/// commit, or when no active task is bound to the PR.
+async fn check_post_merge_ci(
+    state: AppState,
+    connection: AdapterConnection,
+    rule_for_parse: TaskTriggerRoute,
+    owner: String,
+    repo: String,
+    run: PostMergeRun,
+    sender_login: String,
+) {
+    let Some(adapter) = state
+        .adapters
+        .as_ref()
+        .and_then(|a| a.get(AdapterKind::GithubPr))
+        .and_then(|a| a.as_any().downcast_ref::<GithubPrAdapter>())
+    else {
+        return;
+    };
+
+    // Resolve the acting user + token the same way CI/merge-conflict paths do.
+    let user_id = resolve_user_or_fallback(&sender_login, &rule_for_parse, &state.db).await;
+    let token = match adapter.resolve_token_for_user(&user_id, Some(&owner)).await {
+        Ok(token) => token,
+        Err(e) => {
+            warn!(owner, repo, error = %e, "No token for post-merge CI check");
+            return;
+        }
+    };
+    let api = GithubPrApi::new(&token);
+
+    // Confirm the run is on the repo's default (base) branch — post-merge runs
+    // live there; runs on other branches are not merge results.
+    match api.get_repo_default_branch(&owner, &repo).await {
+        Ok(default_branch) if default_branch == run.head_branch => {}
+        Ok(default_branch) => {
+            debug!(
+                head_branch = %run.head_branch,
+                default_branch,
+                "Skipping post-merge CI: run not on default branch"
+            );
+            return;
+        }
+        Err(e) => {
+            warn!(owner, repo, error = %e, "Failed to resolve default branch for post-merge CI");
+            return;
+        }
+    }
+
+    // Map the merge commit back to the PR it merged.
+    let pulls = match api.get_pulls_for_commit(&owner, &repo, &run.head_sha).await {
+        Ok(pulls) => pulls,
+        Err(e) => {
+            warn!(owner, repo, sha = %run.head_sha, error = %e, "Failed to resolve PR for post-merge CI");
+            return;
+        }
+    };
+    let Some(pr) = pulls.into_iter().find(super::api::CommitPr::is_merged) else {
+        debug!(sha = %run.head_sha, "No merged PR for commit; skipping post-merge CI notice");
+        return;
+    };
+    let pr_number = pr.number;
+    let subject_key = format!("{owner}/{repo}#{pr_number}");
+
+    // Skip unless some active task is still connected to the PR.
+    match PgTaskBindingRepository(state.db.clone())
+        .find_by_subject("github", "github_pr", &subject_key)
+        .await
+    {
+        Ok(bindings) if bindings.iter().any(|b| b.active) => {}
+        Ok(_) => {
+            debug!(subject_key, "No active bindings; skipping post-merge CI notice");
+            return;
+        }
+        Err(e) => {
+            warn!(subject_key, error = %e, "Failed to look up bindings for post-merge CI notice");
+            return;
+        }
+    }
+
+    let notice = InboundMessage {
+        provider: AdapterKind::GithubPr,
+        source_id: rule_for_parse.source_matcher.clone(),
+        thread_id: Some(pr_number.to_string()),
+        message_thread_id: pr_number.to_string(),
+        user_id,
+        text: post_merge_ci_text(&run, &owner, &repo, pr_number),
+        file_ids: vec![],
+        thread_properties: serde_json::json!({
+            "owner": owner,
+            "repo": repo,
+            "pr_number": pr_number,
+        }),
+        provider_context: serde_json::json!({}),
+        external_event_id: Some(super::external_id::workflow_run(run.run_id)),
+        source_task_id: None,
+    };
+
+    super::runtime::deliver_post_merge_ci(
+        &state,
+        &connection,
+        &rule_for_parse,
+        &subject_key,
+        &notice,
+    )
+    .await;
+}
+
 pub async fn resolve_and_process_github_webhook(
     state: &AppState,
     github_provider: &GithubPrAdapter,
@@ -1959,6 +2184,22 @@ pub async fn resolve_and_process_github_webhook(
         ));
     }
 
+    // Delivery-level dedup gate. A GitHub redelivery reuses the same
+    // `X-GitHub-Delivery` id; `parse_webhook` dedups the primary handler on it,
+    // but the spawned best-effort checks below (post-merge CI, merge-conflict)
+    // run independently and would otherwise fire on every redelivery, racing
+    // ahead of the per-task external-event dedup and producing duplicate
+    // notices. Gate the whole dispatch on one read so a redelivery is a no-op.
+    // The cache *insert* stays in `parse_webhook`, so the first delivery (a
+    // cache miss here) still flows through untouched.
+    if github_provider.is_duplicate_delivery(delivery_id).await {
+        debug!(delivery_id, "GitHub webhook redelivery ignored (deduplicated)");
+        return Ok(GithubWebhookOutcome::Ignored {
+            event_type: event_type.to_string(),
+            reason: "duplicate_delivery",
+        });
+    }
+
     // `parse_webhook` only reads the trigger as a config bag (event filter,
     // source label, sender→user fallback). When no trigger matches, synthesize
     // a delivery-only one from the connection so the event is still parsed.
@@ -1967,6 +2208,37 @@ pub async fn resolve_and_process_github_webhook(
         Some(rule) => rule.clone(),
         None => super::runtime::connection_only_rule(&connection, repo_full_name),
     };
+
+    // Shared preflight gate for `event_filter` / `ignored_senders`. `parse_webhook`
+    // applies these to the primary handler, but the spawned best-effort checks
+    // below (post-merge CI, merge-conflict) run outside its result — so without
+    // this gate a trigger that filtered out an event or ignored a sender could
+    // still get post-merge/conflict deliveries and wake tasks it opted out of.
+    // Gating the whole dispatch here keeps trigger config authoritative for
+    // every path. (The primary handler re-checks inside `parse_webhook`, which
+    // other callers still rely on.)
+    let rule_config = GithubPrRuleConfig::from_rule(&rule_for_parse);
+    let sender_login = payload
+        .pointer("/sender/login")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("");
+    if rule_config.event_filtered_out(event_type) {
+        debug!(event_type, "GitHub webhook ignored: event filtered by trigger");
+        return Ok(GithubWebhookOutcome::Ignored {
+            event_type: event_type.to_string(),
+            reason: "event_filtered",
+        });
+    }
+    if rule_config.is_ignored_sender(sender_login) {
+        debug!(
+            sender_login,
+            event_type, "GitHub webhook ignored: sender in ignored_senders"
+        );
+        return Ok(GithubWebhookOutcome::Ignored {
+            event_type: event_type.to_string(),
+            reason: "ignored_sender",
+        });
+    }
 
     let result = github_provider
         .parse_webhook(
@@ -2021,6 +2293,39 @@ pub async fn resolve_and_process_github_webhook(
         }
         GithubPrWebhookResult::Ignore => {
             debug!(event_type, "GitHub PR event ignored");
+        }
+    }
+
+    // Post-merge CI: a base-branch `workflow_run` completing carries no PR
+    // reference, so it never reaches the PR-keyed handlers above. Resolve the
+    // merged PR from the commit sha and notify its still-connected tasks. Runs
+    // spawned so it never blocks ack; deduped per run id downstream.
+    if event_type == "workflow_run" {
+        if let Some(run) = parse_post_merge_run(&payload) {
+            let (owner, repo) = match repo_full_name.split_once('/') {
+                Some((o, r)) => (o.to_string(), r.to_string()),
+                None => (owner_login.to_string(), String::new()),
+            };
+            let sender_login = payload
+                .pointer("/sender/login")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let state_clone = state.clone();
+            let connection = connection.clone();
+            let rule_for_run = rule_for_parse.clone();
+            tokio::spawn(async move {
+                check_post_merge_ci(
+                    state_clone,
+                    connection,
+                    rule_for_run,
+                    owner,
+                    repo,
+                    run,
+                    sender_login,
+                )
+                .await;
+            });
         }
     }
 
@@ -2251,6 +2556,99 @@ mod tests {
         assert_eq!(merge_conflict_pr_number("push", &pr), None);
     }
 
+    fn post_merge_payload(
+        action: &str,
+        event: &str,
+        conclusion: &str,
+        prs: serde_json::Value,
+    ) -> serde_json::Value {
+        serde_json::json!({
+            "action": action,
+            "workflow_run": {
+                "id": 555,
+                "name": "CD - Publish",
+                "event": event,
+                "conclusion": conclusion,
+                "head_sha": "12b2f924aa30",
+                "head_branch": "main",
+                "html_url": "https://github.com/o/r/actions/runs/555",
+                "pull_requests": prs,
+            }
+        })
+    }
+
+    #[test]
+    fn parse_post_merge_run_accepts_completed_push_run() {
+        let payload = post_merge_payload("completed", "push", "success", serde_json::json!([]));
+        let run = parse_post_merge_run(&payload).expect("should parse");
+        assert_eq!(run.run_id, 555);
+        assert_eq!(run.conclusion, "success");
+        assert_eq!(run.head_branch, "main");
+        assert_eq!(run.head_sha, "12b2f924aa30");
+    }
+
+    #[test]
+    fn parse_post_merge_run_rejects_non_completed_or_non_push_or_pr_runs() {
+        // not completed
+        assert!(parse_post_merge_run(&post_merge_payload(
+            "requested",
+            "push",
+            "success",
+            serde_json::json!([])
+        ))
+        .is_none());
+        // pull_request-triggered run (covered by check_run/check_suite already)
+        assert!(parse_post_merge_run(&post_merge_payload(
+            "completed",
+            "pull_request",
+            "success",
+            serde_json::json!([])
+        ))
+        .is_none());
+        // push run that still lists PRs → not a base-branch merge result
+        assert!(parse_post_merge_run(&post_merge_payload(
+            "completed",
+            "push",
+            "success",
+            serde_json::json!([{"number": 7}])
+        ))
+        .is_none());
+        // noise conclusion
+        assert!(parse_post_merge_run(&post_merge_payload(
+            "completed",
+            "push",
+            "skipped",
+            serde_json::json!([])
+        ))
+        .is_none());
+    }
+
+    #[test]
+    fn post_merge_ci_text_reflects_success_and_failure() {
+        let ok = PostMergeRun {
+            run_id: 1,
+            name: "CI".into(),
+            conclusion: "success".into(),
+            head_sha: "abcdef012345".into(),
+            head_branch: "main".into(),
+            html_url: "https://x/run/1".into(),
+        };
+        let text = post_merge_ci_text(&ok, "o", "r", 42);
+        assert!(text.contains("✅ Post-merge CI passed: CI"));
+        assert!(text.contains("o/r#42"));
+        assert!(text.contains("`abcdef0`"));
+        assert!(text.contains("**Link:** https://x/run/1"));
+
+        let bad = PostMergeRun {
+            conclusion: "failure".into(),
+            html_url: String::new(),
+            ..ok
+        };
+        let text = post_merge_ci_text(&bad, "o", "r", 42);
+        assert!(text.contains("❌ Post-merge CI failure: CI"));
+        assert!(!text.contains("**Link:**"));
+    }
+
     #[test]
     fn pr_info_deserializes_mergeable_fields() {
         let pr: crate::adapters::github_pr::api::PrInfo = serde_json::from_value(serde_json::json!({
@@ -2282,6 +2680,52 @@ mod tests {
             .expect("PrInfo parses without mergeable fields");
         assert_eq!(pr2.mergeable, None);
         assert_eq!(pr2.mergeable_state, None);
+    }
+
+    #[tokio::test]
+    async fn is_duplicate_delivery_reads_dedup_cache() {
+        let provider = GithubPrAdapter::new(
+            None,
+            None,
+            "https://app.example.com".to_string(),
+            fake_db_pool(),
+            fake_provider_tokens(),
+            None,
+            None,
+            fake_github_apps(),
+        );
+
+        // Unseen delivery id → not a duplicate.
+        assert!(!provider.is_duplicate_delivery("delivery-1").await);
+        // Empty id never dedups (missing header must not collapse deliveries).
+        assert!(!provider.is_duplicate_delivery("").await);
+
+        // Once `parse_webhook` has recorded it (simulated here), redeliveries
+        // are recognized so the post-merge / merge-conflict spawns are skipped.
+        provider
+            .dedup_cache
+            .insert("delivery-1".to_string(), ())
+            .await;
+        assert!(provider.is_duplicate_delivery("delivery-1").await);
+        assert!(!provider.is_duplicate_delivery("delivery-2").await);
+    }
+
+    #[test]
+    fn commit_pr_merged_detection() {
+        let merged: crate::adapters::github_pr::api::CommitPr =
+            serde_json::from_value(serde_json::json!({
+                "number": 344,
+                "state": "closed",
+                "merged_at": "2026-07-17T04:00:00Z",
+            }))
+            .expect("CommitPr parses");
+        assert!(merged.is_merged());
+        assert_eq!(merged.number, 344);
+
+        let open: crate::adapters::github_pr::api::CommitPr =
+            serde_json::from_value(serde_json::json!({ "number": 7, "state": "open" }))
+                .expect("CommitPr parses without merged_at");
+        assert!(!open.is_merged());
     }
 
     #[tokio::test]

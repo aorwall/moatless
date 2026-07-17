@@ -41,6 +41,12 @@ pub fn check_suite(id: u64) -> String {
     format!("github:cs:{id}")
 }
 
+/// `github:wfrun:<id>` - post-merge `workflow_run` completion on the base
+/// branch. Keyed by the run id so each workflow run notifies at most once.
+pub fn workflow_run(id: u64) -> String {
+    format!("github:wfrun:{id}")
+}
+
 /// `github:conflict:<pr_number>:<sha>` - merge-conflict notification.
 ///
 /// Keyed by the PR head sha so a persisting conflict is announced once per

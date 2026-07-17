@@ -214,6 +214,55 @@ pub async fn route_inbound_message(
     let originator_binding_summary: Option<(String, String)> =
         bindings.first().map(|b| (b.task_id.clone(), b.id.clone()));
 
+    // CI notifications (check_run / check_suite / workflow_run) are synthetic
+    // provider signals, never authored by the task agent — so the owner-identity
+    // self-echo heuristic below must not apply to them. Without this exemption a
+    // build-failure event whose webhook `sender` is the human who pushed the
+    // commit resolves to that person's user id, which matches the `created_by`/
+    // `owner_user_id` of *their own* PR task, and the notification is silently
+    // dropped for exactly the task that most needs it. The cheap origin-task and
+    // event-receipt dedup paths still guard against genuine echoes.
+    let ci_self_echo_exempt = msg
+        .external_event_id
+        .as_deref()
+        .is_some_and(is_ci_notification);
+
+    // Review comments are thread-scoped for the reviewer (`ingress`): it should
+    // only hear replies within threads it started, not every inline comment on
+    // the PR. Resolve the task that authored the comment being replied to (via
+    // the `github:rc:<in_reply_to_id>` we recorded when it posted). If that
+    // resolves to a reviewer binding's own task, the reply belongs to its
+    // thread and is delivered; otherwise it is skipped for that binding. The PR
+    // author (`connected_thread`) is unaffected and still gets every review
+    // comment to address. A brand-new top-level comment (no `in_reply_to_id`)
+    // resolves to `None`, so it reaches no reviewer.
+    let review_comment_reply_owner: Option<String> = if msg
+        .external_event_id
+        .as_deref()
+        .is_some_and(is_review_comment)
+    {
+        match msg
+            .thread_properties
+            .get("in_reply_to_id")
+            .and_then(serde_json::Value::as_u64)
+        {
+            Some(reply_id) => {
+                let candidates = crate::bindings::runtime::external_id_aliases(
+                    state,
+                    ADAPTER_LABEL,
+                    &super::external_id::review_comment(reply_id),
+                );
+                state
+                    .messages
+                    .find_task_id_by_any_external_event_id(&candidates)
+                    .await?
+            }
+            None => None,
+        }
+    } else {
+        None
+    };
+
     let mut delivery_targets: Vec<(TaskBinding, bool)> = Vec::new();
     for binding in bindings {
         // (1) Cheap check: marker / external_event_id resolved the origin task id.
@@ -226,17 +275,35 @@ pub async fn route_inbound_message(
             continue;
         }
 
+        // (1b) Reviewer thread-scoping: an `ingress` binding only receives a
+        // review comment that is a reply within a thread it started.
+        if binding.origin == ORIGIN_ADAPTER_EVENT
+            && msg
+                .external_event_id
+                .as_deref()
+                .is_some_and(is_review_comment)
+            && review_comment_reply_owner.as_deref() != Some(binding.task_id.as_str())
+        {
+            debug!(
+                task_id = %binding.task_id,
+                subject_key = %subject_key,
+                "Skipping review comment for reviewer: not a reply to its own thread"
+            );
+            continue;
+        }
+
         // (2) Owner-identity check: catches out-of-band agent comments
         // (e.g. `gh pr comment` bypassing `moat reply`, which leaves no marker
         // and no recorded external_event_id). Per-binding DB fetch; typical
-        // PRs have 1-2 bindings.
+        // PRs have 1-2 bindings. Skipped for CI notifications (see above).
         match state.tasks.find_by_id_internal(&binding.task_id).await {
             Ok(Some(task))
-                if is_authored_by_task_owner(
-                    &msg.user_id,
-                    task.created_by.as_deref(),
-                    task.owner_user_id.as_deref(),
-                ) =>
+                if !ci_self_echo_exempt
+                    && is_authored_by_task_owner(
+                        &msg.user_id,
+                        task.created_by.as_deref(),
+                        task.owner_user_id.as_deref(),
+                    ) =>
             {
                 debug!(
                     task_id = %binding.task_id,
@@ -339,6 +406,20 @@ pub async fn route_inbound_message(
         }
     }
 
+    // Health signals (CI check / suite results routed as messages) belong to
+    // the PR author. Restrict delivery to `connected_thread` bindings, falling
+    // back to all targets when no author task is bound (see `author_only_target`).
+    if msg
+        .external_event_id
+        .as_deref()
+        .is_some_and(is_author_only_signal)
+    {
+        let has_author = delivery_targets
+            .iter()
+            .any(|(b, _)| b.origin == ORIGIN_CONNECTED_THREAD);
+        delivery_targets.retain(|(b, _)| author_only_target(&b.origin, has_author));
+    }
+
     let receipts = crate::triggers::receipts::PgEventReceiptRepository(state.db.clone());
     for (binding, is_new_task) in delivery_targets {
         if let Some(external_event_id) = msg.external_event_id.as_deref() {
@@ -402,6 +483,14 @@ pub async fn record_merge_state_and_notify(
         }
     };
 
+    // Conflict notifications are an author-only health signal. Deliver only to
+    // the PR author's `connected_thread` binding (falling back to all active
+    // bindings when no author task is bound). Mergeable state is still persisted
+    // to *every* binding below regardless — only the notification is scoped.
+    let has_author = bindings
+        .iter()
+        .any(|b| b.active && b.origin == CONNECTED_THREAD_BINDING_ORIGIN);
+
     for binding in bindings {
         let was_dirty = binding.external_mergeable_state.as_deref() == Some("dirty");
 
@@ -412,8 +501,14 @@ pub async fn record_merge_state_and_notify(
             warn!(binding_id = %binding.id, error = %e, "Failed to persist mergeable state");
         }
 
-        // Notify only on a fresh conflict on an open PR, for a live binding.
-        if pr_is_open && binding.active && mergeable.is_conflicted() && !was_dirty {
+        // Notify only on a fresh conflict on an open PR, for a live binding that
+        // should receive the author-only signal.
+        if pr_is_open
+            && binding.active
+            && mergeable.is_conflicted()
+            && !was_dirty
+            && author_only_target(&binding.origin, has_author)
+        {
             info!(
                 task_id = %binding.task_id,
                 subject_key,
@@ -429,6 +524,76 @@ pub async fn record_merge_state_and_notify(
                     "Failed to deliver merge-conflict notification"
                 );
             }
+        }
+    }
+}
+
+/// Deliver a post-merge CI notification (base-branch `workflow_run` result) to
+/// every task still connected to the merged PR.
+///
+/// Delivery goes through [`deliver_to_binding`], which does not apply the owner
+/// self-echo filter — the notice is a synthetic provider signal, not the task's
+/// own echo. Only **active** bindings are notified: a task auto-closed on merge
+/// is terminal (its sandbox is torn down and there is no reopen path), so
+/// reviving it to deliver an FYI is unsafe and intentionally skipped. The
+/// PR-author's connected task typically survives the merge and is the intended
+/// recipient. Deduped per run id downstream via the message `external_event_id`.
+pub async fn deliver_post_merge_ci(
+    state: &AppState,
+    connection: &AdapterConnection,
+    rule: &TaskTriggerRoute,
+    subject_key: &str,
+    notice: &InboundMessage,
+) {
+    let binding_repo = PgTaskBindingRepository(state.db.clone());
+    let bindings = match binding_repo
+        .find_by_subject(ADAPTER, SUBJECT_KIND, subject_key)
+        .await
+    {
+        Ok(bindings) => bindings,
+        Err(e) => {
+            warn!(subject_key, error = %e, "Failed to load bindings for post-merge CI notice");
+            return;
+        }
+    };
+
+    // Post-merge CI is an author-only health signal. Deliver only to the PR
+    // author's `connected_thread` binding (falling back to all active bindings
+    // when no author task is bound — e.g. a human-opened, human-merged PR).
+    let has_author = bindings
+        .iter()
+        .any(|b| b.active && b.origin == CONNECTED_THREAD_BINDING_ORIGIN);
+
+    for binding in bindings {
+        if !binding.active {
+            debug!(
+                task_id = %binding.task_id,
+                subject_key,
+                "Skipping post-merge CI notice: binding inactive (task closed on merge)"
+            );
+            continue;
+        }
+        if !author_only_target(&binding.origin, has_author) {
+            debug!(
+                task_id = %binding.task_id,
+                subject_key,
+                "Skipping post-merge CI notice: reviewer binding, author task present"
+            );
+            continue;
+        }
+        info!(
+            task_id = %binding.task_id,
+            subject_key,
+            "Delivering post-merge CI notification"
+        );
+        if let Err(e) =
+            deliver_to_binding(state, Some(rule), connection, &binding, notice, false, true).await
+        {
+            warn!(
+                task_id = %binding.task_id,
+                error = %e,
+                "Failed to deliver post-merge CI notification"
+            );
         }
     }
 }
@@ -970,6 +1135,50 @@ pub(crate) fn is_authored_by_task_owner(
     created_by == Some(user_id) || owner_user_id == Some(user_id)
 }
 
+/// Returns `true` for CI-status notifications — `check_run` (`github:cr:`),
+/// `check_suite` (`github:cs:`), and post-merge `workflow_run` (`github:wfrun:`).
+/// These are synthetic provider signals, never authored by a task agent, so the
+/// owner-identity self-echo filter must not suppress them.
+pub(crate) fn is_ci_notification(external_event_id: &str) -> bool {
+    external_event_id.starts_with("github:cr:")
+        || external_event_id.starts_with("github:cs:")
+        || external_event_id.starts_with("github:wfrun:")
+}
+
+/// Returns `true` for signals about the PR's *health* rather than its content —
+/// CI results (`github:cr:` / `github:cs:` / `github:wfrun:`) and merge
+/// conflicts (`github:conflict:`). Whether a PR builds, merges cleanly, and
+/// survives the base branch is the PR **author's** concern, not the reviewer's,
+/// so these are delivered only to the author's `connected_thread` binding (see
+/// [`author_only_target`]).
+pub(crate) fn is_author_only_signal(external_event_id: &str) -> bool {
+    is_ci_notification(external_event_id) || external_event_id.starts_with("github:conflict:")
+}
+
+/// Whether a binding with `origin` should receive an author-only health signal,
+/// given whether any author (`connected_thread`) binding exists for the PR.
+///
+/// The PR author (`connected_thread`) always receives it. The reviewer
+/// (`ingress`) receives it only as a fallback when there is no author task
+/// bound — e.g. a human-opened PR whose only bound task is the reviewer — so a
+/// conflict / CI failure on such a PR still reaches *some* task rather than
+/// vanishing.
+pub(crate) fn author_only_target(origin: &str, has_author_binding: bool) -> bool {
+    if has_author_binding {
+        origin == CONNECTED_THREAD_BINDING_ORIGIN
+    } else {
+        true
+    }
+}
+
+/// Returns `true` for a GitHub PR review-comment signal (`github:rc:`). Review
+/// comments are thread-scoped for the reviewer (`ingress`): it only hears
+/// replies within threads it started (see the delivery loop in
+/// [`route_inbound_message`]).
+pub(crate) fn is_review_comment(external_event_id: &str) -> bool {
+    external_event_id.starts_with("github:rc:")
+}
+
 fn truncate(s: &str, max: usize) -> String {
     if s.len() <= max {
         return s.to_string();
@@ -1116,6 +1325,75 @@ mod tests {
         #[test]
         fn both_none_never_matches() {
             assert!(!is_authored_by_task_owner("bot:reviewer", None, None));
+        }
+    }
+
+    mod ci_notification {
+        use super::super::is_ci_notification;
+        use crate::adapters::github_pr::external_id;
+
+        #[test]
+        fn check_run_and_suite_and_workflow_run_are_ci() {
+            assert!(is_ci_notification(&external_id::check_run(123)));
+            assert!(is_ci_notification(&external_id::check_suite(456)));
+            assert!(is_ci_notification("github:wfrun:789"));
+        }
+
+        #[test]
+        fn comments_reviews_and_conflicts_are_not_ci() {
+            assert!(!is_ci_notification(&external_id::issue_comment(1)));
+            assert!(!is_ci_notification(&external_id::review_comment(2)));
+            assert!(!is_ci_notification(&external_id::review(3)));
+            assert!(!is_ci_notification(&external_id::pr_opened(4)));
+            assert!(!is_ci_notification(&external_id::merge_conflict(5, "abc")));
+            assert!(!is_ci_notification(""));
+        }
+    }
+
+    mod origin_routing {
+        use super::super::{author_only_target, is_author_only_signal, is_review_comment};
+        use crate::adapters::github_pr::external_id;
+        use crate::adapters::models::{
+            ADAPTER_EVENT_BINDING_ORIGIN, CONNECTED_THREAD_BINDING_ORIGIN,
+        };
+
+        #[test]
+        fn ci_and_conflict_signals_are_author_only() {
+            assert!(is_author_only_signal(&external_id::check_run(1)));
+            assert!(is_author_only_signal(&external_id::check_suite(2)));
+            assert!(is_author_only_signal(&external_id::workflow_run(3)));
+            assert!(is_author_only_signal(&external_id::merge_conflict(4, "sha")));
+        }
+
+        #[test]
+        fn content_signals_are_not_author_only() {
+            assert!(!is_author_only_signal(&external_id::issue_comment(1)));
+            assert!(!is_author_only_signal(&external_id::review_comment(2)));
+            assert!(!is_author_only_signal(&external_id::review(3)));
+            assert!(!is_author_only_signal(&external_id::pr_opened(4)));
+            assert!(!is_author_only_signal(""));
+        }
+
+        #[test]
+        fn author_binding_always_receives_author_only_signal() {
+            assert!(author_only_target(CONNECTED_THREAD_BINDING_ORIGIN, true));
+            assert!(author_only_target(CONNECTED_THREAD_BINDING_ORIGIN, false));
+        }
+
+        #[test]
+        fn reviewer_binding_receives_only_as_fallback() {
+            // Author task bound → reviewer is excluded.
+            assert!(!author_only_target(ADAPTER_EVENT_BINDING_ORIGIN, true));
+            // No author task bound → reviewer is the fallback recipient.
+            assert!(author_only_target(ADAPTER_EVENT_BINDING_ORIGIN, false));
+        }
+
+        #[test]
+        fn review_comment_ids_are_recognized() {
+            assert!(is_review_comment(&external_id::review_comment(7)));
+            assert!(!is_review_comment(&external_id::issue_comment(7)));
+            assert!(!is_review_comment(&external_id::review(7)));
+            assert!(!is_review_comment(""));
         }
     }
 }

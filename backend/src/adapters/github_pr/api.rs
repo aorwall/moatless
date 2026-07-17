@@ -78,6 +78,25 @@ pub struct PrRef {
     pub sha: String,
 }
 
+/// A pull request as returned by `GET /commits/{sha}/pulls` — the minimal
+/// subset needed to identify the merged PR that produced a commit.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CommitPr {
+    pub number: u64,
+    pub state: String,
+    /// Set (non-null) once the PR has been merged. Distinguishes a merged PR
+    /// from an open PR that merely has this commit on its head branch.
+    #[serde(default)]
+    pub merged_at: Option<String>,
+}
+
+impl CommitPr {
+    /// A PR is merged when GitHub stamped `merged_at`.
+    pub fn is_merged(&self) -> bool {
+        self.merged_at.is_some()
+    }
+}
+
 /// Default GitHub REST API base URL.
 const DEFAULT_API_BASE: &str = "https://api.github.com";
 
@@ -238,6 +257,44 @@ impl GithubPrApi {
             .ok_or_else(|| {
                 AdapterError::AdapterApi("GitHub get_repo: missing default_branch".into())
             })
+    }
+
+    /// List pull requests associated with a commit sha.
+    ///
+    /// Calls `GET /repos/{owner}/{repo}/commits/{sha}/pulls`. Used to map a
+    /// main-branch CI run (which carries no PR reference in its webhook) back
+    /// to the PR whose merge produced the commit — GitHub associates the merge
+    /// (or squash) commit with the merged PR.
+    pub async fn get_pulls_for_commit(
+        &self,
+        owner: &str,
+        repo: &str,
+        sha: &str,
+    ) -> Result<Vec<CommitPr>, AdapterError> {
+        let url = format!(
+            "{}/repos/{owner}/{repo}/commits/{sha}/pulls",
+            self.base_url
+        );
+
+        let resp = self
+            .request(reqwest::Method::GET, &url)
+            .send()
+            .await
+            .map_err(|e| {
+                AdapterError::AdapterApi(format!("GitHub get_pulls_for_commit failed: {e}"))
+            })?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(AdapterError::AdapterApi(format!(
+                "GitHub get_pulls_for_commit returned {status}: {text}"
+            )));
+        }
+
+        resp.json::<Vec<CommitPr>>().await.map_err(|e| {
+            AdapterError::AdapterApi(format!("GitHub get_pulls_for_commit parse error: {e}"))
+        })
     }
 
     /// Reply to a PR review comment (threaded review reply).

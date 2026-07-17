@@ -59,6 +59,22 @@ impl GithubPrRuleConfig {
             ignored_title_patterns: ignored_title_patterns(rule.provider_config.as_ref()),
         }
     }
+
+    /// True when `event_filter` is set and does not include `event_type`.
+    /// An empty filter means "all supported events" and never filters out.
+    pub fn event_filtered_out(&self, event_type: &str) -> bool {
+        !self.events_filter.is_empty() && !self.events_filter.iter().any(|e| e == event_type)
+    }
+
+    /// True when `sender` (a `sender.login`) is in `ignored_senders`
+    /// (case-insensitive). An empty sender never matches.
+    pub fn is_ignored_sender(&self, sender: &str) -> bool {
+        !sender.is_empty()
+            && self
+                .ignored_senders
+                .iter()
+                .any(|s| s.eq_ignore_ascii_case(sender))
+    }
 }
 
 /// Parse `ignored_senders` from a `provider_config` JSONB value. Key absent,
@@ -264,5 +280,44 @@ mod tests {
         );
         let cfg = GithubPrRuleConfig::from_rule(&rule);
         assert!(cfg.ignored_title_patterns.is_empty());
+    }
+
+    #[test]
+    fn empty_event_filter_never_filters_out() {
+        let rule = rule_with(serde_json::json!([]), true, false);
+        let cfg = GithubPrRuleConfig::from_rule(&rule);
+        assert!(!cfg.event_filtered_out("workflow_run"));
+        assert!(!cfg.event_filtered_out("pull_request"));
+    }
+
+    #[test]
+    fn event_filter_excludes_events_not_listed() {
+        let rule = rule_with(serde_json::json!(["pull_request"]), true, false);
+        let cfg = GithubPrRuleConfig::from_rule(&rule);
+        assert!(!cfg.event_filtered_out("pull_request"));
+        assert!(cfg.event_filtered_out("workflow_run"));
+        assert!(cfg.event_filtered_out("issue_comment"));
+    }
+
+    #[test]
+    fn is_ignored_sender_matches_case_insensitively() {
+        let rule = rule_with_provider_config(
+            serde_json::json!([]),
+            true,
+            false,
+            Some(serde_json::json!({"ignored_senders": ["Dependabot[bot]"]})),
+        );
+        let cfg = GithubPrRuleConfig::from_rule(&rule);
+        assert!(cfg.is_ignored_sender("dependabot[bot]"));
+        assert!(cfg.is_ignored_sender("DEPENDABOT[BOT]"));
+        assert!(!cfg.is_ignored_sender("octocat"));
+    }
+
+    #[test]
+    fn is_ignored_sender_empty_login_never_matches() {
+        let rule = rule_with(serde_json::json!([]), true, false);
+        let cfg = GithubPrRuleConfig::from_rule(&rule);
+        // default ignored senders is non-empty, but an empty login must not match.
+        assert!(!cfg.is_ignored_sender(""));
     }
 }
