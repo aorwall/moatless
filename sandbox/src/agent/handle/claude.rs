@@ -61,6 +61,7 @@ pub(super) async fn process_claude_message(
     ctx: &mut TurnContext<'_>,
     use_tmux: bool,
     turn_cancel: &CancellationToken,
+    usage_seen_message_ids: &mut std::collections::HashSet<String>,
 ) {
     match msg {
         SdkMessage::System(init) => {
@@ -71,12 +72,20 @@ pub(super) async fn process_claude_message(
             );
             publish_session_init(ctx, init.session_id, Some(init.model)).await;
         }
-        SdkMessage::Assistant(assistant) => {
+        SdkMessage::Assistant(mut assistant) => {
             // Remember this turn's latest stop_reason — the `result` message has
             // none, so this is the only place it's available for agent/completed.
             if assistant.message.stop_reason.is_some() {
                 *ctx.last_stop_reason = assistant.message.stop_reason.clone();
             }
+
+            // The CLI splits one assistant API response into one `assistant` SDK
+            // message per content block (thinking / text / tool_use), each
+            // repeating the same Anthropic `message.id` and the same `usage`.
+            // Persisting usage on every block row multiplies the token counts by
+            // the block count, so keep usage on the first row seen for a message
+            // id and strip it from the rest.
+            dedup_assistant_usage(&mut assistant, usage_seen_message_ids);
 
             if use_tmux {
                 // The CLI handles ScheduleWakeup internally in the persistent
@@ -133,6 +142,9 @@ pub(super) async fn process_claude_message(
 
             // Turn is over — clear so the next turn starts without a stale reason.
             *ctx.last_stop_reason = None;
+            // Message ids are globally unique, but clear the per-turn dedup set
+            // so it can't grow without bound across a long-lived session.
+            usage_seen_message_ids.clear();
             *ctx.tmux_turn_in_flight = false;
             // A successful turn in the persistent tmux session keeps the
             // handle (and the TUI process) alive so the CLI's internal
@@ -192,6 +204,29 @@ pub(super) async fn process_claude_message(
         }
         _ => {
             debug!("Claude SDK message (non-content)");
+        }
+    }
+}
+
+/// Strip duplicate `usage` from a repeated assistant block row.
+///
+/// The CLI emits one `assistant` SDK message per content block (thinking / text
+/// / tool_use), each carrying the same Anthropic `message.id` and the same
+/// `usage`. Keeping usage on every row would multiply token counts by the block
+/// count downstream, so usage is retained only on the first row seen for a given
+/// message id and cleared on the rest. Rows without a `message.id` (or without
+/// usage) are left untouched.
+fn dedup_assistant_usage(
+    assistant: &mut claude_agent_sdk::types::messages::AssistantMessage,
+    seen_message_ids: &mut std::collections::HashSet<String>,
+) {
+    if assistant.message.usage.is_none() {
+        return;
+    }
+    if let Some(message_id) = assistant.message.id.clone() {
+        // `insert` returns false when the id was already present this turn.
+        if !seen_message_ids.insert(message_id) {
+            assistant.message.usage = None;
         }
     }
 }
@@ -332,7 +367,7 @@ mod tests {
     use std::collections::HashMap;
 
     use claude_agent_sdk::types::content::Usage as ClaudeUsage;
-    use claude_agent_sdk::types::messages::{ResultError, ResultSuccess};
+    use claude_agent_sdk::types::messages::{AssistantMessage, ResultError, ResultSuccess};
 
     fn make_result_error(subtype: &str, num_turns: u32, errors: Vec<String>) -> ResultMessage {
         ResultMessage::Error(ResultError {
@@ -507,5 +542,79 @@ mod tests {
         assert!(is_error);
         assert_eq!(sub_type, AgentSubType::Error);
         assert_eq!(payload["subtype"], "rate_limit");
+    }
+
+    // ── dedup_assistant_usage ───────────────────────────────────────
+
+    fn make_assistant(message_id: Option<&str>, with_usage: bool) -> AssistantMessage {
+        let usage = with_usage.then(|| ClaudeUsage {
+            input_tokens: 2,
+            output_tokens: 3,
+            cache_read_input_tokens: Some(238_041),
+            cache_creation_input_tokens: Some(1854),
+            service_tier: None,
+            cache_creation: None,
+            server_tool_use: None,
+        });
+        AssistantMessage {
+            uuid: "row-uuid".to_string(),
+            session_id: "sess".to_string(),
+            message: ApiMessage {
+                role: "assistant".to_string(),
+                content: vec![],
+                usage,
+                model: Some("claude-opus-4-8".to_string()),
+                id: message_id.map(ToString::to_string),
+                stop_reason: None,
+                stop_sequence: None,
+            },
+            parent_tool_use_id: None,
+            error: None,
+            is_api_error_message: None,
+            api_error: None,
+            request_id: None,
+        }
+    }
+
+    #[test]
+    fn dedup_keeps_usage_on_first_block_and_strips_repeats() {
+        let mut seen = std::collections::HashSet::new();
+
+        // Three content-block rows share one message id — the CLI repeats the
+        // same usage on each. Only the first (thinking) should keep it.
+        let mut thinking = make_assistant(Some("msg_1"), true);
+        let mut text = make_assistant(Some("msg_1"), true);
+        let mut tool_use = make_assistant(Some("msg_1"), true);
+        dedup_assistant_usage(&mut thinking, &mut seen);
+        dedup_assistant_usage(&mut text, &mut seen);
+        dedup_assistant_usage(&mut tool_use, &mut seen);
+
+        assert!(thinking.message.usage.is_some());
+        assert!(text.message.usage.is_none());
+        assert!(tool_use.message.usage.is_none());
+
+        // A distinct message id keeps its own usage.
+        let mut other = make_assistant(Some("msg_2"), true);
+        dedup_assistant_usage(&mut other, &mut seen);
+        assert!(other.message.usage.is_some());
+
+        // After a turn boundary clears the set, the same id counts again.
+        seen.clear();
+        let mut next_turn = make_assistant(Some("msg_1"), true);
+        dedup_assistant_usage(&mut next_turn, &mut seen);
+        assert!(next_turn.message.usage.is_some());
+    }
+
+    #[test]
+    fn dedup_leaves_rows_without_message_id_untouched() {
+        let mut seen = std::collections::HashSet::new();
+        let mut a = make_assistant(None, true);
+        let mut b = make_assistant(None, true);
+        dedup_assistant_usage(&mut a, &mut seen);
+        dedup_assistant_usage(&mut b, &mut seen);
+        // No id to dedupe against, so usage is preserved on both.
+        assert!(a.message.usage.is_some());
+        assert!(b.message.usage.is_some());
+        assert!(seen.is_empty());
     }
 }

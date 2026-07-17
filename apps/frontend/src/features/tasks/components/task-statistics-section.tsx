@@ -1,5 +1,5 @@
 import { Activity, Bot, Wrench } from 'lucide-react'
-import { useMemo } from 'react'
+import { MessageTokenUsageChart } from '@/features/tasks/components/message-token-usage-chart'
 import { useTaskStatisticsQuery } from '@/features/tasks/hooks/use-task-queries'
 import { Badge } from '@/lib/components/ui/badge'
 import { Skeleton } from '@/lib/components/ui/skeleton'
@@ -13,11 +13,6 @@ const numberFormat = new Intl.NumberFormat()
 
 export function TaskStatisticsSection({ taskId }: TaskStatisticsSectionProps) {
   const { data: stats, isLoading } = useTaskStatisticsQuery(taskId)
-
-  const maxMessageTokens = useMemo(
-    () => Math.max(0, ...(stats?.messageTokenUsage.map((message) => message.totalTokens) ?? [])),
-    [stats?.messageTokenUsage],
-  )
 
   if (isLoading) {
     return (
@@ -54,29 +49,7 @@ export function TaskStatisticsSection({ taskId }: TaskStatisticsSectionProps) {
       <div>
         <div className="mb-2 text-xs font-medium text-muted-foreground">Token usage by message</div>
         {hasMessageUsage ? (
-          <div className="space-y-2">
-            {stats.messageTokenUsage.map((message, index) => (
-              <div
-                key={message.messageUuid}
-                className="grid grid-cols-[2rem_1fr_4.5rem] items-center gap-2 text-xs"
-              >
-                <span className="text-muted-foreground tabular-nums">
-                  {message.turnNumber ?? index + 1}
-                </span>
-                <div className="h-2 overflow-hidden rounded bg-muted">
-                  <div
-                    className="h-full rounded bg-primary"
-                    style={{
-                      width: `${maxMessageTokens > 0 ? Math.max(4, (message.totalTokens / maxMessageTokens) * 100) : 0}%`,
-                    }}
-                  />
-                </div>
-                <span className="text-right tabular-nums">
-                  {numberFormat.format(message.totalTokens)}
-                </span>
-              </div>
-            ))}
-          </div>
+          <MessageTokenUsageChart messages={stats.messageTokenUsage} />
         ) : (
           <p className="text-sm text-muted-foreground">No token usage recorded</p>
         )}

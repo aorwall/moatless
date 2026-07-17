@@ -8,7 +8,7 @@ use moatless_api_schemas::task::{
 };
 
 use super::models::Task;
-use crate::message::models::{ContentBlockType, TaskMessage, TaskMessageContentBlock};
+use crate::message::models::{ContentBlockType, MessageType, TaskMessage, TaskMessageContentBlock};
 
 #[derive(Debug, Clone)]
 struct ToolCall {
@@ -21,6 +21,13 @@ struct ToolCall {
 struct ToolAccumulator {
     total_calls: i64,
     failed_calls: i64,
+}
+
+/// Deduplicated per-message usage plus the cache split needed for the totals.
+struct MessageUsage {
+    entry: TaskMessageTokenUsage,
+    cache_creation_input_tokens: i64,
+    cache_read_input_tokens: i64,
 }
 
 /// Build all stats from the same rows already used by the conversation view.
@@ -50,7 +57,18 @@ pub fn build_task_statistics(
     );
 
     let mut token_totals = TaskTokenTotals::default();
-    let mut message_token_usage = Vec::new();
+    // Deduplicated per-message usage, keyed by the Anthropic message id and kept
+    // in first-seen order. Two data-quality issues make a naive per-row sum wrong:
+    //   1. The agent stream persists the same assistant message several times
+    //      (streaming snapshots / resume replays), so summing rows double-counts.
+    //   2. Sub-agent (sidechain) messages — those spawned by a Task/Agent tool,
+    //      identified by a `parent_uuid` — report *cumulative* session usage on
+    //      every row, so a single row can read tens of millions of tokens.
+    // We therefore count only main-conversation assistant messages
+    // (`parent_uuid IS NULL`) and keep one entry per message id (the largest
+    // snapshot, i.e. the final/complete one).
+    let mut usage_by_id: HashMap<String, MessageUsage> = HashMap::new();
+    let mut usage_order: Vec<String> = Vec::new();
     let mut tool_stats: BTreeMap<String, ToolAccumulator> = BTreeMap::new();
     let mut skill_stats: BTreeMap<String, i64> = BTreeMap::new();
     let mut latest_model: Option<String> = None;
@@ -64,36 +82,51 @@ pub fn build_task_statistics(
             latest_model = model.clone();
         }
 
-        let input_tokens = i64::from(message.assistant_usage_input_tokens.unwrap_or(0));
-        let output_tokens = i64::from(message.assistant_usage_output_tokens.unwrap_or(0));
-        let cache_creation_input_tokens = i64::from(
-            message
-                .assistant_usage_cache_creation_input_tokens
-                .unwrap_or(0),
-        );
-        let cache_read_input_tokens =
-            i64::from(message.assistant_usage_cache_read_input_tokens.unwrap_or(0));
-        let cached_input_tokens = cache_creation_input_tokens + cache_read_input_tokens;
-        let total_tokens = input_tokens + output_tokens + cached_input_tokens;
+        if message.message_type == MessageType::Assistant && message.parent_uuid.is_none() {
+            let input_tokens = i64::from(message.assistant_usage_input_tokens.unwrap_or(0));
+            let output_tokens = i64::from(message.assistant_usage_output_tokens.unwrap_or(0));
+            let cache_creation_input_tokens = i64::from(
+                message
+                    .assistant_usage_cache_creation_input_tokens
+                    .unwrap_or(0),
+            );
+            let cache_read_input_tokens =
+                i64::from(message.assistant_usage_cache_read_input_tokens.unwrap_or(0));
+            let cached_input_tokens = cache_creation_input_tokens + cache_read_input_tokens;
+            let total_tokens = input_tokens + output_tokens + cached_input_tokens;
 
-        if total_tokens > 0 {
-            token_totals.input_tokens += input_tokens;
-            token_totals.output_tokens += output_tokens;
-            token_totals.cache_creation_input_tokens += cache_creation_input_tokens;
-            token_totals.cache_read_input_tokens += cache_read_input_tokens;
-            token_totals.cached_input_tokens += cached_input_tokens;
-            token_totals.total_tokens += total_tokens;
-
-            message_token_usage.push(TaskMessageTokenUsage {
-                message_uuid: message.uuid.clone(),
-                timestamp: message.timestamp.clone(),
-                turn_number: message.turn_number,
-                model: model.clone(),
-                input_tokens,
-                output_tokens,
-                cached_input_tokens,
-                total_tokens,
-            });
+            if total_tokens > 0 {
+                // Fall back to the row uuid when the message id is absent so rows
+                // without an Anthropic id are still counted (once).
+                let key = message
+                    .assistant_message_id
+                    .clone()
+                    .unwrap_or_else(|| message.uuid.clone());
+                let usage = MessageUsage {
+                    entry: TaskMessageTokenUsage {
+                        message_uuid: message.uuid.clone(),
+                        timestamp: message.timestamp.clone(),
+                        turn_number: message.turn_number,
+                        model: model.clone(),
+                        input_tokens,
+                        output_tokens,
+                        cached_input_tokens,
+                        total_tokens,
+                    },
+                    cache_creation_input_tokens,
+                    cache_read_input_tokens,
+                };
+                match usage_by_id.get(&key) {
+                    Some(existing) if existing.entry.total_tokens >= total_tokens => {}
+                    Some(_) => {
+                        usage_by_id.insert(key, usage);
+                    }
+                    None => {
+                        usage_order.push(key.clone());
+                        usage_by_id.insert(key, usage);
+                    }
+                }
+            }
         }
 
         for call in extract_tool_calls(
@@ -111,6 +144,22 @@ pub fn build_task_statistics(
             if let Some(skill_name) = call.skill_name {
                 *skill_stats.entry(skill_name).or_insert(0) += 1;
             }
+        }
+    }
+
+    // Materialize the deduplicated usage in first-seen (chronological) order and
+    // derive the totals from the same set so the summary tiles and the per-message
+    // chart always agree.
+    let mut message_token_usage = Vec::with_capacity(usage_order.len());
+    for key in usage_order {
+        if let Some(usage) = usage_by_id.remove(&key) {
+            token_totals.input_tokens += usage.entry.input_tokens;
+            token_totals.output_tokens += usage.entry.output_tokens;
+            token_totals.cache_creation_input_tokens += usage.cache_creation_input_tokens;
+            token_totals.cache_read_input_tokens += usage.cache_read_input_tokens;
+            token_totals.cached_input_tokens += usage.entry.cached_input_tokens;
+            token_totals.total_tokens += usage.entry.total_tokens;
+            message_token_usage.push(usage.entry);
         }
     }
 
@@ -348,5 +397,46 @@ mod tests {
         assert_eq!(stats.tool_calls[0].failed_calls, 1);
         assert_eq!(stats.skills[0].skill_name, "backend-dev-guidelines");
         assert_eq!(stats.skills[0].total_calls, 1);
+    }
+
+    #[test]
+    fn dedupes_by_message_id_and_excludes_sidechain_usage() {
+        // A real main-conversation assistant message.
+        let mut a1 = assistant_message();
+        a1.uuid = "a1".to_string();
+        a1.assistant_message_id = Some("msg_1".to_string());
+        a1.message_content = serde_json::json!([]);
+        a1.assistant_usage_input_tokens = Some(10);
+        a1.assistant_usage_output_tokens = Some(5);
+        a1.assistant_usage_cache_creation_input_tokens = Some(0);
+        a1.assistant_usage_cache_read_input_tokens = Some(100);
+
+        // The same message persisted a second time (streaming/replay duplicate).
+        let mut a1_dup = a1.clone();
+        a1_dup.uuid = "a1-dup".to_string();
+
+        // A second distinct main-conversation assistant message.
+        let mut a2 = a1.clone();
+        a2.uuid = "a2".to_string();
+        a2.assistant_message_id = Some("msg_2".to_string());
+        a2.assistant_usage_output_tokens = Some(7);
+
+        // A sub-agent (sidechain) message — identified by parent_uuid — carrying
+        // absurd cumulative usage. Must be excluded entirely.
+        let mut sidechain = a1.clone();
+        sidechain.uuid = "sc".to_string();
+        sidechain.assistant_message_id = Some("msg_sc".to_string());
+        sidechain.parent_uuid = Some("toolu_x".to_string());
+        sidechain.assistant_usage_output_tokens = Some(343_471);
+        sidechain.assistant_usage_cache_read_input_tokens = Some(62_000_000);
+
+        let stats = build_task_statistics(&task(), &[a1, a1_dup, a2, sidechain], &[]);
+
+        // Only the two distinct main-agent messages, counted once each.
+        assert_eq!(stats.message_token_usage.len(), 2);
+        assert_eq!(stats.token_totals.input_tokens, 20); // 10 + 10, duplicate not re-counted
+        assert_eq!(stats.token_totals.output_tokens, 12); // 5 + 7, sidechain excluded
+        assert_eq!(stats.token_totals.cache_read_input_tokens, 200); // 100 + 100
+        assert_eq!(stats.token_totals.total_tokens, 20 + 12 + 200);
     }
 }

@@ -3,7 +3,7 @@
 //! Runs a `tokio::select!` that reads runtime messages from the active session
 //! and processes incoming commands. Manages the full session lifecycle.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 use claude_agent_sdk::types::messages::ResultMessage;
@@ -120,6 +120,11 @@ pub(super) async fn agent_loop(
     // it into the agent/completed payload (lets the UI tell `end_turn` from
     // `max_tokens` / `tool_use` without digging into per-message rows).
     let mut last_stop_reason: Option<String> = None;
+    // Anthropic `message.id`s whose usage has already been forwarded this turn.
+    // The CLI splits an assistant response into one message per content block,
+    // each repeating the same usage; this dedupes so token totals aren't
+    // multiplied by the block count. Cleared at each turn's `result`.
+    let mut usage_seen_message_ids: HashSet<String> = HashSet::new();
     // When the last rate-limited `agent.activity` liveness event was published
     // (advances the reaper's idle floor during long tool calls).
     let mut last_activity_publish: Option<std::time::Instant> = None;
@@ -370,6 +375,7 @@ pub(super) async fn agent_loop(
                             &mut ctx,
                             config.use_tmux,
                             &turn_cancel,
+                            &mut usage_seen_message_ids,
                         ).await;
 
                         // Session ended (subprocess turn end or an error
