@@ -37,7 +37,7 @@ use super::schemas::{
     format_datetime, format_datetime_opt, ApiKeyCreateResponse, ApiKeyListItem, CliLoginQuery,
     CreateApiKeyRequest, CreateUserRequest, CreateUserResponse, MessageResponse,
     OAuthCallbackQuery, ProviderConnection, SessionResponse, TokenSessionResponse,
-    UpdateUserRequest, UserInfo, UserListItem, UserListResponse,
+    AdminUpdateUserRequest, UpdateUserRequest, UserInfo, UserListItem, UserListResponse,
 };
 use super::session;
 use super::sessions::SessionRepository;
@@ -1598,8 +1598,14 @@ async fn list_users_handler(
         .map(|u| UserListItem {
             id: u.id.clone(),
             login: u.login.clone(),
+            email: u.email.clone(),
             name: u.name.clone(),
             avatar_url: u.avatar_url.clone(),
+            provider: u.provider.clone(),
+            role: u.role,
+            created_at: format_datetime(u.created_at),
+            last_login_at: format_datetime(u.last_login_at),
+            is_bot: u.is_bot,
         })
         .collect();
 
@@ -1617,7 +1623,7 @@ async fn list_users_handler(
     path = "/api/v1/users/{login}",
     tag = "users",
     params(("login" = String, Path, description = "Moatless username")),
-    request_body = UpdateUserRequest,
+    request_body = AdminUpdateUserRequest,
     responses(
         (status = 200, description = "User updated", body = UserInfo),
         (status = 401, description = "Not authenticated", body = ErrorBody),
@@ -1629,7 +1635,7 @@ async fn update_user_handler(
     State(state): State<AuthState>,
     headers: HeaderMap,
     Path(login): Path<String>,
-    Json(body): Json<UpdateUserRequest>,
+    Json(body): Json<AdminUpdateUserRequest>,
 ) -> Result<Json<UserInfo>, AuthError> {
     let identity = authenticate_request(&state, &headers).await?;
     let user_id = resolve_login_to_user_id(&state, &login).await?;
@@ -1637,10 +1643,13 @@ async fn update_user_handler(
     if identity.user_id != user_id && identity.role != UserRole::Admin {
         return Err(AuthError::Forbidden);
     }
+    if body.role.is_some() && identity.role != UserRole::Admin {
+        return Err(AuthError::Forbidden);
+    }
 
     let user = state
         .users
-        .update_user_profile(&user_id, body.name.clone(), body.email.clone())
+        .update_user_profile_and_role(&user_id, body.name.clone(), body.email.clone(), body.role)
         .await?
         .ok_or_else(|| AuthError::NotFound(format!("User '{login}' not found")))?;
 

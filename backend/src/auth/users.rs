@@ -49,6 +49,13 @@ pub trait UserRepository: Send + Sync {
         name: Option<String>,
         email: Option<String>,
     ) -> Result<Option<User>, sqlx::Error>;
+    async fn update_user_profile_and_role(
+        &self,
+        user_id: &str,
+        name: Option<Option<String>>,
+        email: Option<Option<String>>,
+        role: Option<UserRole>,
+    ) -> Result<Option<User>, sqlx::Error>;
 
     // Provider ID mapping
     async fn upsert_provider_id(
@@ -143,6 +150,33 @@ impl UserRepository for PgUserRepository {
         .bind(user_id)
         .bind(name)
         .bind(email)
+        .fetch_optional(&self.0)
+        .await
+    }
+
+    async fn update_user_profile_and_role(
+        &self,
+        user_id: &str,
+        name: Option<Option<String>>,
+        email: Option<Option<String>>,
+        role: Option<UserRole>,
+    ) -> Result<Option<User>, sqlx::Error> {
+        let should_update_name = name.is_some();
+        let should_update_email = email.is_some();
+        sqlx::query_as::<_, User>(
+            r#"UPDATE users
+               SET name = CASE WHEN $2 THEN $3 ELSE name END,
+                   email = CASE WHEN $4 THEN $5 ELSE email END,
+                   role = COALESCE($6, role)
+               WHERE id = $1
+               RETURNING *"#,
+        )
+        .bind(user_id)
+        .bind(should_update_name)
+        .bind(name.flatten())
+        .bind(should_update_email)
+        .bind(email.flatten())
+        .bind(role)
         .fetch_optional(&self.0)
         .await
     }

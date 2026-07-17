@@ -72,6 +72,7 @@ export const queryKeys = {
   teams: {
     all: ['teams'] as const,
     list: () => [...queryKeys.teams.all, 'list'] as const,
+    members: (teamId: string) => [...queryKeys.teams.all, 'members', teamId] as const,
   },
 
   repositories: () => [...queryKeys.all, 'repositories'] as const,

@@ -5,6 +5,7 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { UserRole } from './userRole';
 
 /**
  * Single item in GET /api/v1/users list.
@@ -12,8 +13,15 @@
 export interface UserListItem {
   /** @nullable */
   avatarUrl?: string | null;
+  createdAt: string;
+  /** @nullable */
+  email?: string | null;
   id: string;
+  isBot: boolean;
+  lastLoginAt: string;
   login: string;
   /** @nullable */
   name?: string | null;
+  provider: string;
+  role: UserRole;
 }

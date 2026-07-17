@@ -5495,6 +5495,48 @@
         }
       }
     },
+    "/api/v1/tasks/{task_id}/statistics": {
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Get conversation statistics for a task.",
+        "operationId": "get_task_statistics",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Task conversation statistics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskStatisticsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tasks/{task_id}/stop": {
       "post": {
         "tags": [
@@ -6747,7 +6789,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/UpdateUserRequest"
+                "$ref": "#/components/schemas/AdminUpdateUserRequest"
               }
             }
           },
@@ -7286,6 +7328,34 @@
           },
           "userId": {
             "type": "string"
+          }
+        }
+      },
+      "AdminUpdateUserRequest": {
+        "type": "object",
+        "description": "Body for PATCH /api/v1/users/{login}.\n\n`None` means the field was omitted and should remain unchanged.\n`Some(None)` means the caller explicitly sent `null` and the column should be cleared.",
+        "properties": {
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "role": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/UserRole"
+              }
+            ]
           }
         }
       },
@@ -8013,10 +8083,24 @@
             ],
             "description": "RFC3339 timestamp of the last event seen on the binding."
           },
+          "mergeableState": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "GitHub PR mergeable state: clean | dirty | blocked | behind | unstable |\nhas_hooks | draft. `dirty` means merge conflicts. `None` when not\ncomputed or not a PR."
+          },
           "outgoing": {
             "type": "integer",
             "format": "int64",
             "description": "Outgoing message count for this connection."
+          },
+          "reviewDecision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "GitHub PR review decision: approved | changes_requested |\nreview_required | dismissed | commented. `None` for non-PR connections\nor PRs with no review recorded yet."
           },
           "stateKind": {
             "type": [
@@ -11370,7 +11454,14 @@
               "string",
               "null"
             ],
-            "description": "Per-repository size cap for the `dind` sidecar's `/var/lib/docker`\nemptyDir (e.g. \"50Gi\"). Only meaningful for repos with `dockerAccess`.\nExceeding the cap gets the pod **evicted** by the kubelet, wiping all\ndind container data — size it above the repo's peak Docker usage\n(images + container writable layers + volumes). When unset, the global\n`K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE` default applies."
+            "description": "Per-repository size cap for the `dind` sidecar's `/var/lib/docker`\nemptyDir (e.g. \"50Gi\"). Only meaningful for repos with `dockerAccess`\nand `dockerStorageMode: \"emptyDir\"`. Exceeding the cap gets the pod\n**evicted** by the kubelet, wiping all dind container data. When unset,\nthe global `K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE` default applies."
+          },
+          "dockerStorageMode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Storage backend for the `dind` sidecar's `/var/lib/docker`:\n- `\"node\"` (default) — best-effort node-local hostPath. Docker layers,\n  images, and volumes survive stop/start only on the same node.\n- `\"emptyDir\"` — node-local emptyDir capped by `dockerStorage`."
           },
           "limits": {
             "type": [
@@ -11401,14 +11492,14 @@
               "string",
               "null"
             ],
-            "description": "Per-repository workspace storage size override (e.g. \"8Gi\"). Sizes both\ntiers: the per-task PVC (`ebs`) and the node-local emptyDir (`ephemeral`).\nWhen unset, the global `K8S_SANDBOX_STORAGE_SIZE` default applies. Never\ncopied into container resource specs."
+            "description": "Per-repository workspace storage size override (e.g. \"8Gi\"). Sizes the\nper-task PVC (`ebs`) and node-local emptyDir (`ephemeral`/`s3`) tiers.\nThe `node` hostPath tier is bounded by node disk capacity instead. When\nunset, the global `K8S_SANDBOX_STORAGE_SIZE` default applies. Never copied\ninto container resource specs."
           },
           "storageMode": {
             "type": [
               "string",
               "null"
             ],
-            "description": "Per-repository storage tier. One of [`STORAGE_MODES`]:\n- `\"ebs\"` (default) — a per-task EBS PVC mounted at `/opt/moatless`,\n  surviving pod restarts.\n- `\"ephemeral\"` — a node-local emptyDir, no PVC; transcripts persist only\n  via the S3 sync, the workspace does not survive the pod.\n- `\"s3\"` — a node-local emptyDir plus a direct git-working-tree sync to S3,\n  giving workspace persistence without an EBS attach/detach per restart.\n\nWhen unset, the deployment-wide default applies\n(`K8S_SANDBOX_DEFAULT_STORAGE_MODE`, itself defaulting to `\"ebs\"`).\nUnknown values are ignored (treated as unset)."
+            "description": "Per-repository storage tier. One of [`STORAGE_MODES`]:\n- `\"ebs\"` (default) — a per-task EBS PVC mounted at `/opt/moatless`,\n  surviving pod restarts.\n- `\"ephemeral\"` — a node-local emptyDir, no PVC; transcripts persist only\n  via the S3 sync, the workspace does not survive the pod.\n- `\"s3\"` — a node-local emptyDir plus a direct git-working-tree sync to S3,\n  giving workspace persistence without an EBS attach/detach per restart.\n- `\"node\"` — a best-effort node-local hostPath. The workspace survives\n  stop/start only when Kubernetes schedules the task back onto the same node.\n\nWhen unset, the deployment-wide default applies\n(`K8S_SANDBOX_DEFAULT_STORAGE_MODE`, itself defaulting to `\"ebs\"`).\nUnknown values are ignored (treated as unset)."
           }
         }
       },
@@ -13034,6 +13125,55 @@
           }
         }
       },
+      "TaskMessageTokenUsage": {
+        "type": "object",
+        "description": "Token usage attached to a single assistant message.",
+        "required": [
+          "messageUuid",
+          "timestamp",
+          "inputTokens",
+          "outputTokens",
+          "cachedInputTokens",
+          "totalTokens"
+        ],
+        "properties": {
+          "cachedInputTokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "inputTokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "messageUuid": {
+            "type": "string"
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "outputTokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "timestamp": {
+            "type": "string"
+          },
+          "totalTokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "turnNumber": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "TaskRelationDto": {
         "type": "object",
         "description": "A typed link from one task to another, with optional JSON context.",
@@ -13300,6 +13440,70 @@
           }
         }
       },
+      "TaskSkillUsage": {
+        "type": "object",
+        "description": "Skill usage aggregate for a task conversation.",
+        "required": [
+          "skillName",
+          "totalCalls"
+        ],
+        "properties": {
+          "skillName": {
+            "type": "string"
+          },
+          "totalCalls": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "TaskStatisticsResponse": {
+        "type": "object",
+        "description": "Conversation statistics derived from persisted task messages.",
+        "required": [
+          "taskId",
+          "agentType",
+          "tokenTotals",
+          "messageTokenUsage",
+          "toolCalls",
+          "skills"
+        ],
+        "properties": {
+          "agentType": {
+            "$ref": "#/components/schemas/AgentType"
+          },
+          "messageTokenUsage": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskMessageTokenUsage"
+            }
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskSkillUsage"
+            }
+          },
+          "taskId": {
+            "type": "string"
+          },
+          "tokenTotals": {
+            "$ref": "#/components/schemas/TaskTokenTotals"
+          },
+          "toolCalls": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskToolCallStats"
+            }
+          }
+        }
+      },
       "TaskStatus": {
         "type": "string",
         "description": "Task lifecycle status.",
@@ -13425,6 +13629,67 @@
           },
           "updatedAt": {
             "type": "string"
+          }
+        }
+      },
+      "TaskTokenTotals": {
+        "type": "object",
+        "description": "Aggregate token counts for a task conversation.",
+        "required": [
+          "inputTokens",
+          "outputTokens",
+          "cachedInputTokens",
+          "cacheCreationInputTokens",
+          "cacheReadInputTokens",
+          "totalTokens"
+        ],
+        "properties": {
+          "cacheCreationInputTokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "cacheReadInputTokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "cachedInputTokens": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Cache-write plus cache-read input tokens."
+          },
+          "inputTokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "outputTokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalTokens": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "TaskToolCallStats": {
+        "type": "object",
+        "description": "Tool-call aggregate for a task conversation.",
+        "required": [
+          "toolName",
+          "totalCalls",
+          "failedCalls"
+        ],
+        "properties": {
+          "failedCalls": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "toolName": {
+            "type": "string"
+          },
+          "totalCalls": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -14878,7 +15143,12 @@
         "description": "Single item in GET /api/v1/users list.",
         "required": [
           "id",
-          "login"
+          "login",
+          "provider",
+          "role",
+          "createdAt",
+          "lastLoginAt",
+          "isBot"
         ],
         "properties": {
           "avatarUrl": {
@@ -14887,7 +15157,22 @@
               "null"
             ]
           },
+          "createdAt": {
+            "type": "string"
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "id": {
+            "type": "string"
+          },
+          "isBot": {
+            "type": "boolean"
+          },
+          "lastLoginAt": {
             "type": "string"
           },
           "login": {
@@ -14898,6 +15183,12 @@
               "string",
               "null"
             ]
+          },
+          "provider": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/UserRole"
           }
         }
       },

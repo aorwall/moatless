@@ -1,6 +1,6 @@
 //! Auth API request/response schemas.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::enums::UserRole;
 
@@ -28,6 +28,33 @@ pub struct CliLoginQuery {
 pub struct UpdateUserRequest {
     pub name: Option<String>,
     pub email: Option<String>,
+}
+
+/// Body for PATCH /api/v1/users/{login}.
+///
+/// `None` means the field was omitted and should remain unchanged.
+/// `Some(None)` means the caller explicitly sent `null` and the column should be cleared.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct AdminUpdateUserRequest {
+    #[serde(default, deserialize_with = "deserialize_optional_nullable_field")]
+    pub name: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_optional_nullable_field")]
+    pub email: Option<Option<String>>,
+    pub role: Option<UserRole>,
+}
+
+// This endpoint needs a tri-state field: omitted, explicit null, or value.
+#[allow(clippy::option_option)]
+fn deserialize_optional_nullable_field<'de, D, T>(
+    deserializer: D,
+) -> Result<Option<Option<T>>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
 }
 
 /// Body for POST /api/v1/auth/api-keys.
@@ -125,8 +152,14 @@ pub struct ApiKeyListItem {
 pub struct UserListItem {
     pub id: String,
     pub login: String,
+    pub email: Option<String>,
     pub name: Option<String>,
     pub avatar_url: Option<String>,
+    pub provider: String,
+    pub role: UserRole,
+    pub created_at: String,
+    pub last_login_at: String,
+    pub is_bot: bool,
 }
 
 /// GET /api/v1/users response.
@@ -195,4 +228,28 @@ pub fn format_datetime(dt: chrono::DateTime<chrono::Utc>) -> String {
 /// Format an optional `DateTime<Utc>` as an optional RFC3339 string.
 pub fn format_datetime_opt(dt: Option<chrono::DateTime<chrono::Utc>>) -> Option<String> {
     dt.map(format_datetime)
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::AdminUpdateUserRequest;
+
+    #[test]
+    fn admin_update_user_distinguishes_omitted_null_and_value() {
+        let omitted: AdminUpdateUserRequest = serde_json::from_value(json!({})).unwrap();
+        assert_eq!(omitted.name, None);
+        assert_eq!(omitted.email, None);
+
+        let cleared: AdminUpdateUserRequest =
+            serde_json::from_value(json!({ "name": null, "email": null })).unwrap();
+        assert_eq!(cleared.name, Some(None));
+        assert_eq!(cleared.email, Some(None));
+
+        let updated: AdminUpdateUserRequest =
+            serde_json::from_value(json!({ "name": "Ada", "email": "ada@example.com" })).unwrap();
+        assert_eq!(updated.name, Some(Some("Ada".to_string())));
+        assert_eq!(updated.email, Some(Some("ada@example.com".to_string())));
+    }
 }

@@ -32,7 +32,9 @@ const FigmaTestLazyRouteImport = createFileRoute('/figma-test')()
 const SandboxIndexLazyRouteImport = createFileRoute('/sandbox/')()
 const SandboxTaskIdIndexLazyRouteImport =
   createFileRoute('/sandbox/$task-id/')()
+const AdminUsersIndexLazyRouteImport = createFileRoute('/admin/users/')()
 const AdminTriggersIndexLazyRouteImport = createFileRoute('/admin/triggers/')()
+const AdminTeamsIndexLazyRouteImport = createFileRoute('/admin/teams/')()
 const AdminTaskConnectionsIndexLazyRouteImport = createFileRoute(
   '/admin/task-connections/',
 )()
@@ -126,12 +128,26 @@ const SandboxTaskIdIndexLazyRoute = SandboxTaskIdIndexLazyRouteImport.update({
 } as any).lazy(() =>
   import('./routes/sandbox/$task-id/index.lazy').then((d) => d.Route),
 )
+const AdminUsersIndexLazyRoute = AdminUsersIndexLazyRouteImport.update({
+  id: '/users/',
+  path: '/users/',
+  getParentRoute: () => AdminRoute,
+} as any).lazy(() =>
+  import('./routes/admin/users/index.lazy').then((d) => d.Route),
+)
 const AdminTriggersIndexLazyRoute = AdminTriggersIndexLazyRouteImport.update({
   id: '/triggers/',
   path: '/triggers/',
   getParentRoute: () => AdminRoute,
 } as any).lazy(() =>
   import('./routes/admin/triggers/index.lazy').then((d) => d.Route),
+)
+const AdminTeamsIndexLazyRoute = AdminTeamsIndexLazyRouteImport.update({
+  id: '/teams/',
+  path: '/teams/',
+  getParentRoute: () => AdminRoute,
+} as any).lazy(() =>
+  import('./routes/admin/teams/index.lazy').then((d) => d.Route),
 )
 const AdminTaskConnectionsIndexLazyRoute =
   AdminTaskConnectionsIndexLazyRouteImport.update({
@@ -260,7 +276,9 @@ export interface FileRoutesByFullPath {
   '/admin/marketplaces': typeof AdminMarketplacesIndexLazyRoute
   '/admin/secrets': typeof AdminSecretsIndexLazyRoute
   '/admin/task-connections': typeof AdminTaskConnectionsIndexLazyRoute
+  '/admin/teams': typeof AdminTeamsIndexLazyRoute
   '/admin/triggers': typeof AdminTriggersIndexLazyRoute
+  '/admin/users': typeof AdminUsersIndexLazyRoute
   '/sandbox/$task-id': typeof SandboxTaskIdIndexLazyRoute
   '/admin/triggers/$trigger-id/edit': typeof AdminTriggersTriggerIdEditLazyRoute
   '/admin/integrations/connections': typeof AdminIntegrationsConnectionsIndexLazyRoute
@@ -288,7 +306,9 @@ export interface FileRoutesByTo {
   '/admin/marketplaces': typeof AdminMarketplacesIndexLazyRoute
   '/admin/secrets': typeof AdminSecretsIndexLazyRoute
   '/admin/task-connections': typeof AdminTaskConnectionsIndexLazyRoute
+  '/admin/teams': typeof AdminTeamsIndexLazyRoute
   '/admin/triggers': typeof AdminTriggersIndexLazyRoute
+  '/admin/users': typeof AdminUsersIndexLazyRoute
   '/sandbox/$task-id': typeof SandboxTaskIdIndexLazyRoute
   '/admin/triggers/$trigger-id/edit': typeof AdminTriggersTriggerIdEditLazyRoute
   '/admin/integrations/connections': typeof AdminIntegrationsConnectionsIndexLazyRoute
@@ -320,7 +340,9 @@ export interface FileRoutesById {
   '/admin/marketplaces/': typeof AdminMarketplacesIndexLazyRoute
   '/admin/secrets/': typeof AdminSecretsIndexLazyRoute
   '/admin/task-connections/': typeof AdminTaskConnectionsIndexLazyRoute
+  '/admin/teams/': typeof AdminTeamsIndexLazyRoute
   '/admin/triggers/': typeof AdminTriggersIndexLazyRoute
+  '/admin/users/': typeof AdminUsersIndexLazyRoute
   '/sandbox/$task-id/': typeof SandboxTaskIdIndexLazyRoute
   '/admin/triggers/$trigger-id/edit': typeof AdminTriggersTriggerIdEditLazyRoute
   '/admin/integrations/connections/': typeof AdminIntegrationsConnectionsIndexLazyRoute
@@ -353,7 +375,9 @@ export interface FileRouteTypes {
     | '/admin/marketplaces'
     | '/admin/secrets'
     | '/admin/task-connections'
+    | '/admin/teams'
     | '/admin/triggers'
+    | '/admin/users'
     | '/sandbox/$task-id'
     | '/admin/triggers/$trigger-id/edit'
     | '/admin/integrations/connections'
@@ -381,7 +405,9 @@ export interface FileRouteTypes {
     | '/admin/marketplaces'
     | '/admin/secrets'
     | '/admin/task-connections'
+    | '/admin/teams'
     | '/admin/triggers'
+    | '/admin/users'
     | '/sandbox/$task-id'
     | '/admin/triggers/$trigger-id/edit'
     | '/admin/integrations/connections'
@@ -412,7 +438,9 @@ export interface FileRouteTypes {
     | '/admin/marketplaces/'
     | '/admin/secrets/'
     | '/admin/task-connections/'
+    | '/admin/teams/'
     | '/admin/triggers/'
+    | '/admin/users/'
     | '/sandbox/$task-id/'
     | '/admin/triggers/$trigger-id/edit'
     | '/admin/integrations/connections/'
@@ -535,11 +563,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SandboxTaskIdIndexLazyRouteImport
       parentRoute: typeof SandboxLazyRoute
     }
+    '/admin/users/': {
+      id: '/admin/users/'
+      path: '/users'
+      fullPath: '/admin/users'
+      preLoaderRoute: typeof AdminUsersIndexLazyRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/triggers/': {
       id: '/admin/triggers/'
       path: '/triggers'
       fullPath: '/admin/triggers'
       preLoaderRoute: typeof AdminTriggersIndexLazyRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/teams/': {
+      id: '/admin/teams/'
+      path: '/teams'
+      fullPath: '/admin/teams'
+      preLoaderRoute: typeof AdminTeamsIndexLazyRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/task-connections/': {
@@ -650,7 +692,9 @@ interface AdminRouteChildren {
   AdminMarketplacesIndexLazyRoute: typeof AdminMarketplacesIndexLazyRoute
   AdminSecretsIndexLazyRoute: typeof AdminSecretsIndexLazyRoute
   AdminTaskConnectionsIndexLazyRoute: typeof AdminTaskConnectionsIndexLazyRoute
+  AdminTeamsIndexLazyRoute: typeof AdminTeamsIndexLazyRoute
   AdminTriggersIndexLazyRoute: typeof AdminTriggersIndexLazyRoute
+  AdminUsersIndexLazyRoute: typeof AdminUsersIndexLazyRoute
   AdminTriggersTriggerIdEditLazyRoute: typeof AdminTriggersTriggerIdEditLazyRoute
   AdminIntegrationsConnectionsIndexLazyRoute: typeof AdminIntegrationsConnectionsIndexLazyRoute
   AdminTriggersTriggerIdIndexLazyRoute: typeof AdminTriggersTriggerIdIndexLazyRoute
@@ -664,7 +708,9 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminMarketplacesIndexLazyRoute: AdminMarketplacesIndexLazyRoute,
   AdminSecretsIndexLazyRoute: AdminSecretsIndexLazyRoute,
   AdminTaskConnectionsIndexLazyRoute: AdminTaskConnectionsIndexLazyRoute,
+  AdminTeamsIndexLazyRoute: AdminTeamsIndexLazyRoute,
   AdminTriggersIndexLazyRoute: AdminTriggersIndexLazyRoute,
+  AdminUsersIndexLazyRoute: AdminUsersIndexLazyRoute,
   AdminTriggersTriggerIdEditLazyRoute: AdminTriggersTriggerIdEditLazyRoute,
   AdminIntegrationsConnectionsIndexLazyRoute:
     AdminIntegrationsConnectionsIndexLazyRoute,

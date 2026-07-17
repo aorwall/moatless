@@ -25,6 +25,7 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  AdminUpdateUserRequest,
   CodexConfigResponse,
   CreateUserRequest,
   CreateUserResponse,
@@ -34,7 +35,6 @@ import type {
   SendDmRequest,
   SendDmResponse,
   SetProviderIdRequest,
-  UpdateUserRequest,
   UserInfo,
   UserListResponse,
   UserProviderIdItem
@@ -452,7 +452,7 @@ export const getUpdateUserHandlerUrl = (login: string,) => {
 }
 
 export const updateUserHandler = async (login: string,
-    updateUserRequest: UpdateUserRequest, options?: RequestInit): Promise<updateUserHandlerResponse> => {
+    adminUpdateUserRequest: AdminUpdateUserRequest, options?: RequestInit): Promise<updateUserHandlerResponse> => {
   
   return customInstance<updateUserHandlerResponse>(getUpdateUserHandlerUrl(login),
   {      
@@ -460,7 +460,7 @@ export const updateUserHandler = async (login: string,
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(
-      updateUserRequest,)
+      adminUpdateUserRequest,)
   }
 );}
 
@@ -468,8 +468,8 @@ export const updateUserHandler = async (login: string,
 
 
 export const getUpdateUserHandlerMutationOptions = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateUserHandler>>, TError,{login: string;data: UpdateUserRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
-): UseMutationOptions<Awaited<ReturnType<typeof updateUserHandler>>, TError,{login: string;data: UpdateUserRequest}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateUserHandler>>, TError,{login: string;data: AdminUpdateUserRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateUserHandler>>, TError,{login: string;data: AdminUpdateUserRequest}, TContext> => {
 
 const mutationKey = ['updateUserHandler'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -481,7 +481,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateUserHandler>>, {login: string;data: UpdateUserRequest}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateUserHandler>>, {login: string;data: AdminUpdateUserRequest}> = (props) => {
           const {login,data} = props ?? {};
 
           return  updateUserHandler(login,data,requestOptions)
@@ -495,18 +495,18 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type UpdateUserHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof updateUserHandler>>>
-    export type UpdateUserHandlerMutationBody = UpdateUserRequest
+    export type UpdateUserHandlerMutationBody = AdminUpdateUserRequest
     export type UpdateUserHandlerMutationError = ErrorType<ErrorBody>
 
     /**
  * @summary Update a user's profile (name and/or email).
  */
 export const useUpdateUserHandler = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateUserHandler>>, TError,{login: string;data: UpdateUserRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateUserHandler>>, TError,{login: string;data: AdminUpdateUserRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof updateUserHandler>>,
         TError,
-        {login: string;data: UpdateUserRequest},
+        {login: string;data: AdminUpdateUserRequest},
         TContext
       > => {
       return useMutation(getUpdateUserHandlerMutationOptions(options), queryClient);

@@ -38,6 +38,7 @@ import type {
   TagResponse,
   TaskConnectionsResponse,
   TaskResponse,
+  TaskStatisticsResponse,
   UpdateTaskMetadataRequest,
   UpdateTaskTtlRequest,
   UpdateVisibilityRequest
@@ -1436,6 +1437,137 @@ export const useStartTask = <TError = ErrorType<ErrorBody>,
       return useMutation(getStartTaskMutationOptions(options), queryClient);
     }
     /**
+ * @summary Get conversation statistics for a task.
+ */
+export type getTaskStatisticsResponse200 = {
+  data: TaskStatisticsResponse
+  status: 200
+}
+
+export type getTaskStatisticsResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type getTaskStatisticsResponseSuccess = (getTaskStatisticsResponse200) & {
+  headers: Headers;
+};
+export type getTaskStatisticsResponseError = (getTaskStatisticsResponse404) & {
+  headers: Headers;
+};
+
+export type getTaskStatisticsResponse = (getTaskStatisticsResponseSuccess | getTaskStatisticsResponseError)
+
+export const getGetTaskStatisticsUrl = (taskId: string,) => {
+
+
+  
+
+  return `/api/v1/tasks/${taskId}/statistics`
+}
+
+export const getTaskStatistics = async (taskId: string, options?: RequestInit): Promise<getTaskStatisticsResponse> => {
+  
+  return customInstance<getTaskStatisticsResponse>(getGetTaskStatisticsUrl(taskId),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
+
+export const getGetTaskStatisticsQueryKey = (taskId: string,) => {
+    return [
+    `/api/v1/tasks/${taskId}/statistics`
+    ] as const;
+    }
+
+    
+export const getGetTaskStatisticsQueryOptions = <TData = Awaited<ReturnType<typeof getTaskStatistics>>, TError = ErrorType<ErrorBody>>(taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTaskStatistics>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetTaskStatisticsQueryKey(taskId);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getTaskStatistics>>> = ({ signal }) => getTaskStatistics(taskId, { signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(taskId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getTaskStatistics>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type GetTaskStatisticsQueryResult = NonNullable<Awaited<ReturnType<typeof getTaskStatistics>>>
+export type GetTaskStatisticsQueryError = ErrorType<ErrorBody>
+
+
+export function useGetTaskStatistics<TData = Awaited<ReturnType<typeof getTaskStatistics>>, TError = ErrorType<ErrorBody>>(
+ taskId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTaskStatistics>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getTaskStatistics>>,
+          TError,
+          Awaited<ReturnType<typeof getTaskStatistics>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useGetTaskStatistics<TData = Awaited<ReturnType<typeof getTaskStatistics>>, TError = ErrorType<ErrorBody>>(
+ taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTaskStatistics>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getTaskStatistics>>,
+          TError,
+          Awaited<ReturnType<typeof getTaskStatistics>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useGetTaskStatistics<TData = Awaited<ReturnType<typeof getTaskStatistics>>, TError = ErrorType<ErrorBody>>(
+ taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTaskStatistics>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+/**
+ * @summary Get conversation statistics for a task.
+ */
+
+export function useGetTaskStatistics<TData = Awaited<ReturnType<typeof getTaskStatistics>>, TError = ErrorType<ErrorBody>>(
+ taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTaskStatistics>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getGetTaskStatisticsQueryOptions(taskId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get conversation statistics for a task.
+ */
+export const prefetchGetTaskStatisticsQuery = async <TData = Awaited<ReturnType<typeof getTaskStatistics>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTaskStatistics>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getGetTaskStatisticsQueryOptions(taskId,options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+/**
  * @summary Stop the agent running on a task.
  */
 export type stopTaskResponse204 = {

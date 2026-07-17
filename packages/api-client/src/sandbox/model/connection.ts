@@ -35,8 +35,22 @@ active.
    * @nullable
    */
   lastEventAt?: string | null;
+  /**
+   * GitHub PR mergeable state: clean | dirty | blocked | behind | unstable |
+has_hooks | draft. `dirty` means merge conflicts. `None` when not
+computed or not a PR.
+   * @nullable
+   */
+  mergeableState?: string | null;
   /** Outgoing message count for this connection. */
   outgoing: number;
+  /**
+   * GitHub PR review decision: approved | changes_requested |
+review_required | dismissed | commented. `None` for non-PR connections
+or PRs with no review recorded yet.
+   * @nullable
+   */
+  reviewDecision?: string | null;
   /**
    * Normalized status bucket for color-coding.
    * @nullable
