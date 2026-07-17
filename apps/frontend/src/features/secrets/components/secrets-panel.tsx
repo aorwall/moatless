@@ -4,9 +4,9 @@ import { useMemo, useState } from 'react'
 import { useAuth } from '@/features/auth/hooks/use-auth'
 import { SecretEditorDialog } from '@/features/secrets/components/secret-editor-dialog'
 import { SecretsList } from '@/features/secrets/components/secrets-list'
-import { useSecretsList } from '@/features/secrets/hooks/use-secrets'
+import { TeamSelect } from '@/features/secrets/components/team-select'
+import { useSecretsList, useTeamsList } from '@/features/secrets/hooks/use-secrets'
 import { Button } from '@/lib/components/ui/button'
-import { Input } from '@/lib/components/ui/input'
 import { Label } from '@/lib/components/ui/label'
 import { Tabs, TabsList, TabsTrigger } from '@/lib/components/ui/tabs'
 
@@ -23,6 +23,13 @@ export function SecretsPanel({ defaultScope = 'user' }: SecretsPanelProps = {}) 
   const [teamId, setTeamId] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editSecret, setEditSecret] = useState<SecretMetadataResponse | null>(null)
+  const {
+    data: teams = [],
+    isLoading: teamsLoading,
+    error: teamsError,
+  } = useTeamsList({
+    enabled: scope === SecretScopeType.team || dialogOpen,
+  })
 
   const scopeId = useMemo(() => {
     if (scope === SecretScopeType.user) {
@@ -82,22 +89,22 @@ export function SecretsPanel({ defaultScope = 'user' }: SecretsPanelProps = {}) 
       </Tabs>
 
       {scope === SecretScopeType.team && (
-        <div className="flex items-end gap-2">
-          <div className="flex-1 space-y-2">
-            <Label htmlFor="secrets-team-id">Team ID</Label>
-            <Input
-              id="secrets-team-id"
-              value={teamId}
-              onChange={(e) => setTeamId(e.target.value)}
-              placeholder="team-…"
-            />
-          </div>
+        <div className="space-y-2">
+          <Label htmlFor="secrets-team">Team</Label>
+          <TeamSelect
+            id="secrets-team"
+            value={teamId}
+            onValueChange={setTeamId}
+            teams={teams}
+            isLoading={teamsLoading}
+            error={teamsError as Error | null}
+          />
         </div>
       )}
 
       {scope === SecretScopeType.team && !scopeId ? (
         <div className="rounded-md border border-dashed py-12 text-center text-sm text-muted-foreground">
-          Enter a team ID to list secrets.
+          Select a team to list secrets.
         </div>
       ) : (
         <SecretsList
@@ -113,6 +120,9 @@ export function SecretsPanel({ defaultScope = 'user' }: SecretsPanelProps = {}) 
         onOpenChange={setDialogOpen}
         editSecret={editSecret}
         defaultScope={scope}
+        teams={teams}
+        teamsError={teamsError as Error | null}
+        teamsLoading={teamsLoading}
       />
     </div>
   )

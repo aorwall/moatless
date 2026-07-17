@@ -3,9 +3,11 @@ import { Loader2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { useAuth } from '@/features/auth/hooks/use-auth'
+import { TeamSelect } from '@/features/secrets/components/team-select'
 import {
   type PatchSecretRequest,
   type PutSecretRequest,
+  type TeamResponse,
   usePatchSecret,
   usePutSecret,
 } from '@/features/secrets/hooks/use-secrets'
@@ -37,6 +39,9 @@ interface SecretEditorDialogProps {
   onOpenChange: (open: boolean) => void
   editSecret?: SecretMetadataResponse | null
   defaultScope?: EditorScope
+  teams?: TeamResponse[]
+  teamsError?: Error | null
+  teamsLoading?: boolean
 }
 
 interface FormState {
@@ -72,6 +77,9 @@ export function SecretEditorDialog({
   onOpenChange,
   editSecret,
   defaultScope = 'user',
+  teams = [],
+  teamsError = null,
+  teamsLoading = false,
 }: SecretEditorDialogProps) {
   const { isAdmin } = useAuth()
   const isEditing = !!editSecret
@@ -100,7 +108,7 @@ export function SecretEditorDialog({
       return
     }
     if (missingScopeId) {
-      toast.error('Team ID is required for team-scoped secrets')
+      toast.error('Team is required for team-scoped secrets')
       return
     }
     if (missingValue) {
@@ -183,12 +191,14 @@ export function SecretEditorDialog({
 
           {needsScopeId && (
             <div className="space-y-2">
-              <Label>Team ID</Label>
-              <Input
+              <Label>Team</Label>
+              <TeamSelect
                 value={form.scopeId}
-                onChange={(e) => setForm((prev) => ({ ...prev, scopeId: e.target.value }))}
-                disabled={isEditing}
-                placeholder="team-…"
+                onValueChange={(value) => setForm((prev) => ({ ...prev, scopeId: value }))}
+                disabled={isEditing || teamsLoading || !!teamsError}
+                teams={teams}
+                isLoading={teamsLoading}
+                error={teamsError}
               />
             </div>
           )}

@@ -23,6 +23,7 @@
     "./sandbox/task-bindings/task-bindings": "./src/sandbox/task-bindings/task-bindings.ts",
     "./sandbox/tags/tags": "./src/sandbox/tags/tags.ts",
     "./sandbox/tasks/tasks": "./src/sandbox/tasks/tasks.ts",
+    "./sandbox/teams/teams": "./src/sandbox/teams/teams.ts",
     "./sandbox/triggers/triggers": "./src/sandbox/triggers/triggers.ts",
     "./sandbox/users/users": "./src/sandbox/users/users.ts",
     "./sandbox/model": "./src/sandbox/model/index.ts"
