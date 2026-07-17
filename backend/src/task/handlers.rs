@@ -600,6 +600,36 @@ pub async fn get_task(
     Ok(Json(resp))
 }
 
+/// Get conversation statistics for a task.
+#[utoipa::path(
+    get,
+    path = "/api/v1/tasks/{task_id}/statistics",
+    tag = "tasks",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    responses(
+        (status = 200, description = "Task conversation statistics", body = TaskStatisticsResponse),
+        (status = 404, description = "Task not found", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn get_task_statistics(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(task_id): Path<String>,
+) -> Result<Json<TaskStatisticsResponse>, TaskError> {
+    let row = state
+        .tasks
+        .find_by_id(&task_id, &auth.scope_context())
+        .await?
+        .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
+
+    let (messages, _, blocks) = state.messages.get_all(&task_id).await?;
+    Ok(Json(super::statistics::build_task_statistics(
+        &row, &messages, &blocks,
+    )))
+}
+
 /// Update task name and description.
 #[utoipa::path(
     patch,

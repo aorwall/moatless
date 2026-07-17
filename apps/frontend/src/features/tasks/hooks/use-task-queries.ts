@@ -51,3 +51,12 @@ export function useTaskConnectionsQuery(taskId: string) {
     enabled: !!taskId,
   })
 }
+
+export function useTaskStatisticsQuery(taskId: string) {
+  return useQuery({
+    queryKey: queryKeys.tasks.statistics(taskId),
+    queryFn: () => tasksApi.getTaskStatistics(taskId),
+    staleTime: 30_000,
+    enabled: !!taskId,
+  })
+}

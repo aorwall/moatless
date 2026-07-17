@@ -38,6 +38,7 @@ export const queryKeys = {
     commands: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'commands'] as const,
     events: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'events'] as const,
     connections: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'connections'] as const,
+    statistics: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'statistics'] as const,
   },
 
   auth: {

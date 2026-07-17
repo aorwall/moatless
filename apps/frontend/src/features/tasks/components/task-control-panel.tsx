@@ -12,6 +12,7 @@ import { TaskConnectionsSection } from './task-connections-section'
 import { EditTaskDialog } from './task-header/edit-task-dialog'
 import { TaskInfoSection } from './task-header/task-info-section'
 import { TaskRelationsSection } from './task-relations-section'
+import { TaskStatisticsSection } from './task-statistics-section'
 
 /** Idle stop: minutes of inactivity before the sandbox is stopped (0 = never). */
 const IDLE_STOP_PRESETS: Array<{ label: string; minutes: number }> = [
@@ -190,6 +191,13 @@ export function TaskControlPanel({ className }: TaskControlPanelProps) {
             Connections
           </div>
           <TaskConnectionsSection taskId={taskId} />
+        </section>
+
+        <section className="rounded-md border">
+          <div className="px-3 py-2 text-xs font-medium text-muted-foreground border-b">
+            Statistics
+          </div>
+          <TaskStatisticsSection taskId={taskId} />
         </section>
       </div>
 

@@ -15,6 +15,7 @@ use crate::state::AppState;
         handlers::create_task,
         handlers::list_tasks,
         handlers::get_task,
+        handlers::get_task_statistics,
         handlers::update_task_metadata,
         handlers::delete_task,
         handlers::mark_task_read,
@@ -39,6 +40,7 @@ pub fn task_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenApi) 
         .routes(routes!(handlers::create_task, handlers::list_tasks))
         .routes(routes!(
             handlers::get_task,
+            handlers::get_task_statistics,
             handlers::update_task_metadata,
             handlers::delete_task
         ))

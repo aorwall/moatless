@@ -42,6 +42,47 @@ export interface MessagesPage {
   hasMore: boolean
 }
 
+export interface TaskTokenTotals {
+  inputTokens: number
+  outputTokens: number
+  cachedInputTokens: number
+  cacheCreationInputTokens: number
+  cacheReadInputTokens: number
+  totalTokens: number
+}
+
+export interface TaskMessageTokenUsage {
+  messageUuid: string
+  timestamp: string
+  turnNumber?: number | null
+  model?: string | null
+  inputTokens: number
+  outputTokens: number
+  cachedInputTokens: number
+  totalTokens: number
+}
+
+export interface TaskToolCallStats {
+  toolName: string
+  totalCalls: number
+  failedCalls: number
+}
+
+export interface TaskSkillUsage {
+  skillName: string
+  totalCalls: number
+}
+
+export interface TaskStatisticsResponse {
+  taskId: string
+  agentType: string
+  model?: string | null
+  tokenTotals: TaskTokenTotals
+  messageTokenUsage: TaskMessageTokenUsage[]
+  toolCalls: TaskToolCallStats[]
+  skills: TaskSkillUsage[]
+}
+
 export const tasksApi = {
   async getActiveTasks(): Promise<string[]> {
     const response = await unwrapResponse<ListTasksResponse>(listTasksHandler({ status: 'open' }))
@@ -89,6 +130,10 @@ export const tasksApi = {
         ...(refresh !== undefined && { refresh }),
       }),
     )
+  },
+
+  async getTaskStatistics(taskId: string): Promise<TaskStatisticsResponse> {
+    return await customInstance<TaskStatisticsResponse>(`/api/v1/tasks/${taskId}/statistics`)
   },
 
   async createTask(request: CreateTaskRequest): Promise<CreateTaskResponse> {

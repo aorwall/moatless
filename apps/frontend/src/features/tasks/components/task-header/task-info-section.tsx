@@ -13,6 +13,7 @@ import {
 import { toast } from 'sonner'
 import { formatTimestamp } from '@/features/task-connections'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
+import { useTaskStatisticsQuery } from '@/features/tasks/hooks/use-task-queries'
 import {
   useCloseTask,
   useReopenTask,
@@ -52,6 +53,7 @@ export function TaskInfoSection({ task }: TaskInfoSectionProps) {
   const navigate = useNavigate()
   const updateVisibility = useUpdateTaskVisibility(taskId)
   const updateTtl = useUpdateTaskTtl(taskId)
+  const statisticsQuery = useTaskStatisticsQuery(taskId)
   const toggleFollow = useToggleTaskFollow(taskId, {
     onError: (err) => toast.error('Failed to update follow', { description: err.message }),
   })
@@ -132,6 +134,16 @@ export function TaskInfoSection({ task }: TaskInfoSectionProps) {
       </Field>
       <Field label="Scope">
         <span className="capitalize">{task.scope}</span>
+      </Field>
+      <Field label="Agent type">
+        <Truncated value={task.agentType} />
+      </Field>
+      <Field label="Model">
+        <Truncated
+          value={
+            statisticsQuery.isLoading ? 'Loading' : (statisticsQuery.data?.model ?? 'Not recorded')
+          }
+        />
       </Field>
       <Field label="Follow">
         <button

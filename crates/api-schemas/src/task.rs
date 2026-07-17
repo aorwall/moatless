@@ -251,6 +251,68 @@ pub struct TaskResponse {
     pub is_following: Option<bool>,
 }
 
+/// Aggregate token counts for a task conversation.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct TaskTokenTotals {
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    /// Cache-write plus cache-read input tokens.
+    pub cached_input_tokens: i64,
+    pub cache_creation_input_tokens: i64,
+    pub cache_read_input_tokens: i64,
+    pub total_tokens: i64,
+}
+
+/// Token usage attached to a single assistant message.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct TaskMessageTokenUsage {
+    pub message_uuid: String,
+    pub timestamp: String,
+    pub turn_number: Option<i32>,
+    pub model: Option<String>,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cached_input_tokens: i64,
+    pub total_tokens: i64,
+}
+
+/// Tool-call aggregate for a task conversation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct TaskToolCallStats {
+    pub tool_name: String,
+    pub total_calls: i64,
+    pub failed_calls: i64,
+}
+
+/// Skill usage aggregate for a task conversation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct TaskSkillUsage {
+    pub skill_name: String,
+    pub total_calls: i64,
+}
+
+/// Conversation statistics derived from persisted task messages.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct TaskStatisticsResponse {
+    pub task_id: String,
+    pub agent_type: AgentType,
+    pub model: Option<String>,
+    pub token_totals: TaskTokenTotals,
+    pub message_token_usage: Vec<TaskMessageTokenUsage>,
+    pub tool_calls: Vec<TaskToolCallStats>,
+    pub skills: Vec<TaskSkillUsage>,
+}
+
 /// Response for follow/unfollow endpoints, reporting the resulting state.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
