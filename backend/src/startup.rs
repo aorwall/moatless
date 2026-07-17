@@ -220,6 +220,8 @@ pub fn spawn_grpc_server(
         db_pool.map(|pool| Arc::new(PgTaskRepository(pool.clone())) as _);
     let task_turns: Option<Arc<dyn crate::task_turn::dao::TaskTurnRepository>> = db_pool
         .map(|pool| Arc::new(crate::task_turn::dao::PgTaskTurnRepository(pool.clone())) as _);
+    let grpc_task_events: Option<Arc<dyn crate::task_event::dao::TaskEventRepository>> = db_pool
+        .map(|pool| Arc::new(crate::task_event::dao::PgTaskEventRepository(pool.clone())) as _);
     let task_relations: Option<Arc<dyn crate::task::relations::TaskRelationRepository>> = db_pool
         .map(|pool| {
             Arc::new(crate::task::relations::PgTaskRelationRepository(
@@ -290,6 +292,7 @@ pub fn spawn_grpc_server(
             provider_tokens,
             tasks,
             task_turns,
+            task_events: grpc_task_events,
             task_relations,
             task_token_secret: token_secret,
             github_app_service,

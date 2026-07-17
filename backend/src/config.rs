@@ -435,7 +435,11 @@ pub struct ProxyConfig {
 pub struct RedisConfig {
     /// Redis connection URL. When set, enables event publishing and SSE consumers.
     pub url: Option<String>,
-    /// Maximum stream length for MAXLEN ~ trimming (default: 10000)
+    /// Maximum stream length for MAXLEN ~ trimming (default: 500).
+    ///
+    /// Sized for the live SSE tail, which is all the stream is for — history is
+    /// served from `task_events` in Postgres. `MAXLEN` bounds entry count only;
+    /// per-entry bytes are capped separately in `events.rs`.
     pub max_stream_length: usize,
 }
 
@@ -1022,7 +1026,7 @@ impl Config {
 
             redis: RedisConfig {
                 url: env_opt("REDIS_URL"),
-                max_stream_length: env_or("REDIS_MAX_STREAM_LENGTH", 10_000),
+                max_stream_length: env_or("REDIS_MAX_STREAM_LENGTH", 500),
             },
 
             sse: SseConfig {

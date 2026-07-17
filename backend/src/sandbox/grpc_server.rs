@@ -48,6 +48,7 @@ use crate::secret::service::SecretService;
 use crate::shared_models::AgentType;
 use crate::task::dao::TaskRepository;
 use crate::task::relations::TaskRelationRepository;
+use crate::task_event::dao::{InsertTaskEvent, TaskEventRepository};
 use crate::task_turn::dao::{TaskTurnRepository, TurnStateEvent};
 use crate::task_turn::models::classify_turn_transition;
 
@@ -106,6 +107,10 @@ pub struct BackendSandboxServiceImpl {
     /// task-status / event rows here transactionally before being published to
     /// Redis (transactional-outbox ordering).
     pub task_turns: Option<Arc<dyn TaskTurnRepository>>,
+    /// Event-row writer for events that bear no turn state (`agent.message` and
+    /// friends). Commits before the Redis publish so Postgres holds the full
+    /// payload even when the live tail carries a truncated stub.
+    pub task_events: Option<Arc<dyn TaskEventRepository>>,
     pub task_relations: Option<Arc<dyn TaskRelationRepository>>,
     pub commands: Option<Arc<dyn CommandRepository>>,
     /// JWT signing key for verifying sandbox auth tokens.
@@ -254,14 +259,20 @@ impl BackendSandboxServiceImpl {
     }
 }
 
-/// Transactional-outbox write: commit turn state (when the event bears any),
-/// then publish to Redis. The DB commit is always awaited *before* the publish,
-/// so an event is never fanned out ahead of its committed state. A failed commit
-/// is logged and the publish still happens — the Redis consumer re-applies the
-/// same state idempotently as a fallback.
+/// Transactional-outbox write: commit the `task_events` row — plus turn state
+/// when the event bears any — then publish to Redis. The DB commit is always
+/// awaited *before* the publish, so an event is never fanned out ahead of its
+/// committed state. A failed commit is logged and the publish still happens —
+/// the Redis consumer re-applies the same row and state idempotently as a
+/// fallback.
+///
+/// Committing on *both* branches is what lets the publisher treat Redis as a
+/// disposable live tail and truncate oversized payloads: Postgres always holds
+/// the full event first.
 #[allow(clippy::too_many_arguments)]
 async fn write_state_then_publish(
     task_turns: Option<&Arc<dyn TaskTurnRepository>>,
+    task_events: Option<&Arc<dyn TaskEventRepository>>,
     publisher: &Arc<dyn EventPublisher>,
     event_id: &str,
     task_id: &str,
@@ -271,18 +282,60 @@ async fn write_state_then_publish(
     payload: Value,
     state: Option<TurnStateEvent>,
 ) {
-    if let Some(ev) = state {
-        if let Some(turns) = task_turns {
-            if let Err(e) = turns.apply_ingress_event(&ev).await {
-                warn!(
-                    task_id = %task_id,
-                    event_id = %event_id,
-                    error = %e,
-                    "Transactional turn-state write failed; falling back to consumer"
-                );
+    // Tracks whether `task_events` actually holds the full payload. Only then
+    // may the publisher truncate an oversized one; on a failed commit the
+    // consumer's fallback insert is the last route to Postgres and must see
+    // the whole thing.
+    let payload_persisted = match state {
+        // State-bearing: event row, turn projection, and task-status flip all
+        // commit in one transaction.
+        Some(ev) => match task_turns {
+            Some(turns) => match turns.apply_ingress_event(&ev).await {
+                Ok(()) => true,
+                Err(e) => {
+                    warn!(
+                        task_id = %task_id,
+                        event_id = %event_id,
+                        error = %e,
+                        "Transactional turn-state write failed; falling back to consumer"
+                    );
+                    false
+                }
+            },
+            None => false,
+        },
+        // Everything else still needs its row committed before the fan-out.
+        // `agent.message` lands here, and it carries the largest payloads.
+        None => match task_events {
+            Some(events) => {
+                let insert = InsertTaskEvent {
+                    event_id: event_id.to_string(),
+                    task_id: task_id.to_string(),
+                    event_type: event_type.to_string(),
+                    sub_type: sub_type.to_string(),
+                    is_error: sub_type == "error" || sub_type == "failed",
+                    agent_type: None,
+                    turn_number,
+                    payload: payload.clone(),
+                    timestamp: chrono::Utc::now()
+                        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+                };
+                match events.insert_event(&insert).await {
+                    Ok(()) => true,
+                    Err(e) => {
+                        warn!(
+                            task_id = %task_id,
+                            event_id = %event_id,
+                            error = %e,
+                            "Ingress event-row write failed; falling back to consumer"
+                        );
+                        false
+                    }
+                }
             }
-        }
-    }
+            None => false,
+        },
+    };
     publisher
         .publish_raw_event_with_id(
             event_id,
@@ -292,6 +345,7 @@ async fn write_state_then_publish(
             None,
             turn_number,
             payload,
+            payload_persisted,
         )
         .await;
 }
@@ -414,6 +468,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
 
         write_state_then_publish(
             self.task_turns.as_ref(),
+            self.task_events.as_ref(),
             publisher,
             &event_id,
             &event.task_id,
@@ -1773,8 +1828,68 @@ mod tests {
             _agent_type: Option<&str>,
             _turn_number: Option<i32>,
             _payload: Value,
+            _payload_persisted: bool,
         ) {
             self.rec.lock().expect("recorder poisoned").push("publish");
+        }
+        async fn health_check(&self) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    /// Publisher double capturing the `payload_persisted` flag it was handed —
+    /// the signal that decides whether an oversized payload may be truncated.
+    struct FlagCapturingPublisher {
+        seen: Arc<StdMutex<Vec<bool>>>,
+    }
+
+    #[async_trait]
+    impl EventPublisher for FlagCapturingPublisher {
+        async fn publish_sandbox_event(&self, _: &str, _: SandboxSubType, _: &str) {}
+        async fn publish_sandbox_event_with_payload(
+            &self,
+            _: &str,
+            _: SandboxSubType,
+            _: &SandboxEventPayload,
+        ) {
+        }
+        async fn publish_server_event(&self, _: &str, _: ServerSubType, _: &ServerEventPayload) {}
+        async fn publish_task_event(&self, _: &str, _: TaskSubType, _: Option<&str>, _: Value) {}
+        async fn publish_agent_event(&self, _: &str, _: AgentSubType, _: Option<&str>, _: Value) {}
+        async fn publish_task_turn_event(
+            &self,
+            _: &str,
+            _: TaskTurnSubType,
+            _: Option<&str>,
+            _: Option<i32>,
+            _: Value,
+        ) {
+        }
+        async fn publish_raw_event(
+            &self,
+            _: &str,
+            _: &str,
+            _: &str,
+            _: Option<&str>,
+            _: Option<i32>,
+            _: Value,
+        ) {
+        }
+        async fn publish_raw_event_with_id(
+            &self,
+            _event_id: &str,
+            _task_id: &str,
+            _event_type: &str,
+            _sub_type: &str,
+            _agent_type: Option<&str>,
+            _turn_number: Option<i32>,
+            _payload: Value,
+            payload_persisted: bool,
+        ) {
+            self.seen
+                .lock()
+                .expect("recorder poisoned")
+                .push(payload_persisted);
         }
         async fn health_check(&self) -> Result<(), String> {
             Ok(())
@@ -1807,6 +1922,7 @@ mod tests {
 
         write_state_then_publish(
             Some(&turns),
+            None,
             &publisher,
             "evt-1",
             "task-1",
@@ -1834,6 +1950,7 @@ mod tests {
 
         write_state_then_publish(
             Some(&turns),
+            None,
             &publisher,
             "evt-2",
             "task-1",
@@ -1850,18 +1967,35 @@ mod tests {
         assert_eq!(*rec.lock().unwrap(), vec!["commit", "publish"]);
     }
 
+    /// Event-row writer double recording an `"event-row"` on `insert_event`.
+    fn recording_events(rec: &Recorder, fail: bool) -> Arc<dyn TaskEventRepository> {
+        let mut events = crate::task_event::dao::MockTaskEventRepository::new();
+        let rec = rec.clone();
+        events.expect_insert_event().returning(move |_| {
+            rec.lock().expect("recorder poisoned").push("event-row");
+            if fail {
+                return Err(sqlx::Error::PoolClosed);
+            }
+            Ok(())
+        });
+        Arc::new(events)
+    }
+
     #[tokio::test]
-    async fn non_state_event_only_publishes() {
+    async fn non_state_event_commits_its_row_before_publish() {
         let rec: Recorder = Arc::new(StdMutex::new(Vec::new()));
         let turns: Arc<dyn TaskTurnRepository> = Arc::new(RecordingTurns {
             rec: rec.clone(),
             fail: false,
         });
+        let events = recording_events(&rec, false);
         let publisher: Arc<dyn EventPublisher> = Arc::new(RecordingPublisher { rec: rec.clone() });
 
-        // No TurnStateEvent → no transactional write, just fan-out.
+        // No TurnStateEvent → no turn projection, but the event row must still
+        // land before the fan-out so the published payload stays disposable.
         write_state_then_publish(
             Some(&turns),
+            Some(&events),
             &publisher,
             "evt-3",
             "task-1",
@@ -1873,7 +2007,35 @@ mod tests {
         )
         .await;
 
-        assert_eq!(*rec.lock().unwrap(), vec!["publish"]);
+        assert_eq!(*rec.lock().unwrap(), vec!["event-row", "publish"]);
+    }
+
+    #[tokio::test]
+    async fn non_state_event_publishes_untruncated_when_row_write_fails() {
+        let rec: Recorder = Arc::new(StdMutex::new(Vec::new()));
+        let events = recording_events(&rec, true);
+        let persisted: Arc<StdMutex<Vec<bool>>> = Arc::new(StdMutex::new(Vec::new()));
+        let publisher: Arc<dyn EventPublisher> = Arc::new(FlagCapturingPublisher {
+            seen: persisted.clone(),
+        });
+
+        write_state_then_publish(
+            None,
+            Some(&events),
+            &publisher,
+            "evt-4",
+            "task-1",
+            "agent",
+            "message",
+            None,
+            serde_json::json!({}),
+            None,
+        )
+        .await;
+
+        // The row never committed, so Redis is the only route to Postgres —
+        // the publisher must be told not to truncate.
+        assert_eq!(*persisted.lock().unwrap(), vec![false]);
     }
 
     #[test]

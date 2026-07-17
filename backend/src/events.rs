@@ -36,12 +36,62 @@ const PUBLISH_ATTEMPT_TIMEOUT_MS: u64 = 750;
 const HEALTH_CHECK_TIMEOUT_MS: u64 = 500;
 
 /// TTL (seconds) refreshed on each `task-events:{task_id}` stream key after a
-/// successful publish. Caps the number of *live* stream keys — the real driver
-/// of unbounded Redis memory growth — without touching per-stream `MAXLEN`.
-/// Any active task re-publishes well within this window, so only streams for
-/// long-dead tasks expire and get reclaimed. 72h gives ample slack for a task
-/// that goes quiet overnight before its next turn.
-const STREAM_KEY_TTL_SECS: u64 = 72 * 60 * 60;
+/// successful publish. Caps the number of *live* stream keys without touching
+/// per-stream `MAXLEN`. Any active task re-publishes well within this window,
+/// so only streams for long-dead tasks expire and get reclaimed.
+///
+/// Sized for the stream's actual job — the live SSE tail. History is served
+/// from `task_events` in Postgres (see `sse::routes`), so this only has to
+/// outlive a consumer restart, not a task.
+const STREAM_KEY_TTL_SECS: u64 = 6 * 60 * 60;
+
+/// Hard cap on the serialized event bytes handed to `XADD`.
+///
+/// `MAXLEN` bounds a stream's entry *count*, never its bytes, so a handful of
+/// fat entries can pin hundreds of MB: a single `agent` message carrying a
+/// large tool result has been observed at ~920KB, and the frontend cannot
+/// usefully render one anyway. Events over this cap are published with a
+/// [`truncated_payload`] stub in place of their payload.
+///
+/// Safe because the gRPC ingress commits the full `task_events` row *before*
+/// publishing (`write_state_then_publish`), so the untruncated event is always
+/// durable in Postgres and the stub only ever degrades the live tail.
+const MAX_REDIS_PAYLOAD_BYTES: usize = 256 * 1024;
+
+/// Stub swapped in for a payload that exceeds [`MAX_REDIS_PAYLOAD_BYTES`].
+///
+/// Carries enough for a client to recognise the gap and refetch the full event
+/// from `GET /api/v1/tasks/{task_id}/events`.
+fn truncated_payload(original_bytes: usize) -> serde_json::Value {
+    serde_json::json!({
+        "truncated": true,
+        "originalBytes": original_bytes,
+        "reason": "payload exceeds the Redis live-tail cap; fetch the full event from task history",
+    })
+}
+
+/// Serialize an event for `XADD`, swapping in a [`truncated_payload`] stub when
+/// it exceeds [`MAX_REDIS_PAYLOAD_BYTES`] *and* the full row is already durable.
+///
+/// Returns the JSON plus, when the payload was replaced, the original byte
+/// length. Truncating without `pre_persisted` would make the stub the only
+/// surviving copy, so an oversized non-durable event is published whole — the
+/// stream is bounded by `MAXLEN`/TTL, never at the cost of history.
+fn encode_for_stream(
+    event: StreamEvent,
+    pre_persisted: bool,
+) -> Result<(String, Option<usize>), serde_json::Error> {
+    let event_json = serde_json::to_string(&event)?;
+    if !pre_persisted || event_json.len() <= MAX_REDIS_PAYLOAD_BYTES {
+        return Ok((event_json, None));
+    }
+    let original_bytes = event_json.len();
+    let stub = StreamEvent {
+        payload: truncated_payload(original_bytes),
+        ..event
+    };
+    Ok((serde_json::to_string(&stub)?, Some(original_bytes)))
+}
 
 /// Capped exponential backoff with full jitter for Redis-consumer reconnects.
 ///
@@ -94,6 +144,10 @@ pub fn describe_event_metrics() {
     metrics::describe_counter!(
         "events_publish_retries_total",
         "Total retry attempts that preceded a successful publish"
+    );
+    metrics::describe_counter!(
+        "events_payload_truncated_total",
+        "Total events published to Redis with a truncated payload stub"
     );
 }
 
@@ -171,6 +225,12 @@ pub trait EventPublisher: Send + Sync {
     /// `event_id` is stamped on the transactionally-written `task_events` row
     /// and on the published event, so the consumer's `ON CONFLICT (event_id) DO
     /// NOTHING` dedups the two into one row (transactional-outbox ordering).
+    ///
+    /// `payload_persisted` asserts the caller has committed the full
+    /// `task_events` row. Only then may this path replace an oversized payload
+    /// with a truncated stub — otherwise the consumer's fallback insert would
+    /// persist the stub and lose the event outright. Pass `false` when the
+    /// commit failed, so the fallback still receives the whole payload.
     // reason: mirrors the raw Redis event field set (id + task + type + sub_type
     // + agent + turn + payload); splitting into a struct would only shuffle the
     // same fields behind a one-use type.
@@ -184,6 +244,7 @@ pub trait EventPublisher: Send + Sync {
         agent_type: Option<&str>,
         turn_number: Option<i32>,
         payload: serde_json::Value,
+        payload_persisted: bool,
     );
 
     /// Probe the underlying transport. Returns `Ok(())` if a round-trip
@@ -251,6 +312,7 @@ impl RedisEventPublisher {
             agent_type,
             turn_number,
             payload,
+            false,
         )
         .await;
     }
@@ -259,6 +321,11 @@ impl RedisEventPublisher {
     ///
     /// `event_id` lets the caller pin the id (transactional-outbox path); when
     /// `None` a fresh UUIDv4 is generated as before.
+    ///
+    /// `pre_persisted` marks callers that have already committed the full
+    /// `task_events` row. Only those may have an oversized payload replaced by
+    /// a stub — for every other path Redis is still the only route to Postgres,
+    /// so truncating would silently drop history.
     // reason: one field per Redis event column; a params struct would add a
     // one-use type without reducing the fan-out surface.
     #[allow(clippy::too_many_arguments)]
@@ -271,6 +338,7 @@ impl RedisEventPublisher {
         agent_type: Option<&str>,
         turn_number: Option<i32>,
         payload: serde_json::Value,
+        pre_persisted: bool,
     ) {
         let event_id = event_id.unwrap_or_else(|| Uuid::new_v4().to_string());
         let timestamp = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
@@ -296,13 +364,29 @@ impl RedisEventPublisher {
             payload,
         };
 
-        let event_json = match serde_json::to_string(&event) {
-            Ok(json) => json,
+        let (event_json, truncated_from) = match encode_for_stream(event, pre_persisted) {
+            Ok(encoded) => encoded,
             Err(e) => {
                 warn!(task_id = %task_id, error = %e, "Failed to serialize event");
                 return;
             }
         };
+
+        if let Some(original_bytes) = truncated_from {
+            metrics::counter!(
+                "events_payload_truncated_total",
+                "type" => event_type.to_string()
+            )
+            .increment(1);
+            warn!(
+                task_id = %task_id,
+                event_type = %event_type,
+                sub_type = %sub_type,
+                original_bytes,
+                cap_bytes = MAX_REDIS_PAYLOAD_BYTES,
+                "Event payload exceeds live-tail cap, publishing truncated stub"
+            );
+        }
 
         let stream_key = format!("task-events:{task_id}");
         let max_len = self.max_stream_length;
@@ -518,6 +602,7 @@ impl EventPublisher for RedisEventPublisher {
             agent_type,
             turn_number,
             payload,
+            false,
         )
         .await;
     }
@@ -531,6 +616,7 @@ impl EventPublisher for RedisEventPublisher {
         agent_type: Option<&str>,
         turn_number: Option<i32>,
         payload: serde_json::Value,
+        payload_persisted: bool,
     ) {
         self.publish_event_internal(
             Some(event_id.to_string()),
@@ -540,6 +626,7 @@ impl EventPublisher for RedisEventPublisher {
             agent_type,
             turn_number,
             payload,
+            payload_persisted,
         )
         .await;
     }
@@ -565,7 +652,54 @@ impl EventPublisher for RedisEventPublisher {
 
 #[cfg(test)]
 mod tests {
-    use super::reconnect_backoff_delay;
+    use super::{encode_for_stream, reconnect_backoff_delay, MAX_REDIS_PAYLOAD_BYTES};
+    use moatless_events::{EventType, StreamEvent};
+
+    fn event_with_payload_bytes(n: usize) -> StreamEvent {
+        StreamEvent {
+            event_id: "evt-1".to_string(),
+            event_type: EventType::Agent,
+            sub_type: "message".to_string(),
+            task_id: "task-1".to_string(),
+            timestamp: "2026-07-17T00:00:00.000Z".to_string(),
+            is_error: false,
+            agent_type: Some("claude-code".to_string()),
+            turn_number: Some(1),
+            payload: serde_json::json!({ "text": "x".repeat(n) }),
+        }
+    }
+
+    #[test]
+    fn small_payloads_pass_through_untouched() {
+        let event = event_with_payload_bytes(128);
+        let (json, truncated) = encode_for_stream(event, true).expect("serializes");
+        assert!(truncated.is_none());
+        assert!(json.contains(&"x".repeat(128)));
+    }
+
+    #[test]
+    fn oversized_payload_is_truncated_when_already_persisted() {
+        let event = event_with_payload_bytes(MAX_REDIS_PAYLOAD_BYTES + 1);
+        let (json, truncated) = encode_for_stream(event, true).expect("serializes");
+
+        assert!(truncated.is_some(), "oversized payload should be stubbed");
+        assert!(json.len() < MAX_REDIS_PAYLOAD_BYTES, "stub must be small");
+        assert!(json.contains("\"truncated\":true"));
+        // The envelope survives so clients can dedupe by id and refetch.
+        assert!(json.contains("evt-1"));
+    }
+
+    #[test]
+    fn oversized_payload_survives_intact_when_not_persisted() {
+        // Redis is the only route to Postgres here — truncating would silently
+        // destroy the event, so the full payload must go out regardless of size.
+        let event = event_with_payload_bytes(MAX_REDIS_PAYLOAD_BYTES + 1);
+        let (json, truncated) = encode_for_stream(event, false).expect("serializes");
+
+        assert!(truncated.is_none(), "must not stub a non-durable event");
+        assert!(json.len() > MAX_REDIS_PAYLOAD_BYTES);
+        assert!(!json.contains("\"truncated\":true"));
+    }
 
     #[test]
     fn backoff_first_failure_within_base_jitter_window() {

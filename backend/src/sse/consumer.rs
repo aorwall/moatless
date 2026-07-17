@@ -15,6 +15,20 @@ use tracing::{debug, info, warn};
 /// any pod may have connected frontend clients.
 const CONSUMER_GROUP_PREFIX: &str = "sse";
 
+/// How long every consumer in a group must sit idle before the group counts as
+/// orphaned. A live pod re-reads on each cycle (`BLOCK 2000`), so idleness on
+/// this scale means the pod that owned the group is gone.
+const GROUP_ORPHAN_IDLE_MS: i64 = 60 * 60 * 1000;
+
+/// Interval between orphan sweeps.
+///
+/// Per-pod groups are created on *every* stream, so each pod that dies without
+/// a clean shutdown (OOM kill, eviction, `SIGKILL`) strands one group per
+/// stream. Nothing else removes them, and Redis charges memory per group and
+/// per PEL entry, so without this sweep they accumulate for as long as the
+/// streams live.
+const GROUP_REAP_INTERVAL: std::time::Duration = std::time::Duration::from_mins(30);
+
 /// Redis stream consumer that fans out events to SSE clients.
 pub struct RedisStreamConsumer {
     conn: ConnectionManager,
@@ -27,6 +41,8 @@ pub struct RedisStreamConsumer {
     /// (delivered-but-unacked) entries before reading new ones, so a payload
     /// dropped mid-cycle during Redis flapping still reaches SSE clients.
     recover_pending: bool,
+    /// When the next orphaned-group sweep is due.
+    next_reap: std::time::Instant,
 }
 
 /// Which slice of a stream a `XREADGROUP` should read.
@@ -54,6 +70,9 @@ impl RedisStreamConsumer {
             tx,
             cancel,
             recover_pending: true,
+            // Sweep once on startup: this pod replaces one that may well have
+            // died without cleaning up after itself.
+            next_reap: std::time::Instant::now(),
         }
     }
 
@@ -65,6 +84,7 @@ impl RedisStreamConsumer {
         loop {
             if self.cancel.is_cancelled() {
                 info!("SSE Redis consumer shutting down");
+                self.destroy_own_groups().await;
                 break;
             }
 
@@ -112,6 +132,12 @@ impl RedisStreamConsumer {
         // Ensure consumer group exists on each stream
         for stream in &streams {
             self.ensure_group(stream).await;
+        }
+
+        // Drop groups left behind by pods that died without a clean shutdown.
+        if std::time::Instant::now() >= self.next_reap {
+            self.reap_orphaned_groups(&streams).await;
+            self.next_reap = std::time::Instant::now() + GROUP_REAP_INTERVAL;
         }
 
         // Re-broadcast entries delivered to this group but not ACKed before a
@@ -207,6 +233,129 @@ impl RedisStreamConsumer {
         }
 
         Ok(streams)
+    }
+
+    /// Destroy this pod's own groups across all streams.
+    ///
+    /// The clean-shutdown counterpart to [`Self::ensure_group`] — without it a
+    /// restarting pod strands one group per stream behind it. Best-effort: a
+    /// pod killed outright never runs this, which is what the orphan sweep in
+    /// [`Self::reap_orphaned_groups`] is for.
+    async fn destroy_own_groups(&mut self) {
+        let streams = match self.scan_streams().await {
+            Ok(s) => s,
+            Err(e) => {
+                warn!(error = %e, "Could not scan streams to drop SSE consumer groups");
+                return;
+            }
+        };
+
+        let mut destroyed = 0usize;
+        for stream in &streams {
+            let result: Result<i64, redis::RedisError> = redis::cmd("XGROUP")
+                .arg("DESTROY")
+                .arg(stream)
+                .arg(&self.consumer_group)
+                .query_async(&mut self.conn)
+                .await;
+            match result {
+                Ok(n) => destroyed += usize::try_from(n).unwrap_or(0),
+                Err(e) => {
+                    debug!(stream = %stream, error = %e, "Failed to destroy SSE consumer group");
+                }
+            }
+        }
+
+        info!(
+            group = %self.consumer_group,
+            destroyed,
+            "Dropped SSE consumer groups on shutdown"
+        );
+    }
+
+    /// Destroy `sse-*` groups whose consumers have all gone idle past
+    /// [`GROUP_ORPHAN_IDLE_MS`] — pods that died without a clean shutdown.
+    ///
+    /// Never touches this pod's own group, nor the `event-handler` group (which
+    /// owns persistence to Postgres). Idleness is the safety signal: a live
+    /// pod's group is re-read every couple of seconds, so it can't be mistaken
+    /// for an orphan.
+    async fn reap_orphaned_groups(&mut self, streams: &[String]) {
+        let mut destroyed = 0usize;
+
+        for stream in streams {
+            let groups: Value = match redis::cmd("XINFO")
+                .arg("GROUPS")
+                .arg(stream)
+                .query_async(&mut self.conn)
+                .await
+            {
+                Ok(v) => v,
+                Err(e) => {
+                    debug!(stream = %stream, error = %e, "XINFO GROUPS failed during reap");
+                    continue;
+                }
+            };
+
+            for name in orphan_candidates(&groups, &self.consumer_group) {
+                if !self.group_is_idle(stream, &name).await {
+                    continue;
+                }
+                let result: Result<i64, redis::RedisError> = redis::cmd("XGROUP")
+                    .arg("DESTROY")
+                    .arg(stream)
+                    .arg(&name)
+                    .query_async(&mut self.conn)
+                    .await;
+                match result {
+                    Ok(n) => destroyed += usize::try_from(n).unwrap_or(0),
+                    Err(e) => {
+                        debug!(stream = %stream, group = %name, error = %e, "Failed to destroy orphaned group");
+                    }
+                }
+            }
+        }
+
+        if destroyed > 0 {
+            info!(
+                destroyed,
+                streams = streams.len(),
+                "Reaped orphaned SSE consumer groups"
+            );
+        }
+    }
+
+    /// True when every consumer in `group` has been idle past the orphan
+    /// threshold. A group with no consumers at all is not reaped — it has no
+    /// idleness to judge and costs almost nothing.
+    async fn group_is_idle(&mut self, stream: &str, group: &str) -> bool {
+        let consumers: Value = match redis::cmd("XINFO")
+            .arg("CONSUMERS")
+            .arg(stream)
+            .arg(group)
+            .query_async(&mut self.conn)
+            .await
+        {
+            Ok(v) => v,
+            Err(e) => {
+                debug!(stream = %stream, group = %group, error = %e, "XINFO CONSUMERS failed");
+                return false;
+            }
+        };
+
+        let Value::Array(entries) = consumers else {
+            return false;
+        };
+        if entries.is_empty() {
+            return false;
+        }
+
+        entries.iter().all(|entry| match entry {
+            Value::Array(fields) => {
+                extract_i64(fields, "idle").is_some_and(|idle| idle > GROUP_ORPHAN_IDLE_MS)
+            }
+            _ => false,
+        })
     }
 
     /// Ensure the consumer group exists on a stream (idempotent).
@@ -337,4 +486,90 @@ pub(super) fn extract_field(fields: &[Value], name: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// Extract a named integer field from a flat [key, val, ...] array.
+/// `XINFO` returns numbers as `Value::Int`, which [`extract_string`] can't read.
+fn extract_i64(fields: &[Value], name: &str) -> Option<i64> {
+    let mut iter = fields.iter();
+    while let Some(key) = iter.next() {
+        let val = iter.next()?;
+        if extract_string(key).as_deref() == Some(name) {
+            return match val {
+                Value::Int(n) => Some(*n),
+                _ => extract_string(val).and_then(|s| s.parse().ok()),
+            };
+        }
+    }
+    None
+}
+
+/// Names of `sse-*` groups in an `XINFO GROUPS` reply, excluding `own_group`.
+///
+/// Only `sse-` groups are candidates: `event-handler` is a single shared group
+/// that persists events to Postgres and must never be reaped.
+fn orphan_candidates(groups: &Value, own_group: &str) -> Vec<String> {
+    let Value::Array(entries) = groups else {
+        return Vec::new();
+    };
+    entries
+        .iter()
+        .filter_map(|entry| match entry {
+            Value::Array(fields) => extract_field(fields, "name"),
+            _ => None,
+        })
+        .filter(|name| {
+            name.starts_with(&format!("{CONSUMER_GROUP_PREFIX}-")) && name != own_group
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{extract_i64, orphan_candidates};
+    use redis::Value;
+
+    /// One `XINFO GROUPS` entry: a flat [key, val, ...] array.
+    fn group_entry(name: &str) -> Value {
+        Value::Array(vec![
+            Value::BulkString(b"name".to_vec()),
+            Value::BulkString(name.as_bytes().to_vec()),
+            Value::BulkString(b"consumers".to_vec()),
+            Value::Int(1),
+        ])
+    }
+
+    #[test]
+    fn own_group_is_never_a_candidate() {
+        let groups = Value::Array(vec![group_entry("sse-pod-a"), group_entry("sse-pod-b")]);
+        let candidates = orphan_candidates(&groups, "sse-pod-a");
+        assert_eq!(candidates, vec!["sse-pod-b".to_string()]);
+    }
+
+    #[test]
+    fn event_handler_group_is_never_a_candidate() {
+        // Reaping this group would break persistence to Postgres.
+        let groups = Value::Array(vec![group_entry("event-handler"), group_entry("sse-pod-b")]);
+        let candidates = orphan_candidates(&groups, "sse-pod-a");
+        assert_eq!(candidates, vec!["sse-pod-b".to_string()]);
+    }
+
+    #[test]
+    fn non_sse_groups_are_ignored() {
+        let groups = Value::Array(vec![group_entry("some-other-consumer")]);
+        assert!(orphan_candidates(&groups, "sse-pod-a").is_empty());
+    }
+
+    #[test]
+    fn extract_i64_reads_int_and_string_encodings() {
+        let fields = vec![
+            Value::BulkString(b"idle".to_vec()),
+            Value::Int(4200),
+            Value::BulkString(b"pending".to_vec()),
+            Value::BulkString(b"7".to_vec()),
+        ];
+        assert_eq!(extract_i64(&fields, "idle"), Some(4200));
+        assert_eq!(extract_i64(&fields, "pending"), Some(7));
+        assert_eq!(extract_i64(&fields, "missing"), None);
+    }
 }
