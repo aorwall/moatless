@@ -1,6 +1,6 @@
 import type { TaskResponse } from '@moatless/api-client'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
-import { X } from 'lucide-react'
+import { ChevronDown, ChevronRight, X } from 'lucide-react'
 import type React from 'react'
 import { useMemo, useState } from 'react'
 import { useAuth } from '@/features/auth/hooks/use-auth'
@@ -61,7 +61,7 @@ function getRelativeTime(date: Date | string): string {
 }
 
 /** A task row enriched with its live stream activity, used for grouping/sorting. */
-interface EnrichedTask {
+export interface EnrichedTask {
   task: TaskResponse
   repositoryName: string
   /**
@@ -82,6 +82,14 @@ interface EnrichedTask {
    */
   recentMessages: string[]
   /** Effective last-activity timestamp used for sorting within a group. */
+  lastActivityAt: string
+}
+
+/** A visible sidebar family: one main task row and any children present in the current list. */
+export interface TaskGroup {
+  main: EnrichedTask
+  children: TaskGroup[]
+  state: TaskActivityState
   lastActivityAt: string
 }
 
@@ -146,6 +154,88 @@ function enrichTask(
   }
 }
 
+function compareActivityDesc(a: EnrichedTask, b: EnrichedTask) {
+  return b.lastActivityAt.localeCompare(a.lastActivityAt)
+}
+
+function mostActiveState(tasks: EnrichedTask[]): TaskActivityState {
+  return tasks.reduce<TaskActivityState>((best, item) => {
+    return RUNNING_STATE_ORDER[item.state] < RUNNING_STATE_ORDER[best] ? item.state : best
+  }, 'idle')
+}
+
+function latestActivityAt(tasks: EnrichedTask[]): string {
+  return tasks.reduce((latest, item) => {
+    return item.lastActivityAt.localeCompare(latest) > 0 ? item.lastActivityAt : latest
+  }, tasks[0]?.lastActivityAt ?? '')
+}
+
+function flattenGroupTasks(group: TaskGroup): EnrichedTask[] {
+  return [group.main, ...group.children.flatMap(flattenGroupTasks)]
+}
+
+function visibleGroupTaskIds(group: TaskGroup, expandedGroupIds: Set<string>): string[] {
+  if (!expandedGroupIds.has(group.main.task.taskId)) {
+    return [group.main.task.taskId]
+  }
+  return [
+    group.main.task.taskId,
+    ...group.children.flatMap((child) => visibleGroupTaskIds(child, expandedGroupIds)),
+  ]
+}
+
+/**
+ * Group visible tasks under their visible parent. If a parent is outside the
+ * current filtered page, the child remains a top-level row so no task vanishes.
+ */
+export function buildTaskGroups(items: EnrichedTask[]): TaskGroup[] {
+  const byId = new Map(items.map((item) => [item.task.taskId, item]))
+  const childrenByParent = new Map<string, EnrichedTask[]>()
+
+  for (const item of items) {
+    const parentId = item.task.parentTaskId
+    if (!(parentId && byId.has(parentId))) {
+      continue
+    }
+
+    const siblings = childrenByParent.get(parentId) ?? []
+    siblings.push(item)
+    childrenByParent.set(parentId, siblings)
+  }
+
+  const buildGroup = (main: EnrichedTask, ancestors: Set<string>): TaskGroup => {
+    const nextAncestors = new Set(ancestors)
+    nextAncestors.add(main.task.taskId)
+    const children = (childrenByParent.get(main.task.taskId) ?? [])
+      .filter((child) => !nextAncestors.has(child.task.taskId))
+      .sort(compareActivityDesc)
+      .map((child) => buildGroup(child, nextAncestors))
+    const group: TaskGroup = {
+      main,
+      children,
+      state: 'idle',
+      lastActivityAt: main.lastActivityAt,
+    }
+    const family = flattenGroupTasks(group)
+    return {
+      ...group,
+      state: mostActiveState(family),
+      lastActivityAt: latestActivityAt(family),
+    }
+  }
+
+  const roots = items.filter((item) => {
+    const parentId = item.task.parentTaskId
+    return !(parentId && byId.has(parentId))
+  })
+
+  // Defensive fallback for malformed cyclic data where every visible task has
+  // another visible task as its parent. Keep all rows reachable rather than
+  // rendering an empty sidebar.
+  const visibleRoots = roots.length > 0 ? roots : items
+  return visibleRoots.map((item) => buildGroup(item, new Set()))
+}
+
 /**
  * Live activity for a running task: the last few streamed previews rendered as
  * separate rows (newest at full strength, older ones dimmed), mirroring the
@@ -185,15 +275,107 @@ function RunningActivity({
   )
 }
 
+function sidebarItemClass(depth: 0 | 1) {
+  return `relative border-b border-sidebar-border/60 last:border-b-0 ${
+    depth === 1 ? 'border-sidebar-border/35 bg-sidebar-accent/10' : ''
+  }`
+}
+
+function sidebarButtonClass(isActive: boolean, hasActiveChild: boolean) {
+  const activeClass = isActive ? 'bg-sidebar-accent' : hasActiveChild ? 'bg-sidebar-accent/50' : ''
+  return `h-auto rounded-none p-2 hover:bg-sidebar-accent ${activeClass}`
+}
+
+function sidebarRowIndentClass(depth: 0 | 1, hasChildren: boolean) {
+  if (depth === 1) {
+    return 'pl-2'
+  }
+  return hasChildren ? 'pl-5' : ''
+}
+
+function ParentCountBadge({ childCount }: { childCount: number }) {
+  const childCountLabel = `${childCount} ${childCount === 1 ? 'child' : 'children'}`
+
+  return (
+    <span className="shrink-0 rounded-sm bg-sidebar-border/45 px-1.5 py-0.5 text-[10px] font-medium leading-none text-sidebar-foreground/70">
+      Parent · {childCountLabel}
+    </span>
+  )
+}
+
+function TaskTitleRow({
+  taskTitle,
+  showUnread,
+  childCount,
+}: {
+  taskTitle: string
+  showUnread: boolean
+  childCount: number
+}) {
+  return (
+    <div className="flex items-center gap-1.5 pr-5">
+      <span
+        className={`truncate text-sm leading-tight ${
+          showUnread ? 'font-semibold text-sidebar-foreground' : 'font-medium'
+        }`}
+      >
+        {taskTitle}
+      </span>
+      {childCount > 0 && <ParentCountBadge childCount={childCount} />}
+    </div>
+  )
+}
+
+function ExpandChildrenButton({
+  isExpanded,
+  onClick,
+}: {
+  isExpanded: boolean
+  onClick: (event: React.MouseEvent<HTMLButtonElement>) => void
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={isExpanded ? 'Collapse child tasks' : 'Expand child tasks'}
+      title={isExpanded ? 'Collapse child tasks' : 'Expand child tasks'}
+      className={`absolute left-1 top-2 z-10 flex h-5 w-5 items-center justify-center rounded-sm hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+        isExpanded ? 'bg-sidebar-accent text-sidebar-foreground' : 'text-sidebar-foreground/60'
+      }`}
+      onClick={onClick}
+    >
+      {isExpanded ? (
+        <ChevronDown className="h-3.5 w-3.5" />
+      ) : (
+        <ChevronRight className="h-3.5 w-3.5" />
+      )}
+    </button>
+  )
+}
+
 // Component for rendering individual task item
 function SidebarTaskItem({
   item,
   isActive,
+  hasActiveChild = false,
+  depth = 0,
+  childCount = 0,
+  isExpanded = false,
+  onToggleExpanded,
   neighborTaskId,
 }: {
   item: EnrichedTask
   /** Whether this task is the one currently open in the main view. */
   isActive: boolean
+  /** Whether this parent row contains the currently open task as a child. */
+  hasActiveChild?: boolean
+  /** Visual nesting depth. Children render one level deeper than main tasks. */
+  depth?: 0 | 1
+  /** Number of child rows nested under this task in the current sidebar data. */
+  childCount?: number
+  /** Whether this task's visible children are expanded. */
+  isExpanded?: boolean
+  /** Toggle child visibility for parent rows. */
+  onToggleExpanded?: ((event: React.MouseEvent<HTMLButtonElement>) => void) | undefined
   /** Task to navigate to when closing the active task, or `null` if none. */
   neighborTaskId: string | null
 }) {
@@ -204,6 +386,7 @@ function SidebarTaskItem({
   const taskTitle = task.name || task.description?.split('\n')[0] || 'Untitled'
   const navigate = useNavigate()
   const closeTask = useCloseTask(task.taskId)
+  const hasChildren = childCount > 0
 
   const handleClose = async (event: React.MouseEvent) => {
     event.preventDefault()
@@ -223,26 +406,28 @@ function SidebarTaskItem({
   }
 
   return (
-    <SidebarMenuItem className="border-b border-sidebar-border/60 last:border-b-0">
+    <SidebarMenuItem className={sidebarItemClass(depth)}>
       <SidebarMenuButton
-        className={`h-auto rounded-none p-2 hover:bg-sidebar-accent ${
-          isActive ? 'bg-sidebar-accent' : ''
-        }`}
+        className={sidebarButtonClass(isActive, hasActiveChild)}
+        aria-expanded={hasChildren ? isExpanded : undefined}
+        data-parent={hasChildren ? true : undefined}
         asChild
       >
         <Link to="/tasks/$task-id" params={{ 'task-id': task.taskId }}>
-          <div className="flex w-full items-start gap-2 min-w-0">
+          <div
+            className={`flex w-full items-start gap-2 min-w-0 ${sidebarRowIndentClass(
+              depth,
+              hasChildren,
+            )}`}
+          >
+            {depth === 1 && (
+              <span aria-hidden="true" className="mt-2.5 h-px w-3 shrink-0 bg-sidebar-border" />
+            )}
             <div className="flex items-center gap-1 pt-0.5">
               <TaskStatusIcon task={task} activityState={state} showText={false} />
             </div>
             <div className="flex flex-col min-w-0 flex-1 gap-0.5">
-              <span
-                className={`truncate text-sm leading-tight pr-5 ${
-                  showUnread ? 'font-semibold text-sidebar-foreground' : 'font-medium'
-                }`}
-              >
-                {taskTitle}
-              </span>
+              <TaskTitleRow taskTitle={taskTitle} showUnread={showUnread} childCount={childCount} />
               {agentWorking ? (
                 <RunningActivity recentMessages={recentMessages} preview={preview} />
               ) : (
@@ -260,6 +445,9 @@ function SidebarTaskItem({
           </div>
         </Link>
       </SidebarMenuButton>
+      {hasChildren && onToggleExpanded && (
+        <ExpandChildrenButton isExpanded={isExpanded} onClick={onToggleExpanded} />
+      )}
       {showUnread && (
         <span
           title="Unread messages"
@@ -278,6 +466,63 @@ function SidebarTaskItem({
         <span className="sr-only">Close task</span>
       </Button>
     </SidebarMenuItem>
+  )
+}
+
+function SidebarTaskGroup({
+  group,
+  activeTaskId,
+  expandedGroupIds,
+  onToggleExpanded,
+  neighborOf,
+  depth = 0,
+}: {
+  group: TaskGroup
+  activeTaskId: string | null
+  expandedGroupIds: Set<string>
+  onToggleExpanded: (taskId: string) => void
+  neighborOf: (taskId: string) => string | null
+  depth?: 0 | 1
+}) {
+  const isExpanded = expandedGroupIds.has(group.main.task.taskId)
+  const hasActiveChild = group.children.some((child) =>
+    flattenGroupTasks(child).some((item) => item.task.taskId === activeTaskId),
+  )
+  const hasChildren = group.children.length > 0
+  const handleToggleExpanded = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    onToggleExpanded(group.main.task.taskId)
+  }
+
+  return (
+    <>
+      <SidebarTaskItem
+        item={group.main}
+        isActive={group.main.task.taskId === activeTaskId}
+        hasActiveChild={hasActiveChild}
+        depth={depth}
+        childCount={group.children.length}
+        isExpanded={isExpanded}
+        onToggleExpanded={hasChildren ? handleToggleExpanded : undefined}
+        neighborTaskId={neighborOf(group.main.task.taskId)}
+      />
+      {isExpanded && (
+        <div className="ml-3 border-l border-sidebar-border/70 bg-sidebar-accent/5">
+          {group.children.map((childGroup) => (
+            <SidebarTaskGroup
+              key={childGroup.main.task.taskId}
+              group={childGroup}
+              activeTaskId={activeTaskId}
+              expandedGroupIds={expandedGroupIds}
+              onToggleExpanded={onToggleExpanded}
+              neighborOf={neighborOf}
+              depth={1}
+            />
+          ))}
+        </div>
+      )}
+    </>
   )
 }
 
@@ -305,6 +550,7 @@ export function SidebarTasks() {
   // the personal task list (open tasks the user follows); users can broaden it
   // via the header filter to surface not-running / other users' tasks.
   const [filters, setFilters] = useState<SidebarTaskFilterValues>(DEFAULT_SIDEBAR_FILTERS)
+  const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(() => new Set())
 
   // The task currently open in the main view (if we're on a task route), used to
   // decide where to navigate when its sidebar row is closed.
@@ -357,35 +603,41 @@ export function SidebarTasks() {
   const previewByTask = useTaskLastMessages(taskIds)
 
   // Derive the two sections. Activity state and the live message preview come
-  // from the event stream, so this recomputes as those inputs update.
+  // from the event stream, so this recomputes as those inputs update. Tasks
+  // are grouped under visible parents after enrichment so child rows inherit
+  // the same live/unread treatment as top-level rows.
   const { running, open } = useMemo(() => {
     const enrich = (task: TaskResponse) =>
       enrichTask(task, activityByTask.get(task.taskId), previewByTask.get(task.taskId))
-    const byActivityDesc = (a: EnrichedTask, b: EnrichedTask) =>
+
+    const byGroupActivityDesc = (a: TaskGroup, b: TaskGroup) =>
       b.lastActivityAt.localeCompare(a.lastActivityAt)
     // Running rows sort by state, then by (immutable) creation time, so a task
     // keeps its place while it runs instead of jumping on every new message.
-    const byStateThenCreated = (a: EnrichedTask, b: EnrichedTask) => {
+    const byStateThenCreated = (a: TaskGroup, b: TaskGroup) => {
       const byState = RUNNING_STATE_ORDER[a.state] - RUNNING_STATE_ORDER[b.state]
       if (byState !== 0) {
         return byState
       }
-      return b.task.createdAt.localeCompare(a.task.createdAt)
+      return b.main.task.createdAt.localeCompare(a.main.task.createdAt)
     }
 
-    // Running section: active tasks from the personal list only.
-    const running = (runningQuery.data?.items ?? [])
-      .map(enrich)
-      .filter((t) => t.state !== 'idle')
+    // Running section: active task families from the personal list only.
+    const running = buildTaskGroups((runningQuery.data?.items ?? []).map(enrich))
+      .filter((group) => group.state !== 'idle')
       .sort(byStateThenCreated)
-    const runningIds = new Set(running.map((t) => t.task.taskId))
+    const runningIds = new Set(
+      running.flatMap((group) => flattenGroupTasks(group).map((item) => item.task.taskId)),
+    )
 
-    // Tasks section: the filtered list, minus anything already shown as running
-    // above (avoids duplicates while the personal default overlaps the filter).
-    const open = (filteredQuery.data?.items ?? [])
+    // Tasks section: the filtered list, minus any family member already shown
+    // as running above (avoids duplicates while the personal default overlaps
+    // the filter).
+    const openItems = (filteredQuery.data?.items ?? [])
       .map(enrich)
       .filter((t) => !runningIds.has(t.task.taskId))
-      .sort(byActivityDesc)
+      .sort(compareActivityDesc)
+    const open = buildTaskGroups(openItems).sort(byGroupActivityDesc)
 
     return { running, open }
   }, [runningQuery.data?.items, filteredQuery.data?.items, activityByTask, previewByTask])
@@ -393,8 +645,8 @@ export function SidebarTasks() {
   // Displayed order (running first, then open) so we can pick the neighbouring
   // task to jump to when the active one is closed.
   const orderedIds = useMemo(
-    () => [...running, ...open].map((item) => item.task.taskId),
-    [running, open],
+    () => [...running, ...open].flatMap((group) => visibleGroupTaskIds(group, expandedGroupIds)),
+    [running, open, expandedGroupIds],
   )
   const neighborOf = (taskId: string): string | null => {
     const index = orderedIds.indexOf(taskId)
@@ -402,6 +654,17 @@ export function SidebarTasks() {
       return null
     }
     return orderedIds[index + 1] ?? orderedIds[index - 1] ?? null
+  }
+  const toggleGroupExpanded = (taskId: string) => {
+    setExpandedGroupIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(taskId)) {
+        next.delete(taskId)
+      } else {
+        next.add(taskId)
+      }
+      return next
+    })
   }
 
   if (isLoadingTasks) {
@@ -450,12 +713,14 @@ export function SidebarTasks() {
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu className="gap-0">
-              {running.map((item) => (
-                <SidebarTaskItem
-                  key={item.task.taskId}
-                  item={item}
-                  isActive={item.task.taskId === activeTaskId}
-                  neighborTaskId={neighborOf(item.task.taskId)}
+              {running.map((group) => (
+                <SidebarTaskGroup
+                  key={group.main.task.taskId}
+                  group={group}
+                  activeTaskId={activeTaskId}
+                  expandedGroupIds={expandedGroupIds}
+                  onToggleExpanded={toggleGroupExpanded}
+                  neighborOf={neighborOf}
                 />
               ))}
             </SidebarMenu>
@@ -468,12 +733,14 @@ export function SidebarTasks() {
         <SidebarGroupContent>
           {open.length > 0 ? (
             <SidebarMenu className="gap-0">
-              {open.map((item) => (
-                <SidebarTaskItem
-                  key={item.task.taskId}
-                  item={item}
-                  isActive={item.task.taskId === activeTaskId}
-                  neighborTaskId={neighborOf(item.task.taskId)}
+              {open.map((group) => (
+                <SidebarTaskGroup
+                  key={group.main.task.taskId}
+                  group={group}
+                  activeTaskId={activeTaskId}
+                  expandedGroupIds={expandedGroupIds}
+                  onToggleExpanded={toggleGroupExpanded}
+                  neighborOf={neighborOf}
                 />
               ))}
             </SidebarMenu>
