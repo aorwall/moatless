@@ -134,6 +134,8 @@ spec:
             - name: K8S_SANDBOX_CACHE_VOLUMES
               value: {{ .Values.kubernetes.sandboxCacheVolumes | toJson | quote }}
             {{- end }}
+            - name: K8S_SANDBOX_CACHE_HOST_ROOT
+              value: {{ .Values.kubernetes.sandboxCacheHostRoot | quote }}
             {{- with .Values.kubernetes.sandboxCacheInitImage }}
             - name: K8S_SANDBOX_CACHE_INIT_IMAGE
               value: {{ . | quote }}

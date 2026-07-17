@@ -14,23 +14,31 @@ import type { ResourceConfigRequests } from './resourceConfigRequests';
 export interface ResourceConfig {
   /**
    * Per-repository size cap for the `dind` sidecar's `/var/lib/docker`
-emptyDir (e.g. "50Gi"). Only meaningful for repos with `dockerAccess`.
-Exceeding the cap gets the pod **evicted** by the kubelet, wiping all
-dind container data — size it above the repo's peak Docker usage
-(images + container writable layers + volumes). When unset, the global
-`K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE` default applies.
+emptyDir (e.g. "50Gi"). Only meaningful for repos with `dockerAccess`
+and `dockerStorageMode: "emptyDir"`. Exceeding the cap gets the pod
+**evicted** by the kubelet, wiping all dind container data. When unset,
+the global `K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE` default applies.
    * @nullable
    */
   dockerStorage?: string | null;
+  /**
+   * Storage backend for the `dind` sidecar's `/var/lib/docker`:
+- `"node"` (default) — best-effort node-local hostPath. Docker layers,
+  images, and volumes survive stop/start only on the same node.
+- `"emptyDir"` — node-local emptyDir capped by `dockerStorage`.
+   * @nullable
+   */
+  dockerStorageMode?: string | null;
   /** @nullable */
   limits?: ResourceConfigLimits;
   /** @nullable */
   requests?: ResourceConfigRequests;
   /**
-   * Per-repository workspace storage size override (e.g. "8Gi"). Sizes both
-tiers: the per-task PVC (`ebs`) and the node-local emptyDir (`ephemeral`).
-When unset, the global `K8S_SANDBOX_STORAGE_SIZE` default applies. Never
-copied into container resource specs.
+   * Per-repository workspace storage size override (e.g. "8Gi"). Sizes the
+per-task PVC (`ebs`) and node-local emptyDir (`ephemeral`/`s3`) tiers.
+The `node` hostPath tier is bounded by node disk capacity instead. When
+unset, the global `K8S_SANDBOX_STORAGE_SIZE` default applies. Never copied
+into container resource specs.
    * @nullable
    */
   storage?: string | null;
@@ -42,6 +50,8 @@ copied into container resource specs.
   via the S3 sync, the workspace does not survive the pod.
 - `"s3"` — a node-local emptyDir plus a direct git-working-tree sync to S3,
   giving workspace persistence without an EBS attach/detach per restart.
+- `"node"` — a best-effort node-local hostPath. The workspace survives
+  stop/start only when Kubernetes schedules the task back onto the same node.
 
 When unset, the deployment-wide default applies
 (`K8S_SANDBOX_DEFAULT_STORAGE_MODE`, itself defaulting to `"ebs"`).

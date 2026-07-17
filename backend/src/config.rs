@@ -295,7 +295,7 @@ pub struct SandboxConfig {
     pub storage_class: Option<String>,
     /// Default workspace storage backend for repos that don't set
     /// `resources.storage_mode` (env `K8S_SANDBOX_DEFAULT_STORAGE_MODE`).
-    /// One of `ebs` / `ephemeral` / `s3`; unknown values fall back to `ebs`.
+    /// One of `ebs` / `ephemeral` / `s3` / `node`; unknown values fall back to `ebs`.
     /// A per-repo `storage_mode` always overrides this.
     pub default_storage_mode: String,
     /// When `true`, closing a task preserves its S3-backed storage (Claude
@@ -398,9 +398,10 @@ pub struct SandboxConfig {
     /// allowlisted ref under the `restrict-image-registries` Kyverno policy
     /// (the ECR-mirrored dind image). Env `K8S_SANDBOX_DOCKER_DIND_IMAGE`.
     pub docker_dind_image: String,
-    /// Size cap for the `dind` sidecar's `/var/lib/docker` emptyDir (image
-    /// layer + container storage). Env `K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE`
-    /// (default `10Gi`).
+    /// Size cap for the `dind` sidecar's `/var/lib/docker` emptyDir when
+    /// `resources.dockerStorageMode` is `emptyDir`. The default `node` mode uses
+    /// hostPath storage instead and is bounded by node disk capacity. Env
+    /// `K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE` (default `10Gi`).
     pub docker_dind_storage_size: String,
     /// CPU request for the `dind` sidecar. Env `K8S_SANDBOX_DOCKER_DIND_CPU_REQUEST`.
     pub docker_dind_cpu_request: String,
@@ -962,10 +963,7 @@ impl Config {
                     "K8S_SANDBOX_DOCKER_DIND_IMAGE",
                     "111111111111.dkr.ecr.eu-north-1.amazonaws.com/mirror/docker.io/library/docker:29-dind",
                 ),
-                docker_dind_storage_size: env_str(
-                    "K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE",
-                    "10Gi",
-                ),
+                docker_dind_storage_size: env_str("K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE", "10Gi"),
                 docker_dind_cpu_request: env_str("K8S_SANDBOX_DOCKER_DIND_CPU_REQUEST", "500m"),
                 docker_dind_cpu_limit: env_str("K8S_SANDBOX_DOCKER_DIND_CPU_LIMIT", "2"),
                 docker_dind_memory_request: env_str(

@@ -2,11 +2,11 @@
 //!
 //! These exist to compare the storage backends (see
 //! [`crate::sandbox::k8s::storage::StorageBackend`]) head-to-head — the EBS PVC
-//! path vs. the node-local + S3-sync path — so a default change can be made on
-//! evidence rather than intuition.
+//! path vs. node-local paths — so a default change can be made on evidence
+//! rather than intuition.
 //!
 //! ## Cardinality
-//! - `storage_backend` ∈ {`ebs`, `ephemeral`, `s3`} — the handful of backends.
+//! - `storage_backend` ∈ {`ebs`, `ephemeral`, `s3`, `node`} — the handful of backends.
 //! - `outcome` ∈ {`ok`, `error`} for provision; the sync counter's `outcome`
 //!   is the same two values.
 //! - `direction` ∈ {`upload`, `download`}.

@@ -52,8 +52,8 @@ Activated automatically when `USER_AUTH_TOKEN` env var is set. Exchanges token f
 | `moat status` | Show API URL, auth mode, profile | — |
 | `moat repos list` | List all repositories | — |
 | `moat repos get <id>` | Get repository details | — |
-| `moat repos create` | Create a repository | `--name`, `--git-url`, `--branch`, `--provider` |
-| `moat repos update <id>` | Update a repository | `--name`, `--branch`, `--git-url`, `--servers-json`, `--env-var`, `--setup-command`, `--startup-timeout` |
+| `moat repos create` | Create a repository | `--name`, `--git-url`, `--branch`, `--provider`, `--storage`, `--storage-mode`, `--docker-storage`, `--docker-storage-mode` |
+| `moat repos update <id>` | Update a repository | `--name`, `--branch`, `--git-url`, `--servers-json`, `--env-var`, `--setup-command`, `--startup-timeout`, `--storage`, `--storage-mode`, `--docker-storage`, `--docker-storage-mode` |
 | `moat repos sync-config <id>` | Sync `.moatless/config.json` + `.moatless/loops/` from the repo | — |
 | `moat tasks list` | List tasks | `--status`, `--limit` |
 | `moat tasks get <id>` | Get task details | — |

@@ -178,7 +178,10 @@ helm install moatless ./k8s/helm/moatless-vibe \
 | `kubernetes.enabled` | Enable Kubernetes execution mode | `true` |
 | `kubernetes.namespace` | Namespace for sandbox pods | Release namespace |
 | `kubernetes.sandboxStorage.enabled` | Enable per-task PVC | `true` |
-| `kubernetes.sandboxStorage.size` | Default workspace size — per-task PVC, or the ephemeral emptyDir (per-repo override via `.moatless/config.json` → `resources.storage`) | `3Gi` |
+| `kubernetes.sandboxStorage.size` | Default workspace size for per-task PVC and emptyDir tiers (per-repo override via `.moatless/config.json` → `resources.storage`) | `3Gi` |
+| `kubernetes.sandboxCacheHostRoot` | Host root for node-local sandbox caches and best-effort workspace/docker storage | `/mnt/cache` |
+| `kubernetes.nodeStorageJanitor.enabled` | Enable per-node cleanup for stale node-local workspace/docker directories | `true` |
+| `kubernetes.nodeStorageJanitor.retentionHours` | Age threshold before per-task node-local directories are pruned | `168` |
 | `kubernetes.transcriptStorage.prefix` | S3 key prefix for synced Claude transcripts (`<prefix>/<task_id>/transcripts.tar`) | `transcripts` |
 
 #### Claude transcript persistence on S3
@@ -189,10 +192,10 @@ which `--resume` reads. The sandbox tars that directory and ships it to S3 **thr
 the backend** over the existing JWT-authed gRPC (sandbox pods are AWS-credential-less
 by design), on a timer and on graceful shutdown, and restores it on the next start.
 
-This persists transcripts off the per-task PVC and is the **only** transcript
-durability for the ephemeral (no-EBS) storage tier
-(`resources.storageMode: ephemeral`). It reuses the existing uploads bucket and the
-backend IRSA — no extra bucket, IAM, or cluster infra. Objects land at
+This persists transcripts off the per-task PVC and is the **only** guaranteed
+transcript durability for non-EBS storage tiers (`ephemeral`, `s3`, and `node`).
+It reuses the existing uploads bucket and the backend IRSA — no extra bucket,
+IAM, or cluster infra. Objects land at
 `s3://<uploads-bucket>/<prefix>/<task_id>/transcripts.tar` and are deleted on task
 cleanup. Tune the upload cadence with `TRANSCRIPT_SYNC_INTERVAL_SECS` on the sandbox
 (default 60s; `0` disables the timer but still flushes on shutdown).
@@ -200,7 +203,7 @@ cleanup. Tune the upload cadence with `TRANSCRIPT_SYNC_INTERVAL_SECS` on the san
 > Scope the uploads bucket's lifecycle expiry to the `uploads/` prefix (or add a
 > longer rule for `transcripts/`) so transcripts of long-lived tasks aren't deleted.
 
-#### Enabling the ephemeral storage tier per repository
+#### Enabling non-PVC storage tiers per repository
 
 Storage tier is a per-repository setting stored in the repo's `resources` config.
 Set `storageMode` to `ephemeral` to skip the per-task EBS PVC and run the workspace
@@ -208,10 +211,39 @@ on a node-local `emptyDir` (optionally cap its size with `storage`). New tasks f
 that repo then provision with **no PVC**; transcripts persist only via the S3 sync
 described above.
 
+Set `storageMode` to `s3` to use the same node-local `emptyDir` plus git-tree
+sync to S3. Set `storageMode` to `node` to use best-effort node-local hostPath
+storage under `K8S_SANDBOX_CACHE_HOST_ROOT/workspaces/<task-id>`: stop/start on
+the same node reuses the workspace, while scheduling on another node starts with
+an empty directory. The `node` tier has no Kubernetes `emptyDir.sizeLimit`; it is
+bounded by node disk capacity.
+
+Docker-in-Docker storage is controlled separately with `dockerStorageMode`.
+For repos with `dockerAccess`, `dockerStorageMode: "node"` stores
+`/var/lib/docker` on best-effort node-local hostPath storage so Docker layers,
+images, and volumes can survive stop/start on the same node. Use
+`dockerStorageMode: "emptyDir"` plus `dockerStorage` when you need a hard
+Kubernetes size cap instead.
+
+Kubernetes does not delete hostPath contents when sandbox pods are removed. The
+chart enables `kubernetes.nodeStorageJanitor` by default, which runs on sandbox
+nodes and prunes stale per-task directories under
+`kubernetes.sandboxCacheHostRoot/workspaces` and
+`kubernetes.sandboxCacheHostRoot/docker` after the task's Deployment is gone and
+the directory is older than `retentionHours` (default 168). This bounds node disk
+growth while preserving best-effort same-node reuse for recently stopped tasks.
+
 Declaratively via `.moatless/config.json`, then sync:
 
 ```json
-{ "resources": { "storageMode": "ephemeral", "storage": "8Gi" } }
+{
+  "resources": {
+    "storageMode": "s3",
+    "storage": "30Gi",
+    "dockerStorageMode": "node",
+    "dockerStorage": "30Gi"
+  }
+}
 ```
 
 ```bash
@@ -222,13 +254,13 @@ Imperatively via the CLI (a resources update **replaces** the whole `resources`
 object, so pass all resource flags you want to keep together):
 
 ```bash
-moat repos update <repo-id> --storage-mode ephemeral --storage 8Gi
+moat repos update <repo-id> --storage-mode s3 --storage 30Gi --docker-storage-mode node --docker-storage 30Gi
 ```
 
 Or via the API:
 
 ```bash
-PATCH /api/.../repositories/<repo-id>   { "resources": { "storageMode": "ephemeral" } }
+PATCH /api/.../repositories/<repo-id>   { "resources": { "storageMode": "s3", "dockerStorageMode": "node" } }
 ```
 
 ### Ingress Parameters

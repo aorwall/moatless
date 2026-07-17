@@ -91,12 +91,17 @@ Create a new repository.
 | `--git-url` | Yes | — | Git clone URL |
 | `--branch` | No | `main` | Default branch |
 | `--provider` | No | `github` | Git provider |
+| `--storage` | No | — | Workspace size override, e.g. `30Gi` |
+| `--storage-mode` | No | — | Workspace storage tier: `ebs`, `ephemeral`, `s3`, or `node` |
+| `--docker-storage` | No | — | Docker-in-Docker storage size cap, e.g. `30Gi` |
+| `--docker-storage-mode` | No | — | Docker-in-Docker storage tier: `node` or `emptyDir` |
 
 - **API**: `POST /api/v1/repositories`
 
 ```bash
 moat repos create --name my-app --git-url https://github.com/org/my-app
 moat repos create --name my-app --git-url https://github.com/org/my-app --branch develop --provider github
+moat repos create --name my-app --git-url https://github.com/org/my-app --storage-mode s3 --storage 30Gi --docker-storage-mode node
 ```
 
 ### `moat repos update <repo_id>`
@@ -118,6 +123,10 @@ Update an existing repository. All flags are optional — only provided fields a
 | `--resource-cpu-limit` | `String` | CPU limit (e.g. "4") |
 | `--resource-memory-request` | `String` | Memory request (e.g. "2560Mi") |
 | `--resource-memory-limit` | `String` | Memory limit (e.g. "4096Mi") |
+| `--storage` | `String` | Workspace size override (e.g. "30Gi"). A resources update replaces the whole resources object, so pass all resource flags to keep together. |
+| `--storage-mode` | `String` | Workspace storage tier: `ebs`, `ephemeral`, `s3`, or `node` |
+| `--docker-storage` | `String` | Docker-in-Docker storage size cap (e.g. "30Gi"; only meaningful with `--docker-storage-mode emptyDir`) |
+| `--docker-storage-mode` | `String` | Docker-in-Docker storage tier: `node` or `emptyDir` |
 
 - **API**: `PUT /api/v1/repositories/{repo_id}`
 
@@ -137,6 +146,9 @@ moat repos update <repo-id> --setup-command "bun install" --setup-command "bun r
 
 # Set startup timeout
 moat repos update <repo-id> --startup-timeout 120
+
+# Set workspace and Docker storage tiers
+moat repos update <repo-id> --storage-mode s3 --storage 30Gi --docker-storage-mode node --docker-storage 30Gi
 ```
 
 ---

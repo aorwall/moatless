@@ -1,6 +1,8 @@
 //! Reads `.moatless/config.json` from remote repositories via provider APIs.
 
-use moatless_api_schemas::repository::{is_valid_storage_mode, STORAGE_MODES};
+use moatless_api_schemas::repository::{
+    DOCKER_STORAGE_MODES, STORAGE_MODES, is_valid_docker_storage_mode, is_valid_storage_mode,
+};
 use serde::Deserialize;
 use tracing::{debug, warn};
 
@@ -251,6 +253,19 @@ pub fn config_to_patch(config: &MoatlessRepoConfig) -> Result<RepositoryPatch, R
             );
         }
     }
+    if let Some(mode) = config
+        .resources
+        .as_ref()
+        .and_then(|r| r.docker_storage_mode.as_deref())
+    {
+        if !is_valid_docker_storage_mode(mode) {
+            warn!(
+                docker_storage_mode = %mode,
+                valid = %DOCKER_STORAGE_MODES.join(", "),
+                "Unrecognized resources.dockerStorageMode in .moatless/config.json; dind storage will fall back to node"
+            );
+        }
+    }
 
     let resources = config
         .resources
@@ -416,6 +431,39 @@ mod tests {
             .expect("resources field set")
             .expect("resources value present");
         assert_eq!(value.get("storageMode"), Some(&serde_json::json!("s3")));
+    }
+
+    #[test]
+    fn config_carries_node_storage_mode_from_git_repo_to_patch() {
+        // The `node` tier is a valid non-PVC backend and must survive repo config
+        // sync the same way as the other storage modes.
+        let json = r#"{
+            "resources": {
+                "storageMode": "node",
+                "storage": "30Gi",
+                "dockerStorageMode": "node"
+            }
+        }"#;
+        let config: MoatlessRepoConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            config
+                .resources
+                .as_ref()
+                .and_then(|r| r.storage_mode.as_deref()),
+            Some("node")
+        );
+
+        let patch = config_to_patch(&config).unwrap();
+        let value = patch
+            .resources
+            .expect("resources field set")
+            .expect("resources value present");
+        assert_eq!(value.get("storageMode"), Some(&serde_json::json!("node")));
+        assert_eq!(value.get("storage"), Some(&serde_json::json!("30Gi")));
+        assert_eq!(
+            value.get("dockerStorageMode"),
+            Some(&serde_json::json!("node"))
+        );
     }
 
     #[test]

@@ -5,8 +5,9 @@ use std::collections::HashMap;
 use clap::Subcommand;
 use moatless_api_schemas::enums::{RepositoryKind, RepositoryProvider, Scope};
 use moatless_api_schemas::repository::{
-    is_valid_storage_mode, CreateRepositoryRequest, RepositoryResponse, ResourceConfig,
-    ServerConfig, UpdateRepositoryRequest, STORAGE_MODES,
+    CreateRepositoryRequest, DOCKER_STORAGE_MODES, RepositoryResponse, ResourceConfig,
+    STORAGE_MODES, ServerConfig, UpdateRepositoryRequest, is_valid_docker_storage_mode,
+    is_valid_storage_mode,
 };
 
 use crate::client::{ClientError, MoatClient};
@@ -48,19 +49,24 @@ pub enum RepoAction {
         /// Memory limit (e.g. "4096Mi")
         #[arg(long)]
         resource_memory_limit: Option<String>,
-        /// Workspace size override, e.g. "8Gi" (sizes the PVC or the ephemeral emptyDir).
+        /// Workspace size override, e.g. "8Gi" (sizes the PVC or the ephemeral/s3 emptyDir).
         /// Like the --resource-* flags, a resources update replaces the whole resources
         /// object, so pass all desired resource flags together.
         #[arg(long)]
         storage: Option<String>,
         /// Storage tier: "ebs" (default, per-task PVC), "ephemeral" (node-local
-        /// emptyDir, no PVC), or "s3" (node-local emptyDir + git-tree sync to S3)
+        /// emptyDir, no PVC), "s3" (node-local emptyDir + git-tree sync to S3),
+        /// or "node" (best-effort node-local hostPath)
         #[arg(long)]
         storage_mode: Option<String>,
         /// Size cap for the dind sidecar's /var/lib/docker emptyDir, e.g. "50Gi"
-        /// (only meaningful with --docker-access; exceeding it evicts the pod)
+        /// (only meaningful with --docker-storage-mode emptyDir)
         #[arg(long)]
         docker_storage: Option<String>,
+        /// Storage tier for the dind sidecar's /var/lib/docker: "node" (default,
+        /// best-effort hostPath) or "emptyDir" (capped by --docker-storage)
+        #[arg(long)]
+        docker_storage_mode: Option<String>,
         /// Docker image for sandbox (e.g. "myregistry/my-sandbox:latest")
         #[arg(long)]
         docker_image: Option<String>,
@@ -138,19 +144,24 @@ pub enum RepoAction {
         /// Memory limit (e.g. "4096Mi")
         #[arg(long)]
         resource_memory_limit: Option<String>,
-        /// Workspace size override, e.g. "8Gi" (sizes the PVC or the ephemeral emptyDir).
+        /// Workspace size override, e.g. "8Gi" (sizes the PVC or the ephemeral/s3 emptyDir).
         /// Like the --resource-* flags, a resources update replaces the whole resources
         /// object, so pass all desired resource flags together.
         #[arg(long)]
         storage: Option<String>,
         /// Storage tier: "ebs" (default, per-task PVC), "ephemeral" (node-local
-        /// emptyDir, no PVC), or "s3" (node-local emptyDir + git-tree sync to S3)
+        /// emptyDir, no PVC), "s3" (node-local emptyDir + git-tree sync to S3),
+        /// or "node" (best-effort node-local hostPath)
         #[arg(long)]
         storage_mode: Option<String>,
         /// Size cap for the dind sidecar's /var/lib/docker emptyDir, e.g. "50Gi"
-        /// (only meaningful with --docker-access; exceeding it evicts the pod)
+        /// (only meaningful with --docker-storage-mode emptyDir)
         #[arg(long)]
         docker_storage: Option<String>,
+        /// Storage tier for the dind sidecar's /var/lib/docker: "node" (default,
+        /// best-effort hostPath) or "emptyDir" (capped by --docker-storage)
+        #[arg(long)]
+        docker_storage_mode: Option<String>,
         /// Docker image for sandbox (e.g. "myregistry/my-sandbox:latest")
         #[arg(long)]
         docker_image: Option<String>,
@@ -237,6 +248,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             storage,
             storage_mode,
             docker_storage,
+            docker_storage_mode,
             docker_image,
             docker_access,
             plugins,
@@ -255,6 +267,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             scope,
         } => {
             validate_storage_mode(storage_mode.as_deref())?;
+            validate_docker_storage_mode(docker_storage_mode.as_deref())?;
             let resources = build_resource_config(
                 resource_cpu_request,
                 resource_cpu_limit,
@@ -263,6 +276,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 storage,
                 storage_mode,
                 docker_storage,
+                docker_storage_mode,
             );
             let servers = match servers_json {
                 Some(ref json_str) => {
@@ -329,6 +343,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             storage,
             storage_mode,
             docker_storage,
+            docker_storage_mode,
             docker_image,
             docker_access,
             setup_commands,
@@ -345,6 +360,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             auto_reload,
         } => {
             validate_storage_mode(storage_mode.as_deref())?;
+            validate_docker_storage_mode(docker_storage_mode.as_deref())?;
             let resources = build_resource_config(
                 resource_cpu_request,
                 resource_cpu_limit,
@@ -353,6 +369,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 storage,
                 storage_mode,
                 docker_storage,
+                docker_storage_mode,
             );
             let servers = match servers_json {
                 Some(ref json_str) => {
@@ -482,6 +499,17 @@ fn validate_storage_mode(mode: Option<&str>) -> Result<(), ClientError> {
     }
 }
 
+/// Reject an unknown `--docker-storage-mode`.
+fn validate_docker_storage_mode(mode: Option<&str>) -> Result<(), ClientError> {
+    match mode {
+        Some(m) if !is_valid_docker_storage_mode(m) => Err(ClientError::Other(format!(
+            "Invalid --docker-storage-mode '{m}'. Valid values: {}",
+            DOCKER_STORAGE_MODES.join(", ")
+        ))),
+        _ => Ok(()),
+    }
+}
+
 /// Build a `ResourceConfig` from individual CLI flags.
 /// Returns `None` if no resource flags were provided.
 fn build_resource_config(
@@ -492,6 +520,7 @@ fn build_resource_config(
     storage: Option<String>,
     storage_mode: Option<String>,
     docker_storage: Option<String>,
+    docker_storage_mode: Option<String>,
 ) -> Option<ResourceConfig> {
     let has_any = cpu_request.is_some()
         || cpu_limit.is_some()
@@ -499,7 +528,8 @@ fn build_resource_config(
         || memory_limit.is_some()
         || storage.is_some()
         || storage_mode.is_some()
-        || docker_storage.is_some();
+        || docker_storage.is_some()
+        || docker_storage_mode.is_some();
 
     if !has_any {
         return None;
@@ -535,6 +565,7 @@ fn build_resource_config(
         storage,
         storage_mode,
         docker_storage,
+        docker_storage_mode,
     })
 }
 
@@ -594,11 +625,7 @@ fn parse_env_vars(raw: &[String]) -> Option<HashMap<String, String>> {
             Some((k.to_string(), v.to_string()))
         })
         .collect();
-    if map.is_empty() {
-        None
-    } else {
-        Some(map)
-    }
+    if map.is_empty() { None } else { Some(map) }
 }
 
 fn format_repo_detail(r: &RepositoryResponse) {
@@ -632,6 +659,9 @@ fn format_repo_detail(r: &RepositoryResponse) {
         }
         if let Some(ref ds) = res.docker_storage {
             println!("Docker storage:    {ds}");
+        }
+        if let Some(ref mode) = res.docker_storage_mode {
+            println!("Docker storage mode: {mode}");
         }
     }
     if let Some(ref servers) = r.servers {
@@ -722,6 +752,7 @@ mod tests {
         assert!(validate_storage_mode(Some("ebs")).is_ok());
         assert!(validate_storage_mode(Some("ephemeral")).is_ok());
         assert!(validate_storage_mode(Some("s3")).is_ok());
+        assert!(validate_storage_mode(Some("node")).is_ok());
         assert!(validate_storage_mode(Some(" S3 ")).is_ok());
     }
 
@@ -731,5 +762,21 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("s33"), "error names the bad value: {msg}");
         assert!(msg.contains("s3"), "error lists valid values: {msg}");
+    }
+
+    #[test]
+    fn validate_docker_storage_mode_accepts_known_and_omitted() {
+        assert!(validate_docker_storage_mode(None).is_ok());
+        assert!(validate_docker_storage_mode(Some("node")).is_ok());
+        assert!(validate_docker_storage_mode(Some("emptyDir")).is_ok());
+        assert!(validate_docker_storage_mode(Some(" EMPTYDIR ")).is_ok());
+    }
+
+    #[test]
+    fn validate_docker_storage_mode_rejects_unknown_with_hint() {
+        let err = validate_docker_storage_mode(Some("s3")).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("s3"), "error names the bad value: {msg}");
+        assert!(msg.contains("node"), "error lists valid values: {msg}");
     }
 }

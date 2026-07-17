@@ -552,23 +552,25 @@ kubernetes:
     storageClass: ""
     # -- Default size of each task's workspace (the per-task EBS PVC, or the
     #    node-local emptyDir for the ephemeral/s3 tiers). Big repos can opt into
-    #    more via `.moatless/config.json` -> `resources.storage`; a repo can drop
-    #    the PVC entirely with `resources.storageMode: ephemeral`.
+    #    more via `.moatless/config.json` -> `resources.storage`; `node` hostPath
+    #    workspaces are bounded only by node disk capacity.
     size: "3Gi"
     # -- Default workspace storage backend for repos that don't set
-    #    `resources.storageMode` themselves (`ebs` | `ephemeral` | `s3`).
+    #    `resources.storageMode` themselves (`ebs` | `ephemeral` | `s3` | `node`).
     #    `s3` runs on a node-local emptyDir and syncs the git working tree to S3
     #    (no per-task EBS PVC, no attach/detach churn on restart). Trade-off:
     #    gitignored build output (target/, node_modules/, ...) is NOT synced, so
     #    it must be rebuilt after a cold stop. Requires the S3 uploads bucket to
-    #    be configured (same one used by transcriptStorage). A per-repo
-    #    `storageMode` always overrides this.
+    #    be configured (same one used by transcriptStorage). `node` uses a
+    #    per-task hostPath under K8S_SANDBOX_CACHE_HOST_ROOT/workspaces and
+    #    reuses data only when the replacement pod lands on the same node.
+    #    A per-repo `storageMode` always overrides this.
     defaultMode: "s3"
   # Sandbox Claude transcript sync to S3.
   # The sandbox tars `~/.claude/projects/*.jsonl` and ships it to the uploads
   # bucket via the backend (no pod AWS creds), so transcripts persist off the
-  # per-task PVC and survive pod restarts — the only durability for the ephemeral
-  # tier. Reuses the uploads bucket + backend IRSA; no extra infra.
+  # per-task PVC and survive pod restarts — the only guaranteed transcript
+  # durability for non-EBS tiers. Reuses the uploads bucket + backend IRSA.
   transcriptStorage:
     # -- S3 key prefix for transcripts: <prefix>/<task_id>/transcripts.tar
     prefix: "transcripts"
@@ -667,11 +669,34 @@ kubernetes:
   #       env:
   #         PLAYWRIGHT_BROWSERS_PATH: /playwright-cache
   sandboxCacheVolumes: []
+  # -- Host root for node-local sandbox caches and best-effort hostPath storage
+  # (`workspaces/<task-id>` and `docker/<task-id>`). The node-storage janitor
+  # prunes old per-task directories under this root.
+  sandboxCacheHostRoot: "/mnt/cache"
   # -- Image for the privileged `nvme-setup` init container (only used when
   # sandboxCacheVolumes is non-empty). Must be allowlisted by the cluster's
   # restrict-image-registries policy for initContainers (the ECR-mirrored dind
   # ref). Leave empty to use the backend's built-in default.
   sandboxCacheInitImage: ""
+  # -- Janitor that bounds node-local hostPath storage growth. It runs on sandbox
+  # nodes and deletes per-task workspace/docker directories older than
+  # retentionHours. This is best-effort cache cleanup; S3 transcripts/workspaces
+  # remain the durable state.
+  nodeStorageJanitor:
+    enabled: true
+    # -- Must include /bin/sh, find, awk, basename, sed, and wget with service-
+    # account token support. The ECR-mirrored docker:dind image is already allowlisted
+    # for sandbox cache init containers in restricted clusters.
+    image: "111111111111.dkr.ecr.eu-north-1.amazonaws.com/mirror/docker.io/library/docker:29-dind"
+    retentionHours: 168
+    intervalSeconds: 3600
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
   # -- Extra environment variables injected into sandbox pods.
   # Example: enable tmux-based Claude SDK transport:
   #   - name: SANDBOX_USE_TMUX

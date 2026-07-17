@@ -5,6 +5,12 @@
       "/opt/moatless/data/.bun/bin/bun install"
     ]
   },
+  "resources": {
+    "storageMode": "s3",
+    "storage": "30Gi",
+    "dockerStorageMode": "node",
+    "dockerStorage": "30Gi"
+  },
   "servers": [
     {
       "name": "dev",

@@ -120,11 +120,11 @@ pub fn build_pod(
     // ── Volumes ─────────────────────────────────────────────────────
     //
     // `/opt/moatless` (the workspace) is backed by the `workspace-data` volume:
-    // a per-task EBS PVC for the default tier, or a node-local emptyDir for the
-    // ephemeral tier (and any time the PVC is unavailable). Either way it is a
-    // single volume shared across the sandbox and server containers, with `/tmp`
-    // served from its `tmp` subPath so `/tmp` never charges against the pod's
-    // memory budget.
+    // a per-task EBS PVC, a node-local emptyDir for the ephemeral/s3 tiers, or a
+    // per-task hostPath for the best-effort node tier. Either way it is a single
+    // volume shared across the sandbox and server containers, with `/tmp` served
+    // from its `tmp` subPath so `/tmp` never charges against the pod's memory
+    // budget.
     let mut volumes = vec![
         Volume {
             name: "build-cache".to_string(),
@@ -158,6 +158,9 @@ pub fn build_pod(
         },
     ];
 
+    let storage_backend =
+        super::storage::StorageBackend::from_plan(plan, &config.sandbox.default_storage_mode);
+
     if let Some(pvc) = pvc_name {
         volumes.push(Volume {
             name: "workspace-data".to_string(),
@@ -167,12 +170,23 @@ pub fn build_pod(
             }),
             ..Default::default()
         });
+    } else if storage_backend == super::storage::StorageBackend::Node {
+        // Best-effort node-local tier — a hostPath keyed by task id. Kubernetes
+        // may schedule the task on another node after stop/start; in that case a
+        // fresh directory is created there. Same-node restarts reuse the tree.
+        volumes.push(Volume {
+            name: "workspace-data".to_string(),
+            host_path: Some(HostPathVolumeSource {
+                path: node_workspace_host_path(config, task_id),
+                type_: Some("DirectoryOrCreate".to_string()),
+            }),
+            ..Default::default()
+        });
     } else {
-        // Ephemeral (no-EBS) tier — a node-local emptyDir capped at the repo's
-        // workspace size (`resources.storage`, default `K8S_SANDBOX_STORAGE_SIZE`).
-        // No `medium: Memory`, so it lives on node disk, not the pod memory budget.
-        // This also replaces the old uncapped rootfs `/opt/moatless`, so the
-        // workspace is bounded and shared with server containers like the PVC tier.
+        // Ephemeral/S3 (no-EBS) tiers — a node-local emptyDir capped at the
+        // repo's workspace size (`resources.storage`, default
+        // `K8S_SANDBOX_STORAGE_SIZE`). No `medium: Memory`, so it lives on node
+        // disk, not the pod memory budget.
         volumes.push(Volume {
             name: "workspace-data".to_string(),
             empty_dir: Some(EmptyDirVolumeSource {
@@ -193,6 +207,9 @@ pub fn build_pod(
     // The whole block is gated on a non-empty list, so default sandboxes stay
     // hardened (no privileged init container, no hostPath).
     let mut init_containers: Vec<Container> = Vec::new();
+    if storage_backend == super::storage::StorageBackend::Node {
+        init_containers.push(build_node_workspace_setup_container(config));
+    }
     if !config.sandbox.cache_volumes.is_empty() {
         volumes.push(Volume {
             name: "pkg-cache".to_string(),
@@ -228,20 +245,31 @@ pub fn build_pod(
     // the pod network namespace, so the sandbox reaches dockerd at
     // `tcp://localhost:2375` — which is what lets Testcontainers spin up real
     // containers (Postgres, Redis, …). dind's image/container storage lives on a
-    // node-local emptyDir (`docker-storage`) so it never charges against the pod
-    // memory budget. Gated on the opt-in so default sandboxes stay hardened with
-    // no privileged container. Mirrors the CI runner dind pattern
+    // node-local hostPath by default (`resources.dockerStorageMode: "node"`), or
+    // a capped emptyDir when explicitly requested. Gated on the opt-in so default
+    // sandboxes stay hardened with no privileged container. Mirrors the CI runner dind pattern
     // (soap-platform-gitops `java-build-runner-set`).
     let docker_access = docker_access_enabled(plan);
     if docker_access {
-        volumes.push(Volume {
+        let mut volume = Volume {
             name: "docker-storage".to_string(),
-            empty_dir: Some(EmptyDirVolumeSource {
-                size_limit: Some(Quantity(resolve_dind_storage_size(config, plan))),
-                ..Default::default()
-            }),
             ..Default::default()
-        });
+        };
+        match resolve_dind_storage_backend(plan) {
+            DockerStorageBackend::Node => {
+                volume.host_path = Some(HostPathVolumeSource {
+                    path: node_docker_host_path(config, task_id),
+                    type_: Some("DirectoryOrCreate".to_string()),
+                });
+            }
+            DockerStorageBackend::EmptyDir => {
+                volume.empty_dir = Some(EmptyDirVolumeSource {
+                    size_limit: Some(Quantity(resolve_dind_storage_size(config, plan))),
+                    ..Default::default()
+                });
+            }
+        }
+        volumes.push(volume);
     }
 
     // ── Assemble Pod ────────────────────────────────────────────────
@@ -334,6 +362,67 @@ fn resolve_workspace_size(config: &Config, plan: &ProvisionPlan) -> String {
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map_or_else(|| config.sandbox.storage_size.clone(), ToString::to_string)
+}
+
+fn node_workspace_host_path(config: &Config, task_id: &str) -> String {
+    let root = config.sandbox.cache_host_root.trim_end_matches('/');
+    format!("{root}/workspaces/{task_id}")
+}
+
+fn node_docker_host_path(config: &Config, task_id: &str) -> String {
+    let root = config.sandbox.cache_host_root.trim_end_matches('/');
+    format!("{root}/docker/{task_id}")
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DockerStorageBackend {
+    EmptyDir,
+    Node,
+}
+
+fn resolve_dind_storage_backend(plan: &ProvisionPlan) -> DockerStorageBackend {
+    plan.repo_config
+        .resources
+        .as_ref()
+        .and_then(|r| r.docker_storage_mode.as_deref())
+        .map(str::trim)
+        .map(str::to_ascii_lowercase)
+        .and_then(|mode| match mode.as_str() {
+            "emptydir" => Some(DockerStorageBackend::EmptyDir),
+            "node" => Some(DockerStorageBackend::Node),
+            _ => None,
+        })
+        .unwrap_or(DockerStorageBackend::Node)
+}
+
+fn build_node_workspace_setup_container(config: &Config) -> Container {
+    Container {
+        name: "node-workspace-setup".to_string(),
+        image: Some(config.sandbox.cache_init_image.clone()),
+        image_pull_policy: Some(config.sandbox.image_pull_policy.clone()),
+        command: Some(vec!["/bin/sh".to_string(), "-c".to_string()]),
+        args: Some(vec![
+            "mkdir -p /workspace /workspace/tmp && chown 1000:1000 /workspace /workspace/tmp && chmod 0775 /workspace /workspace/tmp".to_string(),
+        ]),
+        security_context: Some(root_init_security_context()),
+        resources: Some(ResourceRequirements {
+            requests: Some(BTreeMap::from([
+                ("cpu".to_string(), Quantity("25m".to_string())),
+                ("memory".to_string(), Quantity("32Mi".to_string())),
+            ])),
+            limits: Some(BTreeMap::from([
+                ("cpu".to_string(), Quantity("100m".to_string())),
+                ("memory".to_string(), Quantity("128Mi".to_string())),
+            ])),
+            ..Default::default()
+        }),
+        volume_mounts: Some(vec![VolumeMount {
+            name: "workspace-data".to_string(),
+            mount_path: "/workspace".to_string(),
+            ..Default::default()
+        }]),
+        ..Default::default()
+    }
 }
 
 /// Resolve the `docker-storage` emptyDir cap for the dind sidecar: a per-repo
@@ -467,7 +556,7 @@ fn docker_access_enabled(plan: &ProvisionPlan) -> bool {
 /// Runs `dockerd` without TLS on `tcp://0.0.0.0:2375` (reachable only from
 /// within the pod's network namespace, i.e. by the sandbox container via
 /// `localhost`) plus the default unix socket. Image/container layers live on the
-/// `docker-storage` emptyDir mounted at `/var/lib/docker`. Mirrors the CI runner
+/// `docker-storage` volume mounted at `/var/lib/docker`. Mirrors the CI runner
 /// dind topology (soap-platform-gitops `java-build-runner-set`).
 ///
 /// Deliberately privileged — dockerd needs it to manage cgroups, overlay mounts,
@@ -576,8 +665,8 @@ fn build_sandbox_container(
 
     // Workspace storage backend. The `s3` backend runs on a node-local emptyDir
     // (no PVC) and syncs the git working tree to S3 via presigned URLs — flag the
-    // sandbox so it starts its workspace-sync loop and restores on boot. `ebs`
-    // and `ephemeral` leave this unset (loop stays off).
+    // sandbox so it starts its workspace-sync loop and restores on boot. `ebs`,
+    // `node`, and `ephemeral` leave this unset (loop stays off).
     if super::storage::StorageBackend::from_plan(plan, &config.sandbox.default_storage_mode)
         .syncs_workspace()
     {
@@ -1142,6 +1231,14 @@ fn privileged_security_context() -> SecurityContext {
     }
 }
 
+fn root_init_security_context() -> SecurityContext {
+    SecurityContext {
+        run_as_user: Some(0),
+        run_as_non_root: Some(false),
+        ..Default::default()
+    }
+}
+
 /// Create an EnvVar.
 fn env_var(name: &str, value: &str) -> EnvVar {
     EnvVar {
@@ -1504,6 +1601,7 @@ mod tests {
             storage: None,
             storage_mode: None,
             docker_storage: None,
+            docker_storage_mode: None,
         });
 
         let container = build_sandbox_container(&config, "task-1", &plan, None).unwrap();
@@ -1587,6 +1685,7 @@ mod tests {
             storage: Some("7Gi".into()),
             storage_mode: Some("ephemeral".into()),
             docker_storage: None,
+            docker_storage_mode: None,
         });
 
         let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
@@ -1647,6 +1746,64 @@ mod tests {
                 .iter()
                 .any(|m| m.name == "workspace-data" && m.mount_path == "/opt/moatless"),
             "server containers must share workspace-data"
+        );
+    }
+
+    #[test]
+    fn node_tier_mounts_best_effort_host_path_workspace() {
+        use crate::repository::models::ResourceConfig;
+
+        let mut config = test_config();
+        config.sandbox.cache_host_root = "/mnt/cache".into();
+        let mut plan = test_plan();
+        plan.repo_config.resources = Some(ResourceConfig {
+            requests: None,
+            limits: None,
+            storage: Some("30Gi".into()),
+            storage_mode: Some("node".into()),
+            docker_storage: None,
+            docker_storage_mode: None,
+        });
+
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        let volumes = pod.spec.as_ref().unwrap().volumes.as_ref().unwrap();
+        let ws = volumes
+            .iter()
+            .find(|v| v.name == "workspace-data")
+            .expect("workspace-data volume present");
+
+        let host_path = ws
+            .host_path
+            .as_ref()
+            .expect("node tier uses hostPath for workspace-data");
+        assert_eq!(host_path.path, "/mnt/cache/workspaces/task-1");
+        assert_eq!(host_path.type_.as_deref(), Some("DirectoryOrCreate"));
+        assert!(ws.empty_dir.is_none(), "node tier must not use emptyDir");
+        assert!(
+            volumes.iter().all(|v| v.persistent_volume_claim.is_none()),
+            "node tier must not reference a PVC"
+        );
+
+        let init = pod
+            .spec
+            .as_ref()
+            .and_then(|s| s.init_containers.as_ref())
+            .and_then(|containers| containers.iter().find(|c| c.name == "node-workspace-setup"))
+            .expect("node tier must prepare hostPath ownership");
+        let security = init
+            .security_context
+            .as_ref()
+            .expect("node workspace setup must set security context");
+        assert_eq!(security.run_as_user, Some(0));
+        assert_eq!(security.run_as_non_root, Some(false));
+        assert_ne!(security.privileged, Some(true));
+        assert!(
+            init.volume_mounts.as_ref().unwrap().iter().any(|m| {
+                m.name == "workspace-data"
+                    && m.mount_path == "/workspace"
+                    && m.sub_path.as_deref().unwrap_or("").is_empty()
+            }),
+            "node workspace setup must mount workspace-data"
         );
     }
 
@@ -1822,7 +1979,7 @@ mod tests {
     }
 
     /// `dockerAccess: true` → a privileged `dind` sidecar + `docker-storage`
-    /// emptyDir + `DOCKER_HOST`/`TESTCONTAINERS_RYUK_DISABLED` on the agent
+    /// volume + `DOCKER_HOST`/`TESTCONTAINERS_RYUK_DISABLED` on the agent
     /// container, while the agent container itself stays unprivileged.
     #[test]
     fn docker_access_adds_privileged_dind_sidecar_and_env() {
@@ -1857,7 +2014,7 @@ mod tests {
             "dind must mount docker-storage at /var/lib/docker"
         );
 
-        // A node-local docker-storage emptyDir backs /var/lib/docker.
+        // The default node-local docker-storage hostPath backs /var/lib/docker.
         let ds = spec
             .volumes
             .as_ref()
@@ -1865,7 +2022,11 @@ mod tests {
             .iter()
             .find(|v| v.name == "docker-storage")
             .expect("docker-storage volume present");
-        assert!(ds.empty_dir.is_some(), "docker-storage must be an emptyDir");
+        assert!(ds.host_path.is_some(), "docker-storage must be a hostPath");
+        assert!(
+            ds.empty_dir.is_none(),
+            "docker-storage must not be an emptyDir"
+        );
 
         // The sandbox container is pointed at the dind sidecar and disables Ryuk.
         let sandbox = spec
@@ -1895,8 +2056,8 @@ mod tests {
         );
     }
 
-    /// `resources.dockerStorage` overrides the global dind storage cap; unset
-    /// (or blank) falls back to `K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE`.
+    /// `resources.dockerStorage` overrides the global dind storage cap when the
+    /// repo explicitly selects the legacy emptyDir Docker storage tier.
     #[test]
     fn docker_storage_override_sizes_dind_empty_dir() {
         let config = test_config();
@@ -1904,6 +2065,7 @@ mod tests {
         plan.repo_config.docker_access = Some(true);
         plan.repo_config.resources = Some(crate::repository::models::ResourceConfig {
             docker_storage: Some("50Gi".into()),
+            docker_storage_mode: Some("emptyDir".into()),
             ..Default::default()
         });
 
@@ -1922,8 +2084,11 @@ mod tests {
             .map(|q| q.0.as_str().to_string());
         assert_eq!(ds_limit.as_deref(), Some("50Gi"));
 
-        // Unset override → global default from config.
-        plan.repo_config.resources = None;
+        // EmptyDir mode with no override → global default from config.
+        plan.repo_config.resources = Some(crate::repository::models::ResourceConfig {
+            docker_storage_mode: Some("emptyDir".into()),
+            ..Default::default()
+        });
         let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
         let ds_limit = pod
             .spec
@@ -1940,6 +2105,40 @@ mod tests {
         assert_eq!(
             ds_limit.as_deref(),
             Some(config.sandbox.docker_dind_storage_size.as_str())
+        );
+    }
+
+    #[test]
+    fn docker_storage_defaults_to_node_host_path() {
+        let mut config = test_config();
+        config.sandbox.cache_host_root = "/mnt/cache".into();
+        let mut plan = test_plan();
+        plan.repo_config.docker_access = Some(true);
+        plan.repo_config.resources = Some(crate::repository::models::ResourceConfig {
+            docker_storage: Some("50Gi".into()),
+            ..Default::default()
+        });
+
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        let docker_storage = pod
+            .spec
+            .as_ref()
+            .unwrap()
+            .volumes
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|v| v.name == "docker-storage")
+            .expect("docker-storage volume present");
+        let host_path = docker_storage
+            .host_path
+            .as_ref()
+            .expect("default dind storage uses hostPath");
+        assert_eq!(host_path.path, "/mnt/cache/docker/task-1");
+        assert_eq!(host_path.type_.as_deref(), Some("DirectoryOrCreate"));
+        assert!(
+            docker_storage.empty_dir.is_none(),
+            "node docker storage must not use emptyDir"
         );
     }
 
@@ -2276,14 +2475,18 @@ mod tests {
             .resources
             .as_ref()
             .expect("nvme-setup must declare resources");
-        assert!(resources
-            .requests
-            .as_ref()
-            .is_some_and(|r| r.contains_key("cpu") && r.contains_key("memory")));
-        assert!(resources
-            .limits
-            .as_ref()
-            .is_some_and(|l| l.contains_key("cpu") && l.contains_key("memory")));
+        assert!(
+            resources
+                .requests
+                .as_ref()
+                .is_some_and(|r| r.contains_key("cpu") && r.contains_key("memory"))
+        );
+        assert!(
+            resources
+                .limits
+                .as_ref()
+                .is_some_and(|l| l.contains_key("cpu") && l.contains_key("memory"))
+        );
     }
 
     /// The toolchain-persistence and cargo-target flags are off by default —

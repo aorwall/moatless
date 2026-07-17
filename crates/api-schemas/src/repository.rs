@@ -17,10 +17,11 @@ use crate::enums::{RepositoryKind, RepositoryProvider, Scope};
 pub struct ResourceConfig {
     pub requests: Option<HashMap<String, String>>,
     pub limits: Option<HashMap<String, String>>,
-    /// Per-repository workspace storage size override (e.g. "8Gi"). Sizes both
-    /// tiers: the per-task PVC (`ebs`) and the node-local emptyDir (`ephemeral`).
-    /// When unset, the global `K8S_SANDBOX_STORAGE_SIZE` default applies. Never
-    /// copied into container resource specs.
+    /// Per-repository workspace storage size override (e.g. "8Gi"). Sizes the
+    /// per-task PVC (`ebs`) and node-local emptyDir (`ephemeral`/`s3`) tiers.
+    /// The `node` hostPath tier is bounded by node disk capacity instead. When
+    /// unset, the global `K8S_SANDBOX_STORAGE_SIZE` default applies. Never copied
+    /// into container resource specs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage: Option<String>,
     /// Per-repository storage tier. One of [`STORAGE_MODES`]:
@@ -30,6 +31,8 @@ pub struct ResourceConfig {
     ///   via the S3 sync, the workspace does not survive the pod.
     /// - `"s3"` — a node-local emptyDir plus a direct git-working-tree sync to S3,
     ///   giving workspace persistence without an EBS attach/detach per restart.
+    /// - `"node"` — a best-effort node-local hostPath. The workspace survives
+    ///   stop/start only when Kubernetes schedules the task back onto the same node.
     ///
     /// When unset, the deployment-wide default applies
     /// (`K8S_SANDBOX_DEFAULT_STORAGE_MODE`, itself defaulting to `"ebs"`).
@@ -37,19 +40,25 @@ pub struct ResourceConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage_mode: Option<String>,
     /// Per-repository size cap for the `dind` sidecar's `/var/lib/docker`
-    /// emptyDir (e.g. "50Gi"). Only meaningful for repos with `dockerAccess`.
-    /// Exceeding the cap gets the pod **evicted** by the kubelet, wiping all
-    /// dind container data — size it above the repo's peak Docker usage
-    /// (images + container writable layers + volumes). When unset, the global
-    /// `K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE` default applies.
+    /// emptyDir (e.g. "50Gi"). Only meaningful for repos with `dockerAccess`
+    /// and `dockerStorageMode: "emptyDir"`. Exceeding the cap gets the pod
+    /// **evicted** by the kubelet, wiping all dind container data. When unset,
+    /// the global `K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE` default applies.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub docker_storage: Option<String>,
+    /// Storage backend for the `dind` sidecar's `/var/lib/docker`:
+    /// - `"node"` (default) — best-effort node-local hostPath. Docker layers,
+    ///   images, and volumes survive stop/start only on the same node.
+    /// - `"emptyDir"` — node-local emptyDir capped by `dockerStorage`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub docker_storage_mode: Option<String>,
 }
 
 /// Accepted values for [`ResourceConfig::storage_mode`]. `"ebs"` is the built-in
 /// fallback; the effective default for repos that leave `storage_mode` unset is
 /// set per-deployment via `K8S_SANDBOX_DEFAULT_STORAGE_MODE`.
-pub const STORAGE_MODES: [&str; 3] = ["ebs", "ephemeral", "s3"];
+pub const STORAGE_MODES: [&str; 4] = ["ebs", "ephemeral", "s3", "node"];
+pub const DOCKER_STORAGE_MODES: [&str; 2] = ["emptyDir", "node"];
 
 /// Whether `mode` is a recognized [`ResourceConfig::storage_mode`] value.
 ///
@@ -59,6 +68,14 @@ pub const STORAGE_MODES: [&str; 3] = ["ebs", "ephemeral", "s3"];
 pub fn is_valid_storage_mode(mode: &str) -> bool {
     let normalized = mode.trim().to_ascii_lowercase();
     STORAGE_MODES.contains(&normalized.as_str())
+}
+
+#[must_use]
+pub fn is_valid_docker_storage_mode(mode: &str) -> bool {
+    matches!(
+        mode.trim().to_ascii_lowercase().as_str(),
+        "emptydir" | "node"
+    )
 }
 
 // =============================================================================
@@ -248,12 +265,21 @@ mod tests {
     fn resource_config_serializes_docker_storage_as_camel_case() {
         let cfg = ResourceConfig {
             docker_storage: Some("50Gi".to_string()),
+            docker_storage_mode: Some("node".to_string()),
             ..Default::default()
         };
         let value = serde_json::to_value(&cfg).expect("serialize ResourceConfig");
         assert_eq!(value.get("dockerStorage"), Some(&serde_json::json!("50Gi")));
+        assert_eq!(
+            value.get("dockerStorageMode"),
+            Some(&serde_json::json!("node"))
+        );
         assert!(
             value.get("docker_storage").is_none(),
+            "snake_case key must not be emitted"
+        );
+        assert!(
+            value.get("docker_storage_mode").is_none(),
             "snake_case key must not be emitted"
         );
     }
@@ -264,6 +290,14 @@ mod tests {
             serde_json::from_value(serde_json::json!({ "dockerStorage": "50Gi" }))
                 .expect("deserialize ResourceConfig");
         assert_eq!(cfg.docker_storage.as_deref(), Some("50Gi"));
+    }
+
+    #[test]
+    fn resource_config_deserializes_camel_case_docker_storage_mode() {
+        let cfg: ResourceConfig =
+            serde_json::from_value(serde_json::json!({ "dockerStorageMode": "emptyDir" }))
+                .expect("deserialize ResourceConfig");
+        assert_eq!(cfg.docker_storage_mode.as_deref(), Some("emptyDir"));
     }
 
     #[test]
@@ -279,6 +313,7 @@ mod tests {
         assert!(is_valid_storage_mode("ebs"));
         assert!(is_valid_storage_mode("ephemeral"));
         assert!(is_valid_storage_mode("s3"));
+        assert!(is_valid_storage_mode("node"));
         // Case-insensitive + whitespace-tolerant, matching the backend resolver.
         assert!(is_valid_storage_mode("  S3 "));
         assert!(is_valid_storage_mode("EBS"));
@@ -286,5 +321,14 @@ mod tests {
         assert!(!is_valid_storage_mode("s33"));
         assert!(!is_valid_storage_mode("pvc"));
         assert!(!is_valid_storage_mode(""));
+    }
+
+    #[test]
+    fn docker_storage_mode_validation_accepts_known_and_normalizes() {
+        assert!(is_valid_docker_storage_mode("node"));
+        assert!(is_valid_docker_storage_mode("emptyDir"));
+        assert!(is_valid_docker_storage_mode("  EMPTYDIR "));
+        assert!(!is_valid_docker_storage_mode("s3"));
+        assert!(!is_valid_docker_storage_mode(""));
     }
 }

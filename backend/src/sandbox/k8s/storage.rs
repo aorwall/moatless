@@ -13,10 +13,13 @@
 //! - [`StorageBackend::S3`] — a node-local `emptyDir` like `ephemeral`, plus the
 //!   sandbox syncs the git working tree to/from S3 (presigned direct transfer),
 //!   giving persistence without an EBS attach/detach on the pod lifecycle.
+//! - [`StorageBackend::Node`] — a best-effort node-local `hostPath`, no PVC. The
+//!   workspace survives stop/start only when the replacement pod lands on the
+//!   same node.
 //!
-//! Both `Ephemeral` and `S3` skip the PVC ([`StorageBackend::uses_pvc`] is
-//! `false`); they differ only in whether the workspace-sync loop runs in the
-//! sandbox ([`StorageBackend::syncs_workspace`]).
+//! `Ephemeral`, `S3`, and `Node` skip the PVC ([`StorageBackend::uses_pvc`] is
+//! `false`). `S3` additionally runs the workspace-sync loop in the sandbox
+//! ([`StorageBackend::syncs_workspace`]).
 
 use crate::sandbox::models::ProvisionPlan;
 
@@ -29,6 +32,8 @@ pub enum StorageBackend {
     Ephemeral,
     /// Node-local `emptyDir` + git-working-tree sync to S3.
     S3,
+    /// Node-local hostPath keyed by task id. Best-effort reuse on the same node.
+    Node,
 }
 
 impl StorageBackend {
@@ -39,6 +44,7 @@ impl StorageBackend {
             "ebs" => Some(Self::Ebs),
             "ephemeral" => Some(Self::Ephemeral),
             "s3" => Some(Self::S3),
+            "node" => Some(Self::Node),
             _ => None,
         }
     }
@@ -60,7 +66,7 @@ impl StorageBackend {
     }
 
     /// True only for [`StorageBackend::Ebs`] — the sole backend that provisions
-    /// a PVC. The other two mount a node-local `emptyDir` instead.
+    /// a PVC. Other backends mount node-local storage instead.
     pub fn uses_pvc(self) -> bool {
         matches!(self, Self::Ebs)
     }
@@ -77,6 +83,7 @@ impl StorageBackend {
             Self::Ebs => "ebs",
             Self::Ephemeral => "ephemeral",
             Self::S3 => "s3",
+            Self::Node => "node",
         }
     }
 }
@@ -101,6 +108,7 @@ mod tests {
                 preview_config: None,
                 resources: mode.map(|m| ResourceConfig {
                     storage_mode: Some(m.to_string()),
+                    docker_storage_mode: None,
                     ..Default::default()
                 }),
                 plugin_repos: None,
@@ -130,6 +138,10 @@ mod tests {
             StorageBackend::from_plan(&plan_with_mode(Some("  S3 ")), "ebs"),
             StorageBackend::S3
         );
+        assert_eq!(
+            StorageBackend::from_plan(&plan_with_mode(Some(" NODE ")), "s3"),
+            StorageBackend::Node
+        );
     }
 
     #[test]
@@ -146,6 +158,10 @@ mod tests {
         assert_eq!(
             StorageBackend::from_plan(&plan_with_mode(None), "ebs"),
             StorageBackend::Ebs
+        );
+        assert_eq!(
+            StorageBackend::from_plan(&plan_with_mode(None), "node"),
+            StorageBackend::Node
         );
     }
 

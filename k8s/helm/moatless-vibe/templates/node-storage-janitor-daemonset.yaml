@@ -1,0 +1,143 @@
+{{- if and .Values.kubernetes.enabled .Values.kubernetes.nodeStorageJanitor.enabled }}
+{{- $sandboxNamespace := include "moatless-vibe.sandboxNamespace" . -}}
+{{- $janitorServiceAccount := printf "%s-node-storage-janitor" (include "moatless-vibe.fullname" .) | trunc 63 | trimSuffix "-" -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $janitorServiceAccount }}
+  namespace: {{ $sandboxNamespace }}
+  labels:
+    {{- include "moatless-vibe.labels" . | nindent 4 }}
+    app.kubernetes.io/component: node-storage-janitor
+{{- if .Values.imagePullSecrets }}
+imagePullSecrets:
+  {{- toYaml .Values.imagePullSecrets | nindent 2 }}
+{{- end }}
+{{- if .Values.rbac.create }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $janitorServiceAccount }}
+  namespace: {{ $sandboxNamespace }}
+  labels:
+    {{- include "moatless-vibe.labels" . | nindent 4 }}
+    app.kubernetes.io/component: node-storage-janitor
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $janitorServiceAccount }}
+  namespace: {{ $sandboxNamespace }}
+  labels:
+    {{- include "moatless-vibe.labels" . | nindent 4 }}
+    app.kubernetes.io/component: node-storage-janitor
+subjects:
+  - kind: ServiceAccount
+    name: {{ $janitorServiceAccount }}
+    namespace: {{ $sandboxNamespace }}
+roleRef:
+  kind: Role
+  name: {{ $janitorServiceAccount }}
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "moatless-vibe.fullname" . }}-node-storage-janitor
+  namespace: {{ $sandboxNamespace }}
+  labels:
+    {{- include "moatless-vibe.labels" . | nindent 4 }}
+    app.kubernetes.io/component: node-storage-janitor
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "moatless-vibe.name" . }}-node-storage-janitor
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "moatless-vibe.name" . }}-node-storage-janitor
+        app.kubernetes.io/component: node-storage-janitor
+    spec:
+      serviceAccountName: {{ $janitorServiceAccount }}
+      containers:
+        - name: janitor
+          image: {{ .Values.kubernetes.nodeStorageJanitor.image | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              retention_minutes=$(( {{ .Values.kubernetes.nodeStorageJanitor.retentionHours | int }} * 60 ))
+              interval_seconds={{ .Values.kubernetes.nodeStorageJanitor.intervalSeconds | int }}
+              api_server="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT_HTTPS:-443}"
+              token_path="/var/run/secrets/kubernetes.io/serviceaccount/token"
+              ca_path="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+              token="$(cat "$token_path")"
+
+              sanitize_task_id() {
+                printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | cut -c1-63
+              }
+
+              deployment_status() {
+                task_id="$1"
+                sanitized="$(sanitize_task_id "$task_id")"
+                deployment_name="$(printf 'moatless-ws-%s' "$sanitized" | cut -c1-63)"
+                url="$api_server/apis/apps/v1/namespaces/$SANDBOX_NAMESPACE/deployments/$deployment_name"
+
+                wget -S -O /dev/null \
+                  --header "Authorization: Bearer $token" \
+                  --ca-certificate "$ca_path" \
+                  "$url" 2>&1 | awk '/^  HTTP\// { code=$2 } END { print code }'
+              }
+
+              while true; do
+                for dir in /host-cache/workspaces /host-cache/docker; do
+                  mkdir -p "$dir"
+                  find "$dir" -mindepth 1 -maxdepth 1 -type d -mmin +"$retention_minutes" -print | while IFS= read -r path; do
+                    task_id="$(basename "$path")"
+                    status="$(deployment_status "$task_id")"
+                    if [ "$status" = "404" ]; then
+                      rm -rf "$path"
+                    elif [ "$status" != "200" ]; then
+                      echo "Skipping $path: could not confirm Deployment deletion (HTTP ${status:-unknown})"
+                    fi
+                  done
+                done
+                sleep "$interval_seconds"
+              done
+          env:
+            - name: SANDBOX_NAMESPACE
+              value: {{ $sandboxNamespace | quote }}
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+          resources:
+            {{- toYaml .Values.kubernetes.nodeStorageJanitor.resources | nindent 12 }}
+          volumeMounts:
+            - name: node-cache
+              mountPath: /host-cache
+      volumes:
+        - name: node-cache
+          hostPath:
+            path: {{ .Values.kubernetes.sandboxCacheHostRoot | quote }}
+            type: DirectoryOrCreate
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with (.Values.kubernetes.sandboxTolerations | default .Values.tolerations) }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with (.Values.kubernetes.sandboxNodeSelector | default .Values.nodeSelector) }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

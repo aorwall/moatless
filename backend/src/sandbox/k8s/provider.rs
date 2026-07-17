@@ -521,6 +521,20 @@ fn deployment_has_workspace_sync(dep: &Deployment) -> bool {
         })
 }
 
+/// Inspect a Deployment's pod template for a `workspace-data` hostPath volume
+/// that marks the best-effort node-local storage backend.
+fn deployment_has_workspace_host_path(dep: &Deployment) -> bool {
+    dep.spec
+        .as_ref()
+        .and_then(|s| s.template.spec.as_ref())
+        .and_then(|pod| pod.volumes.as_ref())
+        .is_some_and(|volumes| {
+            volumes
+                .iter()
+                .any(|v| v.name == "workspace-data" && v.host_path.is_some())
+        })
+}
+
 /// Result of checking for an existing pod.
 enum ExistingPodResult {
     /// Running and ready — can be reused immediately.
@@ -626,13 +640,15 @@ impl K8sSandboxProvider {
 
     /// Resolve the storage backend of a *running* task from cluster state
     /// (used where there's no `ProvisionPlan`, e.g. restart). A PVC means `ebs`;
-    /// otherwise the `WORKSPACE_SYNC_ENABLED` env on the sandbox container
-    /// distinguishes `s3` from plain `ephemeral`.
+    /// otherwise `workspace-data` as a hostPath means `node`, and the
+    /// `WORKSPACE_SYNC_ENABLED` env on the sandbox container distinguishes `s3`
+    /// from plain `ephemeral`.
     async fn deployment_storage_backend(&self, task_id: &str) -> StorageBackend {
         if pvc::find_task_pvc(&self.k8s, task_id).await.is_some() {
             return StorageBackend::Ebs;
         }
         match deployment::find_deployment(&self.k8s, task_id).await {
+            Ok(Some(dep)) if deployment_has_workspace_host_path(&dep) => StorageBackend::Node,
             Ok(Some(dep)) if deployment_has_workspace_sync(&dep) => StorageBackend::S3,
             _ => StorageBackend::Ephemeral,
         }
@@ -641,9 +657,9 @@ impl K8sSandboxProvider {
     /// Create or find existing PVC. A per-repo `resources.storage` override
     /// (if set) sizes a freshly created PVC; existing PVCs are reused as-is.
     ///
-    /// Returns an empty string (→ no PVC) for the non-EBS backends (`ephemeral`
-    /// and `s3`, via `resources.storage_mode`): `build_pod` then mounts a
-    /// node-local emptyDir at `/opt/moatless` instead. The check runs *before*
+    /// Returns an empty string (→ no PVC) for non-EBS backends (`ephemeral`,
+    /// `s3`, and `node`, via `resources.storage_mode`): `build_pod` then mounts
+    /// node-local storage at `/opt/moatless` instead. The check runs *before*
     /// `find_task_pvc` so a repo flipped off `ebs` stops reusing any stale PVC.
     async fn create_or_find_pvc(
         &self,
