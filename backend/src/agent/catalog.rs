@@ -65,6 +65,14 @@ pub const CLAUDE_CODE: AgentEntry = AgentEntry {
             id: "claude-sonnet-5",
             label: "Sonnet 5",
         },
+        ModelEntry {
+            id: "claude-haiku-4-5",
+            label: "Haiku 4.5",
+        },
+        ModelEntry {
+            id: "claude-fable-5",
+            label: "Fable 5",
+        },
     ],
     missing_credential_hint:
         "Add CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in Settings \u{2192} Secrets",
@@ -91,6 +99,14 @@ pub const CLAUDE_CODE_TUI: AgentEntry = AgentEntry {
             id: "claude-sonnet-5",
             label: "Sonnet 5",
         },
+        ModelEntry {
+            id: "claude-haiku-4-5",
+            label: "Haiku 4.5",
+        },
+        ModelEntry {
+            id: "claude-fable-5",
+            label: "Fable 5",
+        },
     ],
     missing_credential_hint:
         "Add CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in Settings \u{2192} Secrets",
@@ -116,6 +132,14 @@ pub const CLAUDE_CODE_CLI: AgentEntry = AgentEntry {
         ModelEntry {
             id: "claude-sonnet-5",
             label: "Sonnet 5",
+        },
+        ModelEntry {
+            id: "claude-haiku-4-5",
+            label: "Haiku 4.5",
+        },
+        ModelEntry {
+            id: "claude-fable-5",
+            label: "Fable 5",
         },
     ],
     missing_credential_hint:
