@@ -226,6 +226,18 @@ pub struct TaskBinding {
     /// Full status detail (title, url, state id/name, merged flag, …).
     #[sqlx(default)]
     pub external_status_raw: Option<serde_json::Value>,
+    /// Latest PR review verdict (GitHub: approved | changes_requested |
+    /// review_required | dismissed | commented). `#[sqlx(default)]` so queries
+    /// that don't project it still deserialize; written by the
+    /// `pull_request_review` webhook path. `None` until a review is recorded.
+    #[sqlx(default)]
+    pub external_review_decision: Option<String>,
+    /// GitHub's coarse mergeable state (clean | dirty | blocked | behind |
+    /// unstable | has_hooks | draft); `dirty` means merge conflicts. `None`
+    /// until computed / not applicable. Written by the per-event merge-conflict
+    /// check.
+    #[sqlx(default)]
+    pub external_mergeable_state: Option<String>,
     /// When [`Self::external_status`] was last refreshed; `None` when never
     /// persisted.
     #[sqlx(default)]

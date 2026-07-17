@@ -433,6 +433,8 @@ pub async fn upsert_binding(
         external_status: None,
         external_state_kind: None,
         external_status_raw: None,
+        external_review_decision: None,
+        external_mergeable_state: None,
         external_status_updated_at: None,
         active: true,
         deactivated_at: None,

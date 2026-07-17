@@ -41,6 +41,19 @@ pub fn check_suite(id: u64) -> String {
     format!("github:cs:{id}")
 }
 
+/// `github:conflict:<pr_number>:<sha>` - merge-conflict notification.
+///
+/// Keyed by the PR head sha so a persisting conflict is announced once per
+/// pushed commit: re-checking the same head is deduped, but a new push (new
+/// sha) that is still conflicted re-notifies.
+pub fn merge_conflict(pr_number: u64, sha: &str) -> String {
+    if sha.is_empty() {
+        format!("github:conflict:{pr_number}")
+    } else {
+        format!("github:conflict:{pr_number}:{sha}")
+    }
+}
+
 /// Kind + numeric id of a GitHub comment reaction target.
 pub enum CommentTarget {
     Issue(u64),
@@ -101,6 +114,12 @@ mod tests {
     fn check_formats() {
         assert_eq!(check_run(1), "github:cr:1");
         assert_eq!(check_suite(2), "github:cs:2");
+    }
+
+    #[test]
+    fn merge_conflict_formats() {
+        assert_eq!(merge_conflict(42, "abcdef0"), "github:conflict:42:abcdef0");
+        assert_eq!(merge_conflict(42, ""), "github:conflict:42");
     }
 
     #[test]

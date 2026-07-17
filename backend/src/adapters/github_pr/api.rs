@@ -1,5 +1,7 @@
 //! GitHub REST API client for PR interactions.
 
+use std::time::Duration;
+
 use reqwest::Client;
 use serde::Deserialize;
 use tracing::warn;
@@ -38,6 +40,18 @@ pub struct PrInfo {
     /// Whether the PR is a draft.
     #[serde(default)]
     pub draft: Option<bool>,
+    /// Whether GitHub currently considers the PR mergeable. `None` until the
+    /// background mergeability job finishes — GitHub computes this lazily and
+    /// the first `GET` on the PR is what kicks the computation off, so a fresh
+    /// read is often `null`.
+    #[serde(default)]
+    pub mergeable: Option<bool>,
+    /// Coarse merge state: `clean`, `dirty` (has conflicts), `blocked`,
+    /// `behind`, `unstable`, `has_hooks`, `draft`, or `unknown` (not yet
+    /// computed). Only present on the single-PR endpoint, never on list/webhook
+    /// payloads.
+    #[serde(default)]
+    pub mergeable_state: Option<String>,
     /// PR web URL (`html_url`).
     #[serde(default)]
     pub html_url: Option<String>,
@@ -304,6 +318,41 @@ impl GithubPrApi {
         resp.json()
             .await
             .map_err(|e| AdapterError::AdapterApi(format!("GitHub get_pr parse error: {e}")))
+    }
+
+    /// Fetch PR metadata, polling until GitHub has computed the mergeable
+    /// state (or a small retry budget is exhausted).
+    ///
+    /// GitHub computes mergeability asynchronously: a PR read right after a push
+    /// returns `mergeable: null` / `mergeable_state: "unknown"`, and the read
+    /// itself is what triggers the background job. We retry a few times with a
+    /// short backoff so callers get a settled `clean`/`dirty`/… value. If it
+    /// never settles within the budget, the last (possibly `unknown`) `PrInfo`
+    /// is returned rather than erroring — callers treat `unknown` as
+    /// "inconclusive" and simply don't notify.
+    pub async fn get_pr_mergeable(
+        &self,
+        owner: &str,
+        repo: &str,
+        pr_number: u64,
+    ) -> Result<PrInfo, AdapterError> {
+        /// Retries after the initial read (which usually returns `unknown`).
+        const MERGEABLE_POLL_RETRIES: usize = 3;
+        /// Backoff between reads while GitHub computes mergeability.
+        const MERGEABLE_POLL_DELAY: Duration = Duration::from_secs(2);
+
+        let mut pr = self.get_pr(owner, repo, pr_number).await?;
+        for _ in 0..MERGEABLE_POLL_RETRIES {
+            let settled = pr.mergeable.is_some()
+                && pr.mergeable_state.as_deref().is_some_and(|s| s != "unknown");
+            // A closed/merged PR never gets a mergeable state — stop early.
+            if settled || !pr.state.eq_ignore_ascii_case("open") {
+                return Ok(pr);
+            }
+            tokio::time::sleep(MERGEABLE_POLL_DELAY).await;
+            pr = self.get_pr(owner, repo, pr_number).await?;
+        }
+        Ok(pr)
     }
 
     /// Create a reaction on an issue comment (also covers PR conversation

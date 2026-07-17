@@ -25,6 +25,7 @@ use crate::state::AppState;
 
 use super::api::GithubPrApi;
 use super::config::GithubPrRuleConfig;
+use super::signals::{MergeableState, ReviewDecision};
 
 /// Inputs for [`pr_opened_text`] — grouped to keep the signature small.
 struct PrOpenedText<'a> {
@@ -143,11 +144,44 @@ fn review_text(
     repo: &str,
     pr_number: u64,
 ) -> String {
+    // A bare verdict (e.g. an approval submitted with no summary) has an empty
+    // body — render a placeholder so the message reads cleanly instead of
+    // leaving a blank gap.
+    let body_section = if body.is_empty() {
+        "_(no review comment)_"
+    } else {
+        body
+    };
     format!(
-        "**@{sender}** — {state_label} (review id: {review_id}):\n\n{body}\n\n\
+        "**@{sender}** — {state_label} (review id: {review_id}):\n\n{body_section}\n\n\
          Inline comments on this review: \
          `moat gh api repos/{owner}/{repo}/pulls/{pr_number}/reviews/{review_id}/comments`"
     )
+}
+
+/// Task message for a PR that GitHub reports as having merge conflicts
+/// (`mergeable_state == "dirty"`). Points the agent at the live diff and
+/// suggests the usual resolution path.
+fn merge_conflict_text(owner: &str, repo: &str, pr_number: u64, html_url: &str) -> String {
+    let mut text = format!(
+        "## ⚠️ Merge Conflicts on PR #{pr_number}\n\n\
+         GitHub reports this PR can no longer be merged cleanly — the head \
+         branch has conflicts with the base branch.\n",
+    );
+
+    if !html_url.is_empty() {
+        let _ = writeln!(text, "**Link:** {html_url}");
+    }
+
+    let _ = write!(
+        text,
+        "\nInspect and resolve the conflicts, then push the fix:\n\n\
+         - Current diff: `moat gh pr diff {pr_number}`\n\
+         - PR overview: `moat gh pr view {pr_number}`\n\
+         - Conflicting files: `moat gh api repos/{owner}/{repo}/pulls/{pr_number}` (see `mergeable_state`)\n"
+    );
+
+    text
 }
 
 /// Map a user-supplied emoji name to GitHub's reaction content enum.
@@ -618,6 +652,52 @@ impl GithubPrAdapter {
         });
     }
 
+    /// Persist a submitted review's verdict (approved / changes_requested /
+    /// dismissed) onto every binding for the PR. Spawned + best-effort, mirroring
+    /// [`Self::persist_pr_status`]. Non-verdict states (e.g. a plain `commented`
+    /// review) are skipped so they never clobber a real approval.
+    fn persist_review_decision(&self, review_state: &str, ctx: &EventContext<'_>, pr_number: u64) {
+        let Some(decision) = ReviewDecision::from_review_state(review_state) else {
+            return;
+        };
+        if !decision.is_verdict() {
+            return;
+        }
+
+        let subject_key = format!("{}/{}#{pr_number}", ctx.owner, ctx.repo);
+        let db = self.db.clone();
+
+        tokio::spawn(async move {
+            let repo = PgTaskBindingRepository(db);
+            let bindings = match repo
+                .find_by_subject("github", "github_pr", &subject_key)
+                .await
+            {
+                Ok(rows) => rows,
+                Err(e) => {
+                    warn!(
+                        subject_key = %subject_key,
+                        error = %e,
+                        "Failed to look up bindings for review-decision persistence"
+                    );
+                    return;
+                }
+            };
+            for binding in bindings {
+                if let Err(e) = repo
+                    .update_review_decision(&binding.id, Some(decision.as_str()))
+                    .await
+                {
+                    warn!(
+                        binding_id = %binding.id,
+                        error = %e,
+                        "Failed to persist review decision onto binding"
+                    );
+                }
+            }
+        });
+    }
+
     async fn handle_pull_request_event(
         &self,
         payload: &serde_json::Value,
@@ -1012,7 +1092,20 @@ impl GithubPrAdapter {
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(0);
 
-        if review_body.is_empty() {
+        // Persist the review verdict onto the PR's bindings (best-effort,
+        // spawned) independent of whether this review is delivered as a message
+        // — so a bare approval is recorded even if its body is empty.
+        self.persist_review_decision(review_state, ctx, pr_number);
+
+        // A review carries a verdict (`approved` / `changes_requested`) or is a
+        // plain `commented` container. A verdict is meaningful even with no
+        // summary text — reviewers very commonly click "Approve" / "Request
+        // changes" without typing anything, and dropping those would hide the
+        // approval entirely. A `commented` review with an empty body is just an
+        // empty wrapper whose inline comments arrive as their own
+        // `pull_request_review_comment` events, so it stays ignored.
+        let is_verdict = matches!(review_state, "approved" | "changes_requested");
+        if review_body.is_empty() && !is_verdict {
             return Ok(GithubPrWebhookResult::Ignore);
         }
 
@@ -1623,6 +1716,155 @@ impl Adapter for GithubPrAdapter {
 /// Process a GitHub webhook: verify signature, parse, and route.
 ///
 /// Called from the HTTP handler.
+/// Extract the PR number a webhook is *about*, for the best-effort
+/// merge-conflict check that runs on every PR-bearing event. Returns `None` for
+/// events with no associated PR (a plain issue comment, a `check_run` not tied
+/// to a PR, an unsupported event type) and for `pull_request` `closed` — a
+/// closed/merged PR has no meaningful mergeable state to report.
+fn merge_conflict_pr_number(event_type: &str, payload: &serde_json::Value) -> Option<u64> {
+    let as_u64 = |v: &serde_json::Value| v.as_u64();
+    match event_type {
+        "pull_request" => {
+            let action = payload.get("action").and_then(serde_json::Value::as_str);
+            if action == Some("closed") {
+                return None;
+            }
+            payload.pointer("/pull_request/number").and_then(as_u64)
+        }
+        "pull_request_review" | "pull_request_review_comment" => {
+            payload.pointer("/pull_request/number").and_then(as_u64)
+        }
+        "issue_comment" => {
+            // Only PRs have a mergeable state; plain issues don't.
+            payload.pointer("/issue/pull_request")?;
+            payload.pointer("/issue/number").and_then(as_u64)
+        }
+        "check_run" => payload
+            .pointer("/check_run/pull_requests/0/number")
+            .and_then(as_u64),
+        "check_suite" => payload
+            .pointer("/check_suite/pull_requests/0/number")
+            .and_then(as_u64),
+        _ => None,
+    }
+}
+
+/// Best-effort merge-conflict check for a PR touched by any webhook event.
+///
+/// Runs in a spawned task so it never blocks webhook ack. Polls the PR's
+/// mergeable state (GitHub computes it asynchronously) and, if the PR is open
+/// and conflicted (`mergeable_state == "dirty"`), delivers a one-time (per head
+/// sha, via the event-receipt dedup in [`super::runtime::route_inbound_message`])
+/// notification to every task bound to the PR. Skips entirely when no task is
+/// bound — we don't want to burn API rate limit polling PRs nobody is tracking.
+async fn check_pr_merge_conflict(
+    state: AppState,
+    connection: AdapterConnection,
+    rule_for_parse: TaskTriggerRoute,
+    owner: String,
+    repo: String,
+    pr_number: u64,
+    sender_login: String,
+) {
+    let subject_key = format!("{owner}/{repo}#{pr_number}");
+
+    // Skip the API poll unless some active task is actually bound to this PR.
+    match PgTaskBindingRepository(state.db.clone())
+        .find_by_subject("github", "github_pr", &subject_key)
+        .await
+    {
+        Ok(bindings) if bindings.iter().any(|b| b.active) => {}
+        Ok(_) => {
+            debug!(subject_key, "No active bindings; skipping merge-conflict check");
+            return;
+        }
+        Err(e) => {
+            warn!(subject_key, error = %e, "Failed to look up bindings for merge-conflict check");
+            return;
+        }
+    }
+
+    let Some(adapter) = state
+        .adapters
+        .as_ref()
+        .and_then(|a| a.get(AdapterKind::GithubPr))
+        .and_then(|a| a.as_any().downcast_ref::<GithubPrAdapter>())
+    else {
+        return;
+    };
+
+    // Resolve the acting user the same way CI notifications do: the triggering
+    // sender if mapped, else the rule's effective user. Used both to mint the
+    // API token and as the message author (so the same self-echo rules apply).
+    let user_id = resolve_user_or_fallback(&sender_login, &rule_for_parse, &state.db).await;
+    let token = match adapter.resolve_token_for_user(&user_id, Some(&owner)).await {
+        Ok(token) => token,
+        Err(e) => {
+            warn!(subject_key, error = %e, "No token for merge-conflict check");
+            return;
+        }
+    };
+
+    let pr = match GithubPrApi::new(&token)
+        .get_pr_mergeable(&owner, &repo, pr_number)
+        .await
+    {
+        Ok(pr) => pr,
+        Err(e) => {
+            warn!(subject_key, error = %e, "Failed to fetch PR for merge-conflict check");
+            return;
+        }
+    };
+
+    // `unknown` means GitHub never finished computing within our budget —
+    // inconclusive, so leave the persisted value untouched and stay quiet.
+    let mergeable = pr.mergeable_state.as_deref().map(MergeableState::from_github);
+    let Some(mergeable) = mergeable.filter(|m| m.is_settled()) else {
+        debug!(
+            subject_key,
+            mergeable_state = ?pr.mergeable_state,
+            "Mergeable state unresolved; skipping persist + notify"
+        );
+        return;
+    };
+
+    // Persist the mergeable state onto every binding, and — only on an open PR
+    // transitioning *into* conflict — deliver a one-shot conflict notification.
+    // Delivery goes through `deliver_to_binding` (not `route_inbound_message`),
+    // which does not apply the owner self-echo filter: the alert is a synthetic
+    // provider notification, not the task's own echo, so it must reach the task
+    // even though the author resolves to the task owner.
+    let pr_is_open = pr.state.eq_ignore_ascii_case("open");
+    let conflict_msg = InboundMessage {
+        provider: AdapterKind::GithubPr,
+        source_id: rule_for_parse.source_matcher.clone(),
+        thread_id: Some(pr_number.to_string()),
+        message_thread_id: pr_number.to_string(),
+        user_id,
+        text: merge_conflict_text(&owner, &repo, pr_number, pr.html_url.as_deref().unwrap_or("")),
+        file_ids: vec![],
+        thread_properties: serde_json::json!({
+            "owner": owner,
+            "repo": repo,
+            "pr_number": pr_number,
+        }),
+        provider_context: serde_json::json!({}),
+        external_event_id: Some(super::external_id::merge_conflict(pr_number, &pr.head.sha)),
+        source_task_id: None,
+    };
+
+    super::runtime::record_merge_state_and_notify(
+        &state,
+        &connection,
+        &rule_for_parse,
+        &subject_key,
+        mergeable,
+        pr_is_open,
+        &conflict_msg,
+    )
+    .await;
+}
+
 pub async fn resolve_and_process_github_webhook(
     state: &AppState,
     github_provider: &GithubPrAdapter,
@@ -1782,6 +2024,38 @@ pub async fn resolve_and_process_github_webhook(
         }
     }
 
+    // Best-effort merge-conflict check, independent of the primary event's
+    // outcome: any event that names a PR re-checks its mergeable state, since a
+    // conflict can appear out of band (e.g. the base branch moved) with no
+    // dedicated webhook. Deduped per head sha downstream, and a no-op when no
+    // task is bound to the PR.
+    if let Some(pr_number) = merge_conflict_pr_number(event_type, &payload) {
+        let (owner, repo) = match repo_full_name.split_once('/') {
+            Some((o, r)) => (o.to_string(), r.to_string()),
+            None => (owner_login.to_string(), String::new()),
+        };
+        let sender_login = payload
+            .pointer("/sender/login")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let state_clone = state.clone();
+        let connection = connection.clone();
+        let rule_for_conflict = rule_for_parse.clone();
+        tokio::spawn(async move {
+            check_pr_merge_conflict(
+                state_clone,
+                connection,
+                rule_for_conflict,
+                owner,
+                repo,
+                pr_number,
+                sender_login,
+            )
+            .await;
+        });
+    }
+
     Ok(GithubWebhookOutcome::Processed {
         event_type: event_type.to_string(),
     })
@@ -1918,6 +2192,96 @@ mod tests {
         let text = review_text("alice", "Changes Requested", 555, "see notes", "o", "r", 42);
         assert!(text.starts_with("**@alice** — Changes Requested (review id: 555):\n\nsee notes"));
         assert!(text.contains("`moat gh api repos/o/r/pulls/42/reviews/555/comments`"));
+    }
+
+    #[test]
+    fn review_text_renders_placeholder_for_empty_body() {
+        // A bare approval (no summary text) must still read cleanly.
+        let text = review_text("alice", "Approved", 555, "", "o", "r", 42);
+        assert!(text.starts_with("**@alice** — Approved (review id: 555):\n\n_(no review comment)_"));
+        assert!(!text.contains("\n\n\n"));
+    }
+
+    #[test]
+    fn merge_conflict_text_points_at_live_diff() {
+        let text = merge_conflict_text("o", "r", 42, "https://github.com/o/r/pull/42");
+        assert!(text.contains("## ⚠️ Merge Conflicts on PR #42"));
+        assert!(text.contains("**Link:** https://github.com/o/r/pull/42"));
+        assert!(text.contains("`moat gh pr diff 42`"));
+        assert!(text.contains("`moat gh api repos/o/r/pulls/42`"));
+    }
+
+    #[test]
+    fn merge_conflict_text_omits_link_when_url_missing() {
+        let text = merge_conflict_text("o", "r", 7, "");
+        assert!(!text.contains("**Link:**"));
+    }
+
+    #[test]
+    fn merge_conflict_pr_number_extracts_per_event_type() {
+        // pull_request (non-closed) → head PR number
+        let pr = serde_json::json!({"action": "synchronize", "pull_request": {"number": 12}});
+        assert_eq!(merge_conflict_pr_number("pull_request", &pr), Some(12));
+
+        // pull_request closed → skipped (no mergeable state to report)
+        let closed = serde_json::json!({"action": "closed", "pull_request": {"number": 12}});
+        assert_eq!(merge_conflict_pr_number("pull_request", &closed), None);
+
+        // review / review_comment → PR number
+        let review = serde_json::json!({"pull_request": {"number": 34}});
+        assert_eq!(merge_conflict_pr_number("pull_request_review", &review), Some(34));
+        assert_eq!(
+            merge_conflict_pr_number("pull_request_review_comment", &review),
+            Some(34)
+        );
+
+        // issue_comment on a PR → number; on a plain issue → None
+        let pr_comment = serde_json::json!({"issue": {"number": 5, "pull_request": {"url": "x"}}});
+        assert_eq!(merge_conflict_pr_number("issue_comment", &pr_comment), Some(5));
+        let issue_comment = serde_json::json!({"issue": {"number": 5}});
+        assert_eq!(merge_conflict_pr_number("issue_comment", &issue_comment), None);
+
+        // check_run / check_suite → first associated PR
+        let check = serde_json::json!({"check_run": {"pull_requests": [{"number": 9}]}});
+        assert_eq!(merge_conflict_pr_number("check_run", &check), Some(9));
+        let suite = serde_json::json!({"check_suite": {"pull_requests": [{"number": 9}]}});
+        assert_eq!(merge_conflict_pr_number("check_suite", &suite), Some(9));
+
+        // unsupported event → None
+        assert_eq!(merge_conflict_pr_number("push", &pr), None);
+    }
+
+    #[test]
+    fn pr_info_deserializes_mergeable_fields() {
+        let pr: crate::adapters::github_pr::api::PrInfo = serde_json::from_value(serde_json::json!({
+            "number": 1,
+            "title": "t",
+            "body": null,
+            "state": "open",
+            "mergeable": false,
+            "mergeable_state": "dirty",
+            "user": {"login": "alice"},
+            "head": {"ref": "feat", "sha": "abc"},
+            "base": {"ref": "main", "sha": "def"},
+        }))
+        .expect("PrInfo parses mergeable fields");
+        assert_eq!(pr.mergeable, Some(false));
+        assert_eq!(pr.mergeable_state.as_deref(), Some("dirty"));
+
+        // Fields absent (list/webhook payloads) → None, not an error.
+        let pr2: crate::adapters::github_pr::api::PrInfo =
+            serde_json::from_value(serde_json::json!({
+                "number": 2,
+                "title": "t",
+                "body": null,
+                "state": "open",
+                "user": {"login": "bob"},
+                "head": {"ref": "h", "sha": "s"},
+                "base": {"ref": "b", "sha": "s2"},
+            }))
+            .expect("PrInfo parses without mergeable fields");
+        assert_eq!(pr2.mergeable, None);
+        assert_eq!(pr2.mergeable_state, None);
     }
 
     #[tokio::test]
@@ -2057,6 +2421,8 @@ mod tests {
             external_status: None,
             external_state_kind: None,
             external_status_raw: None,
+            external_review_decision: None,
+            external_mergeable_state: None,
             external_status_updated_at: None,
             active: true,
             deactivated_at: None,

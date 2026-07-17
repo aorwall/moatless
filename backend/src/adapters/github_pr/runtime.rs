@@ -367,6 +367,72 @@ pub async fn route_inbound_message(
     Ok(())
 }
 
+/// Persist a PR's mergeable state onto its bindings and, on an open PR
+/// transitioning *into* conflict, deliver a one-shot conflict notification.
+///
+/// Best-effort: called from a spawned task, all failures are logged, never
+/// propagated. The mergeable state is written to **every** binding (so a
+/// resolved conflict also updates the column back to `clean`); the notification
+/// only fires for **active** bindings whose previously-recorded state was not
+/// already `dirty` — that transition check is the dedup, so a PR that stays
+/// conflicted across many events is announced once, not on every event.
+///
+/// Delivery uses [`deliver_to_binding`] directly rather than
+/// [`route_inbound_message`] precisely so the synthetic alert bypasses the
+/// owner self-echo filter (the author resolves to the task owner, but this is a
+/// provider notification, not the task's own comment echoed back).
+pub async fn record_merge_state_and_notify(
+    state: &AppState,
+    connection: &AdapterConnection,
+    rule: &TaskTriggerRoute,
+    subject_key: &str,
+    mergeable: super::signals::MergeableState,
+    pr_is_open: bool,
+    conflict_msg: &InboundMessage,
+) {
+    let binding_repo = PgTaskBindingRepository(state.db.clone());
+    let bindings = match binding_repo
+        .find_by_subject(ADAPTER, SUBJECT_KIND, subject_key)
+        .await
+    {
+        Ok(bindings) => bindings,
+        Err(e) => {
+            warn!(subject_key, error = %e, "Failed to load bindings for mergeable-state update");
+            return;
+        }
+    };
+
+    for binding in bindings {
+        let was_dirty = binding.external_mergeable_state.as_deref() == Some("dirty");
+
+        if let Err(e) = binding_repo
+            .update_mergeable_state(&binding.id, Some(mergeable.as_str()))
+            .await
+        {
+            warn!(binding_id = %binding.id, error = %e, "Failed to persist mergeable state");
+        }
+
+        // Notify only on a fresh conflict on an open PR, for a live binding.
+        if pr_is_open && binding.active && mergeable.is_conflicted() && !was_dirty {
+            info!(
+                task_id = %binding.task_id,
+                subject_key,
+                "Delivering merge-conflict notification"
+            );
+            if let Err(e) =
+                deliver_to_binding(state, Some(rule), connection, &binding, conflict_msg, false, true)
+                    .await
+            {
+                warn!(
+                    task_id = %binding.task_id,
+                    error = %e,
+                    "Failed to deliver merge-conflict notification"
+                );
+            }
+        }
+    }
+}
+
 pub async fn close_tasks_for_pr(
     state: &AppState,
     connection: &AdapterConnection,
@@ -611,6 +677,8 @@ pub async fn upsert_binding(
         external_status: None,
         external_state_kind: None,
         external_status_raw: None,
+        external_review_decision: None,
+        external_mergeable_state: None,
         external_status_updated_at: None,
         active: true,
         deactivated_at: None,

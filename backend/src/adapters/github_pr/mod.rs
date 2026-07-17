@@ -7,4 +7,5 @@ pub mod config;
 pub mod external_id;
 pub mod handlers;
 pub mod runtime;
+pub mod signals;
 pub mod signature;

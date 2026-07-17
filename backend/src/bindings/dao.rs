@@ -276,6 +276,8 @@ const TASK_BINDING_SELECT: &str = r#"
            origin AS origin,
            created_at,
            last_event_at,
+           external_review_decision,
+           external_mergeable_state,
            active,
            deactivated_at
     FROM task_bindings
@@ -564,6 +566,44 @@ impl PgTaskBindingRepository {
         Ok(())
     }
 
+    /// Persist the PR's latest review decision (approved / changes_requested /
+    /// …) onto a binding. Leaves the `external_status*` columns untouched.
+    pub async fn update_review_decision(
+        &self,
+        id: &str,
+        review_decision: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE task_bindings
+               SET external_review_decision = $2
+               WHERE id = $1"#,
+        )
+        .bind(id)
+        .bind(review_decision)
+        .execute(&self.0)
+        .await?;
+        Ok(())
+    }
+
+    /// Persist the PR's mergeable state (clean / dirty / …) onto a binding.
+    /// Leaves the `external_status*` columns untouched.
+    pub async fn update_mergeable_state(
+        &self,
+        id: &str,
+        mergeable_state: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE task_bindings
+               SET external_mergeable_state = $2
+               WHERE id = $1"#,
+        )
+        .bind(id)
+        .bind(mergeable_state)
+        .execute(&self.0)
+        .await?;
+        Ok(())
+    }
+
     pub async fn find_by_task_ids(
         &self,
         task_ids: &[String],
@@ -589,6 +629,8 @@ impl PgTaskBindingRepository {
                       external_state_kind,
                       external_status_raw,
                       external_status_updated_at,
+                      external_review_decision,
+                      external_mergeable_state,
                       active,
                       deactivated_at
                FROM task_bindings
