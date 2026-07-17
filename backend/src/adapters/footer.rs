@@ -174,4 +174,24 @@ mod tests {
             Some("abc-123".to_string())
         );
     }
+
+    #[test]
+    fn completion_response_body_is_echo_filterable() {
+        // Regression: the terminal Linear `response` activity posted by
+        // `handle_agent_completed` must carry the footer so the inbound
+        // `Comment.create` echo filter can recover the authoring task id and
+        // drop the self-echo. Without it, the response re-enters the task as a
+        // fresh comment and the agent loops forever. This asserts the exact
+        // shape the completion handler now emits (assistant text + footer) is
+        // recognised as belonging to the originating task.
+        let frontend = "https://moatless.xyz";
+        let task_id = "9a7c77ab-5e43-45b5-9315-955802f9b3b2";
+        let footer = render_footer(frontend, task_id, Some("SP-2360")).expect("footer rendered");
+        let response_body = format!("The task is complete.{footer}");
+        assert_eq!(
+            parse_task_id_from_body(frontend, &response_body),
+            Some(task_id.to_string()),
+            "completion response body must be attributable to its authoring task"
+        );
+    }
 }

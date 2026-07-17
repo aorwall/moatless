@@ -218,7 +218,7 @@ async fn notify_linear_response_for_completion(state: &AppState, task_id: &str) 
         }
     };
 
-    let body = collect_assistant_text(&msg.message_content);
+    let mut body = collect_assistant_text(&msg.message_content);
     if body.trim().is_empty() {
         tracing::warn!(
             task_id,
@@ -226,6 +226,17 @@ async fn notify_linear_response_for_completion(state: &AppState, task_id: &str) 
             "agent.completed: last assistant message has no text content; skipping Linear response activity"
         );
         return;
+    }
+
+    // Append the `Moatless task:` footer so the inbound `Comment.create` echo
+    // filter (`handle_comment_created`) can recover the authoring task id and
+    // drop this comment when Linear webhooks it back. Without the footer the
+    // response activity re-enters the task as a fresh inbound comment, the agent
+    // answers, `agent.completed` fires again, and the task loops forever. This
+    // mirrors the footer that `send_reply_for_binding` appends on the explicit
+    // reply path (`build_comment_body`).
+    if let Some(footer) = crate::adapters::footer::task_comment_footer(state, task_id).await {
+        body.push_str(&footer);
     }
 
     tokio::spawn(

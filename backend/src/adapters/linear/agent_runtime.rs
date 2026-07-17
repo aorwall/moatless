@@ -1097,6 +1097,14 @@ async fn close_active_bindings_for_issue(
         if let Some(ref url) = issue.url {
             let _ = write!(text, "\n\n{url}");
         }
+        // Append the `Moatless task:` footer so this comment is recognised and
+        // dropped by the inbound echo filter (`handle_comment_created`) when
+        // Linear webhooks it back, rather than being re-forwarded into the task.
+        if let Some(footer) =
+            crate::adapters::footer::task_comment_footer(state, &binding.task_id).await
+        {
+            text.push_str(&footer);
+        }
 
         if !session_id.is_empty() {
             if let Err(e) = api
