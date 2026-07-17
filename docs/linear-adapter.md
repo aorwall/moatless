@@ -186,11 +186,15 @@ sequenceDiagram
     end
 ```
 
-## Inbound: `Comment.create` on an Issue with an Active Session Binding
+## Inbound: `Comment.create` on a Listening Issue or Comment Thread
 
-A user comments on a Linear issue. We only route the comment if the issue
-already has an active `linear_agent_session` binding (i.e. there is a live
-Moatless task listening for updates).
+A user comments on a Linear issue or replies inside a Linear comment thread.
+We route the comment if the issue already has an active
+`linear_agent_session` binding (a task spawned from a Linear agent session) or
+an active `linear_issue` binding (a task connected directly to the issue).
+When the comment is a threaded reply, Linear includes `parentId`; Moatless maps
+that parent comment id back through `task_messages.external_event_id` and
+delivers the reply only to the task that authored the parent comment.
 
 ```mermaid
 sequenceDiagram
@@ -201,13 +205,17 @@ sequenceDiagram
     participant API as LinearAgentApi
     participant MsgFlow as message::send::send_message_flow
 
-    Linear->>Runtime: Comment.create(issue_id, comment.user)
-    alt empty body OR author == connection.agent_viewer_id
+    Linear->>Runtime: Comment.create(issue_id, parentId?, comment.user)
+    alt empty body
         Runtime-->>Linear: 200 (ignored — loop guard)
     end
+    opt parentId present
+        Runtime->>MsgFlow: find_task_id_by_any_external_event_id("linear:comment:{parentId}")
+    end
     Runtime->>BindingRepo: find_active_by_destination_field(<br/>"linear", "linear_agent_session", "issue_id", issue_id)
-    alt no active session binding
-        Runtime-->>Linear: 200 (no Moatless task for this issue)
+    Runtime->>BindingRepo: find_active_by_destination_field(<br/>"linear", "linear_issue", "issue_id", issue_id)
+    alt no active listener binding
+        Runtime-->>Linear: 200 (no Moatless task listening for this issue/thread)
     end
     loop for each bound task
         Runtime->>API: agentActivityCreate(session, thought "Reading new comment…", ephemeral)
@@ -215,11 +223,11 @@ sequenceDiagram
     end
 ```
 
-The bot-loop guard compares `comment.user.id` against
-`connection.transport_config.agent_viewer_id` (captured at OAuth install
-time as the viewer of the `actor=app` token). Without this, every outbound
-comment posted by `send_reply_for_binding` would arrive back as a fresh
-inbound prompt.
+The self-echo guard recovers the originating task from the `Moatless task:`
+footer on outbound comments and from the persisted `linear:comment:<id>`
+external event id. That skips the task that authored the comment while still
+allowing other listeners on the same issue to receive ordinary issue-level
+comments.
 
 ## Inbound: `Issue.update` (State Transition)
 

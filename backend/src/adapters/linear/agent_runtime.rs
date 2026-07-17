@@ -295,8 +295,10 @@ pub async fn handle_session_prompted(
     Ok(())
 }
 
-/// Route a `Comment.create` payload to a task bound to the comment's issue
-/// via a `linear_issue` binding. No binding → no-op.
+/// Route a `Comment.create` payload to tasks listening to the comment's issue.
+/// This includes both `linear_agent_session` bindings created when Linear
+/// started an agent session and `linear_issue` bindings created by direct issue
+/// sends/status-entry tasks. No binding → no-op.
 ///
 /// The agent's own outbound replies are filtered downstream: every reply
 /// posted via `LinearAdapter::send_reply_for_binding` is recorded in
@@ -328,21 +330,17 @@ pub async fn handle_comment_created(
     );
     let forwarded_body = comment.body.as_str();
 
-    let binding_repo = PgTaskBindingRepository(state.db.clone());
-    let bindings: Vec<TaskBinding> = binding_repo
-        .find_active_by_destination_field(ADAPTER, super::SUBJECT_KIND_ISSUE, "issue_id", issue_id)
-        .await?
-        .into_iter()
-        // Skip bindings whose task has closed — a closed task is terminal and
-        // must not be resurrected by a new comment.
-        .filter(|b| b.connection_id == connection.id && b.active)
-        .collect();
+    let parent_task_id = resolve_parent_comment_task(state, comment).await?;
+    let bindings =
+        comment_delivery_bindings(state, connection, issue_id, parent_task_id.as_deref()).await?;
 
     if bindings.is_empty() {
         info!(
             issue_id,
             comment_id = %comment.id,
-            "Comment.create with no linear_issue binding for this issue — ignoring"
+            parent_id = comment.parent_id.as_deref().unwrap_or(""),
+            parent_task_id = parent_task_id.as_deref().unwrap_or(""),
+            "Comment.create with no active Linear listener binding for this issue — ignoring"
         );
         return Ok(());
     }
@@ -428,6 +426,61 @@ pub async fn handle_comment_created(
     }
 
     Ok(())
+}
+
+async fn resolve_parent_comment_task(
+    state: &AppState,
+    comment: &CommentPayloadData,
+) -> Result<Option<String>, AdapterError> {
+    let Some(parent_id) = comment.parent_id.as_deref() else {
+        return Ok(None);
+    };
+    let parent_external_id = linear_comment_external_id(parent_id);
+    state
+        .messages
+        .find_task_id_by_any_external_event_id(&[parent_external_id])
+        .await
+        .map_err(AdapterError::Db)
+}
+
+async fn comment_delivery_bindings(
+    state: &AppState,
+    connection: &AdapterConnection,
+    issue_id: &str,
+    parent_task_id: Option<&str>,
+) -> Result<Vec<TaskBinding>, AdapterError> {
+    let binding_repo = PgTaskBindingRepository(state.db.clone());
+    let mut rows = Vec::new();
+    for subject_kind in [SUBJECT_KIND, super::SUBJECT_KIND_ISSUE] {
+        rows.extend(
+            binding_repo
+                .find_active_by_destination_field(ADAPTER, subject_kind, "issue_id", issue_id)
+                .await?,
+        );
+    }
+
+    // A reply inside a Linear comment thread belongs to the task that authored
+    // the parent bot comment. For ordinary issue-level comments without
+    // parentId, fan out to every active listener for the issue.
+    if let Some(task_id) = parent_task_id {
+        rows.retain(|b| b.task_id == task_id);
+    }
+
+    let mut seen_tasks = std::collections::HashSet::new();
+    Ok(rows
+        .into_iter()
+        // Skip bindings whose task has closed — a closed task is terminal and
+        // must not be resurrected by a new comment.
+        .filter(|b| b.connection_id == connection.id && b.active)
+        // A task can have both a session binding and a direct issue binding for
+        // the same issue. Deliver once per task; session bindings are queried
+        // first so they win and can emit the Linear heartbeat.
+        .filter(|b| seen_tasks.insert(b.task_id.clone()))
+        .collect())
+}
+
+fn linear_comment_external_id(comment_id: &str) -> String {
+    format!("linear:comment:{comment_id}")
 }
 
 /// Handle an `Issue.update` payload.
