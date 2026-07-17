@@ -40,10 +40,10 @@ pub fn task_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenApi) 
         .routes(routes!(handlers::create_task, handlers::list_tasks))
         .routes(routes!(
             handlers::get_task,
-            handlers::get_task_statistics,
             handlers::update_task_metadata,
             handlers::delete_task
         ))
+        .routes(routes!(handlers::get_task_statistics))
         .routes(routes!(handlers::close_task))
         .routes(routes!(handlers::reopen_task))
         .routes(routes!(handlers::mark_task_read))

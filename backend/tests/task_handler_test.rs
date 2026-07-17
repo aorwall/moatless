@@ -61,6 +61,28 @@ async fn get_task_404(pool: PgPool) {
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
+// Regression: `task_router` must build without panicking. utoipa-axum's
+// `routes!()` groups every handler in a single call onto one path, so mixing
+// handlers with different paths (e.g. GET /{task_id} and GET
+// /{task_id}/statistics) registers two GET method-routes on the same path and
+// panics at startup with "Overlapping method route". Each distinct path must
+// get its own `.routes(routes!(...))` call. See backend/src/task/routes.rs.
+#[sqlx::test]
+async fn router_builds_and_statistics_route_is_registered(pool: PgPool) {
+    seed_repo(&pool).await;
+    let row = make_task_row("task-stats", "user-1");
+    task_dao::insert_task(&pool, &row).await.unwrap();
+
+    // Panics here if the router has overlapping method routes.
+    let app = build_router(pool);
+
+    // The statistics path must resolve to its own handler, not be shadowed by
+    // GET /{task_id} — a routed request returns a real status, never 404.
+    let req = authed_request("GET", "/api/v1/tasks/task-stats/statistics", "user-1");
+    let resp = app.oneshot(req).await.unwrap();
+    assert_ne!(resp.status(), StatusCode::NOT_FOUND);
+}
+
 #[sqlx::test]
 async fn list_tasks_empty(pool: PgPool) {
     let app = build_router(pool);
