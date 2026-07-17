@@ -37,7 +37,11 @@ while [[ $# -gt 0 ]]; do
     --local)
       MULTI_ARCH=false
       PUSH=false
-      PLATFORM="linux/amd64"
+      case "$(uname -m)" in
+        x86_64|amd64)  PLATFORM="linux/amd64" ;;
+        aarch64|arm64) PLATFORM="linux/arm64" ;;
+        *) echo -e "${RED}Unsupported host architecture: $(uname -m)${NC}"; exit 1 ;;
+      esac
       shift
       ;;
     --no-cache)

@@ -335,8 +335,18 @@ if [ "$BUILD_SANDBOX_BASE" = true ]; then
 fi
 
 if [ "$BUILD_SANDBOX" = true ]; then
+  # Dockerfile.sandbox pulls entrypoint scripts + moatless-git-cred from the
+  # sandbox-tools image. CI publishes it separately; build it here so the
+  # COPY --from resolves for local builds without a registry pull.
+  build_image "Dockerfile.sandbox-tools" "moatless-sandbox-tools" \
+    "--build-context binaries=${BINARIES_DIR}"
+
+  # Point the final image at the base and tools we just built at this TAG, not
+  # the :latest defaults baked into Dockerfile.sandbox.
   build_image "Dockerfile.sandbox" "${SANDBOX_IMAGE_NAME}" \
-    "--build-context binaries=${BINARIES_DIR}" \
+    "--build-arg SANDBOX_BASE=${REGISTRY}/moatless-sandbox-base:${TAG} \
+     --build-arg SANDBOX_TOOLS=${REGISTRY}/moatless-sandbox-tools:${TAG} \
+     --build-context binaries=${BINARIES_DIR}" \
     "${SANDBOX_JS_ALIAS_NAME}"
 fi
 

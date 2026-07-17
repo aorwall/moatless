@@ -40,12 +40,12 @@ Redis URL: {{ include "moatless-vibe.redisUrl" . }}
 
 IMPORTANT: You need to create secrets!
 
-Create a secret with your API keys:
+Create the app Secret ({{ if .Values.postgres.enabled }}DATABASE_URL is set from the bundled Postgres, so omit it here{{ else }}point DATABASE_URL at your database{{ end }}):
   kubectl create secret generic {{ include "moatless-vibe.secretsName" . }} \
     --namespace {{ .Release.Namespace }} \
-    --from-literal=ANTHROPIC_API_KEY=your-key \
-    --from-literal=GITHUB_TOKEN=your-token \
-    --from-literal=SANDBOX_API_KEY=$(openssl rand -hex 16)
+    {{ if not .Values.postgres.enabled }}--from-literal=DATABASE_URL='postgres://user:pass@host:5432/db' \
+    {{ end }}--from-literal=SECRETS_ENCRYPTION_KEY="$(openssl rand -base64 32)" \
+    --from-literal=TASK_TOKEN_SECRET="$(openssl rand -hex 32)"
 {{- end }}
 {{- end }}
 

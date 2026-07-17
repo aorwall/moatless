@@ -17,9 +17,9 @@ After the Secret is bootstrapped, delete or `.gitignore` the `.env.local` file i
 
 | Key | Purpose | Where to get it |
 |---|---|---|
-| `DATABASE_URL` | Postgres connection string | Provider console (Azure Flexible Server, RDS, Supabase, etc.) |
+| `DATABASE_URL` | Postgres connection string | Provider console (Azure Flexible Server, RDS, Supabase, etc.); omit when `postgres.enabled: true` |
 | `SECRETS_ENCRYPTION_KEY` | Master key for credential encryption at rest | `openssl rand -base64 32` |
-| `TASK_TOKEN_SECRET` | HMAC for task-scoped JWTs (auto-generated if missing) | Random 64-byte secret — `openssl rand -hex 32` |
+| `TASK_TOKEN_SECRET` | HMAC for task-scoped backend↔sandbox JWTs. Required — every provision fails without it | `openssl rand -hex 32` |
 
 > `ANTHROPIC_API_KEY` is **not** collected at install time. Each user/task supplies its own Claude credentials at runtime — do not seed a cluster-wide key.
 
@@ -29,14 +29,13 @@ After the Secret is bootstrapped, delete or `.gitignore` the `.env.local` file i
 |---|---|
 | `REDIS_URL` | Redis connection for event streams and rate limiting |
 
-By default the chart installs a bundled Bitnami Redis subchart (`redis.enabled: true`) and no `REDIS_URL` is needed. Set `redis.enabled: false` in `values.local.yaml` if you want to point at an existing Redis, then provide `REDIS_URL`.
+By default the chart deploys a bundled first-party Redis (`redis.enabled: true`) and no `REDIS_URL` is needed. Set `redis.enabled: false` in `values.local.yaml` if you want to point at an existing Redis, then provide `REDIS_URL`.
 
 ## Recommended
 
 | Key | Purpose |
 |---|---|
 | `GITHUB_TOKEN` | PAT for cloning private repos into sandboxes |
-| `SANDBOX_API_KEY` | Backend↔sandbox gRPC auth |
 | `S3_BUCKET`, `S3_REGION` | File storage (if external storage enabled) |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Only if not using IRSA |
 

@@ -1,0 +1,93 @@
+# Moatless Vibe — local single-node Kubernetes (Docker Desktop, kubeadm mode).
+#
+# Bring-up runbook and gotchas: k8s/local/README.md
+# Contains NO secrets — create Secret/moatless-vibe-secrets by hand (see README).
+#
+# The release name MUST be `moatless-vibe`: the backend hardcodes the sandbox
+# callback host as `moatless-vibe-backend` (backend/src/sandbox/k8s/pod_builder.rs),
+# which is `{release}-backend` only when the release is `moatless-vibe`. Any other
+# release name leaves every sandbox unable to reach the backend (gRPC dns error).
+#
+# Install:
+#   helm install moatless-vibe ./k8s/helm/moatless-vibe -n moatless -f k8s/local/values-local.yaml
+
+# --- Images: use locally built :dev images, never pull from Docker Hub ---------
+# Chart defaults are pullPolicy: Always + tag: latest, which forces a registry
+# pull and silently ignores the images built by ./docker/build-*.sh --local.
+image:
+  pullPolicy: IfNotPresent
+  tag: "dev"
+backend:
+  image:
+    pullPolicy: IfNotPresent
+    tag: "dev"
+sandboxImage:
+  pullPolicy: IfNotPresent
+  tag: "dev"
+
+# --- Bundled data stores (first-party templates) -------------------------------
+postgres:
+  enabled: true
+redis:
+  enabled: true
+
+# --- Kubernetes execution mode -------------------------------------------------
+kubernetes:
+  enabled: true
+  # SOAP-private ECR image → guaranteed ImagePullBackOff off-cluster.
+  nodeStorageJanitor:
+    enabled: false
+  # Pulls the full 5-8GB sandbox image on every node with pullPolicy: Always.
+  imagePrepull:
+    enabled: false
+  sandboxStorage:
+    # Default 's3' needs a real bucket; 'ephemeral' runs on a node-local emptyDir
+    # and avoids per-task PVC churn.
+    defaultMode: "ephemeral"
+  # Drop the tcp_keepalive_* entries: some kubelets reject them as unsafe, which
+  # blocks sandbox pod admission. Keep only the safe local-port-range sysctl.
+  sandboxSysctls:
+    - name: net.ipv4.ip_local_port_range
+      value: "16000 65535"
+
+# --- Ingress / routing ---------------------------------------------------------
+# Locally Traefik IS the ingress controller, so the cloud-shaped Ingress objects
+# (which route to a Service named `traefik:80`) are circular. Disable them and
+# let the chart's Traefik IngressRoute CRDs do the routing.
+ingress:
+  enabled: false
+  # KEEP hosts even though enabled=false: the IngressRoute templates read the app
+  # host from ingress.hosts[0].host regardless of the enable flag. Omit it and all
+  # 7 routes fall back to vibe.example.com and match nothing.
+  hosts:
+    - host: vibe.localhost
+      paths:
+        - path: /
+          pathType: Prefix
+proxyIngress:
+  enabled: false
+
+proxy:
+  # macOS resolves arbitrary *.localhost → 127.0.0.1. No dnsmasq, no nip.io.
+  domain: "preview.localhost"
+  protocol: "http"
+  # "web" (plain HTTP) entryPoint, not the TLS "websecure".
+  traefikEntryPoint: "web"
+  # Render the app IngressRoute CRDs (auth, sandbox-api, webhooks, sse, api, spa).
+  traefikIngressRoute:
+    enabled: true
+  # No HSTS over plain HTTP locally.
+  securityHeaders:
+    enabled: false
+
+# --- NetworkPolicy -------------------------------------------------------------
+# The sandbox NetworkPolicy expects a namespace literally named `traefik`; skip
+# it locally (Traefik runs in the moatless namespace here).
+networkPolicy:
+  sandbox:
+    enabled: false
+
+# Secret/moatless-secrets is created by hand (see README); keep create=false so
+# Helm does not fight the hand-made Secret.
+secrets:
+  create: false
