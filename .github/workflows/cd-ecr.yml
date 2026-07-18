@@ -171,7 +171,7 @@ jobs:
               if printf '%s\n' "$CHANGED_FILES" | grep -qE '^(backend/|docker/Dockerfile\.backend-cross$)'; then
                 BACKEND=true
               fi
-              if printf '%s\n' "$CHANGED_FILES" | grep -qE '^(sandbox/|docker/Dockerfile\.sandbox-soap$|docker/docker-entrypoint-sandbox\.sh$|docker/sync-plugins\.sh$|docker/moatless-git-cred\.sh$)'; then
+              if printf '%s\n' "$CHANGED_FILES" | grep -qE '^(sandbox/|docker/Dockerfile\.sandbox-soap$|docker/Dockerfile\.sandbox-dev$|docker/docker-entrypoint-sandbox\.sh$|docker/sync-plugins\.sh$|docker/moatless-git-cred\.sh$)'; then
                 SANDBOX=true
               fi
               if printf '%s\n' "$CHANGED_FILES" | grep -qE '^crates/'; then
@@ -700,6 +700,32 @@ jobs:
       cache-mode: inline-registry
     # Sandbox base (aorwall/moatless-sandbox-base) + golang build stages all
     # pull from docker.io — the most rate-limit-exposed of the three images.
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  # ── Publish: dev sandbox (warm cargo cache for the shadow-dev backend) ──
+  # FROMs the moatless-sandbox image publish-sandbox just pushed (its `image`
+  # output → SANDBOX_IMAGE build-arg) and bakes a warm cargo target dir, so the
+  # shadow backend recompiles only changed workspace crates on start. Only the
+  # "moatless-vibe (shadow)" dev repo points its dockerImage at moatless-dev;
+  # the default sandbox is untouched. Non-blocking — publish-helm/tag-release/
+  # trigger-promotion do NOT depend on this job.
+  # NOTE (ops): the `moatless-dev` ECR repo must exist — add it to the moatless
+  # service's `ecr_repos` in soap-infra services.yaml.
+  publish-sandbox-dev:
+    needs: [setup, build-binaries, publish-sandbox]
+    if: github.event_name != 'pull_request' && needs.setup.outputs.build-sandbox == 'true'
+    uses: soaplabs/soap-platform-ci/.github/workflows/build-push-ecr.yml@main
+    with:
+      service-name: moatless
+      ecr-repository: moatless-dev
+      image-tag: ${{ needs.setup.outputs.tag }}
+      dockerfile: docker/Dockerfile.sandbox-dev
+      tag-latest: true
+      build-args: |
+        SANDBOX_IMAGE=${{ needs.publish-sandbox.outputs.image }}
+      cache-mode: gha
     secrets:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}

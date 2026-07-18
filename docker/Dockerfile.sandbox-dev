@@ -1,0 +1,56 @@
+# syntax=docker/dockerfile:1.7
+# Dockerfile.sandbox-dev — precompiled dev sandbox image (published as moatless-dev).
+#
+# Extends the runtime sandbox image with a WARM cargo cache for
+# moatless-vibe-backend, so the shadow backend (scripts/shadow/up.sh) recompiles
+# only the changed workspace crates on start (~1-2 min) instead of the whole
+# dependency graph (~6-10 min cold). Used only by the dedicated
+# "moatless-vibe (shadow)" dev repo — not the default sandbox.
+#
+# Reuses the workflow's built artifacts:
+#   - FROM the moatless-sandbox image cd-ecr.yml just built + pushed (passed as
+#     the SANDBOX_IMAGE build-arg from that job's `image` output) — so the whole
+#     soap sandbox overlay (Rust toolchain, protoc, JDK, kubectl, AWS CLI, the
+#     sandbox/moat binaries) is inherited, not rebuilt.
+#   - The BuildKit cargo cache mounts reuse the compiled deps run-to-run, so the
+#     one in-image compile stays incremental.
+#
+# The compiled deps are copied into /opt/cargo-target — OUTSIDE the /opt/moatless
+# workspace mount (wiped on every provision) — so they persist as an image layer.
+# `up.sh` reads CARGO_TARGET_DIR and reuses them; only changed workspace crates
+# recompile at runtime. The backend uses only runtime `sqlx::query` (no
+# compile-time-checked macros), so this build needs no database.
+#
+# Local build:
+#   docker build -f docker/Dockerfile.sandbox-dev \
+#     --build-arg SANDBOX_IMAGE=<registry>/moatless-sandbox:<tag> \
+#     -t <registry>/moatless-dev:<tag> .
+
+ARG SANDBOX_IMAGE=aorwall/moatless-sandbox:latest
+FROM ${SANDBOX_IMAGE}
+
+# Warm cargo target dir — a sibling of /opt/cargo, outside the /opt/moatless
+# workspace mount, so it survives as an image layer. up.sh honors CARGO_TARGET_DIR.
+ENV CARGO_TARGET_DIR=/opt/cargo-target
+
+USER root
+
+# .dockerignore whitelists exactly the Rust workspace (Cargo.toml, Cargo.lock,
+# crates/, sandbox/, backend/, scripts/) and strips **/target/, so this copies
+# clean sources with no build artifacts.
+COPY . /tmp/moatless-vibe-src
+
+# Compile the backend once to populate the dep cache, then bake it into a real
+# layer (cache mounts don't persist into the image, so we build into the mount
+# and copy the result out). The registry mount caches crate downloads; the
+# target mount keeps the compile incremental across CI runs.
+RUN --mount=type=cache,id=moatless-dev-cargo-registry,target=/opt/cargo/registry \
+    --mount=type=cache,id=moatless-dev-target,target=/tmp/dev-target \
+    cd /tmp/moatless-vibe-src \
+    && cargo build --release -p moatless-vibe-backend --target-dir /tmp/dev-target \
+    && mkdir -p /opt/cargo-target \
+    && cp -a /tmp/dev-target/. /opt/cargo-target/ \
+    && rm -rf /tmp/moatless-vibe-src /opt/cargo-target/incremental \
+    && chown -R moatless:moatless /opt/cargo-target /opt/cargo
+
+USER moatless

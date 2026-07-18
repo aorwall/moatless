@@ -79,14 +79,22 @@ Before considering a change done:
 ## Fast rebuilds (precompiled image)
 
 The plain sandbox image recompiles all deps on every provision (~6–10 min).
-`docker/Dockerfile.sandbox-shadow` bakes a warm cargo cache so only changed
-workspace crates recompile (~1–2 min):
+`docker/Dockerfile.sandbox-dev` bakes a warm cargo cache so only changed
+workspace crates recompile (~1–2 min). CI builds and publishes it automatically
+as the `moatless-dev` ECR image (the `publish-sandbox-dev` job in
+`.github/workflows/cd-ecr.yml`, FROM the just-built sandbox image), so normally
+just point the shadow repo at it:
 
 ```bash
-docker build -f docker/Dockerfile.sandbox-shadow \
+moat repos update <shadow_repo_id> --docker-image <ecr-registry>/moatless-dev:<tag>
+```
+
+To build it by hand:
+
+```bash
+docker build -f docker/Dockerfile.sandbox-dev \
   --build-arg SANDBOX_IMAGE=aorwall/moatless-sandbox:<tag> \
-  -t aorwall/moatless-sandbox-shadow:<tag> .   # + docker push
-moat repos update <shadow_repo_id> --docker-image aorwall/moatless-sandbox-shadow:<tag>
+  -t aorwall/moatless-dev:<tag> .   # + docker push
 ```
 
 ## Isolation (shared dev state — important)
@@ -115,5 +123,5 @@ disrupt the real backend: distinct `REDIS_CONSUMER_GROUP`/`ID`,
 - `scripts/shadow/rebuild.sh` — compile + trigger a restart
 - `scripts/shadow/sync-env.sh` — live backend env + secrets → sourceable env file
 - `scripts/shadow/config.shadow.json` — the servers config as a committed `.moatless/config.json` (branch alternative to `moat repos create`)
-- `docker/Dockerfile.sandbox-shadow` — precompiled image with a warm cargo cache
+- `docker/Dockerfile.sandbox-dev` — precompiled image (published by CI as `moatless-dev`) with a warm cargo cache
 - `scripts/shadow/README.md` — deeper details (RBAC, owning child sandboxes)

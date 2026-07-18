@@ -109,11 +109,11 @@ bash scripts/shadow/up.sh          # sync env -> build -> run backend on :8080, 
 whole API (auth, tasks, repos, messages, SSE, read-only K8s) but **cannot create
 new sandbox pods** — that needs Phase 2.
 
-## Fast rebuilds — precompiled shadow image
+## Fast rebuilds — precompiled dev image
 
 By default `up.sh` runs a cold `cargo build --release` of the whole dependency
 graph on every provision (~6–10 min) because the in-tree `target/` lives on the
-`workspace-data` mount, which is wiped each provision. `docker/Dockerfile.sandbox-shadow`
+`workspace-data` mount, which is wiped each provision. `docker/Dockerfile.sandbox-dev`
 fixes that: it's a `FROM moatless-sandbox` image that bakes a **warm cargo cache**
 — the registry (`/opt/cargo`) plus compiled dependency artifacts
 (`/opt/cargo-target`) — both **outside** the `/opt/moatless` mount, so they
@@ -128,17 +128,25 @@ provisioned workspace. The workspace crates (`backend`, `crates/*`) still
 recompile — that's the "new stuff". (The backend uses only runtime `sqlx::query`,
 no compile-time-checked macros, so the image build needs no database.)
 
+CI builds and publishes this automatically as the `moatless-dev` ECR image on
+every push that changes the sandbox (the `publish-sandbox-dev` job in
+`.github/workflows/cd-ecr.yml` FROMs the just-built sandbox image and reuses the
+BuildKit cargo cache across runs). To build it by hand instead:
+
 ```bash
 # Build + push (single-arch; ops/CI — needs docker + registry creds, a few GB image)
-docker build -f docker/Dockerfile.sandbox-shadow \
+docker build -f docker/Dockerfile.sandbox-dev \
   --build-arg SANDBOX_IMAGE=aorwall/moatless-sandbox:<tag> \
-  -t aorwall/moatless-sandbox-shadow:<tag> .
-docker push aorwall/moatless-sandbox-shadow:<tag>
+  -t aorwall/moatless-dev:<tag> .
+docker push aorwall/moatless-dev:<tag>
 ```
+
+> Ops prerequisite: the `moatless-dev` ECR repo must exist — add it to the
+> moatless service's `ecr_repos` in soap-infra `services.yaml`.
 
 Then point the shadow repo at it so provisioning uses the warm image — set
 `dockerImage` on the `moatless-vibe (shadow)` repo (via the API / `moat repo`
-config) or add `"dockerImage": "aorwall/moatless-sandbox-shadow:<tag>"` to
+config) or add `"dockerImage": "<ecr-registry>/moatless-dev:<tag>"` to
 `config.shadow.json`. Without it, everything still works — just with the cold
 build. The `backend-server` container inherits the image's `CARGO_TARGET_DIR`
 (the curated server-container env doesn't override it), so no config wiring is
@@ -198,7 +206,8 @@ shadow. To fully act like the backend:
 - `up.sh` — sync + build + run the backend, watch for rebuilds
 - `rebuild.sh` — compile + trigger a restart
 - `config.shadow.json` — preview-server config running both servers (copy to `.moatless/config.json`)
-- `../../docker/Dockerfile.sandbox-shadow` — precompiled image with a warm cargo
-  cache so `up.sh` rebuilds fast (point the shadow repo's `dockerImage` at it)
+- `../../docker/Dockerfile.sandbox-dev` — precompiled image (published by CI as
+  `moatless-dev`) with a warm cargo cache so `up.sh` rebuilds fast (point the
+  shadow repo's `dockerImage` at it)
 - `../../k8s/helm/moatless-vibe/templates/shadow-dev-rbac.yaml` — Phase 2 dev SA +
   RoleBindings, gated on `shadowDev.enabled` in `values.yaml`
