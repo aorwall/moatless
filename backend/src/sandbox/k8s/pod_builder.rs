@@ -100,6 +100,21 @@ pub fn build_pod(
         "app.kubernetes.io/managed-by".to_string(),
         "moatless".to_string(),
     );
+    // Per-repo network profile (opt-in): tag the pod so a static, GitOps-owned
+    // NetworkPolicy with a matching podSelector governs its egress/ingress. The
+    // label only selects a policy — the policy itself lives outside moatless.
+    if let Some(profile) = plan
+        .repo_config
+        .network_profile
+        .as_deref()
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+    {
+        labels.insert(
+            "moatless.io/network-profile".to_string(),
+            profile.to_string(),
+        );
+    }
 
     // ── Annotations ─────────────────────────────────────────────────
     let mut annotations = BTreeMap::new();
@@ -1489,6 +1504,7 @@ mod tests {
                 docker_access: None,
                 docker_networks: None,
                 sandbox_service_account: None,
+                network_profile: None,
             },
             git_clone_url: "https://github.com/test/repo.git".into(),
             git_branch: None,
@@ -2307,6 +2323,46 @@ mod tests {
             pod.spec.as_ref().unwrap().service_account_name.as_deref(),
             Some("moatless-dev"),
             "per-repo SA overrides the global default"
+        );
+    }
+
+    /// Per-repo `networkProfile` adds the `moatless.io/network-profile` pod label
+    /// (which a static NetworkPolicy selects); unset/blank adds no label.
+    #[test]
+    fn per_repo_network_profile_sets_pod_label() {
+        const KEY: &str = "moatless.io/network-profile";
+
+        // Unset → no profile label.
+        let config = test_config();
+        let plan = test_plan();
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        assert!(
+            !pod.metadata.labels.as_ref().unwrap().contains_key(KEY),
+            "unset network_profile adds no label"
+        );
+
+        // Set → label carries the value.
+        let mut plan = test_plan();
+        plan.repo_config.network_profile = Some("programbench-sealed".to_string());
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        assert_eq!(
+            pod.metadata
+                .labels
+                .as_ref()
+                .unwrap()
+                .get(KEY)
+                .map(String::as_str),
+            Some("programbench-sealed"),
+            "network_profile sets the pod label a NetworkPolicy can select"
+        );
+
+        // Blank/whitespace → treated as unset (no label, avoids invalid label value).
+        let mut plan = test_plan();
+        plan.repo_config.network_profile = Some("   ".to_string());
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        assert!(
+            !pod.metadata.labels.as_ref().unwrap().contains_key(KEY),
+            "blank network_profile adds no label"
         );
     }
 

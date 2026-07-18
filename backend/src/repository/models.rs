@@ -27,6 +27,11 @@ pub struct Repository {
     /// overrides the global default (`K8S_SANDBOX_SERVICE_ACCOUNT`). Used for
     /// "shadow" dev sandboxes that need the backend's RBAC. Defaults to `None`.
     pub sandbox_service_account: Option<String>,
+    /// Per-repo network profile. When set, sandbox pods carry the label
+    /// `moatless.io/network-profile=<value>` for a static (GitOps-owned)
+    /// NetworkPolicy to select. Selects a policy only; grants nothing. Used for
+    /// sealed benchmark runs. Defaults to `None` (no profile label).
+    pub network_profile: Option<String>,
     pub system_prompt: Option<String>,
     pub setup_commands: Option<serde_json::Value>,
     pub env_vars: Option<serde_json::Value>,

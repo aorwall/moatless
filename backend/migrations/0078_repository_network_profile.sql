@@ -1,0 +1,16 @@
+-- Per-repository network profile: a free-form label value that selects a static,
+-- cluster-owned (GitOps) NetworkPolicy for this repo's sandbox pods.
+--
+-- When set, sandbox pods for this repo carry the label
+-- `moatless.io/network-profile=<value>`. A NetworkPolicy deployed out-of-band
+-- (e.g. in soap-platform-gitops) whose podSelector matches that label then
+-- governs the pod's egress/ingress. This is the pointable, fleet-wide analog of
+-- the per-repo ServiceAccount override: the field only *selects* a policy — the
+-- NetworkPolicy itself (and thus what is actually allowed/denied) is owned by the
+-- platform, not created by the sandbox.
+--
+-- Use case: sealed benchmark runs (e.g. ProgramBench) where the agent must not be
+-- able to fetch upstream source over the network. Defaults to NULL → no profile
+-- label is added and the global/default network posture applies (existing behavior).
+-- See backend/src/sandbox/k8s/pod_builder.rs (build_pod labels).
+ALTER TABLE repositories ADD COLUMN network_profile text;

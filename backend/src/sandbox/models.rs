@@ -75,6 +75,13 @@ pub struct RepoConfig {
     /// backend's RBAC.
     #[serde(default)]
     pub sandbox_service_account: Option<String>,
+    // --- Network profile (opt-in per-repo) ---
+    /// Per-repo network profile. When set, the sandbox pod carries the label
+    /// `moatless.io/network-profile=<value>`, which a static (GitOps-owned)
+    /// NetworkPolicy can select to govern the pod's egress/ingress. Selects a
+    /// policy only; grants nothing on its own. Ignored in Docker mode.
+    #[serde(default)]
+    pub network_profile: Option<String>,
 }
 
 /// Server config entry
