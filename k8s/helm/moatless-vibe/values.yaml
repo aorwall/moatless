@@ -878,6 +878,52 @@ networkPolicy:
       # Extra egress rules appended verbatim to the CiliumNetworkPolicy spec.
       extraEgress: []
 
+# In-cluster egress forward proxy (squid) with a hostname allowlist. Generic,
+# reusable capability — NOT tied to any one use case. Any sandbox whose repo
+# sets `networkProfile` to one of `profiles` below is pointed at this proxy via
+# HTTPS_PROXY by the backend, and can then reach ONLY the hosts in
+# `allowedDomains`. Typical use: pin an agent to an approved model/API host and
+# nothing else. Pair with `sealEgress` (or the networkPolicy.sandbox model) so
+# the pod's direct internet egress is blocked and the proxy is the only way out.
+egressProxy:
+  # -- Deploy the proxy (ConfigMap + Deployment + Service) in the sandbox
+  # namespace. Off by default — opt in per environment.
+  enabled: false
+  # -- Repository `networkProfile` values routed through this proxy. The backend
+  # stamps `moatless.io/network-profile=<v>` on matching sandbox pods and injects
+  # HTTPS_PROXY pointing here. Empty ⇒ proxy deployed but nothing routed through it.
+  profiles:
+    - sealed-egress
+  # -- enforce = allow only `allowedDomains` (empty ⇒ fail-closed: deny all).
+  #    audit   = allow all egress + log every destination so the real host set
+  #              can be harvested from `kubectl logs`. A discovery run — NOT sealed.
+  mode: enforce
+  # -- squid dstdomain allowlist (leading dot matches subdomains). Populate from
+  # an audit-mode run — do NOT guess. Empty + enforce = fail-closed.
+  allowedDomains: []
+  # -- Also render a per-profile NetworkPolicy that blocks direct internet egress
+  # (DNS + in-cluster only) for pods in `profiles`, and exclude those pods from
+  # the broad sandbox NetworkPolicy above (else its allow rules would leak
+  # internet — NetworkPolicy allows are additive). Set false to manage the
+  # egress block yourself via networkPolicy.sandbox.
+  sealEgress: true
+  # -- Proxy listen port.
+  port: 3128
+  # -- Squid image (must satisfy any image-registry admission policy). Empty uses
+  # the chart default below.
+  image: "docker.io/ubuntu/squid:6.6-24.04_edge"
+  # -- NO_PROXY injected alongside HTTPS_PROXY so in-cluster traffic (backend
+  # gRPC, DNS, kube-apiserver, link-local metadata) bypasses the proxy.
+  noProxy: "localhost,127.0.0.1,::1,.svc,.svc.cluster.local,.cluster.local,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.169.254,kubernetes.default"
+  # -- Proxy pod resources.
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+
 # RBAC for managing sandbox pods, PVCs, secrets, and services
 rbac:
   # -- Create RBAC resources

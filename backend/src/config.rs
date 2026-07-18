@@ -413,6 +413,27 @@ pub struct SandboxConfig {
     /// run as children of dockerd inside this container, so their memory charges
     /// against this limit. Env `K8S_SANDBOX_DOCKER_DIND_MEMORY_LIMIT`.
     pub docker_dind_memory_limit: String,
+    /// In-cluster egress forward-proxy URL (e.g.
+    /// `http://moatless-vibe-egress-proxy.<ns>.svc.cluster.local:3128`). When
+    /// set, sandbox pods whose `network_profile` is listed in
+    /// [`SandboxConfig::egress_proxy_profiles`] get `HTTPS_PROXY`/`HTTP_PROXY`
+    /// pointed at it, so all outbound traffic is funnelled through the proxy's
+    /// hostname allowlist. Pairs with a per-profile NetworkPolicy that blocks
+    /// direct internet egress and forces this path. Env
+    /// `SANDBOX_EGRESS_PROXY_URL` (default: unset → no proxy injected).
+    pub egress_proxy_url: Option<String>,
+    /// Network profiles that receive the egress proxy env (see
+    /// [`SandboxConfig::egress_proxy_url`]). A pod gets the proxy only when its
+    /// `network_profile` value is in this list. Env
+    /// `SANDBOX_EGRESS_PROXY_PROFILES` (comma-separated; default: empty →
+    /// opt-in, no pod gets the proxy even if a URL is set).
+    pub egress_proxy_profiles: Vec<String>,
+    /// `NO_PROXY` value paired with [`SandboxConfig::egress_proxy_url`] so
+    /// in-cluster traffic (backend gRPC, DNS, kube-apiserver, link-local
+    /// metadata) bypasses the proxy. Env `SANDBOX_EGRESS_PROXY_NO_PROXY`
+    /// (default covers localhost, the cluster service domain, RFC-1918 and the
+    /// link-local metadata IP).
+    pub egress_proxy_no_proxy: String,
 }
 
 /// Proxy / Traefik IngressRoute settings.
@@ -990,6 +1011,21 @@ impl Config {
                     "1Gi",
                 ),
                 docker_dind_memory_limit: env_str("K8S_SANDBOX_DOCKER_DIND_MEMORY_LIMIT", "4Gi"),
+                egress_proxy_url: env_opt("SANDBOX_EGRESS_PROXY_URL"),
+                egress_proxy_profiles: env_opt("SANDBOX_EGRESS_PROXY_PROFILES")
+                    .map(|s| {
+                        s.split(',')
+                            .map(str::trim)
+                            .filter(|p| !p.is_empty())
+                            .map(String::from)
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                egress_proxy_no_proxy: env_str(
+                    "SANDBOX_EGRESS_PROXY_NO_PROXY",
+                    "localhost,127.0.0.1,::1,.svc,.svc.cluster.local,.cluster.local,\
+                     10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.169.254,kubernetes.default",
+                ),
             },
 
             reconcile: ReconcileConfig {
@@ -1432,6 +1468,9 @@ mod tests {
                 docker_dind_cpu_limit: "2".into(),
                 docker_dind_memory_request: "1Gi".into(),
                 docker_dind_memory_limit: "4Gi".into(),
+                egress_proxy_url: None,
+                egress_proxy_profiles: vec![],
+                egress_proxy_no_proxy: "localhost,.svc.cluster.local".into(),
             },
             reconcile: ReconcileConfig {
                 reprovision_enabled: false,

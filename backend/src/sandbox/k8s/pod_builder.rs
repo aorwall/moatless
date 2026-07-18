@@ -709,6 +709,34 @@ fn build_sandbox_container(
     // Frontend URL for constructing task URLs in the agent system prompt
     env.push(env_var("FRONTEND_URL", &config.auth.frontend_url));
 
+    // Egress forward-proxy: when this pod's network profile opts into the
+    // in-cluster allowlist proxy, route all outbound HTTP(S) through it. The
+    // paired per-profile NetworkPolicy blocks direct internet egress, so the
+    // proxy's hostname allowlist becomes the only way out (e.g. an approved API
+    // host is allowed; everything else is denied). NO_PROXY keeps in-cluster
+    // traffic (backend gRPC, DNS) direct.
+    if let (Some(proxy_url), Some(profile)) = (
+        config.sandbox.egress_proxy_url.as_deref(),
+        plan.repo_config
+            .network_profile
+            .as_deref()
+            .map(str::trim)
+            .filter(|p| !p.is_empty()),
+    ) {
+        if config
+            .sandbox
+            .egress_proxy_profiles
+            .iter()
+            .any(|p| p == profile)
+        {
+            for key in ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"] {
+                env.push(env_var(key, proxy_url));
+            }
+            env.push(env_var("NO_PROXY", &config.sandbox.egress_proxy_no_proxy));
+            env.push(env_var("no_proxy", &config.sandbox.egress_proxy_no_proxy));
+        }
+    }
+
     // Default model for agent sessions
     if let Some(ref model) = config.sandbox.default_model {
         env.push(env_var("DEFAULT_CLAUDE_CODE_MODEL", model));
@@ -1375,6 +1403,9 @@ mod tests {
                 docker_dind_cpu_limit: "2".into(),
                 docker_dind_memory_request: "1Gi".into(),
                 docker_dind_memory_limit: "4Gi".into(),
+                egress_proxy_url: None,
+                egress_proxy_profiles: vec![],
+                egress_proxy_no_proxy: "localhost,.svc.cluster.local".into(),
             },
             reconcile: ReconcileConfig {
                 reprovision_enabled: false,
@@ -2343,7 +2374,7 @@ mod tests {
 
         // Set → label carries the value.
         let mut plan = test_plan();
-        plan.repo_config.network_profile = Some("programbench-sealed".to_string());
+        plan.repo_config.network_profile = Some("sealed-egress".to_string());
         let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
         assert_eq!(
             pod.metadata
@@ -2352,7 +2383,7 @@ mod tests {
                 .unwrap()
                 .get(KEY)
                 .map(String::as_str),
-            Some("programbench-sealed"),
+            Some("sealed-egress"),
             "network_profile sets the pod label a NetworkPolicy can select"
         );
 
@@ -2364,6 +2395,57 @@ mod tests {
             !pod.metadata.labels.as_ref().unwrap().contains_key(KEY),
             "blank network_profile adds no label"
         );
+    }
+
+    /// The egress proxy env is injected only when a URL is configured AND the
+    /// pod's network profile is in the opt-in list.
+    #[test]
+    fn egress_proxy_env_injected_only_for_opted_in_profile() {
+        const URL: &str = "http://moatless-vibe-egress-proxy.moatless.svc.cluster.local:3128";
+
+        let sandbox_proxy = |pod: &Pod, key: &str| -> Option<String> {
+            pod.spec
+                .as_ref()
+                .unwrap()
+                .containers
+                .iter()
+                .find(|c| c.name == "sandbox")
+                .unwrap()
+                .env
+                .as_ref()
+                .unwrap()
+                .iter()
+                .find(|e| e.name == key)
+                .and_then(|e| e.value.clone())
+        };
+
+        // Proxy configured + profile opted in → HTTPS_PROXY + NO_PROXY set.
+        let mut config = test_config();
+        config.sandbox.egress_proxy_url = Some(URL.to_string());
+        config.sandbox.egress_proxy_profiles = vec!["sealed-egress".to_string()];
+        config.sandbox.egress_proxy_no_proxy = "localhost,.svc.cluster.local".to_string();
+        let mut plan = test_plan();
+        plan.repo_config.network_profile = Some("sealed-egress".to_string());
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        assert_eq!(sandbox_proxy(&pod, "HTTPS_PROXY").as_deref(), Some(URL));
+        assert_eq!(sandbox_proxy(&pod, "http_proxy").as_deref(), Some(URL));
+        assert_eq!(
+            sandbox_proxy(&pod, "NO_PROXY").as_deref(),
+            Some("localhost,.svc.cluster.local")
+        );
+
+        // Profile NOT in the opt-in list → no proxy env, even with a URL set.
+        let mut plan = test_plan();
+        plan.repo_config.network_profile = Some("some-other-profile".to_string());
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        assert!(sandbox_proxy(&pod, "HTTPS_PROXY").is_none());
+
+        // No proxy URL configured (default) → no proxy env, even when opted in.
+        let config = test_config();
+        let mut plan = test_plan();
+        plan.repo_config.network_profile = Some("sealed-egress".to_string());
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        assert!(sandbox_proxy(&pod, "HTTPS_PROXY").is_none());
     }
 
     /// Default (no `dockerAccess`) → hardened: no dind sidecar, no docker-storage

@@ -487,6 +487,9 @@ mod tests {
                 docker_dind_cpu_limit: "2".into(),
                 docker_dind_memory_request: "1Gi".into(),
                 docker_dind_memory_limit: "4Gi".into(),
+                egress_proxy_url: None,
+                egress_proxy_profiles: vec![],
+                egress_proxy_no_proxy: "localhost,.svc.cluster.local".into(),
             },
             reconcile: ReconcileConfig {
                 reprovision_enabled: false,
