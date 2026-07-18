@@ -386,7 +386,7 @@ impl SandboxProvider for K8sSandboxProvider {
 
             // Delete this task's `s3`-backend workspace archive too (`<prefix>/<task_id>/`).
             // No-op for `ebs`/`ephemeral` tasks (nothing under the prefix).
-            self.delete_task_workspace(task_id).await;
+            self.delete_task_sandbox(task_id).await;
         }
 
         // Surface a K8s delete failure to the caller instead of the old
@@ -535,7 +535,7 @@ fn deployment_has_workspace_sync(dep: &Deployment) -> bool {
 
 /// Inspect a Deployment's pod template for a `workspace-data` hostPath volume
 /// that marks the best-effort node-local storage backend.
-fn deployment_has_workspace_host_path(dep: &Deployment) -> bool {
+fn deployment_has_sandbox_host_path(dep: &Deployment) -> bool {
     dep.spec
         .as_ref()
         .and_then(|s| s.template.spec.as_ref())
@@ -660,7 +660,7 @@ impl K8sSandboxProvider {
             return StorageBackend::Ebs;
         }
         match deployment::find_deployment(&self.k8s, task_id).await {
-            Ok(Some(dep)) if deployment_has_workspace_host_path(&dep) => StorageBackend::Node,
+            Ok(Some(dep)) if deployment_has_sandbox_host_path(&dep) => StorageBackend::Node,
             Ok(Some(dep)) if deployment_has_workspace_sync(&dep) => StorageBackend::S3,
             _ => StorageBackend::Ephemeral,
         }
@@ -731,7 +731,7 @@ impl K8sSandboxProvider {
     /// bucket — the counterpart to the sandbox's presigned uploads. No-op when
     /// S3 or the bucket isn't configured, or for tasks that never used the `s3`
     /// backend (the prefix is simply empty). Errors are logged, never propagated.
-    async fn delete_task_workspace(&self, task_id: &str) {
+    async fn delete_task_sandbox(&self, task_id: &str) {
         let (Some(s3), Some(bucket)) = (self.s3.as_ref(), self.config.s3.bucket_name.as_deref())
         else {
             return;

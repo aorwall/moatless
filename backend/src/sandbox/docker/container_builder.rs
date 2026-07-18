@@ -14,7 +14,7 @@ use bollard::models::{
 
 use super::naming::{
     generate_claude_config_host_path, generate_container_name, generate_data_host_path,
-    generate_server_container_name, generate_workspace_host_path,
+    generate_sandbox_host_path, generate_server_container_name,
 };
 use crate::config::Config;
 use crate::sandbox::models::{ProvisionPlan, ServerConfig};
@@ -135,7 +135,7 @@ pub fn build_container_config(
     }
 
     // ── Bind mounts ───────────────────────────────────────────────
-    let workspace_host_path = generate_workspace_host_path(&config.docker.data_dir, task_id);
+    let workspace_host_path = generate_sandbox_host_path(&config.docker.data_dir, task_id);
     let data_host_path = generate_data_host_path(&config.docker.data_dir, task_id);
     let claude_config_host_path =
         generate_claude_config_host_path(&config.docker.data_dir, task_id);
@@ -375,7 +375,7 @@ pub fn build_server_container_config(
     );
 
     // ── Bind mounts ───────────────────────────────────────────────
-    let workspace_host_path = generate_workspace_host_path(&config.docker.data_dir, task_id);
+    let workspace_host_path = generate_sandbox_host_path(&config.docker.data_dir, task_id);
     let data_host_path = generate_data_host_path(&config.docker.data_dir, task_id);
     let mounts = vec![
         Mount {

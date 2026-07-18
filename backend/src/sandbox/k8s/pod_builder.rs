@@ -177,7 +177,7 @@ pub fn build_pod(
         volumes.push(Volume {
             name: "workspace-data".to_string(),
             host_path: Some(HostPathVolumeSource {
-                path: node_workspace_host_path(config, task_id),
+                path: node_sandbox_host_path(config, task_id),
                 type_: Some("DirectoryOrCreate".to_string()),
             }),
             ..Default::default()
@@ -190,7 +190,7 @@ pub fn build_pod(
         volumes.push(Volume {
             name: "workspace-data".to_string(),
             empty_dir: Some(EmptyDirVolumeSource {
-                size_limit: Some(Quantity(resolve_workspace_size(config, plan))),
+                size_limit: Some(Quantity(resolve_sandbox_size(config, plan))),
                 ..Default::default()
             }),
             ..Default::default()
@@ -208,7 +208,7 @@ pub fn build_pod(
     // hardened (no privileged init container, no hostPath).
     let mut init_containers: Vec<Container> = Vec::new();
     if storage_backend == super::storage::StorageBackend::Node {
-        init_containers.push(build_node_workspace_setup_container(config));
+        init_containers.push(build_node_sandbox_setup_container(config));
     }
     if !config.sandbox.cache_volumes.is_empty() {
         volumes.push(Volume {
@@ -358,10 +358,10 @@ pub fn resolve_sandbox_image(config: &Config, plan: &ProvisionPlan) -> String {
         .unwrap_or_else(|| config.sandbox.image.clone())
 }
 
-/// Resolve the workspace size for the ephemeral (emptyDir) tier: a per-repo
+/// Resolve the sandbox storage size for the ephemeral (emptyDir) tier: a per-repo
 /// `resources.storage` override wins over the global `K8S_SANDBOX_STORAGE_SIZE`.
 /// One knob sizes both tiers — the PVC tier reads the same value in `pvc.rs`.
-fn resolve_workspace_size(config: &Config, plan: &ProvisionPlan) -> String {
+fn resolve_sandbox_size(config: &Config, plan: &ProvisionPlan) -> String {
     plan.repo_config
         .resources
         .as_ref()
@@ -371,7 +371,7 @@ fn resolve_workspace_size(config: &Config, plan: &ProvisionPlan) -> String {
         .map_or_else(|| config.sandbox.storage_size.clone(), ToString::to_string)
 }
 
-fn node_workspace_host_path(config: &Config, task_id: &str) -> String {
+fn node_sandbox_host_path(config: &Config, task_id: &str) -> String {
     let root = config.sandbox.cache_host_root.trim_end_matches('/');
     format!("{root}/workspaces/{task_id}")
 }
@@ -402,9 +402,9 @@ fn resolve_dind_storage_backend(plan: &ProvisionPlan) -> DockerStorageBackend {
         .unwrap_or(DockerStorageBackend::Node)
 }
 
-fn build_node_workspace_setup_container(config: &Config) -> Container {
+fn build_node_sandbox_setup_container(config: &Config) -> Container {
     Container {
-        name: "node-workspace-setup".to_string(),
+        name: "node-sandbox-setup".to_string(),
         image: Some(config.sandbox.cache_init_image.clone()),
         image_pull_policy: Some(config.sandbox.image_pull_policy.clone()),
         command: Some(vec!["/bin/sh".to_string(), "-c".to_string()]),
@@ -675,7 +675,7 @@ fn build_sandbox_container(
     // sandbox so it starts its workspace-sync loop and restores on boot. `ebs`,
     // `node`, and `ephemeral` leave this unset (loop stays off).
     if super::storage::StorageBackend::from_plan(plan, &config.sandbox.default_storage_mode)
-        .syncs_workspace()
+        .syncs_sandbox()
     {
         env.push(env_var("WORKSPACE_SYNC_ENABLED", "true"));
     }
@@ -1798,7 +1798,7 @@ mod tests {
             .spec
             .as_ref()
             .and_then(|s| s.init_containers.as_ref())
-            .and_then(|containers| containers.iter().find(|c| c.name == "node-workspace-setup"))
+            .and_then(|containers| containers.iter().find(|c| c.name == "node-sandbox-setup"))
             .expect("node tier must prepare hostPath ownership");
         let security = init
             .security_context

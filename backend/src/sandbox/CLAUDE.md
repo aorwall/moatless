@@ -90,7 +90,7 @@ File operation handlers (`file_handlers.rs`) call `provider.sandbox_client()` to
 | `ServerCapabilities` | `models.rs` | Derived from `enable_inspector` via `server_capabilities_from_config()` / `server_capabilities_from_snapshot()` |
 | `EnvironmentStatus` | `models.rs` | `not_created`, `initializing`, `ready`, `stopped`, `removing`, `error` |
 | `PodPhase` | `models.rs` | K8s pod phase + synthetic `Stopped` (replicas=0), `NotFound` |
-| `WorkspaceStatusFullResponse` | `schemas.rs` | Frontend response with servers, proxy URLs, capabilities |
+| `SandboxStatusFullResponse` | `schemas.rs` | Frontend response with servers, proxy URLs, capabilities |
 | `ProvisionRequest` / `ProvisionPlan` | `models.rs` | Provisioning input (repo config, git URL, credentials, env vars) |
 | `SandboxError` | `error.rs` | Unified error type, maps to HTTP status codes |
 | `ContainerObservedStatus` | `models.rs` | K8s container state mapped to server status strings |
