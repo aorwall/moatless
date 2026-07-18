@@ -24,9 +24,13 @@ use sandbox_proto::{
     UpdateCredentialResponse, UploadTranscriptResponse,
 };
 
+use moatless_backend_core::scope::ScopeContext;
+
 use crate::agent::prompt;
+use crate::access_control;
 use crate::auth::github_app_registry::GitHubAppRegistry;
 use crate::auth::github_app_service::GitHubAppService;
+use crate::auth::models::UserRole;
 use crate::auth::provider_token_dao::ProviderTokenRepository;
 use crate::auth::provider_tokens::ProviderTokenAuthRepository;
 use crate::auth::users::UserRepository;
@@ -47,6 +51,7 @@ use crate::sandbox::secrets::{
 use crate::secret::service::SecretService;
 use crate::shared_models::AgentType;
 use crate::task::dao::TaskRepository;
+use crate::team::dao::TeamRepository;
 use crate::task::relations::TaskRelationRepository;
 use crate::task_event::dao::{InsertTaskEvent, TaskEventRepository};
 use crate::task_turn::dao::{TaskTurnRepository, TurnStateEvent};
@@ -103,6 +108,10 @@ pub struct BackendSandboxServiceImpl {
     pub messages: Option<Arc<dyn MessageRepository>>,
     pub provider_tokens: Option<Arc<dyn ProviderTokenRepository>>,
     pub tasks: Option<Arc<dyn TaskRepository>>,
+    /// Team membership resolver. Used by `assert_task_access` to authorize
+    /// team-scoped tasks (the sandbox JWT carries no team membership, so this
+    /// requires a DB lookup).
+    pub teams: Option<Arc<dyn TeamRepository>>,
     /// Authoritative turn-state writer. State-bearing events commit their turn /
     /// task-status / event rows here transactionally before being published to
     /// Redis (transactional-outbox ordering).
@@ -215,6 +224,104 @@ impl BackendSandboxServiceImpl {
 
         jwt::verify_bootstrap_or_user_token(token, secret)
             .map_err(|e| Status::unauthenticated(format!("Invalid token: {e}")))
+    }
+
+    /// Assert that the authenticated caller may operate on `task_id`, returning
+    /// the loaded task on success.
+    ///
+    /// The sandbox JWT authenticates *who* is calling (`claims.user_id` — the
+    /// task's creator, minted at provision time) but carries no task binding —
+    /// `task_id` arrives in the request body and is attacker-controllable.
+    /// Without this check a sandbox provisioned for one task could pass a
+    /// different task's id to read its credentials, pending messages, or
+    /// transcripts (cross-tenant escalation). Every RPC that acts on a
+    /// caller-supplied `task_id` must gate on this.
+    ///
+    /// The check is the HTTP task API's exact two-step: hydrate the caller's
+    /// `ScopeContext`, load the task through the scoped DAO read (an invisible
+    /// task is a plain NotFound, like the HTTP 404), then apply the shared
+    /// `can_control_task` policy (admin / owner / managing team role). Public
+    /// *visibility* grants viewing over HTTP but never sandbox control —
+    /// credentials, messages, and workspace writes stay owner/manager-only.
+    async fn assert_task_access(
+        &self,
+        claims: &jwt::UserTokenClaims,
+        task_id: &str,
+    ) -> Result<crate::task::models::Task, Status> {
+        let tasks = self
+            .tasks
+            .as_ref()
+            .ok_or_else(|| Status::internal("Tasks repository not configured"))?;
+        let teams = self
+            .teams
+            .as_ref()
+            .ok_or_else(|| Status::internal("Teams repository not configured"))?;
+
+        let ctx = self.scope_context_for(claims).await?;
+        let task = tasks
+            .find_by_id(task_id, &ctx)
+            .await
+            .map_err(|e| {
+                warn!(error = %e, task_id, "assert_task_access: task lookup failed");
+                Status::internal("Failed to load task")
+            })?
+            .ok_or_else(|| Status::not_found("Task not found"))?;
+
+        let allowed =
+            access_control::can_control_task_ctx(teams.as_ref(), &ctx, &task.scoped_resource())
+                .await
+                .map_err(|e| {
+                    warn!(error = %e, task_id, "assert_task_access: team role lookup failed");
+                    Status::internal("Failed to check task access")
+                })?;
+
+        if allowed {
+            Ok(task)
+        } else {
+            warn!(
+                task_id,
+                user_id = %claims.user_id,
+                scope = %task.scope,
+                "Rejected sandbox gRPC call: caller not authorized for task"
+            );
+            Err(Status::permission_denied("Not authorized for this task"))
+        }
+    }
+
+    /// Hydrate the caller's `ScopeContext` from the DB. The sandbox JWT carries
+    /// only `user_id`/`login`, so team membership and platform role need
+    /// lookups — the HTTP side gets the same context for free from the auth
+    /// middleware's `AuthIdentity`.
+    async fn scope_context_for(
+        &self,
+        claims: &jwt::UserTokenClaims,
+    ) -> Result<ScopeContext, Status> {
+        let team_ids = match self.teams.as_ref() {
+            Some(teams) => teams
+                .find_team_ids_for_user(&claims.user_id)
+                .await
+                .map_err(|e| {
+                    warn!(error = %e, user_id = %claims.user_id, "team membership lookup failed");
+                    Status::internal("Failed to resolve caller teams")
+                })?,
+            None => Vec::new(),
+        };
+        Ok(ScopeContext {
+            user_id: claims.user_id.clone(),
+            team_ids,
+            is_admin: self.user_is_admin(&claims.user_id).await,
+        })
+    }
+
+    /// Platform-admin check for `assert_task_access`. Missing repo or a lookup
+    /// error is treated as "not admin" (fail closed).
+    async fn user_is_admin(&self, user_id: &str) -> bool {
+        match self.users.as_ref() {
+            Some(users) => {
+                matches!(users.get_user(user_id).await, Ok(Some(u)) if u.role == UserRole::Admin)
+            }
+            None => false,
+        }
     }
 
     /// Mint the long-lived user auth token delivered over `GetCredentials`.
@@ -500,13 +607,22 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         request: Request<GetPendingMessagesRequest>,
     ) -> Result<Response<GetPendingMessagesResponse>, Status> {
         // Verify auth if secret is configured
-        if self.task_token_secret.is_some() {
+        let claims = if self.task_token_secret.is_some() {
             let claims = self.verify_auth(&request)?;
             tracing::Span::current().record("user_id", claims.user_id.as_str());
-        }
+            Some(claims)
+        } else {
+            None
+        };
 
         let req = request.into_inner();
         tracing::Span::current().record("task_id", req.task_id.as_str());
+
+        // Cross-tenant guard: the authenticated caller must own/have access to
+        // the requested task before we hand back its queued messages.
+        if let Some(ref claims) = claims {
+            self.assert_task_access(claims, &req.task_id).await?;
+        }
 
         let Some(ref messages) = self.messages else {
             return Ok(Response::new(GetPendingMessagesResponse {
@@ -684,11 +800,19 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         &self,
         request: Request<AcknowledgeMessagesRequest>,
     ) -> Result<Response<AcknowledgeMessagesResponse>, Status> {
-        if self.task_token_secret.is_some() {
-            let _claims = self.verify_auth(&request)?;
-        }
+        let claims = if self.task_token_secret.is_some() {
+            Some(self.verify_auth(&request)?)
+        } else {
+            None
+        };
 
         let req = request.into_inner();
+
+        // Cross-tenant guard: only the task's owner/members may acknowledge
+        // (mark sent) its queued messages.
+        if let Some(ref claims) = claims {
+            self.assert_task_access(claims, &req.task_id).await?;
+        }
 
         let Some(ref messages) = self.messages else {
             return Ok(Response::new(AcknowledgeMessagesResponse {}));
@@ -751,6 +875,11 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             user_id = %claims.user_id,
             "GetCredentials request"
         );
+
+        // Cross-tenant guard: the caller must own/have access to this task
+        // before we resolve and return its (team/user) provider credentials.
+        // Without this a sandbox could request another team's tokens by id.
+        self.assert_task_access(&claims, &req.task_id).await?;
 
         let team_id = resolve_task_team_id(self.tasks.as_ref(), &req.task_id).await;
         let repo_owner = resolve_task_repo_owner(
@@ -834,6 +963,10 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         let req = request.into_inner();
         tracing::Span::current().record("task_id", req.task_id.as_str());
         tracing::Span::current().record("user_id", claims.user_id.as_str());
+
+        // Cross-tenant guard: the caller must own/have access to this task
+        // before we persist a rotated credential against its team/user row.
+        self.assert_task_access(&claims, &req.task_id).await?;
 
         let Some(provider) = credential_key_to_provider(&req.key) else {
             warn!(
@@ -956,14 +1089,12 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         &self,
         request: Request<GetSystemPromptRequest>,
     ) -> Result<Response<GetSystemPromptResponse>, Status> {
-        let _claims = self.verify_auth(&request)?;
+        let claims = self.verify_auth(&request)?;
         let req = request.into_inner();
 
-        let task = if let Some(ref tasks) = self.tasks {
-            tasks.find_by_id_internal(&req.task_id).await.ok().flatten()
-        } else {
-            None
-        };
+        // Cross-tenant guard: the assembled system prompt embeds task/repo
+        // details, so only the task's owner/members may fetch it.
+        let task = Some(self.assert_task_access(&claims, &req.task_id).await?);
 
         let system_prompt = prompt::build_for_task(
             &req.task_id,
@@ -991,8 +1122,9 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         &self,
         request: Request<DownloadUploadRequest>,
     ) -> Result<Response<DownloadUploadResponse>, Status> {
-        let _claims = self.verify_auth(&request)?;
+        let claims = self.verify_auth(&request)?;
         let req = request.into_inner();
+        self.assert_task_access(&claims, &req.task_id).await?;
 
         let Some(ref s3_client) = self.s3 else {
             return Err(Status::failed_precondition("S3 not configured"));
@@ -1069,7 +1201,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         &self,
         request: Request<Streaming<TranscriptChunk>>,
     ) -> Result<Response<UploadTranscriptResponse>, Status> {
-        let _claims = self.verify_auth(&request)?;
+        let claims = self.verify_auth(&request)?;
 
         let Some(ref s3_client) = self.s3 else {
             return Err(Status::failed_precondition("S3 not configured"));
@@ -1093,6 +1225,10 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                 "task_id missing from transcript stream",
             ));
         }
+
+        // The task_id arrives in-band from the stream, so authorize only once it
+        // is known — a valid JWT must still own the task it is writing to.
+        self.assert_task_access(&claims, &task_id).await?;
 
         let bytes_received = data.len() as i64;
         let key = transcript_key(&self.transcript_s3_prefix, &task_id);
@@ -1119,8 +1255,9 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         &self,
         request: Request<DownloadTranscriptRequest>,
     ) -> Result<Response<Self::DownloadTranscriptStream>, Status> {
-        let _claims = self.verify_auth(&request)?;
+        let claims = self.verify_auth(&request)?;
         let req = request.into_inner();
+        self.assert_task_access(&claims, &req.task_id).await?;
 
         let Some(ref s3_client) = self.s3 else {
             return Err(Status::failed_precondition("S3 not configured"));
@@ -1167,8 +1304,9 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         &self,
         request: Request<GetWorkspaceSyncUrlsRequest>,
     ) -> Result<Response<GetWorkspaceSyncUrlsResponse>, Status> {
-        let _claims = self.verify_auth(&request)?;
+        let claims = self.verify_auth(&request)?;
         let req = request.into_inner();
+        self.assert_task_access(&claims, &req.task_id).await?;
 
         let Some(ref s3_client) = self.s3 else {
             return Err(Status::failed_precondition("S3 not configured"));
@@ -1254,11 +1392,19 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         &self,
         request: Request<RecoverInterruptedRunRequest>,
     ) -> Result<Response<RecoverInterruptedRunResponse>, Status> {
-        if self.task_token_secret.is_some() {
-            let _claims = self.verify_auth(&request)?;
-        }
+        let claims = if self.task_token_secret.is_some() {
+            Some(self.verify_auth(&request)?)
+        } else {
+            None
+        };
 
         let req = request.into_inner();
+
+        // Cross-tenant guard: recovery replays another turn's messages and burns
+        // a recovery attempt on the task, so gate it on task access.
+        if let Some(ref claims) = claims {
+            self.assert_task_access(claims, &req.task_id).await?;
+        }
 
         let Some(ref messages) = self.messages else {
             return Ok(Response::new(RecoverInterruptedRunResponse { turn: None }));
@@ -2044,5 +2190,418 @@ mod tests {
         assert_eq!(TurnStatus::Completed.as_str(), "completed");
         assert_eq!(TurnStatus::Error.as_str(), "error");
         assert_eq!(TurnStatus::Stopped.as_str(), "stopped");
+    }
+
+    // ---------------------------------------------------------------------
+    // assert_task_access — cross-tenant authorization gate shared by every
+    // task-scoped gRPC handler (credentials, messages, transcripts, uploads,
+    // workspace-sync URLs). Mirrors the HTTP task API: scoped read +
+    // `can_control_task` (admin / owner / managing team role). The scoped
+    // read's SQL filter is covered by `scope.rs` tests; these exercise the
+    // control-gate composition on tasks the read returned.
+    // ---------------------------------------------------------------------
+
+    use moatless_backend_core::scope::Scope;
+
+    use crate::auth::users::{MockUserRepository, User};
+    use crate::task::dao::MockTaskRepository;
+    use crate::task::models::{Task, Visibility};
+    use crate::team::dao::TeamRepository;
+    use crate::team::models::{Team, TeamMember};
+
+    /// Minimal `TeamRepository` stub for one test team (`team-1`): only the
+    /// membership/role methods `assert_task_access` consults are meaningful.
+    struct StubTeamRepo {
+        /// `(user_id, role)` rows, role as stored in the DB (`owner`/`admin`/`member`).
+        members: Vec<(String, String)>,
+    }
+
+    impl StubTeamRepo {
+        fn with_roles(members: &[(&str, &str)]) -> Self {
+            Self {
+                members: members
+                    .iter()
+                    .map(|(u, r)| ((*u).to_string(), (*r).to_string()))
+                    .collect(),
+            }
+        }
+
+        fn empty() -> Self {
+            Self {
+                members: Vec::new(),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl TeamRepository for StubTeamRepo {
+        async fn is_member(&self, _team_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
+            Ok(self.members.iter().any(|(u, _)| u == user_id))
+        }
+        async fn find_members(&self, team_id: &str) -> Result<Vec<TeamMember>, sqlx::Error> {
+            Ok(self
+                .members
+                .iter()
+                .map(|(u, r)| TeamMember {
+                    team_id: team_id.to_string(),
+                    user_id: u.clone(),
+                    role: r.clone(),
+                    created_at: epoch(),
+                })
+                .collect())
+        }
+        async fn find_team_ids_for_user(
+            &self,
+            user_id: &str,
+        ) -> Result<Vec<String>, sqlx::Error> {
+            Ok(self
+                .members
+                .iter()
+                .filter(|(u, _)| u == user_id)
+                .map(|_| "team-1".to_string())
+                .collect())
+        }
+        async fn find_by_id(&self, _id: &str) -> Result<Option<Team>, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn find_by_slug(&self, _slug: &str) -> Result<Option<Team>, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn find_by_external_id(
+            &self,
+            _external_id: &str,
+            _provider: &str,
+        ) -> Result<Option<Team>, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn list_all(&self) -> Result<Vec<Team>, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn insert(&self, _team: &Team) -> Result<(), sqlx::Error> {
+            unimplemented!()
+        }
+        async fn insert_if_absent(&self, _team: &Team) -> Result<(), sqlx::Error> {
+            unimplemented!()
+        }
+        async fn update(
+            &self,
+            _id: &str,
+            _name: &str,
+            _description: Option<&str>,
+        ) -> Result<(), sqlx::Error> {
+            unimplemented!()
+        }
+        async fn delete(&self, _id: &str) -> Result<(), sqlx::Error> {
+            unimplemented!()
+        }
+        async fn find_teams_for_user(&self, _user_id: &str) -> Result<Vec<Team>, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn add_member(
+            &self,
+            _team_id: &str,
+            _user_id: &str,
+            _role: &str,
+        ) -> Result<(), sqlx::Error> {
+            unimplemented!()
+        }
+        async fn remove_member(&self, _team_id: &str, _user_id: &str) -> Result<(), sqlx::Error> {
+            unimplemented!()
+        }
+        async fn upsert_by_external(
+            &self,
+            _external_id: &str,
+            _provider: &str,
+            _name: &str,
+            _slug: &str,
+        ) -> Result<Team, sqlx::Error> {
+            unimplemented!()
+        }
+    }
+
+    fn epoch() -> chrono::DateTime<chrono::Utc> {
+        chrono::DateTime::from_timestamp(0, 0).expect("epoch is a valid timestamp")
+    }
+
+    /// A `Task` fixture with the given scope/owner/team; all other columns are
+    /// inert defaults irrelevant to the access check.
+    fn task_fixture(scope: Scope, owner_user_id: Option<&str>, team_id: Option<&str>) -> Task {
+        Task {
+            task_id: "task-1".to_string(),
+            short_id: None,
+            created_at: String::new(),
+            last_message_at: String::new(),
+            agent_type: crate::shared_models::AgentType("claude-code".to_string()),
+            repository_id: "repo-1".to_string(),
+            status: crate::task::models::TaskStatus::Open,
+            total_cost_usd: 0.0,
+            site_url: None,
+            template_id: None,
+            vibe: None,
+            name: None,
+            description: None,
+            site_id: None,
+            site_provider: None,
+            branch: None,
+            created_by: owner_user_id.map(str::to_string),
+            visibility: crate::task::models::Visibility::Private,
+            scope,
+            team_id: team_id.map(str::to_string),
+            owner_user_id: owner_user_id.map(str::to_string),
+            created_at_db: None,
+            updated_at: None,
+            append_system_prompt: None,
+            sandbox_started_at: None,
+            sandbox_desired_state: crate::task::models::SandboxDesiredState::Running,
+            sandbox_stop_reason: None,
+            sandbox_desired_state_updated_at: epoch(),
+            headless: false,
+            ttl_minutes: 0,
+            inactive_ttl_days: 0,
+            task_template_id: None,
+            trigger_id: None,
+            disabled_servers: None,
+        }
+    }
+
+    fn user_fixture(id: &str, role: UserRole) -> User {
+        User {
+            id: id.to_string(),
+            login: id.to_string(),
+            email: None,
+            name: None,
+            avatar_url: None,
+            provider: "test".to_string(),
+            role,
+            created_at: epoch(),
+            last_login_at: epoch(),
+            settings: serde_json::json!({}),
+            is_bot: false,
+        }
+    }
+
+    fn claims_for(user_id: &str) -> jwt::UserTokenClaims {
+        jwt::UserTokenClaims {
+            user_id: user_id.to_string(),
+            login: user_id.to_string(),
+            iat: 0,
+            exp: u64::MAX,
+            iss: "moatless-vibe-backend".to_string(),
+            aud: None,
+        }
+    }
+
+    /// Build a service with only the repositories `assert_task_access` consults
+    /// wired; everything else is `None`/default.
+    fn service_with(
+        tasks: MockTaskRepository,
+        teams: StubTeamRepo,
+        users: MockUserRepository,
+    ) -> BackendSandboxServiceImpl {
+        BackendSandboxServiceImpl {
+            events: None,
+            messages: None,
+            provider_tokens: None,
+            tasks: Some(Arc::new(tasks)),
+            teams: Some(Arc::new(teams)),
+            task_turns: None,
+            task_events: None,
+            task_relations: None,
+            commands: None,
+            task_token_secret: None,
+            github_app_service: None,
+            github_apps: Arc::new(GitHubAppRegistry::default()),
+            provider_token_auth: None,
+            secrets: None,
+            credentials_svc: None,
+            repositories: None,
+            backend_config: None,
+            s3: None,
+            files: None,
+            s3_bucket: None,
+            s3_key_prefix: String::new(),
+            transcript_s3_prefix: String::new(),
+            workspace_s3_prefix: String::new(),
+            users: Some(Arc::new(users)),
+            event_dedup: Arc::new(crate::sandbox::event_dedup::EventDedup::default()),
+        }
+    }
+
+    /// Mock task repo whose scoped `find_by_id` returns `task` for any caller —
+    /// i.e. "the scope filter let the read through". Pass `None` to model a
+    /// task that is missing or invisible to the caller.
+    fn tasks_returning(task: Option<Task>) -> MockTaskRepository {
+        let mut m = MockTaskRepository::new();
+        m.expect_find_by_id()
+            .returning(move |_, _| Ok(task.clone()));
+        m
+    }
+
+    fn users_regular() -> MockUserRepository {
+        let mut m = MockUserRepository::new();
+        m.expect_get_user()
+            .returning(|id| Ok(Some(user_fixture(id, UserRole::User))));
+        m
+    }
+
+    fn users_admin() -> MockUserRepository {
+        let mut m = MockUserRepository::new();
+        m.expect_get_user()
+            .returning(|id| Ok(Some(user_fixture(id, UserRole::Admin))));
+        m
+    }
+
+    #[tokio::test]
+    async fn assert_task_access_allows_user_task_for_owner() {
+        let svc = service_with(
+            tasks_returning(Some(task_fixture(Scope::User, Some("owner"), None))),
+            StubTeamRepo::empty(),
+            users_regular(),
+        );
+        assert!(svc
+            .assert_task_access(&claims_for("owner"), "task-1")
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn assert_task_access_denies_user_task_for_non_owner() {
+        // A user-scoped task belongs only to its owner; a different caller with a
+        // valid JWT must be rejected even though the token itself is genuine.
+        let svc = service_with(
+            tasks_returning(Some(task_fixture(Scope::User, Some("owner"), None))),
+            StubTeamRepo::empty(),
+            users_regular(),
+        );
+        let err = svc
+            .assert_task_access(&claims_for("attacker"), "task-1")
+            .await
+            .expect_err("non-owner must be denied");
+        assert_eq!(err.code(), tonic::Code::PermissionDenied);
+    }
+
+    #[tokio::test]
+    async fn assert_task_access_public_visibility_never_grants_control() {
+        // A public task is *viewable* by anyone (the scoped read's visibility
+        // bypass, modelled here by the mock returning the row), but sandbox
+        // control — credentials, messages, workspace writes — stays with the
+        // owner. This is the regression test for reusing the plain read gate.
+        let mut task = task_fixture(Scope::User, Some("owner"), None);
+        task.visibility = Visibility::Public;
+        let svc = service_with(
+            tasks_returning(Some(task)),
+            StubTeamRepo::empty(),
+            users_regular(),
+        );
+        let err = svc
+            .assert_task_access(&claims_for("stranger"), "task-1")
+            .await
+            .expect_err("public visibility must not grant sandbox control");
+        assert_eq!(err.code(), tonic::Code::PermissionDenied);
+    }
+
+    #[tokio::test]
+    async fn assert_task_access_team_task_requires_managing_role() {
+        // Mirrors HTTP `can_control_task`: a managing team role (owner/admin)
+        // controls the sandbox; a plain member (who can view and message the
+        // task over HTTP) does not hold its credentials-bearing JWT surface.
+        let teams = &[("manager", "admin"), ("member", "member")];
+
+        let manager_svc = service_with(
+            tasks_returning(Some(task_fixture(Scope::Team, None, Some("team-1")))),
+            StubTeamRepo::with_roles(teams),
+            users_regular(),
+        );
+        assert!(manager_svc
+            .assert_task_access(&claims_for("manager"), "task-1")
+            .await
+            .is_ok());
+
+        let member_svc = service_with(
+            tasks_returning(Some(task_fixture(Scope::Team, None, Some("team-1")))),
+            StubTeamRepo::with_roles(teams),
+            users_regular(),
+        );
+        let err = member_svc
+            .assert_task_access(&claims_for("member"), "task-1")
+            .await
+            .expect_err("plain member must not control someone else's sandbox");
+        assert_eq!(err.code(), tonic::Code::PermissionDenied);
+    }
+
+    #[tokio::test]
+    async fn assert_task_access_team_task_creator_member_controls_own_sandbox() {
+        // Regression: `create_task` lets any team member create a team-scoped
+        // task (inheriting the repo's team scope), storing `created_by` with
+        // `owner_user_id = None`, and the sandbox JWT is minted for that
+        // creator. The creator must control their own sandbox even with a
+        // plain `member` role — while an unrelated member (previous test)
+        // stays denied.
+        let teams = &[("creator", "member")];
+        let mut task = task_fixture(Scope::Team, None, Some("team-1"));
+        task.created_by = Some("creator".to_string());
+
+        let svc = service_with(
+            tasks_returning(Some(task)),
+            StubTeamRepo::with_roles(teams),
+            users_regular(),
+        );
+        assert!(svc
+            .assert_task_access(&claims_for("creator"), "task-1")
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn assert_task_access_global_task_requires_admin() {
+        // Global-scoped tasks are admin-created (`can_create_scope`) and
+        // admin-controlled; being globally *visible* doesn't hand out control.
+        let denied = service_with(
+            tasks_returning(Some(task_fixture(Scope::Global, Some("owner"), None))),
+            StubTeamRepo::empty(),
+            users_regular(),
+        );
+        let err = denied
+            .assert_task_access(&claims_for("stranger"), "task-1")
+            .await
+            .expect_err("non-admin must not control a global task");
+        assert_eq!(err.code(), tonic::Code::PermissionDenied);
+
+        let allowed = service_with(
+            tasks_returning(Some(task_fixture(Scope::Global, Some("owner"), None))),
+            StubTeamRepo::empty(),
+            users_admin(),
+        );
+        assert!(allowed
+            .assert_task_access(&claims_for("admin"), "task-1")
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn assert_task_access_admin_bypasses_scope() {
+        // A platform admin reaches a team task they are not a member of.
+        let svc = service_with(
+            tasks_returning(Some(task_fixture(Scope::Team, None, Some("team-1")))),
+            StubTeamRepo::empty(),
+            users_admin(),
+        );
+        assert!(svc
+            .assert_task_access(&claims_for("admin"), "task-1")
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn assert_task_access_missing_task_is_not_found() {
+        // Covers both a nonexistent task and one the scoped read filtered out —
+        // an invisible task is indistinguishable from a missing one, like the
+        // HTTP 404.
+        let svc = service_with(tasks_returning(None), StubTeamRepo::empty(), users_regular());
+        let err = svc
+            .assert_task_access(&claims_for("anyone"), "ghost")
+            .await
+            .expect_err("missing task must error");
+        assert_eq!(err.code(), tonic::Code::NotFound);
     }
 }

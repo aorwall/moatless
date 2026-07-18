@@ -34,7 +34,6 @@ use crate::secret::service::{LocalEnvelopeSecretCipher, SecretService};
 use crate::sse::consumer::RedisStreamConsumer;
 use crate::sse::routes::SseState;
 use crate::task::dao::{PgTaskRepository, TaskRepository};
-use crate::task_event::dao::{PgTaskEventRepository, TaskEventRepository};
 
 // =========================================================================
 // Logging
@@ -140,14 +139,20 @@ pub async fn init_event_publisher(config: &Config) -> Option<Arc<dyn EventPublis
 /// Create the SSE broadcast sender and optionally spawn the Redis consumer.
 ///
 /// Redis feeds only the live SSE tail (via the broadcast bus). Historical event
-/// replay is served from the `task_events` Postgres table, so `db_pool` is wired
-/// in as the history source for `GET /api/v1/tasks/{task_id}/events`.
+/// replay is served from the `task_events` Postgres table by the AppState-based
+/// `task_events_router` (`GET /api/v1/tasks/{task_id}/events`), which authorizes
+/// the caller against the task — so it is wired separately from this firehose.
 pub async fn init_sse(
     config: &Config,
     db_pool: Option<&DbPool>,
     cancel: CancellationToken,
 ) -> Result<SseState, redis::RedisError> {
     let (tx, _) = broadcast::channel::<String>(config.sse.broadcast_capacity);
+
+    // Per-tenant firehose filtering resolves each event's task against the
+    // caller's scope. Without a DB the firehose can't authorize scoped users.
+    let tasks: Option<Arc<dyn TaskRepository>> =
+        db_pool.map(|pool| Arc::new(PgTaskRepository(pool.clone())) as _);
 
     if let Some(ref redis_url) = config.redis.url {
         let client = redis::Client::open(redis_url.as_str())?;
@@ -168,13 +173,10 @@ pub async fn init_sse(
         info!("REDIS_URL not set — SSE Redis consumer disabled");
     }
 
-    let task_events: Option<Arc<dyn TaskEventRepository>> =
-        db_pool.map(|pool| Arc::new(PgTaskEventRepository(pool.clone())) as _);
-
     Ok(SseState {
         broadcast: tx,
         cancel,
-        task_events,
+        tasks,
     })
 }
 
@@ -232,6 +234,8 @@ pub fn spawn_grpc_server(
         db_pool.map(|pool| Arc::new(PgRepoRepository(pool.clone())) as _);
     let users: Option<Arc<dyn UserRepository>> =
         db_pool.map(|pool| Arc::new(PgUserRepository(pool.clone())) as _);
+    let teams: Option<Arc<dyn crate::team::dao::TeamRepository>> =
+        db_pool.map(|pool| Arc::new(crate::team::dao::PgTeamRepository(pool.clone())) as _);
     let backend_config = Arc::new(config.clone());
     let port = config.server.grpc_port;
     let token_secret = config.sandbox.task_token_secret.clone();
@@ -291,6 +295,7 @@ pub fn spawn_grpc_server(
             commands,
             provider_tokens,
             tasks,
+            teams,
             task_turns,
             task_events: grpc_task_events,
             task_relations,

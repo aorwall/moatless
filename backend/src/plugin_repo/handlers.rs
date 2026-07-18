@@ -3,11 +3,56 @@
 use axum::extract::{Path, State};
 use axum::Json;
 
+use moatless_backend_core::scope::ScopedResource;
+
+use crate::access_control::ensure_can_write_resource;
+use crate::extractors::AuthUser;
 use crate::state::AppState;
 
 use super::error::PluginRepoError;
 use super::models::PluginRepo;
 use super::schemas::{CreatePluginRepoRequest, PluginRepoResponse};
+
+/// A plugin repo is loadable code (hooks/commands run inside sandboxes), so
+/// registering or removing one is a platform-wide trust decision restricted to
+/// admins. Linking an already-registered plugin to a repository is gated
+/// separately by repository write access (see `ensure_repo_control`).
+fn ensure_admin(auth: &AuthUser) -> Result<(), PluginRepoError> {
+    if auth.scope_context().is_admin {
+        Ok(())
+    } else {
+        Err(PluginRepoError::Forbidden(
+            "Admin role required to manage the plugin registry".to_string(),
+        ))
+    }
+}
+
+/// Ensure the caller may write/control the target repository before allowing a
+/// plugin link/unlink — otherwise any user could attach loadable plugin code to
+/// a repository (and its sandboxes) they don't own.
+async fn ensure_repo_control(
+    state: &AppState,
+    auth: &AuthUser,
+    repo_id: &str,
+) -> Result<(), PluginRepoError> {
+    let repo = state
+        .repositories
+        .find_by_id(repo_id, &auth.scope_context())
+        .await?
+        .ok_or_else(|| PluginRepoError::NotFound(format!("Repository '{repo_id}' not found")))?;
+    ensure_can_write_resource(
+        state,
+        auth,
+        &ScopedResource::borrowed(
+            repo.scope,
+            repo.team_id.as_deref(),
+            repo.owner_user_id.as_deref().or(repo.created_by.as_deref()),
+        ),
+        "repository",
+    )
+    .await?;
+    Ok(())
+}
 
 /// List all plugin repos.
 #[utoipa::path(
@@ -21,6 +66,7 @@ use super::schemas::{CreatePluginRepoRequest, PluginRepoResponse};
 )]
 pub async fn list_plugin_repos(
     State(state): State<AppState>,
+    _auth: AuthUser,
 ) -> Result<Json<Vec<PluginRepoResponse>>, PluginRepoError> {
     let rows = state.plugin_repos.list_all().await?;
     let items = rows.into_iter().map(to_response).collect();
@@ -41,8 +87,10 @@ pub async fn list_plugin_repos(
 )]
 pub async fn create_plugin_repo(
     State(state): State<AppState>,
+    auth: AuthUser,
     Json(req): Json<CreatePluginRepoRequest>,
 ) -> Result<Json<PluginRepoResponse>, PluginRepoError> {
+    ensure_admin(&auth)?;
     let id = uuid::Uuid::new_v4().to_string();
     let row = PluginRepo {
         id: id.clone(),
@@ -81,8 +129,10 @@ pub async fn create_plugin_repo(
 )]
 pub async fn delete_plugin_repo(
     State(state): State<AppState>,
+    auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<axum::http::StatusCode, PluginRepoError> {
+    ensure_admin(&auth)?;
     let deleted = state.plugin_repos.delete(&id).await?;
     if !deleted {
         return Err(PluginRepoError::NotFound(format!(
@@ -105,8 +155,15 @@ pub async fn delete_plugin_repo(
 )]
 pub async fn list_repo_plugins(
     State(state): State<AppState>,
+    auth: AuthUser,
     Path(repo_id): Path<String>,
 ) -> Result<Json<Vec<PluginRepoResponse>>, PluginRepoError> {
+    // Only expose a repository's linked plugins to callers who can access it.
+    state
+        .repositories
+        .find_by_id(&repo_id, &auth.scope_context())
+        .await?
+        .ok_or_else(|| PluginRepoError::NotFound(format!("Repository '{repo_id}' not found")))?;
     let rows = state.plugin_repos.find_by_repository_id(&repo_id).await?;
     let items = rows.into_iter().map(to_response).collect();
     Ok(Json(items))
@@ -129,8 +186,13 @@ pub async fn list_repo_plugins(
 )]
 pub async fn link_plugin(
     State(state): State<AppState>,
+    auth: AuthUser,
     Path((repo_id, plugin_id)): Path<(String, String)>,
 ) -> Result<axum::http::StatusCode, PluginRepoError> {
+    // Linking loadable plugin code to a repository requires control of that
+    // repository (its sandboxes will clone and execute the plugin's hooks).
+    ensure_repo_control(&state, &auth, &repo_id).await?;
+
     // Verify plugin exists
     state
         .plugin_repos
@@ -159,8 +221,10 @@ pub async fn link_plugin(
 )]
 pub async fn unlink_plugin(
     State(state): State<AppState>,
+    auth: AuthUser,
     Path((repo_id, plugin_id)): Path<(String, String)>,
 ) -> Result<axum::http::StatusCode, PluginRepoError> {
+    ensure_repo_control(&state, &auth, &repo_id).await?;
     let removed = state.plugin_repos.unlink(&repo_id, &plugin_id).await?;
     if !removed {
         return Err(PluginRepoError::NotFound("Link not found".to_string()));

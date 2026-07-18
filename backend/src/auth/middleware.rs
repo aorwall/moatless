@@ -39,10 +39,11 @@ fn is_exempt(path: &str) -> bool {
         return true;
     }
 
-    // Sandbox routes use JWT-based task tokens
-    if path.starts_with("/api/sandbox/") {
-        return true;
-    }
+    // NOTE: `/api/sandbox/*` is intentionally NOT exempt. These endpoints run
+    // through this middleware (session cookie or API key) so that (a) spoofable
+    // `X-User-*` headers are stripped and (b) an `AuthIdentity` is injected for
+    // the per-task authorization the sandbox handlers now enforce. Every real
+    // caller (frontend, CLI) already carries a session cookie or API key.
 
     // Webhook and slash-command endpoints use adapter-specific verification (HMAC, secret token, etc.)
     // Match /api/v1/adapters/{adapter}/webhook,
@@ -224,10 +225,13 @@ mod tests {
     }
 
     #[test]
-    fn exempt_sandbox_routes() {
-        assert!(is_exempt("/api/sandbox/v1/tasks/abc/provision"));
-        assert!(is_exempt("/api/sandbox/v1/tasks/abc/status"));
-        assert!(is_exempt("/api/sandbox/v1/tasks/abc/stop"));
+    fn sandbox_routes_are_not_exempt() {
+        // Sandbox routes must run through the middleware so callers are
+        // authenticated (cookie/API key) and per-task authorization applies.
+        assert!(!is_exempt("/api/sandbox/v1/tasks/abc/provision"));
+        assert!(!is_exempt("/api/sandbox/v1/tasks/abc/status"));
+        assert!(!is_exempt("/api/sandbox/v1/tasks/abc/stop"));
+        assert!(!is_exempt("/api/sandbox/v1/tasks/abc/files/read"));
     }
 
     #[test]

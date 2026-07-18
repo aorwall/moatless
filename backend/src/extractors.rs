@@ -14,6 +14,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
 use crate::auth::identity::AuthIdentity;
+use crate::auth::models::UserRole;
 use crate::sandbox::jwt;
 use crate::state::AppState;
 use moatless_backend_core::scope::ScopeContext;
@@ -204,6 +205,36 @@ impl FromRequestParts<AppState> for MaybeAuthUser {
             Ok(user) => Ok(MaybeAuthUser(Some(user))),
             Err(_) => Ok(MaybeAuthUser(None)),
         }
+    }
+}
+
+/// State-agnostic optional-scope extractor for routers whose state is **not**
+/// `AppState` (e.g. the sandbox router's `SandboxApiState`).
+///
+/// Reads the canonical [`AuthIdentity`] that `auth_middleware` injects after
+/// validating a session cookie or API key. Because it only trusts the
+/// middleware-set extension (never raw `X-User-*` headers), it is safe on any
+/// router state.
+///
+/// `None` means no identity was attached, which only happens in dev mode
+/// (no auth provider → middleware disabled), where every caller is treated as a
+/// local admin. When `Some`, callers are scoped to what they may access.
+#[derive(Debug, Clone)]
+pub struct OptionalScope(pub Option<ScopeContext>);
+
+impl<S: Send + Sync> FromRequestParts<S> for OptionalScope {
+    type Rejection = std::convert::Infallible;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let ctx = parts
+            .extensions
+            .get::<AuthIdentity>()
+            .map(|id| ScopeContext {
+                user_id: id.user_id.clone(),
+                team_ids: id.team_ids.clone(),
+                is_admin: id.role == UserRole::Admin,
+            });
+        Ok(OptionalScope(ctx))
     }
 }
 

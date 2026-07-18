@@ -1409,6 +1409,7 @@ mod tests {
                 cookie_domain: None,
                 session_cookie_name: "test".into(),
                 is_production: false,
+                allow_insecure_no_auth: false,
                 cache_ttl_secs: 0,
                 session_jwt_secret: None,
                 test_api_key: None,

@@ -18,8 +18,12 @@ use super::error::SandboxError;
 use super::models::*;
 use super::routes::SandboxApiState;
 use super::schemas::*;
-use crate::task::dao::TaskPatch;
-use crate::task::models::{SandboxDesiredState, SandboxStopReason};
+use crate::access_control;
+use crate::extractors::OptionalScope;
+use crate::task::dao::{TaskPatch, TaskRepository};
+use crate::task::models::{SandboxDesiredState, SandboxStopReason, Task};
+use crate::team::dao::TeamRepository;
+use moatless_backend_core::scope::ScopeContext;
 
 /// Provision a new sandbox for a task.
 ///
@@ -39,9 +43,11 @@ use crate::task::models::{SandboxDesiredState, SandboxStopReason};
 )]
 pub async fn provision_handler(
     State(state): State<SandboxApiState>,
+    OptionalScope(scope): OptionalScope,
     Path(task_id): Path<String>,
 ) -> Result<Json<ProvisionResponse>, SandboxError> {
     info!(task_id = %task_id, "POST /provision");
+    authorize_task_control(&state, &scope, &task_id).await?;
 
     let (tasks, repos, provider_tokens, plugin_repos) = match (
         &state.tasks,
@@ -97,8 +103,14 @@ pub async fn provision_handler(
 )]
 pub async fn sandbox_status_handler(
     State(state): State<SandboxApiState>,
+    OptionalScope(scope): OptionalScope,
     Path(task_id): Path<String>,
 ) -> impl IntoResponse {
+    let task = match authorize_task_read(&state, &scope, &task_id).await {
+        Ok(task) => task,
+        Err(e) => return e.into_response(),
+    };
+
     // Resolve server configs from DB
     let server_configs = resolve_server_configs(&state, &task_id).await;
 
@@ -108,15 +120,13 @@ pub async fn sandbox_status_handler(
         .await
     {
         Ok(mut resp) => {
-            // If sandbox doesn't exist and the task is closed, report as Removed
-            if resp.environment_status == SandboxStatus::NotCreated {
-                if let Some(ref tasks) = state.tasks {
-                    if let Ok(Some(task)) = tasks.find_by_id_internal(&task_id).await {
-                        if task.status == crate::task::models::TaskStatus::Closed {
-                            resp.environment_status = SandboxStatus::Removed;
-                        }
-                    }
-                }
+            // If sandbox doesn't exist and the task is closed, report as Removed.
+            // The task was already resolved (and authorized) above, so reuse it
+            // instead of an unscoped lookup.
+            if resp.environment_status == SandboxStatus::NotCreated
+                && task.status == crate::task::models::TaskStatus::Closed
+            {
+                resp.environment_status = SandboxStatus::Removed;
             }
             Json(resp).into_response()
         }
@@ -142,9 +152,11 @@ pub async fn sandbox_status_handler(
 )]
 pub async fn stop_handler(
     State(state): State<SandboxApiState>,
+    OptionalScope(scope): OptionalScope,
     Path(task_id): Path<String>,
 ) -> Result<StatusCode, SandboxError> {
     info!(task_id = %task_id, "POST /stop");
+    authorize_task_control(&state, &scope, &task_id).await?;
     match state.provider.stop(&task_id).await {
         Ok(()) => {
             record_sandbox_stopped(&state, &task_id, SandboxStopReason::User).await;
@@ -185,9 +197,11 @@ async fn run_detached<T: Send + 'static>(
 )]
 pub async fn restart_handler(
     State(state): State<SandboxApiState>,
+    OptionalScope(scope): OptionalScope,
     Path(task_id): Path<String>,
 ) -> Result<StatusCode, SandboxError> {
     info!(task_id = %task_id, "POST /restart");
+    authorize_task_control(&state, &scope, &task_id).await?;
     let outcome = {
         let provider = state.provider.clone();
         let task_id = task_id.clone();
@@ -223,9 +237,11 @@ pub async fn restart_handler(
 )]
 pub async fn redeploy_handler(
     State(state): State<SandboxApiState>,
+    OptionalScope(scope): OptionalScope,
     Path(task_id): Path<String>,
 ) -> Result<Json<ProvisionResponse>, SandboxError> {
     info!(task_id = %task_id, "POST /redeploy");
+    authorize_task_control(&state, &scope, &task_id).await?;
 
     let (tasks, repos, provider_tokens, plugin_repos) = match (
         &state.tasks,
@@ -285,9 +301,11 @@ pub async fn redeploy_handler(
 )]
 pub async fn cleanup_handler(
     State(state): State<SandboxApiState>,
+    OptionalScope(scope): OptionalScope,
     Path(task_id): Path<String>,
 ) -> Result<StatusCode, SandboxError> {
     info!(task_id = %task_id, "POST /cleanup");
+    authorize_task_control(&state, &scope, &task_id).await?;
     match state.provider.cleanup(&task_id, false).await {
         Ok(()) => {
             record_sandbox_removed(&state, &task_id).await;
@@ -320,8 +338,13 @@ pub async fn cleanup_handler(
 )]
 pub async fn server_status_handler(
     State(state): State<SandboxApiState>,
+    OptionalScope(scope): OptionalScope,
     Path(task_id): Path<String>,
 ) -> impl IntoResponse {
+    if let Err(e) = authorize_task_read(&state, &scope, &task_id).await {
+        return e.into_response();
+    }
+
     // Resolve server configs from DB
     let server_configs = resolve_server_configs(&state, &task_id).await;
 
@@ -368,14 +391,95 @@ pub struct LogsQuery {
 )]
 pub async fn server_logs_handler(
     State(state): State<SandboxApiState>,
+    OptionalScope(scope): OptionalScope,
     Path((task_id, server_name)): Path<(String, String)>,
     Query(query): Query<LogsQuery>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, SandboxError>>>, SandboxError> {
+    authorize_task_read(&state, &scope, &task_id).await?;
     let stream = state
         .provider
         .server_logs(&task_id, &server_name, query.previous)
         .await?;
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
+}
+
+// =============================================================================
+// Authorization helpers
+// =============================================================================
+
+/// Resolve the task for `task_id` subject to the caller's scope, returning
+/// `NotFound` when the caller may not read it (so we never leak the existence
+/// of another tenant's task).
+///
+/// `scope` is `None` only in dev mode (no auth provider → middleware disabled);
+/// there we fall back to the system scope, which resolves any task. In
+/// production `find_by_id` bakes the caller's scope into SQL and returns `None`
+/// for tasks they cannot see.
+pub(super) async fn authorize_task_read(
+    state: &SandboxApiState,
+    scope: &Option<ScopeContext>,
+    task_id: &str,
+) -> Result<Task, SandboxError> {
+    authorize_task_read_inner(state.tasks.as_deref(), scope, task_id).await
+}
+
+/// Like [`authorize_task_read`], but additionally requires *control* access
+/// (the same policy the task HTTP API and sandbox gRPC server enforce): the
+/// owner/creator of the task, a managing member of a team task, or a platform
+/// admin. Read-only viewers get `Forbidden`.
+pub(super) async fn authorize_task_control(
+    state: &SandboxApiState,
+    scope: &Option<ScopeContext>,
+    task_id: &str,
+) -> Result<Task, SandboxError> {
+    authorize_task_control_inner(state.tasks.as_deref(), state.teams.as_deref(), scope, task_id)
+        .await
+}
+
+/// Core of [`authorize_task_read`] against explicit dependencies (so it can be
+/// unit-tested without a `SandboxProvider`).
+async fn authorize_task_read_inner(
+    tasks: Option<&dyn TaskRepository>,
+    scope: &Option<ScopeContext>,
+    task_id: &str,
+) -> Result<Task, SandboxError> {
+    let tasks = tasks.ok_or_else(|| {
+        SandboxError::Internal("Task repository not available for authorization".into())
+    })?;
+    let ctx = scope.clone().unwrap_or_else(ScopeContext::system);
+    tasks
+        .find_by_id(task_id, &ctx)
+        .await
+        .map_err(|e| SandboxError::Internal(format!("task lookup failed: {e}")))?
+        .ok_or_else(|| SandboxError::NotFound(format!("task {task_id}")))
+}
+
+/// Core of [`authorize_task_control`] against explicit dependencies.
+async fn authorize_task_control_inner(
+    tasks: Option<&dyn TaskRepository>,
+    teams: Option<&dyn TeamRepository>,
+    scope: &Option<ScopeContext>,
+    task_id: &str,
+) -> Result<Task, SandboxError> {
+    let task = authorize_task_read_inner(tasks, scope, task_id).await?;
+
+    // Dev mode (no identity) is treated as a local admin — allow control.
+    let Some(ctx) = scope.as_ref() else {
+        return Ok(task);
+    };
+
+    let teams = teams.ok_or_else(|| {
+        SandboxError::Internal("Team repository not available for authorization".into())
+    })?;
+    let allowed = access_control::can_control_task_ctx(teams, ctx, &task.scoped_resource())
+        .await
+        .map_err(|e| SandboxError::Internal(format!("authorization failed: {e}")))?;
+    if !allowed {
+        return Err(SandboxError::Forbidden(format!(
+            "no control access to task {task_id}"
+        )));
+    }
+    Ok(task)
 }
 
 // =============================================================================
@@ -457,4 +561,303 @@ fn merge_server_status(
             snapshot
         })
         .collect()
+}
+
+#[cfg(test)]
+mod authz_tests {
+    //! Unit tests for the per-task sandbox authorization gate. The scoped-read
+    //! SQL filter itself is covered by `scope.rs`; these exercise how the
+    //! handlers compose read + control on the task a scoped read returned.
+    use super::*;
+
+    use async_trait::async_trait;
+    use moatless_backend_core::scope::Scope;
+
+    use crate::task::dao::MockTaskRepository;
+    use crate::team::models::{Team, TeamMember};
+
+    fn epoch() -> chrono::DateTime<chrono::Utc> {
+        chrono::DateTime::from_timestamp(0, 0).expect("epoch is a valid timestamp")
+    }
+
+    /// Minimal `TeamRepository` stub — only the membership/role methods the
+    /// control check consults are meaningful; everything else is `unimplemented!`.
+    struct StubTeamRepo {
+        /// `(user_id, role)` rows for `team-1`, role as stored (`owner`/`admin`/`member`).
+        members: Vec<(String, String)>,
+    }
+
+    impl StubTeamRepo {
+        fn with_roles(members: &[(&str, &str)]) -> Self {
+            Self {
+                members: members
+                    .iter()
+                    .map(|(u, r)| ((*u).to_string(), (*r).to_string()))
+                    .collect(),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl TeamRepository for StubTeamRepo {
+        async fn find_members(&self, team_id: &str) -> Result<Vec<TeamMember>, sqlx::Error> {
+            Ok(self
+                .members
+                .iter()
+                .map(|(u, r)| TeamMember {
+                    team_id: team_id.to_string(),
+                    user_id: u.clone(),
+                    role: r.clone(),
+                    created_at: epoch(),
+                })
+                .collect())
+        }
+        async fn is_member(&self, _team_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
+            Ok(self.members.iter().any(|(u, _)| u == user_id))
+        }
+        async fn find_team_ids_for_user(&self, _user_id: &str) -> Result<Vec<String>, sqlx::Error> {
+            Ok(vec![])
+        }
+        async fn find_by_id(&self, _id: &str) -> Result<Option<Team>, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn find_by_slug(&self, _slug: &str) -> Result<Option<Team>, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn find_by_external_id(
+            &self,
+            _external_id: &str,
+            _provider: &str,
+        ) -> Result<Option<Team>, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn list_all(&self) -> Result<Vec<Team>, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn insert(&self, _team: &Team) -> Result<(), sqlx::Error> {
+            unimplemented!()
+        }
+        async fn insert_if_absent(&self, _team: &Team) -> Result<(), sqlx::Error> {
+            unimplemented!()
+        }
+        async fn update(
+            &self,
+            _id: &str,
+            _name: &str,
+            _description: Option<&str>,
+        ) -> Result<(), sqlx::Error> {
+            unimplemented!()
+        }
+        async fn delete(&self, _id: &str) -> Result<(), sqlx::Error> {
+            unimplemented!()
+        }
+        async fn find_teams_for_user(&self, _user_id: &str) -> Result<Vec<Team>, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn add_member(
+            &self,
+            _team_id: &str,
+            _user_id: &str,
+            _role: &str,
+        ) -> Result<(), sqlx::Error> {
+            unimplemented!()
+        }
+        async fn remove_member(&self, _team_id: &str, _user_id: &str) -> Result<(), sqlx::Error> {
+            unimplemented!()
+        }
+        async fn upsert_by_external(
+            &self,
+            _external_id: &str,
+            _provider: &str,
+            _name: &str,
+            _slug: &str,
+        ) -> Result<Team, sqlx::Error> {
+            unimplemented!()
+        }
+    }
+
+    /// A `Task` fixture with the given scope/owner/team; all other columns are
+    /// inert defaults irrelevant to the access check.
+    fn task_fixture(scope: Scope, owner_user_id: Option<&str>, team_id: Option<&str>) -> Task {
+        Task {
+            task_id: "task-1".to_string(),
+            short_id: None,
+            created_at: String::new(),
+            last_message_at: String::new(),
+            agent_type: crate::shared_models::AgentType("claude-code".to_string()),
+            repository_id: "repo-1".to_string(),
+            status: crate::task::models::TaskStatus::Open,
+            total_cost_usd: 0.0,
+            site_url: None,
+            template_id: None,
+            vibe: None,
+            name: None,
+            description: None,
+            site_id: None,
+            site_provider: None,
+            branch: None,
+            created_by: owner_user_id.map(str::to_string),
+            visibility: crate::task::models::Visibility::Private,
+            scope,
+            team_id: team_id.map(str::to_string),
+            owner_user_id: owner_user_id.map(str::to_string),
+            created_at_db: None,
+            updated_at: None,
+            append_system_prompt: None,
+            sandbox_started_at: None,
+            sandbox_desired_state: SandboxDesiredState::Running,
+            sandbox_stop_reason: None,
+            sandbox_desired_state_updated_at: epoch(),
+            headless: false,
+            ttl_minutes: 0,
+            inactive_ttl_days: 0,
+            task_template_id: None,
+            trigger_id: None,
+            disabled_servers: None,
+        }
+    }
+
+    fn ctx(user_id: &str, team_ids: &[&str], is_admin: bool) -> ScopeContext {
+        ScopeContext {
+            user_id: user_id.to_string(),
+            team_ids: team_ids.iter().map(|t| (*t).to_string()).collect(),
+            is_admin,
+        }
+    }
+
+    /// A task repo whose scoped `find_by_id` always yields `task` (models a task
+    /// the caller can *read*); control is decided downstream by the team role.
+    fn tasks_returning(task: Option<Task>) -> MockTaskRepository {
+        let mut m = MockTaskRepository::new();
+        m.expect_find_by_id()
+            .returning(move |_, _| Ok(task.clone()));
+        m
+    }
+
+    #[tokio::test]
+    async fn read_unreadable_task_is_not_found() {
+        // Scoped read returns None → NotFound, never leaking the task's existence.
+        let tasks = tasks_returning(None);
+        let scope = Some(ctx("intruder", &[], false));
+        let err = authorize_task_read_inner(Some(&tasks), &scope, "task-1")
+            .await
+            .unwrap_err();
+        assert!(matches!(err, SandboxError::NotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn read_allows_when_scoped_lookup_returns_task() {
+        let tasks = tasks_returning(Some(task_fixture(Scope::User, Some("owner"), None)));
+        let scope = Some(ctx("owner", &[], false));
+        assert!(authorize_task_read_inner(Some(&tasks), &scope, "task-1")
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn read_dev_mode_uses_system_scope() {
+        // No identity (dev mode) → system scope resolves the task.
+        let tasks = tasks_returning(Some(task_fixture(Scope::User, Some("someone"), None)));
+        assert!(authorize_task_read_inner(Some(&tasks), &None, "task-1")
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn read_without_repo_is_internal_error() {
+        let scope = Some(ctx("u", &[], false));
+        let err = authorize_task_read_inner(None, &scope, "task-1")
+            .await
+            .unwrap_err();
+        assert!(matches!(err, SandboxError::Internal(_)));
+    }
+
+    #[tokio::test]
+    async fn control_owner_of_user_task_allowed() {
+        let tasks = tasks_returning(Some(task_fixture(Scope::User, Some("owner"), None)));
+        let teams = StubTeamRepo::with_roles(&[]);
+        let scope = Some(ctx("owner", &[], false));
+        assert!(
+            authorize_task_control_inner(Some(&tasks), Some(&teams), &scope, "task-1")
+                .await
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn control_readable_but_non_managing_member_is_forbidden() {
+        // Team task the caller can READ (plain member) but not CONTROL.
+        let tasks = tasks_returning(Some(task_fixture(Scope::Team, None, Some("team-1"))));
+        let teams = StubTeamRepo::with_roles(&[("member-user", "member")]);
+        let scope = Some(ctx("member-user", &["team-1"], false));
+        let err = authorize_task_control_inner(Some(&tasks), Some(&teams), &scope, "task-1")
+            .await
+            .unwrap_err();
+        assert!(matches!(err, SandboxError::Forbidden(_)));
+    }
+
+    #[tokio::test]
+    async fn control_team_task_creator_with_member_role_allowed() {
+        // Production shape for member-created team tasks: `owner_user_id` is
+        // None and `created_by` records the creator, who keeps control of
+        // their own task (and its sandbox) with a plain member role.
+        let mut task = task_fixture(Scope::Team, None, Some("team-1"));
+        task.created_by = Some("creator".to_string());
+        let tasks = tasks_returning(Some(task));
+        let teams = StubTeamRepo::with_roles(&[("creator", "member")]);
+        let scope = Some(ctx("creator", &["team-1"], false));
+        assert!(
+            authorize_task_control_inner(Some(&tasks), Some(&teams), &scope, "task-1")
+                .await
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn control_managing_member_of_team_task_allowed() {
+        let tasks = tasks_returning(Some(task_fixture(Scope::Team, None, Some("team-1"))));
+        let teams = StubTeamRepo::with_roles(&[("lead", "admin")]);
+        let scope = Some(ctx("lead", &["team-1"], false));
+        assert!(
+            authorize_task_control_inner(Some(&tasks), Some(&teams), &scope, "task-1")
+                .await
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn control_unreadable_task_is_not_found_not_forbidden() {
+        // Can't even read the task → NotFound (no existence leak) before the
+        // control check runs.
+        let tasks = tasks_returning(None);
+        let teams = StubTeamRepo::with_roles(&[]);
+        let scope = Some(ctx("intruder", &[], false));
+        let err = authorize_task_control_inner(Some(&tasks), Some(&teams), &scope, "task-1")
+            .await
+            .unwrap_err();
+        assert!(matches!(err, SandboxError::NotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn control_admin_bypasses_team_role() {
+        let tasks = tasks_returning(Some(task_fixture(Scope::Team, None, Some("team-1"))));
+        let teams = StubTeamRepo::with_roles(&[]);
+        let scope = Some(ctx("root", &[], true));
+        assert!(
+            authorize_task_control_inner(Some(&tasks), Some(&teams), &scope, "task-1")
+                .await
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn control_dev_mode_allows() {
+        let tasks = tasks_returning(Some(task_fixture(Scope::User, Some("someone"), None)));
+        let teams = StubTeamRepo::with_roles(&[]);
+        assert!(
+            authorize_task_control_inner(Some(&tasks), Some(&teams), &None, "task-1")
+                .await
+                .is_ok()
+        );
+    }
 }

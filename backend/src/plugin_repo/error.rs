@@ -13,8 +13,25 @@ pub enum PluginRepoError {
     #[error("Conflict: {0}")]
     Conflict(String),
 
+    #[error("Forbidden: {0}")]
+    Forbidden(String),
+
+    #[error("Bad request: {0}")]
+    BadRequest(String),
+
     #[error("Database error: {0}")]
     Db(#[from] sqlx::Error),
+}
+
+impl From<crate::access_control::AccessControlError> for PluginRepoError {
+    fn from(e: crate::access_control::AccessControlError) -> Self {
+        use crate::access_control::AccessControlError as E;
+        match e {
+            E::BadRequest(m) => PluginRepoError::BadRequest(m),
+            E::Forbidden(m) => PluginRepoError::Forbidden(m),
+            E::Db(e) => PluginRepoError::Db(e),
+        }
+    }
 }
 
 impl IntoResponse for PluginRepoError {
@@ -22,6 +39,8 @@ impl IntoResponse for PluginRepoError {
         let (status, message) = match &self {
             PluginRepoError::NotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
             PluginRepoError::Conflict(_) => (StatusCode::CONFLICT, self.to_string()),
+            PluginRepoError::Forbidden(_) => (StatusCode::FORBIDDEN, self.to_string()),
+            PluginRepoError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             PluginRepoError::Db(e) => {
                 tracing::error!(error = %e, "Database error in plugin_repo handler");
                 (

@@ -3,11 +3,13 @@
 //! Serves `GET /api/v1/events/stream` as an NDJSON stream, fanning out
 //! events from the shared SSE event bus to each connected client.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_stream::stream;
 use axum::body::Body;
-use axum::extract::{Path, Query, State};
+use axum::extract::{FromRequestParts, Path, Query, State};
+use axum::http::request::Parts;
 use axum::response::Response;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -17,17 +19,55 @@ use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
-use crate::task_event::dao::TaskEventRepository;
+use moatless_backend_core::scope::ScopeContext;
+
+use crate::auth::identity::AuthIdentity;
+use crate::auth::models::UserRole;
+use crate::extractors::AuthUser;
+use crate::state::AppState;
+use crate::task::dao::TaskRepository;
 use crate::task_event::models::TaskEvent;
 
-/// Shared state for the SSE route.
+/// Shared state for the live SSE firehose (`GET /api/v1/events/stream`).
 #[derive(Clone)]
 pub struct SseState {
     pub broadcast: broadcast::Sender<String>,
     pub cancel: CancellationToken,
-    /// Postgres-backed task event history. Serves the historical replay for
-    /// `GET /api/v1/tasks/{task_id}/events`; `None` when the DB is unconfigured.
-    pub task_events: Option<Arc<dyn TaskEventRepository>>,
+    /// Task access resolver, used to filter the firehose per tenant so a
+    /// non-admin client only receives events for tasks it can read. `None`
+    /// when the DB is unconfigured (no filtering possible → firehose disabled
+    /// for scoped users; see `sse_handler`).
+    pub tasks: Option<Arc<dyn TaskRepository>>,
+}
+
+/// Per-connection access context for the firehose, resolved once from the
+/// canonical `AuthIdentity` the auth middleware injects.
+///
+/// `None` means no identity was attached, which only happens in dev mode
+/// (no auth provider → middleware disabled), where every caller is treated as
+/// a local admin. When `Some`, non-admin callers are filtered per task.
+struct SseAuth(Option<ScopeContext>);
+
+impl<S: Send + Sync> FromRequestParts<S> for SseAuth {
+    type Rejection = std::convert::Infallible;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let ctx = parts.extensions.get::<AuthIdentity>().map(|id| ScopeContext {
+            user_id: id.user_id.clone(),
+            team_ids: id.team_ids.clone(),
+            is_admin: id.role == UserRole::Admin,
+        });
+        Ok(SseAuth(ctx))
+    }
+}
+
+/// Extract the `taskId` from a serialized `StreamEvent` payload, if present.
+fn payload_task_id(payload: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(payload)
+        .ok()?
+        .get("taskId")?
+        .as_str()
+        .map(str::to_string)
 }
 
 /// Query parameters for the SSE endpoint.
@@ -46,10 +86,17 @@ pub struct TaskEventsQuery {
     pub limit: Option<usize>,
 }
 
-/// Build the SSE router.
+/// Build the live SSE firehose router (state-independent from the app).
 pub fn sse_router(state: SseState) -> Router {
     Router::new()
         .route("/api/v1/events/stream", get(sse_handler))
+        .with_state(state)
+}
+
+/// Build the historical task-events router. Kept on `AppState` (not `SseState`)
+/// so the handler can authorize the caller against the task via `AuthUser`.
+pub fn task_events_router(state: AppState) -> Router {
+    Router::new()
         .route("/api/v1/tasks/{task_id}/events", get(task_events_handler))
         .with_state(state)
 }
@@ -59,9 +106,24 @@ pub fn sse_router(state: SseState) -> Router {
 /// Returns an NDJSON stream with:
 /// - Event lines: raw JSON from Redis + `\n`
 /// - Ping every 30s: `{"type":"ping","timestamp":"..."}\n`
-async fn sse_handler(State(state): State<SseState>, Query(query): Query<SseQuery>) -> Response {
+///
+/// The shared broadcast bus carries events for *all* tasks, so each connection
+/// filters them to what the authenticated caller may read. Admins (and dev-mode
+/// callers with no auth provider) receive everything; scoped users receive only
+/// events for tasks they can access, resolved once per distinct task and cached
+/// for the life of the connection.
+async fn sse_handler(
+    State(state): State<SseState>,
+    SseAuth(scope): SseAuth,
+    Query(query): Query<SseQuery>,
+) -> Response {
     let rx = state.broadcast.subscribe();
     let cancel = state.cancel.clone();
+    let tasks = state.tasks.clone();
+
+    // `None` → no per-task filtering (admin, or dev-mode with no identity).
+    // `Some(ctx)` → filter every event by whether `ctx` can read its task.
+    let access: Option<ScopeContext> = scope.filter(|ctx| !ctx.is_admin);
 
     // Parse type filters
     let type_filters: Vec<String> = query
@@ -71,6 +133,9 @@ async fn sse_handler(State(state): State<SseState>, Query(query): Query<SseQuery
 
     let ndjson_stream = stream! {
         let mut rx = rx;
+        // Per-connection task_id → may-read cache, so we hit the DB at most once
+        // per distinct task for the life of the stream.
+        let mut access_cache: HashMap<String, bool> = HashMap::new();
         let ping_interval = std::time::Duration::from_secs(30);
         let mut ping_timer = tokio::time::interval(ping_interval);
         // Skip the first immediate tick
@@ -92,6 +157,31 @@ async fn sse_handler(State(state): State<SseState>, Query(query): Query<SseQuery
                                     payload.contains(&pattern)
                                 });
                                 if !matches {
+                                    continue;
+                                }
+                            }
+
+                            // Per-tenant filter: a scoped user only sees events
+                            // for tasks it can read. An event whose task can't be
+                            // resolved/authorized is dropped (fail closed).
+                            if let Some(ref ctx) = access {
+                                let Some(task_id) = payload_task_id(&payload) else {
+                                    continue;
+                                };
+                                let allowed = if let Some(&a) = access_cache.get(&task_id) {
+                                    a
+                                } else {
+                                    let a = match tasks.as_ref() {
+                                        Some(repo) => repo
+                                            .find_by_id(&task_id, ctx)
+                                            .await
+                                            .is_ok_and(|t| t.is_some()),
+                                        None => false,
+                                    };
+                                    access_cache.insert(task_id, a);
+                                    a
+                                };
+                                if !allowed {
                                     continue;
                                 }
                             }
@@ -152,13 +242,25 @@ async fn sse_handler(State(state): State<SseState>, Query(query): Query<SseQuery
 /// the live stream. Each returned envelope carries its `eventId`, so the client
 /// dedupes across the boundary by id — no gap, no duplicate rendered.
 async fn task_events_handler(
-    State(state): State<SseState>,
+    State(state): State<AppState>,
+    auth: AuthUser,
     Path(task_id): Path<String>,
     Query(query): Query<TaskEventsQuery>,
 ) -> Json<Vec<serde_json::Value>> {
-    let Some(repo) = state.task_events.clone() else {
-        return Json(vec![]);
-    };
+    // Cross-tenant guard: only return history for a task the caller can access.
+    // `find_by_id` bakes the scope filter into SQL and returns `None` when the
+    // user has no access — so an unauthorized (or unknown) task id yields an
+    // empty list, never another tenant's events.
+    match state.tasks.find_by_id(&task_id, &auth.scope_context()).await {
+        Ok(Some(_)) => {}
+        Ok(None) => return Json(vec![]),
+        Err(e) => {
+            warn!(task_id = %task_id, error = %e, "Failed to authorize task events access");
+            return Json(vec![]);
+        }
+    }
+
+    let repo = state.task_events.clone();
 
     // Preserve the previous XRANGE semantics: default 500, capped at 2000,
     // oldest-first. `list_events` orders by id ASC with the same LIMIT.

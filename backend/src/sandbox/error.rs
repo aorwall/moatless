@@ -32,6 +32,9 @@ pub enum SandboxError {
     #[error("Bad request: {0}")]
     BadRequest(String),
 
+    #[error("Forbidden: {0}")]
+    Forbidden(String),
+
     #[error("Internal error: {0}")]
     Internal(String),
 }
@@ -42,6 +45,7 @@ impl IntoResponse for SandboxError {
             Self::NotReady(_) => (StatusCode::SERVICE_UNAVAILABLE, self.to_string()),
             Self::NotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
             Self::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            Self::Forbidden(_) => (StatusCode::FORBIDDEN, self.to_string()),
             Self::ConfigMissing(ref msg) => {
                 tracing::error!(error = %msg, "Sandbox config missing");
                 (
@@ -133,6 +137,12 @@ mod tests {
     async fn bad_request_returns_400() {
         let resp = SandboxError::BadRequest("Path is a directory: subdir".into()).into_response();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn forbidden_returns_403() {
+        let resp = SandboxError::Forbidden("no access to task".into()).into_response();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]

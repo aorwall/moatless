@@ -1715,11 +1715,7 @@ fn relations_to_dtos(rows: Vec<crate::task::relations::TaskRelation>) -> Vec<Tas
 }
 
 fn task_resource(row: &Task) -> ScopedResource {
-    ScopedResource::borrowed(
-        row.scope,
-        row.team_id.as_deref(),
-        row.owner_user_id.as_deref().or(row.created_by.as_deref()),
-    )
+    row.scoped_resource()
 }
 
 /// Derive task title: name > description first line > agent_type > "Task"

@@ -76,6 +76,22 @@ pub struct Task {
     pub disabled_servers: Option<serde_json::Value>,
 }
 
+impl Task {
+    /// The task as a [`ScopedResource`] for access-control checks
+    /// (`ScopeContext::can_read` / `can_control_task`). Ownership falls back to
+    /// `created_by` for rows predating the `owner_user_id` column, matching the
+    /// `COALESCE` in the DAO's scope filter.
+    pub fn scoped_resource(&self) -> moatless_backend_core::scope::ScopedResource {
+        moatless_backend_core::scope::ScopedResource::borrowed(
+            self.scope,
+            self.team_id.as_deref(),
+            self.owner_user_id
+                .as_deref()
+                .or(self.created_by.as_deref()),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

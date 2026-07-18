@@ -135,6 +135,27 @@ pub struct ScopeContext {
 }
 
 impl ScopeContext {
+    /// Reserved user id for the internal system principal.
+    pub const SYSTEM_USER_ID: &'static str = "system";
+
+    /// Full-access context for internal system callers that have no
+    /// authenticated user to derive a scope from — background jobs, reapers,
+    /// pod watchers, adapter/webhook runtimes, and sandbox-pod-facing requests
+    /// already authenticated by their own transport.
+    ///
+    /// Semantically equivalent to an unscoped read: `is_admin = true` makes the
+    /// `access_filter` match every row (the `$is_admin` disjunct is always
+    /// true). Prefer this over unscoped `find_by_id_internal`-style queries so
+    /// every read still flows through the scoped DAO path and the intent
+    /// ("acting as the system") is explicit at the call site.
+    pub fn system() -> Self {
+        Self {
+            user_id: Self::SYSTEM_USER_ID.to_string(),
+            team_ids: Vec::new(),
+            is_admin: true,
+        }
+    }
+
     /// Build an access-control SQL filter for the given entity.
     ///
     /// Uses 3 positional parameters starting at `start`:
@@ -238,8 +259,26 @@ impl ScopeContext {
     }
 
     /// Explicit task-control helper for mutating or operating a task.
+    ///
+    /// Control is write access, plus one task-specific extension: the recorded
+    /// owner (creator) of a **team** task keeps control while they remain a
+    /// member of that team. Team tasks are creatable by any team member
+    /// (`create_task` inherits the repository's team scope on plain repo read
+    /// access), and the task's sandbox acts as its creator — so without this,
+    /// a member-created task would have a sandbox that cannot operate itself
+    /// (credentials, messages, lifecycle). Unrelated members still get
+    /// read-only access, and a creator who left the team loses control with
+    /// their role.
     pub fn can_control_task(&self, task: &ScopedResource, team_role: Option<TeamRole>) -> bool {
-        self.can_write(task, team_role)
+        if self.can_write(task, team_role) {
+            return true;
+        }
+        task.scope == Scope::Team
+            && team_role.is_some()
+            && task
+                .owner_user_id
+                .as_deref()
+                .is_some_and(|oid| oid == self.user_id)
     }
 
     /// Explicit run-as helper for automation rules.
@@ -301,6 +340,29 @@ mod tests {
         };
         assert!(ctx.can_access(Scope::User, None, Some("u1")));
         assert!(!ctx.can_access(Scope::User, None, Some("u2")));
+    }
+
+    #[test]
+    fn system_context_matches_every_scope() {
+        let ctx = ScopeContext::system();
+        assert!(ctx.is_admin);
+        assert_eq!(ctx.user_id, ScopeContext::SYSTEM_USER_ID);
+        // is_admin short-circuits every read/write policy, so the system
+        // principal can reach any scoped row regardless of team/owner.
+        assert!(ctx.can_read(&ScopedResource::borrowed(Scope::User, None, Some("someone"))));
+        assert!(ctx.can_read(&ScopedResource::borrowed(Scope::Team, Some("t99"), None)));
+        assert!(ctx.can_write(&ScopedResource::borrowed(Scope::Global, None, None), None));
+    }
+
+    #[test]
+    fn system_access_filter_admin_param_is_true() {
+        // The filter's first positional param is `is_admin`; for the system
+        // principal it binds `true`, which makes the whole disjunct match all
+        // rows — identical semantics to an unscoped `SELECT ... WHERE id = $1`.
+        let ctx = ScopeContext::system();
+        assert!(ctx.is_admin);
+        let f = ctx.access_filter(ScopedEntity::Task, "", 1);
+        assert!(f.sql().starts_with("($1 OR"));
     }
 
     #[test]
@@ -382,12 +444,13 @@ mod tests {
     }
 
     #[test]
-    fn task_control_delegates_to_write_policy() {
+    fn task_control_delegates_to_write_policy_without_ownership() {
         let ctx = ScopeContext {
             user_id: "u1".into(),
             team_ids: vec!["t1".into()],
             is_admin: false,
         };
+        // Not the creator (no recorded owner) — control is exactly write access.
         let task = ScopedResource::borrowed(Scope::Team, Some("t1"), None);
 
         for role in [None, Some(TeamRole::Member), Some(TeamRole::Admin)] {
@@ -396,6 +459,44 @@ mod tests {
                 ctx.can_write(&task, role)
             );
         }
+    }
+
+    #[test]
+    fn team_task_creator_controls_own_task_while_member() {
+        let creator = ScopeContext {
+            user_id: "creator".into(),
+            team_ids: vec!["t1".into()],
+            is_admin: false,
+        };
+        let task = ScopedResource::borrowed(Scope::Team, Some("t1"), Some("creator"));
+
+        // A plain member who created the task controls it (its sandbox acts as
+        // this user), even though write access alone would deny them.
+        assert!(!creator.can_write(&task, Some(TeamRole::Member)));
+        assert!(creator.can_control_task(&task, Some(TeamRole::Member)));
+
+        // A creator who left the team (no role) loses control.
+        assert!(!creator.can_control_task(&task, None));
+
+        // An unrelated plain member never gains control from someone else's
+        // ownership — no cross-member escalation.
+        let other = ScopeContext {
+            user_id: "other-member".into(),
+            ..creator.clone()
+        };
+        assert!(!other.can_control_task(&task, Some(TeamRole::Member)));
+    }
+
+    #[test]
+    fn creator_extension_is_team_scope_only() {
+        let creator = ScopeContext {
+            user_id: "creator".into(),
+            team_ids: vec![],
+            is_admin: false,
+        };
+        // Global tasks stay admin-controlled even for their creator.
+        let global_task = ScopedResource::borrowed(Scope::Global, None, Some("creator"));
+        assert!(!creator.can_control_task(&global_task, Some(TeamRole::Member)));
     }
 
     #[test]

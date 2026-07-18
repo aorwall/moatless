@@ -162,6 +162,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 p.clone(),
             )) as Arc<dyn moatless_vibe_backend::repository::dao::RepoRepository>
         });
+    let sandbox_teams: Option<Arc<dyn moatless_vibe_backend::team::dao::TeamRepository>> =
+        db_pool.as_ref().map(|p| {
+            Arc::new(moatless_vibe_backend::team::dao::PgTeamRepository(
+                p.clone(),
+            )) as Arc<dyn moatless_vibe_backend::team::dao::TeamRepository>
+        });
     let sandbox_provider_tokens: Option<
         Arc<dyn moatless_vibe_backend::auth::provider_token_dao::ProviderTokenRepository>,
     > = db_pool.as_ref().map(|p| {
@@ -230,6 +236,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sandbox_state = sandbox::routes::SandboxApiState {
         provider: Arc::clone(&sandbox_provider),
         tasks: sandbox_tasks,
+        teams: sandbox_teams,
         repos: sandbox_repos,
         provider_tokens: sandbox_provider_tokens,
         plugin_repos: sandbox_plugin_repos,
@@ -299,6 +306,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             router = router.merge(mod_router);
             api.merge(mod_api);
         }
+        // Historical task-events replay. Authorizes the caller against the task
+        // (AuthUser), so it lives on the AppState router rather than the SSE
+        // firehose router.
+        router = router.merge(moatless_vibe_backend::sse::routes::task_events_router(
+            app_state.clone(),
+        ));
         info!("Domain routes registered");
 
         // Readiness probe — checks Redis connectivity. Distinct from /health

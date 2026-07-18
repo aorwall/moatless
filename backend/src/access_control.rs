@@ -6,6 +6,7 @@ use crate::auth::models::UserRole;
 use crate::auth::users::User;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
+use crate::team::dao::TeamRepository;
 use crate::team::models::Team;
 use moatless_backend_core::scope::{Scope, ScopeContext, ScopedResource, TeamRole};
 
@@ -79,14 +80,47 @@ pub async fn ensure_can_control_task(
     auth: &AuthUser,
     task: &ScopedResource,
 ) -> Result<(), AccessControlError> {
-    let role = resource_team_role(state, auth, task).await?;
-    if auth.scope_context().can_control_task(task, role) {
+    if can_control_task_ctx(state.teams.as_ref(), &auth.scope_context(), task).await? {
         Ok(())
     } else {
         Err(AccessControlError::Forbidden(
             "No control access to task".to_string(),
         ))
     }
+}
+
+/// Core of [`ensure_can_control_task`] against explicit dependencies, shared
+/// with callers that hold no `AppState`/`AuthUser` (the sandbox gRPC server).
+/// Resolves the caller's role in the task's team, then applies
+/// [`ScopeContext::can_control_task`].
+pub async fn can_control_task_ctx(
+    teams: &dyn TeamRepository,
+    ctx: &ScopeContext,
+    task: &ScopedResource,
+) -> Result<bool, AccessControlError> {
+    let role = match task.team_id.as_deref() {
+        Some(team_id) => team_role_for_ctx(teams, ctx, team_id).await?,
+        None => None,
+    };
+    Ok(ctx.can_control_task(task, role))
+}
+
+/// Core of [`team_role_for_user`] against explicit dependencies. Platform
+/// admins act as team owners everywhere.
+pub async fn team_role_for_ctx(
+    teams: &dyn TeamRepository,
+    ctx: &ScopeContext,
+    team_id: &str,
+) -> Result<Option<TeamRole>, AccessControlError> {
+    if ctx.is_admin {
+        return Ok(Some(TeamRole::Owner));
+    }
+
+    let members = teams.find_members(team_id).await?;
+    Ok(members
+        .into_iter()
+        .find(|m| m.user_id == ctx.user_id)
+        .and_then(|m| TeamRole::try_from(m.role.as_str()).ok()))
 }
 
 pub fn ensure_can_use_repository(
@@ -134,15 +168,7 @@ pub async fn team_role_for_user(
     auth: &AuthUser,
     team_id: &str,
 ) -> Result<Option<TeamRole>, AccessControlError> {
-    if auth.scope_context().is_admin {
-        return Ok(Some(TeamRole::Owner));
-    }
-
-    let members = state.teams.find_members(team_id).await?;
-    Ok(members
-        .into_iter()
-        .find(|m| m.user_id == auth.user_id)
-        .and_then(|m| TeamRole::try_from(m.role.as_str()).ok()))
+    team_role_for_ctx(state.teams.as_ref(), &auth.scope_context(), team_id).await
 }
 
 async fn resolve_team_id(

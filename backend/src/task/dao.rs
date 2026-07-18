@@ -34,7 +34,16 @@ pub struct TaskFilter {
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait TaskRepository: Send + Sync {
-    /// Find by task_id (no access control — internal/system use).
+    /// Find by task_id with **no access control** — for system callers that
+    /// have no authenticated user to derive a scope from (background jobs,
+    /// reapers, pod watchers, adapter/webhook runtimes, sandbox-pod-facing gRPC)
+    /// or intentionally privileged flows (e.g. the close cascade, which must
+    /// reach child tasks in other users' scopes).
+    ///
+    /// Any user-facing handler MUST instead use [`Self::find_by_id`] with the
+    /// caller's `ScopeContext`. When a system caller genuinely needs full
+    /// access, `find_by_id(id, &ScopeContext::system())` is the equivalent
+    /// scoped form and is preferred for new code.
     async fn find_by_id_internal(&self, task_id: &str) -> Result<Option<Task>, sqlx::Error>;
     /// Find by task_id, scoped to access control.
     async fn find_by_id(

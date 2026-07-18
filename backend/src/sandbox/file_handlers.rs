@@ -11,8 +11,10 @@ use utoipa::IntoParams;
 
 use super::client::classify_grpc_error;
 use super::error::SandboxError;
+use super::handlers::{authorize_task_control, authorize_task_read};
 use super::routes::SandboxApiState;
 use super::schemas::*;
+use crate::extractors::OptionalScope;
 
 /// Query parameters for the file tree endpoint.
 #[derive(Debug, Deserialize, IntoParams)]
@@ -63,9 +65,11 @@ pub struct ListFilesQuery {
 )]
 pub async fn file_tree_handler(
     State(state): State<SandboxApiState>,
+    OptionalScope(scope): OptionalScope,
     Path(task_id): Path<String>,
     Query(query): Query<FileTreeQuery>,
 ) -> Result<Json<FileTreeResponse>, SandboxError> {
+    authorize_task_read(&state, &scope, &task_id).await?;
     let root_path = query.path.as_deref().unwrap_or(".");
     let recursive = query.recursive.unwrap_or(false);
     let client = state.provider.sandbox_client(&task_id).await?;
@@ -95,9 +99,11 @@ pub async fn file_tree_handler(
 )]
 pub async fn read_file_handler(
     State(state): State<SandboxApiState>,
+    OptionalScope(scope): OptionalScope,
     Path(task_id): Path<String>,
     Query(query): Query<ReadFileQuery>,
 ) -> Result<Json<FileContentResponse>, SandboxError> {
+    authorize_task_read(&state, &scope, &task_id).await?;
     let include_changes = query.changes.unwrap_or(false);
     let client = state.provider.sandbox_client(&task_id).await?;
     let resp = client
@@ -125,9 +131,11 @@ pub async fn read_file_handler(
 )]
 pub async fn write_file_handler(
     State(state): State<SandboxApiState>,
+    OptionalScope(scope): OptionalScope,
     Path(task_id): Path<String>,
     Json(req): Json<WriteFileRequestBody>,
 ) -> Result<StatusCode, SandboxError> {
+    authorize_task_control(&state, &scope, &task_id).await?;
     let client = state.provider.sandbox_client(&task_id).await?;
     client
         .write_file(&req.path, &req.content)
@@ -153,9 +161,11 @@ pub async fn write_file_handler(
 )]
 pub async fn list_files_handler(
     State(state): State<SandboxApiState>,
+    OptionalScope(scope): OptionalScope,
     Path(task_id): Path<String>,
     Query(query): Query<ListFilesQuery>,
 ) -> Result<Json<ListFilesResponse>, SandboxError> {
+    authorize_task_read(&state, &scope, &task_id).await?;
     let path = query.path.as_deref().unwrap_or(".");
     let recursive = query.recursive.unwrap_or(false);
     let client = state.provider.sandbox_client(&task_id).await?;
@@ -183,9 +193,11 @@ pub async fn list_files_handler(
 )]
 pub async fn search_by_name_handler(
     State(state): State<SandboxApiState>,
+    OptionalScope(scope): OptionalScope,
     Path(task_id): Path<String>,
     Json(req): Json<SearchByNameRequest>,
 ) -> Result<Json<SearchByNameResponse>, SandboxError> {
+    authorize_task_read(&state, &scope, &task_id).await?;
     let client = state.provider.sandbox_client(&task_id).await?;
     let resp = client
         .search_files_by_name(

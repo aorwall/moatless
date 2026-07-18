@@ -491,6 +491,11 @@ pub struct AuthConfig {
     pub session_cookie_name: String,
     /// Whether the app is running in production mode (affects cookie Secure flag)
     pub is_production: bool,
+    /// Explicit opt-out that lets a production deploy run with **no** auth
+    /// provider (fully open API). Off by default so a misconfigured production
+    /// instance fails fast at startup instead of silently exposing every
+    /// endpoint (env: `ALLOW_INSECURE_NO_AUTH`).
+    pub allow_insecure_no_auth: bool,
     /// Auth cache TTL in seconds (default: 30).
     pub cache_ttl_secs: u64,
     /// Secret for signing session JWTs (env: SESSION_JWT_SECRET).
@@ -1059,6 +1064,7 @@ impl Config {
                 is_production: env::var("APP_ENV")
                     .or_else(|_| env::var("NODE_ENV"))
                     .is_ok_and(|v| v == "production"),
+                allow_insecure_no_auth: env_bool("ALLOW_INSECURE_NO_AUTH", false),
                 cache_ttl_secs: env_or("AUTH_CACHE_TTL_SECS", 30),
                 session_jwt_secret: env_opt("SESSION_JWT_SECRET"),
                 test_api_key: env_opt("TEST_API_KEY").map(|s| s.trim().to_string()),
@@ -1131,6 +1137,22 @@ impl Config {
     ///
     /// Made `pub(crate)` so tests can call it directly without env vars.
     pub(crate) fn validate(&self) -> Result<(), ConfigError> {
+        // Fail fast: a production deploy with no auth provider exposes every API
+        // (tasks, repos, secrets, plugin-repos) and every task's preview/files
+        // server to anyone who can reach the host. Refuse to start unless the
+        // operator has explicitly opted into running open.
+        if self.auth.is_production
+            && self.auth.provider.is_none()
+            && !self.auth.allow_insecure_no_auth
+        {
+            return Err(ConfigError::Invalid(
+                "AUTH_PROVIDER is unset while APP_ENV=production — the API would be fully \
+                 unauthenticated. Set AUTH_PROVIDER (github/github_app/auth0), or set \
+                 ALLOW_INSECURE_NO_AUTH=true to run open deliberately."
+                    .into(),
+            ));
+        }
+
         // Validate auth provider config consistency
         if let Some(AuthProvider::GitHub) = self.auth.provider {
             if self.auth.github_client_id.is_none() {
@@ -1453,6 +1475,7 @@ mod tests {
                 cookie_domain: None,
                 session_cookie_name: "test".into(),
                 is_production: false,
+                allow_insecure_no_auth: false,
                 cache_ttl_secs: 0,
                 session_jwt_secret: None,
                 test_api_key: None,
@@ -1522,6 +1545,35 @@ mod tests {
     #[test]
     fn validate_no_auth_provider_passes() {
         let config = minimal_config();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_production_without_auth_provider_fails() {
+        let mut config = minimal_config();
+        config.auth.is_production = true;
+        config.auth.provider = None;
+        config.auth.allow_insecure_no_auth = false;
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("AUTH_PROVIDER"));
+    }
+
+    #[test]
+    fn validate_production_without_auth_provider_passes_with_optout() {
+        let mut config = minimal_config();
+        config.auth.is_production = true;
+        config.auth.provider = None;
+        config.auth.allow_insecure_no_auth = true;
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_production_with_auth_provider_passes() {
+        let mut config = minimal_config();
+        config.auth.is_production = true;
+        config.auth.provider = Some(AuthProvider::GitHub);
+        config.auth.github_client_id = Some("id".into());
+        config.auth.github_client_secret = Some("secret".into());
         assert!(config.validate().is_ok());
     }
 

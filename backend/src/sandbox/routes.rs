@@ -1,8 +1,12 @@
 //! API routes for sandbox operations.
 //!
 //! Single unified router served on port 8080.
-//! Public-facing endpoints are authenticated via Traefik ForwardAuth middleware —
-//! the controller itself doesn't validate auth tokens.
+//!
+//! These endpoints run behind the app-level `auth_middleware` (session cookie
+//! or API key), which injects an `AuthIdentity` extension. Each handler then
+//! authorizes the caller against the target task via the `OptionalScope`
+//! extractor and the `authorize_task_read`/`authorize_task_control` helpers, so
+//! a caller can only read or operate a sandbox for a task they may access.
 
 use axum::response::IntoResponse;
 use axum::Json;
@@ -18,13 +22,18 @@ use crate::plugin_repo::dao::PluginRepoRepository;
 use crate::repository::dao::RepoRepository;
 use crate::secret::service::SecretService;
 use crate::task::dao::TaskRepository;
+use crate::team::dao::TeamRepository;
 
 /// State shared across sandbox API handlers.
 #[derive(Clone)]
 pub struct SandboxApiState {
     pub provider: Arc<dyn SandboxProvider>,
-    /// Optional task repository — enables server config resolution in handlers.
+    /// Optional task repository — enables server config resolution and
+    /// per-task authorization in handlers.
     pub tasks: Option<Arc<dyn TaskRepository>>,
+    /// Optional team repository — enables team-role resolution for the
+    /// task-control authorization checks.
+    pub teams: Option<Arc<dyn TeamRepository>>,
     /// Optional repo repository — enables server config resolution in handlers.
     pub repos: Option<Arc<dyn RepoRepository>>,
     /// Optional provider token repository — enables credential resolution for provisioning.
