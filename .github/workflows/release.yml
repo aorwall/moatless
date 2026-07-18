@@ -117,7 +117,7 @@ jobs:
       - name: Package and push chart
         run: |
           helm package k8s/helm/moatless-vibe -d ./dist
-          helm push ./dist/moatless-vibe-*.tgz "oci://registry-1.docker.io/${{ env.REGISTRY_ORG }}"
+          helm push ./dist/moatless-*.tgz "oci://registry-1.docker.io/${{ env.REGISTRY_ORG }}"
 
       - name: Setup Node for changelog
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6

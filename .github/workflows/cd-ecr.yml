@@ -79,6 +79,7 @@ jobs:
           INPUT_TAG: ${{ inputs.tag }}
           INPUT_CHART_VERSION: ${{ inputs.chart-version }}
           INPUT_IMAGES: ${{ inputs.images }}
+          EVENT_BEFORE: ${{ github.event.before }}
         run: |
           # Image tag:
           #   explicit input            → as given
@@ -156,10 +157,11 @@ jobs:
           #   (crates/api-client → crates/api-schemas) + the Cargo/toolchain roots.
           # fp-v* tags and manual dispatch always cut a release (intentional).
           if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == refs/heads/main ]]; then
-            BEFORE="${{ github.event.before }}"
-            if [[ -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]]; then
-              MOAT_CHANGED=true                      # unknown base → be safe, rebuild
-            elif git diff --name-only "$BEFORE" "$GITHUB_SHA" \
+            # New branch / force push / missing base → can't diff, rebuild to be safe.
+            if [[ -z "$EVENT_BEFORE" || "$EVENT_BEFORE" =~ ^0+$ ]] \
+               || ! git cat-file -e "${EVENT_BEFORE}^{commit}" 2>/dev/null; then
+              MOAT_CHANGED=true
+            elif git diff --name-only "$EVENT_BEFORE" "$GITHUB_SHA" \
                   | grep -qE '^(crates/(cli|api-client|api-schemas)/|Cargo\.(toml|lock)$|rust-toolchain\.toml$)'; then
               MOAT_CHANGED=true
             else
@@ -532,8 +534,11 @@ jobs:
   # Fires `repository_dispatch` to soap-platform-ci. The receiver workflows
   # (.github/workflows/build-arc-runner.yml + build-e2e-runner.yml) consume
   # `client_payload.moatVersion` as the MOAT_VERSION build-arg.
+  #
+  # Change-gating happens upstream: release-moat only runs when `moat-changed`
+  # is true, and a skipped dependency skips this job with it.
   trigger-runners:
-    needs: [release-moat]
+    needs: [setup, release-moat]
     if: needs.release-moat.outputs.moat-version != ''
     runs-on: ubuntu-latest
     steps:

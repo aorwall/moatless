@@ -161,7 +161,7 @@ pub async fn resolve_task_ssh_keys(
 
 /// Resolve the shared env delivered to every server sidecar.
 ///
-/// Returns the full accessible scope chain (global > team > user) with
+/// Returns the full accessible scope chain (user > team > global) with
 /// reserved runtime keys filtered out. The agent env is a superset that
 /// additionally includes provider tokens.
 pub async fn resolve_server_env(
