@@ -126,9 +126,16 @@ impl TaskEventRepository for PgTaskEventRepository {
         offset: i64,
     ) -> Result<Vec<TaskEvent>, sqlx::Error> {
         let types_ref: Option<&[String]> = event_types.as_deref();
+        // `id::bigint`: the legacy Drizzle-created `task_events` table defines
+        // `id` as int4, but `TaskEvent::id` is `i64` (INT8). Without this cast
+        // sqlx fails to decode every row ("Rust type `i64` ... not compatible
+        // with SQL type `INT4`"), which broke the events-history endpoints
+        // entirely. Casting in the query fixes decoding on both the legacy int4
+        // schema and a fresh bigint schema, without a locking ALTER on a table
+        // that can hold a row per tool call / streamed chunk.
         sqlx::query_as::<_, TaskEvent>(
             r#"SELECT
-                id, event_id, task_id, type AS event_type, sub_type, is_error,
+                id::bigint AS id, event_id, task_id, type AS event_type, sub_type, is_error,
                 agent_type, turn_number, payload::jsonb AS payload, timestamp, created_at
             FROM task_events
             WHERE task_id = $1

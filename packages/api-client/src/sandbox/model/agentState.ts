@@ -7,7 +7,12 @@
  */
 
 /**
- * Matches TS AgentStateSchema: 'idle' | 'running' | 'none'
+ * Matches TS AgentStateSchema: 'idle' | 'running' | 'none' | 'unknown'
+
+`Unknown` means the sandbox pod is running/ready but the backend could not
+reach the agent over gRPC to determine its state — distinct from `None`
+("agent legitimately idle / never started"), so a hung or unreachable agent
+on an otherwise-ready pod is no longer silently reported as idle.
  */
 export type AgentState = typeof AgentState[keyof typeof AgentState];
 
@@ -16,4 +21,5 @@ export const AgentState = {
   idle: 'idle',
   running: 'running',
   none: 'none',
+  unknown: 'unknown',
 } as const;

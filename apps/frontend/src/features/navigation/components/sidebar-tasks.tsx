@@ -106,8 +106,10 @@ const RUNNING_STATE_ORDER: Record<TaskActivityState, number> = {
 
 /**
  * Best-effort activity state from the task list row itself. The list endpoint
- * currently leaves these fields unset, but when present they seed the state on
- * first render before any live event arrives; live activity takes precedence.
+ * populates `agentState`/`environmentStatus` for open tasks (agent state from
+ * the last lifecycle event, sandbox state from a cluster-wide LIST), which seed
+ * the state on first render before any live event arrives; live activity takes
+ * precedence.
  */
 function taskRowState(task: TaskResponse): TaskActivityState {
   if (task.agentState === 'running') {

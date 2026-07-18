@@ -135,6 +135,26 @@ pub async fn sandbox_status_handler(
             // the per-repo `docker_image` override, else the configured default.
             resp.sandbox_desired_state = Some(task.sandbox_desired_state);
 
+            // Surface a desired-vs-actual divergence: the task wants a running
+            // sandbox but the live environment is stopped / never created. This
+            // is a reconcile miss (or an in-flight transition) that would
+            // otherwise be indistinguishable from an intentional stop, since
+            // both report `stopped` with no error. Only annotate when the
+            // resolver did not already report a concrete environment error.
+            if resp.environment_error.is_none()
+                && task.sandbox_desired_state == crate::task::models::SandboxDesiredState::Running
+                && matches!(
+                    resp.environment_status,
+                    SandboxStatus::Stopped | SandboxStatus::NotCreated
+                )
+            {
+                resp.environment_error = Some(
+                    "Sandbox is not running but its desired state is 'running' \
+                     (reconcile pending or failed)"
+                        .to_string(),
+                );
+            }
+
             let repo_docker_image = match &state.repos {
                 Some(repos) => repos
                     .find_repository_by_id(&task.repository_id)

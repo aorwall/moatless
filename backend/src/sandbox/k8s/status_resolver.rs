@@ -31,9 +31,12 @@ struct AgentStatusSnapshot {
 }
 
 impl AgentStatusSnapshot {
-    fn empty() -> Self {
+    /// The agent is running/ready but unreachable over gRPC. Distinct from an
+    /// idle agent so a hung/unreachable agent on a ready pod is not reported as
+    /// `none` ("idle / never started"). Only produced from the running branch.
+    fn unreachable() -> Self {
         Self {
-            state: AgentState::None,
+            state: AgentState::Unknown,
             scheduled_jobs: Vec::new(),
             background_processes: Vec::new(),
         }
@@ -246,8 +249,10 @@ impl StatusResolver {
 
     /// Query the sandbox pod for current agent status via gRPC.
     ///
-    /// Returns an empty snapshot (`AgentState::None`, no jobs) on any gRPC error
-    /// (timeout, unavailable, etc.) so that status resolution remains resilient.
+    /// Only called when the pod is running, so any gRPC error (timeout,
+    /// unavailable, etc.) means the agent is unreachable rather than idle:
+    /// returns `AgentState::Unknown` (no jobs) so status resolution stays
+    /// resilient without masking an unreachable agent as `none`.
     async fn fetch_agent_state(&self, task_id: &str) -> AgentStatusSnapshot {
         let service_name = generate_service_name(task_id);
         let client = match SandboxClient::for_service(
@@ -258,7 +263,7 @@ impl StatusResolver {
             Ok(c) => c,
             Err(e) => {
                 debug!(task_id = %task_id, error = %e, "Failed to create gRPC client for agent status");
-                return AgentStatusSnapshot::empty();
+                return AgentStatusSnapshot::unreachable();
             }
         };
 
@@ -278,7 +283,7 @@ impl StatusResolver {
             },
             Err(e) => {
                 debug!(task_id = %task_id, error = %e, "Failed to fetch agent status via gRPC");
-                AgentStatusSnapshot::empty()
+                AgentStatusSnapshot::unreachable()
             }
         }
     }

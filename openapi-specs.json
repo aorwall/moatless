@@ -7479,11 +7479,12 @@
       },
       "AgentState": {
         "type": "string",
-        "description": "Matches TS AgentStateSchema: 'idle' | 'running' | 'none'",
+        "description": "Matches TS AgentStateSchema: 'idle' | 'running' | 'none' | 'unknown'\n\n`Unknown` means the sandbox pod is running/ready but the backend could not\nreach the agent over gRPC to determine its state — distinct from `None`\n(\"agent legitimately idle / never started\"), so a hung or unreachable agent\non an otherwise-ready pod is no longer silently reported as idle.",
         "enum": [
           "idle",
           "running",
-          "none"
+          "none",
+          "unknown"
         ]
       },
       "AgentSubType": {

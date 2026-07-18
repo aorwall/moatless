@@ -8,11 +8,12 @@ import { formatPreview } from './message-preview'
 /**
  * Live, per-task activity derived from the global event stream.
  *
- * The task list API only returns `lastMessageAt` (a timestamp) and leaves
- * `agentState`/`isRunning` unset for list rows, so the sidebar learns whether a
- * task is actively running and what its most recent message said from the SSE
- * stream instead. Entries accumulate as events arrive and are merged with the
- * cached task list at render time.
+ * The task list API seeds `agentState`/`isRunning`/`environmentStatus` for list
+ * rows (a last-known, eventually-consistent snapshot), but the live message
+ * preview and up-to-the-second running state still come from the SSE stream.
+ * Entries accumulate as events arrive and are merged with the cached task list
+ * at render time, with live activity taking precedence over the seeded row
+ * state.
  */
 /** How many recent message previews to keep for the live running view. */
 export const MAX_RECENT_MESSAGES = 3

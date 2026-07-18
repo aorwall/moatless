@@ -126,13 +126,19 @@ pub use moatless_events::SandboxStatus;
 /// Backwards-compatible type alias.
 pub type EnvironmentStatus = SandboxStatus;
 
-/// Matches TS AgentStateSchema: 'idle' | 'running' | 'none'
+/// Matches TS AgentStateSchema: 'idle' | 'running' | 'none' | 'unknown'
+///
+/// `Unknown` means the sandbox pod is running/ready but the backend could not
+/// reach the agent over gRPC to determine its state — distinct from `None`
+/// ("agent legitimately idle / never started"), so a hung or unreachable agent
+/// on an otherwise-ready pod is no longer silently reported as idle.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentState {
     Idle,
     Running,
     None,
+    Unknown,
 }
 
 impl From<&str> for AgentState {
@@ -140,6 +146,7 @@ impl From<&str> for AgentState {
         match s {
             "running" => AgentState::Running,
             "idle" => AgentState::Idle,
+            "unknown" => AgentState::Unknown,
             _ => AgentState::None,
         }
     }
@@ -861,14 +868,21 @@ mod tests {
             serde_json::to_string(&AgentState::None).unwrap(),
             "\"none\""
         );
+        assert_eq!(
+            serde_json::to_string(&AgentState::Unknown).unwrap(),
+            "\"unknown\""
+        );
     }
 
     #[test]
     fn agent_state_from_str() {
         assert!(matches!(AgentState::from("running"), AgentState::Running));
         assert!(matches!(AgentState::from("idle"), AgentState::Idle));
-        assert!(matches!(AgentState::from("unknown"), AgentState::None));
+        assert!(matches!(AgentState::from("unknown"), AgentState::Unknown));
+        assert!(matches!(AgentState::from("none"), AgentState::None));
         assert!(matches!(AgentState::from(""), AgentState::None));
+        // Any unrecognized status still falls back to `None`.
+        assert!(matches!(AgentState::from("bogus"), AgentState::None));
     }
 
     // =========================================================================
