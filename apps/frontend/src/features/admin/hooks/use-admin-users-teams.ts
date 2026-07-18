@@ -56,6 +56,17 @@ export function useAdminUsersList() {
   })
 }
 
+/**
+ * Select a single user from the cached users list. The backend exposes no
+ * dedicated get-by-login endpoint, so we derive the user from the list query
+ * (which the profile page and the users sidebar already load).
+ */
+export function useAdminUser(login: string) {
+  const query = useAdminUsersList()
+  const user = query.data?.users.find((candidate) => candidate.login === login)
+  return { ...query, user }
+}
+
 export function useAdminTeamsList() {
   return useQuery({
     queryKey: queryKeys.teams.list(),

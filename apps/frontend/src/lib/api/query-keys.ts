@@ -67,6 +67,7 @@ export const queryKeys = {
   users: {
     all: ['users'] as const,
     list: () => [...queryKeys.users.all, 'list'] as const,
+    detail: (login: string) => [...queryKeys.users.all, 'detail', login] as const,
   },
 
   teams: {
