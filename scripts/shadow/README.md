@@ -118,9 +118,12 @@ is wiped each provision. `docker/Dockerfile.sandbox-dev` fixes that: it's a
 `FROM moatless-sandbox` image that bakes **three warm caches**, all **outside**
 the `/opt/moatless` mount so they survive as image layers:
 
-- `/opt/cargo-target` — compiled dependency artifacts. `up.sh` honors
-  `CARGO_TARGET_DIR` (the image sets it here) and reuses them, recompiling only
-  the workspace crates that actually changed (~1–2 min).
+- `/opt/cargo-target` — compiled dependency artifacts plus the baked backend
+  binary. `up.sh` honors `CARGO_TARGET_DIR` (the image sets it here). If the
+  provisioned checkout is exactly the image-build commit and Rust workspace
+  paths are clean, it starts the baked binary immediately. After code edits, it
+  falls back to rebuilding with the warm target and recompiles only changed
+  workspace crates.
 - `/opt/cargo/registry` — downloaded crate sources (`CARGO_HOME`). Without this
   the provision-time build re-downloads the whole index + sources before it can
   compile even with a warm target.
@@ -133,15 +136,20 @@ Why it works across a fresh clone: registry crates are keyed by
 version/features/rustc/source, **not** by workspace path, so deps compiled at
 image-build time (from `/tmp`) are reused when `up.sh` builds from the
 provisioned workspace; likewise bun's cache is content-addressed, not path-bound.
-The workspace crates (`backend`, `crates/*`) still recompile — that's the "new
-stuff" — and `node_modules` is still created fresh in the workspace (just from
-the warm cache). (The backend uses only runtime `sqlx::query`, no
+The workspace crates (`backend`, `crates/*`) only recompile after the checkout
+diverges from the image-build commit, and `node_modules` is still created fresh
+in the workspace (just from the warm cache). (The backend uses only runtime
+`sqlx::query`, no
 compile-time-checked macros, so the image build needs no database.)
 
-CI builds and publishes this automatically as the `moatless-dev` ECR image on
-every push that changes the sandbox (the `publish-sandbox-dev` job in
-`.github/workflows/cd-ecr.yml` FROMs the just-built sandbox image and reuses the
-BuildKit cargo cache across runs). To build it by hand instead:
+CI publishes this as the `moatless-dev:latest` ECR image via an **on-demand**
+job — the `Build dev sandbox image` workflow
+(`.github/workflows/build-dev-image.yml`), run manually from the Actions tab. It
+FROMs the `moatless-sandbox` image (tag configurable, defaults to `latest`) and
+reuses the BuildKit cargo cache across runs. It is intentionally *not* part of
+the push-to-main flow — the image is a heavy multi-GB build used only by the
+opt-in shadow repo, so rebuild it by hand when the base sandbox image or the
+shadow-dev dependency set has meaningfully changed. To build it locally instead:
 
 ```bash
 # Build + push (single-arch; ops/CI — needs docker + registry creds, a few GB image)
@@ -156,7 +164,7 @@ docker push aorwall/moatless-dev:<tag>
 
 Then point the shadow repo at it so provisioning uses the warm image — set
 `dockerImage` on the `moatless-vibe (shadow)` repo (via the API / `moat repo`
-config) or add `"dockerImage": "<ecr-registry>/moatless-dev:<tag>"` to
+config) or add `"dockerImage": "<ecr-registry>/moatless-dev:latest"` to
 `config.shadow.json`. Without it, everything still works — just with the cold
 build. The `backend-server` container inherits the image's `CARGO_TARGET_DIR`
 (the curated server-container env doesn't override it), so no config wiring is
@@ -216,8 +224,10 @@ shadow. To fully act like the backend:
 - `up.sh` — sync + build + run the backend, watch for rebuilds
 - `rebuild.sh` — compile + trigger a restart
 - `config.shadow.json` — preview-server config running both servers (copy to `.moatless/config.json`)
-- `../../docker/Dockerfile.sandbox-dev` — precompiled image (published by CI as
-  `moatless-dev`) with a warm cargo cache so `up.sh` rebuilds fast (point the
-  shadow repo's `dockerImage` at it)
+- `../../docker/Dockerfile.sandbox-dev` — precompiled image (published on demand
+  as `moatless-dev:latest` by the `Build dev sandbox image` workflow) with warm
+  caches so `up.sh` rebuilds fast (point the shadow repo's `dockerImage` at it)
+- `../../.github/workflows/build-dev-image.yml` — on-demand (workflow_dispatch)
+  job that builds + pushes `moatless-dev:latest`
 - `../../k8s/helm/moatless-vibe/templates/shadow-dev-rbac.yaml` — Phase 2 dev SA +
   RoleBindings, gated on `shadowDev.enabled` in `values.yaml`
