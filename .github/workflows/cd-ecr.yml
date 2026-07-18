@@ -744,6 +744,7 @@ jobs:
       tag-latest: true
       build-args: |
         SANDBOX_IMAGE=${{ needs.publish-sandbox.outputs.image || '111111111111.dkr.ecr.eu-north-1.amazonaws.com/moatless-sandbox:latest' }}
+        SOURCE_COMMIT=${{ github.sha }}
       cache-mode: gha
     secrets:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}

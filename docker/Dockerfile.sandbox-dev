@@ -11,7 +11,9 @@
 # every provision) so they persist as image layers:
 #   - /opt/cargo-target      — compiled backend dependency artifacts. up.sh reads
 #                              CARGO_TARGET_DIR and reuses them; only changed
-#                              workspace crates recompile at runtime.
+#                              workspace crates recompile at runtime; when the
+#                              clone is exactly the image-build commit, up.sh
+#                              can start the baked backend binary immediately.
 #   - /opt/cargo/registry    — downloaded crate sources (CARGO_HOME). Without
 #                              this the provision-time `cargo build` re-downloads
 #                              the whole index+sources before compiling.
@@ -38,6 +40,7 @@
 
 ARG SANDBOX_IMAGE=aorwall/moatless-sandbox:latest
 FROM ${SANDBOX_IMAGE}
+ARG SOURCE_COMMIT=unknown
 
 # Warm-cache locations, all siblings of /opt/cargo — outside the /opt/moatless
 # workspace mount, so they survive as image layers. up.sh honors
@@ -64,6 +67,7 @@ RUN --mount=type=cache,id=moatless-dev-target,target=/tmp/dev-target \
     && cargo build --release -p moatless-vibe-backend --target-dir /tmp/dev-target \
     && mkdir -p /opt/cargo-target \
     && cp -a /tmp/dev-target/. /opt/cargo-target/ \
+    && printf '%s\n' "$SOURCE_COMMIT" > /opt/cargo-target/.moatless-vibe-source-commit \
     && rm -rf /opt/cargo-target/incremental
 
 # Warm the bun global install cache. Installing bun to a build-only location is

@@ -118,9 +118,12 @@ is wiped each provision. `docker/Dockerfile.sandbox-dev` fixes that: it's a
 `FROM moatless-sandbox` image that bakes **three warm caches**, all **outside**
 the `/opt/moatless` mount so they survive as image layers:
 
-- `/opt/cargo-target` — compiled dependency artifacts. `up.sh` honors
-  `CARGO_TARGET_DIR` (the image sets it here) and reuses them, recompiling only
-  the workspace crates that actually changed (~1–2 min).
+- `/opt/cargo-target` — compiled dependency artifacts plus the baked backend
+  binary. `up.sh` honors `CARGO_TARGET_DIR` (the image sets it here). If the
+  provisioned checkout is exactly the image-build commit and Rust workspace
+  paths are clean, it starts the baked binary immediately. After code edits, it
+  falls back to rebuilding with the warm target and recompiles only changed
+  workspace crates.
 - `/opt/cargo/registry` — downloaded crate sources (`CARGO_HOME`). Without this
   the provision-time build re-downloads the whole index + sources before it can
   compile even with a warm target.
@@ -133,9 +136,10 @@ Why it works across a fresh clone: registry crates are keyed by
 version/features/rustc/source, **not** by workspace path, so deps compiled at
 image-build time (from `/tmp`) are reused when `up.sh` builds from the
 provisioned workspace; likewise bun's cache is content-addressed, not path-bound.
-The workspace crates (`backend`, `crates/*`) still recompile — that's the "new
-stuff" — and `node_modules` is still created fresh in the workspace (just from
-the warm cache). (The backend uses only runtime `sqlx::query`, no
+The workspace crates (`backend`, `crates/*`) only recompile after the checkout
+diverges from the image-build commit, and `node_modules` is still created fresh
+in the workspace (just from the warm cache). (The backend uses only runtime
+`sqlx::query`, no
 compile-time-checked macros, so the image build needs no database.)
 
 CI builds and publishes this automatically as the `moatless-dev` ECR image on
