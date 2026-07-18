@@ -82,13 +82,13 @@ The plain sandbox image recompiles all deps on every provision (~6–10 min).
 `docker/Dockerfile.sandbox-dev` bakes warm caches — the cargo target + crate
 registry (so only changed workspace crates recompile, ~1–2 min) and bun's global
 install cache (so provision-time `bun install` links node_modules offline and the
-frontend dev server starts fast). CI builds and publishes it automatically as the
-`moatless-dev` ECR image (the `publish-sandbox-dev` job in
-`.github/workflows/cd-ecr.yml`, FROM the just-built sandbox image), so normally
-just point the shadow repo at it:
+frontend dev server starts fast). CI publishes it as `moatless-dev:latest` via an
+**on-demand** job — the `Build dev sandbox image` workflow
+(`.github/workflows/build-dev-image.yml`), run manually from the Actions tab (not
+part of push-to-main). Normally just point the shadow repo at it:
 
 ```bash
-moat repos update <shadow_repo_id> --docker-image <ecr-registry>/moatless-dev:<tag>
+moat repos update <shadow_repo_id> --docker-image <ecr-registry>/moatless-dev:latest
 ```
 
 To build it by hand:
@@ -125,5 +125,5 @@ disrupt the real backend: distinct `REDIS_CONSUMER_GROUP`/`ID`,
 - `scripts/shadow/rebuild.sh` — compile + trigger a restart
 - `scripts/shadow/sync-env.sh` — live backend env + secrets → sourceable env file
 - `scripts/shadow/config.shadow.json` — the servers config as a committed `.moatless/config.json` (branch alternative to `moat repos create`)
-- `docker/Dockerfile.sandbox-dev` — precompiled image (published by CI as `moatless-dev`) with a warm cargo cache
+- `docker/Dockerfile.sandbox-dev` — precompiled image (published on demand as `moatless-dev:latest` by `.github/workflows/build-dev-image.yml`) with warm caches
 - `scripts/shadow/README.md` — deeper details (RBAC, owning child sandboxes)

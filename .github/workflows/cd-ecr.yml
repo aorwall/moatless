@@ -26,7 +26,7 @@ on:
   workflow_dispatch:
     inputs:
       images:
-        description: 'Comma-separated list of images to publish (frontend,backend,sandbox,sandbox-dev) or "all"'
+        description: 'Comma-separated list of images to publish (frontend,backend,sandbox) or "all"'
         type: string
         default: 'all'
       tag:
@@ -66,7 +66,6 @@ jobs:
       build-frontend: ${{ steps.compute.outputs.frontend }}
       build-backend: ${{ steps.compute.outputs.backend }}
       build-sandbox: ${{ steps.compute.outputs.sandbox }}
-      build-sandbox-dev: ${{ steps.compute.outputs.sandbox-dev }}
       publish-helm: ${{ steps.compute.outputs.helm }}
       moat-changed: ${{ steps.compute.outputs.moat-changed }}
       promotion-image-tag-paths: ${{ steps.compute.outputs.promotion-image-tag-paths }}
@@ -130,7 +129,6 @@ jobs:
           FRONTEND=false
           BACKEND=false
           SANDBOX=false
-          SANDBOX_DEV=false
           HELM_CHANGED=false
           CHANGED_FILES=""
 
@@ -146,19 +144,17 @@ jobs:
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] || [[ "$GITHUB_REF" == refs/tags/fp-v* ]]; then
             IMAGES="${INPUT_IMAGES:-all}"
             if [ "$IMAGES" = "all" ] || [ -z "$IMAGES" ]; then
-              IMAGES="frontend,backend,sandbox,sandbox-dev"
+              IMAGES="frontend,backend,sandbox"
             fi
             if echo ",$IMAGES," | grep -q ",frontend,"; then FRONTEND=true; fi
             if echo ",$IMAGES," | grep -q ",backend,"; then BACKEND=true; fi
             if echo ",$IMAGES," | grep -q ",sandbox,"; then SANDBOX=true; fi
-            if echo ",$IMAGES," | grep -q ",sandbox-dev,"; then SANDBOX_DEV=true; fi
           elif [ "$GITHUB_EVENT_NAME" = "push" ] && [[ "$GITHUB_REF" == refs/heads/main ]]; then
             BEFORE="${{ github.event.before }}"
             if [[ -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]]; then
               FRONTEND=true
               BACKEND=true
               SANDBOX=true
-              SANDBOX_DEV=true
               HELM_CHANGED=true
             else
               CHANGED_FILES=$(git diff --name-only "$BEFORE" "$GITHUB_SHA")
@@ -171,18 +167,12 @@ jobs:
               if printf '%s\n' "$CHANGED_FILES" | grep -qE '^(Cargo\.(toml|lock)$|rust-toolchain\.toml$)'; then
                 BACKEND=true
                 SANDBOX=true
-                SANDBOX_DEV=true
               fi
               if printf '%s\n' "$CHANGED_FILES" | grep -qE '^(backend/|docker/Dockerfile\.backend-cross$)'; then
                 BACKEND=true
-                SANDBOX_DEV=true
               fi
               if printf '%s\n' "$CHANGED_FILES" | grep -qE '^(sandbox/|docker/Dockerfile\.sandbox-soap$|docker/docker-entrypoint-sandbox\.sh$|docker/sync-plugins\.sh$|docker/moatless-git-cred\.sh$)'; then
                 SANDBOX=true
-                SANDBOX_DEV=true
-              fi
-              if printf '%s\n' "$CHANGED_FILES" | grep -qE '^(docker/Dockerfile\.sandbox-dev$|scripts/shadow/)'; then
-                SANDBOX_DEV=true
               fi
               if printf '%s\n' "$CHANGED_FILES" | grep -qE '^crates/'; then
                 if cargo metadata --format-version 1 --no-deps > /tmp/cargo-metadata.json; then
@@ -244,15 +234,12 @@ jobs:
                   # shellcheck disable=SC1091
                   . /tmp/rust-targets.env
                   if [ "${RUST_BACKEND:-false}" = "true" ]; then BACKEND=true; fi
-                  if [ "${RUST_BACKEND:-false}" = "true" ]; then SANDBOX_DEV=true; fi
                   if [ "${RUST_SANDBOX:-false}" = "true" ]; then SANDBOX=true; fi
-                  if [ "${RUST_SANDBOX:-false}" = "true" ]; then SANDBOX_DEV=true; fi
                   echo "Changed Rust packages: ${RUST_CHANGED_PACKAGES:-none}"
                 else
                   echo "::warning::cargo metadata failed; conservatively building all Rust images"
                   BACKEND=true
                   SANDBOX=true
-                  SANDBOX_DEV=true
                 fi
               fi
               if printf '%s\n' "$CHANGED_FILES" | grep -qE '^(k8s/helm/)'; then
@@ -267,7 +254,6 @@ jobs:
           echo "frontend=$FRONTEND" >> "$GITHUB_OUTPUT"
           echo "backend=$BACKEND" >> "$GITHUB_OUTPUT"
           echo "sandbox=$SANDBOX" >> "$GITHUB_OUTPUT"
-          echo "sandbox-dev=$SANDBOX_DEV" >> "$GITHUB_OUTPUT"
 
           IMAGE_TAG_PATHS="["
           SEP=""
@@ -354,7 +340,6 @@ jobs:
             echo "| frontend image | \`${{ steps.compute.outputs.frontend }}\` |"
             echo "| backend image | \`${{ steps.compute.outputs.backend }}\` |"
             echo "| sandbox image | \`${{ steps.compute.outputs.sandbox }}\` |"
-            echo "| sandbox-dev image | \`${{ steps.compute.outputs.sandbox-dev }}\` |"
             echo "| Helm publish | \`${{ steps.compute.outputs.helm }}\` |"
             echo "| Rust packages | \`${{ steps.compute.outputs.rust-packages }}\` |"
             echo "| Rust cache scope | \`${{ steps.compute.outputs.rust-package-key }}\` |"
@@ -715,37 +700,6 @@ jobs:
       cache-mode: inline-registry
     # Sandbox base (aorwall/moatless-sandbox-base) + golang build stages all
     # pull from docker.io — the most rate-limit-exposed of the three images.
-    secrets:
-      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-
-  # ── Publish: dev sandbox (warm cargo cache for the shadow-dev backend) ──
-  # Bakes a warm cargo target dir, so the shadow backend recompiles only changed
-  # workspace crates on start. If this run also published moatless-sandbox, use
-  # that fresh image as SANDBOX_IMAGE; otherwise fall back to latest. Only the
-  # "moatless-vibe (shadow)" dev repo points its dockerImage at moatless-dev;
-  # the default sandbox is untouched. Non-blocking — publish-helm/tag-release/
-  # trigger-promotion do NOT depend on this job.
-  # NOTE (ops): the `moatless-dev` ECR repo must exist — add it to the moatless
-  # service's `ecr_repos` in soap-infra services.yaml.
-  publish-sandbox-dev:
-    needs: [setup, publish-sandbox]
-    if: >-
-      always() &&
-      github.event_name != 'pull_request' &&
-      needs.setup.outputs.build-sandbox-dev == 'true' &&
-      (needs.publish-sandbox.result == 'success' || needs.publish-sandbox.result == 'skipped')
-    uses: soaplabs/soap-platform-ci/.github/workflows/build-push-ecr.yml@main
-    with:
-      service-name: moatless
-      ecr-repository: moatless-dev
-      image-tag: ${{ needs.setup.outputs.tag }}
-      dockerfile: docker/Dockerfile.sandbox-dev
-      tag-latest: true
-      build-args: |
-        SANDBOX_IMAGE=${{ needs.publish-sandbox.outputs.image || '111111111111.dkr.ecr.eu-north-1.amazonaws.com/moatless-sandbox:latest' }}
-        SOURCE_COMMIT=${{ github.sha }}
-      cache-mode: gha
     secrets:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}

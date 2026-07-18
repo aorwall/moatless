@@ -142,10 +142,14 @@ in the workspace (just from the warm cache). (The backend uses only runtime
 `sqlx::query`, no
 compile-time-checked macros, so the image build needs no database.)
 
-CI builds and publishes this automatically as the `moatless-dev` ECR image on
-every push that changes the sandbox (the `publish-sandbox-dev` job in
-`.github/workflows/cd-ecr.yml` FROMs the just-built sandbox image and reuses the
-BuildKit cargo cache across runs). To build it by hand instead:
+CI publishes this as the `moatless-dev:latest` ECR image via an **on-demand**
+job — the `Build dev sandbox image` workflow
+(`.github/workflows/build-dev-image.yml`), run manually from the Actions tab. It
+FROMs the `moatless-sandbox` image (tag configurable, defaults to `latest`) and
+reuses the BuildKit cargo cache across runs. It is intentionally *not* part of
+the push-to-main flow — the image is a heavy multi-GB build used only by the
+opt-in shadow repo, so rebuild it by hand when the base sandbox image or the
+shadow-dev dependency set has meaningfully changed. To build it locally instead:
 
 ```bash
 # Build + push (single-arch; ops/CI — needs docker + registry creds, a few GB image)
@@ -160,7 +164,7 @@ docker push aorwall/moatless-dev:<tag>
 
 Then point the shadow repo at it so provisioning uses the warm image — set
 `dockerImage` on the `moatless-vibe (shadow)` repo (via the API / `moat repo`
-config) or add `"dockerImage": "<ecr-registry>/moatless-dev:<tag>"` to
+config) or add `"dockerImage": "<ecr-registry>/moatless-dev:latest"` to
 `config.shadow.json`. Without it, everything still works — just with the cold
 build. The `backend-server` container inherits the image's `CARGO_TARGET_DIR`
 (the curated server-container env doesn't override it), so no config wiring is
@@ -220,8 +224,10 @@ shadow. To fully act like the backend:
 - `up.sh` — sync + build + run the backend, watch for rebuilds
 - `rebuild.sh` — compile + trigger a restart
 - `config.shadow.json` — preview-server config running both servers (copy to `.moatless/config.json`)
-- `../../docker/Dockerfile.sandbox-dev` — precompiled image (published by CI as
-  `moatless-dev`) with a warm cargo cache so `up.sh` rebuilds fast (point the
-  shadow repo's `dockerImage` at it)
+- `../../docker/Dockerfile.sandbox-dev` — precompiled image (published on demand
+  as `moatless-dev:latest` by the `Build dev sandbox image` workflow) with warm
+  caches so `up.sh` rebuilds fast (point the shadow repo's `dockerImage` at it)
+- `../../.github/workflows/build-dev-image.yml` — on-demand (workflow_dispatch)
+  job that builds + pushes `moatless-dev:latest`
 - `../../k8s/helm/moatless-vibe/templates/shadow-dev-rbac.yaml` — Phase 2 dev SA +
   RoleBindings, gated on `shadowDev.enabled` in `values.yaml`
