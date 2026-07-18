@@ -9407,6 +9407,13 @@
               "string",
               "null"
             ]
+          },
+          "workspaceId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional explicit workspace to run the task in (multi-repo flows). When\nunset, the task derives the repository's deterministic shadow workspace,\nkeeping the single-repo path unchanged. When set, `repository_id` must be\nthe workspace's primary repository."
           }
         }
       },

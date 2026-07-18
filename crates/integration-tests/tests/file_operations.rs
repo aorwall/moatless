@@ -32,6 +32,7 @@ async fn file_operations_chain() {
     // Create task without message (no agent execution)
     let req = CreateTaskRequest {
         repository_id: repo_id.clone(),
+        workspace_id: None,
         message: None,
         name: Some("File Operations E2E".into()),
         branch: None,

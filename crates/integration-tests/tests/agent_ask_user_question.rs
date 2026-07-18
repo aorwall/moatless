@@ -78,6 +78,7 @@ async fn agent_ask_user_question() {
     // The agent needs to ask the user something before proceeding.
     let req = CreateTaskRequest {
         repository_id: repo_id.clone(),
+        workspace_id: None,
         message: Some(
             "Before making any changes, use the AskUserQuestion tool to ask me \
              what my favorite color is. Then create a file called favorite-color.txt \

@@ -32,6 +32,7 @@ async fn task_send_message_to_closed_task() {
     // Create a task
     let req = CreateTaskRequest {
         repository_id: repo_id,
+        workspace_id: None,
         message: Some("Temp task for close test".into()),
         name: None,
         branch: None,

@@ -28,6 +28,11 @@ pub struct TaskRelationDto {
 #[serde(rename_all = "camelCase")]
 pub struct CreateTaskRequest {
     pub repository_id: String,
+    /// Optional explicit workspace to run the task in (multi-repo flows). When
+    /// unset, the task derives the repository's deterministic shadow workspace,
+    /// keeping the single-repo path unchanged. When set, `repository_id` must be
+    /// the workspace's primary repository.
+    pub workspace_id: Option<String>,
     pub agent_type: Option<AgentType>,
     pub name: Option<String>,
     pub description: Option<String>,

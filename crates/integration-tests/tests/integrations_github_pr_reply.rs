@@ -24,6 +24,7 @@ async fn create_bare_task(client: &MoatClient, repo_id: &str) -> String {
         .api()
         .create_task(&CreateTaskRequest {
             repository_id: repo_id.to_string(),
+            workspace_id: None,
             message: Some("Reply-routing fixture task".into()),
             name: Some("reply-routing-test".into()),
             branch: None,
