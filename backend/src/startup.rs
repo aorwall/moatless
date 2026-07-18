@@ -90,8 +90,15 @@ pub fn spawn_metrics_server(port: u16) {
 
 /// Optionally create a Postgres pool and run migrations.
 ///
-/// Returns `None` when `DATABASE_URL` is unset or connection fails.
-pub async fn init_database(database_url: Option<&str>, max_connections: u32) -> Option<DbPool> {
+/// Returns `None` when `DATABASE_URL` is unset or connection fails. When
+/// `run_migrations` is false (env `RUN_MIGRATIONS=false`), the pool is created
+/// but pending migrations are NOT applied — used by the shadow-dev backend so a
+/// dev instance never mutates the shared dev schema.
+pub async fn init_database(
+    database_url: Option<&str>,
+    max_connections: u32,
+    run_migrations: bool,
+) -> Option<DbPool> {
     let url = if let Some(u) = database_url {
         u
     } else {
@@ -102,11 +109,15 @@ pub async fn init_database(database_url: Option<&str>, max_connections: u32) -> 
     match db::create_pool(url, max_connections).await {
         Ok(pool) => {
             info!("Database pool initialized");
-            if let Err(e) = db::run_migrations(&pool).await {
-                tracing::error!(error = %e, "Database migration failed");
-                std::process::exit(1);
+            if run_migrations {
+                if let Err(e) = db::run_migrations(&pool).await {
+                    tracing::error!(error = %e, "Database migration failed");
+                    std::process::exit(1);
+                }
+                info!("Database migrations complete");
+            } else {
+                info!("RUN_MIGRATIONS=false — skipping database migrations");
             }
-            info!("Database migrations complete");
             Some(pool)
         }
         Err(e) => {

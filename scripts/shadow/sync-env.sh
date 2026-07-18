@@ -97,6 +97,12 @@ done
   echo "export SANDBOX_IDLE_REAPER_ENABLED='false'"
   echo "export RECONCILE_REPROVISION_ENABLED='false'"
   echo "export RECONCILE_PENDING_TIMEOUT_ENABLED='false'"
+  # Never apply migrations from the shadow: it shares the real dev Postgres, so a
+  # pending migration would alter the schema the real backend depends on. The
+  # shadow runs against whatever schema is already there. If you need new schema,
+  # point DATABASE_URL at your own throwaway DB via overrides.env and set
+  # RUN_MIGRATIONS=true there.
+  echo "export RUN_MIGRATIONS='false'"
   # Bind the same ports the frontend dev server already proxies to (vite -> :8080).
   echo "export PORT='8080'"
   echo "export GRPC_PORT='50051'"

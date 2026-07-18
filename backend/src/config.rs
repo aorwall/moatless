@@ -783,6 +783,10 @@ pub struct DatabaseConfig {
     pub url: Option<String>,
     /// Max connections in the pool (default: 5)
     pub max_connections: u32,
+    /// Whether to apply pending migrations at startup (default: true).
+    /// Env `RUN_MIGRATIONS=false` disables them — used by the shadow-dev
+    /// backend so a dev instance never mutates the shared dev schema.
+    pub run_migrations: bool,
 }
 
 /// Skill discovery configuration.
@@ -1033,6 +1037,7 @@ impl Config {
             database: DatabaseConfig {
                 url: database_url,
                 max_connections: env_or("DATABASE_MAX_CONNECTIONS", 5),
+                run_migrations: env_bool("RUN_MIGRATIONS", true),
             },
 
             redis: RedisConfig {
@@ -1455,6 +1460,7 @@ mod tests {
             database: DatabaseConfig {
                 url: None,
                 max_connections: 5,
+                run_migrations: true,
             },
             redis: RedisConfig {
                 url: None,

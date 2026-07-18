@@ -98,6 +98,11 @@ bash scripts/shadow/up.sh          # sync env -> build -> run backend on :8080, 
   - `SANDBOX_IDLE_REAPER_ENABLED=false` + `RECONCILE_*_ENABLED=false` so the
     shadow can never stop/delete/reprovision real sandboxes even if it won the
     (leader-elected) reaper lease.
+  - `RUN_MIGRATIONS=false` — the shadow shares the real dev Postgres, so it must
+    not apply pending migrations (that would alter the schema the real backend
+    depends on). It runs against whatever schema is already there. Need new
+    schema? Point `DATABASE_URL` at your own throwaway DB in `overrides.env` and
+    set `RUN_MIGRATIONS=true` there.
 
   It still talks to the **shared dev Postgres/S3**, so be aware you are
   reading/writing real dev data.

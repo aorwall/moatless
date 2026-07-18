@@ -79,6 +79,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db_pool = startup::init_database(
         config.database_url.as_deref(),
         config.database.max_connections,
+        config.database.run_migrations,
     )
     .await;
     let event_publisher = startup::init_event_publisher(&config).await;

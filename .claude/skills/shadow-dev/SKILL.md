@@ -104,8 +104,11 @@ docker build -f docker/Dockerfile.sandbox-dev \
 The shadow reads/writes the **shared dev Postgres/Redis/S3** — treat it as live
 dev data. `sync-env.sh` fences off shared-state consumers so the shadow can't
 disrupt the real backend: distinct `REDIS_CONSUMER_GROUP`/`ID`,
-`EVENT_HANDLER_ENABLED=false`, and `SANDBOX_IDLE_REAPER_ENABLED=false` +
-`RECONCILE_*_ENABLED=false` (so it never stops/reprovisions real sandboxes).
+`EVENT_HANDLER_ENABLED=false`, `SANDBOX_IDLE_REAPER_ENABLED=false` +
+`RECONCILE_*_ENABLED=false` (so it never stops/reprovisions real sandboxes), and
+`RUN_MIGRATIONS=false` (so it never mutates the shared dev schema — point
+`DATABASE_URL` at your own DB in `overrides.env` + `RUN_MIGRATIONS=true` if you
+need new schema).
 
 ## Troubleshooting
 

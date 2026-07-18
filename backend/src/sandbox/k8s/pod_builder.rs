@@ -1388,6 +1388,7 @@ mod tests {
             database: DatabaseConfig {
                 url: None,
                 max_connections: 5,
+                run_migrations: true,
             },
             redis: RedisConfig {
                 url: None,
