@@ -512,6 +512,10 @@ async fn request_trace_middleware(
 
 /// Spawn the Redis event-handler consumer if Redis is configured.
 async fn spawn_event_handler(config: &Config, app_state: &AppState, cancel: CancellationToken) {
+    if !config.redis.event_handler_enabled {
+        info!("Event handler consumer disabled (EVENT_HANDLER_ENABLED=false)");
+        return;
+    }
     let Some(ref redis_url) = config.redis.url else {
         return;
     };

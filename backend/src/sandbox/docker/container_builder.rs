@@ -519,6 +519,7 @@ mod tests {
             redis: RedisConfig {
                 url: None,
                 max_stream_length: 100,
+                event_handler_enabled: true,
             },
             sse: SseConfig {
                 broadcast_capacity: 16,

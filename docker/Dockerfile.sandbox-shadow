@@ -1,0 +1,55 @@
+# Dockerfile.sandbox-shadow — precompiled shadow-dev sandbox image.
+#
+# Why: the shadow backend (scripts/shadow/up.sh) compiles moatless-vibe-backend
+# from source on start. A cold `cargo build --release` of the whole dependency
+# graph is ~6-10 min. This image bakes a WARM cargo cache — the registry plus
+# compiled dependency artifacts — so up.sh only recompiles the workspace crates
+# that actually changed (~1-2 min). That is the "just compile new stuff" loop.
+#
+# Where the cache must live: `/opt/moatless` is the workspace-data mount and is
+# wiped on every provision, so a target dir under it would be shadowed at runtime
+# and give zero reuse. Both caches here sit OUTSIDE that mount and survive as
+# image layers:
+#   - CARGO_HOME=/opt/cargo          (registry + git deps; set by sandbox-base)
+#   - CARGO_TARGET_DIR=/opt/cargo-target  (compiled deps; set below)
+#
+# Why the deps get reused across a fresh clone: registry crates are keyed by
+# version/features/rustc/source, NOT by the workspace path — so deps compiled
+# here (from /tmp) are reused when up.sh builds from the provisioned workspace.
+# The workspace crates (backend, crates/*) DO recompile because their source
+# differs — exactly the "new stuff" we want to rebuild.
+#
+# This is a DEDICATED image (not baked into sandbox-base) so the base stays lean;
+# only the moatless-vibe (shadow) repo points its `dockerImage` at it.
+#
+# Build (single-arch local):
+#   docker build -f docker/Dockerfile.sandbox-shadow \
+#     --build-arg SANDBOX_IMAGE=aorwall/moatless-sandbox:<tag> \
+#     -t aorwall/moatless-sandbox-shadow:<tag> .
+#
+# Then point the shadow repo at it (repo `dockerImage` / config.shadow.json
+# `dockerImage`), and redeploy the shadow task.
+#
+# Note: baking compiled deps adds a few GB to the image. That is the deliberate
+# trade for a fast shadow rebuild loop; keep it off the default sandbox image.
+
+ARG SANDBOX_IMAGE=aorwall/moatless-sandbox:latest
+FROM ${SANDBOX_IMAGE}
+
+# Compiled dependency artifacts land here — a sibling of /opt/cargo, outside the
+# /opt/moatless workspace mount, so it persists as an image layer. up.sh reads
+# CARGO_TARGET_DIR to reuse it (falls back to in-tree target/ when unset).
+ENV CARGO_TARGET_DIR=/opt/cargo-target
+
+USER root
+
+# Warm the cache in a throwaway source tree. .dockerignore whitelists exactly the
+# Rust workspace (Cargo.toml, Cargo.lock, crates/, sandbox/, backend/, scripts/)
+# and strips **/target/, so this copies clean sources with no build artifacts.
+COPY . /tmp/moatless-vibe-src
+RUN cd /tmp/moatless-vibe-src \
+    && cargo build --release -p moatless-vibe-backend \
+    && rm -rf /tmp/moatless-vibe-src \
+    && chown -R moatless:moatless /opt/cargo-target /opt/cargo
+
+USER moatless

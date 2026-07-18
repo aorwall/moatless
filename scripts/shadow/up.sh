@@ -16,7 +16,14 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 REPO_ROOT="$(pwd)"
 
-BIN="${REPO_ROOT}/target/release/moatless-vibe-backend"
+# Cargo target dir. A precompiled sandbox image bakes a warm target dir at a
+# path OUTSIDE the workspace volume (`/opt/moatless` is a mount, so a cache under
+# it is shadowed on every provision). When CARGO_TARGET_DIR points at that baked
+# dir, `cargo build` reuses the compiled dependency artifacts and only recompiles
+# changed workspace crates — turning a ~6–10 min cold build into ~1–2 min.
+# Falls back to the in-tree `target/` when unset (plain sandbox image).
+TARGET_DIR="${CARGO_TARGET_DIR:-${REPO_ROOT}/target}"
+BIN="${TARGET_DIR}/release/moatless-vibe-backend"
 ENV_FILE="${SHADOW_ENV_FILE:-/opt/moatless/data/shadow/backend.env}"
 TRIGGER="${SHADOW_TRIGGER:-/opt/moatless/data/shadow/rebuild.trigger}"
 mkdir -p "$(dirname "$TRIGGER")"
@@ -25,7 +32,11 @@ echo "==> Syncing backend env from the cluster"
 scripts/shadow/sync-env.sh "$ENV_FILE"
 
 build() {
-  echo "==> Building moatless-vibe-backend (release, incremental)"
+  if [ -d "${TARGET_DIR}/release/deps" ]; then
+    echo "==> Building moatless-vibe-backend (release, warm cache: ${TARGET_DIR})"
+  else
+    echo "==> Building moatless-vibe-backend (release, COLD — no baked cache at ${TARGET_DIR})"
+  fi
   cargo build --release -p moatless-vibe-backend
 }
 

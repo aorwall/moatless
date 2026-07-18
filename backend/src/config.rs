@@ -441,6 +441,12 @@ pub struct RedisConfig {
     /// served from `task_events` in Postgres. `MAXLEN` bounds entry count only;
     /// per-entry bytes are capped separately in `events.rs`.
     pub max_stream_length: usize,
+    /// Whether the event-handler consumer runs (default: true). Its Redis
+    /// consumer group is a shared constant (`event-handler`), so a second
+    /// backend joining the same Redis would split the group's workload with the
+    /// primary. Set `EVENT_HANDLER_ENABLED=false` on a shadow/dev backend that
+    /// shares the primary's Redis so it never claims events meant for it.
+    pub event_handler_enabled: bool,
 }
 
 /// SSE (Server-Sent Events) settings.
@@ -1032,6 +1038,7 @@ impl Config {
             redis: RedisConfig {
                 url: env_opt("REDIS_URL"),
                 max_stream_length: env_or("REDIS_MAX_STREAM_LENGTH", 500),
+                event_handler_enabled: env_bool("EVENT_HANDLER_ENABLED", true),
             },
 
             sse: SseConfig {
@@ -1452,6 +1459,7 @@ mod tests {
             redis: RedisConfig {
                 url: None,
                 max_stream_length: 100,
+                event_handler_enabled: true,
             },
             sse: SseConfig {
                 broadcast_capacity: 16,

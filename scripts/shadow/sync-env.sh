@@ -84,9 +84,19 @@ done
   ID="shadow-$(hostname | tr -cd 'a-z0-9-' | cut -c1-32)"
   echo "# --- shadow overrides ---"
   # Distinct Redis consumer group/id so we do NOT steal stream events from the
-  # real backend's consumer group.
+  # real backend's consumer group (SSE + the generic Redis consumer honour these).
   echo "export REDIS_CONSUMER_GROUP='${ID}'"
   echo "export REDIS_CONSUMER_ID='${ID}'"
+  # The event-handler consumer group is a shared constant ("event-handler"), NOT
+  # derived from REDIS_CONSUMER_GROUP — a shadow joining it would split the real
+  # backend's event-handler workload (webhook->task triggers, message routing).
+  # A shadow is a dev/API instance and must not act on the global event stream.
+  echo "export EVENT_HANDLER_ENABLED='false'"
+  # Don't let the shadow's idle reaper stop/delete real sandboxes if it ever wins
+  # the (leader-elected) reaper lease. Also skip the reconcile pass it hosts.
+  echo "export SANDBOX_IDLE_REAPER_ENABLED='false'"
+  echo "export RECONCILE_REPROVISION_ENABLED='false'"
+  echo "export RECONCILE_PENDING_TIMEOUT_ENABLED='false'"
   # Bind the same ports the frontend dev server already proxies to (vite -> :8080).
   echo "export PORT='8080'"
   echo "export GRPC_PORT='50051'"
