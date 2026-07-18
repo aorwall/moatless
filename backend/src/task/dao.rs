@@ -182,6 +182,20 @@ impl TaskRepository for PgTaskRepository {
     }
 
     async fn insert_task(&self, row: &Task) -> Result<(), sqlx::Error> {
+        // Resolve the workspace this task belongs to. Callers may set
+        // `workspace_id` explicitly (future multi-repo flows); when unset, ensure
+        // the repository's deterministic shadow workspace exists and use it — so
+        // every creation path (HTTP handler, adapters, triggers) persists a
+        // workspace_id consistently, exactly as the Phase A backfill did for
+        // pre-existing tasks. Applied here at the DAO layer, mirroring the
+        // auto-follow below, so no creation path can silently skip it.
+        let workspace_id = match row.workspace_id.clone() {
+            Some(id) => id,
+            None => {
+                crate::workspace::dao::ensure_shadow_workspace(&self.0, &row.repository_id).await?
+            }
+        };
+
         sqlx::query(
             r#"INSERT INTO tasks (
                 task_id, short_id, created_at, last_message_at, agent_type,
@@ -191,11 +205,13 @@ impl TaskRepository for PgTaskRepository {
                 append_system_prompt, updated_at, sandbox_started_at,
                 sandbox_desired_state, sandbox_stop_reason,
                 sandbox_desired_state_updated_at, headless, ttl_minutes,
-                task_template_id, inactive_ttl_days, trigger_id, disabled_servers
+                task_template_id, inactive_ttl_days, trigger_id, disabled_servers,
+                workspace_id
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
-                $22, NOW(), $23, $24, $25, NOW(), $26, $27, $28, $29, $30, $31
+                $22, NOW(), $23, $24, $25, NOW(), $26, $27, $28, $29, $30, $31,
+                $32
             )"#,
         )
         .bind(&row.task_id)
@@ -229,6 +245,7 @@ impl TaskRepository for PgTaskRepository {
         .bind(row.inactive_ttl_days)
         .bind(&row.trigger_id)
         .bind(&row.disabled_servers)
+        .bind(&workspace_id)
         .execute(&self.0)
         .await?;
 

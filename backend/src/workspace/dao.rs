@@ -390,3 +390,64 @@ impl WorkspaceRepository for PgWorkspaceRepository {
         Ok(())
     }
 }
+
+/// Idempotently ensure a repository's deterministic **shadow workspace** exists
+/// (`ws_<repository_id>` + its primary placement `wsr_<repository_id>`), and
+/// return the workspace id.
+///
+/// This is the runtime twin of the Phase A migration backfill: it copies the
+/// same repository columns 1:1, uses the same `kind = 'single'`, and creates the
+/// same single primary placement, so a task created at runtime lands on exactly
+/// the shape the migration produced for pre-existing tasks. The deterministic
+/// primary keys plus `ON CONFLICT (id) DO NOTHING` make concurrent creators
+/// race-safe — the id is returned unconditionally rather than gated on a prior
+/// existence `SELECT`. Both inserts run in one transaction.
+///
+/// If the repository row does not exist the `INSERT ... SELECT`s are no-ops; the
+/// returned id is still `ws_<repository_id>` (there is no FK on
+/// `tasks.workspace_id` during the additive transition).
+pub async fn ensure_shadow_workspace(
+    pool: &DbPool,
+    repository_id: &str,
+) -> Result<String, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+
+    sqlx::query(
+        r#"INSERT INTO workspaces (
+               id, name, description, kind,
+               docker_image, docker_access, sandbox_service_account,
+               system_prompt, setup_commands, env_vars, servers, plugins, resources,
+               scope, team_id, owner_user_id, created_by, deleted, created_at, updated_at
+           )
+           SELECT
+               'ws_' || r.id, r.name, r.description, 'single',
+               r.docker_image, r.docker_access, r.sandbox_service_account,
+               r.system_prompt, r.setup_commands, r.env_vars,
+               COALESCE(r.servers, '[]'::jsonb), r.plugins, r.resources,
+               COALESCE(r.scope, 'user'), r.team_id, r.owner_user_id, r.created_by, r.deleted,
+               COALESCE(r.created_at, now()), COALESCE(r.updated_at, now())
+           FROM repositories r
+           WHERE r.id = $1
+           ON CONFLICT (id) DO NOTHING"#,
+    )
+    .bind(repository_id)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query(
+        r#"INSERT INTO workspace_repos (
+               id, workspace_id, repository_id, branch, mount_name, is_primary, position
+           )
+           SELECT
+               'wsr_' || r.id, 'ws_' || r.id, r.id, NULL, NULL, true, 0
+           FROM repositories r
+           WHERE r.id = $1
+           ON CONFLICT (id) DO NOTHING"#,
+    )
+    .bind(repository_id)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(format!("ws_{repository_id}"))
+}
