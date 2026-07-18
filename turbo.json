@@ -27,6 +27,20 @@
 			"inputs": ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", "biome.json"],
 			"outputs": []
 		},
+		"//#lint:ratchet": {
+			"inputs": [
+				"apps/frontend/src/**",
+				"packages/*/src/**",
+				"biome.json",
+				"biome-baseline.json",
+				"scripts/biome-ratchet.ts"
+			],
+			"outputs": []
+		},
+		"//#test:scripts": {
+			"inputs": ["scripts/**", "vitest.config.ts"],
+			"outputs": []
+		},
 		"test": {
 			"dependsOn": ["^build"],
 			"outputs": ["coverage/**"],

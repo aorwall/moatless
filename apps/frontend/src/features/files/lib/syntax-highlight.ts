@@ -71,13 +71,6 @@ export function highlightLine(code: string, language?: string): HighlightToken[]
 }
 
 /**
- * Check if a language is supported by the highlighter
- */
-export function isLanguageSupported(language: string): boolean {
-  return hljs.getLanguage(language) !== undefined
-}
-
-/**
  * Parse highlight.js HTML output into tokens, handling nested spans.
  * Input: '<span class="hljs-keyword">const</span> x = <span class="hljs-number">1</span>'
  * Output: [{ type: 'keyword', content: 'const' }, { type: 'plain', content: ' x = ' }, ...]
@@ -141,5 +134,3 @@ function decodeHtml(html: string): string {
     .replace(/&#x27;/g, "'")
     .replace(/&#39;/g, "'")
 }
-
-export { default as hljs } from 'highlight.js/lib/core'

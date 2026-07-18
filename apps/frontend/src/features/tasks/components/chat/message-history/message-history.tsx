@@ -23,7 +23,16 @@ import { EnvironmentIndicator } from './environment-indicator.tsx'
 import { ErrorMessageComponent } from './error-message.tsx'
 import { ExternalSourceMessageComponent } from './external-source-message.tsx'
 import { buildToolResultMap, parseMessageContent } from './message-content.ts'
+import {
+  computeAnchorRestore,
+  isAtBottom,
+  shouldFetchPreviousPage,
+  shouldRearmFetch,
+  shouldShowScrollDownButton,
+  shouldStickToBottom,
+} from './message-history-scroll.ts'
 import { MessageHistorySkeleton } from './message-history-skeleton.tsx'
+import { MessageHistoryVirtualList, type VirtualRow } from './message-history-virtual-list.tsx'
 import { SystemMessageComponent } from './system-message.tsx'
 import { ThinkingIndicator } from './thinking-indicator.tsx'
 import { ToolCallGroup } from './tool-call-group.tsx'
@@ -188,12 +197,6 @@ interface MessageHistoryProps {
   collapseToolCalls?: boolean | undefined
 }
 
-// How close to the top (in px) before we trigger a previous-page fetch.
-const FETCH_THRESHOLD = 300
-// How close to the bottom (in px) before we consider the user "at bottom"
-// for stick-to-bottom behaviour and the scroll-down button visibility.
-const AT_BOTTOM_THRESHOLD = 50
-
 function MessageHistoryComponent({
   taskId,
   messages,
@@ -210,6 +213,11 @@ function MessageHistoryComponent({
   collapseToolCalls = false,
 }: MessageHistoryProps) {
   const [expandedToolCalls, setExpandedToolCalls] = useState<Set<string>>(new Set())
+  // The virtualized list is the default renderer (DOM stays proportional to the
+  // viewport instead of the conversation length). Kept as a single boolean so
+  // the classic path below stays available as a code-level fallback — flip to
+  // `false` to fall back without touching the rest of the component.
+  const [useVirtualList] = useState<boolean>(true)
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const [atBottom, setAtBottom] = useState(true)
 
@@ -290,11 +298,10 @@ function MessageHistoryComponent({
     if (!prependAnchorRef.current || isFetchingPreviousPage || !scrollContainerRef.current) {
       return
     }
-    const { top, height } = prependAnchorRef.current
     const el = scrollContainerRef.current
-    const delta = el.scrollHeight - height
-    if (delta > 0) {
-      el.scrollTop = top + delta
+    const restoredTop = computeAnchorRestore(el.scrollHeight, prependAnchorRef.current)
+    if (restoredTop !== null) {
+      el.scrollTop = restoredTop
     }
     prependAnchorRef.current = null
   }, [isFetchingPreviousPage, flattenedMessages.length])
@@ -317,11 +324,16 @@ function MessageHistoryComponent({
       // scroll position instead.
       return
     }
-    const prevSH = prevScrollHeightRef.current
-    const prevST = prevScrollTopRef.current
-    const ch = el.clientHeight
-    const oldDistanceFromBottom = prevSH - prevST - ch
-    if (oldDistanceFromBottom > AT_BOTTOM_THRESHOLD) {
+    // Compare the previous commit's scroll position against the current
+    // clientHeight (which rarely changes between commits) to decide whether the
+    // user was at the bottom before this data change.
+    if (
+      !shouldStickToBottom({
+        scrollHeight: prevScrollHeightRef.current,
+        scrollTop: prevScrollTopRef.current,
+        clientHeight: el.clientHeight,
+      })
+    ) {
       return
     }
     el.scrollTop = el.scrollHeight
@@ -345,9 +357,12 @@ function MessageHistoryComponent({
     if (!el) {
       return
     }
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-    const nowAtBottom = distanceFromBottom <= AT_BOTTOM_THRESHOLD
-    setAtBottom(nowAtBottom)
+    const metrics = {
+      scrollTop: el.scrollTop,
+      scrollHeight: el.scrollHeight,
+      clientHeight: el.clientHeight,
+    }
+    setAtBottom(isAtBottom(metrics))
     // Eagerly capture the user's scroll position so the next stick-to-bottom
     // decision (which may run before the next React commit) reflects where
     // the user actually is right now.
@@ -355,17 +370,20 @@ function MessageHistoryComponent({
     prevScrollTopRef.current = el.scrollTop
 
     // Re-arm the trigger once the user scrolls back away from the top.
-    if (el.scrollTop > FETCH_THRESHOLD) {
+    if (shouldRearmFetch(el.scrollTop)) {
       fetchArmedRef.current = true
     }
 
     if (
-      el.scrollTop <= FETCH_THRESHOLD &&
-      fetchArmedRef.current &&
-      hasPreviousPage &&
-      !isFetchingPreviousPage &&
-      fetchPreviousPage &&
-      !prependAnchorRef.current
+      shouldFetchPreviousPage({
+        scrollTop: el.scrollTop,
+        armed: fetchArmedRef.current,
+        hasPreviousPage,
+        isFetchingPreviousPage,
+        canFetch: Boolean(fetchPreviousPage),
+        anchorPending: prependAnchorRef.current !== null,
+      }) &&
+      fetchPreviousPage
     ) {
       // Disarm immediately so cascading scroll events from the anchor restore
       // (or a short prepended page that lands the user back near the top) do
@@ -444,6 +462,62 @@ function MessageHistoryComponent({
     return null
   }, [renderItems])
 
+  // Stable id per render item — the message uuid or cluster key. Used both as
+  // the React key and as the virtualized row id (virtua caches row heights by
+  // child key, so this must survive prepends).
+  const itemId = (item: RenderItem): string =>
+    item.kind === 'cluster' ? item.key : item.message.uuid
+
+  // One ErrorBoundary-wrapped node per render item. Shared by both the
+  // non-virtual (`renderItems.map` below) and virtual paths.
+  const renderItemNode = (item: RenderItem): ReactNode =>
+    item.kind === 'cluster' ? (
+      <ErrorBoundary key={item.key} resetKeys={[item.key]} fallback={renderMessageFallback}>
+        <CommandCluster
+          taskId={taskId}
+          messages={item.messages}
+          expandedToolCalls={expandedToolCalls}
+          onToggleToolCall={toggleToolCallExpansion}
+        />
+      </ErrorBoundary>
+    ) : (
+      <ErrorBoundary
+        key={item.message.uuid}
+        resetKeys={[item.message.uuid]}
+        fallback={renderMessageFallback}
+      >
+        {renderRow(item.message)}
+      </ErrorBoundary>
+    )
+
+  // Footer content rendered after the message rows (status/thinking indicators
+  // and the last-assistant action bar). Each carries a stable id so it can be a
+  // keyed virtualized tail row.
+  const footerRows: VirtualRow[] = []
+  if (environmentStatus === 'initializing') {
+    footerRows.push({
+      id: 'env-initializing',
+      node: <EnvironmentIndicator key="env-initializing" status="initializing" />,
+    })
+  }
+  if (environmentStatus === 'error') {
+    footerRows.push({
+      id: 'env-error',
+      node: <EnvironmentIndicator key="env-error" status="error" errorMessage={environmentError} />,
+    })
+  }
+  if (isRunning && environmentStatus !== 'initializing') {
+    footerRows.push({ id: 'thinking', node: <ThinkingIndicator key="thinking" /> })
+  }
+  if (!isRunning && taskId && lastAssistantMessage) {
+    footerRows.push({
+      id: 'last-actions',
+      node: (
+        <LastAssistantActions key="last-actions" taskId={taskId} message={lastAssistantMessage} />
+      ),
+    })
+  }
+
   if (isLoading && (!messages || messages.length === 0)) {
     return <MessageHistorySkeleton />
   }
@@ -474,6 +548,22 @@ function MessageHistoryComponent({
     )
   }
 
+  if (useVirtualList) {
+    return (
+      <MessageHistoryVirtualList
+        className={className}
+        taskKey={taskId}
+        rows={[
+          ...renderItems.map((item) => ({ id: itemId(item), node: renderItemNode(item) })),
+          ...footerRows,
+        ]}
+        hasPreviousPage={hasPreviousPage}
+        isFetchingPreviousPage={isFetchingPreviousPage}
+        fetchPreviousPage={fetchPreviousPage}
+      />
+    )
+  }
+
   return (
     <div className={cn('flex-1 overflow-hidden min-h-0', className)}>
       <div className="h-full relative">
@@ -493,42 +583,12 @@ function MessageHistoryComponent({
                 Loading older messages…
               </div>
             )}
-            {renderItems.map((item) =>
-              item.kind === 'cluster' ? (
-                <ErrorBoundary
-                  key={item.key}
-                  resetKeys={[item.key]}
-                  fallback={renderMessageFallback}
-                >
-                  <CommandCluster
-                    taskId={taskId}
-                    messages={item.messages}
-                    expandedToolCalls={expandedToolCalls}
-                    onToggleToolCall={toggleToolCallExpansion}
-                  />
-                </ErrorBoundary>
-              ) : (
-                <ErrorBoundary
-                  key={item.message.uuid}
-                  resetKeys={[item.message.uuid]}
-                  fallback={renderMessageFallback}
-                >
-                  {renderRow(item.message)}
-                </ErrorBoundary>
-              ),
-            )}
-            {environmentStatus === 'initializing' && <EnvironmentIndicator status="initializing" />}
-            {environmentStatus === 'error' && (
-              <EnvironmentIndicator status="error" errorMessage={environmentError} />
-            )}
-            {isRunning && environmentStatus !== 'initializing' && <ThinkingIndicator />}
-            {!isRunning && taskId && lastAssistantMessage && (
-              <LastAssistantActions taskId={taskId} message={lastAssistantMessage} />
-            )}
+            {renderItems.map(renderItemNode)}
+            {footerRows.map((row) => row.node)}
           </div>
         </div>
 
-        {!atBottom && (
+        {shouldShowScrollDownButton(atBottom) && (
           <div className="absolute bottom-4 right-4 z-10">
             <Button
               variant="outline"

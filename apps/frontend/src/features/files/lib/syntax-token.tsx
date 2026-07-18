@@ -1,4 +1,4 @@
-import type { HighlightToken } from '../utils/syntax-highlight.js'
+import type { HighlightToken } from './syntax-highlight'
 
 interface SyntaxTokenProps {
   token: HighlightToken

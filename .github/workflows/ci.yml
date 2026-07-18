@@ -286,6 +286,12 @@ jobs:
       - name: Lint check
         run: bun run biome:check
 
+      - name: Lint ratchet (no new nursery-rule violations)
+        run: bun run lint:ratchet
+
+      - name: Ratchet script unit tests
+        run: bun run test:scripts
+
   # ── Build & type-check frontend (needs generated client if Rust changed) ──
   build-frontend:
     name: Build frontend

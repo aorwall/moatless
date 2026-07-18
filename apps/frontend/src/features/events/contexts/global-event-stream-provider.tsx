@@ -461,6 +461,13 @@ export function GlobalEventStreamProvider({
 
       // Notify user on successful reconnection
       if (wasReconnecting) {
+        // Events emitted while disconnected are gone (the backend has no
+        // Last-Event-ID replay), so anything observed on screen may be stale.
+        // refetchType: 'active' limits this to mounted queries — dormant cache
+        // entries stay marked stale and refetch naturally on next observation.
+        // No queryKey filter: the query-key namespaces don't share a common
+        // root, so invalidating everything is the only way to cover them all.
+        queryClient.invalidateQueries({ refetchType: 'active' })
         toast.success('Reconnected to server')
       }
 
@@ -483,7 +490,7 @@ export function GlobalEventStreamProvider({
         throw error
       }
     },
-    [processStream, scheduleReconnect],
+    [processStream, scheduleReconnect, queryClient],
   )
 
   // Helper: Handle fetch error and reconnection
