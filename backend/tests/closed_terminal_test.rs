@@ -236,6 +236,7 @@ async fn build_provision_request_rejects_closed_task(pool: PgPool) {
     use moatless_vibe_backend::plugin_repo::dao::PgPluginRepoRepository;
     use moatless_vibe_backend::repository::dao::PgRepoRepository;
     use moatless_vibe_backend::sandbox::auto_provision::build_provision_request;
+    use moatless_vibe_backend::workspace::dao::PgWorkspaceRepository;
 
     seed_with_status(&pool, "task-prov", TaskStatus::Closed).await;
 
@@ -244,6 +245,7 @@ async fn build_provision_request_rejects_closed_task(pool: PgPool) {
         &PgRepoRepository(pool.clone()),
         &PgProviderTokenRepository(pool.clone()),
         &PgPluginRepoRepository(pool.clone()),
+        &PgWorkspaceRepository(pool.clone()),
         "task-prov",
     )
     .await;
