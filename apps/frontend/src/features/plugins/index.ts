@@ -6,9 +6,6 @@
 // Export API client
 export { pluginsApi } from './api/plugins.api'
 
-// Export components
-export { MarketplacesPage } from './components/marketplaces-page'
-
 // Export hooks
 export {
   useAddMarketplace,
