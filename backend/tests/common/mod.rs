@@ -12,8 +12,8 @@ use moatless_vibe_backend::command::models::Command;
 use moatless_vibe_backend::config::{
     AuthConfig, CodexOAuthConfig, Config, DatabaseConfig, DockerConfig, GithubPrConfig,
     LinearConfig, ProxyConfig, ReconcileConfig, RedisConfig, S3Config, SandboxConfig,
-    SandboxProviderType,
-    SecretsConfig, ServerConfig, SkillConfig, SlackConfig, SseConfig, TelegramConfig,
+    SandboxProviderType, SecretsConfig, ServerConfig, SkillConfig, SlackConfig, SseConfig,
+    TelegramConfig,
 };
 use moatless_vibe_backend::message::models::{MessageRole, MessageType, TaskMessage};
 use moatless_vibe_backend::repository::models::{Repository, RepositoryKind, RepositoryProvider};
@@ -25,6 +25,7 @@ use moatless_vibe_backend::sandbox::schemas::*;
 use moatless_vibe_backend::shared_models::AgentType;
 use moatless_vibe_backend::state::AppState;
 use moatless_vibe_backend::task::models::{SandboxDesiredState, Task, TaskStatus, Visibility};
+use moatless_vibe_backend::workspace::models::{Workspace, WorkspaceRepo};
 
 // =========================================================================
 // Mock sandbox provider
@@ -508,4 +509,61 @@ pub async fn body_json(response: axum::http::Response<axum::body::Body>) -> serd
         .unwrap()
         .to_bytes();
     serde_json::from_slice(&bytes).unwrap()
+}
+
+// =========================================================================
+// Workspace factories
+// =========================================================================
+
+/// Create a minimal user-scoped Workspace row for tests.
+///
+/// `kind` starts at `blank`; use `refresh_kind` after adding placements to
+/// derive the real label. Run-config columns are left empty — placement and
+/// ACL behavior is what the DAO tests exercise.
+#[allow(dead_code)]
+pub fn make_workspace_row(id: &str, user_id: &str) -> Workspace {
+    let now = chrono::Utc::now();
+    Workspace {
+        id: id.to_string(),
+        name: format!("ws-{id}"),
+        description: None,
+        kind: "blank".to_string(),
+        docker_image: None,
+        docker_access: None,
+        sandbox_service_account: None,
+        system_prompt: None,
+        setup_commands: None,
+        env_vars: None,
+        servers: None,
+        plugins: None,
+        resources: None,
+        scope: moatless_vibe_backend::scope::Scope::User,
+        team_id: Some(format!("personal-{user_id}")),
+        owner_user_id: Some(user_id.to_string()),
+        created_by: Some(user_id.to_string()),
+        deleted: Some(false),
+        created_at: Some(now),
+        updated_at: Some(now),
+    }
+}
+
+/// Create a `WorkspaceRepo` placement row for tests.
+#[allow(dead_code)]
+pub fn make_workspace_repo_row(
+    id: &str,
+    workspace_id: &str,
+    repository_id: &str,
+    is_primary: bool,
+    position: i32,
+) -> WorkspaceRepo {
+    WorkspaceRepo {
+        id: id.to_string(),
+        workspace_id: workspace_id.to_string(),
+        repository_id: repository_id.to_string(),
+        branch: None,
+        mount_name: None,
+        is_primary,
+        position,
+        created_at: Some(chrono::Utc::now()),
+    }
 }
