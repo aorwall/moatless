@@ -1,16 +1,8 @@
-import {
-  Code,
-  ExternalLink,
-  Eye,
-  GitCompareArrows,
-  PanelLeftClose,
-  PanelLeftOpen,
-} from 'lucide-react'
+import { Code, ExternalLink, Eye, GitCompareArrows } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useMemo } from 'react'
 import { Button } from '@/lib/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/lib/components/ui/tooltip'
-import { cn } from '@/lib/utils'
 import { useFileContent } from '../hooks/use-file-content'
 import { useFileViewState } from '../hooks/use-file-view-state'
 import { useSelectedFile } from '../hooks/use-selected-file'
@@ -59,7 +51,7 @@ function ModeButton({
 
 export function FilesWorkspaceControls({ taskId }: FilesWorkspaceControlsProps) {
   const { selectedFile } = useSelectedFile()
-  const { fileView, setFileView, isExplorerCollapsed, setExplorerCollapsed } = useFileViewState()
+  const { fileView, setFileView } = useFileViewState()
   const { data } = useFileContent(taskId, selectedFile, selectedFile !== undefined)
 
   const fileOnlyHref = useMemo(() => {
@@ -138,28 +130,6 @@ export function FilesWorkspaceControls({ taskId }: FilesWorkspaceControlsProps) 
           <TooltipContent>Open file-only preview</TooltipContent>
         </Tooltip>
       )}
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className={cn('h-8 w-8', isExplorerCollapsed && 'text-foreground')}
-            onClick={() => setExplorerCollapsed(!isExplorerCollapsed)}
-            aria-label={isExplorerCollapsed ? 'Expand file explorer' : 'Collapse file explorer'}
-          >
-            {isExplorerCollapsed ? (
-              <PanelLeftOpen className="h-4 w-4" />
-            ) : (
-              <PanelLeftClose className="h-4 w-4" />
-            )}
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>
-          {isExplorerCollapsed ? 'Expand file explorer' : 'Collapse file explorer'}
-        </TooltipContent>
-      </Tooltip>
     </div>
   )
 }

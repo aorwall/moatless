@@ -26,6 +26,7 @@ export function Preview({
   onElementSelected,
   onToggleElementContext,
   onNavigationReady,
+  onReloadReady,
   onTroubleshootRequest,
   onChatToggleRequest,
   servers,
@@ -184,6 +185,14 @@ export function Preview({
     deactivateInspector()
     reloadIframe()
   }, [deactivateInspector, reloadIframe])
+
+  // Expose reload to the composing feature (e.g. the mobile overlay's actions
+  // menu) so it can trigger a reload without owning the iframe.
+  useEffect(() => {
+    if (onReloadReady) {
+      onReloadReady(reloadPreview)
+    }
+  }, [onReloadReady, reloadPreview])
 
   const handleIframeLoad = useCallback(() => {
     setHasProxyError(false)

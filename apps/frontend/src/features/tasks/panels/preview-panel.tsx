@@ -3,6 +3,7 @@ import { Preview } from '@/features/preview'
 import type { PreviewPublish } from '@/features/preview/types'
 import { useRepository } from '@/features/repositories/hooks/use-repositories'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
+import { useIsMobile } from '@/lib/hooks/use-mobile'
 import { getErrorMessage } from '@/lib/utils/error'
 import {
   useComposer,
@@ -38,6 +39,7 @@ export function PreviewPanel({ kiosk = false }: PreviewPanelProps) {
   const controls = usePanelControls()
   const sandboxEvents = useSandboxEvents()
   const startupEvents = useStartupEvents()
+  const isMobile = useIsMobile()
 
   const activeServerName = view === 'chat' ? undefined : view
 
@@ -78,6 +80,7 @@ export function PreviewPanel({ kiosk = false }: PreviewPanelProps) {
         startupEvents={startupEvents}
         onToggleElementContext={composer.toggleElementContext}
         onNavigationReady={controls.registerPreviewNavigate}
+        onReloadReady={controls.registerPreviewReload}
         onTroubleshootRequest={() => controls.executeCommand('troubleshoot-preview')}
         onChatToggleRequest={() => controls.toggleChat()}
         servers={servers}
@@ -87,7 +90,7 @@ export function PreviewPanel({ kiosk = false }: PreviewPanelProps) {
         publish={publish}
         resources={sandboxStatus?.resources ?? undefined}
         sandboxEvents={sandboxEvents}
-        hideHeader={kiosk}
+        hideHeader={kiosk || isMobile}
         hideConsole={kiosk}
       />
     </ErrorBoundary>

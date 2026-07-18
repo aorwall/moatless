@@ -4,6 +4,7 @@ import { FilesWorkspaceControls, LazyFileExplorer } from '@/features/files'
 import { SandboxStatusOverlay } from '@/features/preview'
 import { ViewTabs } from '@/features/preview/components/view-tabs'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
+import { useIsMobile } from '@/lib/hooks/use-mobile'
 import { WorkspaceHeader } from '@/lib/layout/workspace-header'
 import { useTaskId } from '../contexts/task-providers'
 import { useSandboxRetry, useSandboxStatus } from '../hooks/use-sandbox-status'
@@ -24,6 +25,7 @@ export function FilesPanel() {
   const servers = sandboxStatus?.servers
   const { view, setView } = useTaskView({ servers })
   const retryMutation = useSandboxRetry(taskId)
+  const isMobile = useIsMobile()
 
   const isSandboxReady = sandboxStatus?.environmentStatus === 'ready'
 
@@ -47,10 +49,14 @@ export function FilesPanel() {
   return (
     <ErrorBoundary componentName="File Explorer">
       <div className="h-full flex flex-col">
-        <WorkspaceHeader
-          leading={<ViewTabs servers={servers ?? []} activeView={view} onViewChange={setView} />}
-          centerContent={<FilesWorkspaceControls taskId={taskId} />}
-        />
+        {/* On mobile the header controls live in the floating overlay's actions
+            menu (see mobile-task-layout), so the panel goes header-less. */}
+        {!isMobile && (
+          <WorkspaceHeader
+            leading={<ViewTabs servers={servers ?? []} activeView={view} onViewChange={setView} />}
+            centerContent={<FilesWorkspaceControls taskId={taskId} />}
+          />
+        )}
         <div className="flex-1 min-h-0 relative">
           {isSandboxReady ? (
             <LazyFileExplorer taskId={taskId} />

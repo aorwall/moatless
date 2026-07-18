@@ -3,6 +3,7 @@ import { useState } from 'react'
 import type { LifecycleEvent } from '@/features/events'
 import { LogsPanel } from '@/features/preview/components/logs-panel'
 import { ViewTabs } from '@/features/preview/components/view-tabs'
+import { useIsMobile } from '@/lib/hooks/use-mobile'
 import { StackedConsoleSplit } from '@/lib/layout/stacked-console-split'
 import { WorkspaceHeader } from '@/lib/layout/workspace-header'
 import { TaskControlPanel } from './task-control-panel'
@@ -27,6 +28,7 @@ export function SandboxWorkspacePanel({
   sandboxEvents = [],
 }: SandboxWorkspacePanelProps) {
   const [isConsoleExpanded, setIsConsoleExpanded] = useState(true)
+  const isMobile = useIsMobile()
   const defaultServer = servers?.find((s) => s.default) ?? servers?.[0]
 
   const renderConsole = (isExpanded: boolean) => (
@@ -43,9 +45,14 @@ export function SandboxWorkspacePanel({
 
   return (
     <div className="h-full flex flex-col">
-      <WorkspaceHeader
-        leading={<ViewTabs servers={servers ?? []} activeView={view} onViewChange={onViewChange} />}
-      />
+      {/* Mobile uses the floating overlay's view switcher instead of this bar. */}
+      {!isMobile && (
+        <WorkspaceHeader
+          leading={
+            <ViewTabs servers={servers ?? []} activeView={view} onViewChange={onViewChange} />
+          }
+        />
+      )}
       <StackedConsoleSplit
         renderConsole={renderConsole}
         isConsoleExpanded={isConsoleExpanded}

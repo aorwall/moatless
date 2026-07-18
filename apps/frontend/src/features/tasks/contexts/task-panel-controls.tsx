@@ -14,6 +14,8 @@ interface TaskPanelControls {
   showWorkspace(view?: TaskView): void
   /** Navigate the preview iframe to a path (backed by the registered navigator). */
   navigatePreview(path: string): void
+  /** Reload the preview iframe (backed by the registered reloader; no-op if none). */
+  reloadPreview(): void
   /** Invoke the command executor registered by the chat panel (no-op if none). */
   executeCommand(name: string): void
   /** Register the chat panel's command executor; returns an unregister fn. */
@@ -22,6 +24,8 @@ interface TaskPanelControls {
   registerChatToggle(fn: () => void): () => void
   /** Register the preview's imperative navigator; returns an unregister fn. */
   registerPreviewNavigate(fn: (path: string) => void): () => void
+  /** Register the preview's imperative reloader; returns an unregister fn. */
+  registerPreviewReload(fn: () => void): () => void
 }
 
 const TaskPanelControlsContext = createContext<TaskPanelControls | undefined>(undefined)
@@ -36,6 +40,7 @@ export function TaskPanelControlsProvider({ children }: { children: ReactNode })
   const chatToggleRef = useRef<(() => void) | null>(null)
   const commandExecutorRef = useRef<((name: string) => void) | null>(null)
   const previewNavigateRef = useRef<((path: string) => void) | null>(null)
+  const previewReloadRef = useRef<(() => void) | null>(null)
 
   const value = useMemo<TaskPanelControls>(
     () => ({
@@ -46,6 +51,7 @@ export function TaskPanelControlsProvider({ children }: { children: ReactNode })
         }
       },
       navigatePreview: (path) => previewNavigateRef.current?.(path),
+      reloadPreview: () => previewReloadRef.current?.(),
       executeCommand: (name) => commandExecutorRef.current?.(name),
       registerCommandExecutor: (fn) => {
         commandExecutorRef.current = fn
@@ -68,6 +74,14 @@ export function TaskPanelControlsProvider({ children }: { children: ReactNode })
         return () => {
           if (previewNavigateRef.current === fn) {
             previewNavigateRef.current = null
+          }
+        }
+      },
+      registerPreviewReload: (fn) => {
+        previewReloadRef.current = fn
+        return () => {
+          if (previewReloadRef.current === fn) {
+            previewReloadRef.current = null
           }
         }
       },

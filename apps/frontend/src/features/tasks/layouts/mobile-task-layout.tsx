@@ -18,8 +18,8 @@ export function MobileTaskLayout() {
 
   return (
     <div className="h-full w-full flex flex-col overflow-hidden">
+      <TaskMobileHeader />
       <div className="flex-1 min-h-0 relative">
-        <TaskMobileHeader />
         {view === 'chat' ? <ChatPanel /> : <WorkspacePanel />}
       </div>
     </div>

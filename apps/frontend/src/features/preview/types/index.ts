@@ -51,6 +51,8 @@ export interface PreviewProps {
   onElementSelected?: ((element: ElementInfo | null) => void) | undefined
   onToggleElementContext?: ((element: ElementInfo) => void) | undefined
   onNavigationReady?: ((navigate: (path: string) => void) => void) | undefined
+  /** Register the preview's imperative reload fn with the composing feature. */
+  onReloadReady?: ((reload: () => void) => void) | undefined
   onTroubleshootRequest?: ((reason: string) => void) | undefined
   /** Called when the preview iframe requests toggling the chat panel. */
   onChatToggleRequest?: (() => void) | undefined

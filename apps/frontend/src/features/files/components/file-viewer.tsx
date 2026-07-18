@@ -1,11 +1,12 @@
 import { File as PierreFile } from '@pierre/diffs/react'
-import { Code, Eye, FileQuestion, GitCompareArrows, Music } from 'lucide-react'
-import { useEffect } from 'react'
+import { FileQuestion, Music } from 'lucide-react'
+import { type ReactNode, useEffect } from 'react'
 import { Skeleton } from '@/lib/components/ui/skeleton'
-import { cn } from '@/lib/utils'
+import { useIsMobile } from '@/lib/hooks/use-mobile'
 import { useFileContent } from '../hooks/use-file-content'
 import { usePierreOptions } from '../lib/use-pierre-theme'
 import { DiffFileView } from './diff-file-view'
+import { FileModeToggleGroup } from './file-mode-toggle'
 import { HtmlPreview } from './html-preview'
 import { MarkdownPreview } from './markdown-preview'
 
@@ -168,6 +169,86 @@ interface FileViewerProps {
   onViewModeChange: (viewMode: FileViewMode) => void
   hideHeaderActions?: boolean
   hideViewModeControls?: boolean
+  /** Optional control rendered at the start of the header row (e.g. the file
+   *  tree expand toggle when the explorer is collapsed). */
+  leadingControl?: ReactNode
+}
+
+interface FileViewerHeaderProps {
+  filePath: string | undefined
+  isModified: boolean
+  additions: number | undefined
+  deletions: number | undefined
+  viewMode: FileViewMode
+  onViewModeChange: (viewMode: FileViewMode) => void
+  canDiff: boolean
+  canPreview: boolean
+  isMobile: boolean
+  hideHeaderActions: boolean
+  hideViewModeControls: boolean
+  leadingControl?: ReactNode
+}
+
+function FileViewerHeader({
+  filePath,
+  isModified,
+  additions,
+  deletions,
+  viewMode,
+  onViewModeChange,
+  canDiff,
+  canPreview,
+  isMobile,
+  hideHeaderActions,
+  hideViewModeControls,
+  leadingControl,
+}: FileViewerHeaderProps) {
+  const showToggle = !hideViewModeControls && (canDiff || canPreview)
+
+  return (
+    <div className="h-[42px] px-2 flex-shrink-0 flex items-center justify-between gap-2 border-b">
+      <div className="flex items-center gap-2 min-w-0 flex-1">
+        {leadingControl}
+        {filePath ? (
+          <span
+            className="min-w-0 flex-1 text-sm font-mono truncate"
+            // `direction: rtl` moves the ellipsis to the left so the file name
+            // (end of the path) stays visible; the LTR isolate chars keep the
+            // path itself reading left-to-right.
+            style={{ direction: 'rtl', textAlign: 'left' }}
+            title={filePath}
+          >
+            {`\u2066${filePath}\u2069`}
+          </span>
+        ) : (
+          <span className="text-sm text-muted-foreground truncate">No file selected</span>
+        )}
+        {filePath && !isMobile && (
+          <span className="text-xs px-1.5 py-0.5 rounded shrink-0 bg-muted text-muted-foreground">
+            {getLanguageLabel(filePath)}
+          </span>
+        )}
+      </div>
+      {filePath && !hideHeaderActions && (
+        <div className="flex items-center gap-2 shrink-0 ml-2">
+          {isModified && (
+            <div className="flex items-center gap-2 text-xs">
+              <span style={{ color: 'var(--git-added)' }}>+{additions}</span>
+              <span style={{ color: 'var(--git-deleted)' }}>&minus;{deletions}</span>
+            </div>
+          )}
+          {showToggle && (
+            <FileModeToggleGroup
+              viewMode={viewMode}
+              onViewModeChange={onViewModeChange}
+              canDiff={canDiff}
+              canPreview={canPreview}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export function FileViewer({
@@ -177,7 +258,9 @@ export function FileViewer({
   onViewModeChange,
   hideHeaderActions = false,
   hideViewModeControls = false,
+  leadingControl,
 }: FileViewerProps) {
+  const isMobile = useIsMobile()
   const { data, isLoading, error } = useFileContent(taskId, filePath, true)
   const canPreview = filePath ? isPreviewable(filePath) : false
   const canDiff = data?.isModified && data?.oldContent !== undefined
@@ -191,8 +274,26 @@ export function FileViewer({
     }
   }, [viewMode, isLoading, canDiff, canPreview, onViewModeChange])
 
+  const header = (
+    <FileViewerHeader
+      filePath={filePath}
+      isModified={data?.isModified ?? false}
+      additions={data?.additions}
+      deletions={data?.deletions}
+      viewMode={viewMode}
+      onViewModeChange={onViewModeChange}
+      canDiff={Boolean(canDiff)}
+      canPreview={canPreview}
+      isMobile={isMobile}
+      hideHeaderActions={hideHeaderActions}
+      hideViewModeControls={hideViewModeControls}
+      leadingControl={leadingControl}
+    />
+  )
+
+  let body: ReactNode
   if (!filePath) {
-    return (
+    body = (
       <div className="h-full flex items-center justify-center text-muted-foreground">
         <div className="text-center space-y-2">
           <div className="text-4xl opacity-30">{'{ }'}</div>
@@ -200,30 +301,21 @@ export function FileViewer({
         </div>
       </div>
     )
-  }
-
-  if (isLoading) {
-    return (
-      <div className="h-full flex flex-col">
-        <div className="p-3 flex-shrink-0 border-b">
-          <Skeleton className="h-4 w-48" />
-        </div>
-        <div className="flex-1 p-4 space-y-2">
-          {Array.from({ length: 20 }).map((_, i) => (
-            <Skeleton
-              // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton list
-              key={i}
-              className="h-4"
-              style={{ width: `${30 + Math.random() * 60}%` }}
-            />
-          ))}
-        </div>
+  } else if (isLoading) {
+    body = (
+      <div className="p-4 space-y-2">
+        {Array.from({ length: 20 }).map((_, i) => (
+          <Skeleton
+            // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton list
+            key={i}
+            className="h-4"
+            style={{ width: `${30 + Math.random() * 60}%` }}
+          />
+        ))}
       </div>
     )
-  }
-
-  if (error) {
-    return (
+  } else if (error) {
+    body = (
       <div className="h-full flex items-center justify-center">
         <div className="text-center space-y-2 text-destructive">
           <p className="text-sm font-medium">Failed to load file</p>
@@ -231,86 +323,14 @@ export function FileViewer({
         </div>
       </div>
     )
+  } else if (data) {
+    body = <FileContentArea data={data} filePath={filePath} viewMode={viewMode} taskId={taskId} />
   }
-
-  if (!data) {
-    return null
-  }
-
-  const languageLabel = getLanguageLabel(filePath)
-  const showToggle = !hideViewModeControls && (canDiff || canPreview)
 
   return (
     <div className="h-full flex flex-col">
-      <div className="p-3 flex-shrink-0 flex items-center justify-between border-b">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-sm font-mono truncate">{filePath}</span>
-          <span className="text-xs px-1.5 py-0.5 rounded shrink-0 bg-muted text-muted-foreground">
-            {languageLabel}
-          </span>
-        </div>
-        {!hideHeaderActions && (
-          <div className="flex items-center gap-2 shrink-0 ml-2">
-            {data.isModified && (
-              <div className="flex items-center gap-2 text-xs">
-                <span style={{ color: 'var(--git-added)' }}>+{data.additions}</span>
-                <span style={{ color: 'var(--git-deleted)' }}>&minus;{data.deletions}</span>
-              </div>
-            )}
-            {showToggle && (
-              <div className="flex items-center rounded-md overflow-hidden border">
-                <button
-                  type="button"
-                  onClick={() => onViewModeChange('code')}
-                  className={cn(
-                    'flex items-center gap-1 px-2 py-1 text-xs transition-colors',
-                    viewMode === 'code'
-                      ? 'text-foreground bg-muted'
-                      : 'text-muted-foreground hover:text-foreground',
-                  )}
-                >
-                  <Code className="w-3.5 h-3.5" />
-                  Code
-                </button>
-                {canDiff && (
-                  <button
-                    type="button"
-                    onClick={() => onViewModeChange('diff')}
-                    className={cn(
-                      'flex items-center gap-1 px-2 py-1 text-xs transition-colors',
-                      viewMode === 'diff'
-                        ? 'text-foreground bg-muted'
-                        : 'text-muted-foreground hover:text-foreground',
-                    )}
-                  >
-                    <GitCompareArrows className="w-3.5 h-3.5" />
-                    Diff
-                  </button>
-                )}
-                {canPreview && (
-                  <button
-                    type="button"
-                    onClick={() => onViewModeChange('preview')}
-                    className={cn(
-                      'flex items-center gap-1 px-2 py-1 text-xs transition-colors',
-                      viewMode === 'preview'
-                        ? 'text-foreground bg-muted'
-                        : 'text-muted-foreground hover:text-foreground',
-                    )}
-                  >
-                    <Eye className="w-3.5 h-3.5" />
-                    Preview
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className="flex-1 overflow-auto">
-        <FileContentArea data={data} filePath={filePath} viewMode={viewMode} taskId={taskId} />
-      </div>
+      {header}
+      <div className="flex-1 min-h-0 overflow-auto">{body}</div>
     </div>
   )
 }

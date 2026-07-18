@@ -6,11 +6,10 @@ import { useTaskView } from '@/features/tasks/hooks/use-task-view'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar'
 
 /**
- * Mobile task-page header. The mobile layout shows one panel at a time, so this
- * header carries the essentials for that experience: the sidebar trigger, the
- * task title, and the view switcher that swaps between chat and the workspace
- * views. Purpose-built for `mobile-task-layout` — the desktop chat-panel header
- * (`TaskLeftHeader`) stays focused on the desktop split.
+ * Mobile task-page navbar. A fixed top bar carrying the sidebar trigger (left)
+ * and the chat/files/… view switcher (center). View-specific controls (the file
+ * mode toggle, etc.) live in each panel's own top bar rather than in a header
+ * dropdown, so the right slot is just a spacer that keeps the switcher centered.
  */
 export function TaskMobileHeader() {
   const taskId = useTaskId()
@@ -18,25 +17,23 @@ export function TaskMobileHeader() {
   const { data: sandboxStatus } = useSandboxStatus(taskId, taskQuery.data)
   const servers = sandboxStatus?.servers
   const { view, setView } = useTaskView({ fallback: 'chat' })
-  const task = taskQuery.data
 
-  if (!task) {
+  if (!taskQuery.data) {
     return null
   }
 
-  const { name, description } = task
-  const taskTitle = name || description?.split('\n')[0] || 'Untitled'
-
   return (
-    <div className="absolute top-0 left-0 right-0 z-10 h-[58px] px-4 py-2 border-b flex items-center justify-between gap-2 flex-shrink-0 bg-background">
-      <div className="flex items-center gap-3 min-w-0">
+    <div className="flex h-[50px] flex-shrink-0 items-center gap-2 border-b bg-background px-3">
+      {/* Left — sidebar trigger. flex-1 balances the right slot so the switcher
+          stays centered regardless of the actions menu's presence. */}
+      <div className="flex flex-1 items-center justify-start">
         <SidebarTrigger />
-        <span className="font-medium text-sm truncate" title={taskTitle}>
-          {taskTitle}
-        </span>
       </div>
 
       <ViewSwitcher currentView={view} onViewChange={setView} servers={servers} />
+
+      {/* Right — spacer balancing the left slot so the switcher stays centered. */}
+      <div className="flex flex-1 items-center justify-end" />
     </div>
   )
 }

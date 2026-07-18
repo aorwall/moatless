@@ -1,10 +1,11 @@
 import type { FileTreeRowDecorationRenderer } from '@pierre/trees'
 import { FileTree as PierreFileTree, useFileTree as usePierreFileTree } from '@pierre/trees/react'
-import { Filter, GitBranch } from 'lucide-react'
+import { Filter, GitBranch, PanelLeftClose } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Button } from '@/lib/components/ui/button'
 import { Skeleton } from '@/lib/components/ui/skeleton'
-import { cn } from '@/lib/utils'
 import { useFileTree } from '../hooks/use-file-tree'
+import { useFileViewState } from '../hooks/use-file-view-state'
 import {
   buildGitStatusEntries,
   buildRowMetadata,
@@ -42,8 +43,9 @@ function decorationFromMetadata(metadata: RowMetadata | undefined): { text: stri
 }
 
 export function FileTree({ taskId, selectedPath, onFileSelect }: FileTreeProps) {
-  const [showOnlyChanged, setShowOnlyChanged] = useState(false)
+  const { setExplorerCollapsed } = useFileViewState()
   const { data, isLoading, error } = useFileTree(taskId)
+  const [showOnlyChanged, setShowOnlyChanged] = useState(false)
 
   const tree = data?.tree ?? []
   const visibleTree = useMemo(
@@ -145,39 +147,42 @@ export function FileTree({ taskId, selectedPath, onFileSelect }: FileTreeProps) 
 
   return (
     <div className="h-full w-full flex flex-col">
-      <div className="p-3 flex-shrink-0 space-y-2 border-b">
-        <div className="flex items-center justify-between gap-2">
-          <h3 className="text-sm font-medium">Files</h3>
-          <div className="flex items-center gap-1">
-            {hasChanges && (
-              <button
-                type="button"
-                onClick={() => setShowOnlyChanged((prev) => !prev)}
-                className={cn(
-                  'h-7 px-2 text-xs rounded flex items-center gap-1 transition-colors',
-                  showOnlyChanged
-                    ? 'bg-primary text-primary-foreground'
-                    : 'border border-border hover:bg-accent',
-                )}
-              >
-                <Filter className="h-3 w-3" />
-                Changed
-              </button>
-            )}
-          </div>
-        </div>
+      <div className="h-[42px] px-2 flex-shrink-0 flex items-center gap-2 border-b">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 flex-shrink-0"
+          onClick={() => setExplorerCollapsed(true)}
+          aria-label="Collapse file tree"
+        >
+          <PanelLeftClose className="h-4 w-4" />
+        </Button>
         {hasChanges && (
-          <div className="flex items-center gap-3 text-xs">
-            <div className="flex items-center gap-1.5">
-              <GitBranch className="h-3 w-3 text-muted-foreground" />
-              <span className="text-muted-foreground">{data.gitSummary.totalFiles} files</span>
+          <div className="flex items-center gap-3 ml-auto">
+            <div className="flex items-center gap-3 text-xs">
+              <div className="flex items-center gap-1.5">
+                <GitBranch className="h-3 w-3 text-muted-foreground" />
+                <span className="text-muted-foreground">{data.gitSummary.totalFiles} files</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span style={{ color: 'var(--git-added)' }}>+{data.gitSummary.totalAdditions}</span>
+                <span style={{ color: 'var(--git-deleted)' }}>
+                  &minus;{data.gitSummary.totalDeletions}
+                </span>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <span style={{ color: 'var(--git-added)' }}>+{data.gitSummary.totalAdditions}</span>
-              <span style={{ color: 'var(--git-deleted)' }}>
-                &minus;{data.gitSummary.totalDeletions}
-              </span>
-            </div>
+            <Button
+              type="button"
+              variant={showOnlyChanged ? 'secondary' : 'ghost'}
+              size="icon"
+              className="h-7 w-7 flex-shrink-0"
+              onClick={() => setShowOnlyChanged((prev) => !prev)}
+              aria-label={showOnlyChanged ? 'Show all files' : 'Show only changed files'}
+              title={showOnlyChanged ? 'Show all files' : 'Show only changed files'}
+            >
+              <Filter className="h-4 w-4" />
+            </Button>
           </div>
         )}
       </div>

@@ -1,5 +1,7 @@
-import { Search } from 'lucide-react'
+import { PanelLeftOpen, Search } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Button } from '@/lib/components/ui/button'
+import { useIsMobile } from '@/lib/hooks/use-mobile'
 import { useFileSearch } from '../hooks/use-file-search'
 import { useFileViewState } from '../hooks/use-file-view-state'
 import { useSelectedFile } from '../hooks/use-selected-file'
@@ -17,13 +19,14 @@ interface FileExplorerProps {
 
 export function FileExplorer({ taskId }: FileExplorerProps) {
   const { selectedFile, setSelectedFile } = useSelectedFile()
-  const { fileView, setFileView, isExplorerCollapsed } = useFileViewState()
+  const { fileView, setFileView, isExplorerCollapsed, setExplorerCollapsed } = useFileViewState()
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH)
   const [isResizing, setIsResizing] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const searchInputRef = useRef<HTMLInputElement>(null)
   const fileSearch = useFileSearch(taskId)
+  const isMobile = useIsMobile()
 
   const handleFileSelect = useCallback(
     (filePath: string) => {
@@ -32,6 +35,17 @@ export function FileExplorer({ taskId }: FileExplorerProps) {
     },
     [setSelectedFile],
   )
+
+  // On mobile the tree and viewer are a single swappable pane — once a file is
+  // selected, collapse the tree so the viewer takes over the screen. Driven by
+  // the selected-file state (not the tree's selection callback, which captures a
+  // stale `isMobile`) and after the file param commits, so the two URL updates
+  // sequence instead of racing.
+  useEffect(() => {
+    if (isMobile && selectedFile !== undefined) {
+      setExplorerCollapsed(true)
+    }
+  }, [isMobile, selectedFile, setExplorerCollapsed])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -127,8 +141,12 @@ export function FileExplorer({ taskId }: FileExplorerProps) {
         {!isExplorerCollapsed && (
           <>
             <div
-              className="flex-shrink-0 overflow-hidden border-r"
-              style={{ width: `${sidebarWidth}px` }}
+              className={
+                isMobile
+                  ? 'flex-1 min-w-0 overflow-hidden'
+                  : 'flex-shrink-0 overflow-hidden border-r'
+              }
+              style={isMobile ? undefined : { width: `${sidebarWidth}px` }}
             >
               <FileTree
                 taskId={taskId}
@@ -137,24 +155,47 @@ export function FileExplorer({ taskId }: FileExplorerProps) {
               />
             </div>
 
-            {/* biome-ignore lint/a11y/noStaticElementInteractions: resize handle requires mouse interaction */}
-            <div
-              className="w-1 cursor-col-resize hover:bg-ring transition-colors flex-shrink-0"
-              onMouseDown={handleMouseDown}
-              style={isResizing ? { background: 'var(--ring)' } : undefined}
-            />
+            {/* Desktop-only resize handle; on mobile the tree is full-width. */}
+            {!isMobile && (
+              // biome-ignore lint/a11y/noStaticElementInteractions: resize handle requires mouse interaction
+              <div
+                className="w-1 cursor-col-resize hover:bg-ring transition-colors flex-shrink-0"
+                onMouseDown={handleMouseDown}
+                style={isResizing ? { background: 'var(--ring)' } : undefined}
+              />
+            )}
           </>
         )}
 
-        <div className="flex-1 min-w-0 overflow-hidden">
-          <FileViewer
-            taskId={taskId}
-            filePath={selectedFile}
-            viewMode={fileView}
-            onViewModeChange={setFileView}
-            hideViewModeControls
-          />
-        </div>
+        {/* On mobile the viewer only shows when the tree is collapsed (single
+            pane); on desktop it always sits beside the tree. */}
+        {(!isMobile || isExplorerCollapsed) && (
+          <div className="flex-1 min-w-0 overflow-hidden">
+            {/* When the tree is collapsed, the expand toggle rides on the file
+                viewer's header row (same row as the file name). */}
+            <FileViewer
+              taskId={taskId}
+              filePath={selectedFile}
+              viewMode={fileView}
+              onViewModeChange={setFileView}
+              hideViewModeControls={!isMobile}
+              leadingControl={
+                isExplorerCollapsed ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 flex-shrink-0"
+                    onClick={() => setExplorerCollapsed(false)}
+                    aria-label="Expand file tree"
+                  >
+                    <PanelLeftOpen className="h-4 w-4" />
+                  </Button>
+                ) : undefined
+              }
+            />
+          </div>
+        )}
       </div>
     </div>
   )
