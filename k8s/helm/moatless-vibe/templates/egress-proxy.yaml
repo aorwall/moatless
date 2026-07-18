@@ -41,6 +41,11 @@ data:
     {{- end }}
   squid.conf: |
     http_port {{ $ep.port | default 3128 }}
+    # Non-root (uid 1000): squid's default /run/squid.pid isn't writable. Point
+    # the pid + coredump at the writable emptyDir mounts (/var/run/squid,
+    # /var/spool/squid) so squid can start.
+    pid_filename /var/run/squid/squid.pid
+    coredump_dir /var/spool/squid
     acl CONNECT method CONNECT
     acl SSL_ports  port 443
     acl Safe_ports port 443
@@ -84,8 +89,11 @@ spec:
         {{- include "moatless-vibe.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: egress-proxy
       annotations:
-        # Roll the pod whenever the mode or allowlist changes.
-        moatless.io/config-hash: {{ printf "%s|%s" $mode (toString $ep.allowedDomains) | sha256sum | trunc 16 }}
+        # Roll the pod whenever the effective squid.conf changes. mode +
+        # allowedDomains cover all runtime config; squid.conf is subPath-mounted
+        # so it does NOT live-update — bump confRev when editing the static
+        # squid.conf lines above so this hash changes and the pod rolls.
+        moatless.io/config-hash: {{ printf "confRev=1|%s|%s" $mode (toString $ep.allowedDomains) | sha256sum | trunc 16 }}
     spec:
       securityContext:
         runAsNonRoot: true
