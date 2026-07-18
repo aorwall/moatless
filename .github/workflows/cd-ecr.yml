@@ -136,7 +136,10 @@ jobs:
           #   workflow_dispatch/fp-v* tag → explicit input, defaulting to all
           #   push to main                → changed build closure only, with
           #                                 Cargo metadata used to avoid building
-          #                                 unaffected Rust binaries on crate edits
+          #                                 unaffected Rust binaries on crate edits.
+          #                                 Workflow-only edits intentionally do
+          #                                 not publish images; use dispatch to
+          #                                 force a republish.
           #   pull_request                → validation-only frontend + backend
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] || [[ "$GITHUB_REF" == refs/tags/fp-v* ]]; then
             IMAGES="${INPUT_IMAGES:-all}"
@@ -158,10 +161,10 @@ jobs:
               echo "Changed files:"
               printf '%s\n' "$CHANGED_FILES"
 
-              if printf '%s\n' "$CHANGED_FILES" | grep -qE '^(\.github/workflows/cd-ecr\.yml$|apps/frontend/|packages/|package\.json$|bun\.lock$|turbo\.json$|biome\.json$|docker/Dockerfile\.app$|docker/nginx\.conf$)'; then
+              if printf '%s\n' "$CHANGED_FILES" | grep -qE '^(apps/frontend/|packages/|package\.json$|bun\.lock$|turbo\.json$|biome\.json$|docker/Dockerfile\.app$|docker/nginx\.conf$)'; then
                 FRONTEND=true
               fi
-              if printf '%s\n' "$CHANGED_FILES" | grep -qE '^(\.github/workflows/cd-ecr\.yml$|Cargo\.(toml|lock)$|rust-toolchain\.toml$)'; then
+              if printf '%s\n' "$CHANGED_FILES" | grep -qE '^(Cargo\.(toml|lock)$|rust-toolchain\.toml$)'; then
                 BACKEND=true
                 SANDBOX=true
               fi
