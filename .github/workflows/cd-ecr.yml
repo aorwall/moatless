@@ -5,8 +5,8 @@
 # off on the fork via `if: github.repository == 'aorwall/moatless-vibe'`.
 #
 # Triggered on:
-#   - push to main → image tags = short SHA, no helm publish
-#   - tag fp-v*    → image tags = tag name + helm chart push
+#   - push to main → changed images + Helm chart, tagged with next semver
+#   - tag fp-v*    → selected images + Helm chart, tagged with tag name
 #   - workflow_dispatch → opt-in subset via `images` input
 #
 # OIDC trust: pinned to GHA-ECRPush-moatless / GHA-HelmPush-moatless,
@@ -68,6 +68,9 @@ jobs:
       build-sandbox: ${{ steps.compute.outputs.sandbox }}
       publish-helm: ${{ steps.compute.outputs.helm }}
       moat-changed: ${{ steps.compute.outputs.moat-changed }}
+      promotion-image-tag-paths: ${{ steps.compute.outputs.promotion-image-tag-paths }}
+      rust-packages: ${{ steps.compute.outputs.rust-packages }}
+      rust-package-key: ${{ steps.compute.outputs.rust-package-key }}
     steps:
       # fetch-depth: 0 so `git describe --tags` can see the v* release history
       # used to compute the next monotonic semver on push-to-main.
@@ -123,27 +126,178 @@ jobs:
           fi
           echo "chart-version=$CHART_VERSION" >> "$GITHUB_OUTPUT"
 
-          # Image set: input on workflow_dispatch, else 'all'
-          IMAGES="${INPUT_IMAGES:-all}"
-          if [ "$IMAGES" = "all" ] || [ -z "$IMAGES" ]; then
-            IMAGES="frontend,backend,sandbox"
-          fi
-          for pair in frontend:frontend backend:backend sandbox:sandbox; do
-            short="${pair%:*}"
-            full="${pair#*:}"
-            if echo ",$IMAGES," | grep -q ",${full},"; then
-              echo "${short}=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "${short}=false" >> "$GITHUB_OUTPUT"
-            fi
-          done
+          FRONTEND=false
+          BACKEND=false
+          SANDBOX=false
+          HELM_CHANGED=false
+          CHANGED_FILES=""
 
-          # Helm: publish on every push to main + fp-v* tag pushes.
+          # Image set:
+          #   workflow_dispatch/fp-v* tag → explicit input, defaulting to all
+          #   push to main                → changed build closure only, with
+          #                                 Cargo metadata used to avoid building
+          #                                 unaffected Rust binaries on crate edits
+          #   pull_request                → validation-only frontend + backend
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] || [[ "$GITHUB_REF" == refs/tags/fp-v* ]]; then
+            IMAGES="${INPUT_IMAGES:-all}"
+            if [ "$IMAGES" = "all" ] || [ -z "$IMAGES" ]; then
+              IMAGES="frontend,backend,sandbox"
+            fi
+            if echo ",$IMAGES," | grep -q ",frontend,"; then FRONTEND=true; fi
+            if echo ",$IMAGES," | grep -q ",backend,"; then BACKEND=true; fi
+            if echo ",$IMAGES," | grep -q ",sandbox,"; then SANDBOX=true; fi
+          elif [ "$GITHUB_EVENT_NAME" = "push" ] && [[ "$GITHUB_REF" == refs/heads/main ]]; then
+            BEFORE="${{ github.event.before }}"
+            if [[ -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]]; then
+              FRONTEND=true
+              BACKEND=true
+              SANDBOX=true
+              HELM_CHANGED=true
+            else
+              CHANGED_FILES=$(git diff --name-only "$BEFORE" "$GITHUB_SHA")
+              echo "Changed files:"
+              printf '%s\n' "$CHANGED_FILES"
+
+              if printf '%s\n' "$CHANGED_FILES" | grep -qE '^(\.github/workflows/cd-ecr\.yml$|apps/frontend/|packages/|package\.json$|bun\.lock$|turbo\.json$|biome\.json$|docker/Dockerfile\.app$|docker/nginx\.conf$)'; then
+                FRONTEND=true
+              fi
+              if printf '%s\n' "$CHANGED_FILES" | grep -qE '^(\.github/workflows/cd-ecr\.yml$|Cargo\.(toml|lock)$|rust-toolchain\.toml$)'; then
+                BACKEND=true
+                SANDBOX=true
+              fi
+              if printf '%s\n' "$CHANGED_FILES" | grep -qE '^(backend/|docker/Dockerfile\.backend-cross$)'; then
+                BACKEND=true
+              fi
+              if printf '%s\n' "$CHANGED_FILES" | grep -qE '^(sandbox/|docker/Dockerfile\.sandbox-soap$|docker/docker-entrypoint-sandbox\.sh$|docker/sync-plugins\.sh$|docker/moatless-git-cred\.sh$)'; then
+                SANDBOX=true
+              fi
+              if printf '%s\n' "$CHANGED_FILES" | grep -qE '^crates/'; then
+                if cargo metadata --format-version 1 --no-deps > /tmp/cargo-metadata.json; then
+                  printf '%s\n' "$CHANGED_FILES" > /tmp/changed-files.txt
+                  python3 - /tmp/cargo-metadata.json /tmp/changed-files.txt > /tmp/rust-targets.env <<'PY'
+import json
+import os
+import sys
+
+metadata_path = sys.argv[1]
+changed_files_path = sys.argv[2]
+changed_files = [line.strip() for line in open(changed_files_path, encoding="utf-8") if line.strip()]
+metadata = json.load(open(metadata_path, encoding="utf-8"))
+root = metadata["workspace_root"]
+workspace_members = set(metadata["workspace_members"])
+packages = {
+    package["id"]: package
+    for package in metadata["packages"]
+    if package["id"] in workspace_members
+}
+package_by_name = {package["name"]: package for package in packages.values()}
+
+changed_packages = set()
+for package in packages.values():
+    manifest_dir = os.path.relpath(os.path.dirname(package["manifest_path"]), root)
+    prefix = "" if manifest_dir == "." else f"{manifest_dir}/"
+    if any(path == manifest_dir or path.startswith(prefix) for path in changed_files):
+        changed_packages.add(package["name"])
+
+dependencies_by_name = {
+    package["name"]: [
+        dependency["name"]
+        for dependency in package.get("dependencies", [])
+        if dependency.get("source") is None and dependency["name"] in package_by_name
+    ]
+    for package in packages.values()
+}
+
+def closure(package_name):
+    seen = set()
+    stack = [package_name]
+    while stack:
+        current = stack.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        stack.extend(dependencies_by_name.get(current, []))
+    return seen
+
+backend = bool(changed_packages & closure("moatless-vibe-backend"))
+cli = bool(changed_packages & closure("moatless-cli"))
+sandbox = bool(changed_packages & (closure("moatless-sandbox") | closure("moatless-cli")))
+
+print(f"RUST_BACKEND={'true' if backend else 'false'}")
+print(f"RUST_CLI={'true' if cli else 'false'}")
+print(f"RUST_SANDBOX={'true' if sandbox else 'false'}")
+print("RUST_CHANGED_PACKAGES=" + ",".join(sorted(changed_packages)))
+PY
+                  # shellcheck disable=SC1091
+                  . /tmp/rust-targets.env
+                  if [ "${RUST_BACKEND:-false}" = "true" ]; then BACKEND=true; fi
+                  if [ "${RUST_SANDBOX:-false}" = "true" ]; then SANDBOX=true; fi
+                  echo "Changed Rust packages: ${RUST_CHANGED_PACKAGES:-none}"
+                else
+                  echo "::warning::cargo metadata failed; conservatively building all Rust images"
+                  BACKEND=true
+                  SANDBOX=true
+                fi
+              fi
+              if printf '%s\n' "$CHANGED_FILES" | grep -qE '^(k8s/helm/)'; then
+                HELM_CHANGED=true
+              fi
+            fi
+          elif [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            FRONTEND=true
+            BACKEND=true
+          fi
+
+          echo "frontend=$FRONTEND" >> "$GITHUB_OUTPUT"
+          echo "backend=$BACKEND" >> "$GITHUB_OUTPUT"
+          echo "sandbox=$SANDBOX" >> "$GITHUB_OUTPUT"
+
+          IMAGE_TAG_PATHS="["
+          SEP=""
+          if [ "$FRONTEND" = "true" ]; then
+            IMAGE_TAG_PATHS="${IMAGE_TAG_PATHS}${SEP}\".image.tag\""
+            SEP=","
+          fi
+          if [ "$BACKEND" = "true" ]; then
+            IMAGE_TAG_PATHS="${IMAGE_TAG_PATHS}${SEP}\".backend.image.tag\""
+            SEP=","
+          fi
+          if [ "$SANDBOX" = "true" ]; then
+            IMAGE_TAG_PATHS="${IMAGE_TAG_PATHS}${SEP}\".sandboxImage.tag\""
+          fi
+          IMAGE_TAG_PATHS="${IMAGE_TAG_PATHS}]"
+          echo "promotion-image-tag-paths=$IMAGE_TAG_PATHS" >> "$GITHUB_OUTPUT"
+
+          RUST_PACKAGES=""
+          RUST_PACKAGE_KEY="none"
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            RUST_PACKAGES="-p moatless-vibe-backend"
+            RUST_PACKAGE_KEY="backend"
+          else
+            PARTS=""
+            if [ "$BACKEND" = "true" ]; then
+              RUST_PACKAGES="$RUST_PACKAGES -p moatless-vibe-backend"
+              PARTS="${PARTS}backend-"
+            fi
+            if [ "$SANDBOX" = "true" ]; then
+              RUST_PACKAGES="$RUST_PACKAGES -p moatless-sandbox -p moatless-cli"
+              PARTS="${PARTS}sandbox-cli-"
+            fi
+            if [ -n "$PARTS" ]; then
+              RUST_PACKAGE_KEY="${PARTS%-}"
+            fi
+          fi
+          echo "rust-packages=$RUST_PACKAGES" >> "$GITHUB_OUTPUT"
+          echo "rust-package-key=$RUST_PACKAGE_KEY" >> "$GITHUB_OUTPUT"
+
+          # Helm: publish when a deployable chart or image changed.
           # The chart is consumed by soaplabs/soap-platform-gitops via the
           # umbrella chart at apps/moatless-vibe/ which depends on
           # `oci://629…/helm-charts/moatless`. SHA-pinned promotion is
           # wired in promote-to-gitops.yml on that side.
-          if [[ "$GITHUB_REF" == refs/heads/main || "$GITHUB_REF" == refs/tags/fp-v* ]]; then
+          if [[ "$GITHUB_REF" == refs/tags/fp-v* ]] || \
+             { [[ "$GITHUB_REF" == refs/heads/main ]] && \
+               [[ "$FRONTEND" == "true" || "$BACKEND" == "true" || "$SANDBOX" == "true" || "$HELM_CHANGED" == "true" ]]; }; then
             echo "helm=true" >> "$GITHUB_OUTPUT"
           else
             echo "helm=false" >> "$GITHUB_OUTPUT"
@@ -159,8 +313,9 @@ jobs:
             BEFORE="${{ github.event.before }}"
             if [[ -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]]; then
               MOAT_CHANGED=true                      # unknown base → be safe, rebuild
-            elif git diff --name-only "$BEFORE" "$GITHUB_SHA" \
-                  | grep -qE '^(crates/(cli|api-client|api-schemas)/|Cargo\.(toml|lock)$|rust-toolchain\.toml$)'; then
+            elif [ "${RUST_CLI:-false}" = "true" ] || \
+                 git diff --name-only "$BEFORE" "$GITHUB_SHA" \
+                   | grep -qE '^(Cargo\.(toml|lock)$|rust-toolchain\.toml$)'; then
               MOAT_CHANGED=true
             else
               MOAT_CHANGED=false
@@ -169,6 +324,24 @@ jobs:
             MOAT_CHANGED=true                        # fp-v* tags + manual dispatch
           fi
           echo "moat-changed=$MOAT_CHANGED" >> "$GITHUB_OUTPUT"
+
+      - name: Summarize selected build closure
+        run: |
+          {
+            echo "## ECR build plan"
+            echo ""
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| image tag | \`${{ steps.compute.outputs.tag }}\` |"
+            echo "| chart version | \`${{ steps.compute.outputs.chart-version }}\` |"
+            echo "| frontend image | \`${{ steps.compute.outputs.frontend }}\` |"
+            echo "| backend image | \`${{ steps.compute.outputs.backend }}\` |"
+            echo "| sandbox image | \`${{ steps.compute.outputs.sandbox }}\` |"
+            echo "| Helm publish | \`${{ steps.compute.outputs.helm }}\` |"
+            echo "| Rust packages | \`${{ steps.compute.outputs.rust-packages }}\` |"
+            echo "| Rust cache scope | \`${{ steps.compute.outputs.rust-package-key }}\` |"
+            echo "| promotion image tag paths | \`${{ steps.compute.outputs.promotion-image-tag-paths }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # ── Build Rust binaries + dump OpenAPI spec ──
   # Uses rust:1.94-bookworm to link against GLIBC 2.36, matching distroless/cc
@@ -182,8 +355,9 @@ jobs:
   # so the two profile flavors don't fight each other in the same cache.
   #
   # PR runs build only the backend — just enough for --dump-openapi so the
-  # frontend type-check downstream has fresh types. Push/tag/dispatch builds
-  # all three crates for shipping.
+  # frontend type-check downstream has fresh types. Push-to-main builds only
+  # the changed backend/sandbox closure; tags and manual dispatch follow the
+  # selected image set.
   build-binaries:
     needs: setup
     if: >-
@@ -201,19 +375,28 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Install protoc + mold
-        run: apt-get update && apt-get install -y --no-install-recommends protobuf-compiler mold
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends protobuf-compiler mold
+          if apt-get install -y --no-install-recommends sccache; then
+            echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+            echo "SCCACHE_DIR=$HOME/.cache/sccache" >> "$GITHUB_ENV"
+          else
+            echo "::notice::sccache package unavailable; continuing with Cargo target cache only"
+          fi
 
       - name: Determine cache scope + profile flavor
         id: build
         run: |
+          PACKAGE_KEY="${{ needs.setup.outputs.rust-package-key }}"
           if [[ "$GITHUB_REF" == refs/tags/fp-v* ]]; then
             # Tag release: full release optimization, separate cache.
-            echo "cache_key=rust-cd-release" >> "$GITHUB_OUTPUT"
+            echo "cache_key=rust-cd-release-${PACKAGE_KEY}" >> "$GITHUB_OUTPUT"
             echo "fast=false" >> "$GITHUB_OUTPUT"
           else
             # PR / push-to-main / dispatch: faster compile via env-var
             # overrides on the release profile. Same target/release/ dir.
-            echo "cache_key=rust-cd-fast" >> "$GITHUB_OUTPUT"
+            echo "cache_key=rust-cd-fast-${PACKAGE_KEY}" >> "$GITHUB_OUTPUT"
             echo "fast=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -224,15 +407,19 @@ jobs:
           shared-key: ${{ steps.build.outputs.cache_key }}
           save-if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/fp-v') }}
 
-      - name: Determine crate set
-        id: crates
+      - name: Cache sccache objects
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        with:
+          path: ~/.cache/sccache
+          key: ${{ runner.os }}-sccache-${{ steps.build.outputs.cache_key }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-sccache-${{ steps.build.outputs.cache_key }}-
+            ${{ runner.os }}-sccache-
+
+      - name: Start sccache
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            # PR validation: backend-only — just need the binary for
-            # --dump-openapi. Skips the slow sandbox + cli compile entirely.
-            echo "packages=-p moatless-vibe-backend" >> "$GITHUB_OUTPUT"
-          else
-            echo "packages=-p moatless-vibe-backend -p moatless-sandbox -p moatless-cli" >> "$GITHUB_OUTPUT"
+          if command -v sccache >/dev/null 2>&1; then
+            sccache --start-server
           fi
 
       - name: Apply release-fast profile overrides (non-tag builds)
@@ -246,13 +433,32 @@ jobs:
           # Use mold as the linker (much faster than ld for big crates).
           RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
         run: |
-          cargo build --release ${{ steps.crates.outputs.packages }}
+          cargo build --release ${{ needs.setup.outputs.rust-packages }}
+
+      - name: Summarize Rust cache
+        if: always()
+        run: |
+          {
+            echo "## Rust build"
+            echo ""
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| packages | \`${{ needs.setup.outputs.rust-packages }}\` |"
+            echo "| cache key | \`${{ steps.build.outputs.cache_key }}\` |"
+            echo "| fast profile | \`${{ steps.build.outputs.fast }}\` |"
+            echo "| sccache | \`${RUSTC_WRAPPER:-disabled}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if command -v sccache >/dev/null 2>&1; then
+            sccache --show-stats || true
+          fi
 
       - name: Generate OpenAPI spec
+        if: github.event_name == 'pull_request' || needs.setup.outputs.build-backend == 'true'
         run: |
           ./target/release/moatless-vibe-backend --dump-openapi > openapi-specs.json
 
       - name: Upload OpenAPI spec
+        if: github.event_name == 'pull_request' || needs.setup.outputs.build-backend == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: openapi-spec
@@ -311,6 +517,7 @@ jobs:
   # ── Lint frontend (parallel, no Rust dependency) ──
   lint-frontend:
     needs: setup
+    if: github.event_name == 'pull_request' || needs.setup.outputs.build-frontend == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -319,6 +526,14 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: latest
+
+      - name: Cache Bun install cache
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -328,8 +543,8 @@ jobs:
 
   # ── Generate TypeScript API client from the freshly-dumped OpenAPI spec ──
   generate-ts-client:
-    needs: build-binaries
-    if: needs.build-binaries.result == 'success'
+    needs: [setup, build-binaries]
+    if: needs.build-binaries.result == 'success' && (github.event_name == 'pull_request' || needs.setup.outputs.build-backend == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -338,6 +553,14 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: latest
+
+      - name: Cache Bun install cache
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -378,6 +601,14 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: latest
+
+      - name: Cache Bun install cache
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -463,19 +694,29 @@ jobs:
       tag-latest: true
       binary-artifact-name: sandbox-binaries
       binary-context-name: binaries
+      cache-mode: inline-registry
     # Sandbox base (aorwall/moatless-sandbox-base) + golang build stages all
     # pull from docker.io — the most rate-limit-exposed of the three images.
     secrets:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
-  # ── Publish: helm chart (every push to main + fp-v* tags) ──
+  # ── Publish: helm chart (when deployable image/chart content changed) ──
   # The reusable workflow's `image-tag` input is used as the chart version
   # — so we pass `chart-version` (`0.0.0-<sha>` on main, `<X.Y.Z>` on
   # fp-v* tags), not the raw image tag.
   publish-helm:
-    needs: setup
-    if: github.event_name != 'pull_request' && needs.setup.outputs.publish-helm == 'true'
+    needs:
+      - setup
+      - publish-frontend
+      - publish-backend
+      - publish-sandbox
+    if: >-
+      always() &&
+      github.event_name != 'pull_request' &&
+      needs.setup.outputs.publish-helm == 'true' &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(needs.*.result, 'cancelled')
     uses: soaplabs/soap-platform-ci/.github/workflows/publish-helm-ecr.yml@main
     with:
       service-name: moatless
@@ -582,7 +823,13 @@ jobs:
       - publish-backend
       - publish-sandbox
       - publish-helm
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.publish-helm.result == 'success' &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
     steps:
       - name: Generate App token
@@ -610,11 +857,7 @@ jobs:
               "chartVersion": "${{ needs.setup.outputs.chart-version }}",
               "autoMerge": true,
               "umbrellaKey": "moatless",
-              "imageTagPaths": [
-                ".image.tag",
-                ".backend.image.tag",
-                ".sandboxImage.tag"
-              ]
+              "imageTagPaths": ${{ needs.setup.outputs.promotion-image-tag-paths }}
             }
 
   # ── Tag the release (push to main only) ──
@@ -633,7 +876,13 @@ jobs:
       - publish-backend
       - publish-sandbox
       - publish-helm
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.publish-helm.result == 'success' &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
     permissions:
       contents: write
