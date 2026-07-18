@@ -259,6 +259,7 @@ impl TaskRepository for PgTaskRepository {
             last_message_at: String,
             agent_type: AgentType,
             repository_id: String,
+            workspace_id: Option<String>,
             status: TaskStatus,
             total_cost_usd: f64,
             site_url: Option<String>,
@@ -297,7 +298,7 @@ impl TaskRepository for PgTaskRepository {
         let sql = format!(
             r#"SELECT DISTINCT
                 t.task_id, t.short_id, t.created_at, t.last_message_at, t.agent_type,
-                t.repository_id, t.status, t.total_cost_usd, t.site_url, t.template_id,
+                t.repository_id, t.workspace_id, t.status, t.total_cost_usd, t.site_url, t.template_id,
                 t.vibe, t.name, t.description, t.site_id, t.site_provider, t.branch,
                 t.created_by, t.visibility, t.scope, t.team_id, t.owner_user_id,
                 t.created_at_db, t.updated_at, t.append_system_prompt,
@@ -356,6 +357,7 @@ impl TaskRepository for PgTaskRepository {
                 last_message_at: r.last_message_at,
                 agent_type: r.agent_type,
                 repository_id: r.repository_id,
+                workspace_id: r.workspace_id,
                 status: r.status,
                 total_cost_usd: r.total_cost_usd,
                 site_url: r.site_url,

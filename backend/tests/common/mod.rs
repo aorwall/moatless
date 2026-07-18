@@ -320,6 +320,7 @@ pub fn make_task_row(task_id: &str, user_id: &str) -> Task {
         inactive_ttl_days: 7,
         task_template_id: None,
         trigger_id: None,
+        workspace_id: None,
         disabled_servers: None,
     }
 }

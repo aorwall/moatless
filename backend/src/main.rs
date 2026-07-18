@@ -182,6 +182,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(moatless_vibe_backend::plugin_repo::dao::PgPluginRepoRepository(p.clone()))
             as Arc<dyn moatless_vibe_backend::plugin_repo::dao::PluginRepoRepository>
     });
+    let sandbox_workspaces: Option<
+        Arc<dyn moatless_vibe_backend::workspace::dao::WorkspaceRepository>,
+    > = db_pool.as_ref().map(|p| {
+        Arc::new(moatless_vibe_backend::workspace::dao::PgWorkspaceRepository(
+            p.clone(),
+        )) as Arc<dyn moatless_vibe_backend::workspace::dao::WorkspaceRepository>
+    });
     let sandbox_task_events: Option<
         Arc<dyn moatless_vibe_backend::task_event::dao::TaskEventRepository>,
     > = db_pool.as_ref().map(|p| {
@@ -221,6 +228,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 sandbox_repos.clone(),
                 sandbox_provider_tokens.clone(),
                 sandbox_plugin_repos.clone(),
+                sandbox_workspaces.clone(),
                 sandbox_task_events.clone(),
                 Arc::new(config.clone()),
             );
@@ -240,6 +248,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         repos: sandbox_repos,
         provider_tokens: sandbox_provider_tokens,
         plugin_repos: sandbox_plugin_repos,
+        workspaces: sandbox_workspaces,
         secrets: sandbox_secrets,
     };
     let (mut router, mut api) = sandbox::routes::api_router(sandbox_state);

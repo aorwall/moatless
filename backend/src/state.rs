@@ -32,6 +32,7 @@ use crate::skill::fetcher::{GitHubSkillFetcher, SkillFetcher};
 use crate::skill::service::SkillService;
 use crate::tag::dao::{PgTagRepository, TagRepository};
 use crate::task::dao::{PgTaskRepository, TaskRepository};
+use crate::workspace::dao::{PgWorkspaceRepository, WorkspaceRepository};
 use crate::task::relations::{PgTaskRelationRepository, TaskRelationRepository};
 use crate::task_event::dao::{PgTaskEventRepository, TaskEventRepository};
 use crate::task_template::dao::{PgTaskTemplateRepository, TaskTemplateRepository};
@@ -111,6 +112,9 @@ pub struct AppState {
     pub task_turns: Arc<dyn TaskTurnRepository>,
     pub task_templates: Arc<dyn TaskTemplateRepository>,
     pub plugin_repos: Arc<dyn PluginRepoRepository>,
+    /// Workspace composition + run-config (`workspaces` / `workspace_repos`).
+    /// Provisioning resolves a task's repository composition through this.
+    pub workspaces: Arc<dyn WorkspaceRepository>,
     /// Skill discovery service — reads `.claude/skills/` from workspace
     /// and plugin repositories, parses frontmatter, caches results.
     pub skills: Arc<SkillService>,
@@ -220,6 +224,7 @@ impl AppState {
             task_turns: Arc::new(PgTaskTurnRepository(pool.clone())),
             task_templates: Arc::new(PgTaskTemplateRepository(pool.clone())),
             plugin_repos,
+            workspaces: Arc::new(PgWorkspaceRepository(pool.clone())),
             skills,
             db: pool,
             config,

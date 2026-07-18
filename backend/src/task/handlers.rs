@@ -208,6 +208,7 @@ pub async fn create_task(
         inactive_ttl_days: state.config.sandbox.inactive_task_timeout_days as i32,
         task_template_id: req.task_template_id.clone(),
         trigger_id: None,
+        workspace_id: None,
         disabled_servers: None,
     };
 
@@ -316,6 +317,7 @@ async fn insert_and_provision_task(
         state.repositories.as_ref(),
         state.provider_tokens.as_ref(),
         state.plugin_repos.as_ref(),
+        state.workspaces.as_ref(),
         task_id,
     )
     .await
@@ -1182,6 +1184,7 @@ pub async fn start_task(
         state.repositories.as_ref(),
         state.provider_tokens.as_ref(),
         state.plugin_repos.as_ref(),
+        state.workspaces.as_ref(),
         &task_id,
     )
     .await
