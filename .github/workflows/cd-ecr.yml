@@ -62,6 +62,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.compute.outputs.tag }}
+      previous-tag: ${{ steps.compute.outputs.previous-tag }}
       chart-version: ${{ steps.compute.outputs.chart-version }}
       build-frontend: ${{ steps.compute.outputs.frontend }}
       build-backend: ${{ steps.compute.outputs.backend }}
@@ -97,18 +98,21 @@ jobs:
           # recomputes the SAME version and both builds fight over the mutable
           # ECR tag (the 0.1.164 double-build). Republish a specific version by
           # passing the `tag` input explicitly.
+          PREVIOUS_TAG=""
           if [ -n "$INPUT_TAG" ]; then
             TAG="$INPUT_TAG"
           elif [[ "$GITHUB_REF" == refs/tags/fp-v* ]]; then
             TAG="${GITHUB_REF_NAME}"
           elif [ "$GITHUB_EVENT_NAME" = "push" ] && [[ "$GITHUB_REF" == refs/heads/main ]]; then
             LATEST=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo v0.1.0)
+            PREVIOUS_TAG="${LATEST#v}"
             IFS=. read -r MA MI PA <<< "${LATEST#v}"
             TAG="${MA}.${MI}.$((PA + 1))"
           else
             TAG=$(git rev-parse --short HEAD)
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "previous-tag=$PREVIOUS_TAG" >> "$GITHUB_OUTPUT"
 
           # Chart version: explicit input → semver from fp-v* tag → the computed
           # semver on main → pre-release `0.0.0-<sha>` for PRs. GitOps consumes
@@ -255,22 +259,6 @@ jobs:
           echo "backend=$BACKEND" >> "$GITHUB_OUTPUT"
           echo "sandbox=$SANDBOX" >> "$GITHUB_OUTPUT"
 
-          IMAGE_TAG_PATHS="["
-          SEP=""
-          if [ "$FRONTEND" = "true" ]; then
-            IMAGE_TAG_PATHS="${IMAGE_TAG_PATHS}${SEP}\".image.tag\""
-            SEP=","
-          fi
-          if [ "$BACKEND" = "true" ]; then
-            IMAGE_TAG_PATHS="${IMAGE_TAG_PATHS}${SEP}\".backend.image.tag\""
-            SEP=","
-          fi
-          if [ "$SANDBOX" = "true" ]; then
-            IMAGE_TAG_PATHS="${IMAGE_TAG_PATHS}${SEP}\".sandboxImage.tag\""
-          fi
-          IMAGE_TAG_PATHS="${IMAGE_TAG_PATHS}]"
-          echo "promotion-image-tag-paths=$IMAGE_TAG_PATHS" >> "$GITHUB_OUTPUT"
-
           RUST_PACKAGES=""
           RUST_PACKAGE_KEY="none"
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
@@ -298,13 +286,23 @@ jobs:
           # umbrella chart at apps/moatless-vibe/ which depends on
           # `oci://629…/helm-charts/moatless`. SHA-pinned promotion is
           # wired in promote-to-gitops.yml on that side.
+          PUBLISH_HELM=false
           if [[ "$GITHUB_REF" == refs/tags/fp-v* ]] || \
              { [[ "$GITHUB_REF" == refs/heads/main ]] && \
                [[ "$FRONTEND" == "true" || "$BACKEND" == "true" || "$SANDBOX" == "true" || "$HELM_CHANGED" == "true" ]]; }; then
-            echo "helm=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "helm=false" >> "$GITHUB_OUTPUT"
+            PUBLISH_HELM=true
           fi
+          echo "helm=$PUBLISH_HELM" >> "$GITHUB_OUTPUT"
+
+          if [ "$PUBLISH_HELM" = "true" ]; then
+            # Changed deployable images are built with TAG; unchanged deployable
+            # images are retagged from PREVIOUS_TAG later. Promote every
+            # deployable image path so the GitOps release has one coherent tag.
+            IMAGE_TAG_PATHS='[".image.tag",".backend.image.tag",".sandboxImage.tag"]'
+          else
+            IMAGE_TAG_PATHS='[]'
+          fi
+          echo "promotion-image-tag-paths=$IMAGE_TAG_PATHS" >> "$GITHUB_OUTPUT"
 
           # moat CLI changed? Gates release-moat + trigger-runners so the ARC/E2E
           # runner images (soap-platform-ci) only rebuild when the `moat` binary's
@@ -336,6 +334,7 @@ jobs:
             echo "| Field | Value |"
             echo "| --- | --- |"
             echo "| image tag | \`${{ steps.compute.outputs.tag }}\` |"
+            echo "| previous image tag | \`${{ steps.compute.outputs.previous-tag }}\` |"
             echo "| chart version | \`${{ steps.compute.outputs.chart-version }}\` |"
             echo "| frontend image | \`${{ steps.compute.outputs.frontend }}\` |"
             echo "| backend image | \`${{ steps.compute.outputs.backend }}\` |"
@@ -704,6 +703,73 @@ jobs:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
+  # ── Retag unchanged deployable images ──
+  # Push-to-main releases publish a coherent semver tag for every deployable
+  # image. Changed images are built above; unchanged images are copied forward
+  # from the previous release tag through the same trusted ECR reusable workflow.
+  retag-frontend:
+    needs: setup
+    if: >-
+      github.event_name != 'pull_request' &&
+      github.ref == 'refs/heads/main' &&
+      needs.setup.outputs.publish-helm == 'true' &&
+      needs.setup.outputs.build-frontend != 'true' &&
+      needs.setup.outputs.previous-tag != ''
+    uses: soaplabs/soap-platform-ci/.github/workflows/build-push-ecr.yml@main
+    with:
+      service-name: moatless
+      ecr-repository: moatless-frontend
+      image-tag: ${{ needs.setup.outputs.tag }}
+      dockerfile: docker/Dockerfile.retag
+      tag-latest: true
+      build-args: |
+        SOURCE_IMAGE=111111111111.dkr.ecr.eu-north-1.amazonaws.com/moatless-frontend:${{ needs.setup.outputs.previous-tag }}
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  retag-backend:
+    needs: setup
+    if: >-
+      github.event_name != 'pull_request' &&
+      github.ref == 'refs/heads/main' &&
+      needs.setup.outputs.publish-helm == 'true' &&
+      needs.setup.outputs.build-backend != 'true' &&
+      needs.setup.outputs.previous-tag != ''
+    uses: soaplabs/soap-platform-ci/.github/workflows/build-push-ecr.yml@main
+    with:
+      service-name: moatless
+      ecr-repository: moatless-backend
+      image-tag: ${{ needs.setup.outputs.tag }}
+      dockerfile: docker/Dockerfile.retag
+      tag-latest: true
+      build-args: |
+        SOURCE_IMAGE=111111111111.dkr.ecr.eu-north-1.amazonaws.com/moatless-backend:${{ needs.setup.outputs.previous-tag }}
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  retag-sandbox:
+    needs: setup
+    if: >-
+      github.event_name != 'pull_request' &&
+      github.ref == 'refs/heads/main' &&
+      needs.setup.outputs.publish-helm == 'true' &&
+      needs.setup.outputs.build-sandbox != 'true' &&
+      needs.setup.outputs.previous-tag != ''
+    uses: soaplabs/soap-platform-ci/.github/workflows/build-push-ecr.yml@main
+    with:
+      service-name: moatless
+      ecr-repository: moatless-sandbox
+      image-tag: ${{ needs.setup.outputs.tag }}
+      dockerfile: docker/Dockerfile.retag
+      tag-latest: true
+      build-args: |
+        SOURCE_IMAGE=111111111111.dkr.ecr.eu-north-1.amazonaws.com/moatless-sandbox:${{ needs.setup.outputs.previous-tag }}
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
   # ── Publish: helm chart (when deployable image/chart content changed) ──
   # The reusable workflow's `image-tag` input is used as the chart version
   # — so we pass `chart-version` (`0.0.0-<sha>` on main, `<X.Y.Z>` on
@@ -714,6 +780,9 @@ jobs:
       - publish-frontend
       - publish-backend
       - publish-sandbox
+      - retag-frontend
+      - retag-backend
+      - retag-sandbox
     if: >-
       always() &&
       github.event_name != 'pull_request' &&
