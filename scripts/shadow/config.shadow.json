@@ -28,7 +28,7 @@
       "label": "Frontend (dev)",
       "port": 3000,
       "startCommands": ["/opt/moatless/data/.bun/bin/bun run dev -- --host 0.0.0.0"],
-      "startupTimeoutSeconds": 60,
+      "startupTimeoutSeconds": 120,
       "autoReload": true,
       "enableInspector": true,
       "default": true

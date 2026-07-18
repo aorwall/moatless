@@ -48,7 +48,7 @@ moat repos create --name "moatless-vibe (shadow)" \
   --setup-command '/opt/moatless/data/.bun/bin/bun install' \
   --servers-json '[
     {"name":"dev","port":3000,"default":true,"autoReload":true,"enableInspector":true,
-     "startCommands":["/opt/moatless/data/.bun/bin/bun run dev -- --host 0.0.0.0"],"startupTimeoutSeconds":30},
+     "startCommands":["/opt/moatless/data/.bun/bin/bun run dev -- --host 0.0.0.0"],"startupTimeoutSeconds":120},
     {"name":"backend","label":"Shadow Backend","port":8080,
      "startCommands":["bash scripts/shadow/up.sh"],"startupTimeoutSeconds":600}]'
 ```
@@ -111,22 +111,32 @@ new sandbox pods** — that needs Phase 2.
 
 ## Fast rebuilds — precompiled dev image
 
-By default `up.sh` runs a cold `cargo build --release` of the whole dependency
-graph on every provision (~6–10 min) because the in-tree `target/` lives on the
-`workspace-data` mount, which is wiped each provision. `docker/Dockerfile.sandbox-dev`
-fixes that: it's a `FROM moatless-sandbox` image that bakes a **warm cargo cache**
-— the registry (`/opt/cargo`) plus compiled dependency artifacts
-(`/opt/cargo-target`) — both **outside** the `/opt/moatless` mount, so they
-survive as image layers. `up.sh` honors `CARGO_TARGET_DIR` (the image sets it to
-`/opt/cargo-target`) and so reuses those deps, recompiling only the workspace
-crates that actually changed (~1–2 min).
+By default a fresh provision pays a cold `cargo build --release` of the whole
+dependency graph (~6–10 min) *plus* a cold `bun install` — both because the
+in-tree `target/` and `node_modules/` live on the `workspace-data` mount, which
+is wiped each provision. `docker/Dockerfile.sandbox-dev` fixes that: it's a
+`FROM moatless-sandbox` image that bakes **three warm caches**, all **outside**
+the `/opt/moatless` mount so they survive as image layers:
+
+- `/opt/cargo-target` — compiled dependency artifacts. `up.sh` honors
+  `CARGO_TARGET_DIR` (the image sets it here) and reuses them, recompiling only
+  the workspace crates that actually changed (~1–2 min).
+- `/opt/cargo/registry` — downloaded crate sources (`CARGO_HOME`). Without this
+  the provision-time build re-downloads the whole index + sources before it can
+  compile even with a warm target.
+- `/opt/bun-cache` — bun's global install cache (the image sets
+  `BUN_INSTALL_CACHE_DIR` here). The provision-time `bun install` setup command
+  then links `node_modules` from cache offline instead of downloading, so the
+  frontend dev server comes up fast.
 
 Why it works across a fresh clone: registry crates are keyed by
 version/features/rustc/source, **not** by workspace path, so deps compiled at
 image-build time (from `/tmp`) are reused when `up.sh` builds from the
-provisioned workspace. The workspace crates (`backend`, `crates/*`) still
-recompile — that's the "new stuff". (The backend uses only runtime `sqlx::query`,
-no compile-time-checked macros, so the image build needs no database.)
+provisioned workspace; likewise bun's cache is content-addressed, not path-bound.
+The workspace crates (`backend`, `crates/*`) still recompile — that's the "new
+stuff" — and `node_modules` is still created fresh in the workspace (just from
+the warm cache). (The backend uses only runtime `sqlx::query`, no
+compile-time-checked macros, so the image build needs no database.)
 
 CI builds and publishes this automatically as the `moatless-dev` ECR image on
 every push that changes the sandbox (the `publish-sandbox-dev` job in

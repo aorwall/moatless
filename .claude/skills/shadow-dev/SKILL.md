@@ -33,7 +33,7 @@ moat repos create \
   --servers-json '[
     {"name":"dev","label":"Dev Server","port":3000,"default":true,
      "startCommands":["/opt/moatless/data/.bun/bin/bun run dev -- --host 0.0.0.0"],
-     "startupTimeoutSeconds":30,"autoReload":true,"enableInspector":true},
+     "startupTimeoutSeconds":120,"autoReload":true,"enableInspector":true},
     {"name":"backend","label":"Shadow Backend","port":8080,
      "startCommands":["bash scripts/shadow/up.sh"],"startupTimeoutSeconds":600}
   ]'
@@ -79,9 +79,11 @@ Before considering a change done:
 ## Fast rebuilds (precompiled image)
 
 The plain sandbox image recompiles all deps on every provision (~6–10 min).
-`docker/Dockerfile.sandbox-dev` bakes a warm cargo cache so only changed
-workspace crates recompile (~1–2 min). CI builds and publishes it automatically
-as the `moatless-dev` ECR image (the `publish-sandbox-dev` job in
+`docker/Dockerfile.sandbox-dev` bakes warm caches — the cargo target + crate
+registry (so only changed workspace crates recompile, ~1–2 min) and bun's global
+install cache (so provision-time `bun install` links node_modules offline and the
+frontend dev server starts fast). CI builds and publishes it automatically as the
+`moatless-dev` ECR image (the `publish-sandbox-dev` job in
 `.github/workflows/cd-ecr.yml`, FROM the just-built sandbox image), so normally
 just point the shadow repo at it:
 
