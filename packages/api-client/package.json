@@ -26,6 +26,7 @@
     "./sandbox/teams/teams": "./src/sandbox/teams/teams.ts",
     "./sandbox/triggers/triggers": "./src/sandbox/triggers/triggers.ts",
     "./sandbox/users/users": "./src/sandbox/users/users.ts",
+    "./sandbox/workspaces/workspaces": "./src/sandbox/workspaces/workspaces.ts",
     "./sandbox/model": "./src/sandbox/model/index.ts"
   },
   "scripts": {
