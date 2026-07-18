@@ -1,16 +1,13 @@
-import type { UpdateRepositoryRequest } from '@moatless/api-client'
 import {
   ConfigurationGroup,
   ConfigurationItem,
   ConfigurationTextarea,
 } from '@/lib/components/configuration'
+import type { RunConfigFormValues, UpdateRunConfigField } from '../types'
 
 interface AgentConfigurationGroupProps {
-  formData: Partial<UpdateRepositoryRequest>
-  onUpdateField: <K extends keyof UpdateRepositoryRequest>(
-    field: K,
-    value: UpdateRepositoryRequest[K],
-  ) => void
+  formData: RunConfigFormValues
+  onUpdateField: UpdateRunConfigField
 }
 
 export function AgentConfigurationGroup({ formData, onUpdateField }: AgentConfigurationGroupProps) {

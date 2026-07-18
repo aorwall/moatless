@@ -8,6 +8,12 @@ import {
   useRepository,
   useUpdateRepository,
 } from '@/features/repositories/hooks/use-repositories'
+import {
+  AgentConfigurationGroup,
+  CodeExecutionGroup,
+  PluginsGroup,
+  ServersGroup,
+} from '@/features/run-config'
 import { ConfigurationSectionWrapper as ConfigurationSection } from '@/lib/components/configuration'
 import {
   AlertDialog,
@@ -21,11 +27,7 @@ import {
 } from '@/lib/components/ui/alert-dialog'
 import { Button } from '@/lib/components/ui/button'
 import { getErrorMessage } from '@/lib/utils/error'
-import { AgentConfigurationGroup } from './agent-configuration-group'
-import { CodeExecutionGroup } from './code-execution-group'
 import { GeneralSettingsGroup } from './general-settings-group'
-import { PluginsGroup } from './plugins-group'
-import { ServersGroup } from './servers-group'
 
 interface RepositoryConfigEditSectionProps {
   repositoryId: string

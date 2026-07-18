@@ -1,8 +1,6 @@
-import type { UpdateRepositoryRequest } from '@moatless/api-client'
 import type { ServerConfig } from '@moatless/api-client/sandbox/model'
 import { ChevronDown, Plus, Server, Star, Trash2 } from 'lucide-react'
 import { useState } from 'react'
-import { EnvironmentVariablesList } from '@/features/repositories/components/environment-variables-list'
 import {
   ConfigurationGroup,
   ConfigurationInput,
@@ -16,13 +14,12 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/lib/components/ui/collapsible'
+import type { RunConfigFormValues, UpdateRunConfigField } from '../types'
+import { EnvironmentVariablesList } from './environment-variables-list'
 
 interface ServersGroupProps {
-  formData: Partial<UpdateRepositoryRequest>
-  onUpdateField: <K extends keyof UpdateRepositoryRequest>(
-    field: K,
-    value: UpdateRepositoryRequest[K],
-  ) => void
+  formData: RunConfigFormValues
+  onUpdateField: UpdateRunConfigField
 }
 
 function ServerCard({
