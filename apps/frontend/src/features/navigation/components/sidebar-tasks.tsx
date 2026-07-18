@@ -18,9 +18,7 @@ import {
   SidebarMenuItem,
 } from '@/lib/components/ui/sidebar'
 import { TooltipProvider } from '@/lib/components/ui/tooltip'
-import type { MessagePreview } from '../hooks/message-preview'
 import { activityToState, type TaskActivity, useTaskActivity } from '../hooks/use-task-activity'
-import { useTaskLastMessages } from '../hooks/use-task-last-messages'
 import {
   DEFAULT_SIDEBAR_FILTERS,
   hasActiveSidebarFilters,
@@ -125,17 +123,12 @@ function taskRowState(task: TaskResponse): TaskActivityState {
 }
 
 /** Merge a task with its live activity, deriving activity state and preview. */
-function enrichTask(
-  task: TaskResponse,
-  activity: TaskActivity | undefined,
-  fetched: MessagePreview | undefined,
-): EnrichedTask {
+function enrichTask(task: TaskResponse, activity: TaskActivity | undefined): EnrichedTask {
   const repositoryName = task.repositoryName || task.repositoryId
   // Live stream state wins; fall back to whatever the list row reported.
   const liveState = activityToState(activity)
   const state = liveState !== 'idle' ? liveState : taskRowState(task)
-  const lastActivityAt =
-    activity?.lastMessageAt || fetched?.at || task.lastMessageAt || task.createdAt
+  const lastActivityAt = activity?.lastMessageAt || task.lastMessageAt || task.createdAt
 
   // Unread when there's activity the user hasn't seen: never opened, or the
   // latest activity is newer than their read marker.
@@ -147,8 +140,7 @@ function enrichTask(
     repositoryName,
     state,
     unread,
-    // Prefer the live streamed message, then the message fetched for idle tasks.
-    preview: activity?.lastMessage || fetched?.text || null,
+    preview: activity?.lastMessage || null,
     recentMessages: activity?.recentMessages ?? [],
     lastActivityAt,
   }
@@ -587,28 +579,12 @@ export function SidebarTasks() {
   const isLoadingTasks = runningQuery.isLoading || filteredQuery.isLoading
   const tasksError = runningQuery.error || filteredQuery.error
 
-  // Fetch a latest-message preview per task (cached, one request each) so idle
-  // tasks show their last message on load; live updates still come from the
-  // event stream via `activityByTask` and take precedence.
-  const taskIds = useMemo(() => {
-    const ids = new Set<string>()
-    for (const t of runningQuery.data?.items ?? []) {
-      ids.add(t.taskId)
-    }
-    for (const t of filteredQuery.data?.items ?? []) {
-      ids.add(t.taskId)
-    }
-    return [...ids]
-  }, [runningQuery.data?.items, filteredQuery.data?.items])
-  const previewByTask = useTaskLastMessages(taskIds)
-
   // Derive the two sections. Activity state and the live message preview come
   // from the event stream, so this recomputes as those inputs update. Tasks
   // are grouped under visible parents after enrichment so child rows inherit
   // the same live/unread treatment as top-level rows.
   const { running, open } = useMemo(() => {
-    const enrich = (task: TaskResponse) =>
-      enrichTask(task, activityByTask.get(task.taskId), previewByTask.get(task.taskId))
+    const enrich = (task: TaskResponse) => enrichTask(task, activityByTask.get(task.taskId))
 
     const byGroupActivityDesc = (a: TaskGroup, b: TaskGroup) =>
       b.lastActivityAt.localeCompare(a.lastActivityAt)
@@ -640,7 +616,7 @@ export function SidebarTasks() {
     const open = buildTaskGroups(openItems).sort(byGroupActivityDesc)
 
     return { running, open }
-  }, [runningQuery.data?.items, filteredQuery.data?.items, activityByTask, previewByTask])
+  }, [runningQuery.data?.items, filteredQuery.data?.items, activityByTask])
 
   // Displayed order (running first, then open) so we can pick the neighbouring
   // task to jump to when the active one is closed.

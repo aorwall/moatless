@@ -255,18 +255,6 @@ async fn insert_and_provision_task(
             .await;
     }
 
-    // Emit task event
-    if let Some(ref events) = state.events {
-        events
-            .publish_task_event(
-                task_id,
-                TaskSubType::Open,
-                Some(row.agent_type.as_str()),
-                serde_json::json!({}),
-            )
-            .await;
-    }
-
     // Pre-flight: validate the GitHub token before any sandbox resources
     // are created. The task row already exists, so on failure we mark it
     // Error + publish a sandbox.error event and skip provisioning entirely.
@@ -398,6 +386,17 @@ async fn insert_and_provision_task(
     }
 
     let task_response = enrich_task(row, state, &auth.user_id).await?;
+
+    if let Some(ref events) = state.events {
+        events
+            .publish_task_event(
+                task_id,
+                TaskSubType::Created,
+                Some(row.agent_type.as_str()),
+                serde_json::json!({ "task": &task_response }),
+            )
+            .await;
+    }
 
     Ok(Json(CreateTaskResponse {
         task_id: row.task_id.clone(),

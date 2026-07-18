@@ -9,7 +9,11 @@ import {
   invalidateMessagesForEvent,
   shouldInvalidateTaskList,
 } from '@/features/events/utils/event-handlers'
-import { applyTaskEventUpdate, applyTaskMetadataUpdate } from '@/features/tasks/utils/query-helpers'
+import {
+  applyTaskEventUpdate,
+  applyTaskMetadataUpdate,
+  taskFromEventPayload,
+} from '@/features/tasks/utils/query-helpers'
 import { queryKeys } from '@/lib/api/query-keys'
 import type { Event, EventType } from '@/lib/types/events'
 
@@ -271,7 +275,12 @@ export function GlobalEventStreamProvider({
           // status/lastMessageAt are patched in place by applyTaskEventUpdate.
           // Refetching the whole sidebar on each of those during an active run
           // was redundant, so it's dropped here.
-          if (event.type === 'task' && shouldInvalidateTaskList(event)) {
+          if (
+            event.type === 'task' &&
+            shouldInvalidateTaskList(event) &&
+            !taskFromEventPayload(event) &&
+            (event.subType === 'created' || event.subType === 'updated')
+          ) {
             queryClient.invalidateQueries({
               queryKey: queryKeys.tasks.lists(),
               refetchType: 'active',
