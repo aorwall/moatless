@@ -23,6 +23,10 @@ pub struct Repository {
     /// Opt-in Docker-in-Docker access (privileged `dind` sidecar) for this repo's
     /// sandboxes — enables Testcontainers. Defaults to `None`/false.
     pub docker_access: Option<bool>,
+    /// Per-repo Kubernetes ServiceAccount for this repo's sandbox pods. When set,
+    /// overrides the global default (`K8S_SANDBOX_SERVICE_ACCOUNT`). Used for
+    /// "shadow" dev sandboxes that need the backend's RBAC. Defaults to `None`.
+    pub sandbox_service_account: Option<String>,
     pub system_prompt: Option<String>,
     pub setup_commands: Option<serde_json::Value>,
     pub env_vars: Option<serde_json::Value>,

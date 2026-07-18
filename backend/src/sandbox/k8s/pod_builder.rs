@@ -306,7 +306,14 @@ pub fn build_pod(
                 termination_grace_period_seconds: Some(30),
                 tolerations,
                 node_selector,
-                service_account_name: config.sandbox.service_account_name.clone(),
+                // Per-repo override (opt-in) wins over the global default SA.
+                // Enables shadow dev sandboxes to run under an SA bound to the
+                // backend's RBAC without elevating every other repo.
+                service_account_name: plan
+                    .repo_config
+                    .sandbox_service_account
+                    .clone()
+                    .or_else(|| config.sandbox.service_account_name.clone()),
                 security_context: pod_security_context(config),
                 ..Default::default()
             }
@@ -1479,6 +1486,7 @@ mod tests {
                 plugin_repos: None,
                 docker_access: None,
                 docker_networks: None,
+                sandbox_service_account: None,
             },
             git_clone_url: "https://github.com/test/repo.git".into(),
             git_branch: None,
@@ -2271,6 +2279,33 @@ mod tests {
             .env
             .clone()
             .unwrap()
+    }
+
+    /// Per-repo `sandboxServiceAccount` overrides the global default SA, and
+    /// falls back to the global default (here `None`) when unset.
+    #[test]
+    fn per_repo_sandbox_service_account_overrides_global() {
+        // Unset on the repo → falls back to the global default (None in test_config).
+        let config = test_config();
+        let plan = test_plan();
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        assert_eq!(
+            pod.spec.as_ref().unwrap().service_account_name,
+            None,
+            "unset per-repo SA falls back to the global default"
+        );
+
+        // Set on the repo → wins even when a global default is configured.
+        let mut config = test_config();
+        config.sandbox.service_account_name = Some("global-default-sa".to_string());
+        let mut plan = test_plan();
+        plan.repo_config.sandbox_service_account = Some("moatless-dev".to_string());
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        assert_eq!(
+            pod.spec.as_ref().unwrap().service_account_name.as_deref(),
+            Some("moatless-dev"),
+            "per-repo SA overrides the global default"
+        );
     }
 
     /// Default (no `dockerAccess`) → hardened: no dind sidecar, no docker-storage

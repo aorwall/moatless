@@ -608,6 +608,7 @@ mod tests {
                 plugin_repos: None,
                 docker_access: None,
                 docker_networks: None,
+                sandbox_service_account: None,
             },
             git_clone_url: "https://github.com/test/repo.git".into(),
             git_branch: Some("main".into()),

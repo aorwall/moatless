@@ -114,6 +114,7 @@ mod tests {
                 plugin_repos: None,
                 docker_access: None,
                 docker_networks: None,
+                sandbox_service_account: None,
             },
             git_clone_url: "https://example.com/repo.git".to_string(),
             git_branch: None,

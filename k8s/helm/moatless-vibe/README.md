@@ -263,6 +263,35 @@ Or via the API:
 PATCH /api/.../repositories/<repo-id>   { "resources": { "storageMode": "s3", "dockerStorageMode": "node" } }
 ```
 
+### Shadow-Dev (running the app inside a sandbox)
+
+Opt-in identity for developing moatless-vibe **inside a sandbox** ("shadow mode"):
+run the backend + frontend in a sandbox pod and use it like the real backend,
+without building images. Since a sandbox is already a pod in the cluster, the only
+thing it lacks is the backend's Kubernetes RBAC. Enabling `shadowDev` creates a
+`moatless-dev` ServiceAccount bound to the same Roles the backend uses
+(pod-manager, ingressroute-manager, observability) so a shadow backend can
+provision sandboxes.
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `shadowDev.enabled` | Create the shadow-dev ServiceAccount + RoleBindings (requires `rbac.create`) | `false` |
+| `shadowDev.serviceAccount` | Name of the shadow-dev ServiceAccount (in the sandbox namespace) | `moatless-dev` |
+| `shadowDev.serviceAccountAnnotations` | Annotations for the SA (e.g. EKS Pod Identity / IRSA) | `{}` |
+
+```bash
+# Enable on a dev cluster
+helm upgrade moatless-vibe k8s/helm/moatless-vibe -n moatless --set shadowDev.enabled=true
+```
+
+Then opt a repo's sandboxes into that identity with the per-repo
+`sandboxServiceAccount` field (via `.moatless/config.json` or the repository API /
+`moat repos create|update --sandbox-service-account moatless-dev`). Only that
+repo's sandboxes run elevated. See `scripts/shadow/README.md` for the full flow.
+
+> Dev clusters only. The field just *selects* the SA — RBAC (these bindings) is
+> what grants power, so leave `shadowDev.enabled=false` in production.
+
 ### Ingress Parameters
 
 | Parameter | Description | Default |

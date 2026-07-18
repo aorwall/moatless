@@ -22,6 +22,10 @@ pub struct MoatlessRepoConfig {
     pub servers: Option<Vec<ServerConfig>>,
     pub system_prompt: Option<String>,
     pub resources: Option<ResourceConfig>,
+    /// Per-repo Kubernetes ServiceAccount for this repo's sandboxes. Overrides the
+    /// global default. Security: the named SA must exist and be RBAC-bound in the
+    /// sandbox namespace — this field only selects it, it grants nothing on its own.
+    pub sandbox_service_account: Option<String>,
 }
 
 /// Code execution settings.
@@ -277,8 +281,14 @@ pub fn config_to_patch(config: &MoatlessRepoConfig) -> Result<RepositoryPatch, R
 
     let docker_image = config.docker_image.as_ref().map(|s| Some(s.clone()));
 
+    let sandbox_service_account = config
+        .sandbox_service_account
+        .as_ref()
+        .map(|s| Some(s.clone()));
+
     Ok(RepositoryPatch {
         docker_image,
+        sandbox_service_account,
         system_prompt,
         servers,
         setup_commands,
@@ -361,9 +371,14 @@ mod tests {
             }]),
             system_prompt: Some("Be helpful".to_string()),
             resources: None,
+            sandbox_service_account: Some("moatless-dev".to_string()),
         };
 
         let patch = config_to_patch(&config).unwrap();
+        assert_eq!(
+            patch.sandbox_service_account,
+            Some(Some("moatless-dev".to_string()))
+        );
         assert_eq!(
             patch.docker_image,
             Some(Some("myregistry/custom-sandbox:latest".to_string()))
@@ -474,6 +489,7 @@ mod tests {
             servers: None,
             system_prompt: None,
             resources: None,
+            sandbox_service_account: None,
         };
 
         let patch = config_to_patch(&config).unwrap();

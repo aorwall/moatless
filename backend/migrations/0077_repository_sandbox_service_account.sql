@@ -1,0 +1,13 @@
+-- Per-repository Kubernetes ServiceAccount override for this repo's sandboxes.
+--
+-- When set, sandbox pods for this repo run under the named ServiceAccount instead
+-- of the global default (K8S_SANDBOX_SERVICE_ACCOUNT). This is the native analog
+-- of mirrord copying the target pod's SA token: it lets a "shadow" dev sandbox run
+-- under an SA bound to the backend's pod-manager/ingressroute-manager Roles so it
+-- can provision sandboxes, without elevating every other repo's sandboxes.
+--
+-- Defaults to NULL → falls back to the global default SA (existing behavior).
+-- The named SA must already exist and be bound in the sandbox namespace; RBAC —
+-- not this field — gates what the sandbox can actually do.
+-- See backend/src/sandbox/k8s/pod_builder.rs (build_pod service_account_name).
+ALTER TABLE repositories ADD COLUMN sandbox_service_account text;

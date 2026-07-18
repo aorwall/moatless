@@ -16,6 +16,7 @@ impl From<Repository> for RepositoryResponse {
             default_branch: r.default_branch,
             docker_image: r.docker_image,
             docker_access: r.docker_access,
+            sandbox_service_account: r.sandbox_service_account,
             system_prompt: r.system_prompt,
             description: r.description,
             provider: r.provider,

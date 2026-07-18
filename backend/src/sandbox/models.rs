@@ -68,6 +68,13 @@ pub struct RepoConfig {
     /// Overrides global DOCKER_EXTRA_NETWORKS when set.
     #[serde(default)]
     pub docker_networks: Option<Vec<String>>,
+    // --- Kubernetes ServiceAccount (opt-in per-repo) ---
+    /// Per-repo Kubernetes ServiceAccount for the sandbox pod. Overrides the
+    /// global default (`K8S_SANDBOX_SERVICE_ACCOUNT`) when set. Ignored in Docker
+    /// mode. Enables "shadow" dev sandboxes that run under an SA bound to the
+    /// backend's RBAC.
+    #[serde(default)]
+    pub sandbox_service_account: Option<String>,
 }
 
 /// Server config entry

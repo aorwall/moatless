@@ -907,6 +907,21 @@ rbac:
       resources: ["leases"]
       verbs: ["get", "create", "update", "patch"]
 
+# Shadow-dev ServiceAccount: an opt-in identity for running the moatless-vibe
+# backend+frontend *inside* a sandbox ("shadow mode") with the same Kubernetes
+# rights as the real backend, so it can provision sandbox pods. It is bound to
+# the same Roles the backend uses (pod-manager, ingressroute-manager,
+# observability). Point a repo's `sandboxServiceAccount` at this SA to opt that
+# repo's sandboxes in. RBAC — not the field — gates the power, so this stays off
+# by default and is only for dev clusters.
+shadowDev:
+  # -- Create the shadow-dev ServiceAccount + RoleBindings. Requires rbac.create.
+  enabled: false
+  # -- Name of the shadow-dev ServiceAccount (created in the sandbox namespace).
+  serviceAccount: moatless-dev
+  # -- Annotations for the shadow-dev ServiceAccount (e.g. EKS Pod Identity / IRSA).
+  serviceAccountAnnotations: {}
+
 # Extra environment variables (dynamically injected into deployment)
 # Add any custom environment variables here as key-value pairs
 extraEnv:

@@ -171,6 +171,7 @@ pub fn create_repo_request(name: &str, kind: RepositoryKind) -> CreateRepository
         provider: None,
         docker_image: None,
         docker_access: None,
+        sandbox_service_account: None,
         auto_reload: None,
         build_command: None,
         build_output_directory: None,

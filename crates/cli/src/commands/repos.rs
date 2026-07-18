@@ -74,6 +74,10 @@ pub enum RepoAction {
         /// can run inside the sandbox
         #[arg(long)]
         docker_access: Option<bool>,
+        /// Kubernetes ServiceAccount for this repo's sandboxes (overrides the global
+        /// default). Used for shadow-dev sandboxes that need the backend's RBAC.
+        #[arg(long)]
+        sandbox_service_account: Option<String>,
         /// Plugin references (repeatable, e.g. "name@url")
         #[arg(long = "plugin")]
         plugins: Vec<String>,
@@ -169,6 +173,10 @@ pub enum RepoAction {
         /// can run inside the sandbox
         #[arg(long)]
         docker_access: Option<bool>,
+        /// Kubernetes ServiceAccount for this repo's sandboxes (overrides the global
+        /// default). Used for shadow-dev sandboxes that need the backend's RBAC.
+        #[arg(long)]
+        sandbox_service_account: Option<String>,
         /// Setup commands run before server starts (repeatable)
         #[arg(long = "setup-command")]
         setup_commands: Vec<String>,
@@ -251,6 +259,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             docker_storage_mode,
             docker_image,
             docker_access,
+            sandbox_service_account,
             plugins,
             system_prompt,
             description,
@@ -298,6 +307,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 description,
                 docker_image,
                 docker_access,
+                sandbox_service_account,
                 enable_inspector,
                 env_vars: parse_env_vars(&env_vars),
                 plugins: if plugins.is_empty() {
@@ -346,6 +356,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             docker_storage_mode,
             docker_image,
             docker_access,
+            sandbox_service_account,
             setup_commands,
             server_start_commands,
             env_vars,
@@ -402,6 +413,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 description,
                 docker_image,
                 docker_access,
+                sandbox_service_account,
                 enable_inspector,
                 env_vars: parse_env_vars(&env_vars),
                 plugins: if plugins.is_empty() {

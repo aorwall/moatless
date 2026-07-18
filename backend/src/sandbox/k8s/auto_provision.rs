@@ -181,6 +181,7 @@ pub fn build_repo_config(repo: &Repository) -> RepoConfig {
         plugin_repos: None,
         docker_access: repo.docker_access,
         docker_networks: None,
+        sandbox_service_account: repo.sandbox_service_account.clone(),
     }
 }
 
@@ -405,6 +406,7 @@ mod tests {
             plugin_repos: None,
             docker_access: None,
             docker_networks: None,
+            sandbox_service_account: None,
         }
     }
 

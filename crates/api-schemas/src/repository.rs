@@ -127,6 +127,11 @@ pub struct CreateRepositoryRequest {
     /// Testcontainers inside the sandbox. Defaults to false.
     #[serde(default)]
     pub docker_access: Option<bool>,
+    /// Per-repo Kubernetes ServiceAccount for this repo's sandbox pods. Overrides
+    /// the global default when set. Used for shadow dev sandboxes that need the
+    /// backend's RBAC to provision sandboxes.
+    #[serde(default)]
+    pub sandbox_service_account: Option<String>,
     pub system_prompt: Option<String>,
     pub description: Option<String>,
     pub provider: Option<RepositoryProvider>,
@@ -167,6 +172,10 @@ pub struct UpdateRepositoryRequest {
     /// Testcontainers inside the sandbox. Defaults to false.
     #[serde(default)]
     pub docker_access: Option<bool>,
+    /// Per-repo Kubernetes ServiceAccount for this repo's sandbox pods. Overrides
+    /// the global default when set.
+    #[serde(default)]
+    pub sandbox_service_account: Option<String>,
     pub system_prompt: Option<String>,
     pub description: Option<String>,
     pub servers: Option<Vec<ServerConfig>>,
@@ -198,6 +207,8 @@ pub struct RepositoryResponse {
     pub docker_image: Option<String>,
     #[serde(default)]
     pub docker_access: Option<bool>,
+    #[serde(default)]
+    pub sandbox_service_account: Option<String>,
     pub system_prompt: Option<String>,
     pub description: Option<String>,
     pub provider: Option<RepositoryProvider>,

@@ -19,6 +19,7 @@ pub struct RepositoryPatch {
     pub default_branch: Option<Option<String>>,
     pub docker_image: Option<Option<String>>,
     pub docker_access: Option<Option<bool>>,
+    pub sandbox_service_account: Option<Option<String>>,
     pub system_prompt: Option<Option<String>>,
     pub description: Option<Option<String>>,
     pub provider: Option<Option<RepositoryProvider>>,
@@ -131,7 +132,7 @@ impl RepoRepository for PgRepoRepository {
                 description, provider, scope, team_id, owner_user_id, created_by,
                 resources,
                 deleted, created_at, updated_at,
-                docker_access
+                docker_access, sandbox_service_account
             ) VALUES (
                 $1, $2, $3, $4, $5,
                 $6, $7, $8, $9,
@@ -142,7 +143,7 @@ impl RepoRepository for PgRepoRepository {
                 $18, $19, $20, $21, $22, $23,
                 $24,
                 $25, $26, $27,
-                $28
+                $28, $29
             )"#,
         )
         .bind(&row.id)
@@ -173,6 +174,7 @@ impl RepoRepository for PgRepoRepository {
         .bind(row.created_at)
         .bind(row.updated_at)
         .bind(row.docker_access)
+        .bind(&row.sandbox_service_account)
         .execute(&self.0)
         .await?;
         Ok(())
@@ -200,6 +202,7 @@ impl RepoRepository for PgRepoRepository {
         push_set!(default_branch);
         push_set!(docker_image);
         push_set!(docker_access);
+        push_set!(sandbox_service_account);
         push_set!(system_prompt);
         push_set!(description);
         push_set!(provider);
@@ -246,6 +249,7 @@ impl RepoRepository for PgRepoRepository {
         bind_opt!(default_branch);
         bind_opt!(docker_image);
         bind_opt!(docker_access);
+        bind_opt!(sandbox_service_account);
         bind_opt!(system_prompt);
         bind_opt!(description);
         bind_opt!(provider);

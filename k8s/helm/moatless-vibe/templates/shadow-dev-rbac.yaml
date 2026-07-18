@@ -1,0 +1,50 @@
+{{- /*
+Shadow-dev ServiceAccount + RoleBindings.
+
+Opt-in identity for running the moatless-vibe backend inside a sandbox ("shadow
+mode") with the same Kubernetes rights as the real backend. Bound to the same
+Roles the backend uses (pod-manager, ingressroute-manager, observability) so a
+shadow backend can provision sandbox pods. A repo opts in by setting its
+`sandboxServiceAccount` to this SA (see backend repository config).
+
+Rendered only when shadowDev.enabled AND rbac.create (the Roles it binds to are
+created by rbac.yaml, which is itself gated on rbac.create).
+*/ -}}
+{{- if and .Values.shadowDev.enabled .Values.rbac.create -}}
+{{- $sandboxNamespace := include "moatless-vibe.sandboxNamespace" . -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.shadowDev.serviceAccount }}
+  namespace: {{ $sandboxNamespace }}
+  labels:
+    {{- include "moatless-vibe.labels" . | nindent 4 }}
+    moatless.io/purpose: shadow-dev
+  {{- with .Values.shadowDev.serviceAccountAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- if .Values.imagePullSecrets }}
+imagePullSecrets:
+  {{- toYaml .Values.imagePullSecrets | nindent 2 }}
+{{- end }}
+{{- range $role := list "pod-manager" "ingressroute-manager" "observability" }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "moatless-vibe.fullname" $ }}-shadow-dev-{{ $role }}
+  namespace: {{ $sandboxNamespace }}
+  labels:
+    {{- include "moatless-vibe.labels" $ | nindent 4 }}
+    moatless.io/purpose: shadow-dev
+subjects:
+  - kind: ServiceAccount
+    name: {{ $.Values.shadowDev.serviceAccount }}
+    namespace: {{ $sandboxNamespace }}
+roleRef:
+  kind: Role
+  name: {{ include "moatless-vibe.fullname" $ }}-{{ $role }}
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}
+{{- end }}

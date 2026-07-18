@@ -1,0 +1,47 @@
+{
+  "//": "Shadow-dev variant of .moatless/config.json. Runs BOTH the frontend dev",
+  "//1": "server and a shadow backend as sidecars in one sandbox pod. Point a",
+  "//2": "dedicated 'moatless-vibe (shadow)' repo/branch at this, or copy it over",
+  "//3": "config.json for a dev task. Do NOT make this the default for agent tasks —",
+  "//4": "the backend sidecar compiles Rust on start, which is heavy.",
+  "//5": "The sandbox image must include the Rust toolchain + bun (full sandbox image).",
+  "//6": "sandboxServiceAccount runs this repo's sandbox under the moatless-dev SA",
+  "//7": "so the shadow backend can provision sandboxes. Enable the SA + RoleBindings",
+  "//8": "in Helm: set shadowDev.enabled=true (k8s/helm/moatless-vibe/values.yaml).",
+  "sandboxServiceAccount": "moatless-dev",
+  "codeExecution": {
+    "setupCommands": [
+      "curl -fsSL https://bun.sh/install | BUN_INSTALL=/opt/moatless/data/.bun bash",
+      "/opt/moatless/data/.bun/bin/bun install",
+      "mkdir -p /opt/moatless/data/shadow"
+    ]
+  },
+  "resources": {
+    "storageMode": "s3",
+    "storage": "40Gi",
+    "dockerStorageMode": "node",
+    "dockerStorage": "30Gi"
+  },
+  "servers": [
+    {
+      "name": "dev",
+      "label": "Frontend (dev)",
+      "port": 3000,
+      "startCommands": ["/opt/moatless/data/.bun/bin/bun run dev -- --host 0.0.0.0"],
+      "startupTimeoutSeconds": 60,
+      "autoReload": true,
+      "enableInspector": true,
+      "default": true
+    },
+    {
+      "name": "backend",
+      "label": "Shadow Backend",
+      "port": 8080,
+      "startCommands": ["bash scripts/shadow/up.sh"],
+      "startupTimeoutSeconds": 600,
+      "autoReload": false,
+      "enableInspector": false,
+      "default": false
+    }
+  ]
+}
