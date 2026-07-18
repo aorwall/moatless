@@ -5,11 +5,7 @@ import { toast } from 'sonner'
 import { useAgentAvailability } from '@/features/agents'
 import { useCommandsList } from '@/features/commands/hooks/use-commands'
 import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
-import {
-  RepositoriesConfigurationDialog,
-  useRepositoriesList,
-  useRepository,
-} from '@/features/repositories'
+import { CreateRepositoryDialog, useRepositoriesList, useRepository } from '@/features/repositories'
 import { SettingsDialog } from '@/features/settings'
 import { useRepositorySkills } from '@/features/skills'
 import {
@@ -471,10 +467,10 @@ export function CreateCodeTask({
         </ChatInput>
       </div>
 
-      <RepositoriesConfigurationDialog
+      <CreateRepositoryDialog
         open={repoDialogOpen}
         onOpenChange={setRepoDialogOpen}
-        defaultToCreate={true}
+        onCreated={(repositoryId) => repoSelector.onChange(repositoryId)}
       />
 
       <FigmaImportDialog

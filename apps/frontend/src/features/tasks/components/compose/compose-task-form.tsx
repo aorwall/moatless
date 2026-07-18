@@ -1,6 +1,6 @@
 import type React from 'react'
 import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
-import { RepositoriesConfigurationDialog } from '@/features/repositories'
+import { CreateRepositoryDialog } from '@/features/repositories'
 import { SettingsDialog } from '@/features/settings'
 import { ContextItems, FileAttachments } from '@/features/tasks/components/chat/chat-input'
 import {
@@ -229,10 +229,10 @@ export function ComposeTaskForm(props: ComposeTaskFormProps) {
         </PopoverSelector>
       </div>
 
-      <RepositoriesConfigurationDialog
+      <CreateRepositoryDialog
         open={form.repoDialogOpen}
         onOpenChange={form.setRepoDialogOpen}
-        defaultToCreate={true}
+        onCreated={(repositoryId) => form.repoSelector.onChange(repositoryId)}
       />
       <FigmaImportDialog
         open={form.taskInputs.figmaDialogOpen}
