@@ -706,7 +706,12 @@ kubernetes:
   # plan|delegate|dontAsk). Ignored in tmux mode:
   #   - name: SANDBOX_PERMISSION_MODE
   #     value: "acceptEdits"
-  sandboxExtraEnv: []
+  # IS_SANDBOX=1 lets the Claude CLI accept bypassPermissions while sandbox pods
+  # run as root (the default — sandboxRunAsNonRoot is false). Harmless when
+  # running non-root. Deployments that set sandboxExtraEnv override this list.
+  sandboxExtraEnv:
+    - name: IS_SANDBOX
+      value: "1"
   # Image pre-pull configuration (reduces pod startup time)
   imagePrepull:
     # -- Enable DaemonSet to pre-pull sandbox image on all nodes
