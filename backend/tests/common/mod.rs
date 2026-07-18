@@ -51,6 +51,13 @@ impl SandboxProvider for MockSandboxProvider {
         Err(SandboxError::Internal("mock: not implemented".into()))
     }
 
+    fn expected_sandbox_image(&self, repo_docker_image: Option<&str>) -> String {
+        repo_docker_image
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| "mock-sandbox:latest".to_string())
+    }
+
     async fn stop(&self, _task_id: &str) -> Result<(), SandboxError> {
         Ok(()) // best-effort in handlers
     }

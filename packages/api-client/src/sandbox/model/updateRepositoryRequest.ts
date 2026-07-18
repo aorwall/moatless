@@ -40,6 +40,12 @@ Testcontainers inside the sandbox. Defaults to false.
   /** @nullable */
   remoteUrl?: string | null;
   resources?: null | ResourceConfig;
+  /**
+   * Per-repo Kubernetes ServiceAccount for this repo's sandbox pods. Overrides
+the global default when set.
+   * @nullable
+   */
+  sandboxServiceAccount?: string | null;
   scope?: null | Scope;
   /** @nullable */
   serverStartCommands?: string[] | null;

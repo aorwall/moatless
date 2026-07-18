@@ -7,6 +7,7 @@ use super::models::{
     AgentState, ResourceMetrics, SandboxState, SandboxStatus, ServerCapabilities, ServerSnapshot,
     ServerStatus,
 };
+use crate::task::models::SandboxDesiredState;
 
 /// Provision response
 #[derive(Debug, Serialize, ToSchema)]
@@ -148,6 +149,25 @@ pub struct SandboxStatusFullResponse {
     /// running in the sandbox. Empty when idle with no background work.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub background_processes: Vec<BackgroundProcess>,
+    /// Desired sandbox lifecycle intent recorded on the task
+    /// (`running`/`stopped`/`removed`). Reflects the last user/system action,
+    /// independent of the live pod phase. `None` when it can't be resolved.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sandbox_desired_state: Option<SandboxDesiredState>,
+    /// Image the currently-provisioned sandbox container is running, read from
+    /// the live Deployment/container. `None` when no sandbox exists yet.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_sandbox_image: Option<String>,
+    /// Image a fresh (re)deploy would use for the sandbox container: the
+    /// per-repo `docker_image` override when set, otherwise the configured
+    /// default. Compare against `current_sandbox_image` to know whether a
+    /// redeploy would change the image.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_sandbox_image: Option<String>,
+    /// `true` when `current_sandbox_image` matches `latest_sandbox_image`.
+    /// `None` when either image is unknown (e.g. no sandbox provisioned).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_up_to_date: Option<bool>,
 }
 
 /// Server status response proxied from sandbox pod.
@@ -453,6 +473,10 @@ mod tests {
             runtime_events: None,
             scheduled_jobs: vec![],
             background_processes: vec![],
+            sandbox_desired_state: None,
+            current_sandbox_image: None,
+            latest_sandbox_image: None,
+            image_up_to_date: None,
         };
         let json = serde_json::to_value(&resp).unwrap();
         assert!(json.get("scheduledJobs").is_none());
@@ -482,6 +506,10 @@ mod tests {
                 }),
             }],
             background_processes: vec![],
+            sandbox_desired_state: None,
+            current_sandbox_image: None,
+            latest_sandbox_image: None,
+            image_up_to_date: None,
         };
         let json = serde_json::to_value(&resp).unwrap();
         let arr = json
@@ -511,6 +539,10 @@ mod tests {
                 pid: 1234,
                 command: "cargo test --no-run".into(),
             }],
+            sandbox_desired_state: None,
+            current_sandbox_image: None,
+            latest_sandbox_image: None,
+            image_up_to_date: None,
         };
         let json = serde_json::to_value(&resp).unwrap();
         let arr = json

@@ -247,6 +247,12 @@ impl SandboxProvider for K8sSandboxProvider {
             .await)
     }
 
+    fn expected_sandbox_image(&self, repo_docker_image: Option<&str>) -> String {
+        repo_docker_image
+            .filter(|s| !s.is_empty())
+            .map_or_else(|| self.config.sandbox.image.clone(), str::to_string)
+    }
+
     async fn stop(&self, task_id: &str) -> Result<(), SandboxError> {
         info!(task_id = %task_id, "Stopping sandbox (scaling Deployment to 0)");
 

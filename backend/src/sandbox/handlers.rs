@@ -128,6 +128,31 @@ pub async fn sandbox_status_handler(
             {
                 resp.environment_status = SandboxStatus::Removed;
             }
+
+            // Surface the recorded lifecycle intent and image freshness so the
+            // UI can tell whether a redeploy would move the sandbox to a newer
+            // image. The "latest" image is what a fresh (re)deploy would use:
+            // the per-repo `docker_image` override, else the configured default.
+            resp.sandbox_desired_state = Some(task.sandbox_desired_state);
+
+            let repo_docker_image = match &state.repos {
+                Some(repos) => repos
+                    .find_repository_by_id(&task.repository_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|repo| repo.docker_image),
+                None => None,
+            };
+            let latest = state
+                .provider
+                .expected_sandbox_image(repo_docker_image.as_deref());
+            resp.image_up_to_date = resp
+                .current_sandbox_image
+                .as_ref()
+                .map(|current| current == &latest);
+            resp.latest_sandbox_image = Some(latest);
+
             Json(resp).into_response()
         }
         Err(e) => {

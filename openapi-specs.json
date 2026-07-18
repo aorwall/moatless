@@ -8740,6 +8740,13 @@
               }
             ]
           },
+          "sandboxServiceAccount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Per-repo Kubernetes ServiceAccount for this repo's sandbox pods. Overrides\nthe global default when set. Used for shadow dev sandboxes that need the\nbackend's RBAC to provision sandboxes."
+          },
           "scope": {
             "oneOf": [
               {
@@ -11360,6 +11367,12 @@
               }
             ]
           },
+          "sandboxServiceAccount": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "scope": {
             "$ref": "#/components/schemas/Scope"
           },
@@ -11873,6 +11886,13 @@
               "$ref": "#/components/schemas/ContainerDiagnostics"
             }
           },
+          "currentSandboxImage": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Image the currently-provisioned sandbox container is running, read from\nthe live Deployment/container. `None` when no sandbox exists yet."
+          },
           "environmentError": {
             "type": [
               "string",
@@ -11881,6 +11901,20 @@
           },
           "environmentStatus": {
             "$ref": "#/components/schemas/SandboxStatus"
+          },
+          "imageUpToDate": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "`true` when `current_sandbox_image` matches `latest_sandbox_image`.\n`None` when either image is unknown (e.g. no sandbox provisioned)."
+          },
+          "latestSandboxImage": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Image a fresh (re)deploy would use for the sandbox container: the\nper-repo `docker_image` override when set, otherwise the configured\ndefault. Compare against `current_sandbox_image` to know whether a\nredeploy would change the image."
           },
           "resources": {
             "oneOf": [
@@ -11900,6 +11934,17 @@
             "items": {
               "$ref": "#/components/schemas/RuntimeEvent"
             }
+          },
+          "sandboxDesiredState": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SandboxDesiredState",
+                "description": "Desired sandbox lifecycle intent recorded on the task\n(`running`/`stopped`/`removed`). Reflects the last user/system action,\nindependent of the live pod phase. `None` when it can't be resolved."
+              }
+            ]
           },
           "sandboxReady": {
             "type": "boolean"
@@ -14581,6 +14626,13 @@
                 "$ref": "#/components/schemas/ResourceConfig"
               }
             ]
+          },
+          "sandboxServiceAccount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Per-repo Kubernetes ServiceAccount for this repo's sandbox pods. Overrides\nthe global default when set."
           },
           "scope": {
             "oneOf": [
