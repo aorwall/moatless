@@ -11,7 +11,8 @@ use moatless_vibe_backend::auth::github_app_registry::GitHubAppRegistry;
 use moatless_vibe_backend::command::models::Command;
 use moatless_vibe_backend::config::{
     AuthConfig, CodexOAuthConfig, Config, DatabaseConfig, DockerConfig, GithubPrConfig,
-    LinearConfig, ProxyConfig, RedisConfig, S3Config, SandboxConfig, SandboxProviderType,
+    LinearConfig, ProxyConfig, ReconcileConfig, RedisConfig, S3Config, SandboxConfig,
+    SandboxProviderType,
     SecretsConfig, ServerConfig, SkillConfig, SlackConfig, SseConfig, TelegramConfig,
 };
 use moatless_vibe_backend::message::models::{MessageRole, MessageType, TaskMessage};
@@ -122,6 +123,11 @@ pub fn test_config() -> Config {
             resources_memory_limit: "512Mi".into(),
             resources_cpu_request: "100m".into(),
             resources_memory_request: "128Mi".into(),
+            run_as_non_root: false,
+            shared_data_size: "2Gi".into(),
+            build_cache_size: "1536Mi".into(),
+            persist_toolchain: false,
+            cargo_target_on_build_cache: false,
             storage_enabled: false,
             storage_size: "1Gi".into(),
             storage_class: None,
@@ -136,6 +142,7 @@ pub fn test_config() -> Config {
             idle_reaper_enabled: false,
             liveness_enabled: false,
             idle_timeout_minutes: 15,
+            busy_extension_max_hours: 4,
             idle_check_interval_secs: 300,
             inactive_task_timeout_days: 0,
             orphan_gc_enabled: false,
@@ -187,6 +194,7 @@ pub fn test_config() -> Config {
         redis: RedisConfig {
             url: None,
             max_stream_length: 100,
+            event_handler_enabled: true,
         },
         sse: SseConfig {
             broadcast_capacity: 16,
@@ -257,6 +265,12 @@ pub fn test_config() -> Config {
         codex_oauth: CodexOAuthConfig {
             issuer: "https://auth.openai.com".into(),
             client_id: "test-client".into(),
+        },
+        reconcile: ReconcileConfig {
+            reprovision_enabled: false,
+            pending_timeout_enabled: false,
+            pending_timeout_minutes: 15,
+            max_reprovision_attempts: 3,
         },
         default_run_as_user_id: None,
     }
@@ -354,6 +368,7 @@ pub fn make_repository_row(id: &str, user_id: &str) -> Repository {
         team_id: Some(format!("personal-{user_id}")),
         owner_user_id: Some(user_id.to_string()),
         created_by: Some(user_id.to_string()),
+        sandbox_service_account: None,
         resources: None,
         deleted: Some(false),
         created_at: Some(now),
