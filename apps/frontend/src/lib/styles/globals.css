@@ -256,6 +256,12 @@
   body {
     overscroll-behavior: none;
   }
+  /* Keep text at its declared size on iOS (never auto-inflate). This keeps form
+     controls reliably at >= 16px so Safari doesn't auto-zoom when they're focused. */
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
   /* Lock the document to the viewport so only inner scroll containers scroll.
      Prevents the whole app from scrolling (header/chat drifting off-screen and
      stray horizontal scroll) on mobile, and keeps layout stable when the
