@@ -320,6 +320,11 @@ pub(super) async fn agent_loop(
                     Ok(started) => {
                         codex_turn_active = matches!(started.handle, ActiveHandle::Codex(_));
                         if config.use_tmux && matches!(started.handle, ActiveHandle::Claude(_)) {
+                            // Marks the persistent session for the busy-process
+                            // walk, which must not count it as background work.
+                            if let ActiveHandle::Claude(claude) = &started.handle {
+                                agent_state.set_tmux_pane_pid(claude.tmux_pane_pid).await;
+                            }
                             tmux_turn_in_flight = true;
                             tmux_session = Some(TmuxSessionInfo {
                                 model: send.model.clone(),
@@ -800,6 +805,11 @@ pub(super) async fn agent_loop(
                     Ok(started) => {
                         codex_turn_active = matches!(started.handle, ActiveHandle::Codex(_));
                         if config.use_tmux && matches!(started.handle, ActiveHandle::Claude(_)) {
+                            // Marks the persistent session for the busy-process
+                            // walk, which must not count it as background work.
+                            if let ActiveHandle::Claude(claude) = &started.handle {
+                                agent_state.set_tmux_pane_pid(claude.tmux_pane_pid).await;
+                            }
                             tmux_turn_in_flight = true;
                             tmux_session = Some(TmuxSessionInfo {
                                 model: state.model.clone(),

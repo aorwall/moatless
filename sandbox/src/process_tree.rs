@@ -41,6 +41,60 @@ fn children_of(pid: u32) -> Vec<u32> {
     out
 }
 
+/// Parent PID from `/proc/<pid>/stat` (field 4, after the comm parens).
+fn parent_of(pid: u32) -> Option<u32> {
+    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let after_comm = &stat[stat.rfind(')')? + 1..];
+    after_comm.split_whitespace().nth(1)?.parse().ok()
+}
+
+/// The chain from `leaf` up to (but excluding) `root`.
+///
+/// In tmux mode this is the persistent session's own spine — the CLI in the
+/// pane and the tmux server above it — which is alive for the sandbox's whole
+/// life and must not be mistaken for background work.
+fn ancestry_to_root(leaf: u32, root: u32) -> Vec<u32> {
+    ancestry_with(leaf, root, parent_of)
+}
+
+/// Ancestry walk with an injected parent lookup, so the traversal rules are
+/// testable without `/proc`.
+fn ancestry_with(leaf: u32, root: u32, parent: impl Fn(u32) -> Option<u32>) -> Vec<u32> {
+    let mut chain = Vec::new();
+    let mut cur = leaf;
+    // Bounded: a spine deeper than this means a cycle or a surprise tree, and
+    // walking forever inside a status call would be worse than reporting none.
+    for _ in 0..32 {
+        if cur == root || cur == 0 {
+            break;
+        }
+        chain.push(cur);
+        match parent(cur) {
+            Some(next) => cur = next,
+            None => break,
+        }
+    }
+    chain
+}
+
+/// Live descendants of `root`, minus the persistent session spine leading down
+/// to `pane_pid`.
+///
+/// The tmux transport keeps a tmux server and a CLI process alive from session
+/// start to sandbox shutdown, so rooting a plain walk at PID 1 reports "busy"
+/// forever. Excluding just that spine leaves exactly the agent's own work —
+/// both jobs the CLI manages (children of the pane process) and jobs detached
+/// with `setsid`/`nohup`, which reparent to PID 1 and sit *outside* the pane's
+/// subtree. The walk still descends *through* the excluded PIDs, so the CLI's
+/// own children are still found.
+pub fn live_descendants_excluding_session(root: u32, pane_pid: u32) -> Vec<BackgroundProcess> {
+    let spine: Vec<u32> = ancestry_to_root(pane_pid, root);
+    live_descendants(root)
+        .into_iter()
+        .filter(|p| !spine.contains(&p.pid))
+        .collect()
+}
+
 /// Process state letter from `/proc/<pid>/stat`, `None` if unreadable (the
 /// process exited between reads). The comm field can contain spaces and
 /// parens, so the state is parsed from after the *last* `)`.
@@ -131,6 +185,43 @@ pub fn live_pids(pids: &[u32]) -> Vec<u32> {
         .copied()
         .filter(|&pid| pid_is_live(pid))
         .collect()
+}
+
+/// Traversal rules, testable on any host via the injected parent lookup.
+#[cfg(test)]
+mod ancestry_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn lookup(pairs: &[(u32, u32)]) -> impl Fn(u32) -> Option<u32> + '_ {
+        let map: HashMap<u32, u32> = pairs.iter().copied().collect();
+        move |pid| map.get(&pid).copied()
+    }
+
+    /// The measured tmux shape: sandbox(1) → tmux server(60) → claude(61).
+    #[test]
+    fn spine_is_the_chain_from_the_pane_up_to_the_root() {
+        let chain = ancestry_with(61, 1, lookup(&[(61, 60), (60, 1)]));
+        assert_eq!(chain, vec![61, 60], "tmux server and CLI are the session");
+    }
+
+    #[test]
+    fn root_itself_is_never_part_of_the_spine() {
+        assert!(ancestry_with(1, 1, lookup(&[])).is_empty());
+    }
+
+    #[test]
+    fn walk_stops_when_a_parent_is_unreadable() {
+        // The process exited mid-walk — take what was resolved, don't spin.
+        let chain = ancestry_with(61, 1, lookup(&[(61, 60)]));
+        assert_eq!(chain, vec![61, 60]);
+    }
+
+    #[test]
+    fn a_parent_cycle_cannot_hang_the_status_call() {
+        let chain = ancestry_with(5, 1, lookup(&[(5, 6), (6, 5)]));
+        assert_eq!(chain.len(), 32, "bounded rather than looping forever");
+    }
 }
 
 // /proc is Linux-only; dev machines (macOS) skip these.

@@ -27,6 +27,9 @@ struct AgentInner {
     pending_prompt: Option<PendingPrompt>,
     consecutive_errors: u32,
     messages_pending: bool,
+    /// tmux only: the CLI process in the pane. Marks the persistent session so
+    /// the busy-process walk can tell it apart from the agent's own work.
+    tmux_pane_pid: Option<u32>,
 }
 
 impl Default for AgentState {
@@ -47,8 +50,17 @@ impl AgentState {
                 pending_prompt: None,
                 consecutive_errors: 0,
                 messages_pending: false,
+                tmux_pane_pid: None,
             }),
         }
+    }
+
+    pub async fn tmux_pane_pid(&self) -> Option<u32> {
+        self.inner.read().await.tmux_pane_pid
+    }
+
+    pub async fn set_tmux_pane_pid(&self, pane_pid: Option<u32>) {
+        self.inner.write().await.tmux_pane_pid = pane_pid;
     }
 
     pub async fn status(&self) -> AgentStatus {

@@ -295,6 +295,12 @@ pub async fn query_tmux_streaming(mut options: ClaudeOptions) -> Result<QueryHan
         return Err(e.with_pane_tail(pane));
     }
 
+    // Captured once the session is up: the CLI process in the pane. Callers
+    // use it to separate the persistent session from background work it
+    // spawned. Valid for this handle's lifetime — a respawned TUI means a new
+    // handle.
+    let pane_pid = session.pane_pid().await;
+
     let (tx, rx) = mpsc::channel(CHANNEL_CAPACITY);
 
     let join_handle = spawn_lazy_supervisor(
@@ -310,12 +316,10 @@ pub async fn query_tmux_streaming(mut options: ClaudeOptions) -> Result<QueryHan
     anchor_harness(harness, cancellation_token.clone());
 
     let stdin_writer: Arc<dyn StdinWriter> = writer;
-    Ok(QueryHandle::from_parts(
-        rx,
-        join_handle,
-        stdin_writer,
-        cancellation_token,
-    ))
+    Ok(
+        QueryHandle::from_parts(rx, join_handle, stdin_writer, cancellation_token)
+            .with_tmux_pane_pid(pane_pid),
+    )
 }
 
 fn warn_on_ignored_options(options: &ClaudeOptions) {
