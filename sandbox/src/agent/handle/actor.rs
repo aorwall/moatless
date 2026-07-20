@@ -35,7 +35,7 @@ use super::retry::{
 use super::session::{
     fetch_system_prompt, normalize_agent_type, publish_turn_start, start_session, TmuxSessionInfo,
 };
-use super::{drain_pending_acks, ActiveHandle, AgentCommand, QueuedSend};
+use super::{drain_pending_acks, ActiveHandle, AgentCommand, QueuedSend, RunAck};
 
 #[allow(clippy::large_enum_variant)] // Claude SDK messages are much larger than Codex JSON events.
 enum ActiveMessage {
@@ -50,11 +50,16 @@ enum ActiveMessage {
 /// branch keeps using the bare locals.
 pub(super) struct TurnContext<'a> {
     pub(super) agent_state: &'a AgentState,
+    /// Run-agnostic publisher. Processors publish through
+    /// [`TurnContext::run_events`] so every event carries the current run id.
     pub(super) events: &'a GrpcEventPublisher,
     pub(super) task_id: &'a str,
     pub(super) session_id: &'a mut String,
+    /// Identifies the agent run currently in flight. Regenerated at each turn
+    /// start and constant for the run's lifetime.
+    pub(super) run_id: &'a mut String,
     pub(super) handle: &'a mut Option<ActiveHandle>,
-    pub(super) pending_acks: &'a mut VecDeque<oneshot::Sender<String>>,
+    pub(super) pending_acks: &'a mut VecDeque<oneshot::Sender<RunAck>>,
     pub(super) consecutive_errors: &'a mut u32,
     /// Claude-only, untouched by Codex.
     pub(super) pending_wakeup: &'a mut Option<WakeupJob>,
@@ -69,6 +74,36 @@ pub(super) struct TurnContext<'a> {
     /// Claude-only: when the last rate-limited `agent.activity` event was
     /// published (see the `ToolProgress` arm in `process_claude_message`).
     pub(super) last_activity_publish: &'a mut Option<std::time::Instant>,
+}
+
+impl TurnContext<'_> {
+    /// Publisher scoped to the run currently in flight.
+    pub(super) fn run_events(&self) -> GrpcEventPublisher {
+        self.events.for_run(self.run_id)
+    }
+
+    /// Begin a new agent run: mint a fresh run id so the events and acks that
+    /// follow are attributed to their own turn.
+    pub(super) async fn begin_run(&mut self) {
+        *self.run_id = new_run_id();
+        self.agent_state.set_run_id(self.run_id.clone()).await;
+    }
+
+    /// Resolve the ack for a message that joined the run in flight.
+    pub(super) fn ack_current_run(&self, ack: oneshot::Sender<RunAck>) {
+        let _ = ack.send(RunAck {
+            session_id: self.session_id.clone(),
+            run_id: self.run_id.clone(),
+        });
+    }
+}
+
+/// Mint an identifier for a new agent run.
+///
+/// A UUID rather than a counter so it stays unique across pod restarts without
+/// a per-instance qualifier.
+pub(super) fn new_run_id() -> String {
+    uuid::Uuid::new_v4().to_string()
 }
 
 /// The actor event loop.
@@ -92,6 +127,11 @@ pub(super) async fn agent_loop(
     let task_id = config.task_id.clone();
     let mut handle: Option<ActiveHandle> = None;
     let mut session_id = String::new();
+    // Identifies the agent run in flight. Minted whenever a run starts while
+    // the agent is idle and held constant until that run ends — including
+    // across retries, which re-drive the same logical run. Messages injected
+    // mid-run ack with this id and so join the run's turn.
+    let mut run_id = String::new();
     // Per-spawn nonce included in every UUID emitted from the active codex
     // spawn. Required because Codex CLI restarts its `item_id` numbering at
     // `item_0` on every `codex exec --resume`, which would otherwise collide
@@ -100,7 +140,7 @@ pub(super) async fn agent_loop(
     // re-collide once thread state is reloaded from the workspace PVC.
     let mut spawn_nonce = String::new();
     let mut consecutive_errors: u32 = 0;
-    let mut pending_acks: VecDeque<oneshot::Sender<String>> = VecDeque::new();
+    let mut pending_acks: VecDeque<oneshot::Sender<RunAck>> = VecDeque::new();
     let mut queued_sends: VecDeque<QueuedSend> = VecDeque::new();
     let mut codex_turn_output = String::new();
     let mut last_model: Option<String> = None;
@@ -169,6 +209,7 @@ pub(super) async fn agent_loop(
                 (turn ended without a terminal event).";
             agent_state.set_error(error_text.to_string()).await;
             events
+                .for_run(&run_id)
                 .publish_agent_event(
                     &task_id,
                     AgentSubType::Error,
@@ -195,9 +236,10 @@ pub(super) async fn agent_loop(
                     // message into the running TUI as a new turn.
                     let fresh_system_prompt =
                         fetch_system_prompt(&*backend_client, &task_id, &system_prompt_cache).await;
-                    let restart = tmux_session.as_ref().is_none_or(|info| {
-                        info.needs_restart(&send, fresh_system_prompt.as_deref(), &session_id)
-                    });
+                    let restart = send.start_fresh
+                        || tmux_session.as_ref().is_none_or(|info| {
+                            info.needs_restart(&send, fresh_system_prompt.as_deref(), &session_id)
+                        });
                     if restart {
                         info!("Send incompatible with live tmux session; restarting session");
                         if let Some(active) = handle.take() {
@@ -219,13 +261,20 @@ pub(super) async fn agent_loop(
                         Ok(()) => {
                             info!("Pasted new turn into live tmux session");
                             tmux_turn_in_flight = true;
+                            // A paste into an idle session is a new run even
+                            // though the CLI session (and its id) is reused.
+                            run_id = new_run_id();
+                            agent_state.set_run_id(run_id.clone()).await;
                             let turn_cancel = tmux_session.as_ref().map_or_else(
                                 || agent_run_cancel.clone(),
                                 |info| info.cancel_token.clone(),
                             );
                             agent_state.set_running(turn_cancel).await;
-                            publish_turn_start(&events, &task_id).await;
-                            let _ = send.ack.send(session_id.clone());
+                            publish_turn_start(&events, &task_id, &run_id).await;
+                            let _ = send.ack.send(RunAck {
+                                session_id: session_id.clone(),
+                                run_id: run_id.clone(),
+                            });
                         }
                         Err(error) => {
                             warn!(
@@ -244,6 +293,9 @@ pub(super) async fn agent_loop(
 
                 last_prompt = Some(send.text.clone());
                 pending_acks.push_back(send.ack);
+                // A spawn from the idle path always begins a new run.
+                run_id = new_run_id();
+                agent_state.set_run_id(run_id.clone()).await;
 
                 match start_session(
                     &send.text,
@@ -254,10 +306,12 @@ pub(super) async fn agent_loop(
                     &*backend_client,
                     &task_id,
                     &session_id,
+                    &run_id,
                     send.model.as_deref(),
                     send.agent_type.as_deref(),
                     send.agent_mode.as_deref(),
                     send.resume_session_id.clone(),
+                    send.start_fresh,
                     credential_failures.clone(),
                     Arc::clone(&system_prompt_cache),
                 )
@@ -296,6 +350,7 @@ pub(super) async fn agent_loop(
                                 retry_at: Instant::now() + backoff,
                             });
                             events
+                                .for_run(&run_id)
                                 .publish_agent_event(
                                     &task_id,
                                     AgentSubType::Retrying,
@@ -310,6 +365,7 @@ pub(super) async fn agent_loop(
                             consecutive_errors += 1;
                             agent_state.set_error(error.to_string()).await;
                             events
+                                .for_run(&run_id)
                                 .publish_agent_event(
                                     &task_id,
                                     AgentSubType::Error,
@@ -360,6 +416,7 @@ pub(super) async fn agent_loop(
                             events: &events,
                             task_id: &task_id,
                             session_id: &mut session_id,
+                            run_id: &mut run_id,
                             handle: &mut handle,
                             pending_acks: &mut pending_acks,
                             consecutive_errors: &mut consecutive_errors,
@@ -411,7 +468,7 @@ pub(super) async fn agent_loop(
                                             retry_at: Instant::now() + backoff,
                                         });
 
-                                        events.publish_agent_event(
+                                        events.for_run(&run_id).publish_agent_event(
                                             &task_id,
                                             AgentSubType::Retrying,
                                             serde_json::json!({
@@ -455,7 +512,7 @@ pub(super) async fn agent_loop(
                                     .register(Box::new(job), agent_run_cancel.clone())
                                     .await;
                                 if registered {
-                                    events.publish_agent_event(
+                                    events.for_run(&run_id).publish_agent_event(
                                         &task_id,
                                         AgentSubType::Scheduled,
                                         serde_json::json!({ "reason": reason }),
@@ -504,7 +561,7 @@ pub(super) async fn agent_loop(
                                             count,
                                             "Armed background-completion watch after turn end"
                                         );
-                                        events.publish_agent_event(
+                                        events.for_run(&run_id).publish_agent_event(
                                             &task_id,
                                             AgentSubType::Scheduled,
                                             serde_json::json!({
@@ -541,6 +598,7 @@ pub(super) async fn agent_loop(
                             tmux_turn_in_flight = false;
                             agent_state.set_error(error.to_string()).await;
                             events
+                                .for_run(&run_id)
                                 .publish_agent_event(
                                     &task_id,
                                     AgentSubType::Error,
@@ -566,6 +624,7 @@ pub(super) async fn agent_loop(
                             events: &events,
                             task_id: &task_id,
                             session_id: &mut session_id,
+                            run_id: &mut run_id,
                             handle: &mut handle,
                             pending_acks: &mut pending_acks,
                             consecutive_errors: &mut consecutive_errors,
@@ -606,6 +665,7 @@ pub(super) async fn agent_loop(
                             events: &events,
                             task_id: &task_id,
                             session_id: &mut session_id,
+                            run_id: &mut run_id,
                             handle: &mut handle,
                             pending_acks: &mut pending_acks,
                             consecutive_errors: &mut consecutive_errors,
@@ -671,6 +731,7 @@ pub(super) async fn agent_loop(
                                 out-of-memory, or terminated subprocess).";
                             agent_state.set_error(error_text.to_string()).await;
                             events
+                                .for_run(&run_id)
                                 .publish_agent_event(
                                     &task_id,
                                     AgentSubType::Error,
@@ -697,6 +758,9 @@ pub(super) async fn agent_loop(
 
                 info!(attempt = state.attempt, "Retry timer fired, starting new session");
 
+                // A retry re-drives the same logical run, so `run_id` is left
+                // alone — the retried attempt's events join the run's turn
+                // instead of opening a second one for the same user message.
                 match start_session(
                     &state.prompt,
                     &config,
@@ -706,10 +770,12 @@ pub(super) async fn agent_loop(
                     &*backend_client,
                     &task_id,
                     &session_id,
+                    &run_id,
                     state.model.as_deref(),
                     state.agent_type.as_deref(),
                     state.agent_mode.as_deref(),
                     None,
+                    false,
                     credential_failures.clone(),
                     Arc::clone(&system_prompt_cache),
                 ).await {
@@ -745,7 +811,7 @@ pub(super) async fn agent_loop(
                                 attempt: next_attempt,
                                 retry_at: Instant::now() + backoff,
                             });
-                            events.publish_agent_event(
+                            events.for_run(&run_id).publish_agent_event(
                                 &task_id,
                                 AgentSubType::Retrying,
                                 serde_json::json!({
@@ -757,7 +823,7 @@ pub(super) async fn agent_loop(
                         } else {
                             consecutive_errors += 1;
                             agent_state.set_error(error.to_string()).await;
-                            events.publish_agent_event(
+                            events.for_run(&run_id).publish_agent_event(
                                 &task_id,
                                 AgentSubType::Error,
                                 serde_json::json!({ "error": error.to_string() }),
@@ -769,7 +835,7 @@ pub(super) async fn agent_loop(
 
             cmd = command_rx.recv() => {
                 match cmd {
-                    Some(AgentCommand::Send { text, model, agent_type, agent_mode, resume_session_id, ack }) => {
+                    Some(AgentCommand::Send { text, model, agent_type, agent_mode, resume_session_id, start_fresh, ack }) => {
                         if retry_state.is_some() {
                             info!("New send command cancels pending retry");
                             retry_state = None;
@@ -816,13 +882,20 @@ pub(super) async fn agent_loop(
                             agent_type: last_agent_type.clone(),
                             agent_mode: last_agent_mode.clone(),
                             resume_session_id,
+                            start_fresh,
                             ack,
                         };
                         last_prompt = Some(text);
 
                         match handle.as_ref() {
                             Some(active_handle @ ActiveHandle::Claude(_)) => {
-                                if config.use_tmux && !tmux_turn_in_flight {
+                                if effective_send.start_fresh {
+                                    // "Start fresh" means a new session, so it
+                                    // can never join the running one — queue it
+                                    // until the agent goes idle.
+                                    info!("Queueing start_fresh message until the running turn completes");
+                                    queued_sends.push_back(effective_send);
+                                } else if config.use_tmux && !tmux_turn_in_flight {
                                     // Idle persistent tmux session: queue and
                                     // let the drain path decide paste-vs-restart
                                     // against the session fingerprint.
@@ -831,8 +904,13 @@ pub(super) async fn agent_loop(
                                     warn!(error = %error, "Failed to inject message into Claude session");
                                     drop(effective_send.ack);
                                 } else {
+                                    // Joins the run in flight, so it acks with
+                                    // that run's id and shares its turn.
                                     info!("Injected message into running Claude session");
-                                    let _ = effective_send.ack.send(session_id.clone());
+                                    let _ = effective_send.ack.send(RunAck {
+                                        session_id: session_id.clone(),
+                                        run_id: run_id.clone(),
+                                    });
                                 }
                             }
                             Some(ActiveHandle::Codex(_)) => {
@@ -865,6 +943,7 @@ pub(super) async fn agent_loop(
                             agent_type: last_agent_type.clone(),
                             agent_mode: last_agent_mode.clone(),
                             resume_session_id: Some(resume_session_id),
+                            start_fresh: false,
                             ack: recover_ack_tx,
                         };
                         last_prompt = Some(text);
@@ -884,7 +963,7 @@ pub(super) async fn agent_loop(
                         scheduled_jobs.cancel_all().await;
                         agent_run_cancel.cancel();
                         agent_state.set_stopped().await;
-                        events.publish_agent_event(
+                        events.for_run(&run_id).publish_agent_event(
                             &task_id,
                             AgentSubType::Stopped,
                             serde_json::json!({}),

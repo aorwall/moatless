@@ -171,13 +171,6 @@ pub async fn send_message_flow(
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let msg_uuid = uuid::Uuid::new_v4().to_string();
 
-    // A user message starts a new turn.
-    let turn_number = state
-        .messages
-        .next_turn_number(task_id)
-        .await
-        .map_err(|e| MessageError::Internal(format!("Failed to compute turn number: {e}")))?;
-
     // Build enriched content blocks (includes figma, preview, element contexts + file attachments)
     let enriched_blocks = enricher::build_content_blocks(
         state.figma_imports.as_ref(),
@@ -209,7 +202,9 @@ pub async fn send_message_flow(
         is_sidechain: None,
         cwd: None,
         session_id: None,
-        turn_number: Some(turn_number),
+        // Queued user rows carry no turn until the sandbox acknowledges them:
+        // the run that consumes them decides which turn they belong to.
+        turn_number: None,
         version: None,
         git_branch: None,
         request_id: None,
@@ -336,8 +331,8 @@ pub async fn persist_error_result(state: &AppState, task_id: &str, error_text: &
 
     let content = serde_json::json!([{ "type": "text", "text": error_text }]);
 
-    let turn_number = match state.messages.current_turn_number(task_id).await {
-        Ok(t) => Some(t),
+    let turn_number = match state.task_turns.latest_turn_number(task_id).await {
+        Ok(t) => t,
         Err(e) => {
             tracing::warn!(task_id, error = %e, "Failed to read current turn number for error result");
             None
@@ -512,13 +507,6 @@ pub async fn send_tool_response_flow(
         "content": response_text
     }]);
 
-    // Tool responses join the active turn (the one waiting on user input).
-    let turn_number = state
-        .messages
-        .current_turn_number(task_id)
-        .await
-        .map_err(|e| MessageError::Internal(format!("Failed to compute turn number: {e}")))?;
-
     let msg_row = TaskMessage {
         id: 0,
         task_id: task_id.to_string(),
@@ -529,7 +517,9 @@ pub async fn send_tool_response_flow(
         is_sidechain: None,
         cwd: None,
         session_id: None,
-        turn_number: Some(turn_number),
+        // Queued user rows carry no turn until the sandbox acknowledges them:
+        // the run that consumes them decides which turn they belong to.
+        turn_number: None,
         version: None,
         git_branch: None,
         request_id: None,

@@ -96,6 +96,7 @@ impl BackendClient for MockBackendClient {
         task_id: &str,
         message_uuids: Vec<String>,
         session_id: &str,
+        _run_id: &str,
     ) -> Result<(), tonic::Status> {
         self.acknowledgments.lock().unwrap().push((
             task_id.to_string(),
@@ -462,7 +463,7 @@ async fn agent_handle_send_triggers_actor() {
     // Drop the ack receiver since we don't need it.
     let _ack_rx = state
         .agent_handle
-        .send("test message".to_string(), None, None, None, None);
+        .send("test message".to_string(), None, None, None, None, false);
 
     // Give the actor loop time to process
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -501,7 +502,7 @@ async fn agent_handle_rapid_fire_send_no_panic() {
     for i in 0..10 {
         let _ack_rx = state
             .agent_handle
-            .send(format!("rapid message {i}"), None, None, None, None);
+            .send(format!("rapid message {i}"), None, None, None, None, false);
     }
 
     // Give the actor time to attempt processing
@@ -529,10 +530,10 @@ async fn agent_handle_send_after_stop_does_not_panic() {
     // ack receiver will get RecvError immediately).
     let ack1 = state
         .agent_handle
-        .send("should be ignored".to_string(), None, None, None, None);
+        .send("should be ignored".to_string(), None, None, None, None, false);
     let ack2 = state
         .agent_handle
-        .send("also ignored".to_string(), None, None, None, None);
+        .send("also ignored".to_string(), None, None, None, None, false);
 
     // Ack receivers should resolve with error (sender dropped)
     assert!(ack1.await.is_err(), "ack should fail after stop");
@@ -555,7 +556,7 @@ async fn agent_handle_concurrent_send_from_multiple_tasks() {
     for i in 0..5 {
         let handle = state.agent_handle.clone();
         join_handles.push(tokio::spawn(async move {
-            let _ack_rx = handle.send(format!("concurrent task {i}"), None, None, None, None);
+            let _ack_rx = handle.send(format!("concurrent task {i}"), None, None, None, None, false);
         }));
     }
 

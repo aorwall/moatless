@@ -1162,9 +1162,9 @@ async fn resolve_tool_label(state: &AppState, task_id: &str, tool_use_id: &str) 
 
 /// Resolve which turn a result/error/stopped row belongs to.
 ///
-/// Prefers the explicit `event.turn_number` when present (future code paths may
-/// supply it). Falls back to the current max turn_number for the task, since a
-/// terminal row always belongs to the most recent in-flight turn.
+/// The gRPC ingress resolves the turn from the event's run id and stamps it, so
+/// `event.turn_number` is normally set. The fallback to the task's latest turn
+/// covers events that reached Redis without passing through that ingress.
 async fn resolve_turn_number(
     state: &AppState,
     task_id: &str,
@@ -1173,8 +1173,8 @@ async fn resolve_turn_number(
     if let Some(t) = event_turn_number {
         return Some(t);
     }
-    match state.messages.current_turn_number(task_id).await {
-        Ok(t) => Some(t),
+    match state.task_turns.latest_turn_number(task_id).await {
+        Ok(t) => t,
         Err(e) => {
             tracing::warn!(task_id, error = %e, "Failed to read current turn number");
             None

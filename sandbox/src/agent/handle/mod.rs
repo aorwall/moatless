@@ -88,10 +88,22 @@ impl ActiveHandle {
     }
 }
 
+/// What the dispatcher needs to acknowledge a batch of messages: the CLI
+/// session that consumed them and the agent run they belong to.
+///
+/// The run id is what lets the backend put messages injected mid-run on the
+/// same turn as the run they joined, independently of whether the ack or the
+/// run's `taskTurn.active` event reaches the backend first.
+#[derive(Debug, Clone)]
+pub struct RunAck {
+    pub session_id: String,
+    pub run_id: String,
+}
+
 /// Commands sent to the agent actor.
 enum AgentCommand {
-    /// Send a message. The ack sender is resolved with the session ID once
-    /// the agent confirms it processed the message.
+    /// Send a message. The ack sender is resolved with the session and run IDs
+    /// once the agent confirms it processed the message.
     Send {
         text: String,
         model: Option<String>,
@@ -99,7 +111,10 @@ enum AgentCommand {
         agent_mode: Option<String>,
         /// Session ID from the backend for resuming after pod restart.
         resume_session_id: Option<String>,
-        ack: oneshot::Sender<String>,
+        /// The user asked for a fresh agent session: never inject into a
+        /// running one, and start the new run without `--resume`.
+        start_fresh: bool,
+        ack: oneshot::Sender<RunAck>,
     },
     /// Replay an interrupted run on startup. Behaves identically to `Send`
     /// except the resume session ID is forced from the backend's recovery
@@ -122,7 +137,8 @@ struct QueuedSend {
     agent_type: Option<String>,
     agent_mode: Option<String>,
     resume_session_id: Option<String>,
-    ack: oneshot::Sender<String>,
+    start_fresh: bool,
+    ack: oneshot::Sender<RunAck>,
 }
 
 /// Handle to the agent actor — the only interface the outside world needs.
@@ -138,9 +154,13 @@ impl AgentHandle {
     /// pod restart. Pass `None` when injecting into an active Claude session or
     /// when no prior session is known.
     ///
-    /// Returns a receiver that resolves with the session ID once the agent
-    /// has processed the message:
-    /// - Claude injection: resolves immediately after a successful stdin write.
+    /// `start_fresh` forces a brand-new agent session: the message is never
+    /// injected into a running one, and the new run starts without `--resume`.
+    ///
+    /// Returns a receiver that resolves with the session and run IDs once the
+    /// agent has processed the message:
+    /// - Claude injection: resolves immediately after a successful stdin write,
+    ///   carrying the *running* run's id so the message joins its turn.
     /// - New Claude/Codex turn: resolves on `SessionInit` with the real session ID.
     pub fn send(
         &self,
@@ -149,7 +169,8 @@ impl AgentHandle {
         agent_type: Option<String>,
         agent_mode: Option<String>,
         resume_session_id: Option<String>,
-    ) -> oneshot::Receiver<String> {
+        start_fresh: bool,
+    ) -> oneshot::Receiver<RunAck> {
         let (ack_tx, ack_rx) = oneshot::channel();
         let _ = self.command_tx.send(AgentCommand::Send {
             text,
@@ -157,6 +178,7 @@ impl AgentHandle {
             agent_type,
             agent_mode,
             resume_session_id,
+            start_fresh,
             ack: ack_tx,
         });
         ack_rx
@@ -240,7 +262,7 @@ fn append_turn_output(turn_output: &mut String, text: &str) {
     turn_output.push_str(text);
 }
 
-fn drain_pending_acks(pending_acks: &mut VecDeque<oneshot::Sender<String>>) {
+fn drain_pending_acks(pending_acks: &mut VecDeque<oneshot::Sender<RunAck>>) {
     while let Some(ack) = pending_acks.pop_front() {
         drop(ack);
     }

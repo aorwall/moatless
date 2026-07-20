@@ -14,6 +14,7 @@
 use std::time::Duration;
 
 use integration_tests::{ensure_template_repo, sandbox_helpers, test_client};
+use moatless_api_schemas::enums::MessageType;
 use moatless_api_schemas::message::SendMessageRequest;
 use moatless_api_schemas::task::CreateTaskRequest;
 use moatless_cli::events::EventCollector;
@@ -189,6 +190,27 @@ async fn same_session_multi_message() {
         "Step 9: All {} messages acknowledged",
         final_messages.messages.len()
     );
+
+    // ── Step 9b: All three messages belong to ONE turn ──────────────────
+    // A turn is one agent run, and the sandbox coalesced all three messages
+    // into a single run — so they must share a turn number rather than each
+    // opening one of their own.
+    let user_turns: Vec<i32> = final_messages
+        .messages
+        .iter()
+        .filter(|m| matches!(m.message_type, MessageType::User))
+        .filter_map(|m| m.turn_number)
+        .collect();
+    assert_eq!(
+        user_turns.len(),
+        3,
+        "Expected all 3 user messages to carry a turn number, got {user_turns:?}"
+    );
+    assert!(
+        user_turns.windows(2).all(|w| w[0] == w[1]),
+        "Messages coalesced into one agent run must share one turn, got {user_turns:?}"
+    );
+    println!("Step 9b: All 3 user messages on turn {}", user_turns[0]);
 
     // ── Step 10: Verify no error events ─────────────────────────────────
     let error_count = collector.count_events("sandbox", "error", task_id);

@@ -361,8 +361,8 @@ async fn persist_outbound_stub_for_binding(
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let uuid = uuid::Uuid::new_v4().to_string();
 
-    let turn_number = match state.messages.current_turn_number(task_id).await {
-        Ok(t) => Some(t),
+    let turn_number = match state.task_turns.latest_turn_number(task_id).await {
+        Ok(t) => t,
         Err(e) => {
             warn!(task_id, error = %e, "Failed to read turn number for outbound stub");
             None
