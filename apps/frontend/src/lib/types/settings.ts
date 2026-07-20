@@ -26,17 +26,19 @@ export interface UpdateClaudeSettingsRequest {
   oauthToken?: string | null
 }
 
-// Figma settings (TODO: not implemented in backend)
-export interface FigmaOAuthTokenRequest {
-  code: string
-  state: string
+export interface ClaudeConnectionConfig {
+  connected: boolean
+  oauthEnabled: boolean
+  method?: 'oauth' | 'pat' | 'file' | 'api_key'
+  claudeUserId?: string
+  connectedAt?: string
 }
 
-export interface FigmaOAuthUrlResponse {
+export interface ClaudeOAuthUrlResponse {
   authUrl: string
   state: string
 }
 
-export interface FigmaPATRequest {
+export interface ClaudePATRequest {
   accessToken: string
 }

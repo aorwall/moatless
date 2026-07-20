@@ -48,7 +48,6 @@ export function FeatureFlagsProvider({ children }: FeatureFlagsProviderProps) {
         // `ServerDownGate`, so this must NOT flag the global server status.
         setFlags({
           netlify_publish: false,
-          figma_clipboard_paste: false,
           gitlab_enabled: false,
           show_claude_settings: false,
           show_codex_settings: true,

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { useAgentAvailability } from '@/features/agents'
 import { useCommandsList } from '@/features/commands/hooks/use-commands'
-import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
 import { CreateRepositoryDialog, useRepositoriesList, useRepository } from '@/features/repositories'
 import { SettingsDialog } from '@/features/settings'
 import { useRepositorySkills } from '@/features/skills'
@@ -143,11 +142,8 @@ export function CreateCodeTask({
   // Check if model selector should be shown
   const isModelSelectorEnabled = useFeatureFlag('SHOW_MODEL_SELECTOR')
 
-  // Task inputs hook (file uploads, context items, Figma)
-  const taskInputs = useTaskInputs({
-    enableContextItems: true,
-    enableFigma: true,
-  })
+  // Task inputs hook (file uploads, context items)
+  const taskInputs = useTaskInputs()
 
   // Fetch repositories list to detect when new repositories are added
   const { data: repositories } = useRepositoriesList()
@@ -249,11 +245,6 @@ export function CreateCodeTask({
     })
   }
 
-  // Handle Figma import click - FigmaImportDialog handles unconfigured case internally
-  const handleFigmaImportClick = () => {
-    taskInputs.setFigmaDialogOpen(true)
-  }
-
   const canSubmit = !!repositoryId && !agentUnavailable
 
   const placeholder = isTemplate
@@ -289,11 +280,10 @@ export function CreateCodeTask({
             )
           }
         >
-          {(taskInputs.contextItems.length > 0 || taskInputs.figmaImportPending) && (
+          {taskInputs.contextItems.length > 0 && (
             <ContextItems
               contexts={taskInputs.contextItems}
               onRemove={taskInputs.handleRemoveContext}
-              isLoading={taskInputs.figmaImportPending}
             />
           )}
 
@@ -435,7 +425,6 @@ export function CreateCodeTask({
               >
                 <AttachmentPopoverContent
                   onFileSelect={(file) => taskInputs.uploadFile.mutate(file)}
-                  onFigmaImport={handleFigmaImportClick}
                   disabled={taskInputs.uploadFile.isPending}
                 />
               </PopoverSelector>
@@ -462,12 +451,6 @@ export function CreateCodeTask({
         open={repoDialogOpen}
         onOpenChange={setRepoDialogOpen}
         onCreated={(repositoryId) => repoSelector.onChange(repositoryId)}
-      />
-
-      <FigmaImportDialog
-        open={taskInputs.figmaDialogOpen}
-        onOpenChange={taskInputs.setFigmaDialogOpen}
-        importMutation={taskInputs.figmaUrlImport}
       />
 
       <SettingsDialog

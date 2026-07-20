@@ -1,13 +1,12 @@
 import { Bot, GitBranch, Key, Lock, Sparkles, User } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useAuthMode } from '@/features/auth/hooks/use-auth-mode'
-import { Figma, Github, Gitlab } from '@/lib/components/ui/brand-icons'
+import { Github, Gitlab } from '@/lib/components/ui/brand-icons'
 import { SidebarDialog } from '@/lib/components/ui/sidebar-dialog'
 import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
 import { ApiKeyConfigurationSection } from './api-key-configuration-section'
 import { ClaudeConfigurationSection } from './claude-configuration-section'
 import { CodexConfigurationSection } from './codex-configuration-section'
-import { FigmaConfigurationSection } from './figma-configuration-section'
 import { GitHubConfigurationSection } from './github-configuration-section'
 import { GitLabConfigurationSection } from './gitlab-configuration-section'
 import { GitnessConfigurationSection } from './gitness-configuration-section'
@@ -88,18 +87,11 @@ export function SettingsDialog({
       })
     }
 
-    allSections.push(
-      {
-        id: 'figma',
-        label: 'Figma',
-        icon: <Figma className="h-4 w-4" />,
-      },
-      {
-        id: 'api-keys',
-        label: 'API Keys',
-        icon: <Key className="h-4 w-4" />,
-      },
-    )
+    allSections.push({
+      id: 'api-keys',
+      label: 'API Keys',
+      icon: <Key className="h-4 w-4" />,
+    })
 
     return allSections
   }, [showClaudeSettings, showCodexSettings, isGitLabEnabled, isGitnessEnabled, isPasswordMode])
@@ -129,7 +121,6 @@ export function SettingsDialog({
         {activeSection === 'github' && <GitHubConfigurationSection key="github" />}
         {activeSection === 'gitlab' && <GitLabConfigurationSection key="gitlab" />}
         {activeSection === 'gitness' && <GitnessConfigurationSection key="gitness" />}
-        {activeSection === 'figma' && <FigmaConfigurationSection key="figma" />}
         {activeSection === 'api-keys' && <ApiKeyConfigurationSection key="api-keys" />}
       </SidebarDialog.Content>
     </SidebarDialog>

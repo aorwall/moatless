@@ -1,18 +1,15 @@
 import { Paperclip } from 'lucide-react'
 import type React from 'react'
 import { useRef } from 'react'
-import { Figma } from '@/lib/components/ui/brand-icons'
 import { Button } from '@/lib/components/ui/button.tsx'
 
 interface AttachmentPopoverContentProps {
   onFileSelect: (file: File) => void
-  onFigmaImport?: () => void
   disabled?: boolean
 }
 
 export function AttachmentPopoverContent({
   onFileSelect,
-  onFigmaImport,
   disabled = false,
 }: AttachmentPopoverContentProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -49,17 +46,6 @@ export function AttachmentPopoverContent({
           <Paperclip className="h-4 w-4 shrink-0" />
           <span className="font-medium whitespace-nowrap">Upload File</span>
         </Button>
-        {onFigmaImport && (
-          <Button
-            variant="ghost"
-            className="w-full justify-start h-auto px-3 py-2 text-left gap-2"
-            onClick={onFigmaImport}
-            disabled={disabled}
-          >
-            <Figma className="h-4 w-4 shrink-0" />
-            <span className="font-medium whitespace-nowrap">Import from Figma</span>
-          </Button>
-        )}
         {/* Future options can be added here:
           - Import from URL
           - etc.

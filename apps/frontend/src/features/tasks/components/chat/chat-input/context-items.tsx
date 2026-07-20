@@ -1,9 +1,7 @@
 import type { ElementContextData, MessageContextInput } from '@moatless/api-client/sandbox/model'
-import { ExternalLink, Eye, Loader2, X } from 'lucide-react'
+import { ExternalLink, Eye, X } from 'lucide-react'
 import { useState } from 'react'
-import { FigmaImportViewer, figmaApi } from '@/features/figma'
 import { FileAttachments } from '@/features/tasks/components/chat/chat-input/file-attachments'
-import { Figma } from '@/lib/components/ui/brand-icons'
 import { Button } from '@/lib/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/popover'
 import { cn } from '@/lib/utils'
@@ -12,7 +10,6 @@ interface ContextItemsProps {
   contexts: MessageContextInput[]
   onRemove?: ((index: number) => void) | undefined
   onPreviewUrlClick?: ((path: string) => void) | undefined
-  isLoading?: boolean | undefined
 }
 
 interface ElementDetailPopoverProps {
@@ -70,23 +67,16 @@ function ElementDetailPopover({ element, displayName, onClose }: ElementDetailPo
   )
 }
 
-export function ContextItems({
-  contexts,
-  onRemove,
-  onPreviewUrlClick,
-  isLoading = false,
-}: ContextItemsProps) {
+export function ContextItems({ contexts, onRemove, onPreviewUrlClick }: ContextItemsProps) {
   const [openPopoverId, setOpenPopoverId] = useState<string | null>(null)
-  const [selectedFigmaImportId, setSelectedFigmaImportId] = useState<string | null>(null)
 
-  if (contexts.length === 0 && !isLoading) {
+  if (contexts.length === 0) {
     return null
   }
 
-  // Separate Figma + File contexts; render the rest via the inline switch below.
-  const figmaContexts = contexts.filter((ctx) => ctx.type === 'figma')
+  // Separate File contexts; render the rest via the inline switch below.
   const fileContexts = contexts.filter((ctx) => ctx.type === 'file')
-  const otherContexts = contexts.filter((ctx) => ctx.type !== 'figma' && ctx.type !== 'file')
+  const otherContexts = contexts.filter((ctx) => ctx.type !== 'file')
 
   const fileAttachmentItems = fileContexts.flatMap((ctx) =>
     ctx.type === 'file'
@@ -114,62 +104,6 @@ export function ContextItems({
       {fileAttachmentItems.length > 0 && (
         <FileAttachments files={fileAttachmentItems} onRemove={handleFileRemove} />
       )}
-      {/* Figma imports as thumbnails */}
-      {(figmaContexts.length > 0 || isLoading) && (
-        <div className="flex flex-wrap gap-2">
-          {/* Loading placeholder */}
-          {isLoading && (
-            <div className="inline-flex h-12 w-12 items-center justify-center rounded-lg border border-border bg-muted">
-              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-            </div>
-          )}
-
-          {figmaContexts.map((context) => {
-            if (context.type !== 'figma') {
-              return null
-            }
-            const figma = context.data
-            const imageUrl = figmaApi.getImageUrl(figma.importId)
-            const contextIndex = contexts.indexOf(context)
-
-            return (
-              <div key={figma.importId} className="relative group w-fit">
-                <button
-                  type="button"
-                  onClick={() => setSelectedFigmaImportId(figma.importId)}
-                  className="block"
-                >
-                  {figma.hasImage ? (
-                    <img
-                      src={imageUrl}
-                      alt={figma.nodeName}
-                      className="h-12 w-12 object-cover rounded border-1 border-border hover:border-foreground/50 transition-colors cursor-pointer"
-                    />
-                  ) : (
-                    <div
-                      className="h-12 w-12 flex items-center justify-center rounded border-1 border-border hover:border-foreground/50 transition-colors cursor-pointer bg-secondary/50"
-                      title={figma.nodeName}
-                    >
-                      <Figma className="h-6 w-6 text-muted-foreground" />
-                    </div>
-                  )}
-                </button>
-                {onRemove && (
-                  <button
-                    type="button"
-                    onClick={() => onRemove(contextIndex)}
-                    className="absolute top-1 right-1 bg-background/80 hover:bg-background rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                    aria-label="Remove Figma import"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      )}
-
       {/* Other context types */}
       {otherContexts.length > 0 && (
         <div className="flex flex-wrap gap-2">
@@ -288,12 +222,6 @@ export function ContextItems({
           })}
         </div>
       )}
-
-      {/* Figma import viewer dialog */}
-      <FigmaImportViewer
-        importId={selectedFigmaImportId}
-        onClose={() => setSelectedFigmaImportId(null)}
-      />
     </div>
   )
 }

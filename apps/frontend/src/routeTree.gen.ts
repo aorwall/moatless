@@ -24,11 +24,9 @@ import { Route as TasksTaskIdIndexRouteImport } from './routes/tasks/$task-id/in
 import { Route as TasksTaskIdKioskRouteImport } from './routes/tasks/$task-id/kiosk'
 import { Route as TasksTaskIdFileRouteImport } from './routes/tasks/$task-id/file'
 import { Route as OauthGithubCallbackRouteImport } from './routes/oauth/github/callback'
-import { Route as OauthFigmaCallbackRouteImport } from './routes/oauth/figma/callback'
 
 const SecretsLazyRouteImport = createFileRoute('/secrets')()
 const SandboxLazyRouteImport = createFileRoute('/sandbox')()
-const FigmaTestLazyRouteImport = createFileRoute('/figma-test')()
 const SandboxIndexLazyRouteImport = createFileRoute('/sandbox/')()
 const AdminWorkspacesLazyRouteImport = createFileRoute('/admin/workspaces')()
 const AdminUsersLazyRouteImport = createFileRoute('/admin/users')()
@@ -109,11 +107,6 @@ const SandboxLazyRoute = SandboxLazyRouteImport.update({
   path: '/sandbox',
   getParentRoute: () => rootRouteImport,
 } as any).lazy(() => import('./routes/sandbox.lazy').then((d) => d.Route))
-const FigmaTestLazyRoute = FigmaTestLazyRouteImport.update({
-  id: '/figma-test',
-  path: '/figma-test',
-  getParentRoute: () => rootRouteImport,
-} as any).lazy(() => import('./routes/figma-test.lazy').then((d) => d.Route))
 const TasksRoute = TasksRouteImport.update({
   id: '/tasks',
   path: '/tasks',
@@ -355,11 +348,6 @@ const OauthGithubCallbackRoute = OauthGithubCallbackRouteImport.update({
   path: '/oauth/github/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
-const OauthFigmaCallbackRoute = OauthFigmaCallbackRouteImport.update({
-  id: '/oauth/figma/callback',
-  path: '/oauth/figma/callback',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const AdminWorkspacesWorkspaceIdIndexLazyRoute =
   AdminWorkspacesWorkspaceIdIndexLazyRouteImport.update({
     id: '/$workspaceId/',
@@ -454,7 +442,6 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/settings': typeof SettingsRoute
   '/tasks': typeof TasksRouteWithChildren
-  '/figma-test': typeof FigmaTestLazyRoute
   '/sandbox': typeof SandboxLazyRouteWithChildren
   '/secrets': typeof SecretsLazyRoute
   '/auth/callback': typeof AuthCallbackRoute
@@ -468,7 +455,6 @@ export interface FileRoutesByFullPath {
   '/admin/': typeof AdminIndexRoute
   '/tasks/': typeof TasksIndexRoute
   '/sandbox/': typeof SandboxIndexLazyRoute
-  '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
   '/oauth/github/callback': typeof OauthGithubCallbackRoute
   '/tasks/$task-id/file': typeof TasksTaskIdFileRoute
   '/tasks/$task-id/kiosk': typeof TasksTaskIdKioskRoute
@@ -505,13 +491,11 @@ export interface FileRoutesByTo {
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
   '/settings': typeof SettingsRoute
-  '/figma-test': typeof FigmaTestLazyRoute
   '/secrets': typeof SecretsLazyRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/admin': typeof AdminIndexRoute
   '/tasks': typeof TasksIndexRoute
   '/sandbox': typeof SandboxIndexLazyRoute
-  '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
   '/oauth/github/callback': typeof OauthGithubCallbackRoute
   '/tasks/$task-id/file': typeof TasksTaskIdFileRoute
   '/tasks/$task-id/kiosk': typeof TasksTaskIdKioskRoute
@@ -550,7 +534,6 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/settings': typeof SettingsRoute
   '/tasks': typeof TasksRouteWithChildren
-  '/figma-test': typeof FigmaTestLazyRoute
   '/sandbox': typeof SandboxLazyRouteWithChildren
   '/secrets': typeof SecretsLazyRoute
   '/auth/callback': typeof AuthCallbackRoute
@@ -564,7 +547,6 @@ export interface FileRoutesById {
   '/admin/': typeof AdminIndexRoute
   '/tasks/': typeof TasksIndexRoute
   '/sandbox/': typeof SandboxIndexLazyRoute
-  '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
   '/oauth/github/callback': typeof OauthGithubCallbackRoute
   '/tasks/$task-id/file': typeof TasksTaskIdFileRoute
   '/tasks/$task-id/kiosk': typeof TasksTaskIdKioskRoute
@@ -605,7 +587,6 @@ export interface FileRouteTypes {
     | '/login'
     | '/settings'
     | '/tasks'
-    | '/figma-test'
     | '/sandbox'
     | '/secrets'
     | '/auth/callback'
@@ -619,7 +600,6 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/tasks/'
     | '/sandbox/'
-    | '/oauth/figma/callback'
     | '/oauth/github/callback'
     | '/tasks/$task-id/file'
     | '/tasks/$task-id/kiosk'
@@ -656,13 +636,11 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/login'
     | '/settings'
-    | '/figma-test'
     | '/secrets'
     | '/auth/callback'
     | '/admin'
     | '/tasks'
     | '/sandbox'
-    | '/oauth/figma/callback'
     | '/oauth/github/callback'
     | '/tasks/$task-id/file'
     | '/tasks/$task-id/kiosk'
@@ -700,7 +678,6 @@ export interface FileRouteTypes {
     | '/login'
     | '/settings'
     | '/tasks'
-    | '/figma-test'
     | '/sandbox'
     | '/secrets'
     | '/auth/callback'
@@ -714,7 +691,6 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/tasks/'
     | '/sandbox/'
-    | '/oauth/figma/callback'
     | '/oauth/github/callback'
     | '/tasks/$task-id/file'
     | '/tasks/$task-id/kiosk'
@@ -754,11 +730,9 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   SettingsRoute: typeof SettingsRoute
   TasksRoute: typeof TasksRouteWithChildren
-  FigmaTestLazyRoute: typeof FigmaTestLazyRoute
   SandboxLazyRoute: typeof SandboxLazyRouteWithChildren
   SecretsLazyRoute: typeof SecretsLazyRoute
   AuthCallbackRoute: typeof AuthCallbackRoute
-  OauthFigmaCallbackRoute: typeof OauthFigmaCallbackRoute
   OauthGithubCallbackRoute: typeof OauthGithubCallbackRoute
 }
 
@@ -776,13 +750,6 @@ declare module '@tanstack/react-router' {
       path: '/sandbox'
       fullPath: '/sandbox'
       preLoaderRoute: typeof SandboxLazyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/figma-test': {
-      id: '/figma-test'
-      path: '/figma-test'
-      fullPath: '/figma-test'
-      preLoaderRoute: typeof FigmaTestLazyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/tasks': {
@@ -1051,13 +1018,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OauthGithubCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/oauth/figma/callback': {
-      id: '/oauth/figma/callback'
-      path: '/oauth/figma/callback'
-      fullPath: '/oauth/figma/callback'
-      preLoaderRoute: typeof OauthFigmaCallbackRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/admin/workspaces/$workspaceId/': {
       id: '/admin/workspaces/$workspaceId/'
       path: '/$workspaceId'
@@ -1322,11 +1282,9 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   SettingsRoute: SettingsRoute,
   TasksRoute: TasksRouteWithChildren,
-  FigmaTestLazyRoute: FigmaTestLazyRoute,
   SandboxLazyRoute: SandboxLazyRouteWithChildren,
   SecretsLazyRoute: SecretsLazyRoute,
   AuthCallbackRoute: AuthCallbackRoute,
-  OauthFigmaCallbackRoute: OauthFigmaCallbackRoute,
   OauthGithubCallbackRoute: OauthGithubCallbackRoute,
 }
 export const routeTree = rootRouteImport

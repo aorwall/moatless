@@ -2,12 +2,10 @@
 
 use super::models::TaskMessageContext;
 use crate::task::schemas::{
-    ElementContextData, FigmaContextData, FileContextData, MessageContextInput,
-    PreviewUrlContextData,
+    ElementContextData, FileContextData, MessageContextInput, PreviewUrlContextData,
 };
 
 const TYPE_ELEMENT: &str = "element";
-const TYPE_FIGMA: &str = "figma";
 const TYPE_PREVIEW_URL: &str = "previewUrl";
 const TYPE_FILE: &str = "file";
 
@@ -18,11 +16,6 @@ pub fn message_context_input_to_row(ctx: &MessageContextInput) -> TaskMessageCon
     let (context_type, reference_id, data) = match ctx {
         MessageContextInput::Element { reference_id, data } => (
             TYPE_ELEMENT,
-            reference_id.clone(),
-            serde_json::to_value(data).unwrap_or(serde_json::Value::Null),
-        ),
-        MessageContextInput::Figma { reference_id, data } => (
-            TYPE_FIGMA,
             reference_id.clone(),
             serde_json::to_value(data).unwrap_or(serde_json::Value::Null),
         ),
@@ -57,13 +50,6 @@ pub fn task_message_context_to_input(row: &TaskMessageContext) -> Option<Message
         TYPE_ELEMENT => {
             let data: ElementContextData = serde_json::from_value(row.data.clone()).ok()?;
             Some(MessageContextInput::Element {
-                reference_id: row.reference_id.clone(),
-                data,
-            })
-        }
-        TYPE_FIGMA => {
-            let data: FigmaContextData = serde_json::from_value(row.data.clone()).ok()?;
-            Some(MessageContextInput::Figma {
                 reference_id: row.reference_id.clone(),
                 data,
             })
@@ -115,33 +101,6 @@ mod tests {
                 assert_eq!(data.size, 1234);
             }
             _ => panic!("Expected File variant"),
-        }
-    }
-
-    #[test]
-    fn round_trip_figma_context() {
-        let input = MessageContextInput::Figma {
-            reference_id: "imp-1".to_string(),
-            data: FigmaContextData {
-                import_id: "imp-1".to_string(),
-                file_name: "design.fig".to_string(),
-                node_name: "Button".to_string(),
-                has_image: true,
-            },
-        };
-
-        let row = message_context_input_to_row(&input);
-        assert_eq!(row.context_type, "figma");
-
-        let back = task_message_context_to_input(&row).expect("convert back");
-        match back {
-            MessageContextInput::Figma { reference_id, data } => {
-                assert_eq!(reference_id, "imp-1");
-                assert_eq!(data.file_name, "design.fig");
-                assert_eq!(data.node_name, "Button");
-                assert!(data.has_image);
-            }
-            _ => panic!("Expected Figma variant"),
         }
     }
 

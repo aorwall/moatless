@@ -63,17 +63,6 @@ pub struct ElementContextData {
     pub component_name: String,
 }
 
-/// Data for a Figma import context.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct FigmaContextData {
-    pub import_id: String,
-    pub file_name: String,
-    pub node_name: String,
-    pub has_image: bool,
-}
-
 /// Data for a preview URL context.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -104,12 +93,6 @@ pub enum MessageContextInput {
     Element {
         reference_id: String,
         data: ElementContextData,
-    },
-    /// Figma import context.
-    #[serde(rename = "figma", rename_all = "camelCase")]
-    Figma {
-        reference_id: String,
-        data: FigmaContextData,
     },
     /// Preview URL context.
     #[serde(rename = "previewUrl", rename_all = "camelCase")]
@@ -392,32 +375,6 @@ mod tests {
                 assert_eq!(data.component_name, "App");
             }
             _ => panic!("Expected Element variant"),
-        }
-    }
-
-    #[test]
-    fn deserialize_figma_context() {
-        let json = serde_json::json!({
-            "type": "figma",
-            "referenceId": "ref-2",
-            "data": {
-                "importId": "imp-1",
-                "fileName": "design.fig",
-                "nodeName": "Button",
-                "hasImage": true
-            }
-        });
-
-        let ctx: MessageContextInput = serde_json::from_value(json).expect("deserialize");
-        match ctx {
-            MessageContextInput::Figma { reference_id, data } => {
-                assert_eq!(reference_id, "ref-2");
-                assert_eq!(data.import_id, "imp-1");
-                assert_eq!(data.file_name, "design.fig");
-                assert_eq!(data.node_name, "Button");
-                assert!(data.has_image);
-            }
-            _ => panic!("Expected Figma variant"),
         }
     }
 

@@ -1,9 +1,7 @@
 import type { MessageContextInput, UiMessage } from '@moatless/api-client'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { useAgentAvailability } from '@/features/agents/hooks/use-agent-availability'
-import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
-import { SettingsDialog, useFigmaConfig } from '@/features/settings'
 import { useRepositorySkills } from '@/features/skills'
 import {
   AskUserQuestionInput,
@@ -133,18 +131,12 @@ export function ChatInputSection({
   const [message, setMessage] = useTaskDraftMessage(taskId)
   const [resumeConversation] = useState(true)
   const [startFresh, setStartFresh] = useState(false)
-  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
-
-  // Check Figma configuration status
-  const { data: figmaConfig } = useFigmaConfig()
 
   // Check if model selector should be shown
   const isModelSelectorEnabled = useFeatureFlag('SHOW_MODEL_SELECTOR')
 
   // Task inputs hook with external context management (from props)
   const taskInputs = useTaskInputs({
-    enableContextItems: true,
-    enableFigma: true,
     contextItems,
     onContextItemsChange,
   })
@@ -256,15 +248,6 @@ export function ChatInputSection({
     !sendMessage.isPending &&
     (!!message.trim() || taskInputs.contextItems.length > 0 || !!selectedCommand)
 
-  // Handle Figma import click - check config and open appropriate dialog
-  const handleFigmaImportClick = useCallback(() => {
-    if (figmaConfig?.connected) {
-      taskInputs.setFigmaDialogOpen(true)
-    } else {
-      setSettingsDialogOpen(true)
-    }
-  }, [figmaConfig?.connected, taskInputs])
-
   return (
     <>
       {/* Command buttons — horizontal bar above chat input */}
@@ -332,12 +315,11 @@ export function ChatInputSection({
             )
           }
         >
-          {(taskInputs.contextItems.length > 0 || taskInputs.figmaImportPending) && (
+          {taskInputs.contextItems.length > 0 && (
             <ContextItems
               contexts={taskInputs.contextItems}
               onRemove={taskInputs.handleRemoveContext}
               onPreviewUrlClick={navigatePreview}
-              isLoading={taskInputs.figmaImportPending}
             />
           )}
 
@@ -356,7 +338,6 @@ export function ChatInputSection({
             startFresh={startFresh}
             onToggleStartFresh={() => setStartFresh((v) => !v)}
             taskInputs={taskInputs}
-            onFigmaImportClick={handleFigmaImportClick}
             isTaskRunning={isTaskRunning}
             onStop={() => stopAgent.mutate()}
             isStopPending={stopAgent.isPending}
@@ -365,18 +346,6 @@ export function ChatInputSection({
           />
         </ChatInput>
       )}
-
-      <FigmaImportDialog
-        open={taskInputs.figmaDialogOpen}
-        onOpenChange={taskInputs.setFigmaDialogOpen}
-        importMutation={taskInputs.figmaUrlImport}
-      />
-
-      <SettingsDialog
-        open={settingsDialogOpen}
-        onOpenChange={setSettingsDialogOpen}
-        defaultSection="figma"
-      />
     </>
   )
 }

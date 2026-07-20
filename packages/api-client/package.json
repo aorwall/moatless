@@ -12,7 +12,6 @@
     "./sandbox/adapters/adapters": "./src/sandbox/adapters/adapters.ts",
     "./sandbox/auth/auth": "./src/sandbox/auth/auth.ts",
     "./sandbox/commands/commands": "./src/sandbox/commands/commands.ts",
-    "./sandbox/figma/figma": "./src/sandbox/figma/figma.ts",
     "./sandbox/file-storage/file-storage": "./src/sandbox/file-storage/file-storage.ts",
     "./sandbox/messages/messages": "./src/sandbox/messages/messages.ts",
     "./sandbox/provider-settings/provider-settings": "./src/sandbox/provider-settings/provider-settings.ts",

@@ -6,7 +6,6 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ElementContextData } from './elementContextData';
-import type { FigmaContextData } from './figmaContextData';
 import type { FileContextData } from './fileContextData';
 import type { PreviewUrlContextData } from './previewUrlContextData';
 
@@ -17,10 +16,6 @@ export type MessageContextInput = {
   data: ElementContextData;
   referenceId: string;
   type: 'element';
-} | {
-  data: FigmaContextData;
-  referenceId: string;
-  type: 'figma';
 } | {
   data: PreviewUrlContextData;
   referenceId: string;

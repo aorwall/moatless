@@ -324,7 +324,7 @@ send_message_flow(state, task_id, message, model, agent_mode, file_ids, contexts
   ├── Generate UUID + RFC3339 timestamp
   ├── enricher::build_content_blocks()  → message/enricher.rs:25-87
   │     ├── Primary text block (show_in_ui: true)
-  │     ├── Context blocks: figma, previewUrl, element
+  │     ├── Context blocks: previewUrl, element
   │     └── File attachment blocks
   ├── Create TaskMessageRow:
   │     { uuid, task_id, message_type: "user", user_type: "human",

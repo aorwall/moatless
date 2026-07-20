@@ -9,15 +9,13 @@
   "files": {
     "ignoreUnknown": false,
     "includes": [
-      "apps/figma-tool/src/**",
       "apps/frontend/src/**",
       "apps/backend/**/*.ts",
       "apps/backend/**/*.js",
       "!apps/backend/dist",
       "apps/sandbox/src/**",
       "!apps/sandbox/dist",
-      "packages/*/src/**",
-      "!packages/figma"
+      "packages/*/src/**"
     ]
   },
   "formatter": {

@@ -19,7 +19,6 @@ use crate::credentials::{BroadcastContext, CredentialService};
 use crate::db::DbPool;
 use crate::events::EventPublisher;
 use crate::feedback::dao::{FeedbackRepository, PgFeedbackRepository};
-use crate::figma::dao::{FigmaRepository, PgFigmaRepository};
 use crate::file_storage::dao::{FileRepository, PgFileRepository};
 use crate::message::dao::{MessageRepository, PgMessageRepository};
 use crate::plugin_repo::dao::{PgPluginRepoRepository, PluginRepoRepository};
@@ -98,7 +97,6 @@ pub struct AppState {
     pub commands: Arc<dyn CommandRepository>,
     pub tags: Arc<dyn TagRepository>,
     pub files: Arc<dyn FileRepository>,
-    pub figma_imports: Arc<dyn FigmaRepository>,
     pub users: Arc<dyn UserRepository>,
     pub provider_tokens: Arc<dyn ProviderTokenRepository>,
     pub provider_token_auth: Arc<dyn ProviderTokenAuthRepository>,
@@ -215,7 +213,6 @@ impl AppState {
             commands: Arc::new(PgCommandRepository(pool.clone())),
             tags: Arc::new(PgTagRepository(pool.clone())),
             files: Arc::new(PgFileRepository(pool.clone())),
-            figma_imports: Arc::new(PgFigmaRepository(pool.clone())),
             users: Arc::new(PgUserRepository(pool.clone())),
             provider_tokens,
             provider_token_auth,

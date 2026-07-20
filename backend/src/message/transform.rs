@@ -988,7 +988,7 @@ mod tests {
     }
 
     #[test]
-    fn transform_user_round_trips_figma_and_preview_contexts() {
+    fn transform_user_round_trips_element_and_preview_contexts() {
         let msg = make_msg(
             1,
             "u1",
@@ -997,16 +997,17 @@ mod tests {
             Some(1),
             "with contexts",
         );
-        let figma_row = TaskMessageContext {
+        let element_row = TaskMessageContext {
             id: 100,
             task_message_id: 1,
-            context_type: "figma".to_string(),
-            reference_id: "imp-1".to_string(),
+            context_type: "element".to_string(),
+            reference_id: "el-1".to_string(),
             data: json!({
-                "importId": "imp-1",
-                "fileName": "design.fig",
-                "nodeName": "Button",
-                "hasImage": true
+                "componentId": "cmp-1",
+                "path": "src/app.tsx",
+                "line": 12,
+                "column": 4,
+                "componentName": "Button"
             }),
             created_at: None,
         };
@@ -1022,17 +1023,36 @@ mod tests {
             created_at: None,
         };
 
-        let ui = transform_to_ui(&[msg], &[figma_row, preview_row], &[]);
+        let ui = transform_to_ui(&[msg], &[element_row, preview_row], &[]);
         assert_eq!(ui.len(), 1);
         assert_eq!(ui[0].contexts.len(), 2);
         assert!(matches!(
             &ui[0].contexts[0],
-            MessageContextInput::Figma { reference_id, .. } if reference_id == "imp-1"
+            MessageContextInput::Element { reference_id, .. } if reference_id == "el-1"
         ));
         assert!(matches!(
             &ui[0].contexts[1],
             MessageContextInput::PreviewUrl { reference_id, .. } if reference_id == "preview-1"
         ));
+    }
+
+    /// Rows persisted by removed features (e.g. the old Figma import context)
+    /// are dropped rather than failing the whole transform.
+    #[test]
+    fn transform_user_drops_unrecognised_contexts() {
+        let msg = make_msg(1, "u1", MessageType::User, MessageRole::User, Some(1), "hi");
+        let legacy_row = TaskMessageContext {
+            id: 100,
+            task_message_id: 1,
+            context_type: "figma".to_string(),
+            reference_id: "imp-1".to_string(),
+            data: json!({ "importId": "imp-1" }),
+            created_at: None,
+        };
+
+        let ui = transform_to_ui(&[msg], &[legacy_row], &[]);
+        assert_eq!(ui.len(), 1);
+        assert!(ui[0].contexts.is_empty());
     }
 
     #[test]

@@ -34,7 +34,6 @@ export default defineConfig({
 		alias: {
 			"@shared": new URL("./types", import.meta.url).pathname,
 			"@server": new URL("./server", import.meta.url).pathname,
-			"@moatless/figma": new URL("./packages/figma/src", import.meta.url).pathname,
 		},
 	},
 });

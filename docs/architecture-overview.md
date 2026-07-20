@@ -688,7 +688,7 @@ Agent execution uses a queue-based architecture with Redis Streams for reliable 
 │       │                                                                      │
 │       ├─► Build AgentRunRequest (AgentRequestBuilder)                       │
 │       │      • Load file attachments                                        │
-│       │      • Process contexts (Figma, elements, preview)                  │
+│       │      • Process contexts (elements, preview)                        │
 │       │      • Generate system prompt                                       │
 │       │                                                                      │
 │       ├─► Publish to Redis Streams (AgentRequestService)                    │
@@ -748,7 +748,7 @@ The agent system uses three specialized backend services and a queue-based execu
 │  │  buildRequest(taskId, message, iteration, repositoryId, options)    │    │
 │  │    • Prepares messages with file attachments                        │    │
 │  │    • Loads uploaded files, converts to base64 for K8s transfer      │    │
-│  │    • Processes MessageContext (element, figma, previewUrl)          │    │
+│  │    • Processes MessageContext (element, previewUrl)                 │    │
 │  │    • Generates system prompt with repo config & preview info        │    │
 │  │    • Returns AgentRunRequest with content blocks                    │    │
 │  └─────────────────────────────────────────────────────────────────────┘    │
@@ -1124,7 +1124,7 @@ The event system is built on the `@moatless/messaging` package, which provides u
 │       │                                                                      │
 │       ├─► AgentRequestBuilder.buildRequest()                                │
 │       │       • Load file attachments (base64 for K8s)                      │
-│       │       • Process contexts (Figma, elements, preview)                 │
+│       │       • Process contexts (elements, preview)                       │
 │       │       • Generate system prompt                                      │
 │       │                                                                      │
 │       ├─► AgentRequestService.publish(taskId, request)                      │

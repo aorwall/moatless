@@ -1,5 +1,4 @@
 import type React from 'react'
-import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
 import { CreateRepositoryDialog } from '@/features/repositories'
 import { SettingsDialog } from '@/features/settings'
 import { ContextItems, FileAttachments } from '@/features/tasks/components/chat/chat-input'
@@ -170,12 +169,11 @@ export function ComposeTaskForm(props: ComposeTaskFormProps) {
       </div>
 
       {/* Attachments + agent-unavailable hint */}
-      {(form.taskInputs.contextItems.length > 0 || form.taskInputs.figmaImportPending) && (
+      {form.taskInputs.contextItems.length > 0 && (
         <div className="pb-2">
           <ContextItems
             contexts={form.taskInputs.contextItems}
             onRemove={form.taskInputs.handleRemoveContext}
-            isLoading={form.taskInputs.figmaImportPending}
           />
         </div>
       )}
@@ -223,7 +221,6 @@ export function ComposeTaskForm(props: ComposeTaskFormProps) {
         >
           <AttachmentPopoverContent
             onFileSelect={(file) => form.taskInputs.uploadFile.mutate(file)}
-            onFigmaImport={form.handleFigmaImportClick}
             disabled={form.taskInputs.uploadFile.isPending}
           />
         </PopoverSelector>
@@ -233,11 +230,6 @@ export function ComposeTaskForm(props: ComposeTaskFormProps) {
         open={form.repoDialogOpen}
         onOpenChange={form.setRepoDialogOpen}
         onCreated={(repositoryId) => form.repoSelector.onChange(repositoryId)}
-      />
-      <FigmaImportDialog
-        open={form.taskInputs.figmaDialogOpen}
-        onOpenChange={form.taskInputs.setFigmaDialogOpen}
-        importMutation={form.taskInputs.figmaUrlImport}
       />
       <SettingsDialog
         open={form.settingsDialogOpen}

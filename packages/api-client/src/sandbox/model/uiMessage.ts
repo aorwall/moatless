@@ -28,8 +28,8 @@ export interface UiMessage {
   commandName?: string | null;
   /** Content blocks for this message. */
   content: UiContentBlock[];
-  /** Contexts attached to this user message (file uploads, Figma imports,
-preview URLs, selected elements). */
+  /** Contexts attached to this user message (file uploads, preview URLs,
+selected elements). */
   contexts?: MessageContextInput[];
   externalSource?: null | UiMessageExternalSource;
   /**

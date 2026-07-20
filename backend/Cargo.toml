@@ -108,9 +108,6 @@ nanoid = "0.5"
 # CLI parsing (secrets subcommand on the backend binary)
 clap = { version = "4", features = ["derive"] }
 
-# Figma clipboard parsing
-figma-clipboard = { path = "../crates/figma-clipboard" }
-
 # Typed event system (shared with sandbox)
 moatless-events = { path = "../crates/events", features = ["openapi"] }
 

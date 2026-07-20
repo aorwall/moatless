@@ -339,7 +339,7 @@ export function useSendMessage(
       )
       const isQueued = sandboxStatus?.agentState === 'running'
 
-      // Build optimistic contexts: caller-supplied (figma/preview/element) +
+      // Build optimistic contexts: caller-supplied (preview/element) +
       // synthesised File contexts from locally-known uploads. The server
       // reply via SSE / refresh will replace these with authoritative rows.
       const optimisticContexts: MessageContextInput[] = [

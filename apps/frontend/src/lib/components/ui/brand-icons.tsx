@@ -1,6 +1,6 @@
 import type { SVGProps } from 'react'
 
-// Brand icons removed from lucide-react in v1.0 (Github, Gitlab, Figma).
+// Brand icons removed from lucide-react in v1.0 (Github, Gitlab).
 // SVG paths preserved from lucide-static v0.546.0 (ISC license).
 
 function BrandIcon({ children, ...props }: SVGProps<SVGSVGElement>) {
@@ -36,18 +36,6 @@ export function Gitlab(props: SVGProps<SVGSVGElement>) {
   return (
     <BrandIcon {...props}>
       <path d="m22 13.29-3.33-10a.42.42 0 0 0-.14-.18.38.38 0 0 0-.22-.11.39.39 0 0 0-.23.07.42.42 0 0 0-.14.18l-2.26 6.67H8.32L6.1 3.26a.42.42 0 0 0-.1-.18.38.38 0 0 0-.26-.08.39.39 0 0 0-.23.07.42.42 0 0 0-.14.18L2 13.29a.74.74 0 0 0 .27.83L12 21l9.69-6.88a.71.71 0 0 0 .31-.83Z" />
-    </BrandIcon>
-  )
-}
-
-export function Figma(props: SVGProps<SVGSVGElement>) {
-  return (
-    <BrandIcon {...props}>
-      <path d="M5 5.5A3.5 3.5 0 0 1 8.5 2H12v7H8.5A3.5 3.5 0 0 1 5 5.5z" />
-      <path d="M12 2h3.5a3.5 3.5 0 1 1 0 7H12V2z" />
-      <path d="M12 12.5a3.5 3.5 0 1 1 7 0 3.5 3.5 0 1 1-7 0z" />
-      <path d="M5 19.5A3.5 3.5 0 0 1 8.5 16H12v3.5a3.5 3.5 0 1 1-7 0z" />
-      <path d="M5 12.5A3.5 3.5 0 0 1 8.5 9H12v7H8.5A3.5 3.5 0 0 1 5 12.5z" />
     </BrandIcon>
   )
 }

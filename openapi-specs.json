@@ -1995,209 +1995,6 @@
         }
       }
     },
-    "/api/v1/figma/import-clipboard": {
-      "post": {
-        "tags": [
-          "figma"
-        ],
-        "summary": "Import a Figma design from clipboard HTML.",
-        "operationId": "import_clipboard",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ImportClipboardRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Import created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FigmaImportResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Parse error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/figma/import-node": {
-      "post": {
-        "tags": [
-          "figma"
-        ],
-        "summary": "Import a Figma design from a Figma URL.",
-        "operationId": "import_node",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ImportNodeRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Import created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FigmaImportResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/figma/imports/{import_id}": {
-      "get": {
-        "tags": [
-          "figma"
-        ],
-        "summary": "Get details of a Figma import.",
-        "operationId": "get_import",
-        "parameters": [
-          {
-            "name": "import_id",
-            "in": "path",
-            "description": "Import identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Import details",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FigmaImportDetailResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Import not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/figma/imports/{import_id}/image": {
-      "get": {
-        "tags": [
-          "figma"
-        ],
-        "summary": "Get the image for a Figma import.",
-        "operationId": "get_import_image",
-        "parameters": [
-          {
-            "name": "import_id",
-            "in": "path",
-            "description": "Import identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Image content",
-            "content": {
-              "image/png": {}
-            }
-          },
-          "404": {
-            "description": "Image not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/figma/parse-clipboard": {
-      "post": {
-        "tags": [
-          "figma"
-        ],
-        "summary": "Parse clipboard HTML into structured Figma data.",
-        "operationId": "parse_clipboard",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ParseClipboardRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Parsed clipboard",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ParseClipboardResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Parse error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/github/repos/{owner}/{repo}/issues/{number}/comments": {
       "post": {
         "tags": [
@@ -10310,14 +10107,10 @@
           "netlify_publish",
           "show_claude_settings",
           "show_codex_settings",
-          "figma_clipboard_paste",
           "show_model_selector",
           "gitlab_enabled"
         ],
         "properties": {
-          "figma_clipboard_paste": {
-            "type": "boolean"
-          },
           "gitlab_enabled": {
             "type": "boolean"
           },
@@ -10411,120 +10204,6 @@
           "tool_call",
           "preview_failure"
         ]
-      },
-      "FigmaContextData": {
-        "type": "object",
-        "description": "Data for a Figma import context.",
-        "required": [
-          "importId",
-          "fileName",
-          "nodeName",
-          "hasImage"
-        ],
-        "properties": {
-          "fileName": {
-            "type": "string"
-          },
-          "hasImage": {
-            "type": "boolean"
-          },
-          "importId": {
-            "type": "string"
-          },
-          "nodeName": {
-            "type": "string"
-          }
-        }
-      },
-      "FigmaImportDetailResponse": {
-        "type": "object",
-        "required": [
-          "importId",
-          "hasImage",
-          "createdAt",
-          "prompt"
-        ],
-        "properties": {
-          "createdAt": {
-            "type": "string"
-          },
-          "fileId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "fileName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "hasImage": {
-            "type": "boolean"
-          },
-          "importId": {
-            "type": "string"
-          },
-          "nodeId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "nodeName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "prompt": {
-            "type": "string"
-          }
-        }
-      },
-      "FigmaImportResponse": {
-        "type": "object",
-        "required": [
-          "importId",
-          "hasImage",
-          "createdAt"
-        ],
-        "properties": {
-          "createdAt": {
-            "type": "string"
-          },
-          "fileId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "fileName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "hasImage": {
-            "type": "boolean"
-          },
-          "importId": {
-            "type": "string"
-          },
-          "nodeId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "nodeName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
       },
       "FileContentResponse": {
         "type": "object",
@@ -11021,35 +10700,6 @@
           "unknown"
         ]
       },
-      "ImportClipboardRequest": {
-        "type": "object",
-        "required": [
-          "clipboardHtml"
-        ],
-        "properties": {
-          "clipboardHtml": {
-            "type": "string"
-          },
-          "includeImageInPrompt": {
-            "type": "boolean"
-          }
-        }
-      },
-      "ImportNodeRequest": {
-        "type": "object",
-        "required": [
-          "url"
-        ],
-        "properties": {
-          "includeImageInPrompt": {
-            "type": "boolean"
-          },
-          "url": {
-            "type": "string",
-            "description": "Full Figma URL (e.g., https://www.figma.com/file/{key}/Title?node-id={id})"
-          }
-        }
-      },
       "LinearCommentCreateRequest": {
         "type": "object",
         "description": "`POST /api/v1/linear/issues/:id/comments` — post a comment.",
@@ -11537,29 +11187,6 @@
           },
           {
             "type": "object",
-            "description": "Figma import context.",
-            "required": [
-              "referenceId",
-              "data",
-              "type"
-            ],
-            "properties": {
-              "data": {
-                "$ref": "#/components/schemas/FigmaContextData"
-              },
-              "referenceId": {
-                "type": "string"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "figma"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
             "description": "Preview URL context.",
             "required": [
               "referenceId",
@@ -11765,40 +11392,6 @@
           "total": {
             "type": "integer",
             "format": "int64"
-          }
-        }
-      },
-      "ParseClipboardRequest": {
-        "type": "object",
-        "required": [
-          "clipboardHtml"
-        ],
-        "properties": {
-          "clipboardHtml": {
-            "type": "string"
-          }
-        }
-      },
-      "ParseClipboardResponse": {
-        "type": "object",
-        "required": [
-          "clipboardJson"
-        ],
-        "properties": {
-          "clipboardJson": {
-            "type": "object"
-          },
-          "fileName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "nodeName": {
-            "type": [
-              "string",
-              "null"
-            ]
           }
         }
       },
@@ -15095,7 +14688,7 @@
             "items": {
               "$ref": "#/components/schemas/MessageContextInput"
             },
-            "description": "Contexts attached to this user message (file uploads, Figma imports,\npreview URLs, selected elements)."
+            "description": "Contexts attached to this user message (file uploads, preview URLs,\nselected elements)."
           },
           "externalSource": {
             "oneOf": [
@@ -16722,10 +16315,6 @@
     {
       "name": "file-storage",
       "description": "File upload and download via S3"
-    },
-    {
-      "name": "figma",
-      "description": "Figma design import and clipboard parsing"
     },
     {
       "name": "repositories",
