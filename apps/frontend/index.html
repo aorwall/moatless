@@ -2,20 +2,14 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- iOS Safari auto-zooms on input focus only when the field's font-size is
+         < 16px. Every form control renders at >= 16px on mobile (see the base
+         Textarea/Input components and the chat input), which suppresses that
+         zoom on its own. We deliberately do NOT set maximum-scale / user-scalable
+         here: capping the scale keeps pinch-zoom accessibility intact AND avoids
+         iOS magnifying into the focused field when the on-screen keyboard opens
+         over the app's fixed (overflow:hidden) layout. -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <script>
-      // iOS Safari zooms the page when focusing an input; maximum-scale=1 disables
-      // that auto-zoom while pinch-zoom keeps working (iOS ignores it for user
-      // gestures). Applied only on iOS so Android keeps pinch-zoom enabled.
-      if (
-        /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
-      ) {
-        document
-          .querySelector('meta[name="viewport"]')
-          .setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0')
-      }
-    </script>
   </head>
   <body>
     <div id="app"></div>

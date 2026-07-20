@@ -1,0 +1,49 @@
+{{- /*
+Per-profile egress seal. For each `networkProfile` in egressProxy.profiles,
+emit a NetworkPolicy that removes the pod's direct internet egress (DNS +
+in-cluster only), so its only way out is the in-cluster egress proxy (which
+enforces the hostname allowlist). Egress-only: ingress is left to the base
+sandbox policy so backend gRPC + Traefik preview still reach the pod.
+
+Gated on egressProxy.enabled + egressProxy.sealEgress. The base sandbox
+NetworkPolicy excludes these same profiles (see sandbox-networkpolicy.yaml),
+because NetworkPolicy allow rules are additive — without the exclusion the
+broad policy's allowances would leak internet back to these pods.
+*/}}
+{{- if and .Values.kubernetes.enabled .Values.egressProxy.enabled .Values.egressProxy.sealEgress }}
+{{- $ns := include "moatless-vibe.sandboxNamespace" . }}
+{{- $fullname := include "moatless-vibe.fullname" . }}
+{{- range $profile := .Values.egressProxy.profiles }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ printf "%s-sealed-%s" $fullname $profile | trunc 63 | trimSuffix "-" }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "moatless-vibe.labels" $ | nindent 4 }}
+    moatless.io/network-profile: {{ $profile }}
+spec:
+  podSelector:
+    matchLabels:
+      moatless.io/network-profile: {{ $profile }}
+  policyTypes:
+    - Egress
+  egress:
+    # DNS to kube-system. Resolution works; the connection to the resolved
+    # external IP is dropped by the absence of an internet rule.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # All in-cluster traffic (backend gRPC + the in-cluster egress proxy).
+    # Cluster-IP-only by the absence of any ipBlock. No internet rule = the seal.
+    - to:
+        - namespaceSelector: {}
+{{- end }}
+{{- end }}

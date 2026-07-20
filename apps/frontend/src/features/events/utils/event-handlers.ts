@@ -1,7 +1,14 @@
-import type { QueryClient } from '@tanstack/react-query'
+import type { UiContentBlock, UiMessage, UiUsage } from '@moatless/api-client'
+import type { InfiniteData, QueryClient } from '@tanstack/react-query'
+import type { MessagesPage } from '@/features/tasks/api/tasks'
 import { refreshNewestMessagesPage } from '@/features/tasks/hooks/use-tasks'
 import { queryKeys } from '@/lib/api/query-keys'
-import { extractToolNames, hasTools } from '@/lib/types/content-guards'
+import {
+  extractToolNames,
+  hasTools,
+  isTextContent,
+  isToolUseContent,
+} from '@/lib/types/content-guards'
 import type { Event } from '@/lib/types/events'
 import type { MoatlessToolName } from '@/lib/types/tools'
 
@@ -184,6 +191,203 @@ const STREAMING_REFRESH_DEBOUNCE_MS = 200
 /** Per-task pending streaming-refetch timers, keyed by taskId. */
 const pendingMessageRefreshes = new Map<string, ReturnType<typeof setTimeout>>()
 
+type MessagesInfiniteData = InfiniteData<MessagesPage, number | undefined>
+
+type RawSdkMessage = {
+  id?: unknown
+  role?: unknown
+  type?: unknown
+  content?: unknown
+  model?: unknown
+  stop_reason?: unknown
+  stop_sequence?: unknown
+  usage?: unknown
+}
+
+type RawUsage = {
+  input_tokens?: unknown
+  output_tokens?: unknown
+  cache_creation_input_tokens?: unknown
+  cache_read_input_tokens?: unknown
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function optionalNumber(value: unknown): number | null | undefined {
+  return typeof value === 'number' ? value : undefined
+}
+
+function usageFromRaw(raw: unknown): UiUsage | undefined {
+  if (!isRecord(raw)) {
+    return
+  }
+  const usage = raw as RawUsage
+  const uiUsage: UiUsage = {}
+  const inputTokens = optionalNumber(usage.input_tokens)
+  const outputTokens = optionalNumber(usage.output_tokens)
+  const cacheCreationInputTokens = optionalNumber(usage.cache_creation_input_tokens)
+  const cacheReadInputTokens = optionalNumber(usage.cache_read_input_tokens)
+
+  if (inputTokens !== undefined) {
+    uiUsage.inputTokens = inputTokens
+  }
+  if (outputTokens !== undefined) {
+    uiUsage.outputTokens = outputTokens
+  }
+  if (cacheCreationInputTokens !== undefined) {
+    uiUsage.cacheCreationInputTokens = cacheCreationInputTokens
+  }
+  if (cacheReadInputTokens !== undefined) {
+    uiUsage.cacheReadInputTokens = cacheReadInputTokens
+  }
+
+  return Object.keys(uiUsage).length > 0 ? uiUsage : undefined
+}
+
+function uiContentFromRaw(content: unknown): UiContentBlock[] | null {
+  if (typeof content === 'string') {
+    return content.trim().length > 0 ? [{ type: 'text', text: content }] : null
+  }
+
+  if (!Array.isArray(content)) {
+    return null
+  }
+
+  const blocks: UiContentBlock[] = []
+  for (const block of content) {
+    if (isTextContent(block)) {
+      blocks.push({ type: 'text', text: block.text })
+      continue
+    }
+    if (isToolUseContent(block)) {
+      const rawBlock = block as unknown as Record<string, unknown>
+      blocks.push({
+        type: 'tool_use',
+        toolUseId: typeof rawBlock['id'] === 'string' ? rawBlock['id'] : '',
+        toolName: typeof rawBlock['name'] === 'string' ? rawBlock['name'] : '',
+        toolInput: isRecord(rawBlock['input']) ? rawBlock['input'] : {},
+      })
+    }
+  }
+
+  return blocks.length > 0 ? blocks : null
+}
+
+function hasPendingUserInput(content: UiContentBlock[]): boolean {
+  return content.some(
+    (block) =>
+      block.type === 'tool_use' &&
+      (block.toolName === 'AskUserQuestion' || block.toolName === 'ExitPlanMode'),
+  )
+}
+
+function uiMessageFromAgentEvent(event: Event): UiMessage | null {
+  if (event.type !== 'agent' || event.subType !== 'message' || !event.eventId) {
+    return null
+  }
+
+  const payload = event.payload
+  if (!isRecord(payload) || payload['truncated'] === true) {
+    return null
+  }
+
+  const message = payload['message']
+  if (!isRecord(message)) {
+    return null
+  }
+
+  const rawMessage = message as RawSdkMessage
+  const content = uiContentFromRaw(rawMessage.content)
+  if (!content) {
+    return null
+  }
+
+  const role = rawMessage.role === 'user' ? 'user' : 'assistant'
+  const sdkType = typeof rawMessage.type === 'string' ? rawMessage.type : role
+  const providerMessageId = typeof rawMessage.id === 'string' ? rawMessage.id : undefined
+  const agentSessionId =
+    typeof payload['agentSessionId'] === 'string' ? payload['agentSessionId'] : undefined
+  const usage = usageFromRaw(rawMessage.usage)
+
+  const uiMessage: UiMessage = {
+    uuid: `evt-${event.eventId}`,
+    messageType: role,
+    role,
+    timestamp: event.timestamp,
+    content,
+    toolResults: [],
+    contexts: [],
+    sdkMetadata: { type: sdkType },
+    ...(hasPendingUserInput(content) ? { hasPendingUserInput: true } : {}),
+  }
+
+  if (agentSessionId !== undefined) {
+    uiMessage.sessionId = agentSessionId
+  }
+  if (event.turnNumber !== undefined) {
+    uiMessage.turnNumber = event.turnNumber
+  }
+  if (typeof rawMessage.model === 'string') {
+    uiMessage.model = rawMessage.model
+  }
+  if (providerMessageId !== undefined) {
+    uiMessage.messageId = providerMessageId
+  }
+  if (typeof rawMessage.stop_reason === 'string') {
+    uiMessage.stopReason = rawMessage.stop_reason
+  }
+  if (typeof rawMessage.stop_sequence === 'string') {
+    uiMessage.stopSequence = rawMessage.stop_sequence
+  }
+  if (usage !== undefined) {
+    uiMessage.usage = usage
+  }
+
+  return uiMessage
+}
+
+function appendStreamedMessage(queryClient: QueryClient, event: Event): boolean {
+  const message = uiMessageFromAgentEvent(event)
+  if (!(message && event.taskId)) {
+    return false
+  }
+
+  queryClient.setQueryData<MessagesInfiniteData>(queryKeys.tasks.messages(event.taskId), (data) => {
+    if (!data || data.pages.length === 0) {
+      return {
+        pages: [{ messages: [message], hasMore: false, nextBeforeId: undefined }],
+        pageParams: [undefined],
+      }
+    }
+
+    const alreadySeen = data.pages.some((page) =>
+      page.messages.some(
+        (existing) =>
+          existing.uuid === message.uuid ||
+          (message.messageId !== undefined && existing.messageId === message.messageId),
+      ),
+    )
+    if (alreadySeen) {
+      return data
+    }
+
+    const pages = [...data.pages]
+    const lastPage = pages.at(-1)
+    if (!lastPage) {
+      return data
+    }
+    pages[pages.length - 1] = {
+      ...lastPage,
+      messages: [...lastPage.messages, message],
+    }
+    return { ...data, pages }
+  })
+
+  return true
+}
+
 function clearPendingRefresh(taskId: string): void {
   const timer = pendingMessageRefreshes.get(taskId)
   if (timer !== undefined) {
@@ -262,6 +466,15 @@ export function invalidateMessagesForEvent(event: Event, queryClient: QueryClien
   if (observerCount === 0) {
     clearPendingRefresh(event.taskId)
     queryClient.invalidateQueries({ queryKey: messagesKey, refetchType: 'none' })
+    return
+  }
+
+  if (
+    event.type === 'agent' &&
+    event.subType === 'message' &&
+    appendStreamedMessage(queryClient, event)
+  ) {
+    clearPendingRefresh(event.taskId)
     return
   }
 

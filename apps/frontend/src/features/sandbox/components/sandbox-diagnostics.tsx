@@ -48,6 +48,9 @@ function statusBadgeVariant(
       return 'default'
     case 'error':
     case 'failed':
+    // Agent is 'unknown' when the sandbox is ready but the agent is unreachable
+    // over gRPC — a problem state, not a benign idle/none.
+    case 'unknown':
       return 'destructive'
     case 'initializing':
     case 'starting':

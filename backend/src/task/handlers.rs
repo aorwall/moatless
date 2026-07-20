@@ -255,18 +255,6 @@ async fn insert_and_provision_task(
             .await;
     }
 
-    // Emit task event
-    if let Some(ref events) = state.events {
-        events
-            .publish_task_event(
-                task_id,
-                TaskSubType::Open,
-                Some(row.agent_type.as_str()),
-                serde_json::json!({}),
-            )
-            .await;
-    }
-
     // Pre-flight: validate the GitHub token before any sandbox resources
     // are created. The task row already exists, so on failure we mark it
     // Error + publish a sandbox.error event and skip provisioning entirely.
@@ -399,6 +387,17 @@ async fn insert_and_provision_task(
 
     let task_response = enrich_task(row, state, &auth.user_id).await?;
 
+    if let Some(ref events) = state.events {
+        events
+            .publish_task_event(
+                task_id,
+                TaskSubType::Created,
+                Some(row.agent_type.as_str()),
+                serde_json::json!({ "task": &task_response }),
+            )
+            .await;
+    }
+
     Ok(Json(CreateTaskResponse {
         task_id: row.task_id.clone(),
         status: row.status,
@@ -504,6 +503,21 @@ pub async fn list_tasks(
         .collect();
     let env_status = state.sandbox.bulk_environment_status(&open_task_ids).await;
 
+    // Resolve each open task's agent run-state from its most recent agent
+    // lifecycle event (a single batched query). The list endpoint historically
+    // left `agentState` unset, so consumers could not tell a working agent from
+    // an idle one without opening the per-task status endpoint / SSE stream.
+    // This is the last-known DB state (eventually consistent with the live gRPC
+    // status), which is the right cost/accuracy trade-off for a list view.
+    let agent_lifecycle = state
+        .task_events
+        .get_latest_agent_lifecycle(&open_task_ids)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "Failed to batch resolve agent lifecycle");
+            Default::default()
+        });
+
     let items: Vec<TaskResponse> = rows
         .iter()
         .map(|row| {
@@ -556,8 +570,27 @@ pub async fn list_tasks(
                 .map(chrono::DateTime::to_rfc3339);
             resp.is_following = Some(followed.contains(&row.task_id));
             if let Some(status) = env_status.get(&row.task_id) {
+                let ready = *status == SandboxStatus::Ready;
                 resp.environment_status = Some(status.as_str().to_string());
-                resp.is_running = Some(*status == SandboxStatus::Ready);
+                resp.is_running = Some(ready);
+                // The agent can only be running when the sandbox is ready; when
+                // it is not, force `none` regardless of the last lifecycle event
+                // (a stale `started` from before an idle-stop must not read as
+                // "running"). When ready, map the last lifecycle sub_type to the
+                // same vocabulary as the per-task status endpoint.
+                let agent_state = if ready {
+                    match agent_lifecycle
+                        .get(&row.task_id)
+                        .map(|(sub_type, _)| sub_type.as_str())
+                    {
+                        Some("started") => "running",
+                        Some("completed" | "stopped" | "error") => "idle",
+                        _ => "none",
+                    }
+                } else {
+                    "none"
+                };
+                resp.agent_state = Some(agent_state.to_string());
             }
             resp
         })
@@ -1572,6 +1605,7 @@ async fn enrich_task(
                 AgentState::Idle => "idle",
                 AgentState::Running => "running",
                 AgentState::None => "none",
+                AgentState::Unknown => "unknown",
             }
             .to_string(),
         );

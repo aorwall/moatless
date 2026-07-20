@@ -1,0 +1,5 @@
+{
+  "apps/frontend/src/lib/components/ui/sidebar-dialog.tsx": {
+    "noMisusedPromises": 1
+  }
+}

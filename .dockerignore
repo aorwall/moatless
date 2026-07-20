@@ -12,21 +12,12 @@
 # Docker config
 !docker/
 
-# All workspace package.json files (needed for bun install in app image)
-!apps/frontend/package.json
-!apps/backend/package.json
-!apps/sandbox/package.json
-!packages/types/package.json
-!packages/api-client/package.json
-!packages/api-contract/package.json
-!packages/diff-viewer/package.json
-!packages/figma/package.json
-!packages/events/package.json
-!packages/messaging/package.json
-!packages/inspector/package.json
-!packages/sandbox-api-contract/package.json
-!packages/sandbox-schemas/package.json
-!packages/shell-utils/package.json
+# All workspace package.json files (needed for bun install — the app image and
+# the dev image's warm-cache `bun install`). Globbed over every workspace member
+# (root package.json declares workspaces apps/* + packages/*) so a new member's
+# manifest is picked up automatically and the set always matches bun.lock.
+!apps/*/package.json
+!packages/*/package.json
 
 # Frontend source and workspace dependencies (app image build)
 # frontend → types, api-client, api-contract, diff-viewer, figma; types → shell-utils

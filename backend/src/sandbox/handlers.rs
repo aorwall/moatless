@@ -128,6 +128,51 @@ pub async fn sandbox_status_handler(
             {
                 resp.environment_status = SandboxStatus::Removed;
             }
+
+            // Surface the recorded lifecycle intent and image freshness so the
+            // UI can tell whether a redeploy would move the sandbox to a newer
+            // image. The "latest" image is what a fresh (re)deploy would use:
+            // the per-repo `docker_image` override, else the configured default.
+            resp.sandbox_desired_state = Some(task.sandbox_desired_state);
+
+            // Surface a desired-vs-actual divergence: the task wants a running
+            // sandbox but the live environment is stopped / never created. This
+            // is a reconcile miss (or an in-flight transition) that would
+            // otherwise be indistinguishable from an intentional stop, since
+            // both report `stopped` with no error. Only annotate when the
+            // resolver did not already report a concrete environment error.
+            if resp.environment_error.is_none()
+                && task.sandbox_desired_state == crate::task::models::SandboxDesiredState::Running
+                && matches!(
+                    resp.environment_status,
+                    SandboxStatus::Stopped | SandboxStatus::NotCreated
+                )
+            {
+                resp.environment_error = Some(
+                    "Sandbox is not running but its desired state is 'running' \
+                     (reconcile pending or failed)"
+                        .to_string(),
+                );
+            }
+
+            let repo_docker_image = match &state.repos {
+                Some(repos) => repos
+                    .find_repository_by_id(&task.repository_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|repo| repo.docker_image),
+                None => None,
+            };
+            let latest = state
+                .provider
+                .expected_sandbox_image(repo_docker_image.as_deref());
+            resp.image_up_to_date = resp
+                .current_sandbox_image
+                .as_ref()
+                .map(|current| current == &latest);
+            resp.latest_sandbox_image = Some(latest);
+
             Json(resp).into_response()
         }
         Err(e) => {

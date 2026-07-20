@@ -1,9 +1,10 @@
-import { type HighlightToken, highlightLine, SyntaxToken } from '@moatless/diff-viewer'
 import type React from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { fetchFileContent } from '../api/files-api'
+import { type HighlightToken, highlightLine } from '../lib/syntax-highlight'
+import { SyntaxToken } from '../lib/syntax-token'
 
 interface MarkdownPreviewProps {
   content: string

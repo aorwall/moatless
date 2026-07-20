@@ -1,7 +1,8 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::process::Stdio;
 
-use serde::de::{Deserializer, Error as DeError};
+use serde::de::{Deserializer, Error as DeError, MapAccess, Visitor};
 use serde::Deserialize;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
@@ -86,11 +87,47 @@ pub struct ThreadErrorEvent {
     pub message: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
 pub struct ThreadItem {
     pub id: String,
-    #[serde(flatten)]
     pub details: ThreadItemDetails,
+}
+
+impl<'de> Deserialize<'de> for ThreadItem {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct ThreadItemVisitor;
+
+        impl<'de> Visitor<'de> for ThreadItemVisitor {
+            type Value = ThreadItem;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a Codex thread item object")
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let mut id = None;
+                let mut details = serde_json::Map::new();
+
+                while let Some(key) = map.next_key::<String>()? {
+                    let value = map.next_value::<serde_json::Value>()?;
+                    if key == "id" {
+                        if id.is_none() {
+                            id = value.as_str().map(ToString::to_string);
+                        }
+                    } else {
+                        details.insert(key, value);
+                    }
+                }
+
+                let id = id.ok_or_else(|| DeError::missing_field("id"))?;
+                let details = serde_json::from_value(serde_json::Value::Object(details))
+                    .map_err(DeError::custom)?;
+                Ok(ThreadItem { id, details })
+            }
+        }
+
+        deserializer.deserialize_map(ThreadItemVisitor)
+    }
 }
 
 /// Typed payloads for each supported codex thread item type.
@@ -798,6 +835,21 @@ mod tests {
         assert_eq!(item.id, "item_7");
         assert_eq!(ws.query, "rust release");
         assert_eq!(ws.action["type"], "search");
+    }
+
+    #[test]
+    fn parses_web_search_item_with_duplicate_inner_id() {
+        let line = r#"{"type":"item.started","item":{"id":"item_19","type":"web_search","id":"ws_0d9228dffe551965016a5b3723f4788191b703e85d866316c7","query":"","action":{"type":"other"}}}"#;
+        let ev = parse(line);
+        let CodexExecEvent::ItemStarted(ItemEvent { item }) = ev else {
+            panic!("wrong variant");
+        };
+        let ThreadItemDetails::WebSearch(ws) = item.details else {
+            panic!("wrong details");
+        };
+        assert_eq!(item.id, "item_19");
+        assert_eq!(ws.query, "");
+        assert_eq!(ws.action["type"], "other");
     }
 
     #[test]

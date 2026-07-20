@@ -487,6 +487,9 @@ mod tests {
                 docker_dind_cpu_limit: "2".into(),
                 docker_dind_memory_request: "1Gi".into(),
                 docker_dind_memory_limit: "4Gi".into(),
+                egress_proxy_url: None,
+                egress_proxy_profiles: vec![],
+                egress_proxy_no_proxy: "localhost,.svc.cluster.local".into(),
             },
             reconcile: ReconcileConfig {
                 reprovision_enabled: false,
@@ -515,10 +518,12 @@ mod tests {
             database: DatabaseConfig {
                 url: None,
                 max_connections: 5,
+                run_migrations: true,
             },
             redis: RedisConfig {
                 url: None,
                 max_stream_length: 100,
+                event_handler_enabled: true,
             },
             sse: SseConfig {
                 broadcast_capacity: 16,
@@ -609,6 +614,7 @@ mod tests {
                 docker_access: None,
                 docker_networks: None,
                 sandbox_service_account: None,
+                network_profile: None,
             },
             git_clone_url: "https://github.com/test/repo.git".into(),
             git_branch: Some("main".into()),

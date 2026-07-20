@@ -166,6 +166,18 @@ This triggers the **release.yml** workflow which:
 - For comprehensive validation, run `bun run check:turbo` which includes all checks (optimized for speed)
 - **Quick validation after edits**: Run `bun run post-edit-hook` for fast formatting fixes and type checking (~100ms with caching)
 
+#### Lint ratchet (nursery rules)
+`noFloatingPromises`, `noMisusedPromises`, and `useExhaustiveSwitchCases` are
+enabled as `warn` in `biome.json` (so `biome:check` reports but doesn't fail on
+them) and gated by a ratchet: `bun run lint:ratchet` fails if any file exceeds
+its baselined violation count in `biome-baseline.json` (a file with no entry
+must be clean). The baseline can only shrink.
+- If you touch a file with baselined violations of these rules, **fix them** —
+  do not raise the baseline. After removing violations, run
+  `bun run lint:ratchet:update` to lock in the smaller baseline.
+- New code must be clean: any new violation in a file without a matching
+  baseline entry fails the ratchet.
+
 ### Rust backend/sandbox changes
 - You MUST run `cargo clippy -p <crate> -- -D warnings` after code changes
 - You MUST run `cargo test -p <crate>` to verify tests pass

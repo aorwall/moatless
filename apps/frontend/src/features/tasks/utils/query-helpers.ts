@@ -3,6 +3,75 @@ import type { QueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/api/query-keys'
 import type { Event } from '@/lib/types/events'
 
+type TaskListFilters = {
+  activeOnly?: boolean
+  limit?: number
+  offset?: number
+  status?: string
+  tag?: string
+  createdBy?: string
+  followedBy?: string
+  repositoryId?: string
+  parentTaskId?: string
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+export function taskFromEventPayload(event: Event): TaskResponse | null {
+  const payload = event.payload
+  if (!isRecord(payload)) {
+    return null
+  }
+
+  const task = payload['task']
+  if (!isRecord(task) || typeof task['taskId'] !== 'string') {
+    return null
+  }
+
+  return task as unknown as TaskResponse
+}
+
+function filtersFromQueryKey(queryKey: readonly unknown[]): TaskListFilters | undefined {
+  const filters = queryKey[2]
+  return isRecord(filters) ? (filters as TaskListFilters) : undefined
+}
+
+function taskMatchesFilters(task: TaskResponse, filters: TaskListFilters | undefined): boolean {
+  if (!filters) {
+    return true
+  }
+  if (filters.offset && filters.offset > 0) {
+    return false
+  }
+  if (filters.status && task.status !== filters.status) {
+    return false
+  }
+  if (filters.activeOnly && task.status !== 'open') {
+    return false
+  }
+  if (filters.repositoryId && task.repositoryId !== filters.repositoryId) {
+    return false
+  }
+  if (filters.createdBy && task.createdBy !== filters.createdBy) {
+    return false
+  }
+  if (filters.parentTaskId && task.parentTaskId !== filters.parentTaskId) {
+    return false
+  }
+  if (filters.followedBy && task.isFollowing !== true) {
+    return false
+  }
+  if (
+    filters.tag &&
+    !task.tags.some((tag) => tag.name === filters.tag || tag.tagId === filters.tag)
+  ) {
+    return false
+  }
+  return true
+}
+
 /**
  * Updates a task in all cached task list queries
  * This ensures consistency across different filtered views
@@ -30,6 +99,7 @@ export function updateTaskInLists(
     updates: Partial<TaskResponse> | TaskResponse | null,
     isAdd: boolean,
   ): void => {
+    const filters = filtersFromQueryKey(queryKey)
     if (updates === null) {
       // Remove task
       const updatedTasks = data.items.filter((task) => task.taskId !== taskId)
@@ -37,15 +107,26 @@ export function updateTaskInLists(
     } else if (isAdd && 'taskId' in updates) {
       // Add new task to the beginning of the list
       const existingTask = data.items.find((task) => task.taskId === taskId)
-      if (!existingTask) {
+      if (!existingTask && taskMatchesFilters(updates as TaskResponse, filters)) {
         const updatedTasks = [updates as TaskResponse, ...data.items]
         queryClient.setQueryData(queryKey, { ...data, items: updatedTasks })
       }
     } else {
-      // Update existing task
-      const updatedTasks = data.items.map((task) =>
-        task.taskId === taskId ? { ...task, ...updates } : task,
-      )
+      // Update existing task, removing it if the patch moves it out of this
+      // filtered list. Full task payloads can also add a newly matching row.
+      const fullUpdate = 'taskId' in updates ? (updates as TaskResponse) : null
+      let matchedExisting = false
+      const updatedTasks = data.items.flatMap((task) => {
+        if (task.taskId !== taskId) {
+          return [task]
+        }
+        matchedExisting = true
+        const updatedTask = { ...task, ...updates }
+        return taskMatchesFilters(updatedTask, filters) ? [updatedTask] : []
+      })
+      if (fullUpdate && !matchedExisting && taskMatchesFilters(fullUpdate, filters)) {
+        updatedTasks.unshift(fullUpdate)
+      }
       queryClient.setQueryData(queryKey, { ...data, items: updatedTasks })
     }
   }
@@ -140,6 +221,12 @@ export function applyTaskEventUpdate(queryClient: QueryClient, event: Event): vo
   }
 
   const taskId = event.taskId
+  const eventTask = taskFromEventPayload(event)
+  if (eventTask) {
+    queryClient.setQueryData<TaskResponse>(queryKeys.tasks.detail(taskId), eventTask)
+    updateTaskInLists(queryClient, taskId, eventTask, event.subType === 'created')
+    return
+  }
 
   // Get updates based on event type
   let taskUpdates: Partial<TaskResponse> = {}
@@ -174,9 +261,7 @@ export function applyTaskEventUpdate(queryClient: QueryClient, event: Event): vo
       queryClient.setQueryData(queryKeys.tasks.detail(taskId), updatedTask)
     }
 
-    // Only update list caches for status-affecting changes (not timestamp-only updates)
-    // Timestamp-only updates (e.g. lastMessageAt from agent.message) create new object
-    // references in every cached list, causing unnecessary re-renders of TaskCard components
+    // Only update list caches for status-affecting changes (not timestamp-only updates).
     if ('status' in taskUpdates) {
       updateTaskInLists(queryClient, taskId, taskUpdates)
     }

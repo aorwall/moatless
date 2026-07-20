@@ -75,6 +75,13 @@ pub struct RepoConfig {
     /// backend's RBAC.
     #[serde(default)]
     pub sandbox_service_account: Option<String>,
+    // --- Network profile (opt-in per-repo) ---
+    /// Per-repo network profile. When set, the sandbox pod carries the label
+    /// `moatless.io/network-profile=<value>`, which a static (GitOps-owned)
+    /// NetworkPolicy can select to govern the pod's egress/ingress. Selects a
+    /// policy only; grants nothing on its own. Ignored in Docker mode.
+    #[serde(default)]
+    pub network_profile: Option<String>,
 }
 
 /// Server config entry
@@ -119,13 +126,19 @@ pub use moatless_events::SandboxStatus;
 /// Backwards-compatible type alias.
 pub type EnvironmentStatus = SandboxStatus;
 
-/// Matches TS AgentStateSchema: 'idle' | 'running' | 'none'
+/// Matches TS AgentStateSchema: 'idle' | 'running' | 'none' | 'unknown'
+///
+/// `Unknown` means the sandbox pod is running/ready but the backend could not
+/// reach the agent over gRPC to determine its state — distinct from `None`
+/// ("agent legitimately idle / never started"), so a hung or unreachable agent
+/// on an otherwise-ready pod is no longer silently reported as idle.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentState {
     Idle,
     Running,
     None,
+    Unknown,
 }
 
 impl From<&str> for AgentState {
@@ -133,6 +146,7 @@ impl From<&str> for AgentState {
         match s {
             "running" => AgentState::Running,
             "idle" => AgentState::Idle,
+            "unknown" => AgentState::Unknown,
             _ => AgentState::None,
         }
     }
@@ -854,14 +868,21 @@ mod tests {
             serde_json::to_string(&AgentState::None).unwrap(),
             "\"none\""
         );
+        assert_eq!(
+            serde_json::to_string(&AgentState::Unknown).unwrap(),
+            "\"unknown\""
+        );
     }
 
     #[test]
     fn agent_state_from_str() {
         assert!(matches!(AgentState::from("running"), AgentState::Running));
         assert!(matches!(AgentState::from("idle"), AgentState::Idle));
-        assert!(matches!(AgentState::from("unknown"), AgentState::None));
+        assert!(matches!(AgentState::from("unknown"), AgentState::Unknown));
+        assert!(matches!(AgentState::from("none"), AgentState::None));
         assert!(matches!(AgentState::from(""), AgentState::None));
+        // Any unrecognized status still falls back to `None`.
+        assert!(matches!(AgentState::from("bogus"), AgentState::None));
     }
 
     // =========================================================================

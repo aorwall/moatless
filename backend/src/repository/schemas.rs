@@ -17,6 +17,7 @@ impl From<Repository> for RepositoryResponse {
             docker_image: r.docker_image,
             docker_access: r.docker_access,
             sandbox_service_account: r.sandbox_service_account,
+            network_profile: r.network_profile,
             system_prompt: r.system_prompt,
             description: r.description,
             provider: r.provider,

@@ -176,6 +176,41 @@
         ]
       }
     },
+    "shadow-dev": {
+      "type": "domain",
+      "enforcement": "suggest",
+      "priority": "medium",
+      "description": "Develop moatless-vibe backend + frontend from inside a sandbox — native mirrord-style dev loop (build, rebuild, preview) via scripts/shadow",
+      "promptTriggers": {
+        "keywords": [
+          "shadow",
+          "shadow backend",
+          "shadow dev",
+          "scripts/shadow",
+          "mirrord",
+          "dev from sandbox",
+          "develop from sandbox",
+          "run backend in sandbox",
+          "preview backend",
+          "rebuild backend",
+          "up.sh",
+          "sync-env",
+          "sandboxServiceAccount",
+          "moatless-dev"
+        ],
+        "intentPatterns": [
+          "(run|start).*?(shadow|backend).*?(sandbox|preview)",
+          "(develop|dev|iterate).*?(from|inside).*?sandbox",
+          "(rebuild|preview).*?(backend|change).*?(live|sandbox)",
+          "mirrord.*?(style|dev|loop)"
+        ]
+      },
+      "fileTriggers": {
+        "pathPatterns": [
+          "scripts/shadow/**/*"
+        ]
+      }
+    },
     "moat-cli": {
       "type": "domain",
       "enforcement": "suggest",

@@ -27,14 +27,9 @@
 		"allowUnreachableCode": false,
 		"paths": {
 			"@/*": ["./src/*"],
-			"@moatless/diff-viewer": ["../../packages/diff-viewer/src/index.ts"],
-			"@moatless/diff-viewer/*": ["../../packages/diff-viewer/src/*"],
 			"zod": ["../../node_modules/zod"]
 		}
 	},
 	"include": ["src"],
-	"exclude": ["**/__stories__/**"],
-	"references": [
-		{ "path": "../../packages/diff-viewer" }
-	]
+	"exclude": ["**/__stories__/**"]
 }

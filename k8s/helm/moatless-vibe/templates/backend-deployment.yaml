@@ -140,6 +140,16 @@ spec:
             - name: K8S_SANDBOX_CACHE_INIT_IMAGE
               value: {{ . | quote }}
             {{- end }}
+            {{- if .Values.egressProxy.enabled }}
+            # Route sandbox pods in egressProxy.profiles through the in-cluster
+            # egress proxy (templates/egress-proxy.yaml) via HTTPS_PROXY.
+            - name: SANDBOX_EGRESS_PROXY_URL
+              value: {{ printf "http://%s-egress-proxy.%s.svc.cluster.local:%v" (include "moatless-vibe.fullname" .) (include "moatless-vibe.sandboxNamespace" .) (.Values.egressProxy.port | default 3128) | quote }}
+            - name: SANDBOX_EGRESS_PROXY_PROFILES
+              value: {{ join "," .Values.egressProxy.profiles | quote }}
+            - name: SANDBOX_EGRESS_PROXY_NO_PROXY
+              value: {{ .Values.egressProxy.noProxy | quote }}
+            {{- end }}
             {{- with .Values.kubernetes.reconcile }}
             # Desired-vs-actual reconcile pass in the task reaper (all OFF by default)
             - name: RECONCILE_REPROVISION_ENABLED

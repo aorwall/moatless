@@ -67,6 +67,19 @@ export function SandboxActionButtons({
         <Button
           variant="outline"
           size={size}
+          onClick={() => redeploy.mutate()}
+          disabled={isAnyLoading}
+          title="Redeploy sandbox with the latest config and docker image"
+        >
+          <RotateCcw className={iconSize} />
+          {!compact && <span className="ml-1">Redeploy</span>}
+        </Button>
+      )}
+
+      {(environmentStatus === 'ready' || environmentStatus === 'initializing') && (
+        <Button
+          variant="outline"
+          size={size}
           onClick={() => stop.mutate()}
           disabled={isAnyLoading}
           title="Stop sandbox"

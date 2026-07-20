@@ -1,3 +1,4 @@
+export { DetailItem } from '@/lib/components/ui/detail-item'
 export * from './api/claude-connection.api'
 export * from './api/codex-connection.api'
 export * from './api/figma.api'
@@ -11,7 +12,6 @@ export { ClaudeConfigurationSection } from './components/claude-configuration-se
 export { CodexConfigurationSection } from './components/codex-configuration-section'
 export { CodexDeviceLoginDialog } from './components/codex-device-login-dialog'
 export { ConnectionFormDialog } from './components/connection-form-dialog'
-export { DetailItem } from './components/detail-item'
 export { FigmaConfigurationSection } from './components/figma-configuration-section'
 export { GitHubConfigurationSection } from './components/github-configuration-section'
 export { GitLabConfigurationSection } from './components/gitlab-configuration-section'

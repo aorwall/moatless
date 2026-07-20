@@ -43,6 +43,13 @@ Testcontainers inside the sandbox. Defaults to false.
   /** @nullable */
   remoteUrl?: string | null;
   resources?: null | ResourceConfig;
+  /**
+   * Per-repo Kubernetes ServiceAccount for this repo's sandbox pods. Overrides
+the global default when set. Used for shadow dev sandboxes that need the
+backend's RBAC to provision sandboxes.
+   * @nullable
+   */
+  sandboxServiceAccount?: string | null;
   scope?: null | Scope;
   /** @nullable */
   serverStartCommands?: string[] | null;

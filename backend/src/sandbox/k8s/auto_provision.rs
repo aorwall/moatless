@@ -182,6 +182,7 @@ pub fn build_repo_config(repo: &Repository) -> RepoConfig {
         docker_access: repo.docker_access,
         docker_networks: None,
         sandbox_service_account: repo.sandbox_service_account.clone(),
+        network_profile: repo.network_profile.clone(),
     }
 }
 
@@ -407,6 +408,7 @@ mod tests {
             docker_access: None,
             docker_networks: None,
             sandbox_service_account: None,
+            network_profile: None,
         }
     }
 
