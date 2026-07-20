@@ -30,11 +30,56 @@ struct MessageUsage {
     cache_read_input_tokens: i64,
 }
 
+/// Sum the per-turn totals recorded from each run's terminal result message.
+///
+/// Returns `None` when no turn carries usage, so callers fall back to the
+/// per-message sum (the pre-column behaviour).
+fn totals_from_turn_metrics(turn_metrics: &[serde_json::Value]) -> Option<TaskTokenTotals> {
+    let field = |m: &serde_json::Value, k: &str| -> i64 {
+        m.get("usage")
+            .and_then(|u| u.get(k))
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0)
+    };
+
+    let mut totals = TaskTokenTotals::default();
+    let mut saw_any = false;
+    for m in turn_metrics {
+        if m.get("usage").is_none_or(serde_json::Value::is_null) {
+            continue;
+        }
+        saw_any = true;
+        totals.input_tokens += field(m, "input_tokens");
+        totals.output_tokens += field(m, "output_tokens");
+        totals.cache_creation_input_tokens += field(m, "cache_creation_input_tokens");
+        totals.cache_read_input_tokens += field(m, "cache_read_input_tokens");
+    }
+    if !saw_any {
+        return None;
+    }
+    totals.cached_input_tokens = totals.cache_read_input_tokens;
+    totals.total_tokens = totals.input_tokens
+        + totals.output_tokens
+        + totals.cache_creation_input_tokens
+        + totals.cache_read_input_tokens;
+    Some(totals)
+}
+
 /// Build all stats from the same rows already used by the conversation view.
+///
+/// `turn_metrics` carries each run's terminal totals and takes precedence over
+/// the per-message sum: on the subprocess/NDJSON stream `output_tokens` is
+/// sampled before the response finishes, so summing message rows understates
+/// output by an order of magnitude. Turn totals also cover sub-agent work,
+/// which the message sum deliberately excludes.
+///
+/// The per-message series is returned either way for the chart, where relative
+/// shape matters more than absolute accuracy.
 pub fn build_task_statistics(
     task: &Task,
     messages: &[TaskMessage],
     blocks: &[TaskMessageContentBlock],
+    turn_metrics: &[serde_json::Value],
 ) -> TaskStatisticsResponse {
     let failed_tool_ids: BTreeSet<String> = blocks
         .iter()
@@ -167,7 +212,7 @@ pub fn build_task_statistics(
         task_id: task.task_id.clone(),
         agent_type: task.agent_type.clone(),
         model: latest_model,
-        token_totals,
+        token_totals: totals_from_turn_metrics(turn_metrics).unwrap_or(token_totals),
         message_token_usage,
         tool_calls: tool_stats
             .into_iter()
@@ -385,7 +430,7 @@ mod tests {
             created_at: None,
         }];
 
-        let stats = build_task_statistics(&task(), &[assistant_message()], &blocks);
+        let stats = build_task_statistics(&task(), &[assistant_message()], &blocks, &[]);
 
         assert_eq!(stats.model.as_deref(), Some("gpt-5"));
         assert_eq!(stats.token_totals.input_tokens, 10);
@@ -431,7 +476,7 @@ mod tests {
         sidechain.assistant_usage_output_tokens = Some(343_471);
         sidechain.assistant_usage_cache_read_input_tokens = Some(62_000_000);
 
-        let stats = build_task_statistics(&task(), &[a1, a1_dup, a2, sidechain], &[]);
+        let stats = build_task_statistics(&task(), &[a1, a1_dup, a2, sidechain], &[], &[]);
 
         // Only the two distinct main-agent messages, counted once each.
         assert_eq!(stats.message_token_usage.len(), 2);
@@ -439,5 +484,62 @@ mod tests {
         assert_eq!(stats.token_totals.output_tokens, 12); // 5 + 7, sidechain excluded
         assert_eq!(stats.token_totals.cache_read_input_tokens, 200); // 100 + 100
         assert_eq!(stats.token_totals.total_tokens, 20 + 12 + 200);
+    }
+
+    #[test]
+    fn turn_metrics_take_precedence_over_per_message_sum() {
+        let a1 = assistant_message();
+
+        // What the terminal result reported for the run. Claude Code's per-message
+        // `output_tokens` (5 on the row above) is sampled mid-response; the run
+        // actually produced 130.
+        let turn = serde_json::json!({
+            "usage": {
+                "input_tokens": 10,
+                "output_tokens": 130,
+                "cache_creation_input_tokens": 40,
+                "cache_read_input_tokens": 100,
+            },
+            "modelUsage": { "claude-sonnet-4-6": { "costUSD": 0.01 } }
+        });
+
+        let stats = build_task_statistics(&task(), &[a1], &[], &[turn]);
+
+        assert_eq!(stats.token_totals.output_tokens, 130);
+        assert_eq!(stats.token_totals.total_tokens, 10 + 130 + 40 + 100);
+        // The per-message series is untouched — it still drives the chart.
+        assert_eq!(stats.message_token_usage.len(), 1);
+        assert_eq!(stats.message_token_usage[0].output_tokens, 5);
+    }
+
+    #[test]
+    fn turn_metrics_without_usage_fall_back_to_message_sum() {
+        let a1 = assistant_message();
+        // A turn row that closed without usage (e.g. tmux, which reports none).
+        let turn = serde_json::json!({ "durationMs": 1200 });
+
+        let stats = build_task_statistics(&task(), &[a1], &[], &[turn]);
+
+        assert_eq!(stats.token_totals.output_tokens, 5);
+    }
+
+    /// The tmux transport reports no per-model breakdown, but its usage totals
+    /// are still the run's own. An empty `modelUsage` must not demote them.
+    #[test]
+    fn turn_metrics_without_a_model_breakdown_still_win() {
+        let turn = serde_json::json!({
+            "usage": {
+                "input_tokens": 36,
+                "output_tokens": 239,
+                "cache_creation_input_tokens": 44235,
+                "cache_read_input_tokens": 0,
+            },
+            "modelUsage": {},
+            "totalCostUsd": 0.0,
+        });
+
+        let stats = build_task_statistics(&task(), &[assistant_message()], &[], &[turn]);
+
+        assert_eq!(stats.token_totals.output_tokens, 239);
     }
 }

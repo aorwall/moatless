@@ -14,6 +14,7 @@
 //! turn's CLI subprocess never keeps the watch alive, and re-arming at each
 //! turn end is latest-wins so the snapshot stays fresh.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::time::Instant;
@@ -43,6 +44,36 @@ const MAX_WATCH_DURATION: Duration = Duration::from_hours(4);
 /// How many command previews to keep in the status snapshot / wake prompt.
 const MAX_COMMAND_PREVIEWS: usize = 5;
 
+/// Which of the given PIDs are still live.
+///
+/// Injectable because the real implementation reads `/proc`: on a non-Linux
+/// host every read fails soft and reports "gone", so a test driving real
+/// processes would see them dead from the start and never exercise the watch.
+pub(crate) trait ProcessLiveness: Send + Sync + 'static {
+    /// The subset of `pids` still live — used once, to settle the watch set.
+    fn live_pids(&self, pids: &[u32]) -> Vec<u32>;
+
+    /// Whether any of `pids` is still live. Split from [`live_pids`] because
+    /// the poll loop only needs the answer, not the set.
+    fn any_live(&self, pids: &[u32]) -> bool {
+        !self.live_pids(pids).is_empty()
+    }
+}
+
+/// Production implementation, backed by `/proc`.
+struct ProcLiveness;
+
+impl ProcessLiveness for ProcLiveness {
+    fn live_pids(&self, pids: &[u32]) -> Vec<u32> {
+        process_tree::live_pids(pids)
+    }
+
+    fn any_live(&self, pids: &[u32]) -> bool {
+        // Short-circuits and allocates nothing — this runs on every poll tick.
+        process_tree::any_pid_live(pids)
+    }
+}
+
 /// A watch armed over the background processes live at the end of a turn.
 pub struct BackgroundWatchJob {
     id: String,
@@ -54,6 +85,7 @@ pub struct BackgroundWatchJob {
     poll_interval: Duration,
     confirm_delay: Duration,
     deadline: Instant,
+    liveness: Arc<dyn ProcessLiveness>,
 }
 
 impl BackgroundWatchJob {
@@ -86,15 +118,18 @@ impl BackgroundWatchJob {
             poll_interval: POLL_INTERVAL,
             confirm_delay: CONFIRM_DELAY,
             deadline: Instant::now() + MAX_WATCH_DURATION,
+            liveness: Arc::new(ProcLiveness),
         })
     }
 
-    /// Test-only constructor with explicit timings and no deadline cap.
+    /// Test-only constructor with explicit timings, no deadline cap, and an
+    /// injected liveness source.
     #[cfg(test)]
     pub(crate) fn new_for_test(
         watched_pids: Vec<u32>,
         poll_interval: Duration,
         confirm_delay: Duration,
+        liveness: Arc<dyn ProcessLiveness>,
     ) -> Self {
         Self {
             id: format!("bgwatch-test-{}", watched_pids.len()),
@@ -104,6 +139,7 @@ impl BackgroundWatchJob {
             poll_interval,
             confirm_delay,
             deadline: Instant::now() + Duration::from_hours(1),
+            liveness,
         }
     }
 
@@ -164,9 +200,11 @@ impl ScheduledJob for BackgroundWatchJob {
         }
 
         let initial = self.watched_pids.clone();
-        let watched = tokio::task::spawn_blocking(move || process_tree::live_pids(&initial))
-            .await
-            .unwrap_or_default();
+        let settle_liveness = Arc::clone(&self.liveness);
+        let watched =
+            tokio::task::spawn_blocking(move || settle_liveness.live_pids(&initial))
+                .await
+                .unwrap_or_default();
         if watched.is_empty() {
             debug!(
                 id = %self.id,
@@ -196,11 +234,11 @@ impl ScheduledJob for BackgroundWatchJob {
                         return;
                     }
                     let pids = watched.clone();
-                    let still_running = tokio::task::spawn_blocking(move || {
-                        process_tree::any_pid_live(&pids)
-                    })
-                    .await
-                    .unwrap_or(false);
+                    let poll_liveness = Arc::clone(&self.liveness);
+                    let still_running =
+                        tokio::task::spawn_blocking(move || poll_liveness.any_live(&pids))
+                            .await
+                            .unwrap_or(false);
                     if !still_running {
                         info!(
                             id = %self.id,

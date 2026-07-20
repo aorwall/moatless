@@ -2,13 +2,18 @@
 //! session into agent events and state transitions.
 
 use claude_agent_sdk::types::content::{ApiMessage, ContentBlock};
-use claude_agent_sdk::types::messages::{MessagePriority, ResultMessage, UserMessage};
+use claude_agent_sdk::types::messages::{
+    AssistantMessage, MessagePriority, ResultMessage, UserMessage,
+};
 use claude_agent_sdk::SdkMessage;
 use moatless_events::AgentSubType;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
+use std::collections::HashSet;
+
 use crate::agent::wakeup_job::WakeupJob;
+use crate::events::GrpcEventPublisher;
 
 use super::actor::TurnContext;
 use super::session::publish_turn_start;
@@ -61,7 +66,7 @@ pub(super) async fn process_claude_message(
     ctx: &mut TurnContext<'_>,
     use_tmux: bool,
     turn_cancel: &CancellationToken,
-    usage_seen_message_ids: &mut std::collections::HashSet<String>,
+    assistant_buffer: &mut AssistantBuffer,
 ) {
     match msg {
         SdkMessage::System(init) => {
@@ -72,20 +77,12 @@ pub(super) async fn process_claude_message(
             );
             publish_session_init(ctx, init.session_id, Some(init.model)).await;
         }
-        SdkMessage::Assistant(mut assistant) => {
+        SdkMessage::Assistant(assistant) => {
             // Remember this turn's latest stop_reason — the `result` message has
             // none, so this is the only place it's available for agent/completed.
             if assistant.message.stop_reason.is_some() {
                 *ctx.last_stop_reason = assistant.message.stop_reason.clone();
             }
-
-            // The CLI splits one assistant API response into one `assistant` SDK
-            // message per content block (thinking / text / tool_use), each
-            // repeating the same Anthropic `message.id` and the same `usage`.
-            // Persisting usage on every block row multiplies the token counts by
-            // the block count, so keep usage on the first row seen for a message
-            // id and strip it from the rest.
-            dedup_assistant_usage(&mut assistant, usage_seen_message_ids);
 
             if use_tmux {
                 // The CLI handles ScheduleWakeup internally in the persistent
@@ -112,17 +109,18 @@ pub(super) async fn process_claude_message(
                 *ctx.pending_wakeup = Some(job);
             }
 
-            debug!(
-                uuid = %assistant.uuid,
-                blocks = assistant.message.content.len(),
-                "Claude assistant message"
-            );
-            let payload = serde_json::to_value(&assistant).unwrap_or_default();
-            ctx.run_events()
-                .publish_agent_event(ctx.task_id, AgentSubType::Message, payload)
-                .await;
+            // Held until the next message proves this one complete.
+            if let Some(complete) = assistant_buffer.absorb(assistant) {
+                publish_assistant(ctx, complete).await;
+            }
         }
         SdkMessage::Result(result) => {
+            // Release the final assistant message before the turn's terminal
+            // event so the backend sees them in order.
+            if let Some(complete) = assistant_buffer.take() {
+                publish_assistant(ctx, complete).await;
+            }
+
             let (is_error, sid, sub_type, payload) =
                 extract_result_info(&result, ctx.task_id, ctx.last_stop_reason.as_deref());
             *ctx.session_id = sid;
@@ -143,9 +141,7 @@ pub(super) async fn process_claude_message(
 
             // Turn is over — clear so the next turn starts without a stale reason.
             *ctx.last_stop_reason = None;
-            // Message ids are globally unique, but clear the per-turn dedup set
-            // so it can't grow without bound across a long-lived session.
-            usage_seen_message_ids.clear();
+            assistant_buffer.end_turn();
             *ctx.tmux_turn_in_flight = false;
             // A successful turn in the persistent tmux session keeps the
             // handle (and the TUI process) alive so the CLI's internal
@@ -158,6 +154,12 @@ pub(super) async fn process_claude_message(
             }
         }
         SdkMessage::User(user_msg) => {
+            // A tool_result answers the tool_use in the pending message, so that
+            // message must be published first to keep the conversation ordered.
+            if let Some(complete) = assistant_buffer.take() {
+                publish_assistant(ctx, complete).await;
+            }
+
             // A user record arriving while no turn is in flight is the start
             // of a CLI-internal turn (the wakeup prompt the CLI injected when
             // its internal ScheduleWakeup timer fired) — publish turn-start
@@ -210,27 +212,123 @@ pub(super) async fn process_claude_message(
     }
 }
 
-/// Strip duplicate `usage` from a repeated assistant block row.
+/// Reassembles one API response from the CLI's per-content-block lines.
 ///
 /// The CLI emits one `assistant` SDK message per content block (thinking / text
-/// / tool_use), each carrying the same Anthropic `message.id` and the same
-/// `usage`. Keeping usage on every row would multiply token counts by the block
-/// count downstream, so usage is retained only on the first row seen for a given
-/// message id and cleared on the rest. Rows without a `message.id` (or without
-/// usage) are left untouched.
-fn dedup_assistant_usage(
-    assistant: &mut claude_agent_sdk::types::messages::AssistantMessage,
-    seen_message_ids: &mut std::collections::HashSet<String>,
-) {
-    if assistant.message.usage.is_none() {
-        return;
-    }
-    if let Some(message_id) = assistant.message.id.clone() {
-        // `insert` returns false when the id was already present this turn.
-        if !seen_message_ids.insert(message_id) {
-            assistant.message.usage = None;
+/// / tool_use), each repeating the same Anthropic `message.id` and the same
+/// `usage`. Holding a message until its id changes — or until any other message
+/// arrives — lets one API response reach the backend as one event carrying all
+/// its blocks rather than one per block.
+///
+/// Reassembly is best-effort by necessity. The CLI interleaves independent
+/// chains into one stream: a sub-agent's traffic, and the `tool_result` for each
+/// call of a multi-tool response, arrive *between* the lines of the response
+/// that spawned them. Holding across those would publish a `tool_use` after its
+/// own result, so the pending message is released instead and one API message
+/// legitimately becomes several rows. `usage_seen` is what keeps that from
+/// multiplying the token counts.
+#[derive(Default)]
+pub(super) struct AssistantBuffer {
+    pending: Option<AssistantMessage>,
+    /// Message ids already released this turn. Usage rides on every line the CLI
+    /// emits, so once a message id has been published the repeats must not carry
+    /// it again — otherwise a response split across N rows reports N× its tokens.
+    usage_seen: HashSet<String>,
+}
+
+impl AssistantBuffer {
+    /// Fold `next` into the pending message when both are the same API response.
+    ///
+    /// Returns the previous message once it is complete, for the caller to
+    /// publish. Lines with no `message.id` can't be correlated, so each is
+    /// returned as its own message.
+    fn absorb(&mut self, mut next: AssistantMessage) -> Option<AssistantMessage> {
+        let continues_pending = match (self.pending.as_ref(), next.message.id.as_deref()) {
+            (Some(pending), Some(id)) => pending.message.id.as_deref() == Some(id),
+            _ => false,
+        };
+
+        if continues_pending {
+            if let Some(pending) = self.pending.as_mut() {
+                // Later lines repeat the same usage and stop_reason; the first
+                // line's copy is already held.
+                pending.message.content.extend(next.message.content);
+            }
+            return None;
         }
+
+        // Becoming the pending message. If this id was already released once
+        // this turn, the stream interleaved something between its lines — keep
+        // the blocks, drop the repeated usage.
+        if let Some(id) = next.message.id.clone() {
+            if !self.usage_seen.insert(id) {
+                next.message.usage = None;
+            }
+        }
+        self.pending.replace(next)
     }
+
+    /// Release the pending message so it is published before whatever follows.
+    fn take(&mut self) -> Option<AssistantMessage> {
+        self.pending.take()
+    }
+
+    /// Drop the per-turn id set at a turn boundary so it cannot grow unbounded
+    /// across a long-lived session.
+    fn end_turn(&mut self) {
+        self.usage_seen.clear();
+    }
+}
+
+/// Drain a message still held when a turn ends without a `Result`.
+///
+/// The cancel, stream-error and transport-closed paths never reach
+/// [`process_claude_message`], so nothing else releases the buffer. Left
+/// undrained the held message is lost from its own turn and then published
+/// during the next one, attributed to the wrong run.
+pub(super) async fn flush_pending_assistant(
+    buffer: &mut AssistantBuffer,
+    events: &GrpcEventPublisher,
+    task_id: &str,
+) {
+    if let Some(complete) = buffer.take() {
+        publish_assistant_to(events, task_id, complete).await;
+    }
+}
+
+/// Publish a reassembled assistant message.
+async fn publish_assistant(ctx: &mut TurnContext<'_>, assistant: AssistantMessage) {
+    publish_assistant_to(&ctx.run_events(), ctx.task_id, assistant).await;
+}
+
+async fn publish_assistant_to(
+    events: &GrpcEventPublisher,
+    task_id: &str,
+    mut assistant: AssistantMessage,
+) {
+    // The CLI's stdout stream carries no stop_reason (it is only written to the
+    // transcript), but the API's contract is that a response containing
+    // tool_use blocks stopped for `tool_use`. Turn reconciliation keys on this,
+    // so derive what is unambiguous and leave the rest unset.
+    if assistant.message.stop_reason.is_none()
+        && assistant
+            .message
+            .content
+            .iter()
+            .any(|block| matches!(block, ContentBlock::ToolUse { .. }))
+    {
+        assistant.message.stop_reason = Some("tool_use".to_string());
+    }
+
+    debug!(
+        uuid = %assistant.uuid,
+        blocks = assistant.message.content.len(),
+        "Claude assistant message"
+    );
+    let payload = serde_json::to_value(&assistant).unwrap_or_default();
+    events
+        .publish_agent_event(task_id, AgentSubType::Message, payload)
+        .await;
 }
 
 /// Construct a `UserMessage` for injection into a running Claude session.
@@ -546,10 +644,10 @@ mod tests {
         assert_eq!(payload["subtype"], "rate_limit");
     }
 
-    // ── dedup_assistant_usage ───────────────────────────────────────
+    // ── AssistantBuffer ─────────────────────────────────────────────
 
     fn make_assistant(message_id: Option<&str>, with_usage: bool) -> AssistantMessage {
-        let usage = with_usage.then(|| ClaudeUsage {
+        let usage = with_usage.then_some(ClaudeUsage {
             input_tokens: 2,
             output_tokens: 3,
             cache_read_input_tokens: Some(238_041),
@@ -578,45 +676,159 @@ mod tests {
         }
     }
 
-    #[test]
-    fn dedup_keeps_usage_on_first_block_and_strips_repeats() {
-        let mut seen = std::collections::HashSet::new();
+    /// Build an assistant line carrying a single content block, as the CLI
+    /// emits them.
+    fn block_line(message_id: Option<&str>, block: ContentBlock) -> AssistantMessage {
+        let mut msg = make_assistant(message_id, true);
+        msg.message.content = vec![block];
+        msg
+    }
 
-        // Three content-block rows share one message id — the CLI repeats the
-        // same usage on each. Only the first (thinking) should keep it.
-        let mut thinking = make_assistant(Some("msg_1"), true);
-        let mut text = make_assistant(Some("msg_1"), true);
-        let mut tool_use = make_assistant(Some("msg_1"), true);
-        dedup_assistant_usage(&mut thinking, &mut seen);
-        dedup_assistant_usage(&mut text, &mut seen);
-        dedup_assistant_usage(&mut tool_use, &mut seen);
+    fn text_block(text: &str) -> ContentBlock {
+        ContentBlock::Text {
+            text: text.to_string(),
+        }
+    }
 
-        assert!(thinking.message.usage.is_some());
-        assert!(text.message.usage.is_none());
-        assert!(tool_use.message.usage.is_none());
-
-        // A distinct message id keeps its own usage.
-        let mut other = make_assistant(Some("msg_2"), true);
-        dedup_assistant_usage(&mut other, &mut seen);
-        assert!(other.message.usage.is_some());
-
-        // After a turn boundary clears the set, the same id counts again.
-        seen.clear();
-        let mut next_turn = make_assistant(Some("msg_1"), true);
-        dedup_assistant_usage(&mut next_turn, &mut seen);
-        assert!(next_turn.message.usage.is_some());
+    fn tool_use_block(id: &str) -> ContentBlock {
+        ContentBlock::ToolUse {
+            id: id.to_string(),
+            name: "Write".to_string(),
+            input: serde_json::json!({}),
+        }
     }
 
     #[test]
-    fn dedup_leaves_rows_without_message_id_untouched() {
-        let mut seen = std::collections::HashSet::new();
-        let mut a = make_assistant(None, true);
-        let mut b = make_assistant(None, true);
-        dedup_assistant_usage(&mut a, &mut seen);
-        dedup_assistant_usage(&mut b, &mut seen);
-        // No id to dedupe against, so usage is preserved on both.
-        assert!(a.message.usage.is_some());
-        assert!(b.message.usage.is_some());
-        assert!(seen.is_empty());
+    fn buffer_merges_block_lines_sharing_a_message_id() {
+        let mut buffer = AssistantBuffer::default();
+
+        // The CLI splits one response across three lines; none completes it.
+        assert!(buffer
+            .absorb(block_line(
+                Some("msg_1"),
+                ContentBlock::Thinking {
+                    thinking: "hmm".to_string(),
+                    signature: "sig".to_string(),
+                },
+            ))
+            .is_none());
+        assert!(buffer
+            .absorb(block_line(Some("msg_1"), text_block("working on it")))
+            .is_none());
+        assert!(buffer
+            .absorb(block_line(Some("msg_1"), tool_use_block("toolu_1")))
+            .is_none());
+
+        let complete = buffer.take().expect("pending message");
+        assert_eq!(complete.message.content.len(), 3);
+        assert_eq!(complete.message.id.as_deref(), Some("msg_1"));
+        // Usage is carried once, from the first line — not multiplied by block count.
+        let usage = complete.message.usage.expect("usage");
+        assert_eq!(usage.output_tokens, 3);
+    }
+
+    #[test]
+    fn buffer_releases_previous_message_when_the_id_changes() {
+        let mut buffer = AssistantBuffer::default();
+
+        assert!(buffer
+            .absorb(block_line(Some("msg_1"), text_block("first")))
+            .is_none());
+
+        let released = buffer
+            .absorb(block_line(Some("msg_2"), text_block("second")))
+            .expect("previous message released");
+        assert_eq!(released.message.id.as_deref(), Some("msg_1"));
+
+        let pending = buffer.take().expect("second message pending");
+        assert_eq!(pending.message.id.as_deref(), Some("msg_2"));
+    }
+
+    #[test]
+    fn buffer_does_not_correlate_lines_without_a_message_id() {
+        let mut buffer = AssistantBuffer::default();
+
+        assert!(buffer.absorb(block_line(None, text_block("a"))).is_none());
+        // With no id to match on, the previous line is released rather than
+        // merged — better a split message than one that swallows another.
+        let released = buffer
+            .absorb(block_line(None, text_block("b")))
+            .expect("previous line released");
+        assert_eq!(released.message.content.len(), 1);
+    }
+
+    #[test]
+    fn interleaved_lines_split_the_message_but_carry_usage_once() {
+        // A multi-tool response: the CLI emits each tool_use as its own line and
+        // slots that tool's result in between, so the message cannot be held
+        // whole without publishing a tool_use after its own result. It is
+        // released instead — but only the first row keeps the usage.
+        let mut buffer = AssistantBuffer::default();
+
+        assert!(buffer
+            .absorb(block_line(Some("msg_1"), tool_use_block("toolu_1")))
+            .is_none());
+        // ...tool_result for toolu_1 arrives, forcing the release.
+        let first = buffer.take().expect("first half released");
+        assert!(first.message.usage.is_some(), "first row keeps the usage");
+
+        // Second line of the SAME api message, after the interleaved result.
+        assert!(buffer
+            .absorb(block_line(Some("msg_1"), tool_use_block("toolu_2")))
+            .is_none());
+        let second = buffer.take().expect("second half released");
+        assert!(
+            second.message.usage.is_none(),
+            "repeat of an already-released message id must not re-report usage"
+        );
+    }
+
+    #[test]
+    fn usage_dedup_resets_at_a_turn_boundary() {
+        let mut buffer = AssistantBuffer::default();
+        assert!(buffer
+            .absorb(block_line(Some("msg_1"), text_block("a")))
+            .is_none());
+        assert!(buffer.take().expect("released").message.usage.is_some());
+
+        buffer.end_turn();
+
+        // A fresh turn starts with a clean set — ids are globally unique, so
+        // this only matters for keeping the set from growing without bound.
+        assert!(buffer
+            .absorb(block_line(Some("msg_1"), text_block("b")))
+            .is_none());
+        assert!(buffer.take().expect("released").message.usage.is_some());
+    }
+
+    #[test]
+    fn buffer_does_not_carry_a_message_into_the_next_turn() {
+        // A turn that ends abnormally (cancel / crash) never delivers a Result,
+        // so the actor drains the buffer itself. Once drained, the next turn
+        // starts clean — otherwise the previous turn's message would surface
+        // under the new run id.
+        let mut buffer = AssistantBuffer::default();
+        assert!(buffer
+            .absorb(block_line(Some("msg_turn_1"), tool_use_block("toolu_1")))
+            .is_none());
+
+        let stranded = buffer.take().expect("held message is recoverable");
+        assert_eq!(stranded.message.id.as_deref(), Some("msg_turn_1"));
+
+        // Next turn's first line must not be merged into the drained message.
+        let released = buffer.absorb(block_line(Some("msg_turn_2"), text_block("next")));
+        assert!(released.is_none(), "nothing pending from the previous turn");
+        assert_eq!(
+            buffer.take().and_then(|m| m.message.id).as_deref(),
+            Some("msg_turn_2")
+        );
+    }
+
+    #[test]
+    fn buffer_take_is_empty_once_drained() {
+        let mut buffer = AssistantBuffer::default();
+        assert!(buffer.absorb(block_line(Some("msg_1"), text_block("x"))).is_none());
+        assert!(buffer.take().is_some());
+        assert!(buffer.take().is_none());
     }
 }

@@ -23,6 +23,13 @@ const CHANNEL_CAPACITY: usize = 256;
 pub struct QueryHandle {
     /// Stream of SDK messages from the Claude CLI.
     pub messages: mpsc::Receiver<Result<SdkMessage>>,
+    /// PID of the CLI process inside the tmux pane, captured at session start.
+    /// `None` for the subprocess transport, or if tmux could not be queried.
+    ///
+    /// Lets a caller tell the persistent session apart from work it spawned:
+    /// this PID and its ancestors are the session itself, anything else below
+    /// them is the agent's own background work.
+    pub tmux_pane_pid: Option<u32>,
     orchestrator_handle: JoinHandle<()>,
     stdin_writer: Arc<dyn StdinWriter>,
     request_tracker: Arc<Mutex<RequestTracker>>,
@@ -171,11 +178,18 @@ impl QueryHandle {
     ) -> Self {
         Self {
             messages,
+            tmux_pane_pid: None,
             orchestrator_handle: background_task,
             stdin_writer,
             request_tracker: Arc::new(Mutex::new(RequestTracker::new())),
             cancellation_token,
         }
+    }
+
+    /// Record the tmux pane PID captured at session start.
+    pub(crate) fn with_tmux_pane_pid(mut self, pane_pid: Option<u32>) -> Self {
+        self.tmux_pane_pid = pane_pid;
+        self
     }
 }
 
@@ -318,6 +332,8 @@ pub async fn query(prompt: &str, mut options: ClaudeOptions) -> Result<QueryHand
 
     Ok(QueryHandle {
         messages: message_rx,
+        // Subprocess transport: no tmux session.
+        tmux_pane_pid: None,
         orchestrator_handle,
         stdin_writer,
         request_tracker,
@@ -441,6 +457,8 @@ pub async fn query_streaming(mut options: ClaudeOptions) -> Result<QueryHandle> 
 
     Ok(QueryHandle {
         messages: message_rx,
+        // Subprocess transport: no tmux session.
+        tmux_pane_pid: None,
         orchestrator_handle,
         stdin_writer,
         request_tracker,

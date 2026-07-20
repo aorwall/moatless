@@ -12,7 +12,7 @@ export function renderToolCalls(
   expandedToolCalls: Set<string>,
   onToggleToolCall: (toolUseId: string) => void,
   hasPendingUserInput: boolean | null | undefined,
-  subagentMessages?: UiMessage[],
+  subagentsByToolUseId?: Record<string, UiMessage[]>,
   parentMessageUuid?: string,
 ): React.ReactNode {
   if (toolCalls.length === 0) {
@@ -29,7 +29,7 @@ export function renderToolCalls(
               key={toolCall.toolUseId}
               content={toolCall}
               toolResult={toolResultMap.get(toolCall.toolUseId)}
-              subagentMessages={subagentMessages}
+              subagentMessages={subagentsByToolUseId?.[toolCall.toolUseId]}
               expanded={expandedToolCalls.has(toolCall.toolUseId)}
               onToggle={() => onToggleToolCall(toolCall.toolUseId || '')}
             />

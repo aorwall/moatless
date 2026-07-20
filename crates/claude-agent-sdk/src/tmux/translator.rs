@@ -16,6 +16,8 @@
 //! - MCP tool results carry `content` as an array of text blocks. We normalize
 //!   that to a single string for parity with the subprocess path.
 
+use std::collections::HashSet;
+
 use serde_json::Value;
 use tracing::{debug, warn};
 
@@ -35,6 +37,11 @@ pub(crate) struct TurnAccumulator {
     pub(crate) last_text: String,
     pub(crate) last_assistant_uuid: Option<String>,
     pub(crate) accumulated_usage: Usage,
+    /// Anthropic `message.id`s whose usage is already in `accumulated_usage`.
+    /// The CLI writes one record per content block, each repeating the same id
+    /// and the same usage, so counting every record multiplies the turn total
+    /// by the block count.
+    usage_seen: HashSet<String>,
     /// Set when the turn contained an API-error assistant record (e.g. a 404
     /// `model_not_found`). Makes the synthesized `Result` a loud failure
     /// instead of a phantom empty success.
@@ -61,11 +68,33 @@ impl TurnAccumulator {
             last_text: String::new(),
             last_assistant_uuid: None,
             accumulated_usage: zero_usage(),
+            usage_seen: HashSet::new(),
             api_error: false,
         }
     }
 
-    fn accumulate(&mut self, usage: &Usage, last_text: Option<String>, assistant_uuid: String) {
+    fn accumulate(
+        &mut self,
+        usage: &Usage,
+        last_text: Option<String>,
+        assistant_uuid: String,
+        message_id: Option<&str>,
+    ) {
+        // A repeated message.id is another content block of a message already
+        // counted — take its text/uuid but not its tokens.
+        let counted = match message_id {
+            Some(id) => self.usage_seen.insert(id.to_string()),
+            None => true,
+        };
+        if !counted {
+            if let Some(text) = last_text {
+                if !text.is_empty() {
+                    self.last_text = text;
+                }
+            }
+            self.last_assistant_uuid = Some(assistant_uuid);
+            return;
+        }
         self.accumulated_usage.input_tokens += usage.input_tokens;
         self.accumulated_usage.output_tokens += usage.output_tokens;
         self.accumulated_usage.cache_read_input_tokens = Some(
@@ -101,11 +130,37 @@ impl TurnAccumulator {
         self.last_assistant_uuid = Some(assistant_uuid);
     }
 
+    /// Fold a completed sub-agent's totals into the turn.
+    ///
+    /// Sub-agent records live in their own transcript files, so their usage
+    /// never reaches [`accumulate`]. The spawning `Task` tool_result carries
+    /// the finished totals on the main stream — in order, exactly once, before
+    /// the turn ends — which is what makes this safe to add here.
+    ///
+    /// Deliberately leaves `last_text`/`last_assistant_uuid` alone: the
+    /// synthesized `Result` must report the main agent's reply, not a
+    /// sub-agent's.
+    pub(crate) fn accumulate_subagent_usage(&mut self, usage: &Usage) {
+        self.accumulated_usage.input_tokens += usage.input_tokens;
+        self.accumulated_usage.output_tokens += usage.output_tokens;
+        self.accumulated_usage.cache_read_input_tokens = Some(
+            self.accumulated_usage.cache_read_input_tokens.unwrap_or(0)
+                + usage.cache_read_input_tokens.unwrap_or(0),
+        );
+        self.accumulated_usage.cache_creation_input_tokens = Some(
+            self.accumulated_usage
+                .cache_creation_input_tokens
+                .unwrap_or(0)
+                + usage.cache_creation_input_tokens.unwrap_or(0),
+        );
+    }
+
     fn reset(&mut self) {
         self.turn_number = self.turn_number.saturating_add(1);
         self.last_text.clear();
         self.last_assistant_uuid = None;
         self.accumulated_usage = zero_usage();
+        self.usage_seen.clear();
         self.api_error = false;
     }
 }
@@ -119,6 +174,41 @@ pub(crate) enum Translated {
 }
 
 /// Translate a parsed JSONL value into zero, one, or two `SdkMessage`s.
+/// A finished sub-agent, as reported by the spawning `Task` tool_result.
+pub(crate) struct SubagentCompletion {
+    pub(crate) agent_id: String,
+    pub(crate) tool_use_id: String,
+}
+
+/// Pull the sub-agent link out of a main-transcript `Task` tool_result.
+///
+/// The record carries `toolUseResult.agentId` alongside a `tool_result` block
+/// whose `tool_use_id` is the call that spawned it — the only place the two
+/// ids appear together, and what lets sub-agent transcripts be threaded back
+/// onto the tool call in the UI.
+///
+/// Its `usage`/`totalTokens` are deliberately ignored: they cover only the
+/// sub-agent's final API call. Totals come from the transcript instead.
+pub(crate) fn extract_subagent_completion(value: &Value) -> Option<SubagentCompletion> {
+    let result = value.get("toolUseResult")?;
+    let agent_id = result.get("agentId")?.as_str()?.to_string();
+    let tool_use_id = value
+        .get("message")?
+        .get("content")?
+        .as_array()?
+        .iter()
+        .find_map(|b| {
+            (b.get("type")?.as_str()? == "tool_result")
+                .then(|| b.get("tool_use_id")?.as_str())
+                .flatten()
+        })?
+        .to_string();
+    Some(SubagentCompletion {
+        agent_id,
+        tool_use_id,
+    })
+}
+
 pub(crate) fn translate_record(value: Value, acc: &mut TurnAccumulator) -> Translated {
     let Some(obj) = value.as_object() else {
         debug!("Skipping non-object JSONL record");
@@ -166,7 +256,7 @@ fn translate_assistant(mut value: Value, acc: &mut TurnAccumulator) -> Translate
                 _ => None,
             });
             if let Some(usage) = &msg.message.usage {
-                acc.accumulate(usage, last_text, msg.uuid.clone());
+                acc.accumulate(usage, last_text, msg.uuid.clone(), msg.message.id.as_deref());
             } else {
                 // Some assistant records (e.g. error fallbacks) have no usage —
                 // still update last_text / last_uuid.
@@ -819,6 +909,58 @@ mod tests {
         } else {
             panic!("Expected Result::Success");
         }
+    }
+
+    /// The CLI writes one record per content block, each repeating the same
+    /// `message.id` and usage. Counting every record multiplied the turn total
+    /// by the block count.
+    #[test]
+    fn repeated_message_id_is_counted_once_but_still_updates_last_text() {
+        let mut a = acc();
+        for (uuid, block) in [
+            ("r1", json!({"type": "thinking", "thinking": "hmm"})),
+            ("r2", json!({"type": "text", "text": "first"})),
+            ("r3", json!({"type": "text", "text": "last"})),
+        ] {
+            let v = json!({
+                "type": "assistant",
+                "uuid": uuid,
+                "sessionId": "sess-1",
+                "message": {
+                    "id": "msg_same",
+                    "role": "assistant",
+                    "content": [block],
+                    "usage": {"input_tokens": 10, "output_tokens": 451}
+                }
+            });
+            let _ = translate_record(v, &mut a);
+        }
+        assert_eq!(a.accumulated_usage.input_tokens, 10);
+        assert_eq!(a.accumulated_usage.output_tokens, 451);
+        assert_eq!(a.last_text, "last");
+        assert_eq!(a.last_assistant_uuid.as_deref(), Some("r3"));
+    }
+
+    #[test]
+    fn usage_dedup_resets_at_a_turn_boundary() {
+        let mut a = acc();
+        let record = |uuid: &str| {
+            json!({
+                "type": "assistant",
+                "uuid": uuid,
+                "sessionId": "sess-1",
+                "message": {
+                    "id": "msg_same",
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "hi"}],
+                    "usage": {"input_tokens": 3, "output_tokens": 9}
+                }
+            })
+        };
+        let _ = translate_record(record("t1"), &mut a);
+        a.reset();
+        let _ = translate_record(record("t2"), &mut a);
+        assert_eq!(a.accumulated_usage.output_tokens, 9);
     }
 
     #[test]

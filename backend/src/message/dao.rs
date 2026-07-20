@@ -502,6 +502,14 @@ impl MessageRepository for PgMessageRepository {
     ) -> Result<bool, sqlx::Error> {
         // Target the single most recent assistant row that still lacks usage,
         // via a subquery so the `IS NULL` guard both selects and gates the write.
+        //
+        // The `NOT EXISTS` clause confines this to transports that report no
+        // per-message usage at all (Codex). Claude reports it inline, but not on
+        // every row: one API response can span several rows when the CLI
+        // interleaves other traffic between its content-block lines, and the
+        // repeats deliberately carry no usage so the tokens are counted once.
+        // Without this guard the run's cumulative total lands on one of those
+        // repeats and is counted a second time.
         let result = sqlx::query(
             r#"UPDATE task_messages SET
                    assistant_usage_input_tokens = $2,
@@ -514,6 +522,12 @@ impl MessageRepository for PgMessageRepository {
                    WHERE task_id = $1
                      AND message_type = 'assistant'
                      AND assistant_usage IS NULL
+                     AND NOT EXISTS (
+                         SELECT 1 FROM task_messages prior
+                         WHERE prior.task_id = $1
+                           AND prior.message_type = 'assistant'
+                           AND prior.assistant_usage IS NOT NULL
+                     )
                    ORDER BY timestamp DESC, id DESC
                    LIMIT 1
                )"#,

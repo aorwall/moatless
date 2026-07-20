@@ -111,7 +111,13 @@ async fn agent_stop_and_recovery() {
 
     // AGENT-06: Send follow-up message after recovery
     let follow_up = SendMessageRequest {
-        message: "Create a file called resumed.txt with the content 'Resumed Session Works'".into(),
+        // Pinned to the working directory: that is the root the file API
+        // resolves against, and an unpinned prompt lands the file in the cloned
+        // repo subdirectory instead, where the read below cannot see it.
+        message: "Create a file named resumed.txt directly in your current working \
+                  directory — not inside the cloned repository subdirectory — with the \
+                  content 'Resumed Session Works'"
+            .into(),
         agent_mode: None,
         command_name: None,
         contexts: vec![],

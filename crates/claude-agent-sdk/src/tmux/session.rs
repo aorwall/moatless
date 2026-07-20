@@ -189,7 +189,7 @@ impl TmuxSession {
     /// Capture the pane PID of the tmux session, used by [`Self::kill`] for
     /// the SIGKILL escalation step. Returns `None` if the session has already
     /// exited or the PID couldn't be parsed.
-    async fn pane_pid(&self) -> Option<u32> {
+    pub(crate) async fn pane_pid(&self) -> Option<u32> {
         let out = tmux_command(&self.socket)
             .args([
                 "display-message",

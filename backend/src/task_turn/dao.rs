@@ -142,6 +142,26 @@ pub trait TaskTurnRepository: Send + Sync {
     /// replies, outbound stubs), which belong to the turn already in progress.
     async fn latest_turn_number(&self, task_id: &str) -> Result<Option<i32>, sqlx::Error>;
 
+    /// Every turn's stored metrics, oldest first. Turns that never completed
+    /// (or predate the column) are omitted.
+    async fn list_turn_metrics(
+        &self,
+        task_id: &str,
+    ) -> Result<Vec<serde_json::Value>, sqlx::Error>;
+
+    /// Store the SDK result message's turn totals on the turn row.
+    ///
+    /// The authoritative token counts and cost live only on the terminal result:
+    /// Claude Code's per-message `output_tokens` is a partial value taken before
+    /// the response finished. Writing them here keeps turn totals off the
+    /// individual message rows, where summing them would double-count.
+    async fn set_turn_metrics(
+        &self,
+        task_id: &str,
+        turn_number: i32,
+        metrics: &serde_json::Value,
+    ) -> Result<bool, sqlx::Error>;
+
     /// Bump a turn's recovery counter and return the new value. Creates the row
     /// as `interrupted` when the turn predates `task_turns` — a turn being
     /// recovered is by definition one that never closed.
@@ -362,5 +382,41 @@ impl TaskTurnRepository for PgTaskTurnRepository {
         .fetch_one(&self.0)
         .await?;
         Ok(attempts)
+    }
+
+    async fn list_turn_metrics(
+        &self,
+        task_id: &str,
+    ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
+        let rows: Vec<(serde_json::Value,)> = sqlx::query_as(
+            r#"SELECT metrics FROM task_turns
+               WHERE task_id = $1 AND metrics IS NOT NULL
+               ORDER BY turn_number"#,
+        )
+        .bind(task_id)
+        .fetch_all(&self.0)
+        .await?;
+        Ok(rows.into_iter().map(|(m,)| m).collect())
+    }
+
+    async fn set_turn_metrics(
+        &self,
+        task_id: &str,
+        turn_number: i32,
+        metrics: &serde_json::Value,
+    ) -> Result<bool, sqlx::Error> {
+        // Only updates an existing turn: the row is projected by the lifecycle
+        // transitions, and a result for a turn we never opened is not a reason
+        // to invent one.
+        let result = sqlx::query(
+            r#"UPDATE task_turns SET metrics = $3
+               WHERE task_id = $1 AND turn_number = $2"#,
+        )
+        .bind(task_id)
+        .bind(turn_number)
+        .bind(metrics)
+        .execute(&self.0)
+        .await?;
+        Ok(result.rows_affected() > 0)
     }
 }

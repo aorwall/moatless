@@ -162,7 +162,7 @@ function CommandCluster({
       expandedToolCalls,
       onToggleToolCall,
       message.hasPendingUserInput,
-      message.subagentMessages,
+      message.subagentsByToolUseId,
       message.uuid,
     )
     if (node) {

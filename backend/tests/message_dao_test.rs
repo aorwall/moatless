@@ -171,6 +171,59 @@ async fn backfill_fills_last_assistant_usage_once(pool: PgPool) {
     assert!(!again, "second backfill must be a no-op (usage already set)");
 }
 
+/// Claude reports usage inline, but one API response can span several rows when
+/// the CLI interleaves other traffic between its content-block lines — and the
+/// repeats deliberately carry none, so the tokens are counted once. The backfill
+/// must leave those alone: writing the run's cumulative total onto a repeat
+/// would count the same tokens a second time.
+#[sqlx::test]
+async fn backfill_skips_tasks_that_already_report_usage(pool: PgPool) {
+    use moatless_vibe_backend::message::models::{MessageRole, MessageType};
+
+    seed_task(&pool, "task-1", "user-1").await;
+
+    // First row of the response — carries the per-message usage.
+    let mut first = make_message_row("task-1", "claude-assistant-1");
+    first.message_type = MessageType::Assistant;
+    first.message_role = MessageRole::Assistant;
+    first.assistant_message_id = Some("msg_split".to_string());
+    first.assistant_usage_input_tokens = Some(10);
+    first.assistant_usage_output_tokens = Some(6);
+    first.assistant_usage = Some(serde_json::json!({"input_tokens": 10, "output_tokens": 6}));
+    message_dao::append(&pool, &first, &[], &[]).await.unwrap();
+
+    // Repeat of the same API message after interleaved traffic — no usage.
+    let mut repeat = make_message_row("task-1", "claude-assistant-2");
+    repeat.message_type = MessageType::Assistant;
+    repeat.message_role = MessageRole::Assistant;
+    repeat.assistant_message_id = Some("msg_split".to_string());
+    message_dao::append(&pool, &repeat, &[], &[]).await.unwrap();
+
+    let updated = message_dao::backfill_last_assistant_usage(
+        &pool,
+        "task-1",
+        Some(20),
+        Some(1050),
+        None,
+        Some(37987),
+        Some(&serde_json::json!({"input_tokens": 20, "output_tokens": 1050})),
+    )
+    .await
+    .unwrap();
+    assert!(
+        !updated,
+        "the task already reports per-message usage; the repeat must stay empty"
+    );
+
+    let (messages, _, _) = message_dao::get_all(&pool, "task-1").await.unwrap();
+    let repeat_row = messages
+        .iter()
+        .find(|m| m.uuid == "claude-assistant-2")
+        .expect("repeat row present");
+    assert_eq!(repeat_row.assistant_usage_output_tokens, None);
+    assert_eq!(repeat_row.assistant_usage, None);
+}
+
 #[sqlx::test]
 async fn append_with_contexts_and_blocks(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
