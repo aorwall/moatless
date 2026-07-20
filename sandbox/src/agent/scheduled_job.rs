@@ -251,9 +251,36 @@ mod tests {
 
     use tokio::time::Instant;
 
-    use super::super::background_watch_job::BackgroundWatchJob;
+    use super::super::background_watch_job::{BackgroundWatchJob, ProcessLiveness};
     use super::super::wakeup_job::WakeupJob;
     use super::*;
+
+    /// Liveness the test drives directly, so the watch can be exercised on any
+    /// host. The real source reads `/proc` and reports every PID gone off
+    /// Linux, which would end the watch during its settle window.
+    #[derive(Default, Clone)]
+    struct FakeLiveness {
+        live: Arc<Mutex<Vec<u32>>>,
+    }
+
+    impl FakeLiveness {
+        fn with(pids: &[u32]) -> Self {
+            Self {
+                live: Arc::new(Mutex::new(pids.to_vec())),
+            }
+        }
+
+        fn exit_all(&self) {
+            self.live.lock().expect("mutex poisoned").clear();
+        }
+    }
+
+    impl ProcessLiveness for FakeLiveness {
+        fn live_pids(&self, pids: &[u32]) -> Vec<u32> {
+            let live = self.live.lock().expect("mutex poisoned");
+            pids.iter().copied().filter(|p| live.contains(p)).collect()
+        }
+    }
 
     #[derive(Default, Clone)]
     struct CapturingInjector {
@@ -397,16 +424,14 @@ mod tests {
         let registry = ScheduledJobRegistry::new(Arc::new(injector.clone()));
         let run_cancel = CancellationToken::new();
 
-        let mut child = std::process::Command::new("sleep")
-            .arg("30")
-            .spawn()
-            .expect("spawn sleep");
-        let pid = child.id();
+        let pid = 4242;
+        let liveness = FakeLiveness::with(&[pid]);
 
         let job = BackgroundWatchJob::new_for_test(
             vec![pid],
             Duration::from_millis(20),
             Duration::from_millis(20),
+            Arc::new(liveness.clone()),
         );
         assert!(registry.register(Box::new(job), run_cancel.clone()).await);
 
@@ -417,9 +442,8 @@ mod tests {
             "watch must wait for the process to exit"
         );
 
-        // Kill + reap → the watch detects completion and wakes the agent.
-        child.kill().expect("kill sleep");
-        child.wait().expect("reap sleep");
+        // The process goes away → the watch detects completion and wakes the agent.
+        liveness.exit_all();
 
         let ok = wait_until(Duration::from_secs(2), || !injector.snapshot().is_empty()).await;
         assert!(ok, "expected a wake injection after the process exited");
@@ -441,12 +465,13 @@ mod tests {
         let registry = ScheduledJobRegistry::new(Arc::new(injector.clone()));
         let run_cancel = CancellationToken::new();
 
-        // PID 0 is never live, so the settle window filters it out and the watch
-        // exits without ever waking the agent (mirrors the just-exited CLI case).
+        // Nothing is live, so the settle window filters the PID out and the
+        // watch exits without ever waking the agent (the just-exited CLI case).
         let job = BackgroundWatchJob::new_for_test(
-            vec![0],
+            vec![4242],
             Duration::from_millis(20),
             Duration::from_millis(20),
+            Arc::new(FakeLiveness::default()),
         );
         assert!(registry.register(Box::new(job), run_cancel.clone()).await);
 
