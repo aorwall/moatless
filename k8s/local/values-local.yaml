@@ -90,6 +90,15 @@ networkPolicy:
   sandbox:
     enabled: false
 
+# --- Auth ----------------------------------------------------------------------
+# This cluster runs open on purpose: no auth provider is configured, so every
+# request resolves to local-user/admin. The backend refuses to boot in that state
+# unless the operator opts in explicitly, because the chart hardcodes
+# NODE_ENV=production and `is_production` reads APP_ENV *or* NODE_ENV — so a
+# chart deploy always looks like production to that check.
+extraEnv:
+  ALLOW_INSECURE_NO_AUTH: "true"
+
 # Secret/moatless-secrets is created by hand (see README); keep create=false so
 # Helm does not fight the hand-made Secret.
 secrets:
