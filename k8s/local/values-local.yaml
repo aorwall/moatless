@@ -18,6 +18,9 @@ image:
   pullPolicy: IfNotPresent
   tag: "dev"
 backend:
+  # One replica: a single-node cluster gains nothing from two, and it halves the
+  # rollout time on every `task dev:backend`.
+  replicas: 1
   image:
     pullPolicy: IfNotPresent
     tag: "dev"

@@ -150,6 +150,53 @@ Open `http://vibe.localhost` and you are in.
   A ready sandbox has cloned the repo into `/opt/moatless/workspace/<repo>` and
   connected back to the backend over gRPC.
 
+## 7. Dev loop — rebuild and redeploy
+
+```bash
+task dev:backend
+```
+
+Cross-compiles the backend, bakes it into the thin runtime image
+(`Dockerfile.backend-cross` — one `COPY` onto distroless), rolls the Deployment,
+and asserts the running image is the one just built. No registry push: kubeadm
+mode shares the local Docker image store.
+
+Measured on Apple Silicon, one-line change in `backend/src/`:
+
+| Change | Time |
+|---|---|
+| No source change | ~15s |
+| One-line backend change | ~1m20s |
+
+The build uses the `ci` cargo profile (inherits `release`, drops thin LTO),
+which is what keeps the relink cheap — thin LTO costs ~20s and ~200s of CPU per
+iteration. Pass `DEV_PROFILE=release` to build what actually ships; the first
+run after switching profiles rebuilds every dependency, so expect one slow pass.
+
+`KUBECONFIG` and the context are pinned to `docker-desktop` inside the task,
+not inherited: direnv points `KUBECONFIG` at a kubeconfig whose current context
+is a remote EKS cluster, so an unpinned `kubectl` would roll out to the wrong
+cluster.
+
+The digest assertion at the end is not ceremony — `pullPolicy: IfNotPresent`
+with a re-used `:dev` tag fails *silently*, leaving the previous image running.
+It compares against pods in the newest ReplicaSet only, since `rollout status`
+returns before the previous revision's pods finish terminating.
+
+### Frontend against the cluster
+
+Run the Vite dev server (hot reload) while the backend, DB, and sandboxes stay
+in the cluster — set `apps/frontend/.env.local`:
+
+```
+VITE_REMOTE_API=http://vibe.localhost
+```
+
+then `bun run dev` and open `http://localhost:3000`. The dev server proxies
+`/api` to Traefik; `changeOrigin` supplies the `Host: vibe.localhost` header the
+IngressRoute matches on. No API key — local auth resolves every request to
+`local-user`/`admin`.
+
 ## Why these settings (gotchas)
 
 | Setting | Why |

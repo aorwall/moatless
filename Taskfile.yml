@@ -74,12 +74,16 @@ tasks:
 
   build:backend:
     desc: Build backend Docker image (native arch, load locally)
+    # PROFILE doubles as the target subdirectory name — true for `release` and
+    # for any custom profile (only the built-in `dev` profile maps to `debug`).
+    vars:
+      PROFILE: '{{.PROFILE | default "release"}}'
     cmds:
-      - bash -c 'ulimit -n 10240 && cargo zigbuild -p moatless-vibe-backend --release --target {{.RUST_TARGET}}'
+      - bash -c 'ulimit -n 10240 && cargo zigbuild -p moatless-vibe-backend --profile {{.PROFILE}} --target {{.RUST_TARGET}}'
       - >-
         docker buildx build
         --platform {{.DOCKER_PLATFORM}}
-        --build-context "binary=$(cargo metadata --format-version 1 --no-deps | python3 -c 'import sys,json; print(json.load(sys.stdin)["target_directory"])')/{{.RUST_TARGET_DIR}}/release"
+        --build-context "binary=$(cargo metadata --format-version 1 --no-deps | python3 -c 'import sys,json; print(json.load(sys.stdin)["target_directory"])')/{{.RUST_TARGET_DIR}}/{{.PROFILE}}"
         -t {{.REGISTRY_ORG}}/moatless-backend:{{.TAG}}
         --load
         -f docker/Dockerfile.backend-cross .
@@ -164,6 +168,62 @@ tasks:
       - kubectl rollout status deployment/{{.RELEASE_NAME}} -n {{.NAMESPACE}} --timeout=300s
       - kubectl rollout status deployment/{{.RELEASE_NAME}}-backend -n {{.NAMESPACE}} --timeout=300s
       - echo "==> Deployment complete!"
+
+  # ── Local dev loop (Docker Desktop cluster) ────────────────────
+  # KUBECONFIG and the context are pinned rather than inherited: direnv points
+  # KUBECONFIG at a kubeconfig whose current context is a remote EKS cluster, so
+  # an unpinned kubectl would roll these changes out to the wrong cluster.
+  # No registry push — kubeadm mode shares the local Docker image store.
+
+  dev:backend:
+    desc: "Local loop: rebuild the backend and roll it out on the Docker Desktop cluster"
+    vars:
+      DEV_TAG: '{{.DEV_TAG | default "dev"}}'
+      DEV_NS: '{{.DEV_NS | default "moatless"}}'
+      # `ci` inherits release but drops thin LTO, which otherwise dominates the
+      # relink on every iteration. Use DEV_PROFILE=release to match the image
+      # that actually ships.
+      DEV_PROFILE: '{{.DEV_PROFILE | default "ci"}}'
+      KC: 'KUBECONFIG=$HOME/.kube/config kubectl --context docker-desktop -n {{.DEV_NS}}'
+    cmds:
+      - task: build:backend
+        vars:
+          TAG: '{{.DEV_TAG}}'
+          PROFILE: '{{.DEV_PROFILE}}'
+      - echo "==> Rolling out {{.RELEASE_NAME}}-backend to docker-desktop/{{.DEV_NS}}..."
+      - '{{.KC}} rollout restart deployment/{{.RELEASE_NAME}}-backend'
+      - '{{.KC}} rollout status deployment/{{.RELEASE_NAME}}-backend --timeout=180s'
+      - task: dev:verify:backend
+        vars:
+          DEV_TAG: '{{.DEV_TAG}}'
+          DEV_NS: '{{.DEV_NS}}'
+
+  dev:verify:backend:
+    desc: Assert the cluster is running the backend image that was just built
+    vars:
+      DEV_TAG: '{{.DEV_TAG | default "dev"}}'
+      DEV_NS: '{{.DEV_NS | default "moatless"}}'
+    cmds:
+      # `IfNotPresent` + a re-used `:dev` tag makes "stale image silently kept"
+      # the failure mode to guard against, so compare the digests explicitly.
+      # Pods are scoped to the newest ReplicaSet: `rollout status` returns before
+      # the previous revision's pods finish terminating, and those still report
+      # the old digest.
+      - >-
+        bash -c 'set -euo pipefail;
+        export KUBECONFIG=$HOME/.kube/config;
+        built=$(docker images --no-trunc --quiet {{.REGISTRY_ORG}}/moatless-backend:{{.DEV_TAG}});
+        hash=$(kubectl --context docker-desktop -n {{.DEV_NS}} get rs
+        -l app.kubernetes.io/component=backend --sort-by=.metadata.creationTimestamp
+        -o jsonpath="{.items[-1:].metadata.labels.pod-template-hash}");
+        running=$(kubectl --context docker-desktop -n {{.DEV_NS}} get pods
+        -l app.kubernetes.io/component=backend,pod-template-hash=$hash
+        -o jsonpath="{.items[*].status.containerStatuses[0].imageID}"
+        | tr " " "\n" | sed "s|.*@||" | sort -u);
+        echo "  built  : $built";
+        echo "  running: $running";
+        if [ "$built" = "$running" ]; then echo "==> OK: cluster is running the image just built";
+        else echo "==> MISMATCH: cluster is not running the new build"; exit 1; fi'
 
   # ── Kubernetes operations ──────────────────────────────────────
 
