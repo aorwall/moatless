@@ -3,7 +3,7 @@
 //! Runs a `tokio::select!` that reads runtime messages from the active session
 //! and processes incoming commands. Manages the full session lifecycle.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use claude_agent_sdk::types::messages::ResultMessage;
@@ -164,7 +164,7 @@ pub(super) async fn agent_loop(
     // The CLI splits an assistant response into one message per content block,
     // each repeating the same usage; this dedupes so token totals aren't
     // multiplied by the block count. Cleared at each turn's `result`.
-    let mut usage_seen_message_ids: HashSet<String> = HashSet::new();
+    let mut assistant_buffer = super::claude::AssistantBuffer::default();
     // When the last rate-limited `agent.activity` liveness event was published
     // (advances the reaper's idle floor during long tool calls).
     let mut last_activity_publish: Option<std::time::Instant> = None;
@@ -432,7 +432,7 @@ pub(super) async fn agent_loop(
                             &mut ctx,
                             config.use_tmux,
                             &turn_cancel,
-                            &mut usage_seen_message_ids,
+                            &mut assistant_buffer,
                         ).await;
 
                         // Session ended (subprocess turn end or an error
@@ -577,6 +577,12 @@ pub(super) async fn agent_loop(
                     Some(ActiveMessage::Claude(Err(error))) => {
                         if matches!(error, claude_agent_sdk::SdkError::Cancelled) {
                             info!("Claude session cancelled");
+                            super::claude::flush_pending_assistant(
+                                &mut assistant_buffer,
+                                &events.for_run(&run_id),
+                                &task_id,
+                            )
+                            .await;
                             handle = None;
                             tmux_session = None;
                             tmux_turn_in_flight = false;
@@ -590,6 +596,12 @@ pub(super) async fn agent_loop(
                             tmux_session = None;
                         } else {
                             warn!(error = %error, "Claude SDK message error");
+                            super::claude::flush_pending_assistant(
+                                &mut assistant_buffer,
+                                &events.for_run(&run_id),
+                                &task_id,
+                            )
+                            .await;
                             // A non-cancel stream error ends the turn. Surface it
                             // explicitly and clear the handle so the subsequent
                             // transport-close (`None`) arm doesn't re-report it.
@@ -720,6 +732,12 @@ pub(super) async fn agent_loop(
                                 task_id = %task_id,
                                 "Agent transport closed without a result; turn ended unexpectedly"
                             );
+                            super::claude::flush_pending_assistant(
+                                &mut assistant_buffer,
+                                &events.for_run(&run_id),
+                                &task_id,
+                            )
+                            .await;
                             handle = None;
                             tmux_session = None;
                             tmux_turn_in_flight = false;

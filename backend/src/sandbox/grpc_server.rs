@@ -2033,6 +2033,22 @@ mod tests {
             Ok(Some(1))
         }
 
+        async fn set_turn_metrics(
+            &self,
+            _task_id: &str,
+            _turn_number: i32,
+            _metrics: &serde_json::Value,
+        ) -> Result<bool, sqlx::Error> {
+            unreachable!("set_turn_metrics is the completion path, not the ingress path")
+        }
+
+        async fn list_turn_metrics(
+            &self,
+            _task_id: &str,
+        ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
+            unreachable!("list_turn_metrics is the statistics path, not the ingress path")
+        }
+
         async fn increment_recovery_attempts(
             &self,
             _task_id: &str,

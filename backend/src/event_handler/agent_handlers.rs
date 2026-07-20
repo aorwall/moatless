@@ -106,6 +106,34 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
         tracing::warn!(task_id = %event.task_id, error = %e, "Failed to update task after completion");
     }
 
+    // Store the run's authoritative totals on the turn. Claude Code's per-message
+    // `output_tokens` is a partial value sampled before the response finished
+    // (the final count only reaches the transcript), so the terminal result is
+    // the only trustworthy source — and it is per-run, which is what a turn is.
+    if let Some(turn_number) = resolve_turn_number(state, &event.task_id, event.turn_number).await {
+        let metrics = serde_json::json!({
+            "usage": event.payload.get("usage"),
+            "modelUsage": event.payload.get("modelUsage"),
+            "totalCostUsd": sdk_result.total_cost_usd,
+            "durationMs": sdk_result.duration_ms,
+            "durationApiMs": sdk_result.duration_api_ms,
+            "numTurns": sdk_result.num_turns,
+            "permissionDenials": event.payload.get("permission_denials"),
+        });
+        if let Err(e) = state
+            .task_turns
+            .set_turn_metrics(&event.task_id, turn_number, &metrics)
+            .await
+        {
+            tracing::warn!(
+                task_id = %event.task_id,
+                turn_number,
+                error = %e,
+                "Failed to store turn metrics from completion result"
+            );
+        }
+    }
+
     // Backfill turn token usage onto the assistant reply. Codex reports usage
     // only on this terminal result (its assistant message carries none), so
     // without this the token counts never reach a DB message. The DAO guards on
@@ -1005,9 +1033,24 @@ pub async fn handle_task_metadata_updated(state: &AppState, event: &AgentEvent) 
 // Helpers
 // =============================================================================
 
+/// Block types with no `task_message_content_blocks` representation.
+///
+/// One assistant message carries every block of its API response, so reasoning
+/// and server-tool blocks arrive alongside the text and tool_use ones. They have
+/// no column shape here and would otherwise fall through to `Text` and persist
+/// as blocks with no text — rendering as empty bubbles. The raw blocks are still
+/// kept whole in `task_messages.message_content`.
+const UNRENDERED_BLOCK_TYPES: &[&str] = &[
+    "thinking",
+    "redacted_thinking",
+    "server_tool_use",
+    "web_search_tool_result",
+];
+
 /// Build content block rows from a JSON content array.
 ///
-/// Handles `text`, `tool_use`, and `tool_result` block types.
+/// Handles `text`, `tool_use`, and `tool_result` block types; see
+/// [`UNRENDERED_BLOCK_TYPES`] for what is deliberately skipped.
 fn build_content_blocks_from_payload(content: &serde_json::Value) -> Vec<TaskMessageContentBlock> {
     let arr = match content.as_array() {
         Some(a) => a,
@@ -1015,6 +1058,10 @@ fn build_content_blocks_from_payload(content: &serde_json::Value) -> Vec<TaskMes
     };
 
     arr.iter()
+        .filter(|block| {
+            let type_str = block.get("type").and_then(|v| v.as_str()).unwrap_or("text");
+            !UNRENDERED_BLOCK_TYPES.contains(&type_str)
+        })
         .enumerate()
         .map(|(idx, block)| {
             let type_str = block.get("type").and_then(|v| v.as_str()).unwrap_or("text");
@@ -1429,5 +1476,36 @@ mod tests {
     fn collect_assistant_text_empty_on_unexpected_shape() {
         let content = json!({ "not": "an array" });
         assert!(collect_assistant_text(&content).is_empty());
+    }
+
+    #[test]
+    fn content_blocks_skip_reasoning_and_keep_sort_order_contiguous() {
+        // One reassembled assistant message: the CLI's thinking block arrives
+        // alongside the text and tool_use blocks of the same API response.
+        let content = json!([
+            { "type": "thinking", "thinking": "considering", "signature": "sig" },
+            { "type": "text", "text": "Creating the file." },
+            { "type": "tool_use", "id": "toolu_1", "name": "Write", "input": {} },
+        ]);
+
+        let blocks = build_content_blocks_from_payload(&content);
+
+        assert_eq!(blocks.len(), 2, "thinking block must not persist");
+        assert_eq!(blocks[0].block_type, ContentBlockType::Text);
+        assert_eq!(blocks[0].text_content.as_deref(), Some("Creating the file."));
+        assert_eq!(blocks[1].block_type, ContentBlockType::ToolUse);
+        assert_eq!(blocks[1].tool_use_id.as_deref(), Some("toolu_1"));
+        // sort_order is assigned after filtering, so it stays gap-free.
+        assert_eq!(blocks[0].sort_order, 0);
+        assert_eq!(blocks[1].sort_order, 1);
+    }
+
+    #[test]
+    fn content_blocks_drop_a_reasoning_only_message() {
+        let content = json!([
+            { "type": "thinking", "thinking": "quiet", "signature": "sig" },
+            { "type": "redacted_thinking", "data": "opaque" },
+        ]);
+        assert!(build_content_blocks_from_payload(&content).is_empty());
     }
 }
