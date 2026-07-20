@@ -9,12 +9,12 @@ use crate::auth::credentials::resolve_user_github_token;
 use crate::auth::github_app_registry::GitHubAppRegistry;
 use crate::auth::github_app_service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenRepository;
-use crate::auth::provider_tokens::ProviderTokenAuthRepository;
+use crate::auth::provider_tokens::{ProviderTokenAuthRepository, AUTH_METHOD_SECRET_REF};
 use crate::auth::users::UserRepository;
 use crate::credentials::CredentialService;
 use crate::repository::dao::RepoRepository;
 use crate::repository::handlers::parse_github_owner_repo;
-use crate::secret::models::is_reserved_key;
+use crate::secret::models::{is_reserved_key, SecretKind};
 use crate::secret::service::SecretService;
 use crate::task::dao::TaskRepository;
 
@@ -73,6 +73,7 @@ pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMa
     fill_provider_tokens(
         &mut credentials,
         input.provider_tokens,
+        input.secrets,
         input.team_id,
         input.user_id,
         input.github_app_service,
@@ -112,6 +113,7 @@ pub async fn resolve_task_github_token(input: TaskCredentialInputs<'_>) -> Optio
         fill_user_provider_tokens(
             &mut credentials,
             provider_tokens,
+            input.secrets,
             input.user_id,
             input.github_app_service,
             input.provider_token_auth,
@@ -121,7 +123,35 @@ pub async fn resolve_task_github_token(input: TaskCredentialInputs<'_>) -> Optio
         .await;
     }
 
-    credentials.remove(GITHUB_TOKEN)
+    if let Some(token) = credentials.remove(GITHUB_TOKEN) {
+        return Some(token);
+    }
+
+    // A `provider_token`-kind secret is a PAT this backend validated against
+    // GitHub, so preflight can trust it the same way it trusts a
+    // `provider_tokens` row. A plain `env` GITHUB_TOKEN deliberately does not
+    // satisfy preflight — it stays the unvalidated operator escape hatch.
+    resolve_validated_github_secret(input.secrets, input.user_id).await
+}
+
+/// Read a `provider_token`-kind `GITHUB_TOKEN` user secret. Errors are logged
+/// and treated as absent — preflight failing open here would block sandbox
+/// startup on a secrets-backend hiccup.
+async fn resolve_validated_github_secret(
+    secrets: Option<&Arc<SecretService>>,
+    user_id: &str,
+) -> Option<String> {
+    let secrets = secrets?;
+    match secrets
+        .resolve_user_secret(user_id, GITHUB_TOKEN, Some(SecretKind::ProviderToken))
+        .await
+    {
+        Ok(token) => token,
+        Err(e) => {
+            warn!(user_id, error = %e, "Failed to read validated GITHUB_TOKEN secret");
+            None
+        }
+    }
 }
 
 /// Merge scoped-secret values into `credentials` only for keys that aren't
@@ -247,6 +277,7 @@ async fn resolve_scoped_secrets(
 async fn fill_provider_tokens(
     credentials: &mut HashMap<String, String>,
     provider_tokens: Option<&Arc<dyn ProviderTokenRepository>>,
+    secrets: Option<&Arc<SecretService>>,
     team_id: Option<&str>,
     user_id: &str,
     github_app_service: Option<&Arc<GitHubAppService>>,
@@ -266,6 +297,7 @@ async fn fill_provider_tokens(
     fill_user_provider_tokens(
         credentials,
         provider_tokens,
+        secrets,
         user_id,
         github_app_service,
         provider_token_auth,
@@ -388,9 +420,11 @@ async fn fill_team_provider_tokens(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn fill_user_provider_tokens(
     credentials: &mut HashMap<String, String>,
     provider_tokens: &Arc<dyn ProviderTokenRepository>,
+    secrets: Option<&Arc<SecretService>>,
     user_id: &str,
     github_app_service: Option<&Arc<GitHubAppService>>,
     provider_token_auth: Option<&Arc<dyn ProviderTokenAuthRepository>>,
@@ -404,6 +438,7 @@ async fn fill_user_provider_tokens(
                 provider_token_auth.map(Arc::as_ref),
                 github_app_service.map(Arc::as_ref),
                 registry.as_ref(),
+                secrets.map(Arc::as_ref),
                 user_id,
                 repo_owner,
             )
@@ -417,10 +452,28 @@ async fn fill_user_provider_tokens(
                     warn!(error = %e, user_id, "Failed to resolve GitHub token for sandbox");
                 }
             }
-        } else if let Ok(Some(row)) = provider_tokens.find_provider_token(user_id, "github").await {
-            // Registry not wired (legacy code paths without GitHubAppRegistry):
-            // fall back to the raw token. We can't refresh or mint here.
-            credentials.insert(GITHUB_TOKEN.to_string(), row.access_token);
+        } else {
+            // Registry not wired (legacy code paths without GitHubAppRegistry).
+            // Mirror the canonical dispatch: the row decides. We can't refresh
+            // or mint here, but a `secret_ref` row's column holds only a
+            // sentinel, so its value has to come from the secret.
+            match provider_tokens
+                .find_provider_token_full(user_id, "github")
+                .await
+            {
+                Ok(Some(row)) if row.auth_method.as_deref() == Some(AUTH_METHOD_SECRET_REF) => {
+                    if let Some(token) = resolve_validated_github_secret(secrets, user_id).await {
+                        credentials.insert(GITHUB_TOKEN.to_string(), token);
+                    }
+                }
+                Ok(Some(row)) => {
+                    credentials.insert(GITHUB_TOKEN.to_string(), row.access_token);
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    warn!(error = %e, user_id, "Failed to query github provider_token");
+                }
+            }
         }
     }
 
@@ -565,6 +618,104 @@ mod tests {
         fill_missing_from_scoped(&mut credentials, scoped);
 
         assert_eq!(credentials[GITHUB_TOKEN], "ghs_x");
+    }
+
+    // --- preflight trust: which GITHUB_TOKEN sources satisfy provisioning ---
+
+    use crate::auth::test_support::StubProviderTokens;
+    use crate::secret::test_support::{secret, service_with};
+
+    /// Inputs with only the pieces `resolve_task_github_token` reads.
+    fn github_inputs<'a>(
+        provider_tokens: &'a Arc<dyn ProviderTokenRepository>,
+        secrets: Option<&'a Arc<SecretService>>,
+    ) -> TaskCredentialInputs<'a> {
+        TaskCredentialInputs {
+            task_id: "t1",
+            user_id: "u1",
+            team_id: None,
+            secrets,
+            provider_tokens: Some(provider_tokens),
+            github_app_service: None,
+            provider_token_auth: None,
+            github_apps: None,
+            repo_owner: None,
+            users: None,
+            credentials_svc: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn provider_token_kind_secret_satisfies_preflight() {
+        // A PAT this backend validated against GitHub is as trustworthy as a
+        // provider_tokens row, so preflight must accept it.
+        let tokens: Arc<dyn ProviderTokenRepository> = Arc::new(StubProviderTokens(None));
+        let secrets = Arc::new(service_with(vec![secret(
+            "user",
+            Some("u1"),
+            "provider_token",
+            GITHUB_TOKEN,
+            "ghp_validated",
+        )]));
+
+        let token = resolve_task_github_token(github_inputs(&tokens, Some(&secrets))).await;
+        assert_eq!(token, Some("ghp_validated".to_string()));
+    }
+
+    #[tokio::test]
+    async fn env_kind_secret_does_not_satisfy_preflight() {
+        // A plain `env` GITHUB_TOKEN is the operator escape hatch: deliberately
+        // unvalidated, so preflight must not treat it as a verified credential.
+        // `resolve_task_credentials` still injects it into the sandbox.
+        let tokens: Arc<dyn ProviderTokenRepository> = Arc::new(StubProviderTokens(None));
+        let secrets = Arc::new(service_with(vec![secret(
+            "user",
+            Some("u1"),
+            "env",
+            GITHUB_TOKEN,
+            "ghp_unvalidated",
+        )]));
+
+        let token = resolve_task_github_token(github_inputs(&tokens, Some(&secrets))).await;
+        assert_eq!(token, None);
+    }
+
+    #[tokio::test]
+    async fn provider_tokens_row_still_wins_over_the_secret() {
+        let tokens: Arc<dyn ProviderTokenRepository> = Arc::new(StubProviderTokens(Some(
+            crate::auth::test_support::github_row("oauth", "gho_from_row"),
+        )));
+        let secrets = Arc::new(service_with(vec![secret(
+            "user",
+            Some("u1"),
+            "provider_token",
+            GITHUB_TOKEN,
+            "ghp_from_secret",
+        )]));
+
+        let token = resolve_task_github_token(github_inputs(&tokens, Some(&secrets))).await;
+        assert_eq!(token, Some("gho_from_row".to_string()));
+    }
+
+    #[tokio::test]
+    async fn secret_ref_row_resolves_via_the_secret_not_the_sentinel() {
+        // No App registry wired: the fallback dispatch still has to honour
+        // `secret_ref`, or the sandbox would receive the sentinel string.
+        let tokens: Arc<dyn ProviderTokenRepository> =
+            Arc::new(StubProviderTokens(Some(crate::auth::test_support::github_row(
+                AUTH_METHOD_SECRET_REF,
+                crate::auth::provider_tokens::SECRET_REF_TOKEN_PLACEHOLDER,
+            ))));
+        let secrets = Arc::new(service_with(vec![secret(
+            "user",
+            Some("u1"),
+            "provider_token",
+            GITHUB_TOKEN,
+            "ghp_from_secret",
+        )]));
+
+        let token = resolve_task_github_token(github_inputs(&tokens, Some(&secrets))).await;
+        assert_eq!(token, Some("ghp_from_secret".to_string()));
     }
 
     fn make_user(

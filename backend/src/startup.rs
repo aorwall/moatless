@@ -318,6 +318,9 @@ pub fn spawn_grpc_server(
         if let Some(pool) = db_pool {
             svc = svc.with_codex_refresh(pool.clone(), codex_http.clone());
         }
+        if let Some(ref secrets) = secrets {
+            svc = svc.with_secrets(secrets.clone());
+        }
         Arc::new(svc)
     });
 

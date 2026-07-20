@@ -42,6 +42,8 @@ pub const MOCK_COMMENT_ID: u64 = 987_654;
 pub const MOCK_REPLY_ID: u64 = 111_222;
 /// Default branch returned by the mock for `GET /repos/{o}/{r}`.
 pub const MOCK_DEFAULT_BRANCH: &str = "main";
+/// Login returned by the mock for `GET /user` (PAT validation).
+pub const MOCK_LOGIN: &str = "mock-octocat";
 
 impl MockGithub {
     /// Start the mock on `port` (0 = ephemeral; the backend needs a fixed,
@@ -189,6 +191,11 @@ fn route(method: &str, path: &str) -> (&'static str, serde_json::Value) {
         ("POST", ["repos", _, _, "pulls", _, "comments", _, "replies"]) => {
             ("201 Created", serde_json::json!({ "id": MOCK_REPLY_ID }))
         }
+        // GET /user — PAT validation in `provider_settings::github_client`.
+        ("GET", ["user"]) => (
+            "200 OK",
+            serde_json::json!({ "login": MOCK_LOGIN, "id": 1 }),
+        ),
         // GET /repos/{owner}/{repo} (default-branch lookup) and
         // GET /repos/{owner}/{repo}/pulls/{n} (PR fetch in hooks/runtime)
         ("GET", ["repos", ..]) => (

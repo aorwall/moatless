@@ -178,7 +178,8 @@ impl AppState {
                     tasks: Arc::new(PgTaskRepository(pool.clone())),
                 }),
             )
-            .with_codex_refresh(pool.clone(), codex_http),
+            .with_codex_refresh(pool.clone(), codex_http)
+            .with_secrets(secrets.clone()),
         );
 
         let skill_http = reqwest::Client::builder()
@@ -199,6 +200,8 @@ impl AppState {
             provider_tokens.clone(),
             provider_token_auth.clone(),
             github_app_service.clone(),
+            github_apps.clone(),
+            secrets.clone(),
             skill_fetcher,
             std::time::Duration::from_secs(config.skill.cache_ttl_secs),
         ));

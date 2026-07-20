@@ -1277,18 +1277,27 @@ async fn maybe_sync_repo_config_on_start(
 
     // Resolve a token for the existence probe; fall back to an unauthenticated
     // probe (works for public repos) if we can't load one.
-    let token = match state
-        .provider_tokens
-        .find_provider_token(&auth.user_id, provider.as_str())
-        .await
-    {
-        Ok(token) => token,
-        Err(e) => {
-            tracing::warn!(repository_id = %repo.id, error = %e, "Config auto-sync: failed to load provider token; probing unauthenticated");
-            None
+    let token = if provider == RepositoryProvider::Github {
+        crate::auth::credentials::resolve_state_github_token(state, &auth.user_id, None)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!(repository_id = %repo.id, error = %e, "Config auto-sync: failed to resolve GitHub token; probing unauthenticated");
+                None
+            })
+    } else {
+        match state
+            .provider_tokens
+            .find_provider_token(&auth.user_id, provider.as_str())
+            .await
+        {
+            Ok(token) => token.map(|t| t.access_token),
+            Err(e) => {
+                tracing::warn!(repository_id = %repo.id, error = %e, "Config auto-sync: failed to load provider token; probing unauthenticated");
+                None
+            }
         }
     };
-    let token_str = token.as_ref().map(|t| t.access_token.as_str());
+    let token_str = token.as_deref();
     let branch = repo.default_branch.as_deref();
 
     if !crate::repository::config_reader::moatless_dir_exists(

@@ -153,6 +153,32 @@ pub fn exec_psql(sql: &str) {
     );
 }
 
+/// Run a read-only query and return psql's stdout (tuples-only, unaligned).
+/// Used to assert on how a value is *stored*, not just what the API echoes back.
+pub fn query_psql(sql: &str) -> String {
+    let output = std::process::Command::new("docker")
+        .args([
+            "exec",
+            "moatless-postgres",
+            "psql",
+            "-U",
+            "moatless",
+            "-d",
+            "moatless",
+            "-tAc",
+            sql,
+        ])
+        .output()
+        .expect("failed to run docker exec for psql");
+
+    assert!(
+        output.status.success(),
+        "psql query failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
 /// Seed the standard test users (alice, bob, carol).
 pub async fn seed_test_users() {
     seed_user("alice-test", "alice", "user").await;
@@ -171,6 +197,7 @@ pub fn create_repo_request(name: &str, kind: RepositoryKind) -> CreateRepository
         provider: None,
         docker_image: None,
         docker_access: None,
+        network_profile: None,
         sandbox_service_account: None,
         auto_reload: None,
         build_command: None,
@@ -299,6 +326,8 @@ pub fn reset_database() {
         "sessions",
         "api_keys",
         "provider_tokens",
+        "secret_audit_events",
+        "secrets",
         "users",
         "commands",
         "figma_imports",

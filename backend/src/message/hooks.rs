@@ -19,7 +19,7 @@ use tracing::{debug, info, warn};
 
 use super::models::MessageType;
 use crate::adapters::github_pr::api::GithubPrApi;
-use crate::auth::models::ProviderAccessToken;
+use crate::auth::credentials::resolve_state_github_token;
 use crate::bindings::dao::PgTaskBindingRepository;
 use crate::state::AppState;
 
@@ -228,11 +228,7 @@ async fn try_append_task_footer(state: &AppState, task_id: &str, pr: &ParsedPr) 
         return;
     };
 
-    let token: ProviderAccessToken = match state
-        .provider_tokens
-        .find_provider_token(user_id, "github")
-        .await
-    {
+    let token = match resolve_state_github_token(state, user_id, Some(pr.owner.as_str())).await {
         Ok(Some(t)) => t,
         Ok(None) => {
             warn!(
@@ -242,12 +238,12 @@ async fn try_append_task_footer(state: &AppState, task_id: &str, pr: &ParsedPr) 
             return;
         }
         Err(e) => {
-            warn!(task_id, user_id, error = %e, "Failed to look up provider token for PR footer");
+            warn!(task_id, user_id, error = %e, "Failed to resolve GitHub token for PR footer");
             return;
         }
     };
 
-    let api = GithubPrApi::new(&token.access_token);
+    let api = GithubPrApi::new(&token);
     let pr_info = match api.get_pr(&pr.owner, &pr.repo, pr.number).await {
         Ok(p) => p,
         Err(e) => {
@@ -408,11 +404,7 @@ async fn handle_git_push(state: &AppState, task_id: &str, parent_uuid: &str, res
         return;
     };
 
-    let token: ProviderAccessToken = match state
-        .provider_tokens
-        .find_provider_token(user_id, "github")
-        .await
-    {
+    let token = match resolve_state_github_token(state, user_id, Some(target.owner.as_str())).await {
         Ok(Some(t)) => t,
         Ok(None) => {
             debug!(
@@ -422,12 +414,12 @@ async fn handle_git_push(state: &AppState, task_id: &str, parent_uuid: &str, res
             return;
         }
         Err(e) => {
-            warn!(task_id, user_id, error = %e, "Failed to look up provider token for git push hook");
+            warn!(task_id, user_id, error = %e, "Failed to resolve GitHub token for git push hook");
             return;
         }
     };
 
-    let api = GithubPrApi::new(&token.access_token);
+    let api = GithubPrApi::new(&token);
 
     // If there are multiple PR bindings on the same repo, fetch each and
     // pick the one whose head branch matches what we just pushed. In practice

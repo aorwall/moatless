@@ -308,7 +308,8 @@ pub async fn connect_github_binding(
         Some(state.provider_token_auth.clone()),
         state.github_app_service.clone(),
         state.github_apps.clone(),
-    );
+    )
+    .with_secrets(state.secrets.clone());
     connect_binding_optional_rule(
         state,
         &provider,

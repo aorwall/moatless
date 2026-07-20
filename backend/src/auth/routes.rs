@@ -16,6 +16,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use crate::config::{AuthProvider, Config};
 use crate::db::DbPool;
 use crate::error::ErrorBody;
+use crate::secret::service::SecretService;
 use moatless_backend_core::scope::ScopeContext;
 
 use super::api_key;
@@ -121,6 +122,9 @@ pub struct AuthState {
     pub github_app_service: Option<Arc<GitHubAppService>>,
     /// Registry of all configured GitHub Apps.
     pub github_apps: Arc<GitHubAppRegistry>,
+    /// Encrypted secret store — holds the OAuth token stashed behind a PAT
+    /// override, and the validated PAT itself.
+    pub secrets: Arc<SecretService>,
     pub teams: Option<Arc<dyn crate::team::dao::TeamRepository>>,
     pub tasks: Option<Arc<dyn crate::task::dao::TaskRepository>>,
 }
@@ -141,6 +145,11 @@ impl AuthState {
             Some(Arc::new(crate::task::dao::PgTaskRepository(pool.clone())));
         let github_apps = Arc::new(GitHubAppRegistry::from_config(&config));
         let github_app_service = github_apps.default_service();
+        let secrets = Arc::new(SecretService::new(
+            Arc::new(crate::secret::dao::PgSecretRepository(pool.clone())),
+            Arc::new(crate::secret::audit::PgSecretAuditRepository(pool.clone())),
+            crate::secret::service::LocalEnvelopeSecretCipher::from_config(&config.secrets),
+        ));
         Self {
             sessions: Arc::new(PgSessionRepository(pool.clone())),
             api_keys: Arc::new(PgApiKeyRepository(pool.clone())),
@@ -149,6 +158,7 @@ impl AuthState {
             provider_tokens_dao: Arc::new(PgProviderTokenRepository(pool.clone())),
             github_app_service,
             github_apps,
+            secrets,
             providers: Arc::new(providers),
             cache,
             teams,
@@ -531,15 +541,19 @@ async fn check_github_connection(state: &AuthState, user_id: &str) -> ProviderCo
         .and_then(|v| v.as_str())
         .map(std::string::ToString::to_string);
 
-    // When a GitHub App service is configured, verify the token by exercising
-    // the refresh path. Any error (missing token row, refresh rejected, etc.)
-    // is reported as disconnected so the frontend can prompt for reconnect.
-    if let Some(ref app_svc) = state.github_app_service {
-        match super::token_refresh::ensure_fresh_token(
+    // When a GitHub App service is configured, verify the token by actually
+    // resolving it. Any error (missing row, refresh rejected, dangling secret
+    // reference) is reported as disconnected so the frontend prompts for a
+    // reconnect.
+    if state.github_app_service.is_some() {
+        match super::credentials::resolve_user_github_token(
             state.provider_tokens_dao.as_ref(),
-            state.provider_tokens.as_ref(),
-            app_svc,
+            Some(state.provider_tokens.as_ref()),
+            state.github_app_service.as_deref(),
+            state.github_apps.as_ref(),
+            Some(state.secrets.as_ref()),
             user_id,
+            None,
         )
         .await
         {
@@ -788,6 +802,7 @@ async fn handle_oauth_callback(
         state.users.as_ref(),
         state.sessions.as_ref(),
         state.provider_tokens.as_ref(),
+        Some(state.secrets.as_ref()),
         &provider_str,
         &tokens,
         &user_info,

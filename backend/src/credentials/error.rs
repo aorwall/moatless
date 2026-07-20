@@ -14,6 +14,9 @@ pub enum CredentialError {
     #[error("database error: {0}")]
     Database(#[from] sqlx::Error),
 
+    #[error("secret storage error: {0}")]
+    Secret(#[from] crate::secret::error::SecretError),
+
     #[error("internal: {0}")]
     Internal(String),
 }

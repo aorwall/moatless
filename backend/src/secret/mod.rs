@@ -10,3 +10,5 @@ pub mod models;
 pub mod routes;
 pub mod schemas;
 pub mod service;
+#[cfg(test)]
+pub mod test_support;

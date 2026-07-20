@@ -35,6 +35,12 @@ Testcontainers inside the sandbox. Defaults to false.
   envVars?: UpdateRepositoryRequestEnvVars;
   /** @nullable */
   name?: string | null;
+  /**
+   * Per-repo network profile — pods carry `moatless.io/network-profile=<value>`
+for a static NetworkPolicy to select. Selects a policy; grants nothing.
+   * @nullable
+   */
+  networkProfile?: string | null;
   /** @nullable */
   plugins?: string[] | null;
   /** @nullable */

@@ -37,6 +37,14 @@ Testcontainers inside the sandbox. Defaults to false.
   envVars?: CreateRepositoryRequestEnvVars;
   kind: RepositoryKind;
   name: string;
+  /**
+   * Per-repo network profile. When set, sandbox pods carry the label
+`moatless.io/network-profile=<value>`, which a static (GitOps-owned)
+NetworkPolicy can select to govern egress/ingress. The field only selects
+a policy; it grants nothing on its own. Used for sealed benchmark runs.
+   * @nullable
+   */
+  networkProfile?: string | null;
   /** @nullable */
   plugins?: string[] | null;
   provider?: null | RepositoryProvider;

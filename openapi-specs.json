@@ -9146,6 +9146,13 @@
           "name": {
             "type": "string"
           },
+          "networkProfile": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Per-repo network profile. When set, sandbox pods carry the label\n`moatless.io/network-profile=<value>`, which a static (GitOps-owned)\nNetworkPolicy can select to govern egress/ingress. The field only selects\na policy; it grants nothing on its own. Used for sealed benchmark runs."
+          },
           "plugins": {
             "type": [
               "array",
@@ -11887,6 +11894,12 @@
           "name": {
             "type": "string"
           },
+          "networkProfile": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "ownerUserId": {
             "type": [
               "string",
@@ -12749,7 +12762,8 @@
           "provider_token",
           "runtime_file",
           "deployment",
-          "ssh_key"
+          "ssh_key",
+          "internal"
         ]
       },
       "SecretMetadataResponse": {
@@ -15162,6 +15176,13 @@
               "string",
               "null"
             ]
+          },
+          "networkProfile": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Per-repo network profile — pods carry `moatless.io/network-profile=<value>`\nfor a static NetworkPolicy to select. Selects a policy; grants nothing."
           },
           "plugins": {
             "type": [
