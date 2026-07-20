@@ -32,6 +32,7 @@
 mod args;
 mod hooks;
 mod session;
+mod subagents;
 mod tailer;
 mod translator;
 mod trust;

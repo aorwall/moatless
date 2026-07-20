@@ -24,8 +24,12 @@ use super::hooks::{
     HookLine,
 };
 use super::session::{list_jsonl_stems, TmuxSession};
+use super::subagents::{
+    spawn_subagent_watcher, subagent_dir, sum_transcript_usage, SubagentRegistry,
+};
 use super::translator::{
-    translate_record, translate_stop_payload_fallback, Translated, TurnAccumulator,
+    extract_subagent_completion, translate_record, translate_stop_payload_fallback, Translated,
+    TurnAccumulator,
 };
 
 /// Retry budget for the Stop fallback: wait up to 40 × 50ms = 2s for the
@@ -306,6 +310,20 @@ async fn run_supervisor(
 
     let session_id_hint = target.session_id.clone();
 
+    // Sub-agent transcripts live beside the main one; the watcher tails them
+    // and the main loop supplies the tool_use_id that threads them back on.
+    let registry: SubagentRegistry = Arc::new(tokio::sync::Mutex::new(
+        std::collections::HashMap::new(),
+    ));
+    let subagent_task = target.path.parent().map(|project_dir| {
+        spawn_subagent_watcher(
+            subagent_dir(project_dir, &target.session_id),
+            Arc::clone(&registry),
+            tx.clone(),
+            cancellation_token.clone(),
+        )
+    });
+
     let tailer_tx = tx.clone();
     let tailer_token = cancellation_token.clone();
     let tailer_session = Arc::clone(&session);
@@ -315,6 +333,7 @@ async fn run_supervisor(
         start_at_end: target.start_at_end,
     };
     let tailer_results = Arc::clone(&results_emitted);
+    let tailer_registry = Arc::clone(&registry);
     let tailer_task = tokio::spawn(async move {
         tail_loop(
             tailer_session,
@@ -322,6 +341,7 @@ async fn run_supervisor(
             tailer_tx,
             tailer_token,
             tailer_results,
+            tailer_registry,
         )
         .await;
     });
@@ -365,6 +385,9 @@ async fn run_supervisor(
 
     cancellation_token.cancel();
     let _ = fallback_task.await;
+    if let Some(task) = subagent_task {
+        let _ = task.await;
+    }
     session.kill().await;
     info!(
         session_name = %session.session_name,
@@ -515,10 +538,14 @@ async fn tail_loop(
     tx: mpsc::Sender<Result<SdkMessage>>,
     cancellation_token: CancellationToken,
     results_emitted: Arc<AtomicU32>,
+    registry: SubagentRegistry,
 ) {
     let path = target.path;
     let session_id = target.session_id;
     let start_at_end = target.start_at_end;
+    let subagent_transcript = path
+        .parent()
+        .map_or_else(|| PathBuf::from("."), |dir| subagent_dir(dir, &session_id));
 
     let file = match tokio::fs::File::open(&path).await {
         Ok(f) => f,
@@ -584,6 +611,31 @@ async fn tail_loop(
                 continue;
             }
         };
+
+        // A finished Task call is the only place the sub-agent id and the
+        // spawning tool_use_id appear together, and it carries the sub-agent's
+        // totals — which no other record on this stream does.
+        if let Some(done) = extract_subagent_completion(&value) {
+            let transcript = subagent_transcript.join(format!("agent-{}.jsonl", done.agent_id));
+            if let Some(usage) = sum_transcript_usage(&transcript).await {
+                acc.accumulate_subagent_usage(&usage);
+            } else {
+                warn!(
+                    agent_id = %done.agent_id,
+                    path = %transcript.display(),
+                    "No sub-agent usage found — turn total will omit it"
+                );
+            }
+            registry
+                .lock()
+                .await
+                .insert(done.agent_id.clone(), done.tool_use_id.clone());
+            debug!(
+                agent_id = %done.agent_id,
+                tool_use_id = %done.tool_use_id,
+                "Registered sub-agent completion"
+            );
+        }
 
         match translate_record(value, &mut acc) {
             Translated::Skip => {}
