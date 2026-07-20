@@ -40,6 +40,12 @@ pub trait SandboxProvider: Send + Sync {
         server_configs: &[ServerConfig],
     ) -> Result<SandboxStatusFullResponse, SandboxError>;
 
+    /// Image a fresh provision/redeploy would bake into the sandbox container:
+    /// the per-repo `docker_image` override when non-empty, else the provider's
+    /// configured default. Lets callers compare it against the running image to
+    /// tell whether a redeploy would change the image.
+    fn expected_sandbox_image(&self, repo_docker_image: Option<&str>) -> String;
+
     /// Stop a sandbox (preserve storage, scale to 0).
     async fn stop(&self, task_id: &str) -> Result<(), SandboxError>;
 

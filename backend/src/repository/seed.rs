@@ -38,6 +38,7 @@ async fn seed_moatable(repos: &dyn RepoRepository) -> Result<(), sqlx::Error> {
         docker_image: None,
         docker_access: None,
         sandbox_service_account: None,
+        network_profile: None,
         system_prompt: None,
         setup_commands: Some(json!(["bun install"])),
         env_vars: None,

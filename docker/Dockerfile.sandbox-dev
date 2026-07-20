@@ -1,0 +1,94 @@
+# syntax=docker/dockerfile:1.7
+# Dockerfile.sandbox-dev — precompiled dev sandbox image (published as moatless-dev).
+#
+# Extends the runtime sandbox image with WARM dependency caches for the
+# moatless-vibe shadow-dev servers (scripts/shadow/up.sh + the frontend dev
+# server), so a fresh provision recompiles/relinks only what actually changed
+# instead of downloading + building the whole world (~6-10 min cold). Used only
+# by the dedicated "moatless-vibe (shadow)" dev repo — not the default sandbox.
+#
+# Three caches are baked, all OUTSIDE the /opt/moatless workspace mount (wiped on
+# every provision) so they persist as image layers:
+#   - /opt/cargo-target      — compiled backend dependency artifacts. up.sh reads
+#                              CARGO_TARGET_DIR and reuses them; only changed
+#                              workspace crates recompile at runtime; when the
+#                              clone is exactly the image-build commit, up.sh
+#                              can start the baked backend binary immediately.
+#   - /opt/cargo/registry    — downloaded crate sources (CARGO_HOME). Without
+#                              this the provision-time `cargo build` re-downloads
+#                              the whole index+sources before compiling.
+#   - /opt/bun-cache         — bun's global install cache. The provision-time
+#                              `bun install` (a repo setup command) then links
+#                              node_modules from cache offline instead of
+#                              downloading, so the frontend dev server starts fast.
+#
+# Published on demand as moatless-dev:latest by the `Build dev sandbox image`
+# workflow (.github/workflows/build-dev-image.yml), run manually — NOT part of
+# the push-to-main cd-ecr.yml flow.
+#   - FROM the already-published moatless-sandbox image (passed as the
+#     SANDBOX_IMAGE build-arg, tag configurable, defaults to latest) — so the
+#     whole soap sandbox overlay (Rust toolchain, protoc, JDK, kubectl, AWS CLI,
+#     the sandbox/moat binaries) is inherited, not rebuilt.
+#   - The BuildKit target cache mount reuses compiled deps run-to-run, so the
+#     one in-image compile stays incremental across CI runs.
+#
+# The backend uses only runtime `sqlx::query` (no compile-time-checked macros),
+# so this build needs no database.
+#
+# Local build:
+#   docker build -f docker/Dockerfile.sandbox-dev \
+#     --build-arg SANDBOX_IMAGE=<registry>/moatless-sandbox:<tag> \
+#     -t <registry>/moatless-dev:<tag> .
+
+ARG SANDBOX_IMAGE=aorwall/moatless-sandbox:latest
+FROM ${SANDBOX_IMAGE}
+ARG SOURCE_COMMIT=unknown
+
+# Warm-cache locations, all siblings of /opt/cargo — outside the /opt/moatless
+# workspace mount, so they survive as image layers. up.sh honors
+# CARGO_TARGET_DIR; the base image already sets CARGO_HOME=/opt/cargo; `bun`
+# honors BUN_INSTALL_CACHE_DIR.
+ENV CARGO_TARGET_DIR=/opt/cargo-target
+ENV BUN_INSTALL_CACHE_DIR=/opt/bun-cache
+
+USER root
+
+# .dockerignore whitelists exactly the Rust workspace (Cargo.toml, Cargo.lock,
+# crates/, sandbox/, backend/, scripts/) plus every workspace package.json +
+# bun.lock, and strips **/target/ and **/node_modules/ — so this copies clean
+# sources/manifests with no build artifacts.
+COPY . /tmp/moatless-vibe-src
+
+# Warm the cargo caches. Compile the backend once, then bake the compiled deps
+# into a real layer (the target cache mount doesn't persist into the image, so
+# we build into the mount and copy the result out). The crate registry is NOT
+# mounted, so cargo downloads sources straight into the real /opt/cargo/registry,
+# which persists as a layer.
+RUN --mount=type=cache,id=moatless-dev-target,target=/tmp/dev-target \
+    cd /tmp/moatless-vibe-src \
+    && cargo build --release -p moatless-vibe-backend --target-dir /tmp/dev-target \
+    && mkdir -p /opt/cargo-target \
+    && cp -a /tmp/dev-target/. /opt/cargo-target/ \
+    && printf '%s\n' "$SOURCE_COMMIT" > /opt/cargo-target/.moatless-vibe-source-commit \
+    && rm -rf /opt/cargo-target/incremental
+
+# Warm the bun global install cache. Installing bun to a build-only location is
+# enough to populate BUN_INSTALL_CACHE_DIR; the provision-time setup command
+# reinstalls bun to /opt/moatless/data/.bun and its `bun install` then links from
+# this warm cache offline. node_modules itself lives in the (wiped) workspace, so
+# we don't bake it — only the cache matters.
+#
+# --ignore-scripts: only the .dockerignore-whitelisted manifests are present, and
+# the root postinstall (`turbo run build --filter=./packages/*`) + `prepare`
+# (husky, no .git here) would need full package source and fail. We only want the
+# downloaded-dependency cache; the provision-time `bun install` runs those scripts
+# against the full clone.
+RUN curl -fsSL https://bun.sh/install | BUN_INSTALL=/opt/bun bash \
+    && cd /tmp/moatless-vibe-src \
+    && /opt/bun/bin/bun install --no-progress --ignore-scripts
+
+# Drop the sources and hand the warm caches to the runtime user.
+RUN rm -rf /tmp/moatless-vibe-src \
+    && chown -R moatless:moatless /opt/cargo-target /opt/cargo /opt/bun-cache /opt/bun
+
+USER moatless

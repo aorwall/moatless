@@ -15,7 +15,10 @@ pub enum SandboxState {
     Missing,
 }
 
-/// Matches TS AgentStateSchema: 'idle' | 'running' | 'none'
+/// Matches TS AgentStateSchema: 'idle' | 'running' | 'none' | 'unknown'
+///
+/// `Unknown` means the sandbox is running/ready but the agent could not be
+/// reached over gRPC — distinct from `None` (idle / never started).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "lowercase")]
@@ -23,6 +26,7 @@ pub enum AgentState {
     Idle,
     Running,
     None,
+    Unknown,
 }
 
 impl std::fmt::Display for AgentState {
@@ -31,6 +35,7 @@ impl std::fmt::Display for AgentState {
             AgentState::Idle => write!(f, "idle"),
             AgentState::Running => write!(f, "running"),
             AgentState::None => write!(f, "none"),
+            AgentState::Unknown => write!(f, "unknown"),
         }
     }
 }
@@ -40,6 +45,7 @@ impl From<&str> for AgentState {
         match s {
             "running" => AgentState::Running,
             "idle" => AgentState::Idle,
+            "unknown" => AgentState::Unknown,
             _ => AgentState::None,
         }
     }

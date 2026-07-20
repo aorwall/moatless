@@ -78,6 +78,10 @@ pub enum RepoAction {
         /// default). Used for shadow-dev sandboxes that need the backend's RBAC.
         #[arg(long)]
         sandbox_service_account: Option<String>,
+        /// Network profile: sandbox pods get label moatless.io/network-profile=<value>,
+        /// which a static (GitOps-owned) NetworkPolicy selects. Selects a policy only.
+        #[arg(long)]
+        network_profile: Option<String>,
         /// Plugin references (repeatable, e.g. "name@url")
         #[arg(long = "plugin")]
         plugins: Vec<String>,
@@ -177,6 +181,10 @@ pub enum RepoAction {
         /// default). Used for shadow-dev sandboxes that need the backend's RBAC.
         #[arg(long)]
         sandbox_service_account: Option<String>,
+        /// Network profile: sandbox pods get label moatless.io/network-profile=<value>,
+        /// which a static (GitOps-owned) NetworkPolicy selects. Selects a policy only.
+        #[arg(long)]
+        network_profile: Option<String>,
         /// Setup commands run before server starts (repeatable)
         #[arg(long = "setup-command")]
         setup_commands: Vec<String>,
@@ -260,6 +268,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             docker_image,
             docker_access,
             sandbox_service_account,
+            network_profile,
             plugins,
             system_prompt,
             description,
@@ -308,6 +317,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 docker_image,
                 docker_access,
                 sandbox_service_account,
+                network_profile,
                 enable_inspector,
                 env_vars: parse_env_vars(&env_vars),
                 plugins: if plugins.is_empty() {
@@ -357,6 +367,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             docker_image,
             docker_access,
             sandbox_service_account,
+            network_profile,
             setup_commands,
             server_start_commands,
             env_vars,
@@ -414,6 +425,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 docker_image,
                 docker_access,
                 sandbox_service_account,
+                network_profile,
                 enable_inspector,
                 env_vars: parse_env_vars(&env_vars),
                 plugins: if plugins.is_empty() {

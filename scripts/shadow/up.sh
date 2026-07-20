@@ -16,20 +16,54 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 REPO_ROOT="$(pwd)"
 
-BIN="${REPO_ROOT}/target/release/moatless-vibe-backend"
+# Cargo target dir. A precompiled sandbox image bakes a warm target dir at a
+# path OUTSIDE the workspace volume (`/opt/moatless` is a mount, so a cache under
+# it is shadowed on every provision). When CARGO_TARGET_DIR points at that baked
+# dir, `cargo build` reuses the compiled dependency artifacts and only recompiles
+# changed workspace crates. If the baked binary matches this checkout exactly,
+# we skip that initial rebuild entirely and start the backend immediately. Falls
+# back to the in-tree `target/` when unset (plain sandbox image).
+TARGET_DIR="${CARGO_TARGET_DIR:-${REPO_ROOT}/target}"
+BIN="${TARGET_DIR}/release/moatless-vibe-backend"
+SOURCE_STAMP="${TARGET_DIR}/.moatless-vibe-source-commit"
 ENV_FILE="${SHADOW_ENV_FILE:-/opt/moatless/data/shadow/backend.env}"
 TRIGGER="${SHADOW_TRIGGER:-/opt/moatless/data/shadow/rebuild.trigger}"
+BAKED_COMMIT=""
 mkdir -p "$(dirname "$TRIGGER")"
 
 echo "==> Syncing backend env from the cluster"
 scripts/shadow/sync-env.sh "$ENV_FILE"
 
 build() {
-  echo "==> Building moatless-vibe-backend (release, incremental)"
+  if [ -d "${TARGET_DIR}/release/deps" ]; then
+    echo "==> Building moatless-vibe-backend (release, warm cache: ${TARGET_DIR})"
+  else
+    echo "==> Building moatless-vibe-backend (release, COLD - no baked cache at ${TARGET_DIR})"
+  fi
   cargo build --release -p moatless-vibe-backend
 }
 
-build
+baked_binary_matches_checkout() {
+  [ -x "$BIN" ] || return 1
+  [ -f "$SOURCE_STAMP" ] || return 1
+
+  local current_commit
+  BAKED_COMMIT="$(cat "$SOURCE_STAMP" 2>/dev/null || true)"
+  current_commit="$(git rev-parse HEAD 2>/dev/null || true)"
+  [ -n "$BAKED_COMMIT" ] && [ "$BAKED_COMMIT" != "unknown" ] || return 1
+  [ -n "$current_commit" ] && [ "$BAKED_COMMIT" = "$current_commit" ] || return 1
+
+  # The baked binary is only safe before Rust-relevant local edits. After edits,
+  # rebuild.sh touches the trigger and the loop below always runs cargo build.
+  [ -z "$(git status --porcelain -- Cargo.toml Cargo.lock rust-toolchain.toml .cargo backend crates 2>/dev/null)" ]
+}
+
+if baked_binary_matches_checkout; then
+  echo "==> Using baked moatless-vibe-backend from ${TARGET_DIR} (source ${BAKED_COMMIT})"
+else
+  build
+fi
+
 [ -f "$TRIGGER" ] || : > "$TRIGGER"
 LAST="$(stat -c %Y "$TRIGGER" 2>/dev/null || echo 0)"
 

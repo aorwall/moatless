@@ -31,9 +31,12 @@ struct AgentStatusSnapshot {
 }
 
 impl AgentStatusSnapshot {
-    fn empty() -> Self {
+    /// The agent is running/ready but unreachable over gRPC. Distinct from an
+    /// idle agent so a hung/unreachable agent on a ready pod is not reported as
+    /// `none` ("idle / never started"). Only produced from the running branch.
+    fn unreachable() -> Self {
         Self {
-            state: AgentState::None,
+            state: AgentState::Unknown,
             scheduled_jobs: Vec::new(),
             background_processes: Vec::new(),
         }
@@ -63,7 +66,8 @@ impl StatusResolver {
         task_id: &str,
         server_configs: &[ServerConfig],
     ) -> SandboxStatusFullResponse {
-        let (phase, environment_error) = self.resolve_pod_phase_and_error(task_id).await;
+        let (phase, environment_error, current_sandbox_image) =
+            self.resolve_pod_phase_and_error(task_id).await;
         let environment_status = phase.to_sandbox_status();
         let is_running = phase == PodPhase::Running;
 
@@ -124,6 +128,10 @@ impl StatusResolver {
                 runtime_events: None,
                 scheduled_jobs,
                 background_processes,
+                sandbox_desired_state: None,
+                current_sandbox_image,
+                latest_sandbox_image: None,
+                image_up_to_date: None,
             };
         }
 
@@ -228,6 +236,10 @@ impl StatusResolver {
             runtime_events,
             scheduled_jobs: Vec::new(),
             background_processes: Vec::new(),
+            sandbox_desired_state: None,
+            current_sandbox_image,
+            latest_sandbox_image: None,
+            image_up_to_date: None,
         }
     }
 
@@ -237,8 +249,10 @@ impl StatusResolver {
 
     /// Query the sandbox pod for current agent status via gRPC.
     ///
-    /// Returns an empty snapshot (`AgentState::None`, no jobs) on any gRPC error
-    /// (timeout, unavailable, etc.) so that status resolution remains resilient.
+    /// Only called when the pod is running, so any gRPC error (timeout,
+    /// unavailable, etc.) means the agent is unreachable rather than idle:
+    /// returns `AgentState::Unknown` (no jobs) so status resolution stays
+    /// resilient without masking an unreachable agent as `none`.
     async fn fetch_agent_state(&self, task_id: &str) -> AgentStatusSnapshot {
         let service_name = generate_service_name(task_id);
         let client = match SandboxClient::for_service(
@@ -249,7 +263,7 @@ impl StatusResolver {
             Ok(c) => c,
             Err(e) => {
                 debug!(task_id = %task_id, error = %e, "Failed to create gRPC client for agent status");
-                return AgentStatusSnapshot::empty();
+                return AgentStatusSnapshot::unreachable();
             }
         };
 
@@ -269,7 +283,7 @@ impl StatusResolver {
             },
             Err(e) => {
                 debug!(task_id = %task_id, error = %e, "Failed to fetch agent status via gRPC");
-                AgentStatusSnapshot::empty()
+                AgentStatusSnapshot::unreachable()
             }
         }
     }
@@ -315,26 +329,35 @@ impl StatusResolver {
         )
     }
 
-    /// Resolve the effective pod phase and any permanent error, checking
-    /// Deployment replicas first.
+    /// Resolve the effective pod phase, any permanent error, and the image the
+    /// sandbox container is provisioned with, checking Deployment replicas first.
     ///
-    /// If a Deployment exists with replicas=0, returns `(PodPhase::Stopped, None)`.
+    /// The third tuple element is the image baked into the Deployment's
+    /// `sandbox` container (`None` when no Deployment exists). If a Deployment
+    /// exists with replicas=0, returns `(PodPhase::Stopped, None, image)`.
     /// Otherwise falls back to checking actual pod status and probing for
     /// permanent failures (CrashLoopBackOff, ImagePullBackOff, etc.).
-    async fn resolve_pod_phase_and_error(&self, task_id: &str) -> (PodPhase, Option<String>) {
+    async fn resolve_pod_phase_and_error(
+        &self,
+        task_id: &str,
+    ) -> (PodPhase, Option<String>, Option<String>) {
         // Check Deployment replicas first
-        if let Ok(Some(_dep)) = deployment::find_deployment(&self.k8s, task_id).await {
+        let current_image = if let Ok(Some(dep)) =
+            deployment::find_deployment(&self.k8s, task_id).await
+        {
+            let image = deployment::deployment_sandbox_image(&dep);
             if let Ok((desired, _ready)) =
                 deployment::get_deployment_replicas(&self.k8s, task_id).await
             {
                 if desired == 0 {
-                    return (PodPhase::Stopped, None);
+                    return (PodPhase::Stopped, None, image);
                 }
             }
+            image
         } else {
             // No Deployment found — sandbox doesn't exist
-            return (PodPhase::NotFound, None);
-        }
+            return (PodPhase::NotFound, None, None);
+        };
 
         // Deployment exists with replicas > 0, check actual pod status
         let pods_api: Api<Pod> = Api::namespaced(self.k8s.client.clone(), self.k8s.namespace());
@@ -361,15 +384,15 @@ impl StatusResolver {
                         PodPhase::from(raw_phase)
                     };
 
-                    (phase, error)
+                    (phase, error, current_image)
                 } else {
                     // Deployment exists but no pods yet (scaling up)
-                    (PodPhase::Pending, None)
+                    (PodPhase::Pending, None, current_image)
                 }
             }
             Err(e) => {
                 warn!(task_id = %task_id, error = %e, "Failed to get pod status");
-                (PodPhase::Unknown, None)
+                (PodPhase::Unknown, None, current_image)
             }
         }
     }

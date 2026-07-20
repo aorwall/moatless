@@ -1,4 +1,5 @@
-import { ExternalLink, Pencil, Timer } from 'lucide-react'
+import type { SandboxStatusFullResponse } from '@moatless/api-client'
+import { ArrowUpCircle, CheckCircle2, ExternalLink, Pencil, Timer } from 'lucide-react'
 import { useState } from 'react'
 import { BackgroundProcessesSection } from '@/features/sandbox/components/background-processes-section'
 import { SandboxActionButtons } from '@/features/sandbox/components/sandbox-action-buttons'
@@ -60,6 +61,62 @@ const SANDBOX_STATUS_META: Record<string, { label: string; description: string; 
     description: 'The sandbox encountered an error.',
     dot: 'bg-destructive',
   },
+}
+
+/**
+ * Sandbox desired state + docker image freshness. Shows the image the sandbox
+ * is currently running and, when a newer image would be used on redeploy, an
+ * "Update available" hint with the target image.
+ */
+function SandboxImageInfo({ status }: { status: SandboxStatusFullResponse | undefined }) {
+  const desiredState = status?.sandboxDesiredState
+  const currentImage = status?.currentSandboxImage
+  const latestImage = status?.latestSandboxImage
+  const imageUpToDate = status?.imageUpToDate
+
+  if (!(desiredState || currentImage || latestImage)) {
+    return null
+  }
+
+  return (
+    <div className="space-y-1.5 rounded-md bg-muted/40 p-2 text-xs">
+      {desiredState && (
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-muted-foreground">Desired state</span>
+          <span className="font-medium capitalize">{desiredState}</span>
+        </div>
+      )}
+      <div className="flex items-start justify-between gap-2">
+        <span className="shrink-0 text-muted-foreground">Image</span>
+        <span
+          className="break-all text-right font-mono text-[11px]"
+          title={currentImage ?? undefined}
+        >
+          {currentImage ?? 'Not deployed'}
+        </span>
+      </div>
+      {imageUpToDate === false && (
+        <div className="flex items-start justify-between gap-2">
+          <span className="inline-flex shrink-0 items-center gap-1 text-amber-600 dark:text-amber-500">
+            <ArrowUpCircle className="h-3 w-3" />
+            Update available
+          </span>
+          <span
+            className="break-all text-right font-mono text-[11px] text-muted-foreground"
+            title={latestImage ?? undefined}
+          >
+            {latestImage}
+          </span>
+        </div>
+      )}
+      {imageUpToDate === true && (
+        <div className="inline-flex items-center gap-1 text-green-600 dark:text-green-500">
+          <CheckCircle2 className="h-3 w-3" />
+          On the latest image
+        </div>
+      )}
+    </div>
+  )
 }
 
 interface TaskControlPanelProps {
@@ -140,6 +197,7 @@ export function TaskControlPanel({ className }: TaskControlPanelProps) {
                 ? environmentError
                 : statusMeta.description}
             </p>
+            <SandboxImageInfo status={sandboxStatus} />
             {previewUrl && (
               <a
                 href={previewUrl}

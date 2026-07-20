@@ -43,7 +43,8 @@ pub struct TaskCredentialInputs<'a> {
     /// installation-token minting because installations are scoped per-org.
     pub repo_owner: Option<&'a str>,
     /// User repository — read to source `GIT_USER_NAME` / `GIT_USER_EMAIL`
-    /// from `users.login` / `users.email` for bot identities.
+    /// from `users.login` / `users.email`. Bots get both; human users get
+    /// their account email when set (name still resolves via the GitHub API).
     pub users: Option<&'a Arc<dyn UserRepository>>,
     /// Credential service used to refresh codex tokens just-in-time before
     /// handing the blob to the sandbox. When `None`, the codex branch falls
@@ -83,7 +84,7 @@ pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMa
     )
     .await;
 
-    fill_bot_identity(&mut credentials, input.users, input.user_id).await;
+    fill_git_identity(&mut credentials, input.users, input.user_id).await;
 
     let scoped =
         resolve_scoped_secrets(input.secrets, input.user_id, input.team_id, input.task_id).await;
@@ -461,11 +462,20 @@ async fn fill_user_provider_tokens(
     }
 }
 
-/// When the credentialed user is a bot, source git author identity from the
-/// `users` row so commits and pushes attribute to `{slug}[bot]` instead of
-/// whatever `gh api user` would resolve from the installation token (which
-/// has no associated user).
-async fn fill_bot_identity(
+/// Source the git author identity for the task's sandbox from the owning
+/// `users` row.
+///
+/// - For **bot** users, both name and email come from the row so commits and
+///   pushes attribute to `{slug}[bot]` instead of whatever `gh api user` would
+///   resolve from the installation token (which has no associated user).
+/// - For **human** users, we override only the email (when the account has one
+///   set) so commits use the user's real Moatless email instead of the
+///   `{login}@users.noreply.github.com` fallback. The name is left to the
+///   sandbox's GitHub-API resolution.
+///
+/// In both cases these land as `GIT_USER_NAME` / `GIT_USER_EMAIL` env vars in
+/// the sandbox, which `configure_git` applies with highest precedence.
+async fn fill_git_identity(
     credentials: &mut HashMap<String, String>,
     users: Option<&Arc<dyn UserRepository>>,
     user_id: &str,
@@ -475,14 +485,23 @@ async fn fill_bot_identity(
         Ok(Some(u)) => u,
         Ok(None) => return,
         Err(e) => {
-            warn!(error = %e, user_id, "Failed to look up user for bot identity");
+            warn!(error = %e, user_id, "Failed to look up user for git identity");
             return;
         }
     };
-    if !user.is_bot {
+    if user.is_bot {
+        credentials.insert(GIT_USER_NAME.to_string(), user.login);
+        if let Some(email) = user.email {
+            credentials.insert(GIT_USER_EMAIL.to_string(), email);
+        }
         return;
     }
-    credentials.insert(GIT_USER_NAME.to_string(), user.login);
+    // Human user: prefer their Moatless account name/email for commit
+    // attribution when set; each falls back independently to the sandbox's
+    // GitHub-API resolution when unset.
+    if let Some(name) = user.name {
+        credentials.insert(GIT_USER_NAME.to_string(), name);
+    }
     if let Some(email) = user.email {
         credentials.insert(GIT_USER_EMAIL.to_string(), email);
     }
@@ -546,5 +565,122 @@ mod tests {
         fill_missing_from_scoped(&mut credentials, scoped);
 
         assert_eq!(credentials[GITHUB_TOKEN], "ghs_x");
+    }
+
+    fn make_user(
+        login: &str,
+        name: Option<&str>,
+        email: Option<&str>,
+        is_bot: bool,
+    ) -> crate::auth::users::User {
+        use chrono::{DateTime, Utc};
+        let epoch = DateTime::<Utc>::from_timestamp(0, 0).expect("valid epoch");
+        crate::auth::users::User {
+            id: "u1".to_string(),
+            login: login.to_string(),
+            email: email.map(str::to_string),
+            name: name.map(str::to_string),
+            avatar_url: None,
+            provider: "github".to_string(),
+            role: crate::auth::models::UserRole::User,
+            created_at: epoch,
+            last_login_at: epoch,
+            settings: serde_json::Value::Null,
+            is_bot,
+        }
+    }
+
+    fn users_returning(
+        login: &'static str,
+        name: Option<&'static str>,
+        email: Option<&'static str>,
+        is_bot: bool,
+    ) -> Arc<dyn UserRepository> {
+        use crate::auth::users::MockUserRepository;
+        let mut mock = MockUserRepository::new();
+        mock.expect_get_user()
+            .returning(move |_| Ok(Some(make_user(login, name, email, is_bot))));
+        Arc::new(mock)
+    }
+
+    #[tokio::test]
+    async fn human_user_name_and_email_override() {
+        // A regular (non-bot) user with both an account name and email should
+        // have both flow through as GIT_USER_NAME / GIT_USER_EMAIL.
+        let users = users_returning(
+            "alice",
+            Some("Alice Example"),
+            Some("alice@example.com"),
+            /* is_bot */ false,
+        );
+
+        let mut credentials = HashMap::new();
+        fill_git_identity(&mut credentials, Some(&users), "u1").await;
+
+        assert_eq!(
+            credentials.get(GIT_USER_NAME).map(String::as_str),
+            Some("Alice Example")
+        );
+        assert_eq!(
+            credentials.get(GIT_USER_EMAIL).map(String::as_str),
+            Some("alice@example.com")
+        );
+    }
+
+    #[tokio::test]
+    async fn human_user_email_only_defers_name() {
+        // Email set but no name → only the email is overridden; the name is
+        // left for the sandbox's GitHub-API resolution.
+        let users = users_returning(
+            "alice",
+            None,
+            Some("alice@example.com"),
+            /* is_bot */ false,
+        );
+
+        let mut credentials = HashMap::new();
+        fill_git_identity(&mut credentials, Some(&users), "u1").await;
+
+        assert_eq!(
+            credentials.get(GIT_USER_EMAIL).map(String::as_str),
+            Some("alice@example.com")
+        );
+        assert!(
+            !credentials.contains_key(GIT_USER_NAME),
+            "human user name should defer to GitHub-API resolution when unset"
+        );
+    }
+
+    #[tokio::test]
+    async fn human_user_without_name_or_email_sets_nothing() {
+        // No account name/email → no override; the sandbox falls back to the
+        // GitHub API / noreply default entirely.
+        let users = users_returning("alice", None, None, /* is_bot */ false);
+
+        let mut credentials = HashMap::new();
+        fill_git_identity(&mut credentials, Some(&users), "u1").await;
+
+        assert!(!credentials.contains_key(GIT_USER_EMAIL));
+        assert!(!credentials.contains_key(GIT_USER_NAME));
+    }
+
+    #[tokio::test]
+    async fn bot_user_sets_login_name_and_email() {
+        // Bots keep the existing behavior: name is the login, plus email.
+        let users = users_returning(
+            "acme[bot]",
+            None,
+            Some("acme[bot]@users.noreply.github.com"),
+            /* is_bot */ true,
+        );
+
+        let mut credentials = HashMap::new();
+        fill_git_identity(&mut credentials, Some(&users), "u1").await;
+
+        assert_eq!(credentials.get(GIT_USER_NAME).map(String::as_str), Some("acme[bot]"));
+        assert_eq!(
+            credentials.get(GIT_USER_EMAIL).map(String::as_str),
+            Some("acme[bot]@users.noreply.github.com")
+        );
     }
 }

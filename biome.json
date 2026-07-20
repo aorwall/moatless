@@ -49,9 +49,9 @@
     "rules": {
       "preset": "recommended",
       "nursery": {
-        "noFloatingPromises": "off",
-        "noMisusedPromises": "off",
-        "useExhaustiveSwitchCases": "off"
+        "noFloatingPromises": "warn",
+        "noMisusedPromises": "warn",
+        "useExhaustiveSwitchCases": "warn"
       },
       "style": {
         "noNonNullAssertion": "error",

@@ -1,20 +1,41 @@
 import type {
   AdapterConnectionResponse,
-  AdapterKind,
   TriggerRecentTaskItem,
   TriggerResponse,
 } from '@moatless/api-client'
-import { createLazyFileRoute, Link } from '@tanstack/react-router'
-import { Loader2 } from 'lucide-react'
-import { AdminPage } from '@/features/admin'
+import { createLazyFileRoute, Link, useNavigate } from '@tanstack/react-router'
+import { Loader2, Trash2 } from 'lucide-react'
+import { useState } from 'react'
+import { toast } from 'sonner'
 import {
+  useDeleteTrigger,
   useIntegrationConnections,
   useTrigger,
   useTriggerRecentTasks,
+  useUpdateTrigger,
 } from '@/features/integrations/hooks/use-integrations'
-import { DetailItem } from '@/features/settings/components/detail-item'
+import {
+  getAdapterLabel,
+  getSourceLabel,
+  isAdapterEventSource,
+  isScheduleSource,
+} from '@/features/integrations/utils/trigger-display'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/lib/components/ui/alert-dialog'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
+import { DetailHeader } from '@/lib/components/ui/detail-header'
+import { DetailItem } from '@/lib/components/ui/detail-item'
+import { DetailNotFound } from '@/lib/components/ui/detail-not-found'
+import { Switch } from '@/lib/components/ui/switch'
 import {
   Table,
   TableBody,
@@ -23,42 +44,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/lib/components/ui/table'
-
-type TriggerSource = TriggerResponse['source']
-
-const ADAPTER_LABELS: Record<string, string> = {
-  slack: 'Slack',
-  telegram: 'Telegram',
-  github: 'GitHub',
-  linear: 'Linear',
-  webhook: 'Webhook',
-}
-
-function isAdapterEventSource(
-  source: TriggerSource,
-): source is Extract<TriggerSource, { adapterKind: AdapterKind }> {
-  return 'adapterKind' in source
-}
-
-function isScheduleSource(
-  source: TriggerSource,
-): source is Extract<TriggerSource, { cronExpression: string }> {
-  return 'cronExpression' in source
-}
-
-function getAdapterLabel(adapter: string): string {
-  return ADAPTER_LABELS[adapter] ?? adapter
-}
-
-function getSourceLabel(trigger: TriggerResponse): string {
-  if (isAdapterEventSource(trigger.source)) {
-    return trigger.source.sourceName || trigger.source.sourceMatcher
-  }
-  if (isScheduleSource(trigger.source)) {
-    return trigger.name || trigger.source.cronExpression
-  }
-  return trigger.name || trigger.id
-}
+import { getErrorMessage } from '@/lib/utils/error'
 
 function formatTimestamp(value: string | null | undefined): string {
   if (!value) {
@@ -182,75 +168,141 @@ function RecentTasksSection({ items }: { items: TriggerRecentTaskItem[] }) {
 function TriggerDetailPage() {
   const params = Route.useParams()
   const triggerId = params['trigger-id']
+  const navigate = useNavigate()
   const { data: trigger, isLoading: triggerLoading } = useTrigger(triggerId)
   const { data: connections } = useIntegrationConnections()
   const { data: recentTasks, isLoading: tasksLoading } = useTriggerRecentTasks(triggerId, {
     limit: 10,
   })
+  const updateTrigger = useUpdateTrigger()
+  const deleteTrigger = useDeleteTrigger()
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
-  const source = trigger?.source
-  const connection =
-    source && isAdapterEventSource(source)
-      ? connections?.find((item) => item.id === source.connectionId)
-      : undefined
+  if (triggerLoading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (!trigger) {
+    return (
+      <DetailNotFound title="Trigger not found" description="This trigger may have been deleted." />
+    )
+  }
+
+  const source = trigger.source
+  const connection = isAdapterEventSource(source)
+    ? connections?.find((item) => item.id === source.connectionId)
+    : undefined
+
+  const handleToggleActive = () => {
+    updateTrigger.mutate(
+      { id: trigger.id, request: { active: !trigger.active } },
+      {
+        onError: (mutationError) =>
+          toast.error('Failed to update trigger', {
+            description: getErrorMessage(mutationError),
+          }),
+      },
+    )
+  }
+
+  const handleDelete = () => {
+    deleteTrigger.mutate(trigger.id, {
+      onSuccess: async () => {
+        toast.success('Trigger deleted')
+        setConfirmDelete(false)
+        await navigate({ to: '/admin/triggers' })
+      },
+      onError: (mutationError) => {
+        toast.error('Failed to delete trigger', { description: getErrorMessage(mutationError) })
+      },
+    })
+  }
 
   return (
-    <AdminPage
-      title={trigger ? getSourceLabel(trigger) : 'Trigger'}
-      description={trigger ? `${trigger.kind} trigger` : undefined}
-      backTo={{ to: '/admin/triggers', label: 'Back to triggers' }}
-      actions={
-        trigger ? (
-          <Button asChild>
-            <Link to="/admin/triggers/$trigger-id/edit" params={{ 'trigger-id': trigger.id }}>
-              Edit
-            </Link>
-          </Button>
-        ) : undefined
-      }
-    >
-      {triggerLoading ? (
-        <div className="flex h-32 items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin" />
-        </div>
-      ) : !trigger ? (
-        <div className="rounded-md border py-12 text-center text-muted-foreground">
-          <p className="font-medium">Trigger not found</p>
-          <p className="text-sm">This trigger may have been deleted.</p>
-        </div>
-      ) : (
-        <div className="space-y-6">
-          <div className="rounded-md border p-4">
-            <h2 className="mb-4 text-sm font-semibold">Trigger</h2>
-            <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <DetailItem label="Kind" value={trigger.kind} />
-              <DetailItem label="Name" value={trigger.name ?? '-'} />
-              <DetailItem label="Scope" value={trigger.scope} />
-              <DetailItem label="Created" value={formatTimestamp(trigger.createdAt)} />
-              <div>
-                <dt className="text-xs font-medium text-muted-foreground">Active</dt>
-                <dd className="mt-1 text-sm">
-                  <Badge variant={trigger.active ? 'default' : 'secondary'}>
-                    {trigger.active ? 'Active' : 'Inactive'}
-                  </Badge>
-                </dd>
-              </div>
-            </dl>
+    <div className="mx-auto max-w-3xl space-y-6 p-6">
+      <DetailHeader
+        title={getSourceLabel(trigger)}
+        subtitle={`${trigger.kind} trigger`}
+        badges={
+          <Badge variant={trigger.active ? 'default' : 'secondary'}>
+            {trigger.active ? 'Active' : 'Inactive'}
+          </Badge>
+        }
+        actions={
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2">
+              <Switch
+                checked={trigger.active}
+                onCheckedChange={handleToggleActive}
+                disabled={updateTrigger.isPending}
+                aria-label="Toggle active"
+              />
+              <span className="text-sm text-muted-foreground">Active</span>
+            </div>
+            <Button asChild variant="outline">
+              <Link to="/admin/triggers/$trigger-id/edit" params={{ 'trigger-id': trigger.id }}>
+                Edit
+              </Link>
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setConfirmDelete(true)}
+              title="Delete"
+              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
           </div>
-          <SourceInfoSection trigger={trigger} connection={connection} />
-          <RuleInfoSection trigger={trigger} />
-          <div className="rounded-md border p-4">
-            <h2 className="mb-4 text-sm font-semibold">Recent Tasks</h2>
-            {tasksLoading ? (
-              <div className="flex h-16 items-center justify-center">
-                <Loader2 className="h-5 w-5 animate-spin" />
-              </div>
-            ) : (
-              <RecentTasksSection items={recentTasks ?? []} />
-            )}
+        }
+      />
+
+      <div className="rounded-md border p-4">
+        <h2 className="mb-4 text-sm font-semibold">Trigger</h2>
+        <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <DetailItem label="Kind" value={trigger.kind} />
+          <DetailItem label="Name" value={trigger.name ?? '-'} />
+          <DetailItem label="Scope" value={trigger.scope} />
+          <DetailItem label="Created" value={formatTimestamp(trigger.createdAt)} />
+        </dl>
+      </div>
+      <SourceInfoSection trigger={trigger} connection={connection} />
+      <RuleInfoSection trigger={trigger} />
+      <div className="rounded-md border p-4">
+        <h2 className="mb-4 text-sm font-semibold">Recent Tasks</h2>
+        {tasksLoading ? (
+          <div className="flex h-16 items-center justify-center">
+            <Loader2 className="h-5 w-5 animate-spin" />
           </div>
-        </div>
-      )}
-    </AdminPage>
+        ) : (
+          <RecentTasksSection items={recentTasks ?? []} />
+        )}
+      </div>
+
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Trigger</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete trigger "{getSourceLabel(trigger)}"? This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteTrigger.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
   )
 }

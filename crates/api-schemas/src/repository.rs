@@ -132,6 +132,12 @@ pub struct CreateRepositoryRequest {
     /// backend's RBAC to provision sandboxes.
     #[serde(default)]
     pub sandbox_service_account: Option<String>,
+    /// Per-repo network profile. When set, sandbox pods carry the label
+    /// `moatless.io/network-profile=<value>`, which a static (GitOps-owned)
+    /// NetworkPolicy can select to govern egress/ingress. The field only selects
+    /// a policy; it grants nothing on its own. Used for sealed benchmark runs.
+    #[serde(default)]
+    pub network_profile: Option<String>,
     pub system_prompt: Option<String>,
     pub description: Option<String>,
     pub provider: Option<RepositoryProvider>,
@@ -176,6 +182,10 @@ pub struct UpdateRepositoryRequest {
     /// the global default when set.
     #[serde(default)]
     pub sandbox_service_account: Option<String>,
+    /// Per-repo network profile — pods carry `moatless.io/network-profile=<value>`
+    /// for a static NetworkPolicy to select. Selects a policy; grants nothing.
+    #[serde(default)]
+    pub network_profile: Option<String>,
     pub system_prompt: Option<String>,
     pub description: Option<String>,
     pub servers: Option<Vec<ServerConfig>>,
@@ -209,6 +219,8 @@ pub struct RepositoryResponse {
     pub docker_access: Option<bool>,
     #[serde(default)]
     pub sandbox_service_account: Option<String>,
+    #[serde(default)]
+    pub network_profile: Option<String>,
     pub system_prompt: Option<String>,
     pub description: Option<String>,
     pub provider: Option<RepositoryProvider>,

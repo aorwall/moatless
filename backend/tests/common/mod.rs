@@ -51,6 +51,13 @@ impl SandboxProvider for MockSandboxProvider {
         Err(SandboxError::Internal("mock: not implemented".into()))
     }
 
+    fn expected_sandbox_image(&self, repo_docker_image: Option<&str>) -> String {
+        repo_docker_image
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| "mock-sandbox:latest".to_string())
+    }
+
     async fn stop(&self, _task_id: &str) -> Result<(), SandboxError> {
         Ok(()) // best-effort in handlers
     }
@@ -154,6 +161,9 @@ pub fn test_config() -> Config {
             docker_dind_cpu_limit: "2".into(),
             docker_dind_memory_request: "1Gi".into(),
             docker_dind_memory_limit: "4Gi".into(),
+            egress_proxy_url: None,
+            egress_proxy_profiles: vec![],
+            egress_proxy_no_proxy: "localhost,.svc.cluster.local".into(),
         },
         docker: DockerConfig {
             network: "moatless".into(),
@@ -176,6 +186,7 @@ pub fn test_config() -> Config {
         database: DatabaseConfig {
             url: None,
             max_connections: 5,
+            run_migrations: true,
         },
         redis: RedisConfig {
             url: None,

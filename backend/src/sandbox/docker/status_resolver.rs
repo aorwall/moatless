@@ -55,6 +55,7 @@ impl DockerStatusResolver {
         let container_name = generate_container_name(task_id);
         let (env_status, environment_error) =
             self.inspect_environment_status(&container_name).await;
+        let current_sandbox_image = self.inspect_current_image(&container_name).await;
         let is_running = env_status == SandboxStatus::Ready;
 
         if is_running {
@@ -78,6 +79,10 @@ impl DockerStatusResolver {
                 runtime_events: None,
                 scheduled_jobs,
                 background_processes,
+                sandbox_desired_state: None,
+                current_sandbox_image,
+                latest_sandbox_image: None,
+                image_up_to_date: None,
             };
         }
 
@@ -102,6 +107,29 @@ impl DockerStatusResolver {
             runtime_events: None,
             scheduled_jobs: Vec::new(),
             background_processes: Vec::new(),
+            sandbox_desired_state: None,
+            current_sandbox_image,
+            latest_sandbox_image: None,
+            image_up_to_date: None,
+        }
+    }
+
+    /// Inspect the sandbox container and return the image it is running.
+    ///
+    /// Best-effort — returns `None` when the container is absent or its image
+    /// can't be read.
+    async fn inspect_current_image(&self, container_name: &str) -> Option<String> {
+        match self
+            .client
+            .docker
+            .inspect_container(container_name, None)
+            .await
+        {
+            Ok(info) => info.config.and_then(|c| c.image),
+            Err(e) => {
+                debug!(container = %container_name, error = %e, "Failed to inspect sandbox image");
+                None
+            }
         }
     }
 

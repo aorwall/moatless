@@ -1,0 +1,169 @@
+{{- /*
+egress-proxy — in-cluster forward proxy (squid) with a hostname allowlist.
+
+Generic, reusable capability. Sandbox pods whose repo `networkProfile` is in
+`.Values.egressProxy.profiles` are pointed here via HTTPS_PROXY by the backend
+and can then reach ONLY the hosts in `.Values.egressProxy.allowedDomains`.
+
+The allowlist is explicit configuration, never guessed:
+  * mode=enforce + empty allowedDomains = FAIL-CLOSED (deny all).
+  * mode=audit allows all egress and logs every destination so the real host
+    set can be harvested:  kubectl -n <sandbox-ns> logs deploy/<name>-egress-proxy
+    Populate allowedDomains from that, switch back to enforce, re-sync.
+
+Renders into the sandbox namespace so the (also in-namespace) sandbox pods can
+reach it while the sealed-egress NetworkPolicy blocks their direct internet
+egress. Squid filters on the CONNECT host / TLS SNI — no TLS termination.
+*/}}
+{{- if and .Values.kubernetes.enabled .Values.egressProxy.enabled }}
+{{- $ep := .Values.egressProxy }}
+{{- $ns := include "moatless-vibe.sandboxNamespace" . }}
+{{- $name := printf "%s-egress-proxy" (include "moatless-vibe.fullname" .) }}
+{{- $mode := $ep.mode | default "enforce" }}
+{{- $image := $ep.image | default "docker.io/ubuntu/squid:6.6-24.04_edge" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "moatless-vibe.labels" . | nindent 4 }}
+    app.kubernetes.io/component: egress-proxy
+  annotations:
+    moatless.io/egress-proxy-mode: {{ $mode | quote }}
+data:
+  allowlist.txt: |
+    {{- range $ep.allowedDomains }}
+    {{ . }}
+    {{- end }}
+    {{- if not $ep.allowedDomains }}
+    # (empty — configure egressProxy.allowedDomains; enforce mode denies all)
+    {{- end }}
+  squid.conf: |
+    http_port {{ $ep.port | default 3128 }}
+    # Non-root (uid 1000): squid's default /run/squid.pid isn't writable. Point
+    # the pid + coredump at the writable emptyDir mounts (/var/run/squid,
+    # /var/spool/squid) so squid can start.
+    pid_filename /var/run/squid/squid.pid
+    coredump_dir /var/spool/squid
+    acl CONNECT method CONNECT
+    acl SSL_ports  port 443
+    acl Safe_ports port 443
+    acl Safe_ports port 80
+    http_access deny !Safe_ports
+    http_access deny CONNECT !SSL_ports
+    {{- if eq $mode "audit" }}
+    # AUDIT MODE — NOT SEALED: allow all + log every destination (discovery run).
+    http_access allow CONNECT SSL_ports
+    http_access allow Safe_ports
+    {{- else }}
+    # ENFORCE MODE — allow only approved hosts; empty allowlist ⇒ deny all.
+    acl approved_domains dstdomain "/etc/squid/allowlist.txt"
+    http_access allow CONNECT approved_domains
+    http_access allow approved_domains
+    {{- end }}
+    http_access deny all
+    cache deny all
+    access_log stdio:/dev/stdout squid
+    cache_log stdio:/dev/stderr
+    visible_hostname {{ $name }}
+    httpd_suppress_version_string on
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "moatless-vibe.labels" . | nindent 4 }}
+    app.kubernetes.io/component: egress-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "moatless-vibe.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: egress-proxy
+  template:
+    metadata:
+      labels:
+        {{- include "moatless-vibe.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: egress-proxy
+      annotations:
+        # Roll the pod whenever the effective squid.conf changes. mode +
+        # allowedDomains cover all runtime config; squid.conf is subPath-mounted
+        # so it does NOT live-update — bump confRev when editing the static
+        # squid.conf lines above so this hash changes and the pod rolls.
+        moatless.io/config-hash: {{ printf "confRev=1|%s|%s" $mode (toString $ep.allowedDomains) | sha256sum | trunc 16 }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: squid
+          image: {{ $image | quote }}
+          imagePullPolicy: IfNotPresent
+          args: ["-N", "-f", "/etc/squid/squid.conf"]
+          ports:
+            - name: proxy
+              containerPort: {{ $ep.port | default 3128 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml $ep.resources | nindent 12 }}
+          readinessProbe:
+            tcpSocket:
+              port: {{ $ep.port | default 3128 }}
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: {{ $ep.port | default 3128 }}
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          volumeMounts:
+            - name: squid-config
+              mountPath: /etc/squid/squid.conf
+              subPath: squid.conf
+              readOnly: true
+            - name: squid-config
+              mountPath: /etc/squid/allowlist.txt
+              subPath: allowlist.txt
+              readOnly: true
+            # Writable runtime dirs so squid starts as non-root (uid 1000).
+            - name: squid-spool
+              mountPath: /var/spool/squid
+            - name: squid-run
+              mountPath: /var/run/squid
+      volumes:
+        - name: squid-config
+          configMap:
+            name: {{ $name }}
+        - name: squid-spool
+          emptyDir: {}
+        - name: squid-run
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "moatless-vibe.labels" . | nindent 4 }}
+    app.kubernetes.io/component: egress-proxy
+spec:
+  selector:
+    {{- include "moatless-vibe.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: egress-proxy
+  ports:
+    - name: proxy
+      port: {{ $ep.port | default 3128 }}
+      targetPort: {{ $ep.port | default 3128 }}
+      protocol: TCP
+{{- end }}

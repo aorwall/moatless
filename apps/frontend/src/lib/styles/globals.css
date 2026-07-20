@@ -83,6 +83,21 @@
   --shadow-2xl: 0 1px 3px 0px hsl(0 0% 0% / 0.25);
   --tracking-normal: 0em;
   --spacing: 0.25rem;
+  /* Syntax highlighting tokens (GitHub-inspired light theme), consumed by
+     features/files/lib/syntax-token.tsx. */
+  --hljs-keyword: #cf222e;
+  --hljs-string: #0a3069;
+  --hljs-number: #0550ae;
+  --hljs-comment: #6e7781;
+  --hljs-function: #8250df;
+  --hljs-class: #953800;
+  --hljs-variable: #24292f;
+  --hljs-operator: #24292f;
+  --hljs-punctuation: #24292f;
+  --hljs-attr: #0550ae;
+  --hljs-tag: #116329;
+  --hljs-built-in: #0550ae;
+  --hljs-meta: #6e7781;
 }
 
 .dark {
@@ -145,6 +160,20 @@
   --shadow-lg: 0 1px 3px 0px hsl(0 0% 0% / 0.1), 0 4px 6px -1px hsl(0 0% 0% / 0.1);
   --shadow-xl: 0 1px 3px 0px hsl(0 0% 0% / 0.1), 0 8px 10px -1px hsl(0 0% 0% / 0.1);
   --shadow-2xl: 0 1px 3px 0px hsl(0 0% 0% / 0.25);
+  /* Syntax highlighting tokens (GitHub-inspired dark theme). */
+  --hljs-keyword: #ff7b72;
+  --hljs-string: #a5d6ff;
+  --hljs-number: #79c0ff;
+  --hljs-comment: #8b949e;
+  --hljs-function: #d2a8ff;
+  --hljs-class: #ffa657;
+  --hljs-variable: #c9d1d9;
+  --hljs-operator: #c9d1d9;
+  --hljs-punctuation: #c9d1d9;
+  --hljs-attr: #79c0ff;
+  --hljs-tag: #7ee787;
+  --hljs-built-in: #79c0ff;
+  --hljs-meta: #8b949e;
 }
 
 @theme inline {
@@ -226,6 +255,12 @@
   html,
   body {
     overscroll-behavior: none;
+  }
+  /* Keep text at its declared size on iOS (never auto-inflate). This keeps form
+     controls reliably at >= 16px so Safari doesn't auto-zoom when they're focused. */
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
   /* Lock the document to the viewport so only inner scroll containers scroll.
      Prevents the whole app from scrolling (header/chat drifting off-screen and

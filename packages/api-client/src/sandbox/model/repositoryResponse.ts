@@ -46,6 +46,8 @@ export interface RepositoryResponse {
   /** @nullable */
   remoteUrl?: string | null;
   resources?: null | ResourceConfig;
+  /** @nullable */
+  sandboxServiceAccount?: string | null;
   scope: Scope;
   /** @nullable */
   serverStartCommands?: string[] | null;

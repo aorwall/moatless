@@ -79,6 +79,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db_pool = startup::init_database(
         config.database_url.as_deref(),
         config.database.max_connections,
+        config.database.run_migrations,
     )
     .await;
     let event_publisher = startup::init_event_publisher(&config).await;
@@ -512,6 +513,10 @@ async fn request_trace_middleware(
 
 /// Spawn the Redis event-handler consumer if Redis is configured.
 async fn spawn_event_handler(config: &Config, app_state: &AppState, cancel: CancellationToken) {
+    if !config.redis.event_handler_enabled {
+        info!("Event handler consumer disabled (EVENT_HANDLER_ENABLED=false)");
+        return;
+    }
     let Some(ref redis_url) = config.redis.url else {
         return;
     };

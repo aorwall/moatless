@@ -26,6 +26,9 @@ pub struct MoatlessRepoConfig {
     /// global default. Security: the named SA must exist and be RBAC-bound in the
     /// sandbox namespace — this field only selects it, it grants nothing on its own.
     pub sandbox_service_account: Option<String>,
+    /// Per-repo network profile — pods carry `moatless.io/network-profile=<value>`
+    /// for a static NetworkPolicy to select. Selects a policy; grants nothing.
+    pub network_profile: Option<String>,
 }
 
 /// Code execution settings.
@@ -286,9 +289,12 @@ pub fn config_to_patch(config: &MoatlessRepoConfig) -> Result<RepositoryPatch, R
         .as_ref()
         .map(|s| Some(s.clone()));
 
+    let network_profile = config.network_profile.as_ref().map(|s| Some(s.clone()));
+
     Ok(RepositoryPatch {
         docker_image,
         sandbox_service_account,
+        network_profile,
         system_prompt,
         servers,
         setup_commands,
@@ -372,6 +378,7 @@ mod tests {
             system_prompt: Some("Be helpful".to_string()),
             resources: None,
             sandbox_service_account: Some("moatless-dev".to_string()),
+            network_profile: None,
         };
 
         let patch = config_to_patch(&config).unwrap();
@@ -490,6 +497,7 @@ mod tests {
             system_prompt: None,
             resources: None,
             sandbox_service_account: None,
+            network_profile: None,
         };
 
         let patch = config_to_patch(&config).unwrap();

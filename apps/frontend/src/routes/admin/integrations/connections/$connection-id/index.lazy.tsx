@@ -1,20 +1,11 @@
 import { createLazyFileRoute } from '@tanstack/react-router'
 import { Loader2 } from 'lucide-react'
-import { AdminPage } from '@/features/admin'
 import { useIntegrationConnections } from '@/features/integrations/hooks/use-integrations'
-import { DetailItem } from '@/features/settings/components/detail-item'
-
-const ADAPTER_LABELS: Record<string, string> = {
-  slack: 'Slack',
-  telegram: 'Telegram',
-  github: 'GitHub',
-  linear: 'Linear',
-  webhook: 'Webhook',
-}
-
-function getAdapterLabel(adapter: string): string {
-  return ADAPTER_LABELS[adapter] ?? adapter
-}
+import { getAdapterLabel } from '@/features/integrations/utils/trigger-display'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/components/ui/card'
+import { DetailHeader } from '@/lib/components/ui/detail-header'
+import { DetailItem } from '@/lib/components/ui/detail-item'
+import { DetailNotFound } from '@/lib/components/ui/detail-not-found'
 
 function formatTimestamp(value: string | null | undefined): string {
   if (!value) {
@@ -37,32 +28,48 @@ function ConnectionDetailPage() {
   const { data: connections, isLoading } = useIntegrationConnections()
   const connection = connections?.find((item) => item.id === connectionId)
 
+  if (isLoading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (!connection) {
+    return (
+      <DetailNotFound
+        title="Connection not found"
+        description="This connection may have been deleted."
+      />
+    )
+  }
+
   return (
-    <AdminPage
-      title={connection?.externalAccountId ?? 'Connection'}
-      description={connection ? `${getAdapterLabel(connection.adapterKind)} connection` : undefined}
-      backTo={{ to: '/admin/integrations/connections', label: 'Back to connections' }}
-    >
-      {isLoading ? (
-        <div className="flex h-32 items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin" />
-        </div>
-      ) : !connection ? (
-        <div className="rounded-md border py-12 text-center text-muted-foreground">
-          <p className="font-medium">Connection not found</p>
-          <p className="text-sm">This connection may have been deleted.</p>
-        </div>
-      ) : (
-        <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2 rounded-md border p-4">
+    <div className="mx-auto max-w-2xl space-y-6 p-6">
+      <DetailHeader
+        title={connection.externalAccountId}
+        subtitle={`${getAdapterLabel(connection.adapterKind)} connection`}
+      />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Details</CardTitle>
+          <CardDescription>Connection identity and audit details (read-only).</CardDescription>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <DetailItem label="Adapter" value={getAdapterLabel(connection.adapterKind)} />
           <DetailItem label="Connection Kind" value={connection.connectionKind} />
-          <DetailItem label="External Account ID" value={connection.externalAccountId} />
+          <DetailItem
+            label="External Account ID"
+            value={<span className="break-all">{connection.externalAccountId}</span>}
+          />
           <DetailItem label="Scope" value={connection.scope} />
           <DetailItem label="Team ID" value={connection.teamId ?? '-'} />
           <DetailItem label="Created" value={formatTimestamp(connection.createdAt)} />
           <DetailItem label="Updated" value={formatTimestamp(connection.updatedAt)} />
-        </dl>
-      )}
-    </AdminPage>
+        </CardContent>
+      </Card>
+    </div>
   )
 }

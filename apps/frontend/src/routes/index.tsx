@@ -3,7 +3,6 @@ import { useCallback, useState } from 'react'
 import { z } from 'zod'
 import { useAuth } from '@/features/auth/hooks/use-auth'
 import { TopBar } from '@/features/navigation/components/top-bar'
-import { RepositoriesConfigurationDialog } from '@/features/repositories'
 import { SettingsDialog } from '@/features/settings'
 import { TaskDashboard } from '@/features/tasks/components/dashboard'
 import type { DashboardSearchParams } from '@/features/tasks/components/dashboard/task-filters'
@@ -23,7 +22,6 @@ export const Route = createFileRoute('/')({
 })
 
 function Dashboard() {
-  const [repositoriesOpen, setRepositoriesOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const search = Route.useSearch()
   const navigate = useNavigate({ from: '/' })
@@ -39,7 +37,7 @@ function Dashboard() {
   return (
     <div className="flex flex-col h-full">
       <TopBar
-        onRepositoriesClick={() => setRepositoriesOpen(true)}
+        onRepositoriesClick={() => navigate({ to: '/admin/repositories' })}
         onSettingsClick={() => setSettingsOpen(true)}
       />
       <div className="flex-1 overflow-auto">
@@ -53,7 +51,6 @@ function Dashboard() {
           onSearchChange={handleSearchChange}
         />
       </div>
-      <RepositoriesConfigurationDialog open={repositoriesOpen} onOpenChange={setRepositoriesOpen} />
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
   )

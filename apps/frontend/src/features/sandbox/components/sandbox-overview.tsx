@@ -37,12 +37,18 @@ function statusBadgeVariant(
   }
 }
 
-function agentBadgeVariant(state: string | undefined): 'default' | 'secondary' | 'outline' {
+function agentBadgeVariant(
+  state: string | undefined,
+): 'default' | 'secondary' | 'destructive' | 'outline' {
   switch (state) {
     case 'running':
       return 'default'
     case 'idle':
       return 'secondary'
+    // Sandbox is ready but the agent could not be reached over gRPC — surface it
+    // as a problem rather than a benign idle/none.
+    case 'unknown':
+      return 'destructive'
     default:
       return 'outline'
   }

@@ -50,6 +50,26 @@ function createEventStreamFetch(events: object[]) {
   return createStreamFetch(lines)
 }
 
+/**
+ * Builds a fresh streamed Response for the given NDJSON lines. Each call returns
+ * a new ReadableStream (streams are single-use), so this is safe to hand back
+ * from a fetch mock on every invocation.
+ */
+function streamResponse(lines: string[]) {
+  const encoder = new TextEncoder()
+  return {
+    ok: true,
+    body: new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const line of lines) {
+          controller.enqueue(encoder.encode(`${line}\n`))
+        }
+        controller.close()
+      },
+    }),
+  }
+}
+
 /** Minimal wrapper that provides QueryClient + GlobalEventStreamProvider */
 function renderWithProviders(children: React.ReactNode, queryClient: QueryClient) {
   return render(
@@ -245,5 +265,70 @@ describe('GlobalEventStreamProvider — query invalidation (unit)', () => {
     expect(queryClient.invalidateQueries).not.toHaveBeenCalledWith(
       expect.objectContaining({ queryKey: queryKeys.tasks.lists() }),
     )
+  })
+})
+
+describe('GlobalEventStreamProvider — reconnect invalidation (unit)', () => {
+  let queryClient: QueryClient
+
+  beforeEach(() => {
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    })
+    vi.spyOn(queryClient, 'invalidateQueries')
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+    vi.restoreAllMocks()
+  })
+
+  it('does not blanket-invalidate active queries on the initial connect', async () => {
+    // A stream that ends without a server `close` event → no reconnect scheduled.
+    global.fetch = vi.fn().mockImplementation(() => Promise.resolve(streamResponse([]))) as any
+
+    renderWithProviders(<div />, queryClient)
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1), { timeout: 2000 })
+
+    // The reconnect-only, unfiltered active refetch must never fire on first connect.
+    expect(queryClient.invalidateQueries).not.toHaveBeenCalledWith({ refetchType: 'active' })
+  })
+
+  it('blanket-invalidates active queries after a reconnect', async () => {
+    // First connect receives a server `close` (triggers reconnect); the reconnect
+    // receives an empty stream that just ends (no further reconnect).
+    let call = 0
+    global.fetch = vi.fn().mockImplementation(() => {
+      call += 1
+      const lines = call === 1 ? [JSON.stringify({ type: 'close' })] : []
+      return Promise.resolve(streamResponse(lines))
+    }) as any
+
+    renderWithProviders(<div />, queryClient)
+
+    // Wait for the reconnect (second fetch) to fire — backoff is ~1000ms.
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(2), { timeout: 3000 })
+
+    await waitFor(
+      () => {
+        // Reconnect invalidates every active query with no queryKey filter.
+        expect(queryClient.invalidateQueries).toHaveBeenCalledWith({ refetchType: 'active' })
+      },
+      { timeout: 2000 },
+    )
+
+    // Exactly one blanket active refetch (from the single reconnect), and it
+    // carried no queryKey — targeted handlers always pass a queryKey.
+    const blanketCalls = (
+      queryClient.invalidateQueries as ReturnType<typeof vi.fn>
+    ).mock.calls.filter((callArgs) => {
+      const arg = callArgs[0] as { refetchType?: string; queryKey?: unknown } | undefined
+      return arg?.refetchType === 'active' && arg?.queryKey === undefined
+    })
+    expect(blanketCalls).toHaveLength(1)
   })
 })

@@ -10,6 +10,7 @@ import type { BackgroundProcess } from './backgroundProcess';
 import type { ContainerDiagnostics } from './containerDiagnostics';
 import type { ResourceMetrics } from './resourceMetrics';
 import type { RuntimeEvent } from './runtimeEvent';
+import type { SandboxDesiredState } from './sandboxDesiredState';
 import type { SandboxState } from './sandboxState';
 import type { SandboxStatus } from './sandboxStatus';
 import type { ScheduledJobInfo } from './scheduledJobInfo';
@@ -26,12 +27,33 @@ running in the sandbox. Empty when idle with no background work. */
   canExecute: boolean;
   /** @nullable */
   containerDiagnostics?: ContainerDiagnostics[] | null;
+  /**
+   * Image the currently-provisioned sandbox container is running, read from
+the live Deployment/container. `None` when no sandbox exists yet.
+   * @nullable
+   */
+  currentSandboxImage?: string | null;
   /** @nullable */
   environmentError?: string | null;
   environmentStatus: SandboxStatus;
+  /**
+   * `true` when `current_sandbox_image` matches `latest_sandbox_image`.
+`None` when either image is unknown (e.g. no sandbox provisioned).
+   * @nullable
+   */
+  imageUpToDate?: boolean | null;
+  /**
+   * Image a fresh (re)deploy would use for the sandbox container: the
+per-repo `docker_image` override when set, otherwise the configured
+default. Compare against `current_sandbox_image` to know whether a
+redeploy would change the image.
+   * @nullable
+   */
+  latestSandboxImage?: string | null;
   resources?: null | ResourceMetrics;
   /** @nullable */
   runtimeEvents?: RuntimeEvent[] | null;
+  sandboxDesiredState?: null | SandboxDesiredState;
   sandboxReady: boolean;
   sandboxState: SandboxState;
   scheduledJobs?: ScheduledJobInfo[];

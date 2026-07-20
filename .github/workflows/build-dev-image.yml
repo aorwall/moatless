@@ -1,0 +1,58 @@
+# On-demand build of the precompiled shadow-dev sandbox image (moatless-dev).
+#
+# docker/Dockerfile.sandbox-dev FROMs the runtime moatless-sandbox image and
+# bakes warm dependency caches (cargo target + registry, bun install cache) so a
+# fresh provision of the "moatless-vibe (shadow)" dev repo recompiles only the
+# changed workspace crates instead of building the whole world (~6-10 min cold).
+# See scripts/shadow/README.md.
+#
+# This is intentionally a SEPARATE, manual job — NOT part of the push-to-main
+# cd-ecr.yml flow — because the dev image is a heavy (multi-GB) build used only
+# by the opt-in shadow repo. Run it by hand from the Actions tab when the base
+# sandbox image or the shadow-dev dependency set has meaningfully changed. It
+# publishes `moatless-dev:latest` (mutable), which the shadow repo's dockerImage
+# points at, so a rebuild is picked up on the next provision with no config wiring.
+#
+# OIDC trust: GHA-ECRPush-moatless, which trusts this repo AND the reusable
+# workflow ref (build-push-ecr.yml@refs/heads/main). See soaplabs/soap-infra
+# `terraform/platform/ecr/services.yaml` (moatless-dev is in the moatless
+# service's ecr_repos).
+
+name: Build dev sandbox image
+
+on:
+  workflow_dispatch:
+    inputs:
+      sandbox-tag:
+        description: 'moatless-sandbox base image tag to build FROM'
+        type: string
+        default: 'latest'
+      dev-tag:
+        description: 'Tag to publish moatless-dev as (also always tagged latest)'
+        type: string
+        default: 'latest'
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: build-dev-image
+  cancel-in-progress: false
+
+jobs:
+  publish-sandbox-dev:
+    uses: soaplabs/soap-platform-ci/.github/workflows/build-push-ecr.yml@main
+    with:
+      service-name: moatless
+      ecr-repository: moatless-dev
+      image-tag: ${{ inputs.dev-tag }}
+      dockerfile: docker/Dockerfile.sandbox-dev
+      tag-latest: true
+      build-args: |
+        SANDBOX_IMAGE=111111111111.dkr.ecr.eu-north-1.amazonaws.com/moatless-sandbox:${{ inputs.sandbox-tag }}
+        SOURCE_COMMIT=${{ github.sha }}
+      cache-mode: gha
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
