@@ -37,8 +37,15 @@ async fn agent_execution_and_multi_turn() {
     let req = CreateTaskRequest {
         repository_id: repo_id.clone(),
         workspace_id: None,
+        // The location is pinned to the working directory because that is the
+        // root the file API resolves against. Left unpinned, the agent
+        // reasonably writes into the cloned repo subdirectory and the read
+        // below 404s on a file that was created correctly.
         message: Some(
-            "Create a file called e2e-success.txt with the content 'E2E Test Success'".into(),
+            "Create a file named e2e-success.txt directly in your current working \
+             directory — not inside the cloned repository subdirectory — with the \
+             content 'E2E Test Success'"
+                .into(),
         ),
         name: Some("Agent Execution E2E".into()),
         branch: None,
@@ -125,7 +132,9 @@ async fn agent_execution_and_multi_turn() {
     // AGENT-02.2: Send follow-up message (multi-turn)
     let follow_up = SendMessageRequest {
         message:
-            "Create another file called e2e-multiturn.txt with the content 'Multi-Turn Success'"
+            "Create another file named e2e-multiturn.txt directly in your current working \
+             directory — not inside the cloned repository subdirectory — with the content \
+             'Multi-Turn Success'"
                 .into(),
         agent_mode: None,
         command_name: None,

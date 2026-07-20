@@ -2,9 +2,12 @@ import type { UiMessage } from '@moatless/api-client'
 
 /**
  * Extended UiMessage type that includes subagent messages.
+ *
+ * Keyed by the spawning Agent tool call: one assistant message can launch
+ * several subagents in parallel, and each tool call renders its own transcript.
  */
 export interface UiMessageWithSubagents extends UiMessage {
-  subagentMessages?: UiMessage[]
+  subagentsByToolUseId?: Record<string, UiMessage[]>
 }
 
 /**
@@ -60,7 +63,10 @@ function attachSubagentMessages(
       if (block.type === 'tool_use' && block.toolName === 'Agent' && block.toolUseId) {
         const subagentMsgs = subagentMap.get(block.toolUseId)
         if (subagentMsgs && subagentMsgs.length > 0) {
-          msg.subagentMessages = subagentMsgs
+          msg.subagentsByToolUseId = {
+            ...msg.subagentsByToolUseId,
+            [block.toolUseId]: subagentMsgs,
+          }
         }
       }
     }

@@ -21,7 +21,7 @@ export function renderCollapsedMessage(
   onToggleToolCall: (toolUseId: string) => void,
   hasPendingUserInput: boolean | null | undefined,
   externalSource: UiMessage['externalSource'] | null | undefined,
-  subagentMessages?: UiMessage[],
+  subagentsByToolUseId?: Record<string, UiMessage[]>,
   parentMessageUuid?: string,
 ): React.ReactNode {
   return (
@@ -77,7 +77,7 @@ export function renderCollapsedMessage(
               expandedToolCalls,
               onToggleToolCall,
               hasPendingUserInput,
-              subagentMessages,
+              subagentsByToolUseId,
               parentMessageUuid,
             )}
           </div>

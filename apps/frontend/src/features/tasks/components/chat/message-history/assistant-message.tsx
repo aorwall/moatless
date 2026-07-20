@@ -91,7 +91,7 @@ export function AssistantMessageComponent({
       onToggleToolCall,
       message.hasPendingUserInput,
       message.externalSource,
-      message.subagentMessages,
+      message.subagentsByToolUseId,
       message.uuid,
     )
   }
@@ -119,7 +119,7 @@ export function AssistantMessageComponent({
         expandedToolCalls,
         onToggleToolCall,
         message.hasPendingUserInput,
-        message.subagentMessages,
+        message.subagentsByToolUseId,
         message.uuid,
       )}
     </div>
