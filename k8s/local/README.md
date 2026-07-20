@@ -101,10 +101,10 @@ helm install moatless-vibe ./k8s/helm/moatless-vibe -n moatless -f k8s/local/val
 kubectl -n moatless logs deploy/moatless-vibe-backend | grep "Database migrations complete"
 
 # App reachable through Traefik as the auto-created local-user.
-curl -H 'Host: vibe.localhost' localhost/api/v1/auth/me      # 200
+curl -H 'Host: moatless.localhost' localhost/api/v1/auth/me      # 200
 ```
 
-Open `http://vibe.localhost` and you are in.
+Open `http://moatless.localhost` and you are in.
 
 ## 6. First run — credential, repo, task
 
@@ -122,7 +122,7 @@ Open `http://vibe.localhost` and you are in.
   one omitting `provider` and passing `servers` explicitly:
 
   ```bash
-  curl -X POST -H 'Host: vibe.localhost' -H 'Content-Type: application/json' \
+  curl -X POST -H 'Host: moatless.localhost' -H 'Content-Type: application/json' \
     -H 'X-User-Id: local-user' -H 'X-User-Role: admin' \
     localhost/api/v1/repositories \
     -d '{"name":"local-smoke","remoteUrl":"https://github.com/aorwall/moatable","defaultBranch":"main","kind":"remote","servers":[]}'
@@ -138,12 +138,12 @@ Open `http://vibe.localhost` and you are in.
 
   ```bash
   RID=<repository id from the create response>
-  curl -X POST -H 'Host: vibe.localhost' -H 'Content-Type: application/json' \
+  curl -X POST -H 'Host: moatless.localhost' -H 'Content-Type: application/json' \
     -H 'X-User-Id: local-user' -H 'X-User-Role: admin' \
     localhost/api/v1/tasks -d "{\"name\":\"smoke\",\"repositoryId\":\"$RID\"}"
 
   kubectl -n moatless get pods    # moatless-ws-<task-id> reaches 1/1 Running
-  curl -H 'Host: vibe.localhost' -H 'X-User-Id: local-user' \
+  curl -H 'Host: moatless.localhost' -H 'X-User-Id: local-user' \
     localhost/api/v1/tasks/<task-id>   # environmentStatus: ready
   ```
 
@@ -189,11 +189,11 @@ Run the Vite dev server (hot reload) while the backend, DB, and sandboxes stay
 in the cluster — set `apps/frontend/.env.local`:
 
 ```
-VITE_REMOTE_API=http://vibe.localhost
+VITE_REMOTE_API=http://moatless.localhost
 ```
 
 then `bun run dev` and open `http://localhost:3000`. The dev server proxies
-`/api` to Traefik; `changeOrigin` supplies the `Host: vibe.localhost` header the
+`/api` to Traefik; `changeOrigin` supplies the `Host: moatless.localhost` header the
 IngressRoute matches on. No API key — local auth resolves every request to
 `local-user`/`admin`.
 

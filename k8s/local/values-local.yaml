@@ -63,7 +63,7 @@ ingress:
   # host from ingress.hosts[0].host regardless of the enable flag. Omit it and all
   # 7 routes fall back to vibe.example.com and match nothing.
   hosts:
-    - host: vibe.localhost
+    - host: moatless.localhost
       paths:
         - path: /
           pathType: Prefix
