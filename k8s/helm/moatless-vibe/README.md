@@ -1,188 +1,177 @@
 # Moatless Vibe Helm Chart
 
-A Helm chart for deploying Moatless Vibe - an AI-powered development platform.
+A Helm chart for deploying Moatless Vibe — an AI-powered development platform.
 
 ## Prerequisites
 
 - Kubernetes 1.19+
 - Helm 3.0+
-- Redis 7.0+ (required for event streaming)
-- PostgreSQL 14+ (for production deployments)
+- Traefik with its `IngressRoute` CRDs (the app routing and per-sandbox preview
+  routes use them)
+- PostgreSQL 14+ and Redis 7+ — either the chart's bundled first-party instances
+  (dev/testing) or external managed services (production)
 
-## Redis Configuration
+## Data stores
 
-**Redis is required** for event streaming between the main application and sandbox pods. You have three deployment options:
+The chart can either stand up its own single-node Postgres and Redis, or point at
+external managed services.
 
-### Option 1: Deploy Redis with Chart (Development/Testing)
+### Redis (required for event streaming)
 
-The chart includes an optional Redis deployment using the Bitnami Redis subchart. This is suitable for development and testing environments.
+| Mode | Values |
+|---|---|
+| Bundled (default) | `redis.enabled: true`, `redis.url: ""` — deploys a first-party single-node Redis (`redis:7-alpine`, multi-arch) and resolves the backend's `REDIS_URL` to `redis://{release}-redis-master:6379`. |
+| External (production) | `redis.enabled: false`, `redis.url: "redis://<host>:6379"` — no Redis is deployed; the backend uses the given URL. |
 
-```bash
-# Install with bundled Redis
-helm install moatless ./k8s/helm/moatless-vibe \
-  --set redis.enabled=true \
-  --set secrets.create=true \
-  --set secrets.anthropicApiKey="your-api-key" \
-  --set secrets.githubToken="your-github-token"
-```
+The bundled Redis is single-node with an ephemeral data dir — fine for dev, not
+for production. For production use a managed Redis (AWS ElastiCache, Azure Cache
+for Redis, GCP Memorystore) and set `redis.url`.
 
-**Configuration:**
-```yaml
-redis:
-  enabled: true
-  auth:
-    enabled: false  # For development only
-  master:
-    persistence:
-      enabled: true
-      size: 1Gi
-  replica:
-    replicaCount: 1
-```
+### Postgres (required)
 
-**⚠️ Warning:** The bundled Redis deployment is NOT recommended for production. Use a managed Redis service instead.
+| Mode | Values |
+|---|---|
+| Bundled | `postgres.enabled: true` — deploys a first-party single-node Postgres (`postgres:17-alpine`, multi-arch) and sets the backend's `DATABASE_URL` to the in-cluster Service. |
+| External (default) | `postgres.enabled: false` — supply `DATABASE_URL` in the Secret. |
 
-### Option 2: Use Managed Redis (Production - Recommended)
+The schema is created automatically at boot by the sqlx migrations compiled into
+the backend (`backend/migrations/`), which run and fail-fast on startup. The
+bundled Postgres defaults to an ephemeral data dir; set
+`postgres.persistence.enabled: true` for a PVC-backed database.
 
-For production deployments, use a managed Redis service from your cloud provider:
+## Secrets
 
-#### AWS ElastiCache for Redis
+The backend reads three keys from `Secret/{release}-secrets` (or an external
+Secret named by `externalSecrets.secretName`):
 
-```bash
-# 1. Create ElastiCache cluster (Terraform example)
-resource "aws_elasticache_replication_group" "redis" {
-  replication_group_id       = "moatless-redis"
-  description                = "Redis for Moatless Vibe event streaming"
-  engine                     = "redis"
-  engine_version             = "7.0"
-  node_type                  = "cache.t4g.small"
-  number_cache_clusters      = 2
-  automatic_failover_enabled = true
-  multi_az_enabled           = true
-  at_rest_encryption_enabled = true
-  transit_encryption_enabled = false  # Set to true if using AUTH
-}
+| Key | Required | Notes |
+|---|---|---|
+| `DATABASE_URL` | Yes, unless `postgres.enabled: true` | Postgres connection string. With the bundled Postgres the chart sets `DATABASE_URL` for you. |
+| `SECRETS_ENCRYPTION_KEY` | Yes | Master key for credential encryption at rest. The backend refuses to boot without it. `openssl rand -base64 32`. |
+| `TASK_TOKEN_SECRET` | Yes | HMAC for task-scoped backend↔sandbox JWTs. Every sandbox provision fails without it. `openssl rand -hex 32`. |
 
-# 2. Install chart with ElastiCache endpoint
-helm install moatless ./k8s/helm/moatless-vibe \
-  --set redis.url="redis://moatless-redis.abc123.use1.cache.amazonaws.com:6379" \
-  --set secrets.create=true \
-  --set secrets.anthropicApiKey="your-api-key" \
-  --set secrets.githubToken="your-github-token" \
-  --set secrets.databaseUrl="postgresql://user:pass@host:5432/db"
-```
+Provide the Secret one of three ways:
 
-#### Azure Cache for Redis
+**Hand-made Secret (recommended):** keep `secrets.create: false` and create it out
+of band.
 
 ```bash
-# With authentication
-helm install moatless ./k8s/helm/moatless-vibe \
-  --set redis.url="redis://:password@my-cache.redis.cache.windows.net:6380" \
-  --set secrets.create=true \
-  --set secrets.anthropicApiKey="your-api-key"
+kubectl create secret generic moatless-secrets \
+  --namespace <ns> \
+  --from-literal=DATABASE_URL="postgres://user:pass@host:5432/db" \
+  --from-literal=SECRETS_ENCRYPTION_KEY="$(openssl rand -base64 32)" \
+  --from-literal=TASK_TOKEN_SECRET="$(openssl rand -hex 32)"
+# Omit DATABASE_URL when postgres.enabled=true.
 ```
 
-#### Google Cloud Memorystore
+**Chart-created Secret (testing only):** set `secrets.create: true` and supply
+`secrets.databaseUrl`, `secrets.encryptionKey`, `secrets.taskTokenSecret`.
 
-```bash
-helm install moatless ./k8s/helm/moatless-vibe \
-  --set redis.url="redis://10.0.0.3:6379" \
-  --set secrets.create=true \
-  --set secrets.anthropicApiKey="your-api-key"
-```
+**External secret manager:** set `externalSecrets.enabled: true` and
+`externalSecrets.secretName`.
 
-### Option 3: Use Existing Redis Cluster
-
-If you already have a Redis deployment in your cluster:
-
-```bash
-helm install moatless ./k8s/helm/moatless-vibe \
-  --set redis.url="redis://my-redis-service.default.svc.cluster.local:6379" \
-  --set secrets.create=true \
-  --set secrets.anthropicApiKey="your-api-key"
-```
+> Agent credentials (`CLAUDE_CODE_OAUTH_TOKEN` / `ANTHROPIC_API_KEY`) are **not**
+> chart-installable. They are read only from the encrypted DB, per task, and set
+> at runtime via Settings → Secrets. Do not seed a cluster-wide key.
+>
+> `extraSecretEnv` is an escape hatch for additional secret env vars (e.g. OAuth
+> client secrets) — each key is stored in the Secret and injected into the backend.
 
 ## Installation
 
-### Quick Start (Development)
+### Dev / testing (bundled Postgres + Redis)
 
 ```bash
-# 1. Update Helm dependencies (required for Redis subchart)
-helm dependency update ./k8s/helm/moatless-vibe
+# Create the app Secret (DATABASE_URL omitted — the bundled Postgres provides it)
+kubectl create secret generic moatless-secrets \
+  --from-literal=SECRETS_ENCRYPTION_KEY="$(openssl rand -base64 32)" \
+  --from-literal=TASK_TOKEN_SECRET="$(openssl rand -hex 32)"
 
-# 2. Install with bundled Redis
 helm install moatless ./k8s/helm/moatless-vibe \
+  --set postgres.enabled=true \
   --set redis.enabled=true \
-  --set secrets.create=true \
-  --set secrets.anthropicApiKey="sk-ant-..." \
-  --set secrets.githubToken="ghp_..." \
-  --set ingress.hosts[0].host=vibe.local \
-  --set proxyIngress.host="*.preview.local"
+  --set ingress.hosts[0].host=vibe.example.com
 ```
 
-### Production Installation
+### Production (external Postgres + Redis)
 
 ```bash
-# 1. Create secrets (recommended: use external secrets manager)
 kubectl create secret generic vibe-secrets \
-  --from-literal=ANTHROPIC_API_KEY="sk-ant-..." \
-  --from-literal=GITHUB_TOKEN="ghp_..." \
-  --from-literal=SANDBOX_API_KEY="$(openssl rand -base64 32)" \
-  --from-literal=DATABASE_URL="postgresql://user:pass@host:5432/db"
+  --from-literal=DATABASE_URL="postgres://user:pass@host:5432/db" \
+  --from-literal=SECRETS_ENCRYPTION_KEY="$(openssl rand -base64 32)" \
+  --from-literal=TASK_TOKEN_SECRET="$(openssl rand -hex 32)"
 
-# 2. Update Helm dependencies
-helm dependency update ./k8s/helm/moatless-vibe
-
-# 3. Install with production values
 helm install moatless ./k8s/helm/moatless-vibe \
+  --set redis.enabled=false \
   --set redis.url="redis://your-redis-endpoint:6379" \
   --set externalSecrets.enabled=true \
   --set externalSecrets.secretName=vibe-secrets \
+  --set ingress.className=alb \
   --set ingress.hosts[0].host=vibe.example.com \
   --set proxyIngress.host="*.preview.example.com"
 ```
 
+### Local single-node cluster
+
+For a full local bring-up on Docker Desktop Kubernetes (native arm64 images,
+first-party Postgres + Redis, `*.localhost` routing through Traefik), use the
+committed config and runbook in [`k8s/local/`](../../local/README.md). Install
+with:
+
+```bash
+helm install moatless ./k8s/helm/moatless-vibe -n moatless -f k8s/local/values-local.yaml
+```
+
 ## Configuration
 
-### Redis Parameters
+### Redis
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `redis.enabled` | Deploy Redis with chart | `false` |
-| `redis.url` | External Redis connection URL | `""` |
-| `redis.auth.enabled` | Enable Redis authentication | `false` |
-| `redis.master.persistence.enabled` | Enable persistence for master | `true` |
-| `redis.master.persistence.size` | Storage size for master | `1Gi` |
-| `redis.replica.replicaCount` | Number of Redis replicas | `1` |
+| `redis.enabled` | Deploy the bundled first-party Redis | `true` |
+| `redis.url` | External Redis URL (used when set; required when `enabled: false`) | `""` |
+| `redis.image` | Bundled Redis image | `redis:7-alpine` |
+| `redis.maxmemory` | `--maxmemory` cap (paired with `--maxmemory-policy noeviction`) | `768mb` |
 
-### Application Parameters
+### Postgres
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `replicaCount` | Number of API replicas | `1` |
-| `image.repository` | API image repository | `aorwall/moatless-frontend` |
+| `postgres.enabled` | Deploy the bundled first-party Postgres | `false` |
+| `postgres.image` | Bundled Postgres image | `postgres:17-alpine` |
+| `postgres.auth.username` / `password` / `database` | Credentials + DB the container creates | `moatless` |
+| `postgres.service.name` | Service name (the `DATABASE_URL` host) | `postgres` |
+| `postgres.persistence.enabled` | PVC-backed data dir instead of emptyDir | `false` |
+
+### Database / Secrets
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `database.urlSecretKey` | Secret key holding `DATABASE_URL` | `DATABASE_URL` |
+| `secrets.create` | Create the app Secret from values (testing only) | `false` |
+| `externalSecrets.enabled` | Use an existing Secret | `false` |
+| `externalSecrets.secretName` | Name of the existing Secret | `vibe-secrets` |
+
+### Application
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `replicaCount` | Number of frontend replicas | `1` |
+| `image.repository` | Frontend (nginx) image repository | `aorwall/moatless-frontend` |
 | `image.tag` | Image tag | Chart `appVersion` |
+| `backend.image.repository` | Backend image repository | `aorwall/moatless-backend` |
 | `sandboxImage.repository` | Sandbox image repository | `aorwall/moatless-sandbox` |
 
-### Database Parameters
-
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `database.provider` | Database provider (sqlite or postgres) | `postgres` |
-| `database.urlSecretKey` | Secret key for DATABASE_URL | `DATABASE_URL` |
-
-### Kubernetes Execution
+### Kubernetes execution
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `kubernetes.enabled` | Enable Kubernetes execution mode | `true` |
 | `kubernetes.namespace` | Namespace for sandbox pods | Release namespace |
 | `kubernetes.sandboxStorage.enabled` | Enable per-task PVC | `true` |
-| `kubernetes.sandboxStorage.size` | Default workspace size for per-task PVC and emptyDir tiers (per-repo override via `.moatless/config.json` → `resources.storage`) | `3Gi` |
-| `kubernetes.sandboxCacheHostRoot` | Host root for node-local sandbox caches and best-effort workspace/docker storage | `/mnt/cache` |
-| `kubernetes.nodeStorageJanitor.enabled` | Enable per-node cleanup for stale node-local workspace/docker directories | `true` |
-| `kubernetes.nodeStorageJanitor.retentionHours` | Age threshold before per-task node-local directories are pruned | `168` |
-| `kubernetes.transcriptStorage.prefix` | S3 key prefix for synced Claude transcripts (`<prefix>/<task_id>/transcripts.tar`) | `transcripts` |
+| `kubernetes.sandboxStorage.defaultMode` | Default workspace tier (`ebs`/`ephemeral`/`s3`/`node`) | `s3` |
+| `kubernetes.imagePrepull.enabled` | DaemonSet that pre-pulls the sandbox image | `true` |
+| `kubernetes.nodeStorageJanitor.enabled` | Per-node cleanup of stale workspace/docker dirs | `true` |
 
 #### Claude transcript persistence on S3
 
@@ -296,110 +285,67 @@ repo's sandboxes run elevated. See `scripts/shadow/README.md` for the full flow.
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `ingress.enabled` | Enable main ingress | `true` |
-| `ingress.className` | Ingress class name | `""` |
-| `ingress.hosts[0].host` | API hostname | `vibe.example.com` |
-| `proxyIngress.enabled` | Enable proxy ingress | `true` |
+| `ingress.enabled` | Emit the main Ingress object | `true` |
+| `ingress.hosts[0].host` | App hostname (also read by the Traefik IngressRoutes) | `vibe.example.com` |
+| `proxy.traefikIngressRoute.enabled` | Emit the app's Traefik IngressRoute CRDs | `false` |
+| `proxyIngress.enabled` | Emit the wildcard preview Ingress | `true` |
 | `proxyIngress.host` | Wildcard host for previews | `*.preview.example.com` |
 
-## Redis Requirements
+> The Traefik IngressRoutes read the app host from `ingress.hosts[0].host`
+> regardless of `ingress.enabled`. Keep `ingress.hosts[0].host` set even when you
+> disable the Ingress object, or the routes fall back to `vibe.example.com`.
 
-### Production Checklist
+## Redis Streams configuration
 
-- ✅ **Version**: Redis 7.0 or higher
-- ✅ **Persistence**: AOF or RDB snapshots enabled
-- ✅ **High Availability**: Master + 1-2 replicas recommended
-- ✅ **Memory**: 2-4GB recommended (varies with workload)
-- ✅ **Network**: Low latency to Kubernetes cluster
-- ✅ **Security**: Use authentication in production (AUTH command)
-- ✅ **Monitoring**: Track memory usage, connection counts, stream length
-
-### Redis Streams Configuration
-
-The application uses Redis Streams for event delivery with the following settings:
+The application uses Redis Streams for event delivery:
 
 - **Stream naming**: `task-events:{taskId}` (one stream per task)
 - **Consumer group**: `main-app-consumers` (configurable via `REDIS_CONSUMER_GROUP`)
-- **Stream trimming**: ~10,000 messages per stream (configurable via `REDIS_MAX_STREAM_LENGTH`)
-- **Blocking reads**: 5-second timeout (configurable via `REDIS_BLOCK_MS`)
+- **Stream trimming**: ~10,000 messages per stream (`REDIS_MAX_STREAM_LENGTH`)
+- **Blocking reads**: 5-second timeout (`REDIS_BLOCK_MS`)
 
 ## Monitoring
 
-### Redis Monitoring
-
-If using managed Redis:
-- **AWS CloudWatch**: Monitor ElastiCache metrics (CPUUtilization, DatabaseMemoryUsagePercentage, NetworkBytesIn/Out)
-- **Azure Monitor**: Track Cache for Redis metrics (Server Load, Memory Usage, Connected Clients)
-- **Prometheus**: Use Redis exporters for detailed metrics
-
-Application-level metrics are exposed at `/metrics` endpoint.
+Application metrics are exposed on the backend `metrics` port (9090) at `/metrics`
+and discovered via the `prometheus.io/*` pod annotations. Enable the bundled
+`PodMonitor`/`PrometheusRule` with `monitoring.prometheus.enabled: true` (requires
+a Prometheus Operator).
 
 ## Troubleshooting
 
-### Redis Connection Issues
+### Redis connection issues
 
-**Symptom**: Application logs show "Failed to connect to Redis"
+Test connectivity from a throwaway pod:
 
-**Solutions**:
-1. Verify Redis URL is correct:
-   ```bash
-   kubectl get configmap moatless-vibe-config -o yaml | grep REDIS_URL
-   ```
+```bash
+kubectl run redis-test --rm -it --image=redis:7-alpine -- \
+  redis-cli -u "redis://<release>-redis-master:6379" PING
+```
 
-2. Test connectivity from a pod:
-   ```bash
-   kubectl run redis-test --rm -it --image=redis:7-alpine -- redis-cli -u "redis://your-redis:6379" PING
-   ```
+### Event delivery issues
 
-3. Check network policies and security groups
+```bash
+redis-cli KEYS "task-events:*"
+redis-cli XINFO GROUPS task-events:{taskId}
+redis-cli XPENDING task-events:{taskId} main-app-consumers
+kubectl logs -l app.kubernetes.io/component=backend --tail=100
+```
 
-### Event Delivery Issues
+### Backend won't boot / API calls fail
 
-**Symptom**: Sandbox events not appearing in UI
+`/health` is exempt from most checks, so a green pod is not proof of a working
+config. Confirm migrations actually ran:
 
-**Solutions**:
-1. Check Redis streams exist:
-   ```bash
-   redis-cli KEYS "task-events:*"
-   redis-cli XINFO GROUPS task-events:{taskId}
-   ```
+```bash
+kubectl logs deploy/<release>-backend | grep "Database migrations complete"
+```
 
-2. Verify consumer group health:
-   ```bash
-   redis-cli XPENDING task-events:{taskId} main-app-consumers
-   ```
-
-3. Check application logs:
-   ```bash
-   kubectl logs -l app.kubernetes.io/name=moatless-vibe --tail=100
-   ```
-
-### Redis Out of Memory
-
-**Symptom**: Redis evicting keys or refusing writes
-
-**Solutions**:
-1. Check stream lengths:
-   ```bash
-   redis-cli XLEN task-events:{taskId}
-   ```
-
-2. Increase `REDIS_MAX_STREAM_LENGTH` (reduces memory usage):
-   ```bash
-   helm upgrade moatless ./k8s/helm/moatless-vibe \
-     --reuse-values \
-     --set extraEnv.REDIS_MAX_STREAM_LENGTH=5000
-   ```
-
-3. Increase Redis memory limit (managed service) or node type
+A missing `SECRETS_ENCRYPTION_KEY` exits the backend at boot; a bad `DATABASE_URL`
+does **not** crash the pod but leaves every API call failing.
 
 ## Upgrading
 
 ```bash
-# Update dependencies
-helm dependency update ./k8s/helm/moatless-vibe
-
-# Upgrade release
 helm upgrade moatless ./k8s/helm/moatless-vibe \
   --reuse-values \
   --set image.tag=v0.2.0
@@ -408,63 +354,12 @@ helm upgrade moatless ./k8s/helm/moatless-vibe \
 ## Uninstalling
 
 ```bash
-# Uninstall release
 helm uninstall moatless
-
-# Clean up Redis PVCs (if bundled Redis was enabled)
-kubectl delete pvc -l app.kubernetes.io/name=redis
-```
-
-## Examples
-
-### Development Setup (Local Kubernetes)
-
-```bash
-# 1. Create local cluster (kind/k3d/minikube)
-kind create cluster --name moatless
-
-# 2. Install with bundled Redis
-helm dependency update ./k8s/helm/moatless-vibe
-helm install moatless ./k8s/helm/moatless-vibe \
-  --set redis.enabled=true \
-  --set secrets.create=true \
-  --set secrets.anthropicApiKey="sk-ant-..." \
-  --set secrets.githubToken="ghp_..." \
-  --set ingress.enabled=false \
-  --set service.type=LoadBalancer
-
-# 3. Access application
-kubectl port-forward svc/moatless-moatless-vibe 8000:8000
-```
-
-### AWS EKS Production Setup
-
-```bash
-# 1. Create ElastiCache cluster (via Terraform/CloudFormation)
-# 2. Create RDS PostgreSQL instance
-# 3. Create secrets
-kubectl create secret generic vibe-secrets \
-  --from-literal=ANTHROPIC_API_KEY="sk-ant-..." \
-  --from-literal=GITHUB_TOKEN="ghp_..." \
-  --from-literal=SANDBOX_API_KEY="$(openssl rand -base64 32)" \
-  --from-literal=DATABASE_URL="postgresql://..."
-
-# 4. Install chart
-helm dependency update ./k8s/helm/moatless-vibe
-helm install moatless ./k8s/helm/moatless-vibe \
-  --set redis.url="redis://moatless-redis.abc123.use1.cache.amazonaws.com:6379" \
-  --set externalSecrets.enabled=true \
-  --set externalSecrets.secretName=vibe-secrets \
-  --set ingress.enabled=true \
-  --set ingress.className=alb \
-  --set ingress.annotations."alb\.ingress\.kubernetes\.io/scheme"=internet-facing \
-  --set ingress.annotations."alb\.ingress\.kubernetes\.io/target-type"=ip \
-  --set ingress.hosts[0].host=vibe.example.com \
-  --set proxyIngress.host="*.preview.example.com"
+# Bundled Postgres with persistence enabled leaves a PVC behind:
+kubectl delete pvc -l app.kubernetes.io/name=postgres
 ```
 
 ## Support
 
-For issues and questions:
 - GitHub Issues: https://github.com/aorwall/moatless-vibe/issues
 - Documentation: https://github.com/aorwall/moatless-vibe/tree/main/docs

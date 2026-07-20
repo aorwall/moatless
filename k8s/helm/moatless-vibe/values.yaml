@@ -382,81 +382,79 @@ database:
   # -- Key in secrets for DATABASE_URL (PostgreSQL connection string)
   urlSecretKey: "DATABASE_URL"
 
+# Optional bundled first-party Postgres for dev/testing.
+# Default off — production points DATABASE_URL at a managed database via the
+# Secret. When enabled, the backend's DATABASE_URL is set to this in-cluster
+# Service and the schema is created at boot by the compiled-in sqlx migrations.
+postgres:
+  # -- Deploy the bundled Postgres (single-node, official postgres image).
+  enabled: false
+  # -- Bundled Postgres image. Official multi-arch (amd64 + arm64).
+  image: "postgres:17-alpine"
+  # -- Image pull policy for the bundled Postgres.
+  pullPolicy: IfNotPresent
+  # -- Credentials + database created by the container's entrypoint. These feed
+  # the auto-generated DATABASE_URL, so they must be internally consistent.
+  auth:
+    username: "moatless"
+    password: "moatless"
+    database: "moatless"
+  service:
+    # -- Service name. The backend's DATABASE_URL host resolves to this.
+    name: "postgres"
+  # -- Persistence. Default off (emptyDir) — data is recreated and re-migrated
+  # on restart, which is fine for dev. Enable for a PVC-backed database.
+  persistence:
+    enabled: false
+    size: "5Gi"
+    storageClass: ""
+  # -- Resource requests/limits for the bundled Postgres.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+  # -- Node selector for the bundled Postgres (falls back to top-level nodeSelector).
+  nodeSelector: {}
+  # -- Tolerations for the bundled Postgres (falls back to top-level tolerations).
+  tolerations: []
+
 # Redis configuration (required for event streaming)
 redis:
-  # -- Enable the bundled Bitnami Redis subchart.
+  # -- Deploy the bundled first-party Redis (single-node, official redis image).
   # Defaults to true so `helm install` works out of the box for dev/testing.
   # For production, prefer an external Redis (AWS ElastiCache, Azure Cache, etc.):
   # set redis.enabled=false and redis.url to the external connection string.
   enabled: true
-  # -- Redis connection URL (if using external Redis)
-  # Leave empty to auto-generate from subchart service when redis.enabled=true
+  # -- Redis connection URL. Set this to use an external Redis; when empty and
+  # redis.enabled=true, moatless-vibe.redisUrl resolves to the bundled
+  # Service (redis://{release}-redis-master:6379).
   # Examples:
   #   AWS ElastiCache: "redis://my-cluster.abc123.use1.cache.amazonaws.com:6379"
   #   Azure Cache: "redis://:password@my-cache.redis.cache.windows.net:6380"
   #   Existing cluster: "redis://redis.default.svc.cluster.local:6379"
   url: ""
-  # Bitnami Redis subchart configuration (only used when redis.enabled=true)
-  auth:
-    # -- Disable authentication for development (DO NOT use in production)
-    enabled: false
-  master:
-    persistence:
-      # -- Enable persistence for Redis master
-      enabled: true
-      # -- Storage size for Redis master (headroom for AOF growth)
-      size: 2Gi
-    # -- Resource requests/limits for the Redis master so scheduling is
-    # predictable and node-level OOM roulette stops killing the pod.
-    resources:
-      requests:
-        cpu: 100m
-        memory: 512Mi
-      limits:
-        memory: 1Gi
-    # -- Runtime flags. `--maxmemory` caps RSS below the pod limit so Redis
-    # bounds itself instead of being OOM-killed. `--maxmemory-policy
-    # noeviction` is deliberate: the event streams hold unconsumed terminal
-    # events, so eviction (e.g. allkeys-lru) could silently drop them. Under
-    # noeviction, XADD instead fails loudly when full — the publisher logs a
-    # warn and the backend's turn reconciliation recovers the lost terminal
-    # event, while Redis stays alive. The TTL the backend sets on
-    # `task-events:*` keys is the real growth bound; maxmemory is the ceiling.
-    extraFlags:
-      - "--maxmemory 768mb"
-      - "--maxmemory-policy noeviction"
-    # -- Give a slow AOF-loading restart time to finish before liveness kicks
-    # in, so recovery isn't killed mid-replay.
-    startupProbe:
-      enabled: true
-      initialDelaySeconds: 10
-      periodSeconds: 10
-      failureThreshold: 30
-  replica:
-    # -- Number of Redis replicas
-    replicaCount: 1
-    persistence:
-      # -- Enable persistence for Redis replicas
-      enabled: true
-      # -- Storage size for Redis replicas (headroom for AOF growth)
-      size: 2Gi
-    # -- Resource requests/limits for Redis replicas (mirror the master).
-    resources:
-      requests:
-        cpu: 100m
-        memory: 512Mi
-      limits:
-        memory: 1Gi
-    # -- Same maxmemory ceiling + noeviction policy as the master.
-    extraFlags:
-      - "--maxmemory 768mb"
-      - "--maxmemory-policy noeviction"
-    # -- Give a slow AOF-loading restart time to finish before liveness kicks in.
-    startupProbe:
-      enabled: true
-      initialDelaySeconds: 10
-      periodSeconds: 10
-      failureThreshold: 30
+  # -- Bundled Redis image. Official multi-arch (amd64 + arm64).
+  image: "redis:7-alpine"
+  # -- Image pull policy for the bundled Redis.
+  pullPolicy: IfNotPresent
+  # -- `--maxmemory` caps RSS so Redis bounds itself. Paired with a fixed
+  # `--maxmemory-policy noeviction`: the event streams hold unconsumed terminal
+  # events, so eviction could silently drop them. Under noeviction, XADD fails
+  # loudly when full and the backend's turn reconciliation recovers.
+  maxmemory: "768mb"
+  # -- Resource requests/limits for the bundled Redis.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+  # -- Node selector for the bundled Redis (falls back to top-level nodeSelector).
+  nodeSelector: {}
+  # -- Tolerations for the bundled Redis (falls back to top-level tolerations).
+  tolerations: []
 
 # Kubernetes execution mode for sandbox pods
 #
@@ -747,16 +745,18 @@ kubernetes:
 
 # Secrets configuration
 secrets:
-  # -- Create secrets from values (for testing only, use external secrets in production)
+  # -- Create the app Secret from the values below (testing only; prefer a
+  # hand-made or externally-managed Secret in production).
   create: false
-  # -- Anthropic API key
-  anthropicApiKey: ""
-  # -- GitHub token
-  githubToken: ""
-  # -- Sandbox API key (auto-generated if empty)
-  sandboxApiKey: ""
-  # -- Database URL (PostgreSQL connection string, e.g., postgres://user:pass@host:5432/db)
+  # -- Database URL (PostgreSQL connection string, e.g., postgres://user:pass@host:5432/db).
+  # Not needed when postgres.enabled=true (DATABASE_URL is set from the bundled Service).
   databaseUrl: ""
+  # -- Master key for credential encryption at rest. Required — the backend
+  # refuses to boot without it. Generate with `openssl rand -base64 32`.
+  encryptionKey: ""
+  # -- HMAC secret for task-scoped JWTs (backend↔sandbox auth). Required — every
+  # provision fails without it. Generate with `openssl rand -hex 32`.
+  taskTokenSecret: ""
 
 # External secrets (recommended for production)
 externalSecrets:

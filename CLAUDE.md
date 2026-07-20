@@ -387,7 +387,7 @@ For sandbox lifecycle handling (provisioning, pod watcher, idle reaper, recovery
 │   └── dev-docker.sh              # Dev mode launcher
 ├── k8s/                           # Kubernetes deployment
 │   └── helm/moatless-vibe/        # Helm chart
-├── drizzle/                       # PostgreSQL migrations (SQL files)
+├── backend/migrations/            # PostgreSQL migrations (sqlx SQL files, compiled in)
 ├── Cargo.toml                     # Rust workspace root
 ├── Taskfile.yml                   # Deployment automation (taskfile.dev)
 └── package.json                   # Root npm config (frontend/scripts)
@@ -429,7 +429,7 @@ For sandbox lifecycle handling (provisioning, pod watcher, idle reaper, recovery
 - **Package Manager**: bun workspaces (frontend)
 - **Container Orchestration**: Kubernetes (production), Docker Compose (local)
 - **Ingress**: Traefik (preview server routing)
-- **Database Migrations**: SQL files in `drizzle/` (run at startup)
+- **Database Migrations**: sqlx SQL files in `backend/migrations/`, compiled into the binary and run at startup
 
 ### Communication Architecture
 

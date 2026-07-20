@@ -167,12 +167,17 @@ spec:
                   name: {{ include "moatless-vibe.secretsName" . }}
                   key: TASK_TOKEN_SECRET
                   optional: true
+            {{- if .Values.postgres.enabled }}
+            - name: DATABASE_URL
+              value: {{ include "moatless-vibe.databaseUrl" . | quote }}
+            {{- else }}
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
                   name: {{ include "moatless-vibe.secretsName" . }}
                   key: DATABASE_URL
                   optional: true
+            {{- end }}
             - name: SECRETS_ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:

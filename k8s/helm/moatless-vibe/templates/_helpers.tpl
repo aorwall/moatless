@@ -108,7 +108,7 @@ Get the Kubernetes namespace for sandbox pods
 
 {{/*
 Get the Redis URL
-Priority: redis.url (explicit) > auto-generated from subchart (if redis.enabled=true)
+Priority: redis.url (explicit) > auto-generated from the bundled Service (if redis.enabled=true)
 */}}
 {{- define "moatless-vibe.redisUrl" -}}
 {{- if .Values.redis.url }}
@@ -116,8 +116,16 @@ Priority: redis.url (explicit) > auto-generated from subchart (if redis.enabled=
 {{- else if .Values.redis.enabled }}
 {{- printf "redis://%s-redis-master:6379" .Release.Name }}
 {{- else }}
-{{- fail "Redis configuration required. Either:\n  - set redis.url to point to an external Redis (e.g. AWS ElastiCache), or\n  - set redis.enabled=true to deploy the bundled Bitnami Redis subchart.\nSee k8s/helm/moatless-vibe/README.md for details." }}
+{{- fail "Redis configuration required. Either:\n  - set redis.url to point to an external Redis (e.g. AWS ElastiCache), or\n  - set redis.enabled=true to deploy the bundled first-party Redis.\nSee k8s/helm/moatless-vibe/README.md for details." }}
 {{- end }}
+{{- end }}
+
+{{/*
+Get the DATABASE_URL for the bundled first-party Postgres (postgres.enabled=true).
+Resolves to postgres://{user}:{pass}@{service}:5432/{db} against the in-cluster Service.
+*/}}
+{{- define "moatless-vibe.databaseUrl" -}}
+{{- printf "postgres://%s:%s@%s:5432/%s" .Values.postgres.auth.username .Values.postgres.auth.password .Values.postgres.service.name .Values.postgres.auth.database -}}
 {{- end }}
 
 {{/*
