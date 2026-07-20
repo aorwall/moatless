@@ -92,7 +92,7 @@ fn transcript_key(prefix: &str, task_id: &str) -> String {
 /// Build the S3 key for a task's workspace archive:
 /// `<prefix>/<task_id>/workspace.tar`. The `<prefix>/<task_id>/` portion is the
 /// same one `provider.rs::cleanup` deletes, so uploads and cleanup stay aligned.
-fn workspace_key(prefix: &str, task_id: &str) -> String {
+fn sandbox_key(prefix: &str, task_id: &str) -> String {
     format!("{}/{}/workspace.tar", prefix.trim_end_matches('/'), task_id)
 }
 
@@ -1043,7 +1043,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             false
         };
 
-        let result = if team_row_exists {
+        let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = if team_row_exists {
             // SAFETY: team_id checked above for `team_row_exists` to be true.
             let tid = team_id
                 .as_deref()
@@ -1051,10 +1051,36 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             provider_tokens
                 .upsert_team_token(tid, provider, "manual", &req.value, None, None, None)
                 .await
+                .map_err(Into::into)
+        } else if let Some(ref svc) = self.credentials_svc {
+            // Routes GITHUB_TOKEN into the encrypted store instead of writing
+            // it plaintext to `provider_tokens.access_token`.
+            svc.store(
+                &claims.user_id,
+                &req.key,
+                &req.value,
+                WriteSource::SandboxRotation {
+                    task_id: req.task_id.clone(),
+                },
+            )
+            .await
+            .map_err(Into::into)
+        } else if req.key == crate::sandbox::secrets::GITHUB_TOKEN {
+            // No credential service means no encrypted store; refuse rather
+            // than resurrect a plaintext GitHub token.
+            warn!(
+                task_id = %req.task_id,
+                user_id = %claims.user_id,
+                "UpdateCredential rejected: cannot persist a GitHub token without the credential service"
+            );
+            return Err(Status::failed_precondition(
+                "Cannot persist a GitHub token without the credential service",
+            ));
         } else {
             provider_tokens
                 .upsert_token(&claims.user_id, provider, &req.value, None, None, None)
                 .await
+                .map_err(Into::into)
         };
 
         if let Err(e) = result {
@@ -1315,7 +1341,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             return Err(Status::failed_precondition("S3 bucket not configured"));
         };
 
-        let key = workspace_key(&self.workspace_s3_prefix, &req.task_id);
+        let key = sandbox_key(&self.workspace_s3_prefix, &req.task_id);
 
         let put_url = file_s3::presign_put(s3_client, bucket, &key, WORKSPACE_PRESIGN_TTL)
             .await
@@ -2360,6 +2386,7 @@ mod tests {
             inactive_ttl_days: 0,
             task_template_id: None,
             trigger_id: None,
+            workspace_id: None,
             disabled_servers: None,
         }
     }

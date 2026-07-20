@@ -103,7 +103,7 @@ const DEFAULT_API_BASE: &str = "https://api.github.com";
 /// Resolve the GitHub API base URL. `GITHUB_API_BASE_URL` overrides the
 /// default — used by E2E tests to point the backend at a mock server (and
 /// usable for GitHub Enterprise hosts). Empty values are treated as unset.
-fn api_base() -> String {
+pub(crate) fn api_base() -> String {
     std::env::var("GITHUB_API_BASE_URL")
         .ok()
         .map(|v| v.trim().trim_end_matches('/').to_string())

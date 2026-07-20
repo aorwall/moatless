@@ -36,6 +36,7 @@ async fn same_session_multi_message() {
     // ── Step 1: Create task with first message ──────────────────────────
     let task_req = CreateTaskRequest {
         repository_id: repo_id.clone(),
+        workspace_id: None,
         message: Some(
             "Create a file called first.txt with the content 'First Message Created'".into(),
         ),

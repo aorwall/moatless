@@ -8,6 +8,8 @@ pub mod api_keys;
 pub mod cache;
 pub mod cookie;
 pub mod credentials;
+#[cfg(test)]
+pub mod test_support;
 pub mod error;
 pub mod github_app_registry;
 pub mod github_app_service;

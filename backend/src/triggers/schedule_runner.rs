@@ -305,6 +305,7 @@ async fn create_scheduled_task(
         state.repositories.as_ref(),
         state.provider_tokens.as_ref(),
         state.plugin_repos.as_ref(),
+        state.workspaces.as_ref(),
         &task_id,
     )
     .await

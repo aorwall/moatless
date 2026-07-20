@@ -19,6 +19,9 @@ pub enum ProviderSettingsError {
 
     #[error("Provider error: {0}")]
     ProviderError(String),
+
+    #[error("Secret storage error: {0}")]
+    Secret(#[from] crate::secret::error::SecretError),
 }
 
 impl IntoResponse for ProviderSettingsError {
@@ -34,6 +37,13 @@ impl IntoResponse for ProviderSettingsError {
                 )
             }
             Self::ProviderError(_) => (StatusCode::BAD_GATEWAY, self.to_string()),
+            Self::Secret(e) => {
+                error!(error = %e, "Provider settings secret storage error");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Failed to store credential securely".to_string(),
+                )
+            }
         };
         error_response(status, message)
     }

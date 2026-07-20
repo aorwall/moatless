@@ -5,7 +5,7 @@
 pub async fn validate_github_token(token: &str) -> Result<String, String> {
     let client = reqwest::Client::new();
     let resp = client
-        .get("https://api.github.com/user")
+        .get(format!("{}/user", crate::adapters::github_pr::api::api_base()))
         .header("Authorization", format!("Bearer {token}"))
         .header("User-Agent", "moatless-vibe")
         .header("Accept", "application/vnd.github+json")

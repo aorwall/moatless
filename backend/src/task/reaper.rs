@@ -1369,6 +1369,7 @@ async fn reprovision_task(
         app_state.repositories.as_ref(),
         app_state.provider_tokens.as_ref(),
         app_state.plugin_repos.as_ref(),
+        app_state.workspaces.as_ref(),
         task_id,
     )
     .await

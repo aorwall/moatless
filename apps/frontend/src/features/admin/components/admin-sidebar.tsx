@@ -1,6 +1,7 @@
 import { Link } from '@tanstack/react-router'
 import {
   Bell,
+  Boxes,
   Building2,
   FolderGit2,
   KeyRound,
@@ -51,6 +52,7 @@ const ADMIN_NAV: AdminNavGroup[] = [
     label: 'System',
     items: [
       { label: 'Repositories', to: '/admin/repositories', icon: FolderGit2 },
+      { label: 'Workspaces', to: '/admin/workspaces', icon: Boxes },
       { label: 'Users', to: '/admin/users', icon: Users },
       { label: 'Teams', to: '/admin/teams', icon: Building2 },
       { label: 'Secrets', to: '/admin/secrets', icon: KeyRound },

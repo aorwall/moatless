@@ -61,6 +61,7 @@ async fn create_bare_task(client: &MoatClient, repo_id: &str) -> String {
         .api()
         .create_task(&CreateTaskRequest {
             repository_id: repo_id.to_string(),
+            workspace_id: None,
             message: Some("github-proxy fixture task".into()),
             name: Some("github-proxy-test".into()),
             branch: None,

@@ -86,11 +86,29 @@ pub trait ProviderTokenRepository: Send + Sync {
         provider: &str,
     ) -> Result<Option<ProviderToken>, sqlx::Error>;
 
-    /// Upsert a provider token (insert or update on conflict).
+    /// Upsert a provider token (insert or update on conflict). Inserts with
+    /// `auth_method = 'manual'` and leaves an existing row's `auth_method`
+    /// untouched — use [`upsert_token_with_auth_method`] to set it explicitly.
+    ///
+    /// [`upsert_token_with_auth_method`]: ProviderTokenRepository::upsert_token_with_auth_method
     async fn upsert_token(
         &self,
         user_id: &str,
         provider: &str,
+        access_token: &str,
+        refresh_token: Option<&str>,
+        token_type: Option<&str>,
+        metadata: Option<&serde_json::Value>,
+    ) -> Result<(), sqlx::Error>;
+
+    /// Upsert a provider token, setting `auth_method` on both insert and
+    /// update. Used for reference rows (`secret_ref`) whose resolution branch
+    /// must switch even when a row already exists.
+    async fn upsert_token_with_auth_method(
+        &self,
+        user_id: &str,
+        provider: &str,
+        auth_method: &str,
         access_token: &str,
         refresh_token: Option<&str>,
         token_type: Option<&str>,
@@ -213,6 +231,40 @@ impl ProviderTokenRepository for PgProviderTokenRepository {
         .bind(refresh_token)
         .bind(token_type)
         .bind(metadata)
+        .bind(team_id)
+        .execute(&self.0)
+        .await?;
+        Ok(())
+    }
+
+    async fn upsert_token_with_auth_method(
+        &self,
+        user_id: &str,
+        provider: &str,
+        auth_method: &str,
+        access_token: &str,
+        refresh_token: Option<&str>,
+        token_type: Option<&str>,
+        metadata: Option<&serde_json::Value>,
+    ) -> Result<(), sqlx::Error> {
+        let team_id = ensure_personal_team(&self.0, user_id).await?;
+        sqlx::query(
+            r#"INSERT INTO provider_tokens (
+                   user_id, provider, access_token, refresh_token, token_type, metadata,
+                   auth_method, connected_at, updated_at, scope, team_id, owner_user_id
+               )
+               VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW(), 'user', $8, $1)
+               ON CONFLICT ON CONSTRAINT provider_tokens_scope_uq
+               DO UPDATE SET access_token = $3, refresh_token = $4, token_type = $5, metadata = $6,
+                             auth_method = $7, scope = 'user', owner_user_id = $1, updated_at = NOW()"#,
+        )
+        .bind(user_id)
+        .bind(provider)
+        .bind(access_token)
+        .bind(refresh_token)
+        .bind(token_type)
+        .bind(metadata)
+        .bind(auth_method)
         .bind(team_id)
         .execute(&self.0)
         .await?;

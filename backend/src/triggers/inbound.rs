@@ -110,6 +110,7 @@ pub(crate) async fn create_task_for_external_message(
             .unwrap_or(crate::task::models::DEFAULT_INACTIVE_TTL_DAYS),
         task_template_id: None,
         trigger_id: Some(config.id.clone()),
+        workspace_id: None,
         disabled_servers: None,
     };
 

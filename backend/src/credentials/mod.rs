@@ -25,12 +25,19 @@ use tracing::{debug, info, warn};
 
 use crate::auth::github_app_service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenRepository;
-use crate::auth::provider_tokens::ProviderTokenAuthRepository;
+use crate::auth::provider_tokens::{
+    ProviderTokenAuthRepository, AUTH_METHOD_SECRET_REF, SECRET_REF_TOKEN_PLACEHOLDER,
+};
 use crate::auth::token_refresh::ensure_fresh_token_with_dao;
 use crate::config::SandboxProviderType;
 use crate::db::DbPool;
 use crate::sandbox::client::SandboxClient;
+use crate::sandbox::secrets::GITHUB_TOKEN;
+use crate::secret::models::{SecretKind, SecretScopeType};
+use crate::secret::schemas::PutSecretRequest;
+use crate::secret::service::SecretService;
 use crate::task::dao::TaskRepository;
+use moatless_backend_core::scope::ScopeContext;
 
 pub use self::codex::CodexScope;
 pub use self::error::CredentialError;
@@ -90,6 +97,9 @@ pub struct CredentialService {
     pub(in crate::credentials) provider_tokens: Arc<dyn ProviderTokenRepository>,
     provider_token_auth: Option<Arc<dyn ProviderTokenAuthRepository>>,
     github_app_service: Option<Arc<GitHubAppService>>,
+    /// Encrypted secret store. Required to read or rotate a `secret_ref`
+    /// GitHub token; `None` in tests / minimal wiring.
+    secrets: Option<Arc<SecretService>>,
     /// Per-`(user_id, key)` mutex. The `()` payload is irrelevant — we lock
     /// purely for serialization. Auto-evicted after the TTL so inactive
     /// users' locks don't accumulate forever.
@@ -122,11 +132,19 @@ impl CredentialService {
             provider_tokens,
             provider_token_auth,
             github_app_service,
+            secrets: None,
             locks,
             broadcast_ctx,
             db: None,
             http: None,
         }
+    }
+
+    /// Wire the encrypted secret store used for `secret_ref` GitHub tokens.
+    #[must_use]
+    pub fn with_secrets(mut self, secrets: Arc<SecretService>) -> Self {
+        self.secrets = Some(secrets);
+        self
     }
 
     /// Wire in the Postgres pool + HTTP client used by the Codex refresh path.
@@ -196,9 +214,48 @@ impl CredentialService {
         }
     }
 
+    /// Read the encrypted PAT behind a `secret_ref` GitHub row, if that's what
+    /// this user has. `Ok(None)` means the row isn't a reference row.
+    async fn read_github_secret_ref(
+        &self,
+        user_id: &str,
+    ) -> Result<Option<String>, CredentialError> {
+        let Some(row) = self
+            .provider_tokens
+            .find_provider_token_full(user_id, "github")
+            .await?
+        else {
+            return Ok(None);
+        };
+        if row.auth_method.as_deref() != Some(AUTH_METHOD_SECRET_REF) {
+            return Ok(None);
+        }
+        let secrets = self.secrets.as_ref().ok_or_else(|| {
+            CredentialError::Internal(format!(
+                "User '{user_id}' has a secret_ref GitHub token but no secret service is wired"
+            ))
+        })?;
+        secrets
+            .resolve_user_secret(user_id, GITHUB_TOKEN, Some(SecretKind::ProviderToken))
+            .await?
+            .map(Some)
+            .ok_or_else(|| {
+                CredentialError::NotFound(format!(
+                    "GITHUB_TOKEN secret missing for secret_ref user {user_id}"
+                ))
+            })
+    }
+
     async fn read_raw(&self, user_id: &str, key: &str) -> Result<String, CredentialError> {
         let provider = credential_key_to_provider(key)
             .ok_or_else(|| CredentialError::Internal(format!("Unknown credential key: {key}")))?;
+
+        // A secret_ref row's `access_token` column holds only a sentinel.
+        if key == GITHUB_TOKEN {
+            if let Some(token) = self.read_github_secret_ref(user_id).await? {
+                return Ok(token);
+            }
+        }
 
         let row = self
             .provider_tokens
@@ -233,6 +290,16 @@ impl CredentialService {
 
         let lock = self.acquire_lock(user_id, key).await;
         let _guard = lock.lock().await;
+
+        // A GitHub token must never land in `provider_tokens.access_token` in
+        // the clear — route it to the encrypted store and keep the row as a
+        // reference. Without this a sandbox-side rotation would resurrect a
+        // plaintext row.
+        if key == GITHUB_TOKEN && self.secrets.is_some() {
+            self.store_github_secret_ref(user_id, value).await?;
+            info!(user_id, provider, ?source, "Persisted GitHub token as secret");
+            return Ok(());
+        }
 
         // Dedup: skip persistence + broadcast when the value is unchanged.
         let existing = self
@@ -269,6 +336,62 @@ impl CredentialService {
                 .await;
         }
 
+        Ok(())
+    }
+
+    /// Write a GitHub token to the encrypted store and point the
+    /// `provider_tokens` row at it.
+    ///
+    /// Existing `metadata` and `token_type` are carried over so the row keeps
+    /// serving the config endpoint's `login` and PAT-override detection.
+    async fn store_github_secret_ref(
+        &self,
+        user_id: &str,
+        value: &str,
+    ) -> Result<(), CredentialError> {
+        let secrets = self
+            .secrets
+            .as_ref()
+            .ok_or_else(|| CredentialError::Internal("secret service not wired".to_string()))?;
+
+        let existing = self
+            .provider_tokens
+            .find_provider_token_full(user_id, "github")
+            .await?;
+
+        secrets
+            .put_secret(
+                &ScopeContext {
+                    user_id: user_id.to_string(),
+                    team_ids: Vec::new(),
+                    is_admin: false,
+                },
+                user_id,
+                PutSecretRequest {
+                    scope_type: SecretScopeType::User,
+                    scope_id: Some(user_id.to_string()),
+                    key: GITHUB_TOKEN.to_string(),
+                    kind: SecretKind::ProviderToken,
+                    provider: Some("github".to_string()),
+                    value: Some(value.to_string()),
+                    external_ref: None,
+                },
+            )
+            .await?;
+
+        let token_type = existing.as_ref().and_then(|row| row.token_type.clone());
+        let metadata = existing.as_ref().and_then(|row| row.metadata.clone());
+        self.provider_tokens
+            .upsert_token_with_auth_method(
+                user_id,
+                "github",
+                AUTH_METHOD_SECRET_REF,
+                SECRET_REF_TOKEN_PLACEHOLDER,
+                None,
+                token_type.as_deref(),
+                metadata.as_ref(),
+            )
+            .await?;
         Ok(())
     }
 
@@ -408,6 +531,27 @@ mod tests {
                 access_token.to_string(),
             );
             Ok(())
+        }
+
+        async fn upsert_token_with_auth_method(
+            &self,
+            user_id: &str,
+            provider: &str,
+            _auth_method: &str,
+            access_token: &str,
+            refresh_token: Option<&str>,
+            token_type: Option<&str>,
+            metadata: Option<&serde_json::Value>,
+        ) -> Result<(), sqlx::Error> {
+            self.upsert_token(
+                user_id,
+                provider,
+                access_token,
+                refresh_token,
+                token_type,
+                metadata,
+            )
+            .await
         }
 
         async fn delete_token(&self, _user_id: &str, _provider: &str) -> Result<(), sqlx::Error> {

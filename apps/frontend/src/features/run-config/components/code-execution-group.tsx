@@ -1,18 +1,15 @@
-import type { UpdateRepositoryRequest } from '@moatless/api-client'
 import {
   ConfigurationGroup,
   ConfigurationInput,
   ConfigurationItem,
   ConfigurationTextarea,
 } from '@/lib/components/configuration'
-import { EnvironmentVariablesList } from '../environment-variables-list'
+import type { RunConfigFormValues, UpdateRunConfigField } from '../types'
+import { EnvironmentVariablesList } from './environment-variables-list'
 
 interface CodeExecutionGroupProps {
-  formData: Partial<UpdateRepositoryRequest>
-  onUpdateField: <K extends keyof UpdateRepositoryRequest>(
-    field: K,
-    value: UpdateRepositoryRequest[K],
-  ) => void
+  formData: RunConfigFormValues
+  onUpdateField: UpdateRunConfigField
 }
 
 export function CodeExecutionGroup({ formData, onUpdateField }: CodeExecutionGroupProps) {

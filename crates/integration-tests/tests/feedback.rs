@@ -11,6 +11,7 @@ use moatless_api_schemas::task::CreateTaskRequest;
 fn create_request(repo_id: String) -> CreateTaskRequest {
     CreateTaskRequest {
         repository_id: repo_id,
+        workspace_id: None,
         message: None,
         name: None,
         branch: None,

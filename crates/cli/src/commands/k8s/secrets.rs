@@ -124,15 +124,21 @@ const CORE_KEYS: &[KeySpec] = &[
         secret: true,
     },
     KeySpec {
-        key: "GITHUB_TOKEN",
-        required: false,
-        hint: "GitHub PAT used for repo clones (read:user, repo)",
+        key: "SECRETS_ENCRYPTION_KEY",
+        required: true,
+        hint: "Master key for credential encryption — openssl rand -base64 32",
         secret: true,
     },
     KeySpec {
-        key: "SANDBOX_API_KEY",
+        key: "TASK_TOKEN_SECRET",
+        required: true,
+        hint: "HMAC for task-scoped JWTs — openssl rand -hex 32",
+        secret: true,
+    },
+    KeySpec {
+        key: "GITHUB_TOKEN",
         required: false,
-        hint: "Leave blank to auto-generate",
+        hint: "GitHub PAT used for repo clones (read:user, repo)",
         secret: true,
     },
 ];

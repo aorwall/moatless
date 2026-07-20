@@ -406,6 +406,9 @@ impl Adapters {
         use crate::auth::provider_tokens::{
             PgProviderTokenAuthRepository, ProviderTokenAuthRepository,
         };
+        use crate::secret::audit::{PgSecretAuditRepository, SecretAuditRepository};
+        use crate::secret::dao::{PgSecretRepository, SecretRepository};
+        use crate::secret::service::{LocalEnvelopeSecretCipher, SecretService};
 
         let mut providers = Self::new();
 
@@ -414,6 +417,17 @@ impl Adapters {
         let provider_token_auth: Arc<dyn ProviderTokenAuthRepository> =
             Arc::new(PgProviderTokenAuthRepository(db.clone()));
         let github_app_service = github_apps.default_service();
+
+        // Needed so the GitHub adapter can resolve `secret_ref` provider tokens
+        // (validated PATs live in `secrets`, not `provider_tokens`).
+        let secret_records: Arc<dyn SecretRepository> = Arc::new(PgSecretRepository(db.clone()));
+        let secret_audits: Arc<dyn SecretAuditRepository> =
+            Arc::new(PgSecretAuditRepository(db.clone()));
+        let secrets = Arc::new(SecretService::new(
+            secret_records,
+            secret_audits,
+            LocalEnvelopeSecretCipher::from_config(&config.secrets),
+        ));
 
         if let (Some(ref token), Some(ref secret)) =
             (&config.slack.bot_token, &config.slack.signing_secret)
@@ -446,7 +460,8 @@ impl Adapters {
                 Some(provider_token_auth.clone()),
                 github_app_service.clone(),
                 github_apps.clone(),
-            );
+            )
+            .with_secrets(secrets.clone());
             providers.register(Arc::new(github_pr));
             tracing::info!("GitHub PR adapter configured");
         }

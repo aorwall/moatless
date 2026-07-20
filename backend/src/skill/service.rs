@@ -22,7 +22,9 @@ use crate::auth::error::AuthError;
 use crate::auth::github_app_service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenRepository;
 use crate::auth::provider_tokens::ProviderTokenAuthRepository;
-use crate::auth::token_refresh::ensure_fresh_token;
+use crate::auth::credentials::resolve_user_github_token;
+use crate::auth::github_app_registry::GitHubAppRegistry;
+use crate::secret::service::SecretService;
 use crate::extractors::AuthUser;
 use crate::plugin_repo::dao::PluginRepoRepository;
 use crate::plugin_repo::models::PluginRepo;
@@ -36,6 +38,8 @@ pub struct SkillService {
     provider_tokens: Arc<dyn ProviderTokenRepository>,
     provider_token_auth: Arc<dyn ProviderTokenAuthRepository>,
     github_app_service: Option<Arc<GitHubAppService>>,
+    github_apps: Arc<GitHubAppRegistry>,
+    secrets: Arc<SecretService>,
     fetcher: Arc<dyn SkillFetcher>,
     cache: Cache<String, Arc<Vec<Skill>>>,
 }
@@ -50,6 +54,8 @@ impl SkillService {
         provider_tokens: Arc<dyn ProviderTokenRepository>,
         provider_token_auth: Arc<dyn ProviderTokenAuthRepository>,
         github_app_service: Option<Arc<GitHubAppService>>,
+        github_apps: Arc<GitHubAppRegistry>,
+        secrets: Arc<SecretService>,
         fetcher: Arc<dyn SkillFetcher>,
         ttl: Duration,
     ) -> Self {
@@ -63,6 +69,8 @@ impl SkillService {
             provider_tokens,
             provider_token_auth,
             github_app_service,
+            github_apps,
+            secrets,
             fetcher,
             cache,
         }
@@ -205,26 +213,25 @@ impl SkillService {
         };
 
         if *provider == RepositoryProvider::Github {
-            if let Some(app_svc) = self.github_app_service.as_ref() {
-                match ensure_fresh_token(
-                    self.provider_tokens.as_ref(),
-                    self.provider_token_auth.as_ref(),
-                    app_svc,
-                    &auth.user_id,
-                )
-                .await
-                {
-                    Ok(tok) => return Ok(Some(tok)),
-                    // No token configured — fall through to unauthenticated fetch.
-                    Err(AuthError::NotFound(_)) => return Ok(None),
-                    Err(AuthError::Database(e)) => return Err(SkillError::Db(e)),
-                    Err(e) => {
-                        return Err(SkillError::Internal(format!(
-                            "GitHub token refresh failed: {e}"
-                        )));
-                    }
-                }
-            }
+            return match resolve_user_github_token(
+                self.provider_tokens.as_ref(),
+                Some(self.provider_token_auth.as_ref()),
+                self.github_app_service.as_deref(),
+                self.github_apps.as_ref(),
+                Some(self.secrets.as_ref()),
+                &auth.user_id,
+                None,
+            )
+            .await
+            {
+                Ok(token) => Ok(token),
+                // No token configured — fall through to unauthenticated fetch.
+                Err(AuthError::NotFound(_)) => Ok(None),
+                Err(AuthError::Database(e)) => Err(SkillError::Db(e)),
+                Err(e) => Err(SkillError::Internal(format!(
+                    "GitHub token resolution failed: {e}"
+                ))),
+            };
         }
 
         let provider_str = provider_to_token_key(*provider);

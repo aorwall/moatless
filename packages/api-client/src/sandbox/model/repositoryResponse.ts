@@ -39,6 +39,8 @@ export interface RepositoryResponse {
   kind: RepositoryKind;
   name: string;
   /** @nullable */
+  networkProfile?: string | null;
+  /** @nullable */
   ownerUserId?: string | null;
   /** @nullable */
   plugins?: string[] | null;

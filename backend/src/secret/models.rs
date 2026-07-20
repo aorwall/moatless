@@ -53,6 +53,9 @@ pub enum SecretKind {
     /// (never set as an env var) and used transparently for git/ssh over SSH
     /// remotes.
     SshKey,
+    /// Backend-only value (e.g. an OAuth token stashed behind a PAT override).
+    /// Never delivered to a sandbox through any channel.
+    Internal,
 }
 
 impl SecretKind {
@@ -63,6 +66,7 @@ impl SecretKind {
             Self::RuntimeFile => "runtime_file",
             Self::Deployment => "deployment",
             Self::SshKey => "ssh_key",
+            Self::Internal => "internal",
         }
     }
 }
@@ -83,6 +87,7 @@ impl TryFrom<&str> for SecretKind {
             "runtime_file" => Ok(Self::RuntimeFile),
             "deployment" => Ok(Self::Deployment),
             "ssh_key" => Ok(Self::SshKey),
+            "internal" => Ok(Self::Internal),
             other => Err(format!("unknown secret kind: {other}")),
         }
     }

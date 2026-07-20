@@ -117,9 +117,9 @@ impl SandboxProvider for DockerSandboxProvider {
 
         // 3. Create workspace and data directories on host
         let workspace_path =
-            super::naming::generate_workspace_host_path(&self.config.docker.data_dir, task_id);
+            super::naming::generate_sandbox_host_path(&self.config.docker.data_dir, task_id);
         // Use container_data_dir for creating directories when running inside a container
-        let container_workspace_path = super::naming::generate_workspace_host_path(
+        let container_workspace_path = super::naming::generate_sandbox_host_path(
             &self.config.docker.container_data_dir,
             task_id,
         );

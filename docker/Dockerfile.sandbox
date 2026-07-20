@@ -16,14 +16,21 @@
 #   - aorwall/moatless-sandbox:latest
 #   - aorwall/moatless-sandbox-js:latest  (same content, different tag)
 
+# Both refs are global ARGs (before the first FROM) so each FROM can expand them.
+# The tools image is aliased as a named stage because BuildKit does not expand
+# variables in `COPY --from=${...}` (it does in `FROM ${...}`).
 ARG SANDBOX_BASE=aorwall/moatless-sandbox-base:latest
+ARG SANDBOX_TOOLS=aorwall/moatless-sandbox-tools:latest
+
+FROM ${SANDBOX_TOOLS} AS sandbox_tools
+
 FROM ${SANDBOX_BASE}
 
 # Entrypoint scripts come from the sandbox-tools image so script edits don't
 # invalidate the binary COPY layer below (and vice versa).
-COPY --from=aorwall/moatless-sandbox-tools:latest /tools/docker-entrypoint-sandbox.sh /usr/local/bin/docker-entrypoint-sandbox.sh
-COPY --from=aorwall/moatless-sandbox-tools:latest /tools/sync-plugins.sh /usr/local/bin/sync-plugins.sh
-COPY --from=aorwall/moatless-sandbox-tools:latest /tools/moatless-git-cred /usr/local/bin/moatless-git-cred
+COPY --from=sandbox_tools /tools/docker-entrypoint-sandbox.sh /usr/local/bin/docker-entrypoint-sandbox.sh
+COPY --from=sandbox_tools /tools/sync-plugins.sh /usr/local/bin/sync-plugins.sh
+COPY --from=sandbox_tools /tools/moatless-git-cred /usr/local/bin/moatless-git-cred
 RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/sync-plugins.sh /usr/local/bin/moatless-git-cred
 
 # Volatile layers last — our Rust binaries change on every code edit.

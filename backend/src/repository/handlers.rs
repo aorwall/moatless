@@ -123,19 +123,28 @@ pub async fn create_repository(
             let provider_str = provider.as_str();
 
             // Try to get a provider token (optional for GitHub public repos)
-            let token = match state
-                .provider_tokens
-                .find_provider_token(&user_id, provider_str)
-                .await
-            {
-                Ok(t) => t,
-                Err(e) => {
-                    warn!(repository_id = %id, error = %e, "Failed to look up provider token");
-                    None
+            let token = if provider == RepositoryProvider::Github {
+                resolve_optional_github_token(&state, &user_id)
+                    .await
+                    .unwrap_or_else(|e| {
+                        warn!(repository_id = %id, error = %e, "Failed to resolve GitHub token");
+                        None
+                    })
+            } else {
+                match state
+                    .provider_tokens
+                    .find_provider_token(&user_id, provider_str)
+                    .await
+                {
+                    Ok(t) => t.map(|t| t.access_token),
+                    Err(e) => {
+                        warn!(repository_id = %id, error = %e, "Failed to look up provider token");
+                        None
+                    }
                 }
             };
 
-            let token_str = token.as_ref().map(|t| t.access_token.as_str());
+            let token_str = token.as_deref();
             let branch = row.default_branch.as_deref();
             match fetch_moatless_config(remote_url, branch, token_str, provider).await {
                 Ok(Some(config)) => {
@@ -572,32 +581,29 @@ pub async fn get_branches(
 // Token helpers
 // =============================================================================
 
-/// Resolve a fresh GitHub token for the user, refreshing expired GitHub App tokens.
-///
-/// Falls back to the raw stored token when no GitHub App service is configured.
+/// Resolve a usable GitHub token for the user via the canonical resolver —
+/// refreshing App tokens, minting installation tokens, and decrypting
+/// `secret_ref` PATs as the row's `auth_method` requires.
 async fn resolve_github_token(state: &AppState, user_id: &str) -> Result<String, RepositoryError> {
-    if let Some(ref app_svc) = state.github_app_service {
-        crate::auth::token_refresh::ensure_fresh_token(
-            state.provider_tokens.as_ref(),
-            state.provider_token_auth.as_ref(),
-            app_svc,
-            user_id,
-        )
+    resolve_optional_github_token(state, user_id)
+        .await?
+        .ok_or_else(|| {
+            RepositoryError::BadRequest(
+                "No github token configured. Please connect your github account.".into(),
+            )
+        })
+}
+
+/// Same as [`resolve_github_token`] but `None` when the user has no GitHub
+/// connection — for call sites where an anonymous request is still useful
+/// (e.g. reading config from a public repo).
+async fn resolve_optional_github_token(
+    state: &AppState,
+    user_id: &str,
+) -> Result<Option<String>, RepositoryError> {
+    crate::auth::credentials::resolve_state_github_token(state, user_id, None)
         .await
-        .map_err(|e| RepositoryError::ProviderError(format!("GitHub token refresh failed: {e}")))
-    } else {
-        state
-            .provider_tokens
-            .find_provider_token(user_id, "github")
-            .await
-            .map_err(RepositoryError::Db)?
-            .map(|t| t.access_token)
-            .ok_or_else(|| {
-                RepositoryError::BadRequest(
-                    "No github token configured. Please connect your github account.".into(),
-                )
-            })
-    }
+        .map_err(|e| RepositoryError::ProviderError(format!("GitHub token resolution failed: {e}")))
 }
 
 // =============================================================================
@@ -1039,13 +1045,18 @@ pub(crate) async fn sync_repo_config(
     let provider = repo.provider.unwrap_or(RepositoryProvider::Github);
     let provider_str = provider.as_str();
 
-    let token = state
-        .provider_tokens
-        .find_provider_token(&auth.user_id, provider_str)
-        .await
-        .map_err(RepositoryError::Db)?;
+    let token = if provider == RepositoryProvider::Github {
+        resolve_optional_github_token(state, &auth.user_id).await?
+    } else {
+        state
+            .provider_tokens
+            .find_provider_token(&auth.user_id, provider_str)
+            .await
+            .map_err(RepositoryError::Db)?
+            .map(|t| t.access_token)
+    };
 
-    let token_str = token.as_ref().map(|t| t.access_token.as_str());
+    let token_str = token.as_deref();
     let branch = repo.default_branch.as_deref();
 
     // Apply `.moatless/config.json` when present. A missing config is fine — a

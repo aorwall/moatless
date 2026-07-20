@@ -1,5 +1,3 @@
-import { useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from '@tanstack/react-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { useAgentAvailability } from '@/features/agents'
@@ -35,9 +33,12 @@ import {
   type Suggestion,
   useCommandAutocomplete,
 } from '@/features/tasks/components/chat/command-autocomplete'
+import {
+  type AdditionalRepoDraft,
+  AdditionalReposField,
+} from '@/features/tasks/components/create-task/additional-repos-field'
+import { useCodeTaskSubmit } from '@/features/tasks/components/create-task/use-code-task-submit'
 import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
-import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
-import { queryKeys } from '@/lib/api/query-keys'
 import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
 import { type ClaudeModel, DEFAULT_CLAUDE_MODEL, modelToApiValue } from '@/lib/types/claude-models'
 import { getErrorMessage } from '@/lib/utils/error'
@@ -81,10 +82,10 @@ export function CreateCodeTask({
   onTemplateChange,
   onSuccess,
 }: CreateCodeTaskProps) {
-  const navigate = useNavigate()
-  const queryClient = useQueryClient()
+  const { submit, isSubmitting } = useCodeTaskSubmit()
   const [message, setMessage] = useState(defaultMessage || '')
   const [branch, setBranch] = useState('')
+  const [additionalRepos, setAdditionalRepos] = useState<AdditionalRepoDraft[]>([])
   const [repoDialogOpen, setRepoDialogOpen] = useState(false)
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
 
@@ -160,11 +161,7 @@ export function CreateCodeTask({
 
   // Clear stored repository ID on 404 error
   useEffect(() => {
-    if (
-      repositoryError &&
-      'status' in repositoryError &&
-      (repositoryError as { status: number }).status === 404
-    ) {
+    if (isNotFoundError(repositoryError)) {
       onRepositoryChange('')
       toast.info('Previously selected repository no longer exists')
     }
@@ -205,19 +202,6 @@ export function CreateCodeTask({
     }
   }, [repoDialogOpen, repositoryId, repositories, onRepositoryChange])
 
-  const createTask = useCreateTask({
-    onSuccess: async (data) => {
-      // Invalidate new task data (including messages) - lists already handled by hook
-      await queryClient.invalidateQueries({ queryKey: queryKeys.tasks.detail(data.taskId) })
-      await navigate({ to: '/tasks/$task-id', params: { 'task-id': data.taskId } })
-    },
-    onError: (error) => {
-      toast.error('Failed to create task', {
-        description: getErrorMessage(error),
-      })
-    },
-  })
-
   // Handle message changes with command autocomplete
   const handleMessageChange = useCallback(
     (newMessage: string) => {
@@ -241,30 +225,28 @@ export function CreateCodeTask({
       selectedCommand,
     )
 
-    const modelApiValue = isModelSelectorEnabled ? modelToApiValue(model) : undefined
-    createTask.mutate(
-      {
-        agentType,
-        repositoryId,
-        fileIds: taskInputs.getFileIds(),
-        agentMode: submitAgentMode,
-        ...(submitMessage !== undefined && { message: submitMessage }),
-        ...(modelApiValue !== undefined && { model: modelApiValue }),
-        ...(taskInputs.contextItems.length > 0 && { contexts: taskInputs.contextItems }),
-        ...(branchSelector.value !== undefined && { branch: branchSelector.value }),
-        ...(selectedCommand?.name !== undefined && { commandName: selectedCommand.name }),
-        ...(templateId !== undefined && { taskTemplateId: templateId }),
+    submit({
+      agentType,
+      repositoryId,
+      additionalRepos,
+      repositories,
+      fileIds: taskInputs.getFileIds(),
+      agentMode: submitAgentMode,
+      message: submitMessage,
+      model: isModelSelectorEnabled ? modelToApiValue(model) : undefined,
+      contexts: taskInputs.contextItems,
+      branch: branchSelector.value,
+      commandName: selectedCommand?.name,
+      templateId,
+      onSubmitted: () => {
+        setMessage('')
+        clearSelectedCommand()
+        taskInputs.clearAll()
+        setBranch('')
+        setAdditionalRepos([])
+        onSuccess?.()
       },
-      {
-        onSuccess: () => {
-          setMessage('')
-          clearSelectedCommand()
-          taskInputs.clearAll()
-          setBranch('')
-          onSuccess?.()
-        },
-      },
-    )
+    })
   }
 
   // Handle Figma import click - FigmaImportDialog handles unconfigured case internally
@@ -459,13 +441,22 @@ export function CreateCodeTask({
               </PopoverSelector>
               <SendButton
                 disabled={!canSubmit}
-                loading={createTask.isPending}
-                buttonText={getSubmitButtonText(createTask.isPending, message)}
+                loading={isSubmitting}
+                buttonText={getSubmitButtonText(isSubmitting, message)}
               />
             </div>
           </div>
         </ChatInput>
       </div>
+
+      <AdditionalReposField
+        primaryRepositoryId={repositoryId}
+        isTemplate={isTemplate}
+        showTitle={showTitle}
+        value={additionalRepos}
+        onChange={setAdditionalRepos}
+        disabled={isSubmitting}
+      />
 
       <CreateRepositoryDialog
         open={repoDialogOpen}
@@ -485,6 +476,16 @@ export function CreateCodeTask({
         defaultSection={settingsSection}
       />
     </div>
+  )
+}
+
+// A fetch error that carries an HTTP 404 status (repository no longer exists).
+function isNotFoundError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'status' in error &&
+    (error as { status: number }).status === 404
   )
 }
 

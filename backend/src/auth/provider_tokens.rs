@@ -18,6 +18,18 @@ pub const AUTH_METHOD_APP_INSTALLATION: &str = "github_app_installation";
 /// yields a clear 401 instead of silently dropping the Authorization header.
 pub const APP_INSTALLATION_TOKEN_PLACEHOLDER: &str = "<github-app-installation>";
 
+/// `provider_tokens.auth_method` value for rows whose real credential lives in
+/// the encrypted `secrets` table. The row itself carries only non-secret
+/// metadata (`login`, `token_type`) and exists so row-presence consumers —
+/// the config endpoint's `connected`, `auth/me`'s `providers[]` — keep working.
+pub const AUTH_METHOD_SECRET_REF: &str = "secret_ref";
+
+/// Sentinel written into `provider_tokens.access_token` for `secret_ref` rows.
+/// Mirrors [`APP_INSTALLATION_TOKEN_PLACEHOLDER`]: a direct reader of the
+/// column sees this instead of a usable token, so sending it to a provider
+/// yields a clear 401 rather than silent misbehaviour.
+pub const SECRET_REF_TOKEN_PLACEHOLDER: &str = "<secret-ref>";
+
 #[derive(sqlx::FromRow, Debug)]
 pub struct ProviderToken {
     pub user_id: String,
@@ -47,14 +59,6 @@ pub trait ProviderTokenAuthRepository: Send + Sync {
         provider: &str,
     ) -> Result<Option<String>, sqlx::Error>;
 
-    /// Update the stashed OAuth token in `metadata.oauth_access_token` for an existing
-    /// PAT-override row without overwriting the PAT itself.
-    async fn update_stashed_oauth_token(
-        &self,
-        user_id: &str,
-        provider: &str,
-        oauth_access_token: &str,
-    ) -> Result<(), sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`ProviderTokenAuthRepository`].
@@ -118,27 +122,4 @@ impl ProviderTokenAuthRepository for PgProviderTokenAuthRepository {
         Ok(row.and_then(|r| r.0))
     }
 
-    async fn update_stashed_oauth_token(
-        &self,
-        user_id: &str,
-        provider: &str,
-        oauth_access_token: &str,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r#"UPDATE provider_tokens
-               SET metadata = jsonb_set(
-                   COALESCE(metadata, '{}'),
-                   '{oauth_access_token}',
-                   to_jsonb($3::text)
-               ),
-               updated_at = NOW()
-               WHERE user_id = $1 AND provider = $2"#,
-        )
-        .bind(user_id)
-        .bind(provider)
-        .bind(oauth_access_token)
-        .execute(&self.0)
-        .await?;
-        Ok(())
-    }
 }

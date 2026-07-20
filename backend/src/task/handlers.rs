@@ -65,6 +65,33 @@ pub async fn create_task(
         ),
     )?;
 
+    // If the caller pins an explicit workspace (multi-repo flows), validate it
+    // is usable and that the task's repository_id is its primary repo — the
+    // task's repository_id owns the diff/PR, so it must match the workspace's
+    // primary placement. When unset, insert_task derives the repo's shadow
+    // workspace, so the single-repo path stays unchanged.
+    if let Some(ref workspace_id) = req.workspace_id {
+        state
+            .workspaces
+            .find_by_id_scoped(workspace_id, &scope_ctx)
+            .await?
+            .ok_or_else(|| TaskError::NotFound(format!("workspace {workspace_id}")))?;
+        let primary = state
+            .workspaces
+            .find_primary_repo(workspace_id)
+            .await?
+            .ok_or_else(|| {
+                TaskError::BadRequest(format!(
+                    "Workspace {workspace_id} has no primary repository"
+                ))
+            })?;
+        if primary.repository_id != req.repository_id {
+            return Err(TaskError::BadRequest(
+                "repositoryId must be the workspace's primary repository".to_string(),
+            ));
+        }
+    }
+
     // Verify GitHub repository access for non-template repos
     if repo.provider == Some(RepositoryProvider::Github) && repo.kind != RepositoryKind::Template {
         if let Some(ref remote_url) = repo.remote_url {
@@ -208,6 +235,7 @@ pub async fn create_task(
         inactive_ttl_days: state.config.sandbox.inactive_task_timeout_days as i32,
         task_template_id: req.task_template_id.clone(),
         trigger_id: None,
+        workspace_id: req.workspace_id.clone(),
         disabled_servers: None,
     };
 
@@ -316,6 +344,7 @@ async fn insert_and_provision_task(
         state.repositories.as_ref(),
         state.provider_tokens.as_ref(),
         state.plugin_repos.as_ref(),
+        state.workspaces.as_ref(),
         task_id,
     )
     .await
@@ -1216,6 +1245,7 @@ pub async fn start_task(
         state.repositories.as_ref(),
         state.provider_tokens.as_ref(),
         state.plugin_repos.as_ref(),
+        state.workspaces.as_ref(),
         &task_id,
     )
     .await
@@ -1247,18 +1277,27 @@ async fn maybe_sync_repo_config_on_start(
 
     // Resolve a token for the existence probe; fall back to an unauthenticated
     // probe (works for public repos) if we can't load one.
-    let token = match state
-        .provider_tokens
-        .find_provider_token(&auth.user_id, provider.as_str())
-        .await
-    {
-        Ok(token) => token,
-        Err(e) => {
-            tracing::warn!(repository_id = %repo.id, error = %e, "Config auto-sync: failed to load provider token; probing unauthenticated");
-            None
+    let token = if provider == RepositoryProvider::Github {
+        crate::auth::credentials::resolve_state_github_token(state, &auth.user_id, None)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!(repository_id = %repo.id, error = %e, "Config auto-sync: failed to resolve GitHub token; probing unauthenticated");
+                None
+            })
+    } else {
+        match state
+            .provider_tokens
+            .find_provider_token(&auth.user_id, provider.as_str())
+            .await
+        {
+            Ok(token) => token.map(|t| t.access_token),
+            Err(e) => {
+                tracing::warn!(repository_id = %repo.id, error = %e, "Config auto-sync: failed to load provider token; probing unauthenticated");
+                None
+            }
         }
     };
-    let token_str = token.as_ref().map(|t| t.access_token.as_str());
+    let token_str = token.as_deref();
     let branch = repo.default_branch.as_deref();
 
     if !crate::repository::config_reader::moatless_dir_exists(

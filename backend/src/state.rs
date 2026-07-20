@@ -32,6 +32,7 @@ use crate::skill::fetcher::{GitHubSkillFetcher, SkillFetcher};
 use crate::skill::service::SkillService;
 use crate::tag::dao::{PgTagRepository, TagRepository};
 use crate::task::dao::{PgTaskRepository, TaskRepository};
+use crate::workspace::dao::{PgWorkspaceRepository, WorkspaceRepository};
 use crate::task::relations::{PgTaskRelationRepository, TaskRelationRepository};
 use crate::task_event::dao::{PgTaskEventRepository, TaskEventRepository};
 use crate::task_template::dao::{PgTaskTemplateRepository, TaskTemplateRepository};
@@ -111,6 +112,9 @@ pub struct AppState {
     pub task_turns: Arc<dyn TaskTurnRepository>,
     pub task_templates: Arc<dyn TaskTemplateRepository>,
     pub plugin_repos: Arc<dyn PluginRepoRepository>,
+    /// Workspace composition + run-config (`workspaces` / `workspace_repos`).
+    /// Provisioning resolves a task's repository composition through this.
+    pub workspaces: Arc<dyn WorkspaceRepository>,
     /// Skill discovery service — reads `.claude/skills/` from workspace
     /// and plugin repositories, parses frontmatter, caches results.
     pub skills: Arc<SkillService>,
@@ -174,7 +178,8 @@ impl AppState {
                     tasks: Arc::new(PgTaskRepository(pool.clone())),
                 }),
             )
-            .with_codex_refresh(pool.clone(), codex_http),
+            .with_codex_refresh(pool.clone(), codex_http)
+            .with_secrets(secrets.clone()),
         );
 
         let skill_http = reqwest::Client::builder()
@@ -195,6 +200,8 @@ impl AppState {
             provider_tokens.clone(),
             provider_token_auth.clone(),
             github_app_service.clone(),
+            github_apps.clone(),
+            secrets.clone(),
             skill_fetcher,
             std::time::Duration::from_secs(config.skill.cache_ttl_secs),
         ));
@@ -220,6 +227,7 @@ impl AppState {
             task_turns: Arc::new(PgTaskTurnRepository(pool.clone())),
             task_templates: Arc::new(PgTaskTemplateRepository(pool.clone())),
             plugin_repos,
+            workspaces: Arc::new(PgWorkspaceRepository(pool.clone())),
             skills,
             db: pool,
             config,

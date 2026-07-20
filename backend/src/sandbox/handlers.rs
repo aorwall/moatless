@@ -49,14 +49,15 @@ pub async fn provision_handler(
     info!(task_id = %task_id, "POST /provision");
     authorize_task_control(&state, &scope, &task_id).await?;
 
-    let (tasks, repos, provider_tokens, plugin_repos) = match (
+    let (tasks, repos, provider_tokens, plugin_repos, workspaces) = match (
         &state.tasks,
         &state.repos,
         &state.provider_tokens,
         &state.plugin_repos,
+        &state.workspaces,
     ) {
-        (Some(t), Some(r), Some(pt), Some(pr)) => {
-            (t.as_ref(), r.as_ref(), pt.as_ref(), pr.as_ref())
+        (Some(t), Some(r), Some(pt), Some(pr), Some(ws)) => {
+            (t.as_ref(), r.as_ref(), pt.as_ref(), pr.as_ref(), ws.as_ref())
         }
         _ => {
             return Err(SandboxError::Internal(
@@ -70,6 +71,7 @@ pub async fn provision_handler(
         repos,
         provider_tokens,
         plugin_repos,
+        workspaces,
         &task_id,
     )
     .await?;
@@ -288,14 +290,15 @@ pub async fn redeploy_handler(
     info!(task_id = %task_id, "POST /redeploy");
     authorize_task_control(&state, &scope, &task_id).await?;
 
-    let (tasks, repos, provider_tokens, plugin_repos) = match (
+    let (tasks, repos, provider_tokens, plugin_repos, workspaces) = match (
         &state.tasks,
         &state.repos,
         &state.provider_tokens,
         &state.plugin_repos,
+        &state.workspaces,
     ) {
-        (Some(t), Some(r), Some(pt), Some(pr)) => {
-            (t.as_ref(), r.as_ref(), pt.as_ref(), pr.as_ref())
+        (Some(t), Some(r), Some(pt), Some(pr), Some(ws)) => {
+            (t.as_ref(), r.as_ref(), pt.as_ref(), pr.as_ref(), ws.as_ref())
         }
         _ => {
             return Err(SandboxError::Internal(
@@ -309,6 +312,7 @@ pub async fn redeploy_handler(
         repos,
         provider_tokens,
         plugin_repos,
+        workspaces,
         &task_id,
     )
     .await?;
@@ -758,6 +762,7 @@ mod authz_tests {
             inactive_ttl_days: 0,
             task_template_id: None,
             trigger_id: None,
+            workspace_id: None,
             disabled_servers: None,
         }
     }

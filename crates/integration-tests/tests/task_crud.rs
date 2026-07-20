@@ -22,6 +22,7 @@ async fn task_crud_chain() {
     // TASK-01: Create task with message
     let req = CreateTaskRequest {
         repository_id: repo_id.clone(),
+        workspace_id: None,
         message: Some("E2E CRUD test task".into()),
         name: None,
         branch: None,

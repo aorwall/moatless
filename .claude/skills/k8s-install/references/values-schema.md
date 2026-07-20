@@ -63,13 +63,15 @@ Set exactly one provider. Credentials (client ID/secret) go in the Secret, not v
 ## Data stores
 
 ```yaml
-database:
-  external: true   # use DATABASE_URL from Secret
+# Production: point at managed data stores via the Secret.
+postgres:
+  enabled: false   # bundled Postgres off → supply DATABASE_URL in the Secret
 redis:
-  external: true   # use REDIS_URL from Secret
+  enabled: false   # bundled Redis off → supply redis.url (or REDIS_URL in the Secret)
+  url: "redis://your-redis:6379"
 ```
 
-Leave `external: true` and supply URLs via `moat k8s secret bootstrap`. Bundled Postgres/Redis charts exist but are meant for demos, not production.
+For production, keep both bundled data stores off and supply `DATABASE_URL` via `moat k8s secret bootstrap` and an external `redis.url`. The bundled first-party Postgres (`postgres.enabled: true`) and Redis (`redis.enabled: true`, the default) are single-node and meant for local/demo installs, not production.
 
 ## Storage
 

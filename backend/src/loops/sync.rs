@@ -20,8 +20,7 @@ use super::parser::parse_loop;
 use crate::adapters::common::next_fire_at;
 use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::models::RoutingMode;
-use crate::auth::error::AuthError;
-use crate::auth::token_refresh::ensure_fresh_token;
+use crate::auth::credentials::resolve_state_github_token;
 use crate::extractors::AuthUser;
 use crate::repository::handlers::parse_github_owner_repo;
 use crate::repository::models::{Repository, RepositoryProvider};
@@ -548,36 +547,16 @@ async fn upsert_loop(
     Ok(created)
 }
 
-/// Resolve a fresh GitHub token for loop fetching, best-effort.
+/// Resolve a GitHub token for loop fetching, best-effort.
 ///
-/// Mirrors the skill service: prefer a refreshed GitHub App token, fall back to
-/// the stored provider token, and return `None` (unauthenticated fetch, works
-/// for public repos) on any failure.
+/// Goes through the canonical resolver so App / installation / `secret_ref`
+/// rows all yield a usable token. Returns `None` (unauthenticated fetch, works
+/// for public repos) when there's no connection or resolution fails.
 async fn resolve_github_token(state: &AppState, auth: &AuthUser) -> Option<String> {
-    if let Some(app_svc) = state.github_app_service.as_ref() {
-        match ensure_fresh_token(
-            state.provider_tokens.as_ref(),
-            state.provider_token_auth.as_ref(),
-            app_svc,
-            &auth.user_id,
-        )
-        .await
-        {
-            Ok(tok) => return Some(tok),
-            Err(AuthError::NotFound(_)) => return None,
-            Err(e) => {
-                warn!(error = %e, "Loop sync: GitHub token refresh failed; trying stored token");
-            }
-        }
-    }
-    match state
-        .provider_tokens
-        .find_provider_token(&auth.user_id, "github")
-        .await
-    {
-        Ok(token) => token.map(|t| t.access_token),
+    match resolve_state_github_token(state, &auth.user_id, None).await {
+        Ok(token) => token,
         Err(e) => {
-            warn!(error = %e, "Loop sync: failed to load GitHub provider token");
+            warn!(error = %e, "Loop sync: failed to resolve GitHub token");
             None
         }
     }

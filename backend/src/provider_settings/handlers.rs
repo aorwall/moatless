@@ -3,10 +3,17 @@
 use axum::extract::State;
 use axum::Json;
 
+use crate::auth::credentials::{
+    read_github_oauth_stash, stash_github_oauth_token, GITHUB_OAUTH_STASH_KEY,
+};
+use crate::auth::provider_tokens::{AUTH_METHOD_SECRET_REF, SECRET_REF_TOKEN_PLACEHOLDER};
 use crate::credentials::codex::oauth::{self as codex_oauth, PollStatus};
 use crate::credentials::codex::{save_codex_auth_for_scope, CodexScope};
 use crate::credentials::WriteSource;
 use crate::extractors::AuthUser;
+use crate::sandbox::secrets::GITHUB_TOKEN;
+use crate::secret::models::{SecretKind, SecretScopeType};
+use crate::secret::schemas::PutSecretRequest;
 use crate::state::AppState;
 
 use super::error::ProviderSettingsError;
@@ -101,27 +108,21 @@ pub async fn save_github_pat(
             .await
         {
             if existing.token_type.as_deref() == Some("pat") {
-                // Already a PAT override — preserve the stashed OAuth token
-                if let Some(stashed) = existing
-                    .metadata
-                    .as_ref()
-                    .and_then(|m| m.get("oauth_access_token"))
-                    .and_then(|v| v.as_str())
-                {
-                    metadata["oauth_access_token"] = serde_json::Value::String(stashed.to_string());
-                }
-                if let Some(oauth_login) = existing
-                    .metadata
-                    .as_ref()
-                    .and_then(|m| m.get("oauth_login"))
-                    .and_then(|v| v.as_str())
-                {
-                    metadata["oauth_login"] = serde_json::Value::String(oauth_login.to_string());
+                // Already a PAT override — the stash is already in place; only
+                // the non-secret restore hints need carrying forward.
+                for key in ["oauth_login", "oauth_auth_method"] {
+                    if let Some(value) = existing
+                        .metadata
+                        .as_ref()
+                        .and_then(|m| m.get(key))
+                        .and_then(|v| v.as_str())
+                    {
+                        metadata[key] = serde_json::Value::String(value.to_string());
+                    }
                 }
             } else {
-                // Stash the current OAuth token
-                metadata["oauth_access_token"] =
-                    serde_json::Value::String(existing.access_token.clone());
+                stash_github_oauth_token(&state.secrets, &auth.user_id, &existing.access_token)
+                    .await?;
                 if let Some(oauth_login) = existing
                     .metadata
                     .as_ref()
@@ -130,16 +131,46 @@ pub async fn save_github_pat(
                 {
                     metadata["oauth_login"] = serde_json::Value::String(oauth_login.to_string());
                 }
+                // Remember how the connection authenticated so removing the
+                // override restores it — a `github_app` user must get their
+                // refreshable App branch back, not a plain `oauth` row.
+                if let Some(auth_method) = existing.auth_method.as_deref() {
+                    metadata["oauth_auth_method"] =
+                        serde_json::Value::String(auth_method.to_string());
+                }
             }
         }
     }
 
+    // The PAT value lives in the encrypted `secrets` table; the
+    // `provider_tokens` row is kept as a reference so row-presence consumers
+    // (config `connected`, `auth/me` providers, PAT-override detection) keep
+    // working. Write the secret first — a reference row pointing at a missing
+    // secret is a hard failure on read.
+    state
+        .secrets
+        .put_secret(
+            &auth.scope_context(),
+            &auth.user_id,
+            PutSecretRequest {
+                scope_type: SecretScopeType::User,
+                scope_id: Some(auth.user_id.clone()),
+                key: GITHUB_TOKEN.to_string(),
+                kind: SecretKind::ProviderToken,
+                provider: Some("github".to_string()),
+                value: Some(req.token.clone()),
+                external_ref: None,
+            },
+        )
+        .await?;
+
     state
         .provider_tokens
-        .upsert_token(
+        .upsert_token_with_auth_method(
             &auth.user_id,
             "github",
-            &req.token,
+            AUTH_METHOD_SECRET_REF,
+            SECRET_REF_TOKEN_PLACEHOLDER,
             None,
             Some("pat"),
             Some(&metadata),
@@ -256,17 +287,34 @@ pub async fn exchange_github_token(
 
     let metadata = serde_json::json!({ "login": login });
 
+    // Set `auth_method` explicitly: this row now carries a real OAuth token, so
+    // a previous `secret_ref` marker must not survive and send the resolver
+    // looking for a stale secret.
     state
         .provider_tokens
-        .upsert_token(
+        .upsert_token_with_auth_method(
             &auth.user_id,
             "github",
+            "oauth",
             &access_token,
             None,
             Some(&token_type),
             Some(&metadata),
         )
         .await?;
+
+    for (key, kind) in [
+        (GITHUB_TOKEN, SecretKind::ProviderToken),
+        (GITHUB_OAUTH_STASH_KEY, SecretKind::Internal),
+    ] {
+        if let Err(e) = state
+            .secrets
+            .delete_user_secret(&auth.user_id, key, Some(kind))
+            .await
+        {
+            tracing::warn!(error = %e, user_id = %auth.user_id, key, "Failed to clean up secret on GitHub OAuth exchange");
+        }
+    }
 
     Ok(Json(ExchangeTokenResponse {
         connected: true,
@@ -292,6 +340,19 @@ pub async fn delete_github_config(
         .provider_tokens
         .delete_token(&auth.user_id, "github")
         .await?;
+
+    for (key, kind) in [
+        (GITHUB_TOKEN, SecretKind::ProviderToken),
+        (GITHUB_OAUTH_STASH_KEY, SecretKind::Internal),
+    ] {
+        if let Err(e) = state
+            .secrets
+            .delete_user_secret(&auth.user_id, key, Some(kind))
+            .await
+        {
+            tracing::warn!(error = %e, user_id = %auth.user_id, key, "Failed to clean up secret on GitHub disconnect");
+        }
+    }
 
     Ok(Json(GitHubConfigResponse {
         connected: false,
@@ -334,18 +395,13 @@ pub async fn delete_github_pat_override(
         ));
     }
 
-    // Restore the stashed OAuth token from metadata
-    let oauth_token = token
-        .metadata
-        .as_ref()
-        .and_then(|m| m.get("oauth_access_token"))
-        .and_then(|v| v.as_str())
+    let oauth_token = read_github_oauth_stash(&state.secrets, &auth.user_id)
+        .await?
         .ok_or_else(|| {
             ProviderSettingsError::BadRequest(
                 "Cannot restore OAuth token — original token not preserved".to_string(),
             )
-        })?
-        .to_string();
+        })?;
 
     let oauth_login = token
         .metadata
@@ -354,20 +410,48 @@ pub async fn delete_github_pat_override(
         .and_then(|v| v.as_str())
         .map(std::string::ToString::to_string);
 
+    // Restore the branch the connection used before the override; plain OAuth
+    // is the fallback for rows stashed without one.
+    let restored_auth_method = token
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("oauth_auth_method"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("oauth")
+        .to_string();
+
     let login = oauth_login.unwrap_or_else(|| auth.login.clone());
     let metadata = serde_json::json!({ "login": login });
 
+    // Reset `auth_method` off `secret_ref` — the row carries a usable OAuth
+    // token again, so the resolver must stop looking for a secret.
     state
         .provider_tokens
-        .upsert_token(
+        .upsert_token_with_auth_method(
             &auth.user_id,
             "github",
+            &restored_auth_method,
             &oauth_token,
             None,
             Some("bearer"),
             Some(&metadata),
         )
         .await?;
+
+    // The override is gone; drop both the PAT and the stash rather than
+    // leaving decryptable credentials behind.
+    for (key, kind) in [
+        (GITHUB_TOKEN, SecretKind::ProviderToken),
+        (GITHUB_OAUTH_STASH_KEY, SecretKind::Internal),
+    ] {
+        if let Err(e) = state
+            .secrets
+            .delete_user_secret(&auth.user_id, key, Some(kind))
+            .await
+        {
+            tracing::warn!(error = %e, user_id = %auth.user_id, key, "Failed to clean up secret after PAT removal");
+        }
+    }
 
     Ok(Json(GitHubConfigResponse {
         connected: true,

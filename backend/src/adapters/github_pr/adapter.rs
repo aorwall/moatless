@@ -21,6 +21,7 @@ use crate::auth::provider_tokens::ProviderTokenAuthRepository;
 use crate::bindings::dao::PgTaskBindingRepository;
 use crate::bindings::status_service::github_external_status;
 use crate::db::DbPool;
+use crate::secret::service::SecretService;
 use crate::state::AppState;
 
 use super::api::GithubPrApi;
@@ -281,6 +282,9 @@ pub struct GithubPrAdapter {
     /// mint installation tokens for bot users (`auth_method =
     /// 'github_app_installation'`).
     github_apps: Arc<GitHubAppRegistry>,
+    /// Secret service — resolves the encrypted PAT behind a `secret_ref`
+    /// provider-token row. `None` in tests / minimal wiring.
+    secrets: Option<Arc<SecretService>>,
     /// Deduplication cache: delivery_id → () with 5-minute TTL.
     dedup_cache: Cache<String, ()>,
 }
@@ -309,11 +313,19 @@ impl GithubPrAdapter {
             provider_token_auth,
             github_app_service,
             github_apps,
+            secrets: None,
             dedup_cache: Cache::builder()
                 .time_to_live(Duration::from_mins(5))
                 .max_capacity(10_000)
                 .build(),
         }
+    }
+
+    /// Wire the secret service used to resolve `secret_ref` provider tokens.
+    #[must_use]
+    pub fn with_secrets(mut self, secrets: Arc<SecretService>) -> Self {
+        self.secrets = Some(secrets);
+        self
     }
 
     /// Resolve a GitHub token for API calls keyed by user id and repo owner.
@@ -339,6 +351,7 @@ impl GithubPrAdapter {
             self.provider_token_auth.as_deref(),
             self.github_app_service.as_deref(),
             self.github_apps.as_ref(),
+            self.secrets.as_deref(),
             user_id,
             repo_owner,
         )

@@ -19,7 +19,7 @@ Failure modes grouped by step. Diagnose with `kubectl -n <ns> …`; most can be 
 ## Install
 
 - **`rendered manifests contain a resource that already exists`** → prior broken install. Run `helm uninstall moatless-vibe -n <ns>` first, or pass a new release name.
-- **Helm chart dependency failure** → `helm dependency update k8s/helm/moatless-vibe` manually; check `Chart.lock` vs network access to the chart repos.
+- **`no matches for kind "IngressRoute"`** → Traefik CRDs are missing. Install Traefik (or its CRDs) before the chart; the app IngressRoutes need them. See `references/prerequisites.md`.
 - **Pods crash-looping on startup** → `kubectl -n <ns> logs deploy/moatless-vibe-backend --previous`. Common: bad `DATABASE_URL`, migration failure.
 
 ## Image pulls

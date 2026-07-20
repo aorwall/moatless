@@ -445,6 +445,7 @@ fn team_error_from_provider_settings(
         ProviderSettingsError::NotFound(m) => TeamError::NotFound(m),
         ProviderSettingsError::Db(e) => TeamError::Db(e),
         ProviderSettingsError::ProviderError(m) => TeamError::BadRequest(m),
+        ProviderSettingsError::Secret(e) => TeamError::Internal(e.to_string()),
     }
 }
 

@@ -15,6 +15,7 @@ async fn send_and_list_messages() {
         .api()
         .create_task(&CreateTaskRequest {
             repository_id: repo_id,
+            workspace_id: None,
             message: Some("Initial message".into()),
             name: None,
             branch: None,

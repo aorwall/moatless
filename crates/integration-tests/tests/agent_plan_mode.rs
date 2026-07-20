@@ -73,6 +73,7 @@ async fn agent_plan_mode() {
     // Create task with plan mode enabled
     let req = CreateTaskRequest {
         repository_id: repo_id.clone(),
+        workspace_id: None,
         message: Some(
             "Plan how to add a dark mode toggle to the application. \
              Create a plan but wait for my approval before making changes."

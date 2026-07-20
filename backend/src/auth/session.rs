@@ -25,6 +25,7 @@ pub async fn create_session(
     users: &dyn UserRepository,
     sessions: &dyn SessionRepository,
     provider_tokens: &dyn ProviderTokenAuthRepository,
+    secrets: Option<&crate::secret::service::SecretService>,
     provider_id: &str,
     tokens: &OAuthTokens,
     user_info: &ProviderUserInfo,
@@ -101,22 +102,36 @@ pub async fn create_session(
             .unwrap_or(None);
 
         if existing_token_type.as_deref() == Some("pat") {
-            // PAT override is active — refresh the stashed OAuth token in metadata
-            if let Err(e) = provider_tokens
-                .update_stashed_oauth_token(&user_info.id, "github", &tokens.access_token)
-                .await
-            {
-                warn!(
-                    error = %e,
-                    user_id = %user_info.id,
-                    "Failed to update stashed OAuth token in provider_tokens"
-                );
-            } else {
-                info!(
-                    user_id = %user_info.id,
-                    login = %user_info.login,
-                    "Updated stashed OAuth token (PAT override active)"
-                );
+            // PAT override is active — refresh the stashed OAuth token so
+            // removing the override later restores a live credential.
+            match secrets {
+                Some(secrets) => {
+                    if let Err(e) = crate::auth::credentials::stash_github_oauth_token(
+                        secrets,
+                        &user_info.id,
+                        &tokens.access_token,
+                    )
+                    .await
+                    {
+                        warn!(
+                            error = %e,
+                            user_id = %user_info.id,
+                            "Failed to stash OAuth token behind PAT override"
+                        );
+                    } else {
+                        info!(
+                            user_id = %user_info.id,
+                            login = %user_info.login,
+                            "Updated stashed OAuth token (PAT override active)"
+                        );
+                    }
+                }
+                None => {
+                    warn!(
+                        user_id = %user_info.id,
+                        "No secret service wired — cannot stash OAuth token behind PAT override"
+                    );
+                }
             }
         } else {
             let auth_method = if provider_id == "github_app" {

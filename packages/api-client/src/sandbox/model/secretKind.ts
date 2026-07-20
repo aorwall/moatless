@@ -18,4 +18,5 @@ export const SecretKind = {
   runtime_file: 'runtime_file',
   deployment: 'deployment',
   ssh_key: 'ssh_key',
+  internal: 'internal',
 } as const;

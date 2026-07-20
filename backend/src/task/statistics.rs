@@ -310,6 +310,7 @@ mod tests {
             inactive_ttl_days: 7,
             task_template_id: None,
             trigger_id: None,
+            workspace_id: None,
             disabled_servers: None,
         }
     }

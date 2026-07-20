@@ -40,3 +40,4 @@ pub mod task_template;
 pub mod team;
 pub mod triggers;
 pub mod user;
+pub mod workspace;

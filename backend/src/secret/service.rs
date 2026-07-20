@@ -206,6 +206,10 @@ impl SecretService {
             .await?;
         records
             .into_iter()
+            // `provider_token` secrets are owned by the provider-settings flow
+            // (which validates them against the provider) and are not editable
+            // as generic secrets.
+            .filter(|record| record.kind != SecretKind::ProviderToken.as_str())
             .map(SecretMetadataResponse::try_from)
             .collect::<Result<Vec<_>, _>>()
             .map_err(SecretError::Internal)
@@ -407,6 +411,72 @@ impl SecretService {
         })
     }
 
+    /// Resolve a single user-scoped secret for an already-authorized internal
+    /// workflow.
+    ///
+    /// Unlike [`resolve_plaintext_scope`](Self::resolve_plaintext_scope) this
+    /// reads one row and writes no audit event, so it is cheap enough for the
+    /// settings and sandbox-preflight paths. `kind` filters on the record's
+    /// kind — callers that require a validated value pass
+    /// `Some(SecretKind::ProviderToken)` so a plain `env` secret under the same
+    /// key doesn't satisfy them.
+    ///
+    /// Returns `Ok(None)` when the secret is absent, disabled, or of another
+    /// kind.
+    pub async fn resolve_user_secret(
+        &self,
+        actor_id: &str,
+        key: &str,
+        kind: Option<SecretKind>,
+    ) -> Result<Option<String>, SecretError> {
+        let Some(record) = self
+            .secrets
+            .find_by_scope_key(SecretScopeType::User.as_str(), Some(actor_id), key)
+            .await?
+        else {
+            return Ok(None);
+        };
+        if !record.enabled {
+            return Ok(None);
+        }
+        if let Some(kind) = kind {
+            if record.kind != kind.as_str() {
+                return Ok(None);
+            }
+        }
+        let value = self.decrypt_record(&record)?;
+        self.secrets.mark_used(&record.id).await?;
+        Ok(Some(value))
+    }
+
+    /// Delete a user-scoped secret by key for an already-authorized internal
+    /// workflow. `kind` guards the delete so a caller cleaning up its own
+    /// bookkeeping can't remove a user-managed secret that happens to share the
+    /// key. Returns whether a row was removed.
+    pub async fn delete_user_secret(
+        &self,
+        actor_id: &str,
+        key: &str,
+        kind: Option<SecretKind>,
+    ) -> Result<bool, SecretError> {
+        let Some(record) = self
+            .secrets
+            .find_by_scope_key(SecretScopeType::User.as_str(), Some(actor_id), key)
+            .await?
+        else {
+            return Ok(false);
+        };
+        if kind.is_some_and(|kind| record.kind != kind.as_str()) {
+            return Ok(false);
+        }
+        let removed = self.secrets.delete(&record.id).await?;
+        if removed {
+            self.audit(Some(&record.id), actor_id, "delete", &record, "success")
+                .await?;
+        }
+        Ok(removed)
+    }
+
     /// Resolve plaintext secrets for an already-authorized internal workflow.
     pub async fn resolve_plaintext_scope(
         &self,
@@ -491,7 +561,12 @@ impl SecretService {
         ssh_keys_only: bool,
     ) -> Result<HashMap<String, String>, SecretError> {
         let ssh_kind = SecretKind::SshKey.as_str();
-        let keep = |scope: &ResolvedSecret| (scope.kind.as_str() == ssh_kind) == ssh_keys_only;
+        let internal_kind = SecretKind::Internal.as_str();
+        let keep = |scope: &ResolvedSecret| {
+            // Backend-only stashes never reach a sandbox on any channel.
+            scope.kind.as_str() != internal_kind
+                && (scope.kind.as_str() == ssh_kind) == ssh_keys_only
+        };
 
         // Most-specific scope wins: user > team > global. Resolve user first so
         // `or_insert` keeps it when a broader scope repeats the same key.
@@ -775,112 +850,7 @@ mod tests {
 
     // --- scope precedence (user > team > global), shared by env + ssh_key ---
 
-    struct FakeStore {
-        records: Vec<SecretRecord>,
-    }
-
-    #[async_trait::async_trait]
-    impl SecretRepository for FakeStore {
-        async fn list_by_scope(
-            &self,
-            scope_type: &str,
-            scope_id: Option<&str>,
-        ) -> Result<Vec<SecretRecord>, sqlx::Error> {
-            Ok(self
-                .records
-                .iter()
-                .filter(|r| r.scope_type == scope_type && r.scope_id.as_deref() == scope_id)
-                .cloned()
-                .collect())
-        }
-        async fn find_by_id(&self, _id: &str) -> Result<Option<SecretRecord>, sqlx::Error> {
-            unimplemented!()
-        }
-        async fn find_by_scope_key(
-            &self,
-            _scope_type: &str,
-            _scope_id: Option<&str>,
-            _key: &str,
-        ) -> Result<Option<SecretRecord>, sqlx::Error> {
-            unimplemented!()
-        }
-        async fn insert(&self, _input: SecretInsert<'_>) -> Result<SecretRecord, sqlx::Error> {
-            unimplemented!()
-        }
-        async fn replace(&self, _input: SecretReplace<'_>) -> Result<SecretRecord, sqlx::Error> {
-            unimplemented!()
-        }
-        async fn delete(&self, _id: &str) -> Result<bool, sqlx::Error> {
-            unimplemented!()
-        }
-        async fn mark_used(&self, _id: &str) -> Result<(), sqlx::Error> {
-            Ok(())
-        }
-    }
-
-    struct FakeAudits;
-
-    #[async_trait::async_trait]
-    impl SecretAuditRepository for FakeAudits {
-        async fn record(&self, _input: SecretAuditInput<'_>) -> Result<(), sqlx::Error> {
-            Ok(())
-        }
-    }
-
-    /// Cipher stub: the stored "ciphertext" bytes are the UTF-8 plaintext verbatim.
-    struct PlaintextCipher;
-
-    impl SecretCipher for PlaintextCipher {
-        fn encrypt(
-            &self,
-            _secret_id: &str,
-            _plaintext: &str,
-        ) -> Result<EncryptedSecretValue, SecretError> {
-            unimplemented!()
-        }
-        fn decrypt(&self, record: &SecretRecord) -> Result<String, SecretError> {
-            let bytes = record.value_ciphertext.clone().unwrap_or_default();
-            Ok(String::from_utf8(bytes).expect("test ciphertext is valid utf8"))
-        }
-    }
-
-    fn secret(
-        scope_type: &str,
-        scope_id: Option<&str>,
-        kind: &str,
-        key: &str,
-        value: &str,
-    ) -> SecretRecord {
-        SecretRecord {
-            id: format!("{scope_type}:{key}"),
-            scope_type: scope_type.to_string(),
-            scope_id: scope_id.map(str::to_string),
-            key: key.to_string(),
-            kind: kind.to_string(),
-            provider: None,
-            value_ciphertext: Some(value.as_bytes().to_vec()),
-            encryption_nonce: None,
-            encrypted_data_key: None,
-            external_ref: None,
-            kms_key_id: None,
-            encryption_version: 1,
-            created_by: "test".to_string(),
-            updated_by: "test".to_string(),
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-            last_used_at: None,
-            version: 1,
-            enabled: true,
-        }
-    }
-
-    fn service_with(records: Vec<SecretRecord>) -> SecretService {
-        SecretService::new(
-            Arc::new(FakeStore { records }),
-            Arc::new(FakeAudits),
-            Some(Arc::new(PlaintextCipher)),
-        )
-    }
+    use super::super::test_support::{secret, service_with};
 
     #[tokio::test]
     async fn user_scoped_secret_overrides_global() {
@@ -968,6 +938,102 @@ mod tests {
         let svc = service_with(vec![user, global]);
         let resolved = svc.resolve_accessible_plaintext("u1", None).await.unwrap();
         assert_eq!(resolved["CLAUDE_CODE_OAUTH_TOKEN"], "user-token");
+    }
+
+    // --- single-key reads ---
+
+    #[tokio::test]
+    async fn resolve_user_secret_honours_kind_filter() {
+        let svc = service_with(vec![secret(
+            "user",
+            Some("u1"),
+            "provider_token",
+            "GITHUB_TOKEN",
+            "ghp_validated",
+        )]);
+
+        // No filter, and a matching filter, both resolve.
+        assert_eq!(
+            svc.resolve_user_secret("u1", "GITHUB_TOKEN", None)
+                .await
+                .unwrap(),
+            Some("ghp_validated".to_string())
+        );
+        assert_eq!(
+            svc.resolve_user_secret("u1", "GITHUB_TOKEN", Some(SecretKind::ProviderToken))
+                .await
+                .unwrap(),
+            Some("ghp_validated".to_string())
+        );
+        // A mismatched kind reads as absent rather than leaking the value.
+        assert_eq!(
+            svc.resolve_user_secret("u1", "GITHUB_TOKEN", Some(SecretKind::Env))
+                .await
+                .unwrap(),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_user_secret_skips_disabled_and_other_scopes() {
+        let mut disabled = secret("user", Some("u1"), "env", "DISABLED", "v");
+        disabled.enabled = false;
+        let svc = service_with(vec![
+            disabled,
+            secret("global", None, "env", "GLOBAL_ONLY", "g"),
+        ]);
+
+        assert_eq!(
+            svc.resolve_user_secret("u1", "DISABLED", None).await.unwrap(),
+            None
+        );
+        // Single-key reads are user-scoped only — no fallback to global.
+        assert_eq!(
+            svc.resolve_user_secret("u1", "GLOBAL_ONLY", None)
+                .await
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            svc.resolve_user_secret("u1", "ABSENT", None).await.unwrap(),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn internal_secrets_never_reach_a_sandbox() {
+        let svc = service_with(vec![
+            secret("user", Some("u1"), "internal", "GITHUB_OAUTH_ACCESS_TOKEN", "gho_x"),
+            secret("user", Some("u1"), "env", "NORMAL", "v"),
+            secret("user", Some("u1"), "ssh_key", "DEPLOY_KEY", "k"),
+        ]);
+
+        let env = svc.resolve_accessible_plaintext("u1", None).await.unwrap();
+        assert!(
+            !env.contains_key("GITHUB_OAUTH_ACCESS_TOKEN"),
+            "internal secrets must not be delivered as env vars"
+        );
+        assert_eq!(env["NORMAL"], "v");
+
+        let keys = svc.resolve_accessible_ssh_keys("u1", None).await.unwrap();
+        assert!(
+            !keys.contains_key("GITHUB_OAUTH_ACCESS_TOKEN"),
+            "internal secrets must not be delivered as ssh keys"
+        );
+        assert_eq!(keys["DEPLOY_KEY"], "k");
+
+        // But a direct internal read still works — that's how the PAT-override
+        // restore path finds the stashed OAuth token.
+        assert_eq!(
+            svc.resolve_user_secret(
+                "u1",
+                "GITHUB_OAUTH_ACCESS_TOKEN",
+                Some(SecretKind::Internal)
+            )
+            .await
+            .unwrap(),
+            Some("gho_x".to_string())
+        );
     }
 
     #[tokio::test]

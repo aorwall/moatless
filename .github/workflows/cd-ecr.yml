@@ -316,6 +316,9 @@ jobs:
             if [[ -z "$EVENT_BEFORE" || "$EVENT_BEFORE" =~ ^0+$ ]] \
                || ! git cat-file -e "${EVENT_BEFORE}^{commit}" 2>/dev/null; then
               MOAT_CHANGED=true
+            # RUST_CLI is the precise signal (cargo-metadata closure over
+            # moatless-cli and its path-deps). The path regex stays as a fallback
+            # for the case where cargo metadata failed and RUST_CLI is unset.
             elif [ "${RUST_CLI:-false}" = "true" ] || \
                  git diff --name-only "$EVENT_BEFORE" "$GITHUB_SHA" \
                    | grep -qE '^(crates/(cli|api-client|api-schemas)/|Cargo\.(toml|lock)$|rust-toolchain\.toml$)'; then

@@ -90,10 +90,15 @@ pub fn spawn_metrics_server(port: u16) {
 
 /// Optionally create a Postgres pool and run migrations.
 ///
-/// Returns `None` when `DATABASE_URL` is unset or connection fails. When
-/// `run_migrations` is false (env `RUN_MIGRATIONS=false`), the pool is created
-/// but pending migrations are NOT applied — used by the shadow-dev backend so a
-/// dev instance never mutates the shared dev schema.
+/// Returns `None` when `DATABASE_URL` is unset, or when the connection still
+/// fails after retrying. The initial connection is retried to ride out a
+/// Postgres that is still starting (cold start / restart race) rather than
+/// permanently disabling the database — a silent disable leaves a "healthy"
+/// pod whose every API call fails.
+///
+/// When `run_migrations` is false (env `RUN_MIGRATIONS=false`), the pool is
+/// created but pending migrations are NOT applied — used by the shadow-dev
+/// backend so a dev instance never mutates the shared dev schema.
 pub async fn init_database(
     database_url: Option<&str>,
     max_connections: u32,
@@ -106,25 +111,42 @@ pub async fn init_database(
         return None;
     };
 
-    match db::create_pool(url, max_connections).await {
-        Ok(pool) => {
-            info!("Database pool initialized");
-            if run_migrations {
-                if let Err(e) = db::run_migrations(&pool).await {
-                    tracing::error!(error = %e, "Database migration failed");
-                    std::process::exit(1);
+    const MAX_ATTEMPTS: u32 = 10;
+    for attempt in 1..=MAX_ATTEMPTS {
+        match db::create_pool(url, max_connections).await {
+            Ok(pool) => {
+                info!("Database pool initialized");
+                if run_migrations {
+                    if let Err(e) = db::run_migrations(&pool).await {
+                        tracing::error!(error = %e, "Database migration failed");
+                        std::process::exit(1);
+                    }
+                    info!("Database migrations complete");
+                } else {
+                    info!("RUN_MIGRATIONS=false — skipping database migrations");
                 }
-                info!("Database migrations complete");
-            } else {
-                info!("RUN_MIGRATIONS=false — skipping database migrations");
+                return Some(pool);
             }
-            Some(pool)
-        }
-        Err(e) => {
-            tracing::error!(error = %e, "Failed to create database pool");
-            None
+            Err(e) if attempt < MAX_ATTEMPTS => {
+                tracing::warn!(
+                    error = %e,
+                    attempt,
+                    max_attempts = MAX_ATTEMPTS,
+                    "Database connection failed, retrying"
+                );
+                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            }
+            Err(e) => {
+                tracing::error!(
+                    error = %e,
+                    attempts = MAX_ATTEMPTS,
+                    "Failed to create database pool after retries — database features disabled"
+                );
+                return None;
+            }
         }
     }
+    None
 }
 
 // =========================================================================
@@ -296,6 +318,9 @@ pub fn spawn_grpc_server(
         if let Some(pool) = db_pool {
             svc = svc.with_codex_refresh(pool.clone(), codex_http.clone());
         }
+        if let Some(ref secrets) = secrets {
+            svc = svc.with_secrets(secrets.clone());
+        }
         Arc::new(svc)
     });
 
@@ -433,6 +458,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     use crate::task_event::routes::TaskEventApiDoc;
     use crate::task_template::routes::TaskTemplateApiDoc;
     use crate::team::routes::TeamApiDoc;
+    use crate::workspace::routes::WorkspaceApiDoc;
     use utoipa::OpenApi;
 
     #[derive(OpenApi)]
@@ -504,6 +530,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     merged.merge(TaskTemplateApiDoc::openapi());
     merged.merge(FeatureFlagsApiDoc::openapi());
     merged.merge(SkillApiDoc::openapi());
+    merged.merge(WorkspaceApiDoc::openapi());
 
     merged.info = utoipa::openapi::InfoBuilder::new()
         .title("Moatless Vibe Backend API")
