@@ -18,24 +18,180 @@ use moatless_api_schemas::triggers::{
 };
 use moatless_cli::client::MoatClient;
 
-/// Create a test client with no auth headers.
-pub fn test_client() -> MoatClient {
+/// A test user plus a client authenticated as them.
+pub struct TestUser {
+    /// Server-assigned user id (`local:<login>`).
+    pub id: String,
+    pub login: String,
+    pub client: MoatClient,
+}
+
+/// Password used for every user the harness creates. Long enough to satisfy
+/// the server's minimum.
+const TEST_PASSWORD: &str = "integration-test-password";
+
+/// The bootstrap admin's session cookie, resolved once per test process.
+///
+/// argon2 verification costs ~100ms, and cargo runs one process per test file,
+/// so caching this keeps the per-test login cost off the critical path.
+static ADMIN_COOKIE: tokio::sync::OnceCell<String> = tokio::sync::OnceCell::const_new();
+
+fn admin_username() -> String {
+    std::env::var("ADMIN_USERNAME").unwrap_or_else(|_| "admin".into())
+}
+
+fn admin_password() -> String {
+    std::env::var("ADMIN_PASSWORD").unwrap_or_else(|_| "ci-admin-password-1234".into())
+}
+
+/// Log in and return the raw `name=value` session cookie.
+pub async fn login_cookie(username: &str, password: &str) -> String {
+    let resp = reqwest::Client::new()
+        .post(format!("{}/api/v1/auth/password/login", base_url()))
+        .json(&serde_json::json!({ "username": username, "password": password }))
+        .send()
+        .await
+        .expect("password login request failed");
+
+    let status = resp.status();
+    assert!(
+        status.is_success(),
+        "password login for '{username}' failed with {status}: {}",
+        resp.text().await.unwrap_or_default()
+    );
+
+    resp.headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find_map(|raw| {
+            let pair = raw.split(';').next()?.trim();
+            pair.starts_with("moatless_session=").then(|| pair.to_string())
+        })
+        .expect("login response set no moatless_session cookie")
+}
+
+/// A client authenticated as the bootstrap admin.
+pub async fn admin_client() -> MoatClient {
+    let cookie = ADMIN_COOKIE
+        .get_or_init(|| async { login_cookie(&admin_username(), &admin_password()).await })
+        .await;
+    MoatClient::new_with_session_cookie(&base_url(), cookie)
+}
+
+/// The default test client — an authenticated admin.
+pub async fn test_client() -> MoatClient {
+    admin_client().await
+}
+
+/// A client with no credentials, for asserting that endpoints reject anonymous
+/// callers.
+pub fn unauthenticated_client() -> MoatClient {
     MoatClient::new_unauthenticated().unwrap()
 }
 
-/// Create a test client that simulates a specific user via ForwardAuth headers.
-pub fn client_as_user(user_id: &str, login: &str, role: &str) -> MoatClient {
-    MoatClient::new_as_user(user_id, login, role).unwrap()
+/// Create a user through the admin API and return a client logged in as them.
+pub async fn client_as_user(login: &str, role: &str) -> TestUser {
+    client_as_user_with_teams(login, role, &[]).await
 }
 
-/// Create a test client with user identity and team membership.
-pub fn client_as_user_with_teams(
-    user_id: &str,
-    login: &str,
-    role: &str,
-    team_ids: &[&str],
-) -> MoatClient {
-    MoatClient::new_as_user_with_teams(user_id, login, role, team_ids).unwrap()
+/// Create a user, add them to `team_ids`, and return a client logged in as them.
+///
+/// The login happens **after** the team memberships are written: team ids are
+/// baked into the session JWT at login and never re-resolved per request, so a
+/// client created before `add_member` would carry an empty `team_ids`.
+pub async fn client_as_user_with_teams(login: &str, role: &str, team_ids: &[&str]) -> TestUser {
+    let admin = admin_client().await;
+    // Idempotent: tests seed the same logins repeatedly within a process, and
+    // `reset_database()` may or may not have run in between.
+    let user_id = match admin
+        .api()
+        .create_user(&moatless_api_schemas::auth::CreateUserRequest {
+            is_bot: false,
+            github_app_key: None,
+            login: Some(login.to_string()),
+            password: Some(TEST_PASSWORD.to_string()),
+            role: Some(parse_role(role)),
+            must_change_password: Some(false),
+        })
+        .await
+    {
+        Ok(created) => created.id,
+        Err(e) if is_conflict(&e) => format!("local:{}", login.to_lowercase()),
+        Err(e) => panic!("failed to create test user '{login}': {e}"),
+    };
+
+    for team_id in team_ids {
+        admin
+            .api()
+            .add_member(
+                team_id,
+                &moatless_api_schemas::team::AddTeamMemberRequest {
+                    user_id: user_id.clone(),
+                    role: Some("member".into()),
+                },
+            )
+            .await
+            .unwrap_or_else(|e| panic!("failed to add '{login}' to team '{team_id}': {e}"));
+    }
+
+    let cookie = login_cookie(login, TEST_PASSWORD).await;
+    TestUser {
+        id: user_id,
+        login: login.to_string(),
+        client: MoatClient::new_with_session_cookie(&base_url(), &cookie),
+    }
+}
+
+fn is_conflict(error: &moatless_api_client::ApiError) -> bool {
+    matches!(error, moatless_api_client::ApiError::Api { status: 409, .. })
+}
+
+/// Log a user back in, picking up team memberships granted since their last
+/// login. Required after any membership mutation — see
+/// [`client_as_user_with_teams`].
+pub async fn relogin(user: &TestUser) -> TestUser {
+    let cookie = login_cookie(&user.login, TEST_PASSWORD).await;
+    TestUser {
+        id: user.id.clone(),
+        login: user.login.clone(),
+        client: MoatClient::new_with_session_cookie(&base_url(), &cookie),
+    }
+}
+
+fn parse_role(role: &str) -> moatless_api_schemas::enums::UserRole {
+    match role {
+        "admin" => moatless_api_schemas::enums::UserRole::Admin,
+        _ => moatless_api_schemas::enums::UserRole::User,
+    }
+}
+
+/// Build a raw reqwest client carrying an existing user's session cookie.
+pub async fn raw_client_for(user: &TestUser) -> reqwest::Client {
+    raw_client_with_cookie(&login_cookie(&user.login, TEST_PASSWORD).await)
+}
+
+/// Build a raw reqwest client carrying the bootstrap admin's session cookie.
+pub async fn raw_admin_client() -> reqwest::Client {
+    raw_client_with_cookie(&login_cookie(&admin_username(), &admin_password()).await)
+}
+
+/// Build a raw reqwest client that sends `cookie` on every request.
+pub fn raw_client_with_cookie(cookie: &str) -> reqwest::Client {
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(reqwest::header::COOKIE, cookie.parse().unwrap());
+    reqwest::Client::builder()
+        .default_headers(headers)
+        .build()
+        .unwrap()
+}
+
+/// Create a user and return them alongside a raw reqwest client bearing their
+/// session cookie.
+pub async fn raw_client_as_user(login: &str, role: &str) -> (TestUser, reqwest::Client) {
+    let user = client_as_user(login, role).await;
+    let http = raw_client_for(&user).await;
+    (user, http)
 }
 
 /// Return the base URL for raw API requests.
@@ -70,60 +226,6 @@ pub fn e2e_agent_reports_cost() -> bool {
         e2e_agent_type().as_ref().map(|t| t.as_str()),
         None | Some("claude-code") | Some("claude-code-cli") | Some("codex")
     )
-}
-
-/// Build a raw reqwest client with ForwardAuth headers for a specific user.
-pub fn raw_client_as_user(user_id: &str, login: &str, role: &str) -> reqwest::Client {
-    let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert("X-User-Id", user_id.parse().unwrap());
-    headers.insert("X-User-Login", login.parse().unwrap());
-    headers.insert("X-User-Role", role.parse().unwrap());
-    reqwest::Client::builder()
-        .default_headers(headers)
-        .build()
-        .unwrap()
-}
-
-/// Seed a test user by making a request that triggers user creation via ForwardAuth headers.
-pub async fn seed_user(user_id: &str, login: &str, role: &str) {
-    fn sql_literal(value: &str) -> String {
-        format!("'{}'", value.replace('\'', "''"))
-    }
-
-    let sql = format!(
-        r#"
-        INSERT INTO users (id, login, provider, role, created_at, last_login_at)
-        VALUES ({}, {}, 'integration-test', {}, now(), now())
-        ON CONFLICT (id) DO UPDATE SET
-            login = EXCLUDED.login,
-            role = EXCLUDED.role,
-            last_login_at = EXCLUDED.last_login_at
-    "#,
-        sql_literal(user_id),
-        sql_literal(login),
-        sql_literal(role),
-    );
-
-    let output = std::process::Command::new("docker")
-        .args([
-            "exec",
-            "moatless-postgres",
-            "psql",
-            "-U",
-            "moatless",
-            "-d",
-            "moatless",
-            "-c",
-            &sql,
-        ])
-        .output()
-        .expect("failed to run docker exec for user seed");
-
-    assert!(
-        output.status.success(),
-        "failed to seed user {user_id}: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
 }
 
 /// Run an arbitrary SQL statement via `docker exec moatless-postgres psql`.
@@ -179,11 +281,20 @@ pub fn query_psql(sql: &str) -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
-/// Seed the standard test users (alice, bob, carol).
-pub async fn seed_test_users() {
-    seed_user("alice-test", "alice", "user").await;
-    seed_user("bob-test", "bob", "user").await;
-    seed_user("carol-admin", "carol", "admin").await;
+/// The standard test users, each with a client logged in as them.
+pub struct TestUsers {
+    pub alice: TestUser,
+    pub bob: TestUser,
+    pub carol: TestUser,
+}
+
+/// Create the standard test users (alice, bob, carol) via the admin API.
+pub async fn seed_test_users() -> TestUsers {
+    TestUsers {
+        alice: client_as_user("alice", "user").await,
+        bob: client_as_user("bob", "user").await,
+        carol: client_as_user("carol", "admin").await,
+    }
 }
 
 /// Create a `CreateRepositoryRequest` with only the commonly-used fields set.
@@ -328,13 +439,20 @@ pub fn reset_database() {
         "provider_tokens",
         "secret_audit_events",
         "secrets",
-        "users",
         "commands",
         "figma_imports",
         "file_metadata",
         "tags",
     ];
-    let sql = format!("TRUNCATE {} CASCADE;", tables.join(", "));
+    // `users` is deliberately not truncated: the bootstrap admin is seeded
+    // only at startup, so wiping it would 401 every subsequent login with no
+    // recovery short of restarting the backend. Delete everyone else instead
+    // — the FK cascade takes their `user_credentials` with them.
+    let admin = admin_username().replace('\'', "''");
+    let sql = format!(
+        "TRUNCATE {} CASCADE; DELETE FROM users WHERE login <> '{admin}';",
+        tables.join(", ")
+    );
     let output = std::process::Command::new("docker")
         .args([
             "exec",

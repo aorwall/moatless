@@ -1,6 +1,34 @@
 # API Authentication Guide
 
-This guide explains how to authenticate with the Moatless Vibe API using API keys.
+This guide explains how to authenticate with the Moatless Vibe API.
+
+There are two credentials: a **session cookie** (browsers and the CLI login
+flow) and an **API key** (programmatic access). Every API route requires one or
+the other — there is no unauthenticated mode.
+
+## Password login
+
+When the server runs local username/password auth (`AUTH_PROVIDER` unset or
+`local`), `POST /api/v1/auth/password/login` exchanges credentials for a session
+cookie:
+
+```bash
+curl -i -X POST -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"your-password"}' \
+  "$BASE_URL/api/v1/auth/password/login"
+# → 200 + Set-Cookie: moatless_session=...
+```
+
+`GET /api/v1/auth/mode` reports which flow a deployment runs (`password` or
+`oauth`) and is public, so a login page can call it before authenticating.
+
+The bootstrap `admin` account is seeded at startup from `ADMIN_PASSWORD`. When
+that is unset, a random password is generated on first boot and logged **once**
+at WARN. Change it under Settings → Password, or reset another user's with
+`PUT /api/v1/users/{login}/password` as an admin.
+
+On OAuth deployments the password endpoints answer 404 and `/api/v1/auth/login`
+redirects to the configured provider instead.
 
 ## Overview
 

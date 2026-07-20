@@ -36,9 +36,12 @@ export class SSEEventCollector {
 	private streamPromise: Promise<void> | null = null;
 	private error: Error | null = null;
 	private debug: boolean;
+	private headers: Record<string, string>;
 
-	constructor(options?: { debug?: boolean }) {
+	constructor(options?: { debug?: boolean; headers?: Record<string, string> }) {
 		this.debug = options?.debug ?? false;
+		// The event stream is authenticated — an anonymous connection is 401'd.
+		this.headers = options?.headers ?? {};
 	}
 
 	/**
@@ -268,6 +271,7 @@ export class SSEEventCollector {
 			const response = await fetch(url, {
 				headers: {
 					Accept: "text/event-stream",
+					...this.headers,
 				},
 				signal: this.abortController?.signal,
 			});

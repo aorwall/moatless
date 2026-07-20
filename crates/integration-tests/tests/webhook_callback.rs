@@ -35,8 +35,8 @@ async fn webhook_outbound_callback() {
         return;
     }
 
-    let client = test_client();
-    let http = integration_tests::raw_client_as_user("alice-test", "alice", "user");
+    let client = test_client().await;
+    let (_alice, http) = integration_tests::raw_client_as_user("alice", "user").await;
     let repo_id = ensure_template_repo(&client).await;
     let suffix = timestamp_suffix();
 

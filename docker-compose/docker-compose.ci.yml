@@ -7,8 +7,11 @@ services:
     image: ${APP_IMAGE}
     environment:
       RUST_LOG: info
-      # Disable authentication for CI testing
-      AUTH_PROVIDER: disabled
+      # Local username/password auth. Both values are pinned so the test
+      # harness can log in as the admin without scraping the boot log.
+      SESSION_JWT_SECRET: ci-session-jwt-secret-do-not-use-in-production
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: ci-admin-password-1234
       # DATA_DIR is the HOST path for Docker sibling container volume mounts
       DATA_DIR: ${DATA_DIR}
       # CONTAINER_DATA_DIR is where data is mounted inside the backend container

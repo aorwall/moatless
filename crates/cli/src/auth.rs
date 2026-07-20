@@ -56,15 +56,13 @@ fn load_session(path: &str) -> Option<String> {
 }
 
 // ============================================================================
-// Standalone mode: login dispatcher (OAuth vs local no-auth)
+// Standalone mode: login dispatcher (password vs OAuth)
 // ============================================================================
 
 /// Top-level login entry point.
 ///
-/// Probes `{url}/api/v1/auth/me` to decide the flow:
-/// - 200 with empty `providers` → backend has no auth configured; save a
-///   local-user profile.
-/// - 200 with non-empty `providers` or 401 → run the browser OAuth flow.
+/// Asks `{url}/api/v1/auth/mode` which flow the server runs, then either
+/// prompts for a username/password or opens the browser for OAuth.
 ///
 /// If `url_override` is `None`, uses the URL from `config` (env-resolved).
 pub async fn login(config: &Config, url_override: Option<String>) -> Result<(), ClientError> {
@@ -73,29 +71,118 @@ pub async fn login(config: &Config, url_override: Option<String>) -> Result<(), 
         .trim_end_matches('/')
         .to_string();
 
-    match probe_auth_mode(&url).await? {
-        ProbedAuthMode::NoAuth => login_local(&url).await,
+    match probe_auth_mode(&url).await {
+        ProbedAuthMode::Password => login_password(&url).await,
         ProbedAuthMode::OAuth => login_browser(&url).await,
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
 enum ProbedAuthMode {
-    NoAuth,
+    Password,
     OAuth,
 }
 
-async fn probe_auth_mode(url: &str) -> Result<ProbedAuthMode, ClientError> {
-    let probe = format!("{url}/api/v1/auth/me");
-    let client = reqwest::Client::builder()
+/// Ask the server which login flow it runs.
+///
+/// Fails closed to the browser flow: an older server without `/auth/mode`
+/// returns 404, and OAuth is the only thing it can do.
+async fn probe_auth_mode(url: &str) -> ProbedAuthMode {
+    let Ok(client) = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
+        .build()
+    else {
+        return ProbedAuthMode::OAuth;
+    };
+
+    let Ok(resp) = client.get(format!("{url}/api/v1/auth/mode")).send().await else {
+        return ProbedAuthMode::OAuth;
+    };
+    if !resp.status().is_success() {
+        return ProbedAuthMode::OAuth;
+    }
+
+    #[derive(serde::Deserialize)]
+    struct ModeBody {
+        mode: String,
+    }
+    match resp.json::<ModeBody>().await {
+        Ok(body) if body.mode == "password" => ProbedAuthMode::Password,
+        _ => ProbedAuthMode::OAuth,
+    }
+}
+
+/// Username/password login.
+///
+/// Composes two existing endpoints — no server-side CLI flow needed:
+/// 1. `POST /api/v1/auth/password/login` → session cookie
+/// 2. `POST /api/v1/auth/api-keys` with that cookie → an `mvk_` key
+///
+/// Only the key is persisted; the password never touches disk.
+async fn login_password(url: &str) -> Result<(), ClientError> {
+    let username = match std::env::var("MOATLESS_USERNAME") {
+        Ok(u) if !u.is_empty() => u,
+        _ => dialoguer::Input::<String>::new()
+            .with_prompt("Username")
+            .interact_text()
+            .map_err(|e| ClientError::Api {
+                status: 0,
+                body: format!("Failed to read username: {e}"),
+            })?,
+    };
+    let password = match std::env::var("MOATLESS_PASSWORD") {
+        Ok(p) if !p.is_empty() => p,
+        _ => dialoguer::Password::new()
+            .with_prompt("Password")
+            .interact()
+            .map_err(|e| ClientError::Api {
+                status: 0,
+                body: format!("Failed to read password: {e}"),
+            })?,
+    };
+
+    let cookie = password_login_cookie(url, &username, &password).await?;
+
+    // Mint a long-lived API key using the freshly minted session.
+    let client = MoatClient::new_with_session_cookie(url, &cookie);
+    let key = client
+        .api()
+        .create_api_key(&moatless_api_schemas::auth::CreateApiKeyRequest {
+            name: "moat-cli".to_string(),
+            scopes: None,
+            expires_in_days: None,
+        })
+        .await?;
+
+    let host = crate::config::host_from_url(url);
+    crate::credentials::save_profile(&host, &key.key, &username, Some(url), true).map_err(|e| {
+        ClientError::Api {
+            status: 500,
+            body: format!("Failed to save credentials: {e}"),
+        }
+    })?;
+
+    println!("Logged in as {username}");
+    Ok(())
+}
+
+/// Log in with a password and return the raw `name=value` session cookie.
+async fn password_login_cookie(
+    url: &str,
+    username: &str,
+    password: &str,
+) -> Result<String, ClientError> {
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| ClientError::Api {
             status: 500,
             body: format!("Failed to build HTTP client: {e}"),
         })?;
 
-    let resp = client
-        .get(&probe)
+    let resp = http
+        .post(format!("{url}/api/v1/auth/password/login"))
+        .json(&serde_json::json!({ "username": username, "password": password }))
         .send()
         .await
         .map_err(|e| ClientError::Api {
@@ -103,27 +190,36 @@ async fn probe_auth_mode(url: &str) -> Result<ProbedAuthMode, ClientError> {
             body: format!("Failed to reach {url}: {e}. Is the backend running?"),
         })?;
 
+    let status = resp.status().as_u16();
+    if status == 401 {
+        return Err(ClientError::Api {
+            status,
+            body: "Invalid username or password".to_string(),
+        });
+    }
     if !resp.status().is_success() {
-        // 401 / 403 / anything else → assume auth is required, try OAuth.
-        return Ok(ProbedAuthMode::OAuth);
+        return Err(ClientError::Api {
+            status,
+            body: resp.text().await.unwrap_or_default(),
+        });
     }
 
-    // Parse providers to decide. Shape: `{"user": ..., "providers": [...], ...}`.
-    #[derive(serde::Deserialize)]
-    struct AuthMe {
-        #[serde(default)]
-        providers: Vec<serde_json::Value>,
-    }
-    let body: AuthMe = resp.json().await.map_err(|e| ClientError::Api {
+    extract_session_cookie(&resp).ok_or_else(|| ClientError::Api {
         status: 500,
-        body: format!("Failed to parse /auth/me response: {e}"),
-    })?;
+        body: "Login succeeded but the server set no session cookie".to_string(),
+    })
+}
 
-    if body.providers.is_empty() {
-        Ok(ProbedAuthMode::NoAuth)
-    } else {
-        Ok(ProbedAuthMode::OAuth)
-    }
+/// Pull the `name=value` pair out of the response's `Set-Cookie` header.
+fn extract_session_cookie(resp: &reqwest::Response) -> Option<String> {
+    resp.headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find_map(|raw| {
+            let pair = raw.split(';').next()?.trim();
+            pair.starts_with("moatless_session=").then(|| pair.to_string())
+        })
 }
 
 /// Browser-based login for standalone CLI usage.
@@ -210,23 +306,6 @@ async fn login_browser(api_url: &str) -> Result<(), ClientError> {
             body: "Login timed out after 120 seconds".to_string(),
         }),
     }
-}
-
-/// Register a no-auth install as a profile. Called by `login` after the probe
-/// determines the backend has `AUTH_PROVIDER=` empty — no browser OAuth, the
-/// backend falls back to a seeded `local-user` admin for all requests.
-async fn login_local(url: &str) -> Result<(), ClientError> {
-    let host = crate::config::host_from_url(url);
-    crate::credentials::save_profile(&host, "", "local-user", Some(url), true).map_err(|e| {
-        ClientError::Api {
-            status: 500,
-            body: format!("Failed to save credentials: {e}"),
-        }
-    })?;
-
-    println!("Registered {url} as local-user (no auth required).");
-    println!("Subsequent `moat` commands will target this host by default.");
-    Ok(())
 }
 
 /// Parse the callback request to extract `key` and `login` query params.

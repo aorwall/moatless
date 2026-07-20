@@ -311,7 +311,7 @@ The application selects storage backend based on environment variables:
 
 | STORAGE_TYPE | AUTH_PROVIDER | Backend Used | Access Control |
 |--------------|---------------|--------------|----------------|
-| (not set) | (any) | FileStorage | None (dev mode) |
+| (not set) | (any) | FileStorage | None (storage is unscoped) |
 | `user` | Required | AuthorizedFileStorage | Per-user isolation |
 | `group` | Required | AuthorizedGroupFileStorage | Per-group isolation |
 
@@ -359,10 +359,7 @@ async validateToken(accessToken: string): Promise<boolean>
 
 **Behavior:**
 ```typescript
-// 1. Check if AUTH_PROVIDER is set
-if (!authProvider) return next()
-
-// 2. Allow auth endpoints and static files
+// 1. Allow auth endpoints and static files
 if (skipPaths.includes(path)) return next()
 
 // 3. Require session cookie
@@ -920,7 +917,10 @@ export interface SessionResponse {
 
 | Variable | Required | Description | Default | Example |
 |----------|----------|-------------|---------|---------|
-| `AUTH_PROVIDER` | No | Enable authentication (`github` or `auth0`) | (none - dev mode) | `github` |
+| `AUTH_PROVIDER` | No | Auth provider (`local`, `github`, `github_app`, `auth0`) | `local` | `github` |
+| `ADMIN_USERNAME` | No | Bootstrap admin login under `local` | `admin` | `admin` |
+| `ADMIN_PASSWORD` | No | Bootstrap admin password under `local` (min 12 chars). Generated and logged once at WARN when unset. | (generated) | — |
+| `SESSION_JWT_SECRET` | No | Signs session cookies. Falls back to `TASK_TOKEN_SECRET`, which couples the two — rotating that then logs everyone out. | (falls back) | — |
 | `SESSION_MAX_AGE` | No | Session lifetime in seconds | `604800` (7 days) | `86400` (1 day) |
 | `FRONTEND_URL` | No | Frontend URL for OAuth redirects | `http://localhost:3000` | `https://app.example.com` |
 
@@ -930,7 +930,10 @@ export interface SessionResponse {
 |----------|----------|-------------|---------|---------|
 | `STORAGE_TYPE` | No | Storage access control (`user`, `group`, or none) | (none - no access control) | `group` |
 
-**Note:** When `AUTH_PROVIDER` is not set, the application runs in development mode with no authentication required.
+**Note:** When `AUTH_PROVIDER` is not set the application runs local
+username/password auth against the `user_credentials` table, with an `admin`
+account seeded at startup. Every API route requires a session cookie or an
+`mvk_` API key — there is no unauthenticated mode.
 
 ## Code Examples
 
@@ -1196,10 +1199,12 @@ if (storageType === 'group') {
 
 ### Environment-Specific Settings
 
-**Development Mode (No Auth):**
+**Development Mode (Local Password Auth):**
 ```bash
 # .env.development
-# AUTH_PROVIDER not set - no authentication required
+# AUTH_PROVIDER not set — local username/password auth
+SESSION_JWT_SECRET=...        # openssl rand -hex 32
+ADMIN_PASSWORD=...            # or omit; one is generated and logged at WARN
 ```
 
 **Production Mode:**

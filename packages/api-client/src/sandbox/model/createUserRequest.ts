@@ -5,19 +5,45 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { UserRole } from './userRole';
 
 /**
  * POST /api/v1/users request.
 
-Creates a bot user backed by a configured GitHub App. The server resolves
-the App's `{slug}[bot]` identity from `GitHubAppRegistry` and writes both
-the `users` row and the matching `provider_tokens` row atomically.
+With `isBot: true`, creates a bot user backed by a configured GitHub App:
+the server resolves the App's `{slug}[bot]` identity from
+`GitHubAppRegistry` and writes both the `users` row and the matching
+`provider_tokens` row atomically. `githubAppKey` is required in this mode.
+
+With `isBot: false`, creates a human user with a local password. Only
+available when the server runs local password auth; `login` and `password`
+are required in this mode.
+
+`Debug` is hand-written to redact `password`.
  */
 export interface CreateUserRequest {
-  /** Registry key of a configured GitHub App (e.g. `"dev-bot"`). */
-  githubAppKey: string;
-  /** Must be `true`. Human users are created via the OAuth callback, not
-this endpoint. (Reserved as a flag so the schema can be extended later
-without a breaking change.) */
+  /**
+   * Registry key of a configured GitHub App (e.g. `"dev-bot"`). Required
+when `isBot` is `true`.
+   * @nullable
+   */
+  githubAppKey?: string | null;
+  /** `true` for a GitHub App bot, `false` for a local password user. */
   isBot: boolean;
+  /**
+   * Login handle for a local user. Required when `isBot` is `false`.
+   * @nullable
+   */
+  login?: string | null;
+  /**
+   * Force a password change on first login. Defaults to `false`.
+   * @nullable
+   */
+  mustChangePassword?: boolean | null;
+  /**
+   * Initial password for a local user. Required when `isBot` is `false`.
+   * @nullable
+   */
+  password?: string | null;
+  role?: null | UserRole;
 }

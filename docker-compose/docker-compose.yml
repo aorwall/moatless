@@ -102,8 +102,16 @@ services:
       # Sandbox Idle Reaper (disabled in Docker mode — no K8s leader election)
       SANDBOX_IDLE_REAPER_ENABLED: "false"
 
-      # Authentication Provider (optional)
+      # Authentication Provider. Empty means local username/password auth.
       AUTH_PROVIDER: ${AUTH_PROVIDER:-}
+
+      # Local password auth. SESSION_JWT_SECRET signs session cookies; without
+      # it the backend falls back to TASK_TOKEN_SECRET and rotating that logs
+      # everyone out. ADMIN_PASSWORD seeds the bootstrap admin — leave it unset
+      # to have one generated and logged once at WARN on first boot.
+      SESSION_JWT_SECRET: ${SESSION_JWT_SECRET:-}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
 
       # GitHub OAuth (optional)
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}

@@ -7,7 +7,7 @@ use moatless_api_schemas::{message::SendMessageRequest, task::CreateTaskRequest}
 
 #[tokio::test]
 async fn send_and_list_messages() {
-    let client = test_client();
+    let client = test_client().await;
     let repo_id = ensure_template_repo(&client).await;
 
     // Create a task

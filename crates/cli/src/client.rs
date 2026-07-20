@@ -54,6 +54,8 @@ pub struct MoatClient {
 enum ClientAuthMode {
     /// Standalone: use `Authorization: Bearer mvk_...` on all requests.
     ApiKey(String),
+    /// Session cookie, as a browser would send it. Raw `name=value` pair.
+    SessionCookie(String),
     /// Sandbox: use X-User-Token for sandbox routes, session cookie for others.
     Sandbox {
         user_auth_token: String,
@@ -68,48 +70,30 @@ impl MoatClient {
         Self::from_headers(HeaderMap::new())
     }
 
-    /// Create a client that simulates a specific user via ForwardAuth dev-mode headers.
-    pub fn new_as_user(user_id: &str, login: &str, role: &str) -> Result<Self, ClientError> {
-        let headers = Self::user_headers(user_id, login, role)?;
-        Self::from_headers(headers)
+    /// Create a client authenticated with an `mvk_` API key against `base_url`.
+    pub fn new_with_api_key(base_url: &str, api_key: &str) -> Self {
+        let auth_mode = ClientAuthMode::ApiKey(api_key.to_string());
+        Self::from_auth_mode(base_url, auth_mode)
     }
 
-    /// Create a client that simulates a user with team membership via ForwardAuth dev-mode headers.
-    pub fn new_as_user_with_teams(
-        user_id: &str,
-        login: &str,
-        role: &str,
-        team_ids: &[&str],
-    ) -> Result<Self, ClientError> {
-        let mut headers = Self::user_headers(user_id, login, role)?;
-        if !team_ids.is_empty() {
-            headers.insert(
-                "X-Team-Ids",
-                HeaderValue::from_str(&team_ids.join(",")).map_err(|e| ClientError::Api {
-                    status: 0,
-                    body: e.to_string(),
-                })?,
-            );
+    /// Create a client authenticated with a session cookie against `base_url`.
+    ///
+    /// `cookie` is the raw `name=value` pair from a `Set-Cookie` header.
+    pub fn new_with_session_cookie(base_url: &str, cookie: &str) -> Self {
+        let auth_mode = ClientAuthMode::SessionCookie(cookie.to_string());
+        Self::from_auth_mode(base_url, auth_mode)
+    }
+
+    fn from_auth_mode(base_url: &str, auth_mode: ClientAuthMode) -> Self {
+        let base_url = base_url.trim_end_matches('/').to_string();
+        let http = Self::build_http_client(&auth_mode);
+        let typed_client = ApiClient::new(&base_url, http);
+        Self {
+            base_url,
+            auth_mode,
+            verbose: false,
+            typed_client,
         }
-        Self::from_headers(headers)
-    }
-
-    fn user_headers(user_id: &str, login: &str, role: &str) -> Result<HeaderMap, ClientError> {
-        let mut headers = HeaderMap::new();
-        let map_err = |e: reqwest::header::InvalidHeaderValue| ClientError::Api {
-            status: 0,
-            body: e.to_string(),
-        };
-        headers.insert(
-            "X-User-Id",
-            HeaderValue::from_str(user_id).map_err(map_err)?,
-        );
-        headers.insert(
-            "X-User-Login",
-            HeaderValue::from_str(login).map_err(map_err)?,
-        );
-        headers.insert("X-User-Role", HeaderValue::from_str(role).map_err(map_err)?);
-        Ok(headers)
     }
 
     fn from_headers(headers: HeaderMap) -> Result<Self, ClientError> {
@@ -166,6 +150,11 @@ impl MoatClient {
                     if let Ok(v) = HeaderValue::from_str(&bearer) {
                         default_headers.insert(AUTHORIZATION, v);
                     }
+                }
+            }
+            ClientAuthMode::SessionCookie(cookie) => {
+                if let Ok(v) = HeaderValue::from_str(cookie) {
+                    default_headers.insert(COOKIE, v);
                 }
             }
             ClientAuthMode::Sandbox {
@@ -362,6 +351,11 @@ impl MoatClient {
                     if let Ok(v) = HeaderValue::from_str(&bearer) {
                         default_headers.insert(AUTHORIZATION, v);
                     }
+                }
+            }
+            ClientAuthMode::SessionCookie(cookie) => {
+                if let Ok(v) = HeaderValue::from_str(cookie) {
+                    default_headers.insert(COOKIE, v);
                 }
             }
             ClientAuthMode::Sandbox {

@@ -211,13 +211,39 @@ pub async fn create_session_from_user(
     session_max_age_secs: u64,
     jwt_secret: &str,
 ) -> Result<String, crate::auth::error::AuthError> {
+    create_session_from_user_with_provider(
+        sessions,
+        user,
+        group_id,
+        team_ids,
+        session_max_age_secs,
+        jwt_secret,
+        "api-key",
+    )
+    .await
+}
+
+/// Create a session from a user row, stamping an explicit provider.
+///
+/// The provider string lands in the JWT and flows through to
+/// `AuthUser.provider`, which the provider-settings handlers branch on.
+#[allow(clippy::too_many_arguments)] // reason: mirrors create_session's shape
+pub async fn create_session_from_user_with_provider(
+    sessions: &dyn SessionRepository,
+    user: &User,
+    group_id: Option<&str>,
+    team_ids: &[String],
+    session_max_age_secs: u64,
+    jwt_secret: &str,
+    provider: &str,
+) -> Result<String, crate::auth::error::AuthError> {
     let now = Utc::now();
     let expires_at = now + chrono::Duration::seconds(session_max_age_secs as i64);
     let session_id = generate_session_id();
 
     let session = Session {
         id: session_id.clone(),
-        provider: "api-key".to_string(),
+        provider: provider.to_string(),
         user_id: user.id.clone(),
         user_login: user.login.clone(),
         user_email: user.email.clone(),
@@ -239,7 +265,7 @@ pub async fn create_session_from_user(
         &user.id,
         &user.login,
         user.role,
-        "api-key",
+        provider,
         group_id,
         team_ids,
         jwt_secret,
@@ -253,7 +279,8 @@ pub async fn create_session_from_user(
     info!(
         user_login = %user.login,
         user_id = %user.id,
-        "Created session from API key"
+        provider = %provider,
+        "Created session from user row"
     );
 
     Ok(token)

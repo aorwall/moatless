@@ -25,7 +25,7 @@ async fn task_create_invalid_repository() {
 // TASK-11: Send message to closed task — rejected with 409 (closed is terminal)
 #[tokio::test]
 async fn task_send_message_to_closed_task() {
-    let client = test_client();
+    let client = test_client().await;
     let http = reqwest::Client::new();
     let repo_id = ensure_template_repo(&client).await;
 

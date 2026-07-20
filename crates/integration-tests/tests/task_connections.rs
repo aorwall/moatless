@@ -7,8 +7,8 @@
 //! access control).
 
 use integration_tests::{
-    client_as_user, client_as_user_with_teams, create_repo_request, ensure_template_repo,
-    seed_test_users, test_client,
+    client_as_user, create_repo_request, ensure_template_repo, relogin, seed_test_users,
+    test_client,
 };
 use moatless_api_client::ApiError;
 use moatless_api_schemas::enums::{RepositoryKind, Scope};
@@ -46,7 +46,7 @@ fn task_request(repository_id: String, message: &str) -> CreateTaskRequest {
 // A freshly created task has no external connections wired to it.
 #[tokio::test]
 async fn task_connections_empty_when_no_bindings() {
-    let client = test_client();
+    let client = test_client().await;
     let repo_id = ensure_template_repo(&client).await;
 
     let created = client
@@ -70,12 +70,11 @@ async fn task_connections_empty_when_no_bindings() {
 // owner can load it, but a user who cannot see the task gets a 404.
 #[tokio::test]
 async fn task_connections_scope_respected() {
-    seed_test_users().await;
-
-    let alice = client_as_user("alice-test", "alice", "user");
+    let alice = seed_test_users().await.alice;
     let suffix = timestamp_suffix();
 
     let team = alice
+        .client
         .api()
         .create_team(&CreateTeamRequest {
             name: "Connections Scope Team".into(),
@@ -86,7 +85,9 @@ async fn task_connections_scope_respected() {
         .unwrap();
     let team_id = team.id.clone();
 
-    let alice_with_team = client_as_user_with_teams("alice-test", "alice", "user", &[&team_id]);
+    // Alice owns the team as its creator; re-login so the membership lands in
+    // her session JWT.
+    let alice_with_team = relogin(&alice).await;
 
     let mut req = create_repo_request(
         &format!("Connections Scope Repo {suffix}"),
@@ -94,9 +95,10 @@ async fn task_connections_scope_respected() {
     );
     req.scope = Some(Scope::Team);
     req.team_id = Some(team_id.clone());
-    let team_repo = alice_with_team.api().create_repository(&req).await.unwrap();
+    let team_repo = alice_with_team.client.api().create_repository(&req).await.unwrap();
 
     let task = alice_with_team
+        .client
         .api()
         .create_task(&task_request(
             team_repo.id.clone(),
@@ -108,6 +110,7 @@ async fn task_connections_scope_respected() {
 
     // Owner (team member) can load the endpoint — empty list, not admin-gated.
     let owner_view = alice_with_team
+        .client
         .api()
         .get_task_connections(&task_id)
         .await
@@ -115,8 +118,9 @@ async fn task_connections_scope_respected() {
     assert!(owner_view.is_empty());
 
     // Non-member is denied with 404, mirroring `get_task`.
-    let outsider = client_as_user("outsider-user", "outsider", "user");
+    let outsider = client_as_user(&format!("conn-outsider-{suffix}"), "user").await;
     let err = outsider
+        .client
         .api()
         .get_task_connections(&task_id)
         .await
@@ -127,7 +131,7 @@ async fn task_connections_scope_respected() {
     }
 
     // Cleanup
-    let _ = alice.api().delete_task(&task_id).await;
-    let _ = alice.api().delete_repository(&team_repo.id).await;
-    let _ = alice.api().delete_team(&team_id).await;
+    let _ = alice.client.api().delete_task(&task_id).await;
+    let _ = alice.client.api().delete_repository(&team_repo.id).await;
+    let _ = alice.client.api().delete_team(&team_id).await;
 }

@@ -62,7 +62,7 @@ async fn agent_plan_mode() {
         return;
     }
 
-    let client = test_client();
+    let client = test_client().await;
     let repo_id = ensure_template_repo(&client).await;
 
     // Start event collector

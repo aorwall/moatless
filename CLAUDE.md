@@ -577,7 +577,11 @@ Test tiers:
 - **agent** (`#[ignore]`, `CLAUDE_SDK_E2E=1`): Agent execution, multi-message same-session, plan mode, stop/recovery — needs sandbox + Claude CLI
 
 Test infrastructure (`crates/integration-tests/src/`):
-- `test_client()`, `client_as_user()` — API clients with ForwardAuth headers
+- `test_client()`, `admin_client()` — API clients authenticated as the bootstrap admin
+- `client_as_user(login, role)`, `client_as_user_with_teams(...)` — create a user
+  via the admin API and log in as them; `relogin(&user)` after any membership
+  change, since team ids are baked into the session JWT at login
+- `unauthenticated_client()` — for asserting that endpoints reject anonymous callers
 - `ensure_template_repo()` — creates or finds template repository
 - `EventCollector` — SSE stream collector with `wait_for_event()`, `wait_for_nth_event()`, `count_events()`
 - `sandbox_helpers::wait_for_sandbox_ready()`, `wait_for_agent_idle()` — polling helpers

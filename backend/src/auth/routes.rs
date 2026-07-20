@@ -36,10 +36,15 @@ use moatless_api_schemas::user::{SetProviderIdRequest, UserProviderIdItem};
 
 use super::schemas::{
     format_datetime, format_datetime_opt, ApiKeyCreateResponse, ApiKeyListItem, CliLoginQuery,
+    AdminResetPasswordRequest, AuthMode, AuthModeResponse, ChangePasswordRequest,
     CreateApiKeyRequest, CreateUserRequest, CreateUserResponse, MessageResponse,
-    OAuthCallbackQuery, ProviderConnection, SessionResponse, TokenSessionResponse,
-    AdminUpdateUserRequest, UpdateUserRequest, UserInfo, UserListItem, UserListResponse,
+    OAuthCallbackQuery, PasswordLoginRequest, ProviderConnection, SessionResponse,
+    TokenSessionResponse, AdminUpdateUserRequest, UpdateUserRequest, UserInfo, UserListItem,
+    UserListResponse,
 };
+use super::password::dao::UserCredentialRepository;
+use super::password::hash;
+use super::password::throttle::LoginThrottle;
 use super::session;
 use super::sessions::SessionRepository;
 use super::users::UserRepository;
@@ -70,7 +75,7 @@ impl OAuthProviders {
                 tracing::info!("GitHub App OAuth provider configured");
                 Arc::new(p) as Arc<dyn OAuthProvider>
             });
-        if config.auth.provider == Some(AuthProvider::GitHubApp) && github_app.is_none() {
+        if config.auth.provider == AuthProvider::GitHubApp && github_app.is_none() {
             tracing::warn!(
                 "AUTH_PROVIDER=github_app but GitHubAppOAuthProvider failed to initialize \
                  — check GITHUB_APP_CLIENT_ID, GITHUB_APP_CLIENT_SECRET, GITHUB_APP_CALLBACK_URL"
@@ -95,6 +100,8 @@ impl OAuthProviders {
     /// Look up a provider by AuthProvider enum.
     pub fn get(&self, provider: AuthProvider) -> Option<&Arc<dyn OAuthProvider>> {
         match provider {
+            // Local password auth has no OAuth provider.
+            AuthProvider::Local => None,
             AuthProvider::GitHub => self.github.as_ref(),
             AuthProvider::GitHubApp => self.github_app.as_ref(),
             AuthProvider::Auth0 => self.auth0.as_ref(),
@@ -112,6 +119,10 @@ pub struct AuthState {
     pub sessions: Arc<dyn SessionRepository>,
     pub api_keys: Arc<dyn ApiKeyRepository>,
     pub users: Arc<dyn UserRepository>,
+    /// Local password credentials (`user_credentials`).
+    pub credentials: Arc<dyn UserCredentialRepository>,
+    /// Per-username failed-login counter for the password endpoint.
+    pub login_throttle: LoginThrottle,
     pub provider_tokens: Arc<dyn ProviderTokenAuthRepository>,
     /// DAO for credential lookups (full-row reads, refresh persistence).
     /// Separate from `provider_tokens` (which handles upsert/metadata paths).
@@ -154,6 +165,8 @@ impl AuthState {
             sessions: Arc::new(PgSessionRepository(pool.clone())),
             api_keys: Arc::new(PgApiKeyRepository(pool.clone())),
             users: Arc::new(PgUserRepository(pool.clone())),
+            credentials: Arc::new(super::password::dao::PgUserCredentialRepository(pool.clone())),
+            login_throttle: LoginThrottle::new(),
             provider_tokens: Arc::new(PgProviderTokenAuthRepository(pool.clone())),
             provider_tokens_dao: Arc::new(PgProviderTokenRepository(pool.clone())),
             github_app_service,
@@ -178,6 +191,10 @@ impl AuthState {
     ),
     paths(
         verify_handler,
+        auth_mode_handler,
+        password_login_handler,
+        change_password_handler,
+        admin_reset_password_handler,
         me_handler,
         update_me_handler,
         logout_handler,
@@ -202,6 +219,10 @@ pub fn auth_router(state: AuthState) -> (axum::Router, utoipa::openapi::OpenApi)
     // Build OpenAPI-documented routes
     let (openapi_router, api) = OpenApiRouter::with_openapi(AuthApiDoc::openapi())
         .routes(routes!(verify_handler))
+        .routes(routes!(auth_mode_handler))
+        .routes(routes!(password_login_handler))
+        .routes(routes!(change_password_handler))
+        .routes(routes!(admin_reset_password_handler))
         .routes(routes!(me_handler, update_me_handler))
         .routes(routes!(logout_handler))
         .routes(routes!(exchange_api_key_handler))
@@ -241,6 +262,427 @@ pub fn auth_router(state: AuthState) -> (axum::Router, utoipa::openapi::OpenApi)
     let router: axum::Router = Into::<axum::Router>::into(openapi_router).merge(oauth_router);
 
     (router, api)
+}
+
+
+// ============================================================================
+// Local username/password authentication
+// ============================================================================
+
+/// Minimum length accepted for any password set through the API.
+const MIN_PASSWORD_LEN: usize = 12;
+
+/// Reject passwords that are too short to be worth hashing.
+fn validate_password(password: &str) -> Result<(), AuthError> {
+    if password.chars().count() < MIN_PASSWORD_LEN {
+        return Err(AuthError::BadRequest(format!(
+            "password must be at least {MIN_PASSWORD_LEN} characters"
+        )));
+    }
+    Ok(())
+}
+
+/// 404 unless this deployment runs local password auth, so the endpoint is not
+/// advertised on OAuth deployments.
+fn require_local_auth(state: &AuthState) -> Result<(), AuthError> {
+    if state.config.auth.provider == AuthProvider::Local {
+        Ok(())
+    } else {
+        Err(AuthError::NotFound("password authentication is not enabled".into()))
+    }
+}
+
+/// Report how this deployment authenticates users.
+///
+/// Public by design: the login page is anonymous, so this cannot live on
+/// `/auth/me` (which 401s without a session).
+#[utoipa::path(
+    get,
+    path = "/api/v1/auth/mode",
+    tag = "auth",
+    responses((status = 200, description = "Active auth mode", body = AuthModeResponse))
+)]
+async fn auth_mode_handler(State(state): State<AuthState>) -> Json<AuthModeResponse> {
+    let provider = state.config.auth.provider;
+    let (mode, login_url) = match provider {
+        AuthProvider::Local => (AuthMode::Password, None),
+        AuthProvider::GitHub => (AuthMode::Oauth, Some("/api/v1/auth/github".to_string())),
+        AuthProvider::GitHubApp => (AuthMode::Oauth, Some("/api/v1/auth/github-app".to_string())),
+        AuthProvider::Auth0 => (AuthMode::Oauth, Some("/api/v1/auth/auth0".to_string())),
+    };
+    Json(AuthModeResponse {
+        mode,
+        provider: provider.to_string(),
+        login_url,
+    })
+}
+
+/// Log in with a username and password, returning a session cookie.
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/password/login",
+    tag = "auth",
+    request_body = PasswordLoginRequest,
+    responses(
+        (status = 200, description = "Logged in", body = SessionResponse),
+        (status = 401, description = "Invalid credentials", body = ErrorBody),
+        (status = 404, description = "Password auth not enabled", body = ErrorBody),
+        (status = 429, description = "Too many failed attempts", body = ErrorBody),
+    )
+)]
+async fn password_login_handler(
+    State(state): State<AuthState>,
+    Json(req): Json<PasswordLoginRequest>,
+) -> Result<Response, AuthError> {
+    require_local_auth(&state)?;
+
+    if state.login_throttle.is_locked(&req.username).await {
+        warn!(username = %req.username, "Login rejected: throttled");
+        return Err(AuthError::TooManyRequests);
+    }
+
+    let credential = state.credentials.find_by_username(&req.username).await?;
+
+    // An unknown username must cost the same as a wrong password, and answer
+    // identically, or the endpoint becomes an account-existence oracle.
+    let Some(credential) = credential else {
+        hash::verify_dummy(req.password).await;
+        state.login_throttle.record_failure(&req.username).await;
+        return Err(AuthError::Unauthorized);
+    };
+
+    let matches = hash::verify_password(req.password, credential.password_hash.clone())
+        .await
+        .map_err(|e| AuthError::Internal(format!("password verification failed: {e}")))?;
+
+    if !matches {
+        state.login_throttle.record_failure(&req.username).await;
+        if let Err(e) = state
+            .credentials
+            .record_login_failure(&credential.user_id)
+            .await
+        {
+            warn!(error = %e, "Failed to record login failure");
+        }
+        return Err(AuthError::Unauthorized);
+    }
+
+    let user = state
+        .users
+        .get_user(&credential.user_id)
+        .await?
+        .ok_or_else(|| {
+            // A credential without its user row means the FK was subverted.
+            AuthError::Internal(format!(
+                "credential {} has no matching users row",
+                credential.user_id
+            ))
+        })?;
+
+    // Same default-team assignment OAuth logins get.
+    let team_ids = match state.teams {
+        Some(ref teams) => {
+            resolve_team_ids_on_login(teams.as_ref(), &user.id, None, &state.config).await
+        }
+        None => vec![],
+    };
+
+    let jwt_secret = require_jwt_secret(&state.config)?;
+    let token = session::create_session_from_user_with_provider(
+        state.sessions.as_ref(),
+        &user,
+        None,
+        &team_ids,
+        state.config.auth.session_max_age_secs,
+        jwt_secret,
+        "local",
+    )
+    .await?;
+
+    state.login_throttle.clear(&req.username).await;
+    if let Err(e) = state
+        .credentials
+        .record_login_success(&credential.user_id, chrono::Utc::now())
+        .await
+    {
+        warn!(error = %e, "Failed to record login success");
+    }
+
+    let cookie = cookie::build_session_cookie(
+        &state.config,
+        &token,
+        state.config.auth.session_max_age_secs,
+    );
+    let mut resp_headers = HeaderMap::new();
+    if let Ok(v) = cookie.parse() {
+        resp_headers.insert(header::SET_COOKIE, v);
+    }
+
+    let expires_at = chrono::Utc::now()
+        + chrono::Duration::seconds(state.config.auth.session_max_age_secs as i64);
+
+    info!(user_id = %user.id, login = %user.login, "Password login succeeded");
+
+    Ok((
+        resp_headers,
+        Json(SessionResponse {
+            user: Some(UserInfo {
+                id: user.id,
+                login: user.login,
+                email: user.email,
+                name: user.name,
+                avatar_url: user.avatar_url,
+                provider: "local".to_string(),
+                role: user.role,
+            }),
+            expires_at: Some(format_datetime(expires_at)),
+            providers: Vec::new(),
+        }),
+    )
+        .into_response())
+}
+
+/// Change your own password.
+#[utoipa::path(
+    put,
+    path = "/api/v1/auth/password",
+    tag = "auth",
+    request_body = ChangePasswordRequest,
+    responses(
+        (status = 200, description = "Password changed", body = MessageResponse),
+        (status = 400, description = "Password too short", body = ErrorBody),
+        (status = 401, description = "Not authenticated or wrong current password", body = ErrorBody),
+        (status = 404, description = "Password auth not enabled", body = ErrorBody),
+    )
+)]
+async fn change_password_handler(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Json(req): Json<ChangePasswordRequest>,
+) -> Result<Json<MessageResponse>, AuthError> {
+    require_local_auth(&state)?;
+    // Cookie only: an API key must not be escalatable into account takeover.
+    let claims = authenticate_from_cookie(&state.config, &headers)?;
+    validate_password(&req.new_password)?;
+
+    let credential = state
+        .credentials
+        .find_by_user_id(&claims.sub)
+        .await?
+        .ok_or(AuthError::Unauthorized)?;
+
+    // Re-verify even though the caller is authenticated — a borrowed session
+    // must not be enough to lock the owner out.
+    let matches = hash::verify_password(req.current_password, credential.password_hash)
+        .await
+        .map_err(|e| AuthError::Internal(format!("password verification failed: {e}")))?;
+    if !matches {
+        return Err(AuthError::Unauthorized);
+    }
+
+    let new_hash = hash::hash_password(req.new_password)
+        .await
+        .map_err(|e| AuthError::Internal(format!("password hashing failed: {e}")))?;
+    state
+        .credentials
+        .set_password_hash(&claims.sub, &new_hash)
+        .await?;
+
+    // Invalidate every session, including this one — the browser re-logs in.
+    if let Err(e) = state
+        .sessions
+        .delete_sessions_for_user(&claims.sub)
+        .await
+    {
+        warn!(error = %e, "Failed to clear sessions after password change");
+    }
+
+    info!(user_id = %claims.sub, "Password changed");
+    Ok(Json(MessageResponse {
+        message: "Password changed successfully".to_string(),
+    }))
+}
+
+/// Reset another user's password. Admin only — no current password required,
+/// so a forgotten password has a recovery path that isn't env surgery.
+#[utoipa::path(
+    put,
+    path = "/api/v1/users/{login}/password",
+    tag = "users",
+    params(("login" = String, Path, description = "Target user login")),
+    request_body = AdminResetPasswordRequest,
+    responses(
+        (status = 200, description = "Password reset", body = MessageResponse),
+        (status = 400, description = "Password too short", body = ErrorBody),
+        (status = 401, description = "Not authenticated", body = ErrorBody),
+        (status = 403, description = "Admin only", body = ErrorBody),
+        (status = 404, description = "User has no local credential", body = ErrorBody),
+    )
+)]
+async fn admin_reset_password_handler(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Path(login): Path<String>,
+    Json(req): Json<AdminResetPasswordRequest>,
+) -> Result<Json<MessageResponse>, AuthError> {
+    require_local_auth(&state)?;
+    let identity = authenticate_request(&state, &headers).await?;
+    if identity.role != UserRole::Admin {
+        return Err(AuthError::Forbidden);
+    }
+    validate_password(&req.new_password)?;
+
+    let credential = state
+        .credentials
+        .find_by_username(&login)
+        .await?
+        .ok_or_else(|| AuthError::NotFound(format!("no local credential for '{login}'")))?;
+
+    let new_hash = hash::hash_password(req.new_password)
+        .await
+        .map_err(|e| AuthError::Internal(format!("password hashing failed: {e}")))?;
+
+    // `upsert` carries `must_change`; `set_password_hash` always clears it.
+    state
+        .credentials
+        .upsert(
+            &credential.user_id,
+            &credential.username,
+            &new_hash,
+            req.must_change_password.unwrap_or(false),
+        )
+        .await?;
+
+    if let Err(e) = state
+        .sessions
+        .delete_sessions_for_user(&credential.user_id)
+        .await
+    {
+        warn!(error = %e, "Failed to clear sessions after admin password reset");
+    }
+
+    info!(
+        admin = %identity.user_id,
+        target = %credential.user_id,
+        "Admin reset a user password"
+    );
+    Ok(Json(MessageResponse {
+        message: "Password reset successfully".to_string(),
+    }))
+}
+
+/// Create a human user with a local password (the `isBot: false` branch of
+/// `POST /api/v1/users`).
+async fn create_local_user(
+    state: &AuthState,
+    req: CreateUserRequest,
+) -> Result<(StatusCode, Json<CreateUserResponse>), AuthError> {
+    require_local_auth(state).map_err(|_| {
+        AuthError::BadRequest(
+            "human users can only be created when the server runs local password auth".into(),
+        )
+    })?;
+
+    let login = req
+        .login
+        .as_deref()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .ok_or_else(|| AuthError::BadRequest("login is required when isBot is false".into()))?;
+    let password = req
+        .password
+        .ok_or_else(|| AuthError::BadRequest("password is required when isBot is false".into()))?;
+    validate_password(&password)?;
+
+    if state.credentials.find_by_username(login).await?.is_some() {
+        return Err(AuthError::Conflict(format!(
+            "a user with login '{login}' already exists"
+        )));
+    }
+
+    let role = req.role.unwrap_or(UserRole::User);
+    let user_id = format!("local:{}", login.to_lowercase());
+    let team_id = format!("personal-{user_id}");
+
+    // Hash before opening the transaction — argon2 costs ~100ms and must not
+    // hold a Postgres connection open for it.
+    let password_hash = hash::hash_password(password)
+        .await
+        .map_err(|e| AuthError::Internal(format!("password hashing failed: {e}")))?;
+
+    let now = chrono::Utc::now();
+    let mut tx = state.db.begin().await.map_err(AuthError::Database)?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO users (id, login, email, name, avatar_url, provider, role, created_at, last_login_at, is_bot)
+        VALUES ($1, $2, NULL, $3, NULL, 'local', $4, $5, $5, false)
+        ON CONFLICT (id) DO NOTHING
+        "#,
+    )
+    .bind(&user_id)
+    .bind(login)
+    .bind(login)
+    .bind(role)
+    .bind(now)
+    .execute(&mut *tx)
+    .await?;
+
+    // Personal team scaffolding, mirroring the bot branch.
+    sqlx::query(
+        r#"INSERT INTO teams (id, name, slug, description, is_default, settings, created_at, updated_at)
+           VALUES ($1, $2, $3, 'Personal workspace', false, '{}'::jsonb, NOW(), NOW())
+           ON CONFLICT (id) DO NOTHING"#,
+    )
+    .bind(&team_id)
+    .bind(format!("{login} Personal"))
+    .bind(personal_team_slug(&user_id))
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query(
+        r#"INSERT INTO team_members (team_id, user_id, role, created_at)
+           VALUES ($1, $2, 'owner', NOW())
+           ON CONFLICT (team_id, user_id) DO UPDATE SET role = EXCLUDED.role"#,
+    )
+    .bind(&team_id)
+    .bind(&user_id)
+    .execute(&mut *tx)
+    .await?;
+
+    let inserted = sqlx::query(
+        r#"INSERT INTO user_credentials (user_id, username, password_hash, must_change)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT DO NOTHING"#,
+    )
+    .bind(&user_id)
+    .bind(login)
+    .bind(&password_hash)
+    .bind(req.must_change_password.unwrap_or(false))
+    .execute(&mut *tx)
+    .await?;
+
+    // A racing request won the unique index — surface 409, not a 500.
+    if inserted.rows_affected() == 0 {
+        return Err(AuthError::Conflict(format!(
+            "a user with login '{login}' already exists"
+        )));
+    }
+
+    tx.commit().await.map_err(AuthError::Database)?;
+
+    info!(user_id = %user_id, login = %login, "Local user created");
+    Ok((
+        StatusCode::CREATED,
+        Json(CreateUserResponse {
+            id: user_id,
+            login: login.to_string(),
+            email: None,
+            is_bot: false,
+            provider: "local".to_string(),
+            role: role.to_string(),
+        }),
+    ))
 }
 
 // ============================================================================
@@ -353,11 +795,6 @@ async fn verify_handler(
     State(state): State<AuthState>,
     headers: HeaderMap,
 ) -> Result<Response, AuthError> {
-    // Dev mode: auth disabled
-    if state.config.auth.provider.is_none() {
-        return Ok((StatusCode::OK, "OK").into_response());
-    }
-
     let identity = authenticate_request(&state, &headers).await?;
 
     // For preview URLs, check task-based access control
@@ -420,15 +857,6 @@ async fn me_handler(
     State(state): State<AuthState>,
     headers: HeaderMap,
 ) -> Result<Json<SessionResponse>, AuthError> {
-    // Dev mode
-    if state.config.auth.provider.is_none() {
-        return Ok(Json(SessionResponse {
-            user: None,
-            expires_at: None,
-            providers: Vec::new(),
-        }));
-    }
-
     // Try API key first, fall back to session cookie
     let identity = authenticate_request(&state, &headers).await?;
 
@@ -462,7 +890,9 @@ async fn me_handler(
 /// GitHub is always present; Codex appears only for users who connected it.
 async fn check_provider_connections(state: &AuthState, user_id: &str) -> Vec<ProviderConnection> {
     let mut out = Vec::with_capacity(2);
-    out.push(check_github_connection(state, user_id).await);
+    if let Some(github) = check_github_connection(state, user_id).await {
+        out.push(github);
+    }
     if let Some(codex) = check_codex_connection(state, user_id).await {
         out.push(codex);
     }
@@ -507,11 +937,17 @@ async fn check_codex_connection(state: &AuthState, user_id: &str) -> Option<Prov
     })
 }
 
-async fn check_github_connection(state: &AuthState, user_id: &str) -> ProviderConnection {
-    let disconnected = |login: Option<String>| ProviderConnection {
-        provider: "github".to_string(),
-        connected: false,
-        login,
+/// Returns `None` when the user has no GitHub token row at all — a user who
+/// never connected GitHub is not "disconnected", and reporting them as such
+/// pins a reconnect banner in the UI forever. Mirrors
+/// [`check_codex_connection`].
+async fn check_github_connection(state: &AuthState, user_id: &str) -> Option<ProviderConnection> {
+    let disconnected = |login: Option<String>| {
+        Some(ProviderConnection {
+            provider: "github".to_string(),
+            connected: false,
+            login,
+        })
     };
 
     let token = match state
@@ -530,9 +966,8 @@ async fn check_github_connection(state: &AuthState, user_id: &str) -> ProviderCo
         }
     };
 
-    let Some(token) = token else {
-        return disconnected(None);
-    };
+    // No row → never connected, so report nothing rather than "disconnected".
+    let token = token?;
 
     let login = token
         .metadata
@@ -557,11 +992,11 @@ async fn check_github_connection(state: &AuthState, user_id: &str) -> ProviderCo
         )
         .await
         {
-            Ok(_) => ProviderConnection {
+            Ok(_) => Some(ProviderConnection {
                 provider: "github".to_string(),
                 connected: true,
                 login,
-            },
+            }),
             Err(e) => {
                 warn!(
                     error = %e,
@@ -575,11 +1010,11 @@ async fn check_github_connection(state: &AuthState, user_id: &str) -> ProviderCo
         // Without an App service we cannot refresh, so treat the stored token
         // as usable. Callers that actually hit GitHub will still surface 401s
         // through `RepositoryError::Forbidden` if the token has been revoked.
-        ProviderConnection {
+        Some(ProviderConnection {
             provider: "github".to_string(),
             connected: true,
             login,
-        }
+        })
     }
 }
 
@@ -638,12 +1073,16 @@ async fn update_me_handler(
 
 async fn login_handler(State(state): State<AuthState>) -> Result<Response, AuthError> {
     match state.config.auth.provider {
-        None => Ok(Redirect::to(&state.config.auth.frontend_url).into_response()),
-        Some(AuthProvider::GitHub) => Ok(Redirect::to("/api/v1/auth/github").into_response()),
-        Some(AuthProvider::GitHubApp) => {
-            Ok(Redirect::to("/api/v1/auth/github-app").into_response())
-        }
-        Some(AuthProvider::Auth0) => Ok(Redirect::to("/api/v1/auth/auth0").into_response()),
+        // Local password auth has no OAuth redirect — send the browser to the
+        // frontend login form.
+        AuthProvider::Local => Ok(Redirect::to(&format!(
+            "{}/login",
+            state.config.auth.frontend_url
+        ))
+        .into_response()),
+        AuthProvider::GitHub => Ok(Redirect::to("/api/v1/auth/github").into_response()),
+        AuthProvider::GitHubApp => Ok(Redirect::to("/api/v1/auth/github-app").into_response()),
+        AuthProvider::Auth0 => Ok(Redirect::to("/api/v1/auth/auth0").into_response()),
     }
 }
 
@@ -659,11 +1098,7 @@ async fn cli_login_handler(
     State(state): State<AuthState>,
     axum::extract::Query(query): axum::extract::Query<CliLoginQuery>,
 ) -> Result<Response, AuthError> {
-    let provider_id = state
-        .config
-        .auth
-        .provider
-        .ok_or_else(|| AuthError::Config("No OAuth provider configured".to_string()))?;
+    let provider_id = state.config.auth.provider;
 
     let provider = state
         .providers
@@ -954,14 +1389,6 @@ async fn auth0_callback_handler(
 // ============================================================================
 
 async fn do_logout(state: &AuthState, headers: &HeaderMap) -> Result<Response, AuthError> {
-    // Dev mode
-    if state.config.auth.provider.is_none() {
-        return Ok(Json(MessageResponse {
-            message: "Logged out successfully".to_string(),
-        })
-        .into_response());
-    }
-
     // Decode JWT to determine provider (for Auth0 redirect)
     let mut session_provider: Option<AuthProvider> = None;
     if let Some(token) = cookie::get_cookie_value(headers, &state.config.auth.session_cookie_name) {
@@ -1335,23 +1762,27 @@ async fn revoke_api_key_handler(
 // User listing
 // ============================================================================
 
-/// Create a bot user backed by a configured GitHub App.
+/// Create a user. Admin only.
 ///
-/// Resolves the App's `{slug}[bot]` identity via `GitHubAppRegistry`, then
-/// inserts both the `users` row and a matching `provider_tokens` row with
-/// `auth_method = 'github_app_installation'` so credential resolution
-/// transparently mints installation tokens for tasks that
-/// `run_as_user_id = <bot id>`.
+/// With `isBot: true`, resolves the App's `{slug}[bot]` identity via
+/// `GitHubAppRegistry`, then inserts both the `users` row and a matching
+/// `provider_tokens` row with `auth_method = 'github_app_installation'` so
+/// credential resolution transparently mints installation tokens for tasks
+/// that `run_as_user_id = <bot id>`.
+///
+/// With `isBot: false`, creates a human user with a local password. Available
+/// only under local password auth — OAuth deployments create users on callback.
 #[utoipa::path(
     post,
     path = "/api/v1/users",
     tag = "users",
     request_body = CreateUserRequest,
     responses(
-        (status = 201, description = "Bot user created", body = CreateUserResponse),
-        (status = 400, description = "Unknown app key or human user request", body = ErrorBody),
+        (status = 201, description = "User created", body = CreateUserResponse),
+        (status = 400, description = "Unknown app key, or missing login/password", body = ErrorBody),
         (status = 401, description = "Unauthorized", body = ErrorBody),
         (status = 403, description = "Admin only", body = ErrorBody),
+        (status = 409, description = "Login already taken", body = ErrorBody),
         (status = 500, description = "Internal error", body = ErrorBody),
     )
 )]
@@ -1365,16 +1796,14 @@ async fn create_user_handler(
         return Err(AuthError::Forbidden);
     }
     if !req.is_bot {
-        return Err(AuthError::BadRequest(
-            "POST /api/v1/users currently only supports `is_bot: true`; human users are \
-             created via the OAuth callback"
-                .into(),
-        ));
+        return create_local_user(&state, req).await;
     }
-    let app = state.github_apps.get(&req.github_app_key).ok_or_else(|| {
+    let app_key = req.github_app_key.as_deref().ok_or_else(|| {
+        AuthError::BadRequest("githubAppKey is required when isBot is true".into())
+    })?;
+    let app = state.github_apps.get(app_key).ok_or_else(|| {
         AuthError::BadRequest(format!(
-            "Unknown github_app key '{}'. Configured keys: {:?}",
-            req.github_app_key,
+            "Unknown github_app key '{app_key}'. Configured keys: {:?}",
             state.github_apps.keys()
         ))
     })?;
@@ -1384,7 +1813,7 @@ async fn create_user_handler(
         .map_err(|e| AuthError::Internal(format!("Failed to resolve bot identity: {e}")))?;
 
     let now = chrono::Utc::now();
-    let user_id = format!("bot:{}", req.github_app_key);
+    let user_id = format!("bot:{app_key}");
     let team_id = format!("personal-{user_id}");
 
     // Atomic: users + personal team scaffolding + provider_tokens row succeed
@@ -1477,7 +1906,7 @@ async fn create_user_handler(
     .bind::<Option<String>>(None) // refresh_token
     .bind::<Option<String>>(None) // token_type
     .bind::<Option<String>>(None) // oauth_scope
-    .bind(Some(&req.github_app_key))
+    .bind(Some(app_key))
     .bind(Some(&bot_identity.login))
     .bind(now)
     .bind::<Option<chrono::DateTime<chrono::Utc>>>(None)

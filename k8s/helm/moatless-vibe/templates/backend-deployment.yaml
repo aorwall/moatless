@@ -167,6 +167,21 @@ spec:
                   name: {{ include "moatless-vibe.secretsName" . }}
                   key: TASK_TOKEN_SECRET
                   optional: true
+            # Signs session cookies. Absent, the backend falls back to
+            # TASK_TOKEN_SECRET — rotating that then invalidates every session.
+            - name: SESSION_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moatless-vibe.secretsName" . }}
+                  key: SESSION_JWT_SECRET
+                  optional: true
+            # Bootstrap admin password for local username/password auth.
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moatless-vibe.secretsName" . }}
+                  key: ADMIN_PASSWORD
+                  optional: true
             {{- if .Values.postgres.enabled }}
             - name: DATABASE_URL
               value: {{ include "moatless-vibe.databaseUrl" . | quote }}
@@ -225,6 +240,10 @@ spec:
             # Auth settings
             {{- with .Values.auth.provider }}
             - name: AUTH_PROVIDER
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.auth.local.adminLogin }}
+            - name: ADMIN_USERNAME
               value: {{ . | quote }}
             {{- end }}
             {{- with .Values.auth.frontendUrl }}

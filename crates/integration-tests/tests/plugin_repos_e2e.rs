@@ -22,7 +22,7 @@ async fn plugin_repos_e2e_chain() {
         return;
     }
 
-    let client = test_client();
+    let client = test_client().await;
     let repo_id = ensure_template_repo(&client).await;
 
     // Start event collector

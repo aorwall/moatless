@@ -66,7 +66,7 @@ async fn agent_ask_user_question() {
         return;
     }
 
-    let client = test_client();
+    let client = test_client().await;
     let repo_id = ensure_template_repo(&client).await;
 
     // Start event collector

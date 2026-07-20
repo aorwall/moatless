@@ -13,7 +13,7 @@ use pretty_assertions::assert_eq;
 
 #[tokio::test]
 async fn repo_crud_chain() {
-    let client = test_client();
+    let client = test_client().await;
 
     // REPO-01: Create repository
     let mut req = create_repo_request("E2E Test Repository", RepositoryKind::Template);
@@ -98,7 +98,7 @@ async fn repo_create_missing_fields() {
 // REPO-07: Get non-existent repository (404)
 #[tokio::test]
 async fn repo_get_nonexistent() {
-    let client = test_client();
+    let client = test_client().await;
     let fake_id = uuid::Uuid::new_v4().to_string();
     let err = client.api().get_repository(&fake_id).await.unwrap_err();
 

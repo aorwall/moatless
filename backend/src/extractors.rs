@@ -1,12 +1,13 @@
 //! Request extractors for authentication.
 //!
-//! Three auth paths (tried in order):
-//! 1. **AuthIdentity extension** (production): set by auth middleware after validating
+//! Two auth paths (tried in order):
+//! 1. **AuthIdentity extension**: set by auth middleware after validating a
 //!    session cookie or API key.
-//! 2. **X-User-Token header** (sandbox→backend): JWT-based, for requests that bypass
-//!    the auth middleware.
-//! 3. **Dev-mode headers / fallback** (no auth provider): reads `X-User-*` headers for
-//!    testing, or defaults to `local-user`.
+//! 2. **X-User-Token header** (sandbox→backend): JWT-based, for requests that
+//!    bypass the auth middleware.
+//!
+//! Anything else is a 401. `X-User-*` headers are never trusted — the auth
+//! middleware strips them before validation.
 
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
@@ -113,84 +114,15 @@ impl FromRequestParts<AppState> for AuthUser {
             });
         }
 
-        // Path 3: Dev mode (no auth provider — Docker Compose / local dev)
-        // In dev mode, middleware doesn't run, so allow X-User-* headers for testing.
-        if state.config.auth.provider.is_none() {
-            if let Some(user_id) = parts
-                .headers
-                .get("x-user-id")
-                .and_then(|v| v.to_str().ok())
-                .map(std::string::ToString::to_string)
-            {
-                let login = parts
-                    .headers
-                    .get("x-user-login")
-                    .and_then(|v| v.to_str().ok())
-                    .map_or_else(|| user_id.clone(), std::string::ToString::to_string);
-
-                let role = parts
-                    .headers
-                    .get("x-user-role")
-                    .and_then(|v| v.to_str().ok())
-                    .map(std::string::ToString::to_string);
-
-                let provider = parts
-                    .headers
-                    .get("x-user-provider")
-                    .and_then(|v| v.to_str().ok())
-                    .map(std::string::ToString::to_string);
-
-                let group_id = parts
-                    .headers
-                    .get("x-group-id")
-                    .and_then(|v| v.to_str().ok())
-                    .map(std::string::ToString::to_string);
-
-                let team_ids = parts
-                    .headers
-                    .get("x-team-ids")
-                    .and_then(|v| v.to_str().ok())
-                    .map(|s| {
-                        s.split(',')
-                            .map(|t| t.trim().to_string())
-                            .filter(|t| !t.is_empty())
-                            .collect()
-                    })
-                    .unwrap_or_default();
-
-                return Ok(AuthUser {
-                    user_id,
-                    login,
-                    role,
-                    provider,
-                    group_id,
-                    team_ids,
-                    task_id,
-                    is_agent_context: false,
-                });
-            }
-
-            // No headers provided — default local-user
-            return Ok(AuthUser {
-                user_id: "local-user".to_string(),
-                login: "local-user".to_string(),
-                role: Some("admin".to_string()),
-                provider: Some("none".to_string()),
-                group_id: None,
-                team_ids: vec![],
-                task_id,
-                is_agent_context: false,
-            });
-        }
-
         // No valid auth found
         Err(AuthError("Authentication required".to_string()))
     }
 }
 
-/// Optional auth extractor for dev mode / unauthenticated endpoints.
+/// Optional auth extractor for endpoints that tolerate anonymous callers.
 ///
-/// Returns `None` if auth headers are missing instead of 401.
+/// Returns `None` instead of 401 when the request did not authenticate.
+/// Callers must treat `None` as a denial, never as an unscoped admin.
 #[derive(Debug, Clone)]
 pub struct MaybeAuthUser(pub Option<AuthUser>);
 
@@ -216,9 +148,8 @@ impl FromRequestParts<AppState> for MaybeAuthUser {
 /// middleware-set extension (never raw `X-User-*` headers), it is safe on any
 /// router state.
 ///
-/// `None` means no identity was attached, which only happens in dev mode
-/// (no auth provider → middleware disabled), where every caller is treated as a
-/// local admin. When `Some`, callers are scoped to what they may access.
+/// `None` means no identity was attached — the request did not authenticate.
+/// Callers must treat it as a denial, never as an unscoped admin.
 #[derive(Debug, Clone)]
 pub struct OptionalScope(pub Option<ScopeContext>);
 

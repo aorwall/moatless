@@ -32,6 +32,9 @@ pub trait SessionRepository: Send + Sync {
     async fn get_session(&self, session_id: &str) -> Result<Option<Session>, sqlx::Error>;
     async fn insert_session(&self, session: &Session) -> Result<(), sqlx::Error>;
     async fn delete_session(&self, session_id: &str) -> Result<(), sqlx::Error>;
+    /// Delete every session belonging to a user. Used on password change so a
+    /// stolen cookie dies with the old password.
+    async fn delete_sessions_for_user(&self, user_id: &str) -> Result<u64, sqlx::Error>;
     async fn update_user_info(
         &self,
         user_id: &str,
@@ -89,6 +92,14 @@ impl SessionRepository for PgSessionRepository {
             .execute(&self.0)
             .await?;
         Ok(())
+    }
+
+    async fn delete_sessions_for_user(&self, user_id: &str) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query("DELETE FROM sessions WHERE user_id = $1")
+            .bind(user_id)
+            .execute(&self.0)
+            .await?;
+        Ok(result.rows_affected())
     }
 
     async fn update_user_info(

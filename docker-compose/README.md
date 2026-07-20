@@ -211,10 +211,22 @@ Change from default for security.
 
 #### Authentication Provider
 
-Disable authentication (development):
+Local username/password auth (the default — leave `AUTH_PROVIDER` unset or
+`local`):
 ```bash
-AUTH_PROVIDER=
+AUTH_PROVIDER=local
+# Signs session cookies. Without it the backend falls back to TASK_TOKEN_SECRET,
+# so rotating that would log everyone out.
+SESSION_JWT_SECRET=$(openssl rand -hex 32)
+# Bootstrap admin (minimum 12 characters). Omit it and a random password is
+# generated on first boot and logged once at WARN:
+#   docker compose logs backend | grep "generated a bootstrap admin password"
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=choose-a-strong-password
 ```
+
+Sign in at `/login`. There is no unauthenticated mode — every API route
+requires a session cookie or an `mvk_` API key.
 
 Or enable GitHub OAuth:
 ```bash

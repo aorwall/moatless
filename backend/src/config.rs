@@ -38,9 +38,18 @@ impl FromStr for SandboxProviderType {
     }
 }
 
+/// Minimum length accepted for an operator-supplied `ADMIN_PASSWORD`.
+pub const MIN_ADMIN_PASSWORD_LEN: usize = 12;
+
 /// Supported auth providers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// `Local` is the default: username/password against the `user_credentials`
+/// table, with a bootstrap admin seeded at startup. Exactly one provider is
+/// active at a time — local password auth is never a companion to OAuth.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AuthProvider {
+    #[default]
+    Local,
     GitHub,
     GitHubApp,
     Auth0,
@@ -49,6 +58,7 @@ pub enum AuthProvider {
 impl fmt::Display for AuthProvider {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Local => write!(f, "local"),
             Self::GitHub => write!(f, "github"),
             Self::GitHubApp => write!(f, "github_app"),
             Self::Auth0 => write!(f, "auth0"),
@@ -61,6 +71,15 @@ impl FromStr for AuthProvider {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
+            "local" => Ok(Self::Local),
+            // Legacy spellings of the removed no-auth mode.
+            "" | "disabled" | "none" => {
+                tracing::warn!(
+                    "AUTH_PROVIDER={s:?} is deprecated and now means local username/password \
+                     auth. Set AUTH_PROVIDER=local (or leave it unset) instead."
+                );
+                Ok(Self::Local)
+            }
             "github" => Ok(Self::GitHub),
             "github_app" | "github-app" => Ok(Self::GitHubApp),
             "auth0" => Ok(Self::Auth0),
@@ -484,8 +503,9 @@ pub struct SseConfig {
 /// Implements a custom `Debug` to redact secrets.
 #[derive(Clone)]
 pub struct AuthConfig {
-    /// Auth provider, or None (dev mode - auth disabled)
-    pub provider: Option<AuthProvider>,
+    /// Active auth provider. Defaults to [`AuthProvider::Local`]
+    /// (username/password against `user_credentials`).
+    pub provider: AuthProvider,
     /// GitHub OAuth client ID
     pub github_client_id: Option<String>,
     /// GitHub OAuth client secret
@@ -518,11 +538,12 @@ pub struct AuthConfig {
     pub session_cookie_name: String,
     /// Whether the app is running in production mode (affects cookie Secure flag)
     pub is_production: bool,
-    /// Explicit opt-out that lets a production deploy run with **no** auth
-    /// provider (fully open API). Off by default so a misconfigured production
-    /// instance fails fast at startup instead of silently exposing every
-    /// endpoint (env: `ALLOW_INSECURE_NO_AUTH`).
-    pub allow_insecure_no_auth: bool,
+    /// Login of the bootstrap admin seeded at startup under
+    /// [`AuthProvider::Local`] (env: `ADMIN_USERNAME`, default `"admin"`).
+    pub admin_username: String,
+    /// Password for the bootstrap admin (env: `ADMIN_PASSWORD`). When unset a
+    /// random one is generated on first boot and logged once at WARN.
+    pub admin_password: Option<String>,
     /// Auth cache TTL in seconds (default: 30).
     pub cache_ttl_secs: u64,
     /// Secret for signing session JWTs (env: SESSION_JWT_SECRET).
@@ -620,6 +641,11 @@ impl fmt::Debug for AuthConfig {
             .field("frontend_url", &self.frontend_url)
             .field("cookie_domain", &self.cookie_domain)
             .field("is_production", &self.is_production)
+            .field("admin_username", &self.admin_username)
+            .field(
+                "admin_password",
+                &self.admin_password.as_ref().map(|_| "[REDACTED]"),
+            )
             .field(
                 "session_jwt_secret",
                 &self.session_jwt_secret.as_ref().map(|_| "[REDACTED]"),
@@ -1091,9 +1117,10 @@ impl Config {
             },
 
             auth: AuthConfig {
-                provider: env_opt("AUTH_PROVIDER")
-                    .filter(|v| v != "disabled")
-                    .and_then(|v| v.parse().ok()),
+                provider: match env_opt("AUTH_PROVIDER") {
+                    Some(v) => v.parse().map_err(ConfigError::Invalid)?,
+                    None => AuthProvider::default(),
+                },
                 github_client_id: env_opt("GITHUB_CLIENT_ID"),
                 github_client_secret: env_opt("GITHUB_CLIENT_SECRET"),
                 github_callback_url: env_opt("GITHUB_CALLBACK_URL"),
@@ -1112,7 +1139,8 @@ impl Config {
                 is_production: env::var("APP_ENV")
                     .or_else(|_| env::var("NODE_ENV"))
                     .is_ok_and(|v| v == "production"),
-                allow_insecure_no_auth: env_bool("ALLOW_INSECURE_NO_AUTH", false),
+                admin_username: env_str("ADMIN_USERNAME", "admin"),
+                admin_password: env_opt("ADMIN_PASSWORD"),
                 cache_ttl_secs: env_or("AUTH_CACHE_TTL_SECS", 30),
                 session_jwt_secret: env_opt("SESSION_JWT_SECRET"),
                 test_api_key: env_opt("TEST_API_KEY").map(|s| s.trim().to_string()),
@@ -1185,24 +1213,34 @@ impl Config {
     ///
     /// Made `pub(crate)` so tests can call it directly without env vars.
     pub(crate) fn validate(&self) -> Result<(), ConfigError> {
-        // Fail fast: a production deploy with no auth provider exposes every API
-        // (tasks, repos, secrets, plugin-repos) and every task's preview/files
-        // server to anyone who can reach the host. Refuse to start unless the
-        // operator has explicitly opted into running open.
-        if self.auth.is_production
-            && self.auth.provider.is_none()
-            && !self.auth.allow_insecure_no_auth
-        {
-            return Err(ConfigError::Invalid(
-                "AUTH_PROVIDER is unset while APP_ENV=production — the API would be fully \
-                 unauthenticated. Set AUTH_PROVIDER (github/github_app/auth0), or set \
-                 ALLOW_INSECURE_NO_AUTH=true to run open deliberately."
-                    .into(),
-            ));
+        // Local password auth signs session cookies and stores credentials in
+        // Postgres — without either, nobody can log in.
+        if self.auth.provider == AuthProvider::Local {
+            if self.auth.session_jwt_secret.is_none() && self.sandbox.task_token_secret.is_none() {
+                return Err(ConfigError::Invalid(
+                    "SESSION_JWT_SECRET (or TASK_TOKEN_SECRET) required when AUTH_PROVIDER=local \
+                     — session cookies cannot be signed without it."
+                        .into(),
+                ));
+            }
+            if self.database.url.is_none() {
+                return Err(ConfigError::Invalid(
+                    "DATABASE_URL required when AUTH_PROVIDER=local — credentials are stored in \
+                     the user_credentials table."
+                        .into(),
+                ));
+            }
+            if let Some(ref pw) = self.auth.admin_password {
+                if pw.chars().count() < MIN_ADMIN_PASSWORD_LEN {
+                    return Err(ConfigError::Invalid(format!(
+                        "ADMIN_PASSWORD must be at least {MIN_ADMIN_PASSWORD_LEN} characters"
+                    )));
+                }
+            }
         }
 
         // Validate auth provider config consistency
-        if let Some(AuthProvider::GitHub) = self.auth.provider {
+        if self.auth.provider == AuthProvider::GitHub {
             if self.auth.github_client_id.is_none() {
                 return Err(ConfigError::Invalid(
                     "GITHUB_CLIENT_ID required when AUTH_PROVIDER=github".into(),
@@ -1214,7 +1252,7 @@ impl Config {
                 ));
             }
         }
-        if let Some(AuthProvider::GitHubApp) = self.auth.provider {
+        if self.auth.provider == AuthProvider::GitHubApp {
             if self.auth.github_app_client_id.is_none() {
                 return Err(ConfigError::Invalid(
                     "GITHUB_APP_CLIENT_ID required when AUTH_PROVIDER=github_app".into(),
@@ -1231,7 +1269,7 @@ impl Config {
                 ));
             }
         }
-        if let Some(AuthProvider::Auth0) = self.auth.provider {
+        if self.auth.provider == AuthProvider::Auth0 {
             if self.auth.auth0_domain.is_none() {
                 return Err(ConfigError::Invalid(
                     "AUTH0_DOMAIN required when AUTH_PROVIDER=auth0".into(),
@@ -1298,6 +1336,185 @@ impl Config {
 }
 
 #[cfg(test)]
+impl Config {
+    /// Minimal valid config for unit tests across the crate.
+    pub(crate) fn test_minimal() -> Self {
+    Config {
+        server: ServerConfig {
+            port: 8080,
+            metrics_port: 9090,
+            grpc_port: 50051,
+        },
+        sandbox_provider: SandboxProviderType::Kubernetes,
+        sandbox: SandboxConfig {
+            namespace: "test".into(),
+            image: "test:latest".into(),
+            image_pull_policy: "Never".into(),
+            grpc_port: 50052,
+            resources_cpu_limit: "500m".into(),
+            resources_memory_limit: "512Mi".into(),
+            resources_cpu_request: "100m".into(),
+            resources_memory_request: "128Mi".into(),
+            sandbox_resources_cpu_request: "1".into(),
+            sandbox_resources_cpu_limit: "4".into(),
+            sandbox_resources_memory_request: "2Gi".into(),
+            sandbox_resources_memory_limit: "8Gi".into(),
+            run_as_non_root: false,
+            shared_data_size: "2Gi".into(),
+            build_cache_size: "1536Mi".into(),
+            persist_toolchain: false,
+            cargo_target_on_build_cache: false,
+            storage_enabled: false,
+            storage_size: "1Gi".into(),
+            storage_class: None,
+            default_storage_mode: "ebs".into(),
+            retain_storage_on_close: false,
+            pod_startup_timeout_secs: 10,
+            task_token_secret: None,
+            user_token_ttl_secs: 7 * 24 * 3600,
+            bootstrap_token_ttl_secs: 1800,
+            emit_legacy_user_token_env: true,
+            file_mount_path: "/tmp".into(),
+            idle_reaper_enabled: false,
+            liveness_enabled: false,
+            idle_timeout_minutes: 15,
+            busy_extension_max_hours: 4,
+            idle_check_interval_secs: 300,
+            inactive_task_timeout_days: 0,
+            orphan_gc_enabled: false,
+            orphan_gc_retention_hours: 24,
+            codex_refresher_interval_secs: 0,
+            max_crash_restart_count: 5,
+            node_selector_json: None,
+            tolerations_json: None,
+            service_account_name: None,
+            default_model: None,
+            default_codex_model: None,
+            extra_env: vec![],
+            cache_volumes: vec![],
+            cache_host_root: "/mnt/cache".into(),
+            cache_init_image: "docker:dind".into(),
+            docker_dind_image: "docker:dind".into(),
+            docker_dind_storage_size: "10Gi".into(),
+            docker_dind_cpu_request: "500m".into(),
+            docker_dind_cpu_limit: "2".into(),
+            docker_dind_memory_request: "1Gi".into(),
+            docker_dind_memory_limit: "4Gi".into(),
+            egress_proxy_url: None,
+            egress_proxy_profiles: vec![],
+            egress_proxy_no_proxy: "localhost,.svc.cluster.local".into(),
+        },
+        reconcile: ReconcileConfig {
+            reprovision_enabled: false,
+            pending_timeout_enabled: false,
+            pending_timeout_minutes: 15,
+            max_reprovision_attempts: 3,
+        },
+        proxy: ProxyConfig {
+            domain: None,
+            protocol: "http".into(),
+            traefik_auth_middleware_name: "test".into(),
+            traefik_auth_middleware_namespace: "test".into(),
+            traefik_entry_point: "web".into(),
+        },
+        docker: DockerConfig {
+            network: "test-network".into(),
+            image: "test-sandbox:latest".into(),
+            data_dir: "/data".into(),
+            container_data_dir: "/data".into(),
+            backend_hostname: "moatless-backend".into(),
+            enable_socket_mount: false,
+            socket_path: "/var/run/docker.sock".into(),
+            extra_networks: vec![],
+        },
+        database_url: Some("postgres://localhost/test".into()),
+        database: DatabaseConfig {
+            url: Some("postgres://localhost/test".into()),
+            max_connections: 5,
+            run_migrations: true,
+        },
+        redis: RedisConfig {
+            url: None,
+            max_stream_length: 100,
+            event_handler_enabled: true,
+        },
+        sse: SseConfig {
+            broadcast_capacity: 16,
+            consumer_id: "test".into(),
+        },
+        auth: AuthConfig {
+            provider: AuthProvider::Local,
+            github_client_id: None,
+            github_client_secret: None,
+            github_callback_url: None,
+            github_oauth_scope: "".into(),
+            github_required_org: None,
+            auth0_domain: None,
+            auth0_client_id: None,
+            auth0_client_secret: None,
+            auth0_callback_url: None,
+            auth0_audience: None,
+            auth0_groups_claim: "".into(),
+            session_max_age_secs: 3600,
+            frontend_url: "http://localhost:3000".into(),
+            cookie_domain: None,
+            session_cookie_name: "test".into(),
+            is_production: false,
+            admin_username: "admin".into(),
+            admin_password: None,
+            cache_ttl_secs: 0,
+            session_jwt_secret: Some("test-session-secret".into()),
+            test_api_key: None,
+            default_team_slug: None,
+            github_app_client_id: None,
+            github_app_client_secret: None,
+            github_app_callback_url: None,
+            github_app_id: None,
+            github_app_private_key: None,
+            github_app_default_installation_id: None,
+            github_apps: vec![],
+        },
+        s3: S3Config {
+            bucket_name: None,
+            key_prefix: "test".into(),
+            transcript_prefix: "transcripts".into(),
+            workspace_prefix: "workspaces".into(),
+            region: "us-east-1".into(),
+        },
+        slack: SlackConfig {
+            bot_token: None,
+            signing_secret: None,
+            bot_user_id: None,
+        },
+        telegram: TelegramConfig {
+            bot_token: None,
+            mode: "webhook".into(),
+        },
+        github_pr: GithubPrConfig {
+            webhook_secret: None,
+            bot_token: None,
+        },
+        linear: LinearConfig {
+            webhook_secret: None,
+            oauth_client_id: None,
+            oauth_client_secret: None,
+            oauth_callback_url: None,
+        },
+        skill: SkillConfig { cache_ttl_secs: 60 },
+        secrets: SecretsConfig {
+            encryption_key: Some("0123456789abcdef0123456789abcdef".to_string()),
+            kms_key_id: None,
+        },
+        codex_oauth: CodexOAuthConfig {
+            issuer: "https://auth.openai.com".into(),
+            client_id: "test-codex-client".into(),
+        },
+        default_run_as_user_id: None,
+    }
+}
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -1336,7 +1553,8 @@ mod tests {
     #[test]
     fn auth_provider_from_str_unknown_returns_error() {
         assert!("unknown".parse::<AuthProvider>().is_err());
-        assert!("".parse::<AuthProvider>().is_err());
+        // A typo must fail closed rather than silently disabling auth.
+        assert!("guthub".parse::<AuthProvider>().is_err());
     }
 
     #[test]
@@ -1407,178 +1625,9 @@ mod tests {
 
     /// Helper to build a minimal valid Config for testing.
     fn minimal_config() -> Config {
-        Config {
-            server: ServerConfig {
-                port: 8080,
-                metrics_port: 9090,
-                grpc_port: 50051,
-            },
-            sandbox_provider: SandboxProviderType::Kubernetes,
-            sandbox: SandboxConfig {
-                namespace: "test".into(),
-                image: "test:latest".into(),
-                image_pull_policy: "Never".into(),
-                grpc_port: 50052,
-                resources_cpu_limit: "500m".into(),
-                resources_memory_limit: "512Mi".into(),
-                resources_cpu_request: "100m".into(),
-                resources_memory_request: "128Mi".into(),
-                sandbox_resources_cpu_request: "1".into(),
-                sandbox_resources_cpu_limit: "4".into(),
-                sandbox_resources_memory_request: "2Gi".into(),
-                sandbox_resources_memory_limit: "8Gi".into(),
-                run_as_non_root: false,
-                shared_data_size: "2Gi".into(),
-                build_cache_size: "1536Mi".into(),
-                persist_toolchain: false,
-                cargo_target_on_build_cache: false,
-                storage_enabled: false,
-                storage_size: "1Gi".into(),
-                storage_class: None,
-                default_storage_mode: "ebs".into(),
-                retain_storage_on_close: false,
-                pod_startup_timeout_secs: 10,
-                task_token_secret: None,
-                user_token_ttl_secs: 7 * 24 * 3600,
-                bootstrap_token_ttl_secs: 1800,
-                emit_legacy_user_token_env: true,
-                file_mount_path: "/tmp".into(),
-                idle_reaper_enabled: false,
-                liveness_enabled: false,
-                idle_timeout_minutes: 15,
-                busy_extension_max_hours: 4,
-                idle_check_interval_secs: 300,
-                inactive_task_timeout_days: 0,
-                orphan_gc_enabled: false,
-                orphan_gc_retention_hours: 24,
-                codex_refresher_interval_secs: 0,
-                max_crash_restart_count: 5,
-                node_selector_json: None,
-                tolerations_json: None,
-                service_account_name: None,
-                default_model: None,
-                default_codex_model: None,
-                extra_env: vec![],
-                cache_volumes: vec![],
-                cache_host_root: "/mnt/cache".into(),
-                cache_init_image: "docker:dind".into(),
-                docker_dind_image: "docker:dind".into(),
-                docker_dind_storage_size: "10Gi".into(),
-                docker_dind_cpu_request: "500m".into(),
-                docker_dind_cpu_limit: "2".into(),
-                docker_dind_memory_request: "1Gi".into(),
-                docker_dind_memory_limit: "4Gi".into(),
-                egress_proxy_url: None,
-                egress_proxy_profiles: vec![],
-                egress_proxy_no_proxy: "localhost,.svc.cluster.local".into(),
-            },
-            reconcile: ReconcileConfig {
-                reprovision_enabled: false,
-                pending_timeout_enabled: false,
-                pending_timeout_minutes: 15,
-                max_reprovision_attempts: 3,
-            },
-            proxy: ProxyConfig {
-                domain: None,
-                protocol: "http".into(),
-                traefik_auth_middleware_name: "test".into(),
-                traefik_auth_middleware_namespace: "test".into(),
-                traefik_entry_point: "web".into(),
-            },
-            docker: DockerConfig {
-                network: "test-network".into(),
-                image: "test-sandbox:latest".into(),
-                data_dir: "/data".into(),
-                container_data_dir: "/data".into(),
-                backend_hostname: "moatless-backend".into(),
-                enable_socket_mount: false,
-                socket_path: "/var/run/docker.sock".into(),
-                extra_networks: vec![],
-            },
-            database_url: None,
-            database: DatabaseConfig {
-                url: None,
-                max_connections: 5,
-                run_migrations: true,
-            },
-            redis: RedisConfig {
-                url: None,
-                max_stream_length: 100,
-                event_handler_enabled: true,
-            },
-            sse: SseConfig {
-                broadcast_capacity: 16,
-                consumer_id: "test".into(),
-            },
-            auth: AuthConfig {
-                provider: None,
-                github_client_id: None,
-                github_client_secret: None,
-                github_callback_url: None,
-                github_oauth_scope: "".into(),
-                github_required_org: None,
-                auth0_domain: None,
-                auth0_client_id: None,
-                auth0_client_secret: None,
-                auth0_callback_url: None,
-                auth0_audience: None,
-                auth0_groups_claim: "".into(),
-                session_max_age_secs: 3600,
-                frontend_url: "http://localhost:3000".into(),
-                cookie_domain: None,
-                session_cookie_name: "test".into(),
-                is_production: false,
-                allow_insecure_no_auth: false,
-                cache_ttl_secs: 0,
-                session_jwt_secret: None,
-                test_api_key: None,
-                default_team_slug: None,
-                github_app_client_id: None,
-                github_app_client_secret: None,
-                github_app_callback_url: None,
-                github_app_id: None,
-                github_app_private_key: None,
-                github_app_default_installation_id: None,
-                github_apps: vec![],
-            },
-            s3: S3Config {
-                bucket_name: None,
-                key_prefix: "test".into(),
-                transcript_prefix: "transcripts".into(),
-                workspace_prefix: "workspaces".into(),
-                region: "us-east-1".into(),
-            },
-            slack: SlackConfig {
-                bot_token: None,
-                signing_secret: None,
-                bot_user_id: None,
-            },
-            telegram: TelegramConfig {
-                bot_token: None,
-                mode: "webhook".into(),
-            },
-            github_pr: GithubPrConfig {
-                webhook_secret: None,
-                bot_token: None,
-            },
-            linear: LinearConfig {
-                webhook_secret: None,
-                oauth_client_id: None,
-                oauth_client_secret: None,
-                oauth_callback_url: None,
-            },
-            skill: SkillConfig { cache_ttl_secs: 60 },
-            secrets: SecretsConfig {
-                encryption_key: Some("0123456789abcdef0123456789abcdef".to_string()),
-                kms_key_id: None,
-            },
-            codex_oauth: CodexOAuthConfig {
-                issuer: "https://auth.openai.com".into(),
-                client_id: "test-codex-client".into(),
-            },
-            default_run_as_user_id: None,
-        }
+        Config::test_minimal()
     }
+
 
     #[test]
     fn validate_missing_encryption_key_fails() {
@@ -1596,27 +1645,60 @@ mod tests {
     }
 
     #[test]
-    fn validate_no_auth_provider_passes() {
-        let config = minimal_config();
+    fn auth_provider_defaults_to_local() {
+        assert_eq!(AuthProvider::default(), AuthProvider::Local);
+        assert!(minimal_config().validate().is_ok());
+    }
+
+    #[test]
+    fn auth_provider_parses_legacy_no_auth_spellings_as_local() {
+        for raw in ["", "disabled", "none", "local", "LOCAL"] {
+            assert_eq!(raw.parse::<AuthProvider>().unwrap(), AuthProvider::Local);
+        }
+    }
+
+    #[test]
+    fn auth_provider_rejects_unknown_value() {
+        assert!("guthub".parse::<AuthProvider>().is_err());
+    }
+
+    #[test]
+    fn validate_local_requires_session_jwt_secret() {
+        let mut config = minimal_config();
+        config.auth.session_jwt_secret = None;
+        config.sandbox.task_token_secret = None;
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("SESSION_JWT_SECRET"));
+    }
+
+    #[test]
+    fn validate_local_accepts_task_token_secret_fallback() {
+        let mut config = minimal_config();
+        config.auth.session_jwt_secret = None;
+        config.sandbox.task_token_secret = Some("fallback-secret".into());
         assert!(config.validate().is_ok());
     }
 
     #[test]
-    fn validate_production_without_auth_provider_fails() {
+    fn validate_local_requires_database_url() {
         let mut config = minimal_config();
-        config.auth.is_production = true;
-        config.auth.provider = None;
-        config.auth.allow_insecure_no_auth = false;
+        config.database.url = None;
         let err = config.validate().unwrap_err();
-        assert!(err.to_string().contains("AUTH_PROVIDER"));
+        assert!(err.to_string().contains("DATABASE_URL"));
     }
 
     #[test]
-    fn validate_production_without_auth_provider_passes_with_optout() {
+    fn validate_local_rejects_short_admin_password() {
         let mut config = minimal_config();
-        config.auth.is_production = true;
-        config.auth.provider = None;
-        config.auth.allow_insecure_no_auth = true;
+        config.auth.admin_password = Some("short".into());
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("ADMIN_PASSWORD"));
+    }
+
+    #[test]
+    fn validate_local_accepts_long_admin_password() {
+        let mut config = minimal_config();
+        config.auth.admin_password = Some("a-sufficiently-long-password".into());
         assert!(config.validate().is_ok());
     }
 
@@ -1624,7 +1706,7 @@ mod tests {
     fn validate_production_with_auth_provider_passes() {
         let mut config = minimal_config();
         config.auth.is_production = true;
-        config.auth.provider = Some(AuthProvider::GitHub);
+        config.auth.provider = AuthProvider::GitHub;
         config.auth.github_client_id = Some("id".into());
         config.auth.github_client_secret = Some("secret".into());
         assert!(config.validate().is_ok());
@@ -1633,7 +1715,7 @@ mod tests {
     #[test]
     fn validate_github_missing_client_id_fails() {
         let mut config = minimal_config();
-        config.auth.provider = Some(AuthProvider::GitHub);
+        config.auth.provider = AuthProvider::GitHub;
         config.auth.github_client_id = None;
         config.auth.github_client_secret = Some("secret".into());
         let err = config.validate().unwrap_err();
@@ -1643,7 +1725,7 @@ mod tests {
     #[test]
     fn validate_github_missing_client_secret_fails() {
         let mut config = minimal_config();
-        config.auth.provider = Some(AuthProvider::GitHub);
+        config.auth.provider = AuthProvider::GitHub;
         config.auth.github_client_id = Some("id".into());
         config.auth.github_client_secret = None;
         let err = config.validate().unwrap_err();
@@ -1653,7 +1735,7 @@ mod tests {
     #[test]
     fn validate_github_complete_passes() {
         let mut config = minimal_config();
-        config.auth.provider = Some(AuthProvider::GitHub);
+        config.auth.provider = AuthProvider::GitHub;
         config.auth.github_client_id = Some("id".into());
         config.auth.github_client_secret = Some("secret".into());
         assert!(config.validate().is_ok());
@@ -1662,7 +1744,7 @@ mod tests {
     #[test]
     fn validate_github_app_missing_callback_url_fails() {
         let mut config = minimal_config();
-        config.auth.provider = Some(AuthProvider::GitHubApp);
+        config.auth.provider = AuthProvider::GitHubApp;
         config.auth.github_app_client_id = Some("id".into());
         config.auth.github_app_client_secret = Some("secret".into());
         config.auth.github_app_callback_url = None;
@@ -1673,7 +1755,7 @@ mod tests {
     #[test]
     fn validate_github_app_complete_passes() {
         let mut config = minimal_config();
-        config.auth.provider = Some(AuthProvider::GitHubApp);
+        config.auth.provider = AuthProvider::GitHubApp;
         config.auth.github_app_client_id = Some("id".into());
         config.auth.github_app_client_secret = Some("secret".into());
         config.auth.github_app_callback_url = Some("https://example.com/callback".into());
@@ -1683,7 +1765,7 @@ mod tests {
     #[test]
     fn validate_auth0_missing_domain_fails() {
         let mut config = minimal_config();
-        config.auth.provider = Some(AuthProvider::Auth0);
+        config.auth.provider = AuthProvider::Auth0;
         config.auth.auth0_domain = None;
         config.auth.auth0_client_id = Some("id".into());
         config.auth.auth0_client_secret = Some("secret".into());
@@ -1694,7 +1776,7 @@ mod tests {
     #[test]
     fn validate_auth0_complete_passes() {
         let mut config = minimal_config();
-        config.auth.provider = Some(AuthProvider::Auth0);
+        config.auth.provider = AuthProvider::Auth0;
         config.auth.auth0_domain = Some("test.auth0.com".into());
         config.auth.auth0_client_id = Some("id".into());
         config.auth.auth0_client_secret = Some("secret".into());
