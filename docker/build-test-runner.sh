@@ -18,7 +18,7 @@ cp "$ROOT_DIR/tsconfig.json" "$TEMP_DIR/" 2>/dev/null || true
 
 # Copy packages (including dist, excluding node_modules)
 mkdir -p "$TEMP_DIR/packages"
-for pkg in types shell-utils api-contract figma; do
+for pkg in types shell-utils api-contract; do
   if [ -d "$ROOT_DIR/packages/$pkg" ]; then
     mkdir -p "$TEMP_DIR/packages/$pkg"
     rsync -a --exclude='node_modules' "$ROOT_DIR/packages/$pkg/" "$TEMP_DIR/packages/$pkg/"

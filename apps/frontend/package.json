@@ -21,7 +21,6 @@
   },
   "dependencies": {
     "@moatless/api-client": "workspace:*",
-    "@moatless/figma": "workspace:*",
     "@moatless/inspector": "workspace:*",
     "@pierre/diffs": "^1.1.21",
     "@pierre/trees": "^1.0.0-beta.3",

@@ -16,7 +16,6 @@ pub struct FeatureFlagsResponse {
     pub netlify_publish: bool,
     pub show_claude_settings: bool,
     pub show_codex_settings: bool,
-    pub figma_clipboard_paste: bool,
     pub show_model_selector: bool,
     pub gitlab_enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -44,7 +43,6 @@ pub async fn get_feature_flags() -> Json<FeatureFlagsResponse> {
         netlify_publish: env_flag("FF_NETLIFY_PUBLISH", false),
         show_claude_settings: env_flag("FF_SHOW_CLAUDE_SETTINGS", true),
         show_codex_settings: env_flag("FF_SHOW_CODEX_SETTINGS", true),
-        figma_clipboard_paste: env_flag("FF_FIGMA_CLIPBOARD_PASTE", true),
         show_model_selector: env_flag("FF_SHOW_MODEL_SELECTOR", true),
         gitlab_enabled: env_flag("FF_GITLAB_ENABLED", false),
         slack,

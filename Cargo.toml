@@ -3,7 +3,6 @@ members = [
     "backend",
     "sandbox",
     "crates/events",
-    "crates/figma-clipboard",
     "crates/claude-agent-sdk",
     "crates/sandbox-proto",
     "crates/cli",
@@ -16,8 +15,7 @@ members = [
 resolver = "2"
 
 [workspace.lints.rust]
-# deny (not forbid) so figma-clipboard can #![allow(unsafe_code)] for tree-mutation algorithms
-# and sandbox can #![allow(unsafe_code)] in init modules for std::env::set_var()
+# deny (not forbid) so sandbox can #![allow(unsafe_code)] in init modules for std::env::set_var()
 unsafe_code = "deny"
 # Catch unused Result/must-use values at compile time
 unused_must_use = "deny"
@@ -104,8 +102,6 @@ match_wildcard_for_single_variants = "allow"
 used_underscore_binding = "allow"
 # Or-pattern nesting style — both forms are readable
 unnested_or_patterns = "allow"
-# Raw pointer constness casts — needed in figma-clipboard tree manipulation
-ptr_cast_constness = "allow"
 
 [profile.release]
 lto = "thin"

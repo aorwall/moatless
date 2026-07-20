@@ -134,8 +134,6 @@ specs/
 │   ├── 00-design.md                   # Login, sessions, API keys, teams, access control
 │   ├── 01-team-scenarios.md           # AUTH-01 through AUTH-08: Team management
 │   └── 02-access-control-scenarios.md # AUTH-10 through AUTH-30: Scope-based access control
-├── figma/
-│   └── 00-design.md                   # Figma design import
 └── uploads/
     └── 00-design.md                   # File uploads/attachments
 ```

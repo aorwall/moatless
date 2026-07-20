@@ -171,9 +171,8 @@ pub async fn send_message_flow(
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let msg_uuid = uuid::Uuid::new_v4().to_string();
 
-    // Build enriched content blocks (includes figma, preview, element contexts + file attachments)
+    // Build enriched content blocks (includes preview, element contexts + file attachments)
     let enriched_blocks = enricher::build_content_blocks(
-        state.figma_imports.as_ref(),
         state.files.as_ref(),
         &state.config,
         &attributed_message,
@@ -258,7 +257,7 @@ pub async fn send_message_flow(
         created_at: None,
     };
 
-    // Persist contexts: sender-supplied (figma/preview/element) + synthesised
+    // Persist contexts: sender-supplied (preview/element) + synthesised
     // file contexts so the read path can surface uploaded files alongside the
     // other context items. The `attachments` JSON column is still written
     // above for the sandbox gRPC pre-fetch path.

@@ -3,7 +3,6 @@ import { useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { z } from 'zod'
-import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
 import { useRepository } from '@/features/repositories'
 import { ContextItems, FileAttachments } from '@/features/tasks/components/chat/chat-input'
 import {
@@ -41,11 +40,8 @@ export function CreateTaskForm() {
   const [selectedRepositoryId, setSelectedRepositoryId] = useState<string>('')
   const [selectedBranch, setSelectedBranch] = useState<string>('__none__')
 
-  // Task inputs hook (file uploads, context items, Figma)
-  const taskInputs = useTaskInputs({
-    enableContextItems: true,
-    enableFigma: true,
-  })
+  // Task inputs hook (file uploads, context items)
+  const taskInputs = useTaskInputs()
 
   // Fetch full repository details to check worktree/clone settings
   const { data: repositoryDetails } = useRepository(selectedRepositoryId, {
@@ -216,13 +212,12 @@ export function CreateTaskForm() {
         )}
 
         {/* Context Items */}
-        {(taskInputs.contextItems.length > 0 || taskInputs.figmaImportPending) && (
+        {taskInputs.contextItems.length > 0 && (
           <div className="space-y-2">
             <Label className="text-sm font-medium text-foreground">Context Items</Label>
             <ContextItems
               contexts={taskInputs.contextItems}
               onRemove={taskInputs.handleRemoveContext}
-              isLoading={taskInputs.figmaImportPending}
             />
           </div>
         )}
@@ -238,7 +233,6 @@ export function CreateTaskForm() {
           >
             <AttachmentPopoverContent
               onFileSelect={(file) => taskInputs.uploadFile.mutate(file)}
-              onFigmaImport={() => taskInputs.setFigmaDialogOpen(true)}
               disabled={taskInputs.uploadFile.isPending}
             />
           </PopoverSelector>
@@ -259,12 +253,6 @@ export function CreateTaskForm() {
           {createTask.isPending ? 'Creating...' : 'Create Task'}
         </Button>
       </CardContent>
-
-      <FigmaImportDialog
-        open={taskInputs.figmaDialogOpen}
-        onOpenChange={taskInputs.setFigmaDialogOpen}
-        importMutation={taskInputs.figmaUrlImport}
-      />
     </Card>
   )
 }

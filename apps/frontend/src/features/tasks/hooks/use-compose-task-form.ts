@@ -124,10 +124,7 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
 
   const isModelSelectorEnabled = useFeatureFlag('SHOW_MODEL_SELECTOR')
 
-  const taskInputs = useTaskInputs({
-    enableContextItems: true,
-    enableFigma: true,
-  })
+  const taskInputs = useTaskInputs()
 
   const { data: repositories } = useRepositoriesList()
   const { data: repositoryDetails, error: repositoryError } = useRepository(repositoryId, {
@@ -264,10 +261,6 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
     onSuccess,
   ])
 
-  const handleFigmaImportClick = useCallback(() => {
-    taskInputs.setFigmaDialogOpen(true)
-  }, [taskInputs])
-
   const placeholder = isTemplate
     ? 'Describe what you want to build…'
     : 'Describe your coding task or leave empty to just run the app…'
@@ -297,7 +290,6 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
     placeholder,
     // attachments
     taskInputs,
-    handleFigmaImportClick,
     // submit
     handleSubmit,
     canSubmit,

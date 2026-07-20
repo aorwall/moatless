@@ -22,7 +22,7 @@ use moatless_vibe_backend::sse::routes::sse_router;
 use moatless_vibe_backend::startup;
 use moatless_vibe_backend::state::AppState;
 use moatless_vibe_backend::{
-    adapters, command, feedback, figma, file_storage, message, plugin_repo, provider_settings,
+    adapters, command, feedback, file_storage, message, plugin_repo, provider_settings,
     repository, secret, skill, tag, task, task_event, task_template, team, triggers, workspace,
 };
 
@@ -300,7 +300,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             message::routes::message_router(app_state.clone()),
             command::routes::command_router(app_state.clone()),
             file_storage::routes::file_storage_router(app_state.clone()),
-            figma::routes::figma_router(app_state.clone()),
             repository::routes::repository_router(app_state.clone()),
             secret::routes::secret_router(app_state.clone()),
             tag::routes::tag_router(app_state.clone()),

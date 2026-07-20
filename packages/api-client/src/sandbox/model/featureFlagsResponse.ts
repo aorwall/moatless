@@ -11,7 +11,6 @@ import type { SlackConfig } from './slackConfig';
  * Response shape for GET /api/v1/feature-flags.
  */
 export interface FeatureFlagsResponse {
-  figma_clipboard_paste: boolean;
   gitlab_enabled: boolean;
   netlify_publish: boolean;
   show_claude_settings: boolean;

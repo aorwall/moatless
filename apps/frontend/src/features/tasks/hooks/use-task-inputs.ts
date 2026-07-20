@@ -2,25 +2,12 @@ import type { MessageContextInput, UploadResponse } from '@moatless/api-client'
 import type React from 'react'
 import { useCallback, useState } from 'react'
 import { toast } from 'sonner'
-import type { FigmaImportResponse } from '@/features/figma/api/figma'
-import { useFigmaClipboardPaste } from '@/features/figma/hooks/use-figma-clipboard-paste'
-import { useFigmaImport } from '@/features/figma/hooks/use-figma-import'
 import { useAttachmentSelector } from '@/features/tasks/components/chat/chat-input/selectors'
 import { useImagePaste } from '@/features/uploads/hooks/use-image-paste'
 import { useUploadFile } from '@/features/uploads/hooks/use-upload'
 import { getErrorMessage } from '@/lib/utils/error'
 
 export interface UseTaskInputsOptions {
-  /**
-   * Enable context items management. Default: true
-   */
-  enableContextItems?: boolean | undefined
-
-  /**
-   * Enable Figma integration (clipboard paste + import dialog). Default: true
-   */
-  enableFigma?: boolean | undefined
-
   /**
    * External context items state (for ChatContainer prop-based management)
    * When provided, the hook will use this instead of internal state
@@ -45,19 +32,6 @@ export interface UseTaskInputsReturn {
   handleRemoveContext: (index: number) => void
   handleAddContext: (context: MessageContextInput) => void
 
-  // Figma integration
-  figmaDialogOpen: boolean
-  setFigmaDialogOpen: (open: boolean) => void
-  figmaUrlImport: ReturnType<typeof useFigmaImport>
-  figmaImportPending: boolean
-  handleFigmaImportSuccess: (data: {
-    importId: string
-    fileId: string
-    fileName: string
-    nodeName: string
-    hasImage: boolean
-  }) => void
-
   // Paste handling
   handlePaste: (e: React.ClipboardEvent<HTMLTextAreaElement>) => void
 
@@ -67,7 +41,7 @@ export interface UseTaskInputsReturn {
 }
 
 /**
- * Consolidated hook for managing task input state: file uploads, context items, and Figma integration.
+ * Consolidated hook for managing task input state: file uploads and context items.
  *
  * This hook eliminates duplication across task creation components by providing a single
  * source of truth for all file/context management logic.
@@ -91,21 +65,10 @@ export interface UseTaskInputsReturn {
  *     />
  *   )}
  * </ChatInput>
- *
- * <FigmaImportDialog
- *   open={taskInputs.figmaDialogOpen}
- *   onOpenChange={taskInputs.setFigmaDialogOpen}
- *   onImportSuccess={taskInputs.handleFigmaImportSuccess}
- * />
  * ```
  */
 export function useTaskInputs(options: UseTaskInputsOptions = {}): UseTaskInputsReturn {
-  const {
-    enableContextItems = true,
-    enableFigma = true,
-    contextItems: externalContextItems,
-    onContextItemsChange,
-  } = options
+  const { contextItems: externalContextItems, onContextItemsChange } = options
 
   // Determine if we're using external context management (for ChatContainer)
   const useExternalContext =
@@ -117,9 +80,6 @@ export function useTaskInputs(options: UseTaskInputsOptions = {}): UseTaskInputs
   // Context items state (internal or external)
   const [internalContextItems, setInternalContextItems] = useState<MessageContextInput[]>([])
   const contextItems = useExternalContext ? externalContextItems : internalContextItems
-
-  // Figma dialog state
-  const [figmaDialogOpen, setFigmaDialogOpen] = useState(false)
 
   // File upload mutation
   const uploadFile = useUploadFile({
@@ -165,100 +125,8 @@ export function useTaskInputs(options: UseTaskInputsOptions = {}): UseTaskInputs
     [useExternalContext, onContextItemsChange, contextItems],
   )
 
-  // Figma import success handler
-  const handleFigmaImportSuccess = useCallback(
-    (data: {
-      importId: string
-      fileId: string
-      fileName: string
-      nodeName: string
-      hasImage: boolean
-    }) => {
-      if (!enableContextItems) {
-        return
-      }
-
-      const figmaContext: MessageContextInput = {
-        type: 'figma',
-        referenceId: data.importId,
-        data: {
-          importId: data.importId,
-          fileName: data.fileName,
-          nodeName: data.nodeName,
-          hasImage: data.hasImage,
-        },
-      }
-      handleAddContext(figmaContext)
-      toast.success('Figma node imported successfully')
-    },
-    [enableContextItems, handleAddContext],
-  )
-
-  // Figma URL import mutation (for FigmaImportDialog)
-  const figmaUrlImport = useFigmaImport({
-    onSuccess: (data) => {
-      handleFigmaImportSuccess({
-        importId: data.importId,
-        fileId: data.fileId ?? '',
-        fileName: data.fileName ?? '',
-        nodeName: data.nodeName ?? '',
-        hasImage: data.hasImage,
-      })
-      setFigmaDialogOpen(false)
-    },
-    onError: (error) => {
-      toast.error('Failed to import from Figma', {
-        description: getErrorMessage(error),
-      })
-    },
-  })
-
-  // Figma clipboard paste handler
-  const figmaClipboardPaste = useFigmaClipboardPaste({
-    onSuccess: useCallback(
-      (result: FigmaImportResponse) => {
-        if (!enableContextItems) {
-          return
-        }
-
-        const figmaContext: MessageContextInput = {
-          type: 'figma',
-          referenceId: result.importId,
-          data: {
-            importId: result.importId,
-            fileName: result.fileName ?? '',
-            nodeName: result.nodeName ?? '',
-            hasImage: result.hasImage,
-          },
-        }
-        handleAddContext(figmaContext)
-        toast.success(`Figma design imported: ${result.nodeName}`, {
-          description: `From clipboard • ${result.fileName}`,
-        })
-      },
-      [enableContextItems, handleAddContext],
-    ),
-  })
-
-  // Image paste handler
-  const handleImagePaste = useImagePaste(uploadFile)
-
-  // Combined paste handler: Figma first, then image
-  const handlePaste = useCallback(
-    (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-      if (enableFigma) {
-        // Try to handle as Figma clipboard data first
-        const figmaHandled = figmaClipboardPaste.handlePaste(e)
-        if (figmaHandled) {
-          return
-        }
-      }
-
-      // Fall back to image paste if not Figma data
-      handleImagePaste(e)
-    },
-    [enableFigma, figmaClipboardPaste, handleImagePaste],
-  )
+  // Paste handling: images only
+  const handlePaste = useImagePaste(uploadFile)
 
   // Utility: Get file IDs for API calls
   const getFileIds = useCallback(() => {
@@ -286,13 +154,6 @@ export function useTaskInputs(options: UseTaskInputsOptions = {}): UseTaskInputs
     contextItems,
     handleRemoveContext,
     handleAddContext,
-
-    // Figma integration
-    figmaDialogOpen,
-    setFigmaDialogOpen,
-    figmaUrlImport,
-    figmaImportPending: figmaUrlImport.isPending || figmaClipboardPaste.isPending,
-    handleFigmaImportSuccess,
 
     // Paste handling
     handlePaste,

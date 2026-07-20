@@ -112,7 +112,6 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.206",
-    "@figma/rest-api-spec": "^0.41.0",
     "class-variance-authority": "^0.7.1"
   },
   "workspaces": [

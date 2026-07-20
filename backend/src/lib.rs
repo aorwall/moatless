@@ -26,7 +26,6 @@ pub mod events;
 pub mod extractors;
 pub mod feature_flags;
 pub mod feedback;
-pub mod figma;
 pub mod file_storage;
 pub mod leader;
 pub mod loops;

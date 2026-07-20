@@ -18,7 +18,6 @@ interface ChatInputToolbarProps {
   startFresh: boolean
   onToggleStartFresh: () => void
   taskInputs: ReturnType<typeof useTaskInputs>
-  onFigmaImportClick: () => void
   isTaskRunning: boolean
   onStop: () => void
   isStopPending: boolean
@@ -38,7 +37,6 @@ export function ChatInputToolbar({
   startFresh,
   onToggleStartFresh,
   taskInputs,
-  onFigmaImportClick,
   isTaskRunning,
   onStop,
   isStopPending,
@@ -101,7 +99,6 @@ export function ChatInputToolbar({
         >
           <AttachmentPopoverContent
             onFileSelect={(file) => taskInputs.uploadFile.mutate(file)}
-            onFigmaImport={onFigmaImportClick}
             disabled={taskInputs.uploadFile.isPending}
           />
         </PopoverSelector>

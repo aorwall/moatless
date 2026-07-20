@@ -440,7 +440,6 @@ pub fn reset_database() {
         "secret_audit_events",
         "secrets",
         "commands",
-        "figma_imports",
         "file_metadata",
         "tags",
     ];

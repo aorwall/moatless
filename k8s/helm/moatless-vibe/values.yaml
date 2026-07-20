@@ -1001,7 +1001,6 @@ extraEnv:
   # Feature flags
   FF_NETLIFY_PUBLISH: "false"
   FF_SHOW_CLAUDE_SETTINGS: "true"
-  FF_FIGMA_IMAGES_IN_PROMPT: "false"
   FF_SHOW_MODEL_SELECTOR: "false"
   # Session
   SESSION_MAX_AGE: "604800"

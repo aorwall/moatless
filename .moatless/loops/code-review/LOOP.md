@@ -75,7 +75,7 @@ Classify each changed file, load the matching guideline, and apply its checks.
 
 | Path pattern | Domain | Read for conventions | Key checks |
 |--------------|--------|----------------------|------------|
-| `apps/frontend/src/**/*.{ts,tsx}`, `apps/figma-tool/**`, `packages/**/*.ts` | Frontend React/TS | `.claude/skills/frontend-dev-guidelines/SKILL.md` (+ `resources/`) | strict TS (no `any` → use `unknown`; no `import type`); server state in TanStack Query only (never duplicated in `useState`); centralized query keys (`src/lib/api/query-keys.ts`); derived state during render, not `useEffect`+`setState`; feature-based structure (`src/features/<f>/{api,components,hooks,stores}`); handle `isLoading`/`error`; composition over configuration; Tailwind v4 + shadcn/ui |
+| `apps/frontend/src/**/*.{ts,tsx}`, `packages/**/*.ts` | Frontend React/TS | `.claude/skills/frontend-dev-guidelines/SKILL.md` (+ `resources/`) | strict TS (no `any` → use `unknown`; no `import type`); server state in TanStack Query only (never duplicated in `useState`); centralized query keys (`src/lib/api/query-keys.ts`); derived state during render, not `useEffect`+`setState`; feature-based structure (`src/features/<f>/{api,components,hooks,stores}`); handle `isLoading`/`error`; composition over configuration; Tailwind v4 + shadcn/ui |
 | `backend/src/**/*.rs`, `crates/**/*.rs` (except `crates/cli`) | Rust backend | **`CLAUDE.md` → "Critical Development Rules → Rust Safety" + "Backend Module Pattern"** | clippy-clean (`-D warnings`, no `unwrap`/`expect`/`panic!` on runtime paths); `thiserror` enums, not string errors; `Arc` for state shared across async tasks; `CancellationToken` for graceful shutdown; layered `routes → handlers → services → dao`; module layout (`mod/models/dao/schemas/handlers/routes/error.rs`); utoipa OpenAPI annotations on routes; `IntoResponse` for module errors; parameterized SQLx queries |
 | `sandbox/src/**/*.rs` | Rust sandbox | same Rust rules (`CLAUDE.md`) | plus gRPC / Claude-agent orchestration correctness; no blocking calls in async; graceful shutdown; state-machine transitions |
 | `crates/cli/src/**/*.rs` | moat CLI | `.claude/skills/moat-cli/SKILL.md` (+ `references/command-reference.md`) | clap command/flag semantics consistent with the docs; `--json` output; error handling |
@@ -200,7 +200,7 @@ compliant or not applicable; `[ ]` = issue, with a `file:line` reference in ital
 
 ### Compliance Checklist
 
-#### Frontend  <!-- only if apps/frontend, figma-tool, or packages changed -->
+#### Frontend  <!-- only if apps/frontend or packages changed -->
 - [x] TypeScript — no `any`, no `import type`, narrow with `unknown`
 - [x] Server state in TanStack Query; derived state during render
 - [x] Feature-based structure; loading/error states handled

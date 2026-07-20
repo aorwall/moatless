@@ -47,17 +47,9 @@ export const queryKeys = {
     mode: () => [...queryKeys.auth.all, 'mode'] as const,
   },
 
-  figma: {
-    all: ['figma'] as const,
-    imports: () => [...queryKeys.figma.all, 'imports'] as const,
-    import: (importId: string | null | undefined) =>
-      [...queryKeys.figma.imports(), importId] as const,
-  },
-
   oauth: {
     all: ['oauth'] as const,
     github: () => [...queryKeys.oauth.all, 'github'] as const,
-    figma: () => [...queryKeys.oauth.all, 'figma'] as const,
   },
 
   tags: {
@@ -142,7 +134,6 @@ export const queryKeys = {
     gitlab: () => [...queryKeys.settings.all(), 'gitlab'] as const,
     gitness: () => [...queryKeys.settings.all(), 'gitness'] as const,
     publish: () => [...queryKeys.settings.all(), 'publish'] as const,
-    figma: () => [...queryKeys.settings.all(), 'figma'] as const,
     apiKeys: () => [...queryKeys.settings.all(), 'api-keys'] as const,
   },
 

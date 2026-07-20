@@ -20,13 +20,12 @@
 !packages/*/package.json
 
 # Frontend source and workspace dependencies (app image build)
-# frontend → types, api-client, api-contract, diff-viewer, figma; types → shell-utils
+# frontend → types, api-client, api-contract, diff-viewer; types → shell-utils
 !apps/frontend/
 !packages/types/
 !packages/api-client/
 !packages/api-contract/
 !packages/diff-viewer/
-!packages/figma/
 !packages/shell-utils/
 
 # Exclude node_modules within included dirs

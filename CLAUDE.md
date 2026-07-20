@@ -365,8 +365,7 @@ For sandbox lifecycle handling (provisioning, pod watcher, idle reaper, recovery
 ├── crates/                        # Shared Rust crates
 │   ├── events/                    # Typed event system (shared between backend & sandbox)
 │   ├── sandbox-proto/             # gRPC protobuf definitions
-│   ├── claude-agent-sdk/          # Rust SDK for Claude CLI subprocess
-│   └── figma-clipboard/           # Figma clipboard parser
+│   └── claude-agent-sdk/          # Rust SDK for Claude CLI subprocess
 ├── packages/                      # Shared TypeScript packages
 │   ├── types/                     # @moatless/types - shared types
 │   ├── api-client/                # API client package
