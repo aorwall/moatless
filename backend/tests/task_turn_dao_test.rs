@@ -466,3 +466,111 @@ async fn backfill_recovers_open_turns_from_event_log(pool: PgPool) {
         "closed turn not backfilled"
     );
 }
+
+// ── resolve_turn_for_run — the turn allocator ───────────────────────────────
+
+/// Seed a repo + task so `task_turns` / `task_messages` FKs resolve.
+async fn seed_task(pool: &PgPool, task_id: &str) {
+    let repo = make_repository_row("repo-1", "user-1");
+    moatless_vibe_backend::repository::dao::insert(pool, &repo)
+        .await
+        .expect("seed repo");
+    let task = make_task_row(task_id, "user-1");
+    task_dao::insert_task(pool, &task).await.expect("seed task");
+}
+
+#[sqlx::test]
+async fn resolve_turn_for_run_is_idempotent(pool: PgPool) {
+    seed_task(&pool, "task-a").await;
+    let repo = PgTaskTurnRepository(pool.clone());
+
+    let first = repo.resolve_turn_for_run("task-a", "run-1").await.unwrap();
+    let second = repo.resolve_turn_for_run("task-a", "run-1").await.unwrap();
+
+    assert_eq!(first, 1);
+    assert_eq!(second, first, "the same run always maps to the same turn");
+
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM task_turns WHERE task_id = $1")
+        .bind("task-a")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 1, "one run must not create two turns");
+}
+
+#[sqlx::test]
+async fn resolve_turn_for_run_converges_whichever_signal_lands_first(pool: PgPool) {
+    // The ack and `taskTurn.active` travel on unsynchronized channels, so the
+    // allocator must not care which of them calls first.
+    seed_task(&pool, "task-a").await;
+    let repo = PgTaskTurnRepository(pool.clone());
+
+    // Ack first, then the (outbox-delayed) turn-start event.
+    let acked = repo.resolve_turn_for_run("task-a", "run-1").await.unwrap();
+    let announced = repo.resolve_turn_for_run("task-a", "run-1").await.unwrap();
+    assert_eq!(acked, announced);
+
+    // A second run gets its own turn regardless of arrival interleaving.
+    let next = repo.resolve_turn_for_run("task-a", "run-2").await.unwrap();
+    assert_eq!(next, acked + 1);
+}
+
+#[sqlx::test]
+async fn resolve_turn_for_run_closes_a_stale_open_turn(pool: PgPool) {
+    seed_task(&pool, "task-a").await;
+    let repo = PgTaskTurnRepository(pool.clone());
+
+    repo.resolve_turn_for_run("task-a", "run-1").await.unwrap();
+    repo.resolve_turn_for_run("task-a", "run-2").await.unwrap();
+
+    let (status, _, _) = turn_row(&pool, "task-a", 1).await.unwrap();
+    assert_eq!(
+        status, "interrupted",
+        "a new run leaves at most one open turn behind"
+    );
+    let (status, _, _) = turn_row(&pool, "task-a", 2).await.unwrap();
+    assert_eq!(status, "active");
+}
+
+#[sqlx::test]
+async fn resolve_turn_for_run_respects_legacy_message_turns(pool: PgPool) {
+    // Migration 0071 seeded `task_turns` only for turns active at rollout, so a
+    // long-running task can have an empty table and a deep message history.
+    seed_task(&pool, "task-a").await;
+    let mut msg = common::make_message_row("task-a", "legacy-user");
+    msg.turn_number = Some(47);
+    moatless_vibe_backend::message::dao::append(&pool, &msg, &[], &[])
+        .await
+        .unwrap();
+
+    let repo = PgTaskTurnRepository(pool.clone());
+    let allocated = repo.resolve_turn_for_run("task-a", "run-1").await.unwrap();
+
+    assert_eq!(allocated, 48, "allocation must clear the message history");
+}
+
+#[sqlx::test]
+async fn latest_turn_number_is_none_for_a_task_with_no_turns(pool: PgPool) {
+    seed_task(&pool, "task-a").await;
+    let repo = PgTaskTurnRepository(pool.clone());
+    assert_eq!(repo.latest_turn_number("task-a").await.unwrap(), None);
+
+    repo.resolve_turn_for_run("task-a", "run-1").await.unwrap();
+    assert_eq!(repo.latest_turn_number("task-a").await.unwrap(), Some(1));
+}
+
+#[sqlx::test]
+async fn increment_recovery_attempts_counts_per_turn(pool: PgPool) {
+    seed_task(&pool, "task-a").await;
+    let repo = PgTaskTurnRepository(pool.clone());
+    repo.resolve_turn_for_run("task-a", "run-1").await.unwrap();
+
+    assert_eq!(
+        repo.increment_recovery_attempts("task-a", 1).await.unwrap(),
+        1
+    );
+    assert_eq!(
+        repo.increment_recovery_attempts("task-a", 1).await.unwrap(),
+        2
+    );
+}

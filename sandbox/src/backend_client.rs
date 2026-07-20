@@ -48,11 +48,14 @@ pub trait BackendClient: Send + Sync {
     ) -> Result<Vec<PendingMessage>, tonic::Status>;
 
     /// Acknowledge that messages have been delivered to a session.
+    /// `run_id` identifies the agent run that consumed the messages; the
+    /// backend uses it to put them on that run's turn.
     async fn acknowledge_messages(
         &self,
         task_id: &str,
         message_uuids: Vec<String>,
         session_id: &str,
+        run_id: &str,
     ) -> Result<(), tonic::Status>;
 
     /// Fetch credentials for sandbox initialization.
@@ -243,6 +246,7 @@ impl BackendClient for BackendGrpcClient {
         task_id: &str,
         message_uuids: Vec<String>,
         session_id: &str,
+        run_id: &str,
     ) -> Result<(), tonic::Status> {
         let mut client = self.client.clone();
         client
@@ -250,6 +254,7 @@ impl BackendClient for BackendGrpcClient {
                 task_id: task_id.to_string(),
                 message_uuids,
                 session_id: session_id.to_string(),
+                run_id: run_id.to_string(),
             })
             .await?;
         Ok(())

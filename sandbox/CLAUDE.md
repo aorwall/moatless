@@ -27,12 +27,17 @@ src/
 ├── grpc_server.rs             # SandboxService gRPC impl (receives commands from backend)
 ├── agent/
 │   ├── mod.rs
-│   ├── agent_state.rs         # AgentState: generic state machine (status, session, cancel, prompts)
-│   ├── claude_code.rs         # Claude Code executor: wraps claude-agent-sdk query lifecycle
+│   ├── agent_state.rs         # AgentState: status, session id, current run id, cancel, prompts
+│   ├── handle/                # Agent actor: owns the CLI session and exposes send()
+│   │   ├── actor.rs           # tokio::select! event loop; mints the per-run run_id
+│   │   ├── session.rs         # start_session + tmux session fingerprint
+│   │   ├── claude.rs          # Claude SdkMessage -> events
+│   │   ├── codex.rs           # Codex event stream -> events
+│   │   └── retry.rs           # Transient-error classification and backoff
+│   ├── dispatcher.rs          # dispatch_pending_messages(): fetch, send, acknowledge
 │   ├── options.rs             # Build ClaudeOptions from config + request
 │   ├── permission_handler.rs  # InteractivePermissionHandler: AskUserQuestion/ExitPlanMode
 │   ├── prompt.rs              # Prompt types: PendingPrompt, PromptResponse, PromptToolName
-│   ├── consumer.rs            # process_pending_messages(): one-shot fetch via gRPC
 │   └── types.rs               # Internal types (AgentRunRequest, AgentStatus, etc.)
 ├── server/
 │   ├── mod.rs
@@ -87,4 +92,9 @@ tests/
 - **Cancellation**: `CancellationToken` from tokio-util for graceful agent abort
 - **Interactive prompts**: `tokio::sync::oneshot` for AskUserQuestion/ExitPlanMode blocking
 - **Event publishing**: Fire-and-forget gRPC calls, failures logged but never propagated
-- **Message fetching**: Direct invocation via `process_pending_messages()` — called from init, gRPC notify, and post-agent completion
+- **Message fetching**: Direct invocation via `dispatch_pending_messages()` — called from init, gRPC notify, and post-agent completion
+- **Run identity**: the actor mints a `run_id` (UUID) whenever a run starts while
+  the agent is idle, and holds it for the run's lifetime. Every event published
+  from inside the run carries it, and so does the message acknowledgment. The
+  backend maps `run_id` -> turn number, so a turn is exactly one agent run
+  regardless of the order those two channels deliver in

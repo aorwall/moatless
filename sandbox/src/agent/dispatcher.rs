@@ -53,6 +53,12 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
         return;
     }
 
+    // A `start_fresh` message means "new agent session", which coalescing into
+    // a batch would silently discard: the batch derives one resume decision for
+    // all of its messages. Cut the batch at the first such message — dispatch
+    // whatever preceded it, then it alone on the next pass.
+    let (messages, deferred) = split_at_start_fresh(messages);
+
     // Pre-fetch any attached uploaded files before invoking the agent so the
     // on-disk paths advertised in the prompt are valid by the time the agent
     // reads them. Best-effort: errors are logged but don't block dispatch.
@@ -77,6 +83,7 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
     let agent_type = extract_agent_type(&messages);
     let agent_mode = extract_agent_mode(&messages);
     let resume_session_id = messages.iter().find_map(|m| m.resume_session_id.clone());
+    let start_fresh = messages.iter().any(|m| m.start_fresh.unwrap_or(false));
 
     if text.is_empty() {
         return;
@@ -84,38 +91,71 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
 
     info!(
         message_count = messages.len(),
+        deferred_count = deferred,
         text_len = text.len(),
         model = ?model,
         agent_type = ?agent_type,
         agent_mode = ?agent_mode,
         resume_session_id = ?resume_session_id,
+        start_fresh,
         "Dispatching messages to agent"
     );
 
     // Send to agent actor — it handles injection vs new session.
     // Ack is deferred until the agent confirms it processed the message.
-    let ack_rx = state
-        .agent_handle
-        .send(text, model, agent_type, agent_mode, resume_session_id);
+    let ack_rx = state.agent_handle.send(
+        text,
+        model,
+        agent_type,
+        agent_mode,
+        resume_session_id,
+        start_fresh,
+    );
 
     if !uuids.is_empty() {
         let task_id = task_id.to_string();
         let backend = Arc::clone(&state.backend_client);
         let redelivery_state = state.clone();
         tokio::spawn(async move {
-            let Ok(session_id) = ack_rx.await else {
+            let Ok(ack) = ack_rx.await else {
                 warn!("Agent ack channel dropped — messages not acknowledged");
                 schedule_redispatch(redelivery_state).await;
                 return;
             };
             if let Err(e) = backend
-                .acknowledge_messages(&task_id, uuids, &session_id)
+                .acknowledge_messages(&task_id, uuids, &ack.session_id, &ack.run_id)
                 .await
             {
                 warn!(error = %e, "Failed to acknowledge messages");
+                return;
+            }
+            // Messages held back by the start_fresh split are now the only
+            // pending ones, so re-dispatching picks up exactly those.
+            if deferred > 0 {
+                schedule_dispatch(redelivery_state).await;
             }
         });
     }
+}
+
+/// Split a pending batch before the first `start_fresh` message.
+///
+/// Returns the messages to dispatch now plus how many were held back. A
+/// `start_fresh` message at the head is dispatched alone; one further in cuts
+/// the batch so the messages before it run as their own turn first.
+fn split_at_start_fresh(
+    mut messages: Vec<sandbox_proto::PendingMessage>,
+) -> (Vec<sandbox_proto::PendingMessage>, usize) {
+    let Some(idx) = messages
+        .iter()
+        .position(|m| m.start_fresh.unwrap_or(false))
+    else {
+        return (messages, 0);
+    };
+    let keep = if idx == 0 { 1 } else { idx };
+    let deferred = messages.len() - keep;
+    messages.truncate(keep);
+    (messages, deferred)
 }
 
 /// How long to wait before re-fetching pending messages after a dropped ack —
@@ -190,7 +230,7 @@ async fn resolve_pending_prompt(state: &SandboxState) {
         info!("Pending prompt was already consumed, dispatching normally");
         let text = extract_text_from_messages(&proto_messages);
         // Drop the ack receiver — no UUIDs to acknowledge in this race path
-        drop(state.agent_handle.send(text, None, None, None, None));
+        drop(state.agent_handle.send(text, None, None, None, None, false));
         return;
     };
 
@@ -239,18 +279,23 @@ async fn acknowledge_prompt_messages(state: &SandboxState, uuids: Vec<String>) {
         return;
     }
 
-    let Some(session_id) = state.agent.last_session_id().await else {
+    let (Some(session_id), Some(run_id)) = (
+        state.agent.last_session_id().await,
+        state.agent.current_run_id().await,
+    ) else {
         warn!(
             task_id = %state.config.task_id,
             count = uuids.len(),
-            "Cannot acknowledge prompt response messages without an active session id"
+            "Cannot acknowledge prompt response messages without an active run"
         );
         return;
     };
 
+    // The response joins the run that asked the question, so it lands on that
+    // run's turn.
     if let Err(e) = state
         .backend_client
-        .acknowledge_messages(&state.config.task_id, uuids, &session_id)
+        .acknowledge_messages(&state.config.task_id, uuids, &session_id, &run_id)
         .await
     {
         warn!(error = %e, "Failed to acknowledge prompt response messages");
@@ -318,5 +363,36 @@ mod tests {
     #[test]
     fn extract_text_empty_messages() {
         assert_eq!(extract_text_from_messages(&[]), "");
+    }
+
+    fn msg(start_fresh: bool) -> sandbox_proto::PendingMessage {
+        sandbox_proto::PendingMessage {
+            start_fresh: Some(start_fresh),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn split_keeps_whole_batch_without_start_fresh() {
+        let (kept, deferred) = split_at_start_fresh(vec![msg(false), msg(false)]);
+        assert_eq!(kept.len(), 2);
+        assert_eq!(deferred, 0);
+    }
+
+    #[test]
+    fn split_dispatches_leading_start_fresh_alone() {
+        let (kept, deferred) = split_at_start_fresh(vec![msg(true), msg(false), msg(false)]);
+        assert_eq!(kept.len(), 1);
+        assert_eq!(deferred, 2);
+    }
+
+    #[test]
+    fn split_cuts_batch_before_start_fresh() {
+        // The two leading messages run as their own turn; the start_fresh one
+        // is held back so it can start a session of its own.
+        let (kept, deferred) = split_at_start_fresh(vec![msg(false), msg(false), msg(true)]);
+        assert_eq!(kept.len(), 2);
+        assert_eq!(deferred, 1);
+        assert!(kept.iter().all(|m| m.start_fresh != Some(true)));
     }
 }

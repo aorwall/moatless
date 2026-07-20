@@ -47,11 +47,12 @@ pub(super) fn normalize_agent_type(agent_type: Option<&str>) -> &'static str {
 /// Resolve the `ResumeSession` for a new agent run.
 ///
 /// Order of precedence:
-/// 1. A non-empty `previous_session_id` (carried from the live agent state).
-/// 2. A non-empty `resume_session_id` from the backend / recovery path.
-/// 3. For `claude-code`, fall back to `Last` (the CLI's `--continue`) so a pod
+/// 1. `start_fresh` — the user explicitly asked for a new session.
+/// 2. A non-empty `previous_session_id` (carried from the live agent state).
+/// 3. A non-empty `resume_session_id` from the backend / recovery path.
+/// 4. For `claude-code`, fall back to `Last` (the CLI's `--continue`) so a pod
 ///    that lost track of the session ID still resumes the on-disk JSONL state.
-/// 4. Otherwise no resume.
+/// 5. Otherwise no resume.
 ///
 /// Empty strings are treated as "no resume" to avoid producing `--resume ""`,
 /// which the Claude CLI rejects (transport closes immediately on init).
@@ -59,7 +60,11 @@ fn resolve_resume_session(
     previous_session_id: &str,
     resume_session_id: Option<&str>,
     agent_type: &str,
+    start_fresh: bool,
 ) -> Option<ResumeSession> {
+    if start_fresh {
+        return None;
+    }
     if !previous_session_id.is_empty() {
         return Some(ResumeSession::WithId(previous_session_id.to_string()));
     }
@@ -128,6 +133,10 @@ impl TmuxSessionInfo {
         fresh_system_prompt: Option<&str>,
         current_session_id: &str,
     ) -> bool {
+        // The user asked for a new session — never paste into the live one.
+        if send.start_fresh {
+            return true;
+        }
         if normalize_agent_type(send.agent_type.as_deref()) != self.agent_type {
             return true;
         }
@@ -154,11 +163,21 @@ impl TmuxSessionInfo {
     }
 }
 
-/// Publish the turn-start events for a turn that begins without a
-/// `start_session` call: a message pasted into the live persistent tmux
-/// session, or a turn the CLI started on its own (internal `ScheduleWakeup`
-/// fired / `Monitor` event). Mirrors the events published by `start_session`.
-pub(super) async fn publish_turn_start(events: &GrpcEventPublisher, task_id: &str) {
+/// Publish the turn-start events for a new agent run.
+///
+/// Called by `start_session` once the CLI is actually up, and directly for
+/// turns that begin without a `start_session` call: a message pasted into the
+/// live persistent tmux session, or a turn the CLI started on its own
+/// (internal `ScheduleWakeup` fired / `Monitor` event).
+///
+/// `run_id` is what the backend maps to a turn number, so the caller must have
+/// minted a fresh one before calling this.
+pub(super) async fn publish_turn_start(
+    events: &GrpcEventPublisher,
+    task_id: &str,
+    run_id: &str,
+) {
+    let events = events.for_run(run_id);
     events
         .publish_agent_event(task_id, AgentSubType::Started, serde_json::json!({}))
         .await;
@@ -192,7 +211,12 @@ pub(super) async fn fetch_system_prompt(
     }
 }
 
-/// Start a new CLI session.
+/// Start a new CLI session and, once it is actually up, publish the turn start
+/// for `run_id`.
+///
+/// The publish is deliberately after the spawn: announcing the turn first left
+/// an `active` turn with no messages behind whenever the spawn failed, which
+/// the reaper later closed as a phantom error.
 #[allow(clippy::too_many_arguments)] // reason: actor internals, will refactor later
 pub(super) async fn start_session(
     prompt: &str,
@@ -203,10 +227,60 @@ pub(super) async fn start_session(
     backend_client: &dyn BackendClient,
     task_id: &str,
     previous_session_id: &str,
+    run_id: &str,
     model: Option<&str>,
     agent_type: Option<&str>,
     agent_mode: Option<&str>,
     resume_session_id: Option<String>,
+    start_fresh: bool,
+    credential_failures: CredentialFailureDetector,
+    system_prompt_cache: Arc<RwLock<Option<String>>>,
+) -> Result<StartedSession, AgentRuntimeError> {
+    let started = spawn_session(
+        prompt,
+        config,
+        agent_state,
+        events,
+        credentials,
+        backend_client,
+        task_id,
+        previous_session_id,
+        run_id,
+        model,
+        agent_type,
+        agent_mode,
+        resume_session_id,
+        start_fresh,
+        credential_failures,
+        system_prompt_cache,
+    )
+    .await;
+
+    if started.is_ok() {
+        publish_turn_start(events, task_id, run_id).await;
+    }
+
+    started
+}
+
+/// Spawn the CLI session itself. Publishes no turn-start events — see
+/// [`start_session`].
+#[allow(clippy::too_many_arguments)] // reason: actor internals, will refactor later
+async fn spawn_session(
+    prompt: &str,
+    config: &Config,
+    agent_state: Arc<AgentState>,
+    events: &GrpcEventPublisher,
+    credentials: &RwLock<HashMap<String, String>>,
+    backend_client: &dyn BackendClient,
+    task_id: &str,
+    previous_session_id: &str,
+    run_id: &str,
+    model: Option<&str>,
+    agent_type: Option<&str>,
+    agent_mode: Option<&str>,
+    resume_session_id: Option<String>,
+    start_fresh: bool,
     credential_failures: CredentialFailureDetector,
     system_prompt_cache: Arc<RwLock<Option<String>>>,
 ) -> Result<StartedSession, AgentRuntimeError> {
@@ -248,6 +322,7 @@ pub(super) async fn start_session(
         previous_session_id,
         resume_session_id.as_deref(),
         agent_type,
+        start_fresh,
     );
 
     // `--continue` with an empty project dir makes the CLI exit immediately
@@ -283,15 +358,9 @@ pub(super) async fn start_session(
     let cancel_token = CancellationToken::new();
     agent_state.set_running(cancel_token.clone()).await;
 
-    events
-        .publish_agent_event(task_id, AgentSubType::Started, serde_json::json!({}))
-        .await;
-    events
-        .publish_task_turn_event(task_id, TaskTurnSubType::Active, serde_json::json!({}))
-        .await;
-
     info!(
         task_id = %task_id,
+        run_id = %run_id,
         resume = ?request.resume,
         agent_type,
         use_tmux = config.use_tmux,
@@ -371,6 +440,7 @@ pub(super) async fn start_session(
             // Surface the context loss: the backend persists this as an inline
             // conversation notice so the user sees it in the message history.
             events
+                .for_run(run_id)
                 .publish_agent_event(
                     task_id,
                     AgentSubType::SessionContextLost,
@@ -462,6 +532,7 @@ mod tests {
             agent_type: Some("claude-code".to_string()),
             agent_mode: None,
             resume_session_id: None,
+            start_fresh: false,
             ack,
         }
     }
@@ -536,37 +607,37 @@ mod tests {
     fn resolve_resume_skips_empty_backend_session_for_claude() {
         // Recovery path with an empty agent_session_id (the bug that wedged
         // production task 75ab270a-…). Must fall through to Last, not WithId("").
-        let resume = resolve_resume_session("", Some(""), AGENT_TYPE_CLAUDE_CODE);
+        let resume = resolve_resume_session("", Some(""), AGENT_TYPE_CLAUDE_CODE, false);
         assert_eq!(resume, Some(ResumeSession::Last));
     }
 
     #[test]
     fn resolve_resume_skips_empty_backend_session_for_codex() {
-        let resume = resolve_resume_session("", Some(""), AGENT_TYPE_CODEX);
+        let resume = resolve_resume_session("", Some(""), AGENT_TYPE_CODEX, false);
         assert_eq!(resume, None);
     }
 
     #[test]
     fn resolve_resume_uses_previous_session_id_when_present() {
-        let resume = resolve_resume_session("prev-abc", Some(""), AGENT_TYPE_CLAUDE_CODE);
+        let resume = resolve_resume_session("prev-abc", Some(""), AGENT_TYPE_CLAUDE_CODE, false);
         assert_eq!(resume, Some(ResumeSession::WithId("prev-abc".to_string())));
     }
 
     #[test]
     fn resolve_resume_uses_backend_session_id_when_non_empty() {
-        let resume = resolve_resume_session("", Some("sess-123"), AGENT_TYPE_CLAUDE_CODE);
+        let resume = resolve_resume_session("", Some("sess-123"), AGENT_TYPE_CLAUDE_CODE, false);
         assert_eq!(resume, Some(ResumeSession::WithId("sess-123".to_string())));
     }
 
     #[test]
     fn resolve_resume_falls_back_to_last_for_claude_with_no_input() {
-        let resume = resolve_resume_session("", None, AGENT_TYPE_CLAUDE_CODE);
+        let resume = resolve_resume_session("", None, AGENT_TYPE_CLAUDE_CODE, false);
         assert_eq!(resume, Some(ResumeSession::Last));
     }
 
     #[test]
     fn resolve_resume_returns_none_for_codex_with_no_input() {
-        let resume = resolve_resume_session("", None, AGENT_TYPE_CODEX);
+        let resume = resolve_resume_session("", None, AGENT_TYPE_CODEX, false);
         assert_eq!(resume, None);
     }
 }

@@ -100,6 +100,7 @@ async fn publish_sandbox_event(
         payload_json,
         event_id: String::new(),
         sequence: 0,
+        run_id: String::new(),
     };
 
     state.events.enqueue(req);

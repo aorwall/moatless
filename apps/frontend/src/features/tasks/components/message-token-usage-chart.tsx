@@ -27,10 +27,10 @@ const SERIES: {
 ]
 
 export function MessageTokenUsageChart({ messages }: MessageTokenUsageChartProps) {
-  const labels = useMemo(
-    () => messages.map((message, index) => message.turnNumber ?? index + 1),
-    [messages],
-  )
+  // Label by position, not turn: a turn spans every message of one agent run,
+  // and queued messages have no turn until the run that consumes them acks —
+  // so turn numbers are neither unique nor always present along this axis.
+  const labels = useMemo(() => messages.map((_message, index) => index + 1), [messages])
 
   if (messages.length === 0) {
     return null

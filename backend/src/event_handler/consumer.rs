@@ -358,11 +358,12 @@ impl EventHandlerConsumer {
             Some(t) => t,
             None => match self
                 .state
-                .messages
-                .current_turn_number(&event.task_id)
+                .task_turns
+                .latest_turn_number(&event.task_id)
                 .await
             {
-                Ok(t) => t,
+                Ok(Some(t)) => t,
+                Ok(None) => return,
                 Err(e) => {
                     warn!(
                         task_id = %event.task_id,

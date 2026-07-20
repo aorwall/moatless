@@ -343,26 +343,57 @@ impl BackendSandboxServiceImpl {
             }
         }
     }
-    /// Resolve the `(turn_number, agent_type)` for a state-bearing ingress
-    /// event. The sandbox's `PublishEventRequest` carries neither, so turn
-    /// number falls back to the task's current max turn (mirroring the
-    /// consumer's `resolve_turn_number`) and agent type is read from the task
-    /// row. Both degrade gracefully to `(1, None)` when repos are unwired.
-    async fn resolve_turn_context(&self, task_id: &str) -> (i32, Option<String>) {
-        let turn_number = match self.messages.as_ref() {
-            Some(m) => m.current_turn_number(task_id).await.unwrap_or(1),
-            None => 1,
-        };
-        let agent_type = match self.tasks.as_ref() {
-            Some(t) => t
-                .find_by_id_internal(task_id)
-                .await
-                .ok()
-                .flatten()
-                .map(|task| task.agent_type.0),
-            None => None,
-        };
-        (turn_number, agent_type)
+    /// The turn an inbound event belongs to.
+    ///
+    /// An event published from inside an agent run carries that run's id, which
+    /// resolves to its turn — allocating it if this is the run's first signal
+    /// to arrive. That is what makes attribution exact: a terminal event
+    /// delayed in the sandbox outbox past the start of the next run still
+    /// closes its own turn rather than whichever turn is open on arrival.
+    ///
+    /// Events published outside a run carry no id and bear no turn state; they
+    /// fall back to the task's latest turn.
+    async fn resolve_turn_for_event(&self, task_id: &str, run_id: &str) -> Option<i32> {
+        let turns = self.task_turns.as_ref()?;
+        if run_id.is_empty() {
+            return None;
+        }
+        match turns.resolve_turn_for_run(task_id, run_id).await {
+            Ok(turn_number) => Some(turn_number),
+            Err(e) => {
+                warn!(
+                    task_id = %task_id,
+                    run_id = %run_id,
+                    error = %e,
+                    "Failed to resolve turn for run"
+                );
+                None
+            }
+        }
+    }
+
+    /// The task's latest turn — the fallback for a state-bearing event that
+    /// reached the ingress without a run id.
+    async fn latest_turn(&self, task_id: &str) -> Option<i32> {
+        self.task_turns
+            .as_ref()?
+            .latest_turn_number(task_id)
+            .await
+            .unwrap_or_else(|e| {
+                warn!(task_id = %task_id, error = %e, "Failed to read latest turn number");
+                None
+            })
+    }
+
+    /// The task's configured agent type, for stamping onto turn rows.
+    async fn resolve_agent_type(&self, task_id: &str) -> Option<String> {
+        self.tasks
+            .as_ref()?
+            .find_by_id_internal(task_id)
+            .await
+            .ok()
+            .flatten()
+            .map(|task| task.agent_type.0)
     }
 }
 
@@ -549,14 +580,26 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             event.event_id.clone()
         };
 
+        // Resolve the turn for every event published from inside an agent run,
+        // not just the state-bearing ones: the Redis consumer then receives an
+        // explicit turn number on `agent.message` too and never has to guess.
+        // Events from outside a run (sandbox/init/heartbeat) bear no turn.
+        let mut turn_number = self
+            .resolve_turn_for_event(&event.task_id, &event.run_id)
+            .await;
+
         // State-bearing events (taskTurn.*, agent.completed/error/stopped) commit
         // their turn / task-status / event rows in ONE transaction BEFORE the
         // Redis fan-out. Everything else just publishes.
-        let (turn_number, state) = if let Some(transition) =
-            classify_turn_transition(event_type_str, &event.sub_type)
-        {
-            let (turn_number, agent_type) = self.resolve_turn_context(&event.task_id).await;
-            let state = TurnStateEvent {
+        let transition = classify_turn_transition(event_type_str, &event.sub_type);
+        if transition.is_some() && turn_number.is_none() {
+            // A state-bearing event that arrived without a run id — a publisher
+            // that doesn't front the actor. Attribute it to the open turn.
+            turn_number = self.latest_turn(&event.task_id).await;
+        }
+        let state = if let (Some(transition), Some(turn_number)) = (transition, turn_number) {
+            let agent_type = self.resolve_agent_type(&event.task_id).await;
+            Some(TurnStateEvent {
                 event_id: event_id.clone(),
                 task_id: event.task_id.clone(),
                 event_type: event_type_str.to_string(),
@@ -567,10 +610,9 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                 payload: payload.clone(),
                 timestamp: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
                 transition,
-            };
-            (Some(turn_number), Some(state))
+            })
         } else {
-            (None, None)
+            None
         };
 
         write_state_then_publish(
@@ -818,14 +860,37 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             return Ok(Response::new(AcknowledgeMessagesResponse {}));
         };
 
+        // The acknowledging run decides the turn: whichever of the ack and the
+        // run's `taskTurn.active` reaches the backend first allocates it, the
+        // other joins. Messages injected into a run in flight ack with that
+        // run's id and so share its turn.
+        let Some(turn_number) = self
+            .resolve_turn_for_event(&req.task_id, &req.run_id)
+            .await
+        else {
+            warn!(
+                task_id = %req.task_id,
+                run_id = %req.run_id,
+                "Cannot acknowledge messages without a resolvable turn"
+            );
+            return Err(Status::internal("Failed to resolve turn for run"));
+        };
+
         match messages
-            .acknowledge_messages(&req.task_id, &req.message_uuids, &req.session_id)
+            .acknowledge_messages(
+                &req.task_id,
+                &req.message_uuids,
+                &req.session_id,
+                turn_number,
+            )
             .await
         {
             Ok(count) => {
                 info!(
                     task_id = %req.task_id,
                     session_id = %req.session_id,
+                    run_id = %req.run_id,
+                    turn_number,
                     requested = req.message_uuids.len(),
                     acknowledged = count,
                     "Messages acknowledged"
@@ -1514,8 +1579,12 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             return Ok(Response::new(RecoverInterruptedRunResponse { turn: None }));
         }
 
-        let new_attempts = match messages
-            .increment_recovery_attempts(interrupted.task_message_id)
+        let Some(ref task_turns) = self.task_turns else {
+            warn!(task_id = %req.task_id, "Cannot record a recovery attempt without task_turns");
+            return Ok(Response::new(RecoverInterruptedRunResponse { turn: None }));
+        };
+        let new_attempts = match task_turns
+            .increment_recovery_attempts(&req.task_id, interrupted.turn_number)
             .await
         {
             Ok(n) => n,
@@ -1950,6 +2019,26 @@ mod tests {
             _older_than: DateTime<Utc>,
         ) -> Result<Vec<UnclosedTurn>, sqlx::Error> {
             unreachable!("list_unclosed_active_turns is the reaper path")
+        }
+
+        async fn resolve_turn_for_run(
+            &self,
+            _task_id: &str,
+            _run_id: &str,
+        ) -> Result<i32, sqlx::Error> {
+            Ok(1)
+        }
+
+        async fn latest_turn_number(&self, _task_id: &str) -> Result<Option<i32>, sqlx::Error> {
+            Ok(Some(1))
+        }
+
+        async fn increment_recovery_attempts(
+            &self,
+            _task_id: &str,
+            _turn_number: i32,
+        ) -> Result<i32, sqlx::Error> {
+            unreachable!("increment_recovery_attempts is the recovery path")
         }
     }
 

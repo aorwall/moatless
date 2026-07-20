@@ -47,7 +47,7 @@ pub(super) async fn process_codex_message(
             match &event.item.details {
                 ThreadItemDetails::TodoList(todo) => {
                     publish_codex_todo_list_call(
-                        ctx.events,
+                        &ctx.run_events(),
                         ctx.task_id,
                         ctx.session_id,
                         ctx.spawn_nonce,
@@ -85,7 +85,7 @@ pub(super) async fn process_codex_message(
                         &agent_message.text,
                         requested_model,
                     );
-                    ctx.events
+                    ctx.run_events()
                         .publish_agent_event(ctx.task_id, AgentSubType::Message, payload)
                         .await;
                 }
@@ -97,13 +97,13 @@ pub(super) async fn process_codex_message(
                         &reasoning.text,
                         requested_model,
                     );
-                    ctx.events
+                    ctx.run_events()
                         .publish_agent_event(ctx.task_id, AgentSubType::Message, payload)
                         .await;
                 }
                 ThreadItemDetails::CommandExecution(cmd) => {
                     publish_codex_shell_call(
-                        ctx.events,
+                        &ctx.run_events(),
                         ctx.task_id,
                         ctx.session_id,
                         ctx.spawn_nonce,
@@ -115,7 +115,7 @@ pub(super) async fn process_codex_message(
                 }
                 ThreadItemDetails::FileChange(edit) => {
                     publish_codex_edit_call(
-                        ctx.events,
+                        &ctx.run_events(),
                         ctx.task_id,
                         ctx.session_id,
                         ctx.spawn_nonce,
@@ -127,7 +127,7 @@ pub(super) async fn process_codex_message(
                 }
                 ThreadItemDetails::TodoList(todo) => {
                     publish_codex_todo_list_call(
-                        ctx.events,
+                        &ctx.run_events(),
                         ctx.task_id,
                         ctx.session_id,
                         ctx.spawn_nonce,
@@ -139,7 +139,7 @@ pub(super) async fn process_codex_message(
                 }
                 ThreadItemDetails::McpToolCall(mcp) => {
                     publish_codex_mcp_call(
-                        ctx.events,
+                        &ctx.run_events(),
                         ctx.task_id,
                         ctx.session_id,
                         ctx.spawn_nonce,
@@ -151,7 +151,7 @@ pub(super) async fn process_codex_message(
                 }
                 ThreadItemDetails::CollabToolCall(collab) => {
                     publish_codex_collab_call(
-                        ctx.events,
+                        &ctx.run_events(),
                         ctx.task_id,
                         ctx.session_id,
                         ctx.spawn_nonce,
@@ -163,7 +163,7 @@ pub(super) async fn process_codex_message(
                 }
                 ThreadItemDetails::WebSearch(web) => {
                     publish_codex_web_search_call(
-                        ctx.events,
+                        &ctx.run_events(),
                         ctx.task_id,
                         ctx.session_id,
                         ctx.spawn_nonce,
@@ -176,7 +176,7 @@ pub(super) async fn process_codex_message(
                 ThreadItemDetails::Error(err) => {
                     append_turn_output(ctx.codex_turn_output, &err.message);
                     publish_codex_error_item(
-                        ctx.events,
+                        &ctx.run_events(),
                         ctx.task_id,
                         ctx.session_id,
                         ctx.spawn_nonce,
@@ -218,7 +218,7 @@ pub(super) async fn process_codex_message(
             ctx.agent_state.set_idle().await;
             *ctx.consecutive_errors = 0;
 
-            ctx.events
+            ctx.run_events()
                 .publish_agent_event(ctx.task_id, AgentSubType::Completed, payload)
                 .await;
 
@@ -239,7 +239,7 @@ pub(super) async fn process_codex_message(
                 requested_model,
             );
 
-            ctx.events
+            ctx.run_events()
                 .publish_agent_event(ctx.task_id, AgentSubType::Error, payload)
                 .await;
 
@@ -260,7 +260,7 @@ pub(super) async fn process_codex_message(
                 requested_model,
             );
 
-            ctx.events
+            ctx.run_events()
                 .publish_agent_event(ctx.task_id, AgentSubType::Error, payload)
                 .await;
 
@@ -288,7 +288,7 @@ pub(super) async fn handle_codex_stream_error(
         None,
         requested_model,
     );
-    ctx.events
+    ctx.run_events()
         .publish_agent_event(ctx.task_id, AgentSubType::Error, payload)
         .await;
 

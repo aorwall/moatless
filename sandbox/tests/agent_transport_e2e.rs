@@ -137,6 +137,7 @@ impl BackendClient for NoopBackend {
         _task_id: &str,
         _message_uuids: Vec<String>,
         _session_id: &str,
+        _run_id: &str,
     ) -> Result<(), tonic::Status> {
         Ok(())
     }
@@ -358,13 +359,18 @@ async fn run_agent_roundtrip(use_tmux: bool) {
         Some(TEST_MODEL.to_string()),
         None, // agent_type → claude-code
         None, // agent_mode
-        None, // resume_session_id
+        None,  // resume_session_id
+        false, // start_fresh
     );
-    let session_id = tokio::time::timeout(Duration::from_secs(90), ack)
+    let ack = tokio::time::timeout(Duration::from_secs(90), ack)
         .await
         .expect("timed out waiting for session start")
-        .expect("session failed to start (ack sender dropped)");
-    assert!(!session_id.is_empty(), "expected a non-empty session id");
+        .expect("session failed to start (ack sender dropped)")
+        .session_id;
+    assert!(
+        !ack.is_empty(),
+        "expected a non-empty session id"
+    );
 
     wait_until_not_running(&agent_state, Duration::from_secs(120), "roundtrip").await;
 
@@ -398,13 +404,15 @@ async fn run_codex_roundtrip() {
         TEST_PROMPT.to_string(),
         codex_test_model(),
         Some("codex".to_string()),
-        None, // agent_mode
-        None, // resume_session_id
+        None,  // agent_mode
+        None,  // resume_session_id
+        false, // start_fresh
     );
     let session_id = tokio::time::timeout(Duration::from_secs(90), ack)
         .await
         .expect("timed out waiting for Codex session start")
-        .expect("Codex session failed to start (ack sender dropped)");
+        .expect("Codex session failed to start (ack sender dropped)")
+        .session_id;
     assert!(
         !session_id.is_empty(),
         "expected a non-empty Codex session id"
@@ -440,12 +448,14 @@ async fn run_agent_resume(use_tmux: bool) {
         Some(TEST_MODEL.to_string()),
         None, // agent_type → claude-code
         None, // agent_mode
-        None, // resume_session_id → fresh
+        None,  // resume_session_id → fresh
+        false, // start_fresh
     );
     let session_id = tokio::time::timeout(Duration::from_secs(90), ack)
         .await
         .expect("turn 1: timed out waiting for session start")
-        .expect("turn 1: session failed to start (ack sender dropped)");
+        .expect("turn 1: session failed to start (ack sender dropped)")
+        .session_id;
     assert!(!session_id.is_empty(), "expected a non-empty session id");
 
     wait_until_not_running(&agent_state, Duration::from_secs(120), "turn 1").await;
@@ -463,11 +473,13 @@ async fn run_agent_resume(use_tmux: bool) {
         None,                     // agent_type → claude-code
         None,                     // agent_mode
         Some(session_id.clone()), // resume_session_id → resume turn 1
+        false,                    // start_fresh
     );
     let resumed_id = tokio::time::timeout(Duration::from_secs(90), ack)
         .await
         .expect("turn 2: timed out waiting for session start")
-        .expect("turn 2: session failed to start (ack sender dropped)");
+        .expect("turn 2: session failed to start (ack sender dropped)")
+        .session_id;
     assert!(
         !resumed_id.is_empty(),
         "expected a non-empty resumed session id"
@@ -500,11 +512,13 @@ async fn run_agent_multi_turn(use_tmux: bool) {
         None,
         None,
         None,
+        false,
     );
     let session_id = tokio::time::timeout(Duration::from_secs(90), ack)
         .await
         .expect("turn 1: timed out waiting for session start")
-        .expect("turn 1: session failed to start (ack sender dropped)");
+        .expect("turn 1: session failed to start (ack sender dropped)")
+        .session_id;
     assert!(!session_id.is_empty(), "expected a non-empty session id");
 
     wait_until_not_running(&agent_state, Duration::from_secs(120), "turn 1").await;
@@ -518,11 +532,13 @@ async fn run_agent_multi_turn(use_tmux: bool) {
         None,
         None,
         None,
+        false,
     );
     let second_id = tokio::time::timeout(Duration::from_secs(90), ack)
         .await
         .expect("turn 2: timed out waiting for ack")
-        .expect("turn 2: ack sender dropped");
+        .expect("turn 2: ack sender dropped")
+        .session_id;
     assert_eq!(
         second_id, session_id,
         "turn 2 must run in the same persistent session"
@@ -567,11 +583,13 @@ async fn run_agent_internal_wakeup(use_tmux: bool) {
         None,
         None,
         None,
+        false,
     );
     let session_id = tokio::time::timeout(Duration::from_secs(90), ack)
         .await
         .expect("turn 1: timed out waiting for session start")
-        .expect("turn 1: session failed to start (ack sender dropped)");
+        .expect("turn 1: session failed to start (ack sender dropped)")
+        .session_id;
     assert!(!session_id.is_empty(), "expected a non-empty session id");
 
     wait_until_not_running(&agent_state, Duration::from_secs(120), "turn 1").await;

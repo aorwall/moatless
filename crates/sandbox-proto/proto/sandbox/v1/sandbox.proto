@@ -143,6 +143,12 @@ message PublishEventRequest {
   // outbox drainer in transmission order and reused across retries. Lets the
   // backend detect duplicates and sandbox restarts (sequence resets). 0 = unset.
   uint64 sequence = 6;
+  // Identifies the agent run this event belongs to. Set on every event
+  // published from within a run (agent.*, taskTurn.active); empty for events
+  // published outside one (sandbox/init/heartbeat), which bear no turn state.
+  // The backend maps run_id -> turn_number, so a terminal event delayed in the
+  // outbox past the next run still closes its own turn.
+  string run_id = 7;
 }
 
 message PublishEventResponse {
@@ -201,6 +207,10 @@ message AcknowledgeMessagesRequest {
   string task_id = 1;
   repeated string message_uuids = 2;
   string session_id = 3;
+  // The agent run that consumed these messages. The backend allocates (or
+  // joins) the run's turn and stamps it on the acked rows, so messages
+  // injected into an in-flight run share its turn number.
+  string run_id = 4;
 }
 
 message AcknowledgeMessagesResponse {}

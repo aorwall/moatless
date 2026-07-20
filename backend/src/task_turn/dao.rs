@@ -120,7 +120,48 @@ pub trait TaskTurnRepository: Send + Sync {
         &self,
         older_than: DateTime<Utc>,
     ) -> Result<Vec<UnclosedTurn>, sqlx::Error>;
+
+    /// The turn number for a sandbox agent run, allocating it on first sight.
+    ///
+    /// This is the sole allocator of turn numbers. A turn is one agent run, so
+    /// everything the run touches — the messages it consumed, its lifecycle
+    /// events, its result — resolves through here and lands on one turn.
+    ///
+    /// Idempotent and order-independent: whichever of the run's signals arrives
+    /// first (the ack, `taskTurn.active`, or a terminal event that overtook
+    /// them in the outbox) allocates, and the rest join.
+    async fn resolve_turn_for_run(
+        &self,
+        task_id: &str,
+        run_id: &str,
+    ) -> Result<i32, sqlx::Error>;
+
+    /// The task's highest turn number, or `None` when it has none yet.
+    ///
+    /// For rows the backend writes outside any run (harness errors, internal
+    /// replies, outbound stubs), which belong to the turn already in progress.
+    async fn latest_turn_number(&self, task_id: &str) -> Result<Option<i32>, sqlx::Error>;
+
+    /// Bump a turn's recovery counter and return the new value. Creates the row
+    /// as `interrupted` when the turn predates `task_turns` — a turn being
+    /// recovered is by definition one that never closed.
+    async fn increment_recovery_attempts(
+        &self,
+        task_id: &str,
+        turn_number: i32,
+    ) -> Result<i32, sqlx::Error>;
 }
+
+/// The next free turn number for a task.
+///
+/// `GREATEST` over both tables is required: migration 0071 seeded `task_turns`
+/// only for turns that were `active` at rollout, so for most tasks that table
+/// is empty while `task_messages` holds the full turn history.
+const NEXT_TURN_NUMBER_SQL: &str = r#"
+    SELECT GREATEST(
+        COALESCE((SELECT MAX(turn_number) FROM task_turns WHERE task_id = $1), 0),
+        COALESCE((SELECT MAX(turn_number) FROM task_messages WHERE task_id = $1), 0)
+    ) + 1"#;
 
 /// PostgreSQL implementation of [`TaskTurnRepository`].
 pub struct PgTaskTurnRepository(pub DbPool);
@@ -218,5 +259,108 @@ impl TaskTurnRepository for PgTaskTurnRepository {
                 agent_type,
             })
             .collect())
+    }
+
+    async fn resolve_turn_for_run(
+        &self,
+        task_id: &str,
+        run_id: &str,
+    ) -> Result<i32, sqlx::Error> {
+        // Fast path: most calls are the second and later signals of a run whose
+        // turn already exists (every `agent.message` it emits comes through
+        // here), and those need no lock.
+        let allocated: Option<(i32,)> =
+            sqlx::query_as("SELECT turn_number FROM task_turns WHERE task_id = $1 AND run_id = $2")
+                .bind(task_id)
+                .bind(run_id)
+                .fetch_optional(&self.0)
+                .await?;
+        if let Some((turn_number,)) = allocated {
+            return Ok(turn_number);
+        }
+
+        let mut tx = self.0.begin().await?;
+
+        // Serialize allocation per task. Read-then-write would otherwise race
+        // two of the run's own signals against each other, and the reaper
+        // against both.
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)")
+            .bind(task_id)
+            .execute(&mut *tx)
+            .await?;
+
+        let existing: Option<(i32,)> =
+            sqlx::query_as("SELECT turn_number FROM task_turns WHERE task_id = $1 AND run_id = $2")
+                .bind(task_id)
+                .bind(run_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+        if let Some((turn_number,)) = existing {
+            tx.commit().await?;
+            return Ok(turn_number);
+        }
+
+        let (turn_number,): (i32,) = sqlx::query_as(NEXT_TURN_NUMBER_SQL)
+            .bind(task_id)
+            .fetch_one(&mut *tx)
+            .await?;
+
+        // At most one open turn per task. Without this a turn left open by a
+        // lost terminal event (or seeded stale by migration 0071) sits
+        // alongside the live one, and the reaper reconciles whichever it finds.
+        sqlx::query(
+            "UPDATE task_turns SET status = 'interrupted' \
+             WHERE task_id = $1 AND status = 'active'",
+        )
+        .bind(task_id)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"INSERT INTO task_turns (task_id, turn_number, run_id, status, started_at)
+               VALUES ($1, $2, $3, 'active', NOW())
+               ON CONFLICT (task_id, turn_number) DO UPDATE
+                 SET run_id = COALESCE(task_turns.run_id, EXCLUDED.run_id)"#,
+        )
+        .bind(task_id)
+        .bind(turn_number)
+        .bind(run_id)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(turn_number)
+    }
+
+    async fn latest_turn_number(&self, task_id: &str) -> Result<Option<i32>, sqlx::Error> {
+        let (latest,): (Option<i32>,) = sqlx::query_as(
+            r#"SELECT NULLIF(GREATEST(
+                   COALESCE((SELECT MAX(turn_number) FROM task_turns WHERE task_id = $1), 0),
+                   COALESCE((SELECT MAX(turn_number) FROM task_messages WHERE task_id = $1), 0)
+               ), 0)"#,
+        )
+        .bind(task_id)
+        .fetch_one(&self.0)
+        .await?;
+        Ok(latest)
+    }
+
+    async fn increment_recovery_attempts(
+        &self,
+        task_id: &str,
+        turn_number: i32,
+    ) -> Result<i32, sqlx::Error> {
+        let (attempts,): (i32,) = sqlx::query_as(
+            r#"INSERT INTO task_turns (task_id, turn_number, status, recovery_attempts)
+               VALUES ($1, $2, 'interrupted', 1)
+               ON CONFLICT (task_id, turn_number) DO UPDATE
+                 SET recovery_attempts = task_turns.recovery_attempts + 1
+               RETURNING recovery_attempts"#,
+        )
+        .bind(task_id)
+        .bind(turn_number)
+        .fetch_one(&self.0)
+        .await?;
+        Ok(attempts)
     }
 }

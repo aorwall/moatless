@@ -21,12 +21,28 @@ use crate::outbox::EventOutbox;
 #[derive(Clone)]
 pub struct GrpcEventPublisher {
     outbox: EventOutbox,
+    /// Set on run-scoped clones (see [`GrpcEventPublisher::for_run`]); every
+    /// event published through one carries it so the backend can attribute the
+    /// event to that run's turn regardless of delivery order.
+    run_id: Option<String>,
 }
 
 impl GrpcEventPublisher {
     /// Create a new publisher backed by the given outbox.
     pub fn new(outbox: EventOutbox) -> Self {
-        Self { outbox }
+        Self {
+            outbox,
+            run_id: None,
+        }
+    }
+
+    /// A clone of this publisher that stamps `run_id` on everything it emits.
+    /// Used by the agent actor for the lifetime of one agent run.
+    pub fn for_run(&self, run_id: &str) -> Self {
+        Self {
+            outbox: self.outbox.clone(),
+            run_id: Some(run_id.to_string()),
+        }
     }
 
     /// Access the underlying outbox (for shutdown flush and metrics).
@@ -123,6 +139,7 @@ impl GrpcEventPublisher {
             payload_json,
             event_id: uuid::Uuid::new_v4().to_string(),
             sequence: 0,
+            run_id: self.run_id.clone().unwrap_or_default(),
         });
     }
 }

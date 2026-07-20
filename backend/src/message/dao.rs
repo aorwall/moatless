@@ -52,8 +52,9 @@ pub struct ConnectionMessageCount {
 /// `claude --resume <session_id>` replay on startup.
 #[derive(Debug, Clone)]
 pub struct InterruptedTurn {
-    /// `task_messages.id` of the user-turn row — used to bump
-    /// `recovery_attempts` after each recovery.
+    /// `task_messages.id` of the turn's first user row, for logging. The
+    /// recovery counter lives on `task_turns` — a turn can hold several user
+    /// messages, so bumping one of them would undercount the batch.
     pub task_message_id: i32,
     pub task_id: String,
     /// Backend-tracked agent session ID. Either `session_id` or
@@ -126,11 +127,15 @@ pub trait MessageRepository: Send + Sync {
         task_id: &str,
         session_id: &str,
     ) -> Result<u64, sqlx::Error>;
+    /// Mark queued messages as delivered to an agent run, stamping the turn
+    /// the run was allocated. Queued rows carry no turn number until here —
+    /// a turn is one agent run, and only the ack says which run took them.
     async fn acknowledge_messages(
         &self,
         task_id: &str,
         uuids: &[String],
         session_id: &str,
+        turn_number: i32,
     ) -> Result<u64, sqlx::Error>;
     async fn delete_queued(&self, task_id: &str, message_uuid: &str) -> Result<bool, sqlx::Error>;
     async fn get_last_message_type(
@@ -214,13 +219,6 @@ pub trait MessageRepository: Send + Sync {
         external_ids: &[String],
     ) -> Result<Option<String>, sqlx::Error>;
 
-    /// Next turn number for a new user-initiated turn: max + 1, or 1 if empty.
-    async fn next_turn_number(&self, task_id: &str) -> Result<i32, sqlx::Error>;
-
-    /// Current turn number for in-flight inserts (assistant/system/result rows
-    /// that should join the most recent turn): max, or 1 if empty.
-    async fn current_turn_number(&self, task_id: &str) -> Result<i32, sqlx::Error>;
-
     /// Keyset-paginated page of messages strictly older than `before_id`
     /// (or the most recent `limit` rows when `before_id` is `None`).
     /// Returned rows are in chronological (oldest-first) order.
@@ -254,10 +252,6 @@ pub trait MessageRepository: Send + Sync {
         &self,
         task_id: &str,
     ) -> Result<Option<InterruptedTurn>, sqlx::Error>;
-
-    /// Increment `recovery_attempts` on a user-turn message. Returns the new
-    /// counter value.
-    async fn increment_recovery_attempts(&self, task_message_id: i32) -> Result<i32, sqlx::Error>;
 
     /// Insert a synthetic `Result` row containing `text` at the supplied turn
     /// number to mark an interrupted run as abandoned. Returns the new row id.
@@ -592,10 +586,12 @@ impl MessageRepository for PgMessageRepository {
         task_id: &str,
         uuids: &[String],
         session_id: &str,
+        turn_number: i32,
     ) -> Result<u64, sqlx::Error> {
         let result = sqlx::query(
             r#"UPDATE task_messages
-               SET sent_at = NOW(), session_id = $3, agent_session_id = $3
+               SET sent_at = NOW(), session_id = $3, agent_session_id = $3,
+                   turn_number = $4
                WHERE task_id = $1
                  AND uuid = ANY($2)
                  AND agent_session_id IS NULL"#,
@@ -603,6 +599,7 @@ impl MessageRepository for PgMessageRepository {
         .bind(task_id)
         .bind(uuids)
         .bind(session_id)
+        .bind(turn_number)
         .execute(&self.0)
         .await?;
 
@@ -890,26 +887,6 @@ impl MessageRepository for PgMessageRepository {
         .await
     }
 
-    async fn next_turn_number(&self, task_id: &str) -> Result<i32, sqlx::Error> {
-        let row: (i32,) = sqlx::query_as(
-            r#"SELECT COALESCE(MAX(turn_number), 0) + 1 FROM task_messages WHERE task_id = $1"#,
-        )
-        .bind(task_id)
-        .fetch_one(&self.0)
-        .await?;
-        Ok(row.0)
-    }
-
-    async fn current_turn_number(&self, task_id: &str) -> Result<i32, sqlx::Error> {
-        let row: (i32,) = sqlx::query_as(
-            r#"SELECT COALESCE(MAX(turn_number), 1) FROM task_messages WHERE task_id = $1"#,
-        )
-        .bind(task_id)
-        .fetch_one(&self.0)
-        .await?;
-        Ok(row.0)
-    }
-
     async fn get_paginated(
         &self,
         task_id: &str,
@@ -1055,75 +1032,95 @@ impl MessageRepository for PgMessageRepository {
         &self,
         task_id: &str,
     ) -> Result<Option<InterruptedTurn>, sqlx::Error> {
-        let row: Option<(
+        // A turn can hold several user messages — everything the sandbox
+        // coalesced into one agent run — so this selects the newest turn that
+        // never reached a terminal event and then returns *all* of its user
+        // rows, oldest first.
+        let rows: Vec<(
             i32,
-            String,
             Option<String>,
-            Option<i32>,
+            i32,
             serde_json::Value,
             Option<crate::shared_models::AgentMode>,
-            i32,
         )> = sqlx::query_as(
-            r#"SELECT m.id, m.task_id, m.agent_session_id, m.turn_number,
-                      m.message_content, m.agent_mode, m.recovery_attempts
+            r#"SELECT m.id, m.agent_session_id, m.turn_number,
+                      m.message_content, m.agent_mode
                FROM task_messages m
                WHERE m.task_id = $1
                  AND m.message_type = 'user'
-                 AND m.agent_session_id IS NOT NULL
-                 AND m.agent_session_id <> ''
-                 AND m.turn_number IS NOT NULL
-                 AND NOT EXISTS (
-                   SELECT 1 FROM task_events e
-                   WHERE e.task_id = m.task_id
-                     AND e.turn_number = m.turn_number
-                     AND (
-                       (e.type = 'agent' AND e.sub_type IN ('completed', 'error', 'stopped'))
-                       OR (e.type = 'taskTurn' AND e.sub_type IN ('completed', 'error', 'stopped'))
-                       OR (e.type = 'sandbox' AND e.sub_type = 'stopped')
+                 AND m.turn_number = (
+                   SELECT c.turn_number
+                   FROM task_messages c
+                   WHERE c.task_id = $1
+                     AND c.message_type = 'user'
+                     AND c.agent_session_id IS NOT NULL
+                     AND c.agent_session_id <> ''
+                     AND c.turn_number IS NOT NULL
+                     AND NOT EXISTS (
+                       SELECT 1 FROM task_events e
+                       WHERE e.task_id = c.task_id
+                         AND e.turn_number = c.turn_number
+                         AND (
+                           (e.type = 'agent' AND e.sub_type IN ('completed', 'error', 'stopped'))
+                           OR (e.type = 'taskTurn' AND e.sub_type IN ('completed', 'error', 'stopped'))
+                           OR (e.type = 'sandbox' AND e.sub_type = 'stopped')
+                         )
                      )
+                   ORDER BY c.turn_number DESC
+                   LIMIT 1
                  )
-               ORDER BY m.turn_number DESC
-               LIMIT 1"#,
+               ORDER BY m.timestamp, m.id"#,
         )
         .bind(task_id)
-        .fetch_optional(&self.0)
+        .fetch_all(&self.0)
         .await?;
 
-        let Some((id, task_id, session_id, turn_number, content, agent_mode, recovery_attempts)) =
-            row
+        if rows.is_empty() {
+            return Ok(None);
+        }
+
+        let turn_number = rows[0].2;
+        let task_message_id = rows[0].0;
+        // Any row of the turn carries the session (they were acknowledged
+        // together); take the first that actually has one.
+        let Some(session_id) = rows
+            .iter()
+            .find_map(|(_, sid, _, _, _)| sid.clone().filter(|s| !s.is_empty()))
         else {
             return Ok(None);
         };
+        let agent_mode = rows
+            .iter()
+            .rev()
+            .find_map(|(_, _, _, _, mode)| mode.as_ref().map(|m| m.0.clone()));
 
-        // Both columns are filtered IS NOT NULL above, so unwrap is safe; defend
-        // against the unlikely race where the row mutated between filter and
-        // decode by skipping recovery rather than panicking.
-        let (Some(session_id), Some(turn_number)) = (session_id, turn_number) else {
-            return Ok(None);
-        };
+        // Reproduces what the sandbox dispatcher itself builds from the same
+        // rows (`extract_text_from_messages`, joined with newlines over
+        // `get_pending_user`'s ordering), so a replay re-sends the same prompt.
+        let prompt_text = rows
+            .iter()
+            .map(|(_, _, _, content, _)| extract_prompt_text(content))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let recovery_attempts: i32 = sqlx::query_scalar(
+            "SELECT recovery_attempts FROM task_turns WHERE task_id = $1 AND turn_number = $2",
+        )
+        .bind(task_id)
+        .bind(turn_number)
+        .fetch_optional(&self.0)
+        .await?
+        .unwrap_or(0);
 
         Ok(Some(InterruptedTurn {
-            task_message_id: id,
-            task_id,
+            task_message_id,
+            task_id: task_id.to_string(),
             session_id,
             turn_number,
-            prompt_text: extract_prompt_text(&content),
-            agent_mode: agent_mode.map(|m| m.0),
+            prompt_text,
+            agent_mode,
             recovery_attempts,
         }))
-    }
-
-    async fn increment_recovery_attempts(&self, task_message_id: i32) -> Result<i32, sqlx::Error> {
-        let row: (i32,) = sqlx::query_as(
-            r#"UPDATE task_messages
-               SET recovery_attempts = recovery_attempts + 1
-               WHERE id = $1
-               RETURNING recovery_attempts"#,
-        )
-        .bind(task_message_id)
-        .fetch_one(&self.0)
-        .await?;
-        Ok(row.0)
     }
 
     async fn insert_aborted_result(
@@ -1328,9 +1325,10 @@ pub async fn acknowledge_messages(
     task_id: &str,
     uuids: &[String],
     session_id: &str,
+    turn_number: i32,
 ) -> Result<u64, sqlx::Error> {
     PgMessageRepository(pool.clone())
-        .acknowledge_messages(task_id, uuids, session_id)
+        .acknowledge_messages(task_id, uuids, session_id, turn_number)
         .await
 }
 

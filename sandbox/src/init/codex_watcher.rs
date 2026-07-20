@@ -248,6 +248,7 @@ mod tests {
             _task_id: &str,
             _message_uuids: Vec<String>,
             _session_id: &str,
+            _run_id: &str,
         ) -> Result<(), tonic::Status> {
             Ok(())
         }

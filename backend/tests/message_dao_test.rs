@@ -834,3 +834,53 @@ async fn last_message_is_completed_reply_detects_coalesced_later_reply(pool: PgP
         .await
         .unwrap());
 }
+
+#[sqlx::test]
+async fn find_interrupted_turn_aggregates_sibling_user_messages(pool: PgPool) {
+    // One agent run can consume several pending messages, so a turn holds all
+    // of them. Recovery must replay the same joined prompt the dispatcher built,
+    // not an arbitrary one of the siblings.
+    seed_task(&pool, "task-1", "user-1").await;
+    for (uuid, text) in [("sib-a", "first"), ("sib-b", "second")] {
+        let mut msg = make_message_row("task-1", uuid);
+        msg.session_id = Some("session-1".to_string());
+        msg.agent_session_id = Some("session-1".to_string());
+        msg.turn_number = Some(1);
+        msg.sent_at = Some(chrono::Utc::now());
+        msg.message_content = serde_json::json!([{ "type": "text", "text": text }]);
+        message_dao::append(&pool, &msg, &[], &[]).await.unwrap();
+    }
+
+    let repo = PgMessageRepository(pool.clone());
+    let interrupted = repo
+        .find_interrupted_turn("task-1")
+        .await
+        .unwrap()
+        .expect("expected interrupted turn");
+
+    assert_eq!(interrupted.turn_number, 1);
+    assert_eq!(interrupted.prompt_text, "first\nsecond");
+}
+
+#[sqlx::test]
+async fn find_interrupted_turn_reads_recovery_attempts_from_task_turns(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+    seed_acknowledged_turn(&pool, "task-1", "recovering-user", 1).await;
+    sqlx::query(
+        "INSERT INTO task_turns (task_id, turn_number, status, recovery_attempts) \
+         VALUES ($1, 1, 'interrupted', 2)",
+    )
+    .bind("task-1")
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let repo = PgMessageRepository(pool.clone());
+    let interrupted = repo
+        .find_interrupted_turn("task-1")
+        .await
+        .unwrap()
+        .expect("expected interrupted turn");
+
+    assert_eq!(interrupted.recovery_attempts, 2);
+}

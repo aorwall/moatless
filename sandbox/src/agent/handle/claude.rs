@@ -40,10 +40,10 @@ pub(super) async fn publish_session_init(
     ctx.agent_state.set_session_id(new_session_id.clone()).await;
 
     while let Some(ack) = ctx.pending_acks.pop_front() {
-        let _ = ack.send(new_session_id.clone());
+        ctx.ack_current_run(ack);
     }
 
-    ctx.events
+    ctx.run_events()
         .publish_agent_event(
             ctx.task_id,
             AgentSubType::SessionInit,
@@ -97,8 +97,9 @@ pub(super) async fn process_claude_message(
                 if !*ctx.tmux_turn_in_flight {
                     info!("CLI-internal turn detected in persistent tmux session");
                     *ctx.tmux_turn_in_flight = true;
+                    ctx.begin_run().await;
                     ctx.agent_state.set_running(turn_cancel.clone()).await;
-                    publish_turn_start(ctx.events, ctx.task_id).await;
+                    publish_turn_start(ctx.events, ctx.task_id, ctx.run_id).await;
                 }
             } else if let Some(job) = extract_wakeup_job(&assistant.message.content) {
                 // Check for ScheduleWakeup tool call (subprocess mode: the
@@ -117,7 +118,7 @@ pub(super) async fn process_claude_message(
                 "Claude assistant message"
             );
             let payload = serde_json::to_value(&assistant).unwrap_or_default();
-            ctx.events
+            ctx.run_events()
                 .publish_agent_event(ctx.task_id, AgentSubType::Message, payload)
                 .await;
         }
@@ -136,7 +137,7 @@ pub(super) async fn process_claude_message(
                 *ctx.consecutive_errors = 0;
             }
 
-            ctx.events
+            ctx.run_events()
                 .publish_agent_event(ctx.task_id, sub_type, payload)
                 .await;
 
@@ -164,8 +165,9 @@ pub(super) async fn process_claude_message(
             if use_tmux && !*ctx.tmux_turn_in_flight {
                 info!("CLI-internal turn detected in persistent tmux session");
                 *ctx.tmux_turn_in_flight = true;
+                ctx.begin_run().await;
                 ctx.agent_state.set_running(turn_cancel.clone()).await;
-                publish_turn_start(ctx.events, ctx.task_id).await;
+                publish_turn_start(ctx.events, ctx.task_id, ctx.run_id).await;
             }
 
             debug!(
@@ -174,7 +176,7 @@ pub(super) async fn process_claude_message(
                 "Claude user message"
             );
             let payload = serde_json::to_value(&user_msg).unwrap_or_default();
-            ctx.events
+            ctx.run_events()
                 .publish_agent_event(ctx.task_id, AgentSubType::Message, payload)
                 .await;
         }
@@ -193,7 +195,7 @@ pub(super) async fn process_claude_message(
                 .is_none_or(|at| at.elapsed() >= ACTIVITY_PUBLISH_INTERVAL);
             if due {
                 *ctx.last_activity_publish = Some(std::time::Instant::now());
-                ctx.events
+                ctx.run_events()
                     .publish_agent_event(
                         ctx.task_id,
                         AgentSubType::Activity,

@@ -432,6 +432,7 @@ impl Drainer {
             payload_json: payload.to_string(),
             event_id: uuid::Uuid::new_v4().to_string(),
             sequence: 0,
+            run_id: String::new(),
         }
     }
 }
@@ -457,6 +458,7 @@ mod tests {
             payload_json: "{}".to_string(),
             event_id: uuid::Uuid::new_v4().to_string(),
             sequence: 0,
+            run_id: String::new(),
         }
     }
 
@@ -469,6 +471,7 @@ mod tests {
             payload_json: "{}".to_string(),
             event_id: uuid::Uuid::new_v4().to_string(),
             sequence: 0,
+            run_id: String::new(),
         }
     }
 
@@ -516,6 +519,7 @@ mod tests {
             _task_id: &str,
             _message_uuids: Vec<String>,
             _session_id: &str,
+            _run_id: &str,
         ) -> Result<(), Status> {
             Ok(())
         }

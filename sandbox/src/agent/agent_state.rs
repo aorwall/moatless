@@ -18,6 +18,10 @@ pub struct AgentState {
 struct AgentInner {
     status: AgentStatus,
     last_session_id: Option<String>,
+    /// The agent run currently in flight (see the actor's `run_id`). Read by
+    /// paths that must attribute a message to the running turn without going
+    /// through the actor — e.g. acknowledging an interactive prompt response.
+    current_run_id: Option<String>,
     last_error: Option<String>,
     cancel_token: Option<CancellationToken>,
     pending_prompt: Option<PendingPrompt>,
@@ -37,6 +41,7 @@ impl AgentState {
             inner: RwLock::new(AgentInner {
                 status: AgentStatus::Idle,
                 last_session_id: None,
+                current_run_id: None,
                 last_error: None,
                 cancel_token: None,
                 pending_prompt: None,
@@ -119,6 +124,14 @@ impl AgentState {
 
     pub async fn set_session_id(&self, session_id: String) {
         self.inner.write().await.last_session_id = Some(session_id);
+    }
+
+    pub async fn current_run_id(&self) -> Option<String> {
+        self.inner.read().await.current_run_id.clone()
+    }
+
+    pub async fn set_run_id(&self, run_id: String) {
+        self.inner.write().await.current_run_id = Some(run_id);
     }
 
     pub async fn set_pending_prompt(&self, prompt: PendingPrompt) {

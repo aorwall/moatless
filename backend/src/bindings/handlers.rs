@@ -336,8 +336,8 @@ async fn append_internal_assistant_reply(
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let uuid = uuid::Uuid::new_v4().to_string();
     let turn_number = state
-        .messages
-        .current_turn_number(task_id)
+        .task_turns
+        .latest_turn_number(task_id)
         .await
         .map_err(|e| AdapterError::Internal(format!("Failed to read turn number: {e}")))?;
     let content = serde_json::json!([{ "type": "text", "text": text }]);
@@ -345,7 +345,7 @@ async fn append_internal_assistant_reply(
     msg.message_type = MessageType::Assistant;
     msg.message_role = MessageRole::Assistant;
     msg.user_type = "assistant".to_string();
-    msg.turn_number = Some(turn_number);
+    msg.turn_number = turn_number;
 
     let block = TaskMessageContentBlock {
         id: 0,

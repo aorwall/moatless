@@ -8,7 +8,9 @@
 use std::time::Duration;
 
 use integration_tests::{ensure_template_repo, sandbox_helpers, test_client};
-use moatless_api_schemas::{message::SendMessageRequest, task::CreateTaskRequest};
+use moatless_api_schemas::{
+    enums::MessageType, message::SendMessageRequest, task::CreateTaskRequest,
+};
 use moatless_cli::events::EventCollector;
 
 // =============================================================================
@@ -154,6 +156,21 @@ async fn agent_execution_and_multi_turn() {
         )
         .await;
     assert!(turn2.is_some(), "Expected 2nd taskTurn.completed event");
+
+    // A follow-up sent after the agent went idle starts a new agent run, and a
+    // run is a turn — so the two user messages must land on turns 1 and 2.
+    let messages = client.api().get_messages(task_id).await.unwrap();
+    let user_turns: Vec<Option<i32>> = messages
+        .messages
+        .iter()
+        .filter(|m| matches!(m.message_type, MessageType::User))
+        .map(|m| m.turn_number)
+        .collect();
+    assert_eq!(
+        user_turns,
+        vec![Some(1), Some(2)],
+        "Expected the follow-up to open turn 2, got {user_turns:?}"
+    );
 
     // AGENT-02.3: Read the second file and verify its content.
     let file2 = client
