@@ -8,12 +8,6 @@ import {
   useRepository,
   useUpdateRepository,
 } from '@/features/repositories/hooks/use-repositories'
-import {
-  AgentConfigurationGroup,
-  CodeExecutionGroup,
-  PluginsGroup,
-  ServersGroup,
-} from '@/features/run-config'
 import { ConfigurationSectionWrapper as ConfigurationSection } from '@/lib/components/configuration'
 import {
   AlertDialog,
@@ -58,7 +52,10 @@ export function RepositoryConfigEditSection({
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [showConvertDialog, setShowConvertDialog] = useState(false)
 
-  // Derive base form data from repository - following derived state pattern
+  // Derive base form data from repository - following derived state pattern.
+  // A repository is now just a reusable git pointer: only the git-pointer fields
+  // (name/description/remoteUrl) are editable here. Run configuration (servers,
+  // code execution, agent config, plugins) has moved to the Workspace surface.
   // `UpdateRepositoryRequest` is already all-optional; using it directly (rather
   // than `Partial<>`) keeps value types free of the `| undefined` widening that
   // `Partial<>` adds under `exactOptionalPropertyTypes`, so the payload below
@@ -68,31 +65,11 @@ export function RepositoryConfigEditSection({
       return {}
     }
 
-    const base: UpdateRepositoryRequest = {
+    return {
       name: repository.name || '',
       description: repository.description || '',
-      systemPrompt: repository.systemPrompt || '',
-      ...(repository.dockerImage !== undefined && { dockerImage: repository.dockerImage }),
-      ...(repository.setupCommands !== undefined && { setupCommands: repository.setupCommands }),
-      ...(repository.envVars !== undefined && { envVars: repository.envVars }),
-      ...(repository.buildCommand !== undefined && { buildCommand: repository.buildCommand }),
-      ...(repository.buildOutputDirectory !== undefined && {
-        buildOutputDirectory: repository.buildOutputDirectory,
-      }),
-      ...(repository.autoReload !== undefined && { autoReload: repository.autoReload }),
-      enableInspector: repository.enableInspector ?? true,
-      ...(repository.serverStartCommands !== undefined && {
-        serverStartCommands: repository.serverStartCommands,
-      }),
-      ...(repository.startupTimeoutSeconds !== undefined && {
-        startupTimeoutSeconds: repository.startupTimeoutSeconds,
-      }),
-      ...(repository.servers !== undefined && { servers: repository.servers }),
-      ...(repository.plugins !== undefined && { plugins: repository.plugins }),
       remoteUrl: repository.remoteUrl || '',
     }
-
-    return base
   }, [repository])
 
   // Track user modifications locally
@@ -123,13 +100,12 @@ export function RepositoryConfigEditSection({
       return
     }
 
-    // Send complete repository config
-    // Empty strings are converted to null to signal field removal
+    // Send the git-pointer fields. Empty strings are converted to null to
+    // signal field removal.
     const payload: UpdateRepositoryRequest = {
       ...formData,
       description: formData.description?.trim() || null,
       remoteUrl: formData.remoteUrl?.trim() || null,
-      systemPrompt: formData.systemPrompt?.trim() || null,
     }
 
     updateRepository.mutate(
@@ -205,13 +181,6 @@ export function RepositoryConfigEditSection({
         onUpdateField={updateField}
       />
 
-      <CodeExecutionGroup formData={formData} onUpdateField={updateField} />
-
-      <ServersGroup formData={formData} onUpdateField={updateField} />
-
-      <AgentConfigurationGroup formData={formData} onUpdateField={updateField} />
-
-      <PluginsGroup formData={formData} onUpdateField={updateField} />
       <div className="flex justify-between gap-3 pt-6 border-t">
         <div className="flex gap-3">
           <Button
