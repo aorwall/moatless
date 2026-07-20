@@ -26,7 +26,7 @@ async fn sandbox_provision_failure_invalid_image() {
         return;
     }
 
-    let client = test_client();
+    let client = test_client().await;
 
     // Create repository with a nonexistent Docker image
     let mut repo_req = create_repo_request("Invalid Image E2E", RepositoryKind::Template);

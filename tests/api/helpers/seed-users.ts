@@ -1,29 +1,34 @@
 /**
- * Seeds test users in the docker-compose PostgreSQL instance.
+ * Creates the standard test users through the admin API and logs them in.
  *
- * Uses `docker exec psql` (same pattern as db-reset.ts).
+ * Users are real accounts with real passwords — there is no header-trust path,
+ * so a test client is a session cookie exactly like a browser's.
  */
 
-import { execSync } from "node:child_process";
+import { ApiClient } from "../../shared/api-client";
+import {
+	getAdminCookie,
+	getBaseURL,
+} from "../fixtures/api-fixtures";
 
-const POSTGRES_CONTAINER = "moatless-postgres";
-const POSTGRES_USER = process.env.POSTGRES_USER || "moatless";
-const POSTGRES_DB = process.env.POSTGRES_DB || "moatless";
+/** Password every seeded user is created with. */
+export const TEST_PASSWORD = "integration-test-password";
 
-export const ALICE = { userId: "alice-test", login: "alice" };
-export const BOB = { userId: "bob-test", login: "bob" };
-export const CAROL_ADMIN = { userId: "carol-admin", login: "carol", role: "admin" };
+export const ALICE = { login: "alice", role: "user" } as const;
+export const BOB = { login: "bob", role: "user" } as const;
+export const CAROL_ADMIN = { login: "carol", role: "admin" } as const;
 
+/**
+ * Create alice, bob and carol if they do not already exist. Idempotent — an
+ * existing login answers 409, which `ensureUser` treats as success.
+ */
 export async function seedTestUsers(): Promise<void> {
-	const now = new Date().toISOString();
-	const sql = [
-		`INSERT INTO users (id, login, provider, role, created_at, last_login_at) VALUES ('${ALICE.userId}', '${ALICE.login}', 'test', 'user', '${now}', '${now}') ON CONFLICT (id) DO NOTHING;`,
-		`INSERT INTO users (id, login, provider, role, created_at, last_login_at) VALUES ('${BOB.userId}', '${BOB.login}', 'test', 'user', '${now}', '${now}') ON CONFLICT (id) DO NOTHING;`,
-		`INSERT INTO users (id, login, provider, role, created_at, last_login_at) VALUES ('${CAROL_ADMIN.userId}', '${CAROL_ADMIN.login}', 'test', 'admin', '${now}', '${now}') ON CONFLICT (id) DO NOTHING;`,
-	].join(" ");
-
-	execSync(
-		`docker exec ${POSTGRES_CONTAINER} psql -U ${POSTGRES_USER} -d ${POSTGRES_DB} -c "${sql}"`,
-		{ stdio: "pipe", timeout: 10_000 },
+	const baseURL = getBaseURL();
+	const admin = new ApiClient(baseURL).withSessionCookie(
+		await getAdminCookie(baseURL),
 	);
+
+	for (const user of [ALICE, BOB, CAROL_ADMIN]) {
+		await admin.ensureUser(user.login, TEST_PASSWORD, user.role);
+	}
 }

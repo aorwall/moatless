@@ -43,9 +43,9 @@ pub struct SseState {
 /// Per-connection access context for the firehose, resolved once from the
 /// canonical `AuthIdentity` the auth middleware injects.
 ///
-/// `None` means no identity was attached, which only happens in dev mode
-/// (no auth provider → middleware disabled), where every caller is treated as
-/// a local admin. When `Some`, non-admin callers are filtered per task.
+/// `None` means no identity was attached — the request did not authenticate,
+/// and the handler rejects it. When `Some`, non-admin callers are filtered per
+/// task.
 struct SseAuth(Option<ScopeContext>);
 
 impl<S: Send + Sync> FromRequestParts<S> for SseAuth {
@@ -108,22 +108,28 @@ pub fn task_events_router(state: AppState) -> Router {
 /// - Ping every 30s: `{"type":"ping","timestamp":"..."}\n`
 ///
 /// The shared broadcast bus carries events for *all* tasks, so each connection
-/// filters them to what the authenticated caller may read. Admins (and dev-mode
-/// callers with no auth provider) receive everything; scoped users receive only
-/// events for tasks they can access, resolved once per distinct task and cached
-/// for the life of the connection.
+/// filters them to what the authenticated caller may read. Admins receive
+/// everything; scoped users receive only events for tasks they can access,
+/// resolved once per distinct task and cached for the life of the connection.
+/// Unauthenticated callers are rejected outright.
 async fn sse_handler(
     State(state): State<SseState>,
     SseAuth(scope): SseAuth,
     Query(query): Query<SseQuery>,
 ) -> Response {
+    // Fail closed: an unauthenticated caller would otherwise get the
+    // unfiltered firehose for every task in the deployment.
+    let Some(scope) = scope else {
+        return axum::response::IntoResponse::into_response(axum::http::StatusCode::UNAUTHORIZED);
+    };
+
     let rx = state.broadcast.subscribe();
     let cancel = state.cancel.clone();
     let tasks = state.tasks.clone();
 
-    // `None` → no per-task filtering (admin, or dev-mode with no identity).
+    // `None` → admin, no per-task filtering.
     // `Some(ctx)` → filter every event by whether `ctx` can read its task.
-    let access: Option<ScopeContext> = scope.filter(|ctx| !ctx.is_admin);
+    let access: Option<ScopeContext> = Some(scope).filter(|ctx| !ctx.is_admin);
 
     // Parse type filters
     let type_filters: Vec<String> = query

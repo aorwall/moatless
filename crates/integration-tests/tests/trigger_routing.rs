@@ -48,7 +48,7 @@ async fn cleanup_tasks(client: &MoatClient, task_ids: &[String]) {
 
 #[tokio::test]
 async fn trigger_by_subject_routing_without_thread() {
-    let client = test_client();
+    let client = test_client().await;
     let http = reqwest::Client::new();
     let repo_id = ensure_template_repo(&client).await;
     let suffix = timestamp_suffix();
@@ -114,7 +114,7 @@ async fn trigger_by_subject_routing_without_thread() {
 
 #[tokio::test]
 async fn trigger_ongoing_routing() {
-    let client = test_client();
+    let client = test_client().await;
     let http = reqwest::Client::new();
     let repo_id = ensure_template_repo(&client).await;
     let suffix = timestamp_suffix();
@@ -181,7 +181,7 @@ async fn trigger_ongoing_routing() {
 
 #[tokio::test]
 async fn trigger_by_subject_routing_with_thread() {
-    let client = test_client();
+    let client = test_client().await;
     let http = reqwest::Client::new();
     let repo_id = ensure_template_repo(&client).await;
     let suffix = timestamp_suffix();
@@ -233,7 +233,7 @@ async fn trigger_by_subject_routing_with_thread() {
 /// message is persisted onto the closed task.
 #[tokio::test]
 async fn trigger_by_subject_closed_task_not_resurrected() {
-    let client = test_client();
+    let client = test_client().await;
     let http = reqwest::Client::new();
     let repo_id = ensure_template_repo(&client).await;
     let suffix = timestamp_suffix();

@@ -46,8 +46,9 @@ export function useAuth() {
 
   const providers: ProviderConnection[] = session?.providers ?? []
   const githubProvider = providers.find((p) => p.provider === 'github')
-  // Default to `true` when no entry is present (dev mode, unauthenticated) so
-  // we don't flash a reconnect banner before the session loads.
+  // GitHub only appears in `providers` for users who connected it, so the
+  // `?? true` default keeps the banner hidden for everyone else — and avoids
+  // flashing it before the session loads.
   const githubConnected = githubProvider?.connected ?? true
   // Codex only appears in `providers` for users who connected it, so the
   // `?? true` default keeps the banner hidden for everyone else.
@@ -59,7 +60,7 @@ export function useAuth() {
     role: session?.user?.role ?? null,
     isAdmin: session?.user?.role === 'admin',
     expiresAt: session?.expiresAt ?? null,
-    isAuthenticated: !!session,
+    isAuthenticated: !!session?.user,
     isLoading,
     isServerUnavailable: isServerUnavailable(error),
     refetch,

@@ -26,7 +26,7 @@ async fn file_operations_chain() {
         return;
     }
 
-    let client = test_client();
+    let client = test_client().await;
     let repo_id = ensure_template_repo(&client).await;
 
     // Create task without message (no agent execution)

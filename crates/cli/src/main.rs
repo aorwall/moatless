@@ -219,10 +219,10 @@ enum StandaloneCommands {
 
     /// Authenticate with the Moatless API.
     ///
-    /// Probes the target URL's auth mode and picks the right flow:
-    /// - No providers configured (e.g. local Docker install) → saves a
-    ///   `local-user` profile, no browser needed.
-    /// - Providers configured → runs the browser-based OAuth flow.
+    /// Asks the server which flow it runs (`GET /api/v1/auth/mode`):
+    /// - Local password auth → prompts for a username and password. Honors
+    ///   `MOATLESS_USERNAME` / `MOATLESS_PASSWORD` for non-interactive use.
+    /// - An OAuth provider → runs the browser-based flow.
     Login {
         /// URL to authenticate against. Defaults to the configured API URL
         /// (env `MOATLESS_API_URL` or the default profile).

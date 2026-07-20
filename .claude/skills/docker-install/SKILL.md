@@ -148,13 +148,21 @@ A healthy `status` means containers are up; it does not prove the agent can reac
 MOATLESS_API_URL=http://localhost:3000 moat login
 ```
 
-`moat login` probes `/api/v1/auth/me`: a local install returns `providers: []` (no OAuth configured), so the CLI saves `http://localhost:3000` as a no-auth profile and makes it the default — no browser, no API key. Against a hosted install with OAuth configured, the same command kicks off the browser flow instead. Subsequent `moat` commands default to this host; no further `MOATLESS_API_URL` export needed. Confirm with:
+`moat login` asks `/api/v1/auth/mode` which flow the server runs. A local install runs username/password auth, so the CLI prompts for credentials (or reads `MOATLESS_USERNAME` / `MOATLESS_PASSWORD`), mints an API key with the resulting session, and saves `http://localhost:3000` as the default profile — only the `mvk_` key is persisted, never the password. Against a hosted install with OAuth configured, the same command kicks off the browser flow instead. Subsequent `moat` commands default to this host; no further `MOATLESS_API_URL` export needed.
+
+Sign in with the `admin` account. If `ADMIN_PASSWORD` was not set, the password was generated on first boot and logged once:
+
+```bash
+docker compose logs backend | grep "generated a bootstrap admin password"
+```
+
+Confirm with:
 
 ```bash
 moat status
 ```
 
-Expect `API URL: http://localhost:3000` and `User: local-user (no auth)`.
+Expect `API URL: http://localhost:3000` and `User: admin`.
 
 #### 5b. Create a smoke-test task
 

@@ -370,9 +370,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Seed default repositories
         repository::seed::seed_default_repositories(&*app_state.repositories).await;
 
-        // Ensure local-user exists in dev mode (no auth provider)
-        if config.auth.provider.is_none() {
-            auth::local_user::ensure_local_user(app_state.users.as_ref()).await;
+        auth::jwt::warn_on_jwt_secret_fallback(&config);
+
+        // Seed the bootstrap admin for local password auth. Unlike the other
+        // startup seeds this aborts on failure: a local-auth instance with no
+        // admin credential is unreachable, and continuing would produce a
+        // server nobody can log into.
+        if config.auth.provider == moatless_vibe_backend::config::AuthProvider::Local {
+            let credentials = moatless_vibe_backend::auth::password::dao::PgUserCredentialRepository(
+                app_state.db.clone(),
+            );
+            auth::password::bootstrap::ensure_local_admin(
+                app_state.users.as_ref(),
+                &credentials,
+                &config.auth,
+            )
+            .await
+            .map_err(|e| format!("failed to seed the local admin account: {e}"))?;
         }
 
         // Ensure test API user + key (if configured)

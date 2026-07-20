@@ -1446,7 +1446,7 @@ mod tests {
                 consumer_id: "test".into(),
             },
             auth: AuthConfig {
-                provider: None,
+                provider: crate::config::AuthProvider::Local,
                 github_client_id: None,
                 github_client_secret: None,
                 github_callback_url: None,
@@ -1464,7 +1464,8 @@ mod tests {
                 cookie_domain: None,
                 session_cookie_name: "test".into(),
                 is_production: false,
-                allow_insecure_no_auth: false,
+                admin_username: "admin".into(),
+                admin_password: None,
                 cache_ttl_secs: 0,
                 session_jwt_secret: None,
                 test_api_key: None,

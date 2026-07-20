@@ -161,6 +161,37 @@ impl ApiClient {
         self.get("/api/v1/auth/me").await
     }
 
+    /// POST /api/v1/users
+    pub async fn create_user(
+        &self,
+        req: &moatless_api_schemas::auth::CreateUserRequest,
+    ) -> Result<moatless_api_schemas::auth::CreateUserResponse, ApiError> {
+        self.post("/api/v1/users", req).await
+    }
+
+    /// POST /api/v1/auth/api-keys
+    pub async fn create_api_key(
+        &self,
+        req: &moatless_api_schemas::auth::CreateApiKeyRequest,
+    ) -> Result<moatless_api_schemas::auth::ApiKeyCreateResponse, ApiError> {
+        self.post("/api/v1/auth/api-keys", req).await
+    }
+
+    /// POST /api/v1/auth/password/login
+    pub async fn password_login(
+        &self,
+        req: &moatless_api_schemas::auth::PasswordLoginRequest,
+    ) -> Result<moatless_api_schemas::auth::SessionResponse, ApiError> {
+        self.post("/api/v1/auth/password/login", req).await
+    }
+
+    /// GET /api/v1/auth/mode
+    pub async fn auth_mode(
+        &self,
+    ) -> Result<moatless_api_schemas::auth::AuthModeResponse, ApiError> {
+        self.get("/api/v1/auth/mode").await
+    }
+
     /// POST /api/v1/auth/token/session (sandbox token exchange)
     pub async fn exchange_token(
         &self,

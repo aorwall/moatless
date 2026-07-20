@@ -51,7 +51,7 @@ async fn cleanup(client: &MoatClient, task_id: &str) {
 
 #[tokio::test]
 async fn reply_returns_404_when_no_bindings() {
-    let client = test_client();
+    let client = test_client().await;
     let repo_id = ensure_template_repo(&client).await;
     let task_id = create_bare_task(&client, &repo_id).await;
 
@@ -80,7 +80,7 @@ async fn reply_returns_404_when_no_bindings() {
 
 #[tokio::test]
 async fn reply_succeeds_with_single_binding() {
-    let client = test_client();
+    let client = test_client().await;
     let http = reqwest::Client::new();
     let repo_id = ensure_template_repo(&client).await;
     let suffix = timestamp_suffix();
@@ -131,7 +131,7 @@ async fn reply_succeeds_with_single_binding() {
 
 #[tokio::test]
 async fn reply_returns_400_when_multiple_bindings() {
-    let client = test_client();
+    let client = test_client().await;
     let repo_id = ensure_template_repo(&client).await;
     let suffix = timestamp_suffix();
     let task_id = create_bare_task(&client, &repo_id).await;
@@ -196,7 +196,7 @@ async fn reply_returns_400_when_multiple_bindings() {
 
 #[tokio::test]
 async fn reply_succeeds_with_explicit_binding_flag() {
-    let client = test_client();
+    let client = test_client().await;
     let repo_id = ensure_template_repo(&client).await;
     let suffix = timestamp_suffix();
     let task_id = create_bare_task(&client, &repo_id).await;
@@ -244,7 +244,7 @@ async fn reply_succeeds_with_explicit_binding_flag() {
 
 #[tokio::test]
 async fn reply_binding_route_returns_404_for_unknown_binding() {
-    let client = test_client();
+    let client = test_client().await;
     let repo_id = ensure_template_repo(&client).await;
     let task_id = create_bare_task(&client, &repo_id).await;
 

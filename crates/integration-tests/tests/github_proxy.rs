@@ -92,7 +92,7 @@ async fn cleanup_task(client: &MoatClient, task_id: &str) {
 
 #[tokio::test]
 async fn create_pr_with_unknown_task_returns_404() {
-    let client = test_client();
+    let client = test_client().await;
     let err = client
         .api()
         .github_create_pr(
@@ -114,7 +114,7 @@ async fn create_pr_with_unknown_task_returns_404() {
 
 #[tokio::test]
 async fn comment_with_unknown_task_returns_404() {
-    let client = test_client();
+    let client = test_client().await;
     let err = client
         .api()
         .github_post_issue_comment(
@@ -133,7 +133,7 @@ async fn comment_with_unknown_task_returns_404() {
 
 #[tokio::test]
 async fn reply_with_unknown_task_returns_404() {
-    let client = test_client();
+    let client = test_client().await;
     let err = client
         .api()
         .github_reply_review_comment(
@@ -160,7 +160,7 @@ async fn create_pr_without_github_token_returns_502() {
         eprintln!("Skipping: GITHUB_PROXY_E2E set (mock would answer)");
         return;
     }
-    let client = test_client();
+    let client = test_client().await;
     let err = client
         .api()
         .github_create_pr(
@@ -201,7 +201,7 @@ async fn pr_create_and_comment_bind_task_via_mock_github() {
         .unwrap_or(DEFAULT_MOCK_PORT);
     let mock = MockGithub::start(mock_port).await;
 
-    let client = test_client();
+    let client = test_client().await;
     let repo_id = ensure_template_repo(&client).await;
     let suffix = timestamp_suffix();
     let owner = format!("mockorg{suffix}");

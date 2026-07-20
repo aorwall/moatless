@@ -182,10 +182,13 @@ impl UserRepository for PgUserRepository {
     }
 
     async fn get_user_by_login(&self, login: &str) -> Result<Option<User>, sqlx::Error> {
-        sqlx::query_as::<_, User>("SELECT * FROM users WHERE login = $1")
-            .bind(login)
-            .fetch_optional(&self.0)
-            .await
+        // `login` is not unique — the same handle can exist per provider.
+        sqlx::query_as::<_, User>(
+            "SELECT * FROM users WHERE login = $1 ORDER BY created_at ASC LIMIT 1",
+        )
+        .bind(login)
+        .fetch_optional(&self.0)
+        .await
     }
 
     async fn upsert_provider_id(

@@ -133,10 +133,12 @@ test.describe("Chain 2: Team Membership", () => {
 
 	// ─── AUTH-05: Add member to team ─────────────────────────────────────
 
-	test("AUTH-05: Add member to team", async ({ alice }) => {
+	test("AUTH-05: Add member to team", async ({ alice, bob }) => {
+		// Server-assigned id — logins are not user ids.
+		ctx.set("bobId", await bob.userId());
 		await alice.addTeamMember(
 			ctx.get<string>("teamId")!,
-			"bob-test",
+			ctx.get<string>("bobId")!,
 			"member",
 		);
 	});
@@ -145,24 +147,31 @@ test.describe("Chain 2: Team Membership", () => {
 
 	test("AUTH-05.1: Member appears in team member listing", async ({ alice }) => {
 		const members = await alice.listTeamMembers(ctx.get<string>("teamId")!);
-		const bob = members.find((m) => m.userId === "bob-test");
+		const membership = members.find(
+			(m) => m.userId === ctx.get<string>("bobId"),
+		);
 
-		expect(bob).toBeDefined();
-		expect(bob!.role).toBe("member");
+		expect(membership).toBeDefined();
+		expect(membership!.role).toBe("member");
 	});
 
 	// ─── AUTH-07: Remove member from team ────────────────────────────────
 
 	test("AUTH-07: Remove member from team", async ({ alice }) => {
-		await alice.removeTeamMember(ctx.get<string>("teamId")!, "bob-test");
+		await alice.removeTeamMember(
+			ctx.get<string>("teamId")!,
+			ctx.get<string>("bobId")!,
+		);
 	});
 
 	// ─── AUTH-07.1: Removed member no longer in listing ──────────────────
 
 	test("AUTH-07.1: Removed member no longer in listing", async ({ alice }) => {
 		const members = await alice.listTeamMembers(ctx.get<string>("teamId")!);
-		const bob = members.find((m) => m.userId === "bob-test");
-		expect(bob).toBeUndefined();
+		const membership = members.find(
+			(m) => m.userId === ctx.get<string>("bobId"),
+		);
+		expect(membership).toBeUndefined();
 	});
 });
 

@@ -58,7 +58,7 @@ fn insert_scheduled_task_row(task_id: &str, repository_id: &str, trigger_id: &st
 
 #[tokio::test]
 async fn schedule_trigger_recent_tasks_returns_binding_none() {
-    let client = test_client();
+    let client = test_client().await;
     let repo_id = ensure_template_repo(&client).await;
     let suffix = timestamp_suffix();
 
@@ -117,7 +117,7 @@ async fn schedule_trigger_recent_tasks_returns_binding_none() {
 
 #[tokio::test]
 async fn adapter_event_trigger_recent_tasks_populates_binding() {
-    let client = test_client();
+    let client = test_client().await;
     let http = reqwest::Client::new();
     let repo_id = ensure_template_repo(&client).await;
     let suffix = timestamp_suffix();

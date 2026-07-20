@@ -10,7 +10,7 @@ const DEFAULT_MOCK_PORT: u16 = 18092;
 
 #[tokio::test]
 async fn codex_provider_settings_crud() {
-    let http = raw_client_as_user("codex-settings-user", "codex-user", "user");
+    let (_user, http) = raw_client_as_user("codex-user", "user").await;
     let base_url = base_url();
 
     let save_response = http
@@ -69,8 +69,8 @@ async fn github_pat_is_stored_encrypted_and_never_in_provider_tokens() {
         .unwrap_or(DEFAULT_MOCK_PORT);
     let _mock = MockGithub::start(mock_port).await;
 
-    let user_id = "github-pat-user";
-    let http = raw_client_as_user(user_id, "github-pat", "user");
+    let (user, http) = raw_client_as_user("github-pat", "user").await;
+    let user_id = user.id.as_str();
     let base_url = base_url();
     // Distinctive so a substring search over the row is meaningful.
     let pat = "ghp_integration_test_plaintext_marker";

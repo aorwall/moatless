@@ -91,13 +91,10 @@ networkPolicy:
     enabled: false
 
 # --- Auth ----------------------------------------------------------------------
-# This cluster runs open on purpose: no auth provider is configured, so every
-# request resolves to local-user/admin. The backend refuses to boot in that state
-# unless the operator opts in explicitly, because the chart hardcodes
-# NODE_ENV=production and `is_production` reads APP_ENV *or* NODE_ENV — so a
-# chart deploy always looks like production to that check.
-extraEnv:
-  ALLOW_INSECURE_NO_AUTH: "true"
+# No OAuth provider is configured, so the backend runs local username/password
+# auth. The admin account is seeded at startup from ADMIN_PASSWORD in the
+# hand-made moatless-secrets Secret (see README); without it a random password
+# is generated and logged once at WARN.
 
 # Secret/moatless-secrets is created by hand (see README); keep create=false so
 # Helm does not fight the hand-made Secret.

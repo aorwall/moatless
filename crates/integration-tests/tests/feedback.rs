@@ -30,7 +30,7 @@ fn create_request(repo_id: String) -> CreateTaskRequest {
 
 #[tokio::test]
 async fn submit_and_list_feedback_for_task() {
-    let client = test_client();
+    let client = test_client().await;
     let repo_id = ensure_template_repo(&client).await;
 
     let task = client
@@ -108,7 +108,7 @@ async fn submit_and_list_feedback_for_task() {
 
 #[tokio::test]
 async fn tool_use_id_without_message_uuid_is_rejected() {
-    let client = test_client();
+    let client = test_client().await;
     let repo_id = ensure_template_repo(&client).await;
 
     let task = client
@@ -139,7 +139,7 @@ async fn tool_use_id_without_message_uuid_is_rejected() {
 
 #[tokio::test]
 async fn preview_failure_feedback_carries_metadata() {
-    let client = test_client();
+    let client = test_client().await;
     let repo_id = ensure_template_repo(&client).await;
 
     let task = client

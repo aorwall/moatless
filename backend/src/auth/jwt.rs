@@ -100,13 +100,27 @@ pub fn verify_session_jwt(
 
 /// Resolve the JWT secret from config.
 ///
-/// Prefers `SESSION_JWT_SECRET`, falls back to `TASK_TOKEN_SECRET`.
+/// Prefers `SESSION_JWT_SECRET`, falls back to `TASK_TOKEN_SECRET`. Under the
+/// fallback, session cookies are signed with the sandbox secret, so rotating
+/// `TASK_TOKEN_SECRET` logs everyone out — see [`warn_on_jwt_secret_fallback`].
 pub fn get_jwt_secret(config: &Config) -> Option<&str> {
     config
         .auth
         .session_jwt_secret
         .as_deref()
         .or(config.sandbox.task_token_secret.as_deref())
+}
+
+/// Warn once at startup when session cookies are signed with the sandbox
+/// secret because `SESSION_JWT_SECRET` is unset.
+pub fn warn_on_jwt_secret_fallback(config: &Config) {
+    if config.auth.session_jwt_secret.is_none() && config.sandbox.task_token_secret.is_some() {
+        tracing::warn!(
+            "SESSION_JWT_SECRET is unset — signing session cookies with TASK_TOKEN_SECRET. \
+             Rotating TASK_TOKEN_SECRET will invalidate every active session. Set \
+             SESSION_JWT_SECRET to decouple them."
+        );
+    }
 }
 
 #[cfg(test)]
