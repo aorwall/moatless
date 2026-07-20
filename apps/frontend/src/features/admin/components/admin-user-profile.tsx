@@ -1,6 +1,9 @@
 import { UserRole } from '@moatless/api-client'
+import { unwrapResponse } from '@moatless/api-client/custom-instance'
+import { adminResetPasswordHandler } from '@moatless/api-client/sandbox/users/users'
+import { useMutation } from '@tanstack/react-query'
 import { Bot, Loader2 } from 'lucide-react'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import {
   useAdminTeamMembersByTeam,
@@ -8,7 +11,9 @@ import {
   useAdminUser,
   useUpdateAdminUser,
 } from '@/features/admin/hooks/use-admin-users-teams'
+import { useAuthMode } from '@/features/auth/hooks/use-auth-mode'
 import { Badge } from '@/lib/components/ui/badge'
+import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/components/ui/card'
 import { DetailHeader } from '@/lib/components/ui/detail-header'
 import { DetailItem } from '@/lib/components/ui/detail-item'
@@ -28,6 +33,9 @@ import { useDirtyForm } from '@/lib/hooks/use-dirty-form'
 import { getErrorMessage } from '@/lib/utils/error'
 
 type UserRoleValue = (typeof UserRole)[keyof typeof UserRole]
+
+/** Mirrors the server's minimum in `validate_password`. */
+const MIN_PASSWORD_LENGTH = 12
 
 function formatDate(value: string | undefined): string {
   if (!value) {
@@ -186,6 +194,8 @@ function AdminUserProfileForm({
         </CardContent>
       </Card>
 
+      <AdminPasswordResetCard login={user.login} />
+
       <Card>
         <CardHeader>
           <CardTitle>Teams</CardTitle>
@@ -208,5 +218,75 @@ function AdminUserProfileForm({
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+/**
+ * Admin password reset. No current password is required — without this a
+ * forgotten password has no recovery path short of env surgery.
+ *
+ * Only rendered under local auth; OAuth deployments have no password to reset.
+ */
+function AdminPasswordResetCard({ login }: { login: string }) {
+  const { isPasswordMode } = useAuthMode()
+  const [newPassword, setNewPassword] = useState('')
+
+  const resetPassword = useMutation({
+    mutationFn: (password: string) =>
+      unwrapResponse(
+        adminResetPasswordHandler(login, { newPassword: password, mustChangePassword: true }),
+      ),
+    onSuccess: () => {
+      setNewPassword('')
+      toast.success(`Password reset for ${login}. They must change it on next sign-in.`)
+    },
+    onError: (error) => {
+      toast.error(`Failed to reset password: ${getErrorMessage(error)}`)
+    },
+  })
+
+  if (!isPasswordMode) {
+    return null
+  }
+
+  const tooShort = newPassword.length > 0 && newPassword.length < MIN_PASSWORD_LENGTH
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Reset password</CardTitle>
+        <CardDescription>
+          Set a new password for this user. Every active session is revoked, and they are prompted
+          to change it on next sign-in.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="space-y-2">
+          <Label htmlFor="admin-new-password">New password</Label>
+          <Input
+            id="admin-new-password"
+            type="password"
+            autoComplete="new-password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
+          />
+          {tooShort && (
+            <p className="text-sm text-destructive">
+              Password must be at least {MIN_PASSWORD_LENGTH} characters.
+            </p>
+          )}
+        </div>
+        <div className="flex justify-end">
+          <Button
+            onClick={() => resetPassword.mutate(newPassword)}
+            disabled={newPassword.length < MIN_PASSWORD_LENGTH || resetPassword.isPending}
+          >
+            {resetPassword.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Reset Password
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   )
 }

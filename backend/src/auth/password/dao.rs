@@ -1,0 +1,152 @@
+//! Persistence for `user_credentials`.
+
+use async_trait::async_trait;
+use chrono::{DateTime, Utc};
+
+use super::models::UserCredential;
+use crate::db::DbPool;
+
+/// Repository trait for local credential persistence.
+#[cfg_attr(test, mockall::automock)]
+#[async_trait]
+pub trait UserCredentialRepository: Send + Sync {
+    /// Look up a credential by username, case-insensitively.
+    async fn find_by_username(&self, username: &str)
+        -> Result<Option<UserCredential>, sqlx::Error>;
+    async fn find_by_user_id(&self, user_id: &str) -> Result<Option<UserCredential>, sqlx::Error>;
+    /// Insert or replace a user's credential.
+    async fn upsert(
+        &self,
+        user_id: &str,
+        username: &str,
+        password_hash: &str,
+        must_change: bool,
+    ) -> Result<(), sqlx::Error>;
+    /// Replace the hash and clear the failure counter and change flag.
+    async fn set_password_hash(
+        &self,
+        user_id: &str,
+        password_hash: &str,
+    ) -> Result<bool, sqlx::Error>;
+    async fn record_login_success(&self, user_id: &str, at: DateTime<Utc>)
+        -> Result<(), sqlx::Error>;
+    async fn record_login_failure(&self, user_id: &str) -> Result<(), sqlx::Error>;
+    async fn delete(&self, user_id: &str) -> Result<bool, sqlx::Error>;
+}
+
+/// PostgreSQL implementation of [`UserCredentialRepository`].
+pub struct PgUserCredentialRepository(pub DbPool);
+
+#[async_trait]
+impl UserCredentialRepository for PgUserCredentialRepository {
+    async fn find_by_username(
+        &self,
+        username: &str,
+    ) -> Result<Option<UserCredential>, sqlx::Error> {
+        sqlx::query_as::<_, UserCredential>(
+            "SELECT user_id, username, password_hash, must_change, failed_attempts, \
+                    last_login_at, password_changed_at, created_at, updated_at \
+             FROM user_credentials WHERE lower(username) = lower($1)",
+        )
+        .bind(username)
+        .fetch_optional(&self.0)
+        .await
+    }
+
+    async fn find_by_user_id(&self, user_id: &str) -> Result<Option<UserCredential>, sqlx::Error> {
+        sqlx::query_as::<_, UserCredential>(
+            "SELECT user_id, username, password_hash, must_change, failed_attempts, \
+                    last_login_at, password_changed_at, created_at, updated_at \
+             FROM user_credentials WHERE user_id = $1",
+        )
+        .bind(user_id)
+        .fetch_optional(&self.0)
+        .await
+    }
+
+    async fn upsert(
+        &self,
+        user_id: &str,
+        username: &str,
+        password_hash: &str,
+        must_change: bool,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"INSERT INTO user_credentials
+                   (user_id, username, password_hash, must_change, password_changed_at, updated_at)
+               VALUES ($1, $2, $3, $4, now(), now())
+               ON CONFLICT (user_id) DO UPDATE SET
+                   username            = EXCLUDED.username,
+                   password_hash       = EXCLUDED.password_hash,
+                   must_change         = EXCLUDED.must_change,
+                   failed_attempts     = 0,
+                   password_changed_at = now(),
+                   updated_at          = now()"#,
+        )
+        .bind(user_id)
+        .bind(username)
+        .bind(password_hash)
+        .bind(must_change)
+        .execute(&self.0)
+        .await?;
+        Ok(())
+    }
+
+    async fn set_password_hash(
+        &self,
+        user_id: &str,
+        password_hash: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query(
+            r#"UPDATE user_credentials
+               SET password_hash       = $2,
+                   must_change         = false,
+                   failed_attempts     = 0,
+                   password_changed_at = now(),
+                   updated_at          = now()
+               WHERE user_id = $1"#,
+        )
+        .bind(user_id)
+        .bind(password_hash)
+        .execute(&self.0)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn record_login_success(
+        &self,
+        user_id: &str,
+        at: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE user_credentials
+               SET last_login_at = $2, failed_attempts = 0, updated_at = now()
+               WHERE user_id = $1"#,
+        )
+        .bind(user_id)
+        .bind(at)
+        .execute(&self.0)
+        .await?;
+        Ok(())
+    }
+
+    async fn record_login_failure(&self, user_id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE user_credentials
+               SET failed_attempts = failed_attempts + 1, updated_at = now()
+               WHERE user_id = $1"#,
+        )
+        .bind(user_id)
+        .execute(&self.0)
+        .await?;
+        Ok(())
+    }
+
+    async fn delete(&self, user_id: &str) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query("DELETE FROM user_credentials WHERE user_id = $1")
+            .bind(user_id)
+            .execute(&self.0)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+}

@@ -16,7 +16,7 @@ use pretty_assertions::assert_eq;
 
 #[tokio::test]
 async fn task_crud_chain() {
-    let client = test_client();
+    let client = test_client().await;
     let repo_id = ensure_template_repo(&client).await;
 
     // TASK-01: Create task with message

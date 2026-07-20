@@ -337,8 +337,15 @@ config:
 
 # Authentication configuration
 auth:
-  # -- Auth provider: "github", "auth0", or omit to disable auth
+  # -- Auth provider: "github", "github_app", "auth0", or "" / "local" for
+  # local username/password auth (the default). Under local auth an admin
+  # account is seeded at startup from `secrets.adminPassword`; when that is
+  # unset a random password is generated and logged once at WARN.
   provider: ""
+  # -- Local username/password settings (used when provider is "" or "local").
+  local:
+    # -- Login of the bootstrap admin account.
+    adminLogin: "admin"
   # -- Frontend URL for OAuth redirects
   frontendUrl: ""
   # -- Cookie domain for cross-subdomain sharing (e.g., ".moatless.xyz")
@@ -757,6 +764,15 @@ secrets:
   # -- HMAC secret for task-scoped JWTs (backend↔sandbox auth). Required — every
   # provision fails without it. Generate with `openssl rand -hex 32`.
   taskTokenSecret: ""
+  # -- Secret for signing session cookies. When empty the backend falls back to
+  # `taskTokenSecret`, which couples the two: rotating `taskTokenSecret` then
+  # invalidates every active session. Set this to decouple them.
+  # Generate with `openssl rand -hex 32`.
+  sessionJwtSecret: ""
+  # -- Password for the bootstrap admin under local auth. Minimum 12
+  # characters. When empty, a random password is generated on first boot and
+  # logged once at WARN.
+  adminPassword: ""
 
 # External secrets (recommended for production)
 externalSecrets:

@@ -65,7 +65,9 @@ helm install traefik traefik/traefik -n moatless \
 kubectl -n moatless create secret generic moatless-vibe-secrets \
   --from-literal=DATABASE_URL='postgres://moatless:moatless@postgres:5432/moatless' \
   --from-literal=SECRETS_ENCRYPTION_KEY="$(openssl rand -base64 32)" \
-  --from-literal=TASK_TOKEN_SECRET="$(openssl rand -hex 32)"
+  --from-literal=TASK_TOKEN_SECRET="$(openssl rand -hex 32)" \
+  --from-literal=SESSION_JWT_SECRET="$(openssl rand -hex 32)" \
+  --from-literal=ADMIN_PASSWORD='choose-a-strong-password'
 ```
 
 The deployment expects the Secret to be named exactly `moatless-vibe-secrets`
@@ -78,6 +80,12 @@ sets the backend's `DATABASE_URL` from `postgres.enabled`, so the two agree.
 `SECRETS_ENCRYPTION_KEY` and `TASK_TOKEN_SECRET` are both mandatory — the backend
 refuses to boot without the first, and every sandbox provision fails without the
 second.
+
+`SESSION_JWT_SECRET` signs session cookies. Omit it and the backend falls back to
+`TASK_TOKEN_SECRET`, which couples the two: rotating `TASK_TOKEN_SECRET` would
+then log every user out. `ADMIN_PASSWORD` (minimum 12 characters) seeds the
+bootstrap admin; omit it and a random password is generated and logged once at
+WARN on first boot.
 
 ## 4. Install
 
@@ -100,19 +108,25 @@ helm install moatless-vibe ./k8s/helm/moatless-vibe -n moatless -f k8s/local/val
 # Postgres that is still initializing.
 kubectl -n moatless logs deploy/moatless-vibe-backend | grep "Database migrations complete"
 
-# App reachable through Traefik as the auto-created local-user.
-curl -H 'Host: moatless.localhost' localhost/api/v1/auth/me      # 200
+# App reachable through Traefik. Anonymous /auth/me is 401 — that is correct.
+curl -H 'Host: moatless.localhost' localhost/api/v1/auth/me      # 401
 ```
 
-Open `http://moatless.localhost` and you are in.
+Open `http://moatless.localhost`, sign in at `/login`, and you are in.
 
 ## 6. First run — credential, repo, task
 
-- **Login needs no OAuth.** `auth.provider` is empty (the default), so every
-  request resolves to `user_id: local-user`, `role: admin`; that row is
-  auto-created at boot.
-  - Known cosmetic issue: dev-mode `/api/v1/auth/me` returns `user: null`, so the
-    frontend hides admin-only *UI* routes. Backend authorization is unaffected.
+- **Login needs no OAuth.** `auth.provider` is empty (the default), so the
+  backend runs local username/password auth. An `admin` account is seeded at
+  boot from `ADMIN_PASSWORD` in the `moatless-vibe-secrets` Secret; when that key is
+  absent a random password is generated and logged **once** at WARN:
+
+  ```bash
+  kubectl -n moatless logs deploy/moatless-vibe-backend | grep "generated a bootstrap admin password"
+  ```
+
+  Sign in at `http://moatless.localhost/login`, then change the password under
+  Settings → Password.
 - **Add the agent credential in the UI:** Settings → Secrets →
   `CLAUDE_CODE_OAUTH_TOKEN`. It is read only from the encrypted DB (never from
   chart values), so it needs a working `SECRETS_ENCRYPTION_KEY`.
@@ -122,8 +136,14 @@ Open `http://moatless.localhost` and you are in.
   one omitting `provider` and passing `servers` explicitly:
 
   ```bash
+  # Log in once and reuse the session cookie, exactly as the browser does.
+  COOKIE=$(curl -si -H 'Host: moatless.localhost' -H 'Content-Type: application/json' \
+    localhost/api/v1/auth/password/login \
+    -d '{"username":"admin","password":"<your admin password>"}' \
+    | grep -i '^set-cookie:' | sed 's/.*\(moatless_session=[^;]*\).*/\1/')
+
   curl -X POST -H 'Host: moatless.localhost' -H 'Content-Type: application/json' \
-    -H 'X-User-Id: local-user' -H 'X-User-Role: admin' \
+    -H "Cookie: $COOKIE" \
     localhost/api/v1/repositories \
     -d '{"name":"local-smoke","remoteUrl":"https://github.com/aorwall/moatable","defaultBranch":"main","kind":"remote","servers":[]}'
   ```
@@ -139,11 +159,11 @@ Open `http://moatless.localhost` and you are in.
   ```bash
   RID=<repository id from the create response>
   curl -X POST -H 'Host: moatless.localhost' -H 'Content-Type: application/json' \
-    -H 'X-User-Id: local-user' -H 'X-User-Role: admin' \
+    -H "Cookie: $COOKIE" \
     localhost/api/v1/tasks -d "{\"name\":\"smoke\",\"repositoryId\":\"$RID\"}"
 
   kubectl -n moatless get pods    # moatless-ws-<task-id> reaches 1/1 Running
-  curl -H 'Host: moatless.localhost' -H 'X-User-Id: local-user' \
+  curl -H 'Host: moatless.localhost' -H "Cookie: $COOKIE" \
     localhost/api/v1/tasks/<task-id>   # environmentStatus: ready
   ```
 

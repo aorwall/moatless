@@ -19,7 +19,7 @@ async fn test_subagent_messages_have_parent_uuid() {
         return;
     }
 
-    let client = test_client();
+    let client = test_client().await;
     let repo_id = ensure_template_repo(&client).await;
 
     // Start event collector

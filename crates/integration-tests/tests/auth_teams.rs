@@ -3,7 +3,7 @@
 //! Mirrors: tests/api/chains/auth-team-crud.spec.ts
 //! Spec IDs: AUTH-01 through AUTH-10
 
-use integration_tests::{client_as_user, raw_api, raw_client_as_user, seed_test_users};
+use integration_tests::{raw_api, raw_client_for, seed_test_users};
 use moatless_api_schemas::team::{
     AddTeamMemberRequest, CreateTeamRequest, UpdateTeamRequest, UpsertTeamCredentialRequest,
 };
@@ -23,12 +23,12 @@ fn timestamp_suffix() -> String {
 
 #[tokio::test]
 async fn team_crud_chain() {
-    seed_test_users().await;
-    let alice = client_as_user("alice-test", "alice", "user");
+    let alice = seed_test_users().await.alice;
     let suffix = timestamp_suffix();
 
     // AUTH-01: Create a team
     let team = alice
+        .client
         .api()
         .create_team(&CreateTeamRequest {
             name: "Engineering".into(),
@@ -44,16 +44,17 @@ async fn team_crud_chain() {
     let team_id = team.id;
 
     // AUTH-01.1: Team appears in listing
-    let teams = alice.api().list_teams().await.unwrap();
+    let teams = alice.client.api().list_teams().await.unwrap();
     assert!(teams.iter().any(|t| t.id == team_id));
 
     // AUTH-02: Get team by ID
-    let got = alice.api().get_team(&team_id).await.unwrap();
+    let got = alice.client.api().get_team(&team_id).await.unwrap();
     assert_eq!(got.name, "Engineering");
     assert_eq!(got.slug, format!("engineering-{suffix}"));
 
     // AUTH-03: Update team
     let updated = alice
+        .client
         .api()
         .update_team(
             &team_id,
@@ -69,10 +70,10 @@ async fn team_crud_chain() {
     assert_eq!(updated.slug, format!("engineering-{suffix}"));
 
     // AUTH-04: Delete team
-    alice.api().delete_team(&team_id).await.unwrap();
+    alice.client.api().delete_team(&team_id).await.unwrap();
 
     // AUTH-04.1: Team removed from listing
-    let teams = alice.api().list_teams().await.unwrap();
+    let teams = alice.client.api().list_teams().await.unwrap();
     assert!(!teams.iter().any(|t| t.id == team_id));
 }
 
@@ -82,12 +83,13 @@ async fn team_crud_chain() {
 
 #[tokio::test]
 async fn team_membership_chain() {
-    seed_test_users().await;
-    let alice = client_as_user("alice-test", "alice", "user");
+    let users = seed_test_users().await;
+    let (alice, bob) = (users.alice, users.bob);
     let suffix = timestamp_suffix();
 
     // Setup: Alice creates a team
     let team = alice
+        .client
         .api()
         .create_team(&CreateTeamRequest {
             name: "Membership Team".into(),
@@ -100,11 +102,12 @@ async fn team_membership_chain() {
 
     // AUTH-05: Add member to team
     alice
+        .client
         .api()
         .add_member(
             &team_id,
             &AddTeamMemberRequest {
-                user_id: "bob-test".into(),
+                user_id: bob.id.clone(),
                 role: Some("member".into()),
             },
         )
@@ -112,24 +115,25 @@ async fn team_membership_chain() {
         .unwrap();
 
     // AUTH-05.1: Member appears in team member listing
-    let members = alice.api().list_members(&team_id).await.unwrap();
-    let bob = members.iter().find(|m| m.user_id == "bob-test");
-    assert!(bob.is_some());
-    assert_eq!(bob.unwrap().role, "member");
+    let members = alice.client.api().list_members(&team_id).await.unwrap();
+    let membership = members.iter().find(|m| m.user_id == bob.id);
+    assert!(membership.is_some());
+    assert_eq!(membership.unwrap().role, "member");
 
     // AUTH-07: Remove member from team
     alice
+        .client
         .api()
         .remove_member(&team_id, "bob-test")
         .await
         .unwrap();
 
     // AUTH-07.1: Removed member no longer in listing
-    let members = alice.api().list_members(&team_id).await.unwrap();
+    let members = alice.client.api().list_members(&team_id).await.unwrap();
     assert!(!members.iter().any(|m| m.user_id == "bob-test"));
 
     // Cleanup
-    let _ = alice.api().delete_team(&team_id).await;
+    let _ = alice.client.api().delete_team(&team_id).await;
 }
 
 // =============================================================================
@@ -138,12 +142,12 @@ async fn team_membership_chain() {
 
 #[tokio::test]
 async fn team_credentials_chain() {
-    seed_test_users().await;
-    let alice = client_as_user("alice-test", "alice", "user");
+    let alice = seed_test_users().await.alice;
     let suffix = timestamp_suffix();
 
     // Setup: Alice creates a team
     let team = alice
+        .client
         .api()
         .create_team(&CreateTeamRequest {
             name: "Credentials Team".into(),
@@ -156,6 +160,7 @@ async fn team_credentials_chain() {
 
     // AUTH-08: Upsert team credential
     alice
+        .client
         .api()
         .upsert_credential(
             &team_id,
@@ -171,7 +176,7 @@ async fn team_credentials_chain() {
         .unwrap();
 
     // AUTH-08.1: Credential appears in listing
-    let creds = alice.api().list_credentials(&team_id).await.unwrap();
+    let creds = alice.client.api().list_credentials(&team_id).await.unwrap();
     let github = creds.iter().find(|c| c.provider == "github");
     assert!(github.is_some());
     // Access token must NOT be exposed in listing
@@ -180,17 +185,18 @@ async fn team_credentials_chain() {
 
     // AUTH-08.2: Delete team credential
     alice
+        .client
         .api()
         .delete_credential(&team_id, "github")
         .await
         .unwrap();
 
     // AUTH-08.2.1: Credential removed from listing
-    let creds = alice.api().list_credentials(&team_id).await.unwrap();
+    let creds = alice.client.api().list_credentials(&team_id).await.unwrap();
     assert!(!creds.iter().any(|c| c.provider == "github"));
 
     // Cleanup
-    let _ = alice.api().delete_team(&team_id).await;
+    let _ = alice.client.api().delete_team(&team_id).await;
 }
 
 // =============================================================================
@@ -199,14 +205,14 @@ async fn team_credentials_chain() {
 
 #[tokio::test]
 async fn team_duplicate_slug() {
-    seed_test_users().await;
-    let alice = client_as_user("alice-test", "alice", "user");
-    let alice_raw = raw_client_as_user("alice-test", "alice", "user");
+    let alice = seed_test_users().await.alice;
+    let alice_raw = raw_client_for(&alice).await;
     let suffix = timestamp_suffix();
     let slug = format!("dup-slug-{suffix}");
 
     // Create first team
     let team = alice
+        .client
         .api()
         .create_team(&CreateTeamRequest {
             name: "First".into(),
@@ -225,7 +231,7 @@ async fn team_duplicate_slug() {
     assert_eq!(resp.status().as_u16(), 409);
 
     // Cleanup
-    let _ = alice.api().delete_team(&team.id).await;
+    let _ = alice.client.api().delete_team(&team.id).await;
 }
 
 // =============================================================================
@@ -234,13 +240,14 @@ async fn team_duplicate_slug() {
 
 #[tokio::test]
 async fn nonmember_credential_access() {
-    seed_test_users().await;
-    let alice = client_as_user("alice-test", "alice", "user");
-    let bob_raw = raw_client_as_user("bob-test", "bob", "user");
+    let users = seed_test_users().await;
+    let (alice, bob) = (users.alice, users.bob);
+    let bob_raw = raw_client_for(&bob).await;
     let suffix = timestamp_suffix();
 
     // Alice creates a team (bob is not a member)
     let team = alice
+        .client
         .api()
         .create_team(&CreateTeamRequest {
             name: "Private Team".into(),
@@ -261,5 +268,5 @@ async fn nonmember_credential_access() {
     assert_eq!(resp.status().as_u16(), 403);
 
     // Cleanup
-    let _ = alice.api().delete_team(&team.id).await;
+    let _ = alice.client.api().delete_team(&team.id).await;
 }

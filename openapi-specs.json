@@ -1523,6 +1523,150 @@
         }
       }
     },
+    "/api/v1/auth/mode": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Report how this deployment authenticates users.",
+        "description": "Public by design: the login page is anonymous, so this cannot live on\n`/auth/me` (which 401s without a session).",
+        "operationId": "auth_mode_handler",
+        "responses": {
+          "200": {
+            "description": "Active auth mode",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthModeResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/password": {
+      "put": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Change your own password.",
+        "operationId": "change_password_handler",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Password changed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Password too short",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or wrong current password",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Password auth not enabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/password/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Log in with a username and password, returning a session cookie.",
+        "operationId": "password_login_handler",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordLoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Password auth not enabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many failed attempts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/auth/token/session": {
       "post": {
         "tags": [
@@ -6699,8 +6843,8 @@
         "tags": [
           "users"
         ],
-        "summary": "Create a bot user backed by a configured GitHub App.",
-        "description": "Resolves the App's `{slug}[bot]` identity via `GitHubAppRegistry`, then\ninserts both the `users` row and a matching `provider_tokens` row with\n`auth_method = 'github_app_installation'` so credential resolution\ntransparently mints installation tokens for tasks that\n`run_as_user_id = <bot id>`.",
+        "summary": "Create a user. Admin only.",
+        "description": "With `isBot: true`, resolves the App's `{slug}[bot]` identity via\n`GitHubAppRegistry`, then inserts both the `users` row and a matching\n`provider_tokens` row with `auth_method = 'github_app_installation'` so\ncredential resolution transparently mints installation tokens for tasks\nthat `run_as_user_id = <bot id>`.\n\nWith `isBot: false`, creates a human user with a local password. Available\nonly under local password auth — OAuth deployments create users on callback.",
         "operationId": "create_user_handler",
         "requestBody": {
           "content": {
@@ -6714,7 +6858,7 @@
         },
         "responses": {
           "201": {
-            "description": "Bot user created",
+            "description": "User created",
             "content": {
               "application/json": {
                 "schema": {
@@ -6724,7 +6868,7 @@
             }
           },
           "400": {
-            "description": "Unknown app key or human user request",
+            "description": "Unknown app key, or missing login/password",
             "content": {
               "application/json": {
                 "schema": {
@@ -6745,6 +6889,16 @@
           },
           "403": {
             "description": "Admin only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Login already taken",
             "content": {
               "application/json": {
                 "schema": {
@@ -6889,6 +7043,88 @@
           },
           "404": {
             "description": "User or provider mapping not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/{login}/password": {
+      "put": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Reset another user's password. Admin only — no current password required,\nso a forgotten password has a recovery path that isn't env surgery.",
+        "operationId": "admin_reset_password_handler",
+        "parameters": [
+          {
+            "name": "login",
+            "in": "path",
+            "description": "Target user login",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminResetPasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Password reset",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Password too short",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "User has no local credential",
             "content": {
               "application/json": {
                 "schema": {
@@ -7771,6 +8007,25 @@
           }
         }
       },
+      "AdminResetPasswordRequest": {
+        "type": "object",
+        "description": "PUT /api/v1/users/{login}/password request (admin reset — no current\npassword required).\n\n`Debug` is hand-written to redact `new_password`.",
+        "required": [
+          "newPassword"
+        ],
+        "properties": {
+          "mustChangePassword": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Force a password change on next login. Defaults to `false`."
+          },
+          "newPassword": {
+            "type": "string"
+          }
+        }
+      },
       "AdminUpdateUserRequest": {
         "type": "object",
         "description": "Body for PATCH /api/v1/users/{login}.\n\n`None` means the field was omitted and should remain unchanged.\n`Some(None)` means the caller explicitly sent `null` and the column should be cleared.",
@@ -8188,6 +8443,38 @@
           "unknown"
         ]
       },
+      "AuthMode": {
+        "type": "string",
+        "description": "How this deployment authenticates users.",
+        "enum": [
+          "password",
+          "oauth"
+        ]
+      },
+      "AuthModeResponse": {
+        "type": "object",
+        "description": "GET /api/v1/auth/mode response.\n\nA dedicated endpoint rather than a field on `SessionResponse`: `/auth/me`\n401s for anonymous callers, and the login page is anonymous by definition.",
+        "required": [
+          "mode",
+          "provider"
+        ],
+        "properties": {
+          "loginUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Where to send the browser to start an OAuth login. `None` in password mode."
+          },
+          "mode": {
+            "$ref": "#/components/schemas/AuthMode"
+          },
+          "provider": {
+            "type": "string",
+            "description": "Provider identifier (`local`, `github`, `github_app`, `auth0`)."
+          }
+        }
+      },
       "BackgroundProcess": {
         "type": "object",
         "description": "A live background process (a `run_in_background` job or ad-hoc daemon) still\nrunning in the sandbox after the agent went idle.",
@@ -8259,6 +8546,22 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "ChangePasswordRequest": {
+        "type": "object",
+        "description": "PUT /api/v1/auth/password request (change own password).\n\n`Debug` is hand-written to redact both passwords.",
+        "required": [
+          "currentPassword",
+          "newPassword"
+        ],
+        "properties": {
+          "currentPassword": {
+            "type": "string"
+          },
+          "newPassword": {
+            "type": "string"
           }
         }
       },
@@ -9682,19 +9985,53 @@
       },
       "CreateUserRequest": {
         "type": "object",
-        "description": "POST /api/v1/users request.\n\nCreates a bot user backed by a configured GitHub App. The server resolves\nthe App's `{slug}[bot]` identity from `GitHubAppRegistry` and writes both\nthe `users` row and the matching `provider_tokens` row atomically.",
+        "description": "POST /api/v1/users request.\n\nWith `isBot: true`, creates a bot user backed by a configured GitHub App:\nthe server resolves the App's `{slug}[bot]` identity from\n`GitHubAppRegistry` and writes both the `users` row and the matching\n`provider_tokens` row atomically. `githubAppKey` is required in this mode.\n\nWith `isBot: false`, creates a human user with a local password. Only\navailable when the server runs local password auth; `login` and `password`\nare required in this mode.\n\n`Debug` is hand-written to redact `password`.",
         "required": [
-          "isBot",
-          "githubAppKey"
+          "isBot"
         ],
         "properties": {
           "githubAppKey": {
-            "type": "string",
-            "description": "Registry key of a configured GitHub App (e.g. `\"dev-bot\"`)."
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Registry key of a configured GitHub App (e.g. `\"dev-bot\"`). Required\nwhen `isBot` is `true`."
           },
           "isBot": {
             "type": "boolean",
-            "description": "Must be `true`. Human users are created via the OAuth callback, not\nthis endpoint. (Reserved as a flag so the schema can be extended later\nwithout a breaking change.)"
+            "description": "`true` for a GitHub App bot, `false` for a local password user."
+          },
+          "login": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Login handle for a local user. Required when `isBot` is `false`."
+          },
+          "mustChangePassword": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Force a password change on first login. Defaults to `false`."
+          },
+          "password": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Initial password for a local user. Required when `isBot` is `false`."
+          },
+          "role": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/UserRole",
+                "description": "Role to assign. Defaults to `user`."
+              }
+            ]
           }
         }
       },
@@ -11462,6 +11799,22 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "PasswordLoginRequest": {
+        "type": "object",
+        "description": "POST /api/v1/auth/password/login request.\n\n`Debug` is hand-written to redact `password`.",
+        "required": [
+          "username",
+          "password"
+        ],
+        "properties": {
+          "password": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
           }
         }
       },

@@ -27,11 +27,27 @@ export function redirectToLogin() {
 }
 
 /**
+ * Opt a query or mutation out of the global 401 → `/login` redirect via
+ * `meta: { skipAuthRedirect: true }`.
+ *
+ * Required for the password login request itself: a wrong password answers
+ * 401, and without this the redirect stamps `auth_redirect_ts` and burns the
+ * 30-second cooldown — so a genuine session expiry moments later would
+ * silently fail to redirect.
+ */
+function skipsAuthRedirect(meta: Record<string, unknown> | undefined): boolean {
+  return meta?.['skipAuthRedirect'] === true
+}
+
+/**
  * Handle 401 errors globally by redirecting to login.
  * Errors from the generated API client have a `status` property added via Object.assign,
  * so we check for that instead of instanceof.
  */
-function handleAuthError(error: Error) {
+function handleAuthError(error: Error, meta: Record<string, unknown> | undefined) {
+  if (skipsAuthRedirect(meta)) {
+    return
+  }
   if ('status' in error && (error as { status: number }).status === 401) {
     redirectToLogin()
   }
@@ -66,7 +82,7 @@ function retryTransientErrors(failureCount: number, error: Error): boolean {
 export const queryClient = new QueryClient({
   queryCache: new QueryCache({
     onError: (error, query) => {
-      handleAuthError(error)
+      handleAuthError(error, query.meta)
       // Only the auth-session probe flips the global "server unavailable"
       // screen. A 503 from any other endpoint fails just its own part of the
       // UI (that query's own error state), not the whole app.
@@ -87,7 +103,7 @@ export const queryClient = new QueryClient({
   // passes its own `onError` — so auth handling lives here.
   mutationCache: new MutationCache({
     onError: (error, _variables, _context, mutation) => {
-      handleAuthError(error)
+      handleAuthError(error, mutation.meta)
       // Fallback toast for fire-and-forget mutations that surface no error UX
       // of their own. 401 already has dedicated handling (login redirect), so
       // skip it; a 503 here fails just this mutation, so let it toast.

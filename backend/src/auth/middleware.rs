@@ -98,11 +98,6 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
         return next.run(req).await;
     };
 
-    // Dev mode: no auth provider configured — pass through
-    if state.config.auth.provider.is_none() {
-        return next.run(req).await;
-    }
-
     let path = req.uri().path().to_string();
 
     // Exempt paths bypass auth

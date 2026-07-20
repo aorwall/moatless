@@ -495,7 +495,10 @@ async fn authorize_task_read_inner(
     let tasks = tasks.ok_or_else(|| {
         SandboxError::Internal("Task repository not available for authorization".into())
     })?;
-    let ctx = scope.clone().unwrap_or_else(ScopeContext::system);
+    // Fail closed: no identity means the request never passed auth_middleware.
+    let ctx = scope
+        .clone()
+        .ok_or_else(|| SandboxError::Forbidden("authentication required".into()))?;
     tasks
         .find_by_id(task_id, &ctx)
         .await
@@ -512,9 +515,8 @@ async fn authorize_task_control_inner(
 ) -> Result<Task, SandboxError> {
     let task = authorize_task_read_inner(tasks, scope, task_id).await?;
 
-    // Dev mode (no identity) is treated as a local admin — allow control.
     let Some(ctx) = scope.as_ref() else {
-        return Ok(task);
+        return Err(SandboxError::Forbidden("authentication required".into()));
     };
 
     let teams = teams.ok_or_else(|| {
@@ -805,12 +807,14 @@ mod authz_tests {
     }
 
     #[tokio::test]
-    async fn read_dev_mode_uses_system_scope() {
-        // No identity (dev mode) → system scope resolves the task.
+    async fn read_without_identity_is_forbidden() {
+        // No identity means the request never authenticated — fail closed
+        // rather than resolving the task under an unscoped system context.
         let tasks = tasks_returning(Some(task_fixture(Scope::User, Some("someone"), None)));
-        assert!(authorize_task_read_inner(Some(&tasks), &None, "task-1")
-            .await
-            .is_ok());
+        assert!(matches!(
+            authorize_task_read_inner(Some(&tasks), &None, "task-1").await,
+            Err(SandboxError::Forbidden(_))
+        ));
     }
 
     #[tokio::test]
@@ -901,13 +905,12 @@ mod authz_tests {
     }
 
     #[tokio::test]
-    async fn control_dev_mode_allows() {
+    async fn control_without_identity_is_forbidden() {
         let tasks = tasks_returning(Some(task_fixture(Scope::User, Some("someone"), None)));
         let teams = StubTeamRepo::with_roles(&[]);
-        assert!(
-            authorize_task_control_inner(Some(&tasks), Some(&teams), &None, "task-1")
-                .await
-                .is_ok()
-        );
+        assert!(matches!(
+            authorize_task_control_inner(Some(&tasks), Some(&teams), &None, "task-1").await,
+            Err(SandboxError::Forbidden(_))
+        ));
     }
 }

@@ -171,19 +171,140 @@ pub struct UserListResponse {
 
 /// POST /api/v1/users request.
 ///
-/// Creates a bot user backed by a configured GitHub App. The server resolves
-/// the App's `{slug}[bot]` identity from `GitHubAppRegistry` and writes both
-/// the `users` row and the matching `provider_tokens` row atomically.
-#[derive(Debug, Serialize, Deserialize)]
+/// With `isBot: true`, creates a bot user backed by a configured GitHub App:
+/// the server resolves the App's `{slug}[bot]` identity from
+/// `GitHubAppRegistry` and writes both the `users` row and the matching
+/// `provider_tokens` row atomically. `githubAppKey` is required in this mode.
+///
+/// With `isBot: false`, creates a human user with a local password. Only
+/// available when the server runs local password auth; `login` and `password`
+/// are required in this mode.
+///
+/// `Debug` is hand-written to redact `password`.
+#[derive(Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct CreateUserRequest {
-    /// Must be `true`. Human users are created via the OAuth callback, not
-    /// this endpoint. (Reserved as a flag so the schema can be extended later
-    /// without a breaking change.)
+    /// `true` for a GitHub App bot, `false` for a local password user.
     pub is_bot: bool,
-    /// Registry key of a configured GitHub App (e.g. `"dev-bot"`).
-    pub github_app_key: String,
+    /// Registry key of a configured GitHub App (e.g. `"dev-bot"`). Required
+    /// when `isBot` is `true`.
+    #[serde(default)]
+    pub github_app_key: Option<String>,
+    /// Login handle for a local user. Required when `isBot` is `false`.
+    #[serde(default)]
+    pub login: Option<String>,
+    /// Initial password for a local user. Required when `isBot` is `false`.
+    #[serde(default)]
+    pub password: Option<String>,
+    /// Role to assign. Defaults to `user`.
+    #[serde(default)]
+    pub role: Option<UserRole>,
+    /// Force a password change on first login. Defaults to `false`.
+    #[serde(default)]
+    pub must_change_password: Option<bool>,
+}
+
+impl std::fmt::Debug for CreateUserRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CreateUserRequest")
+            .field("is_bot", &self.is_bot)
+            .field("github_app_key", &self.github_app_key)
+            .field("login", &self.login)
+            .field("password", &self.password.as_ref().map(|_| "[REDACTED]"))
+            .field("role", &self.role)
+            .field("must_change_password", &self.must_change_password)
+            .finish()
+    }
+}
+
+/// POST /api/v1/auth/password/login request.
+///
+/// `Debug` is hand-written to redact `password`.
+#[derive(Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct PasswordLoginRequest {
+    pub username: String,
+    pub password: String,
+}
+
+impl std::fmt::Debug for PasswordLoginRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PasswordLoginRequest")
+            .field("username", &self.username)
+            .field("password", &"[REDACTED]")
+            .finish()
+    }
+}
+
+/// PUT /api/v1/auth/password request (change own password).
+///
+/// `Debug` is hand-written to redact both passwords.
+#[derive(Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ChangePasswordRequest {
+    pub current_password: String,
+    pub new_password: String,
+}
+
+impl std::fmt::Debug for ChangePasswordRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChangePasswordRequest")
+            .field("current_password", &"[REDACTED]")
+            .field("new_password", &"[REDACTED]")
+            .finish()
+    }
+}
+
+/// PUT /api/v1/users/{login}/password request (admin reset — no current
+/// password required).
+///
+/// `Debug` is hand-written to redact `new_password`.
+#[derive(Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct AdminResetPasswordRequest {
+    pub new_password: String,
+    /// Force a password change on next login. Defaults to `false`.
+    #[serde(default)]
+    pub must_change_password: Option<bool>,
+}
+
+impl std::fmt::Debug for AdminResetPasswordRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AdminResetPasswordRequest")
+            .field("new_password", &"[REDACTED]")
+            .field("must_change_password", &self.must_change_password)
+            .finish()
+    }
+}
+
+/// How this deployment authenticates users.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "lowercase")]
+pub enum AuthMode {
+    /// Local username/password against `user_credentials`.
+    Password,
+    /// Redirect to a configured OAuth provider.
+    Oauth,
+}
+
+/// GET /api/v1/auth/mode response.
+///
+/// A dedicated endpoint rather than a field on `SessionResponse`: `/auth/me`
+/// 401s for anonymous callers, and the login page is anonymous by definition.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct AuthModeResponse {
+    pub mode: AuthMode,
+    /// Provider identifier (`local`, `github`, `github_app`, `auth0`).
+    pub provider: String,
+    /// Where to send the browser to start an OAuth login. `None` in password mode.
+    pub login_url: Option<String>,
 }
 
 /// POST /api/v1/users response.

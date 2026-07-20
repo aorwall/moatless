@@ -53,7 +53,7 @@ async fn webhook_nonexistent_config() {
 // INT-51: Webhook to inactive config is ignored
 #[tokio::test]
 async fn webhook_inactive_config() {
-    let client = test_client();
+    let client = test_client().await;
     let http = reqwest::Client::new();
     let repo_id = ensure_template_repo(&client).await;
     let suffix = timestamp_suffix();
@@ -85,7 +85,7 @@ async fn webhook_inactive_config() {
 // INT-52: Webhook with invalid signature is rejected
 #[tokio::test]
 async fn webhook_invalid_signature() {
-    let client = test_client();
+    let client = test_client().await;
     let http = reqwest::Client::new();
     let repo_id = ensure_template_repo(&client).await;
     let suffix = timestamp_suffix();
@@ -118,7 +118,7 @@ async fn webhook_invalid_signature() {
 // INT-53: Create route with non-existent repository returns error
 #[tokio::test]
 async fn integration_create_nonexistent_repo() {
-    let client = test_client();
+    let client = test_client().await;
     let suffix = timestamp_suffix();
     let source = format!("no-repo-{suffix}");
     let connection = client
@@ -166,7 +166,7 @@ async fn integration_create_nonexistent_repo() {
 // INT-54: Webhook with missing text field returns error
 #[tokio::test]
 async fn webhook_missing_text() {
-    let client = test_client();
+    let client = test_client().await;
     let http = reqwest::Client::new();
     let repo_id = ensure_template_repo(&client).await;
     let suffix = timestamp_suffix();

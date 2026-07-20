@@ -25,8 +25,11 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  AuthModeResponse,
+  ChangePasswordRequest,
   ErrorBody,
   MessageResponse,
+  PasswordLoginRequest,
   SessionResponse,
   TokenSessionResponse,
   UpdateUserRequest
@@ -444,6 +447,330 @@ export const useUpdateMeHandler = <TError = ErrorType<ErrorBody>,
         TContext
       > => {
       return useMutation(getUpdateMeHandlerMutationOptions(options), queryClient);
+    }
+    /**
+ * Public by design: the login page is anonymous, so this cannot live on
+`/auth/me` (which 401s without a session).
+ * @summary Report how this deployment authenticates users.
+ */
+export type authModeHandlerResponse200 = {
+  data: AuthModeResponse
+  status: 200
+}
+    
+export type authModeHandlerResponseSuccess = (authModeHandlerResponse200) & {
+  headers: Headers;
+};
+;
+
+export type authModeHandlerResponse = (authModeHandlerResponseSuccess)
+
+export const getAuthModeHandlerUrl = () => {
+
+
+  
+
+  return `/api/v1/auth/mode`
+}
+
+export const authModeHandler = async ( options?: RequestInit): Promise<authModeHandlerResponse> => {
+  
+  return customInstance<authModeHandlerResponse>(getAuthModeHandlerUrl(),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
+
+export const getAuthModeHandlerQueryKey = () => {
+    return [
+    `/api/v1/auth/mode`
+    ] as const;
+    }
+
+    
+export const getAuthModeHandlerQueryOptions = <TData = Awaited<ReturnType<typeof authModeHandler>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof authModeHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAuthModeHandlerQueryKey();
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof authModeHandler>>> = ({ signal }) => authModeHandler({ signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof authModeHandler>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type AuthModeHandlerQueryResult = NonNullable<Awaited<ReturnType<typeof authModeHandler>>>
+export type AuthModeHandlerQueryError = ErrorType<unknown>
+
+
+export function useAuthModeHandler<TData = Awaited<ReturnType<typeof authModeHandler>>, TError = ErrorType<unknown>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof authModeHandler>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof authModeHandler>>,
+          TError,
+          Awaited<ReturnType<typeof authModeHandler>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useAuthModeHandler<TData = Awaited<ReturnType<typeof authModeHandler>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof authModeHandler>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof authModeHandler>>,
+          TError,
+          Awaited<ReturnType<typeof authModeHandler>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useAuthModeHandler<TData = Awaited<ReturnType<typeof authModeHandler>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof authModeHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+/**
+ * @summary Report how this deployment authenticates users.
+ */
+
+export function useAuthModeHandler<TData = Awaited<ReturnType<typeof authModeHandler>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof authModeHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getAuthModeHandlerQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Report how this deployment authenticates users.
+ */
+export const prefetchAuthModeHandlerQuery = async <TData = Awaited<ReturnType<typeof authModeHandler>>, TError = ErrorType<unknown>>(
+ queryClient: QueryClient,  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof authModeHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getAuthModeHandlerQueryOptions(options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+/**
+ * @summary Change your own password.
+ */
+export type changePasswordHandlerResponse200 = {
+  data: MessageResponse
+  status: 200
+}
+
+export type changePasswordHandlerResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type changePasswordHandlerResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+
+export type changePasswordHandlerResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type changePasswordHandlerResponseSuccess = (changePasswordHandlerResponse200) & {
+  headers: Headers;
+};
+export type changePasswordHandlerResponseError = (changePasswordHandlerResponse400 | changePasswordHandlerResponse401 | changePasswordHandlerResponse404) & {
+  headers: Headers;
+};
+
+export type changePasswordHandlerResponse = (changePasswordHandlerResponseSuccess | changePasswordHandlerResponseError)
+
+export const getChangePasswordHandlerUrl = () => {
+
+
+  
+
+  return `/api/v1/auth/password`
+}
+
+export const changePasswordHandler = async (changePasswordRequest: ChangePasswordRequest, options?: RequestInit): Promise<changePasswordHandlerResponse> => {
+  
+  return customInstance<changePasswordHandlerResponse>(getChangePasswordHandlerUrl(),
+  {      
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      changePasswordRequest,)
+  }
+);}
+
+
+
+
+export const getChangePasswordHandlerMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof changePasswordHandler>>, TError,{data: ChangePasswordRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof changePasswordHandler>>, TError,{data: ChangePasswordRequest}, TContext> => {
+
+const mutationKey = ['changePasswordHandler'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof changePasswordHandler>>, {data: ChangePasswordRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  changePasswordHandler(data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ChangePasswordHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof changePasswordHandler>>>
+    export type ChangePasswordHandlerMutationBody = ChangePasswordRequest
+    export type ChangePasswordHandlerMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Change your own password.
+ */
+export const useChangePasswordHandler = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof changePasswordHandler>>, TError,{data: ChangePasswordRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof changePasswordHandler>>,
+        TError,
+        {data: ChangePasswordRequest},
+        TContext
+      > => {
+      return useMutation(getChangePasswordHandlerMutationOptions(options), queryClient);
+    }
+    /**
+ * @summary Log in with a username and password, returning a session cookie.
+ */
+export type passwordLoginHandlerResponse200 = {
+  data: SessionResponse
+  status: 200
+}
+
+export type passwordLoginHandlerResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+
+export type passwordLoginHandlerResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type passwordLoginHandlerResponse429 = {
+  data: ErrorBody
+  status: 429
+}
+    
+export type passwordLoginHandlerResponseSuccess = (passwordLoginHandlerResponse200) & {
+  headers: Headers;
+};
+export type passwordLoginHandlerResponseError = (passwordLoginHandlerResponse401 | passwordLoginHandlerResponse404 | passwordLoginHandlerResponse429) & {
+  headers: Headers;
+};
+
+export type passwordLoginHandlerResponse = (passwordLoginHandlerResponseSuccess | passwordLoginHandlerResponseError)
+
+export const getPasswordLoginHandlerUrl = () => {
+
+
+  
+
+  return `/api/v1/auth/password/login`
+}
+
+export const passwordLoginHandler = async (passwordLoginRequest: PasswordLoginRequest, options?: RequestInit): Promise<passwordLoginHandlerResponse> => {
+  
+  return customInstance<passwordLoginHandlerResponse>(getPasswordLoginHandlerUrl(),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      passwordLoginRequest,)
+  }
+);}
+
+
+
+
+export const getPasswordLoginHandlerMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof passwordLoginHandler>>, TError,{data: PasswordLoginRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof passwordLoginHandler>>, TError,{data: PasswordLoginRequest}, TContext> => {
+
+const mutationKey = ['passwordLoginHandler'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof passwordLoginHandler>>, {data: PasswordLoginRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  passwordLoginHandler(data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PasswordLoginHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof passwordLoginHandler>>>
+    export type PasswordLoginHandlerMutationBody = PasswordLoginRequest
+    export type PasswordLoginHandlerMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Log in with a username and password, returning a session cookie.
+ */
+export const usePasswordLoginHandler = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof passwordLoginHandler>>, TError,{data: PasswordLoginRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof passwordLoginHandler>>,
+        TError,
+        {data: PasswordLoginRequest},
+        TContext
+      > => {
+      return useMutation(getPasswordLoginHandlerMutationOptions(options), queryClient);
     }
     /**
  * Sandbox pods carry a `USER_AUTH_TOKEN` JWT signed with `TASK_TOKEN_SECRET`.

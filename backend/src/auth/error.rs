@@ -29,6 +29,12 @@ pub enum AuthError {
     #[error("Access denied")]
     Forbidden,
 
+    #[error("Too many failed login attempts — try again later")]
+    TooManyRequests,
+
+    #[error("Conflict: {0}")]
+    Conflict(String),
+
     #[error("Not found: {0}")]
     NotFound(String),
 
@@ -49,6 +55,8 @@ impl IntoResponse for AuthError {
                 (StatusCode::UNAUTHORIZED, self.to_string())
             }
             Self::Forbidden => (StatusCode::FORBIDDEN, self.to_string()),
+            Self::TooManyRequests => (StatusCode::TOO_MANY_REQUESTS, self.to_string()),
+            Self::Conflict(msg) => (StatusCode::CONFLICT, msg.clone()),
             Self::InvalidState => (StatusCode::BAD_REQUEST, self.to_string()),
             Self::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
             Self::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),

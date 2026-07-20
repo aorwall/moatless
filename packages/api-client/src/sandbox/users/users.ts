@@ -25,6 +25,7 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  AdminResetPasswordRequest,
   AdminUpdateUserRequest,
   CodexConfigResponse,
   CreateUserRequest,
@@ -299,12 +300,15 @@ export const prefetchListUsersHandlerQuery = async <TData = Awaited<ReturnType<t
 
 
 /**
- * Resolves the App's `{slug}[bot]` identity via `GitHubAppRegistry`, then
-inserts both the `users` row and a matching `provider_tokens` row with
-`auth_method = 'github_app_installation'` so credential resolution
-transparently mints installation tokens for tasks that
-`run_as_user_id = <bot id>`.
- * @summary Create a bot user backed by a configured GitHub App.
+ * With `isBot: true`, resolves the App's `{slug}[bot]` identity via
+`GitHubAppRegistry`, then inserts both the `users` row and a matching
+`provider_tokens` row with `auth_method = 'github_app_installation'` so
+credential resolution transparently mints installation tokens for tasks
+that `run_as_user_id = <bot id>`.
+
+With `isBot: false`, creates a human user with a local password. Available
+only under local password auth — OAuth deployments create users on callback.
+ * @summary Create a user. Admin only.
  */
 export type createUserHandlerResponse201 = {
   data: CreateUserResponse
@@ -326,6 +330,11 @@ export type createUserHandlerResponse403 = {
   status: 403
 }
 
+export type createUserHandlerResponse409 = {
+  data: ErrorBody
+  status: 409
+}
+
 export type createUserHandlerResponse500 = {
   data: ErrorBody
   status: 500
@@ -334,7 +343,7 @@ export type createUserHandlerResponse500 = {
 export type createUserHandlerResponseSuccess = (createUserHandlerResponse201) & {
   headers: Headers;
 };
-export type createUserHandlerResponseError = (createUserHandlerResponse400 | createUserHandlerResponse401 | createUserHandlerResponse403 | createUserHandlerResponse500) & {
+export type createUserHandlerResponseError = (createUserHandlerResponse400 | createUserHandlerResponse401 | createUserHandlerResponse403 | createUserHandlerResponse409 | createUserHandlerResponse500) & {
   headers: Headers;
 };
 
@@ -395,7 +404,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type CreateUserHandlerMutationError = ErrorType<ErrorBody>
 
     /**
- * @summary Create a bot user backed by a configured GitHub App.
+ * @summary Create a user. Admin only.
  */
 export const useCreateUserHandler = <TError = ErrorType<ErrorBody>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createUserHandler>>, TError,{data: CreateUserRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
@@ -599,6 +608,113 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
         TContext
       > => {
       return useMutation(getSendUserDmMutationOptions(options), queryClient);
+    }
+    /**
+ * @summary Reset another user's password. Admin only — no current password required,
+so a forgotten password has a recovery path that isn't env surgery.
+ */
+export type adminResetPasswordHandlerResponse200 = {
+  data: MessageResponse
+  status: 200
+}
+
+export type adminResetPasswordHandlerResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type adminResetPasswordHandlerResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+
+export type adminResetPasswordHandlerResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type adminResetPasswordHandlerResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type adminResetPasswordHandlerResponseSuccess = (adminResetPasswordHandlerResponse200) & {
+  headers: Headers;
+};
+export type adminResetPasswordHandlerResponseError = (adminResetPasswordHandlerResponse400 | adminResetPasswordHandlerResponse401 | adminResetPasswordHandlerResponse403 | adminResetPasswordHandlerResponse404) & {
+  headers: Headers;
+};
+
+export type adminResetPasswordHandlerResponse = (adminResetPasswordHandlerResponseSuccess | adminResetPasswordHandlerResponseError)
+
+export const getAdminResetPasswordHandlerUrl = (login: string,) => {
+
+
+  
+
+  return `/api/v1/users/${login}/password`
+}
+
+export const adminResetPasswordHandler = async (login: string,
+    adminResetPasswordRequest: AdminResetPasswordRequest, options?: RequestInit): Promise<adminResetPasswordHandlerResponse> => {
+  
+  return customInstance<adminResetPasswordHandlerResponse>(getAdminResetPasswordHandlerUrl(login),
+  {      
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      adminResetPasswordRequest,)
+  }
+);}
+
+
+
+
+export const getAdminResetPasswordHandlerMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminResetPasswordHandler>>, TError,{login: string;data: AdminResetPasswordRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminResetPasswordHandler>>, TError,{login: string;data: AdminResetPasswordRequest}, TContext> => {
+
+const mutationKey = ['adminResetPasswordHandler'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminResetPasswordHandler>>, {login: string;data: AdminResetPasswordRequest}> = (props) => {
+          const {login,data} = props ?? {};
+
+          return  adminResetPasswordHandler(login,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminResetPasswordHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof adminResetPasswordHandler>>>
+    export type AdminResetPasswordHandlerMutationBody = AdminResetPasswordRequest
+    export type AdminResetPasswordHandlerMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Reset another user's password. Admin only — no current password required,
+so a forgotten password has a recovery path that isn't env surgery.
+ */
+export const useAdminResetPasswordHandler = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminResetPasswordHandler>>, TError,{login: string;data: AdminResetPasswordRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof adminResetPasswordHandler>>,
+        TError,
+        {login: string;data: AdminResetPasswordRequest},
+        TContext
+      > => {
+      return useMutation(getAdminResetPasswordHandlerMutationOptions(options), queryClient);
     }
     /**
  * Only the user themselves or an admin may call this.

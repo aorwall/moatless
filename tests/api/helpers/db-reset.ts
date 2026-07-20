@@ -34,7 +34,6 @@ const APP_TABLES = [
 	"sessions",
 	"api_keys",
 	"provider_tokens",
-	"users",
 ];
 
 /**
@@ -45,7 +44,12 @@ const APP_TABLES = [
  */
 export async function resetDatabase(): Promise<void> {
 	const tableList = APP_TABLES.join(", ");
-	const sql = `TRUNCATE ${tableList} CASCADE;`;
+	// `users` is deliberately not truncated: the bootstrap admin is seeded only
+	// at startup, so wiping it would 401 every subsequent login with no recovery
+	// short of restarting the backend. Delete everyone else instead — the FK
+	// cascade takes their `user_credentials` with them.
+	const adminLogin = (process.env.ADMIN_USERNAME || "admin").replace(/'/g, "''");
+	const sql = `TRUNCATE ${tableList} CASCADE; DELETE FROM users WHERE login <> '${adminLogin}';`;
 
 	try {
 		execSync(

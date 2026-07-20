@@ -186,25 +186,93 @@ export class ApiClient {
 	) {}
 
 	/**
-	 * Create a new ApiClient that sends ForwardAuth headers to simulate a specific user.
+	 * GET /api/v1/auth/me — the authenticated user, or null when anonymous.
 	 */
-	asUser(identity: {
-		userId: string;
-		login?: string;
-		role?: string;
-		teamIds?: string[];
-	}): ApiClient {
-		const headers: Record<string, string> = {
-			"X-User-Id": identity.userId,
-			"X-User-Login": identity.login ?? identity.userId,
-		};
-		if (identity.role) {
-			headers["X-User-Role"] = identity.role;
+	async me(): Promise<{ user: { id: string; login: string } | null } | null> {
+		return this.fetchOptionalJson(`${this.baseURL}/api/v1/auth/me`);
+	}
+
+	/** The authenticated user's server-assigned id. */
+	async userId(): Promise<string> {
+		const session = await this.me();
+		if (!session?.user?.id) {
+			throw new Error("Not authenticated — no user id available");
 		}
-		if (identity.teamIds?.length) {
-			headers["X-Team-Ids"] = identity.teamIds.join(",");
+		return session.user.id;
+	}
+
+	/**
+	 * Create a new ApiClient carrying a session cookie, as a browser would.
+	 */
+	withSessionCookie(cookie: string): ApiClient {
+		return new ApiClient(this.baseURL, { Cookie: cookie });
+	}
+
+	/**
+	 * Log in with a username and password and return the raw `name=value`
+	 * session cookie.
+	 *
+	 * Reads `getSetCookie()` rather than `get("set-cookie")`: Node's fetch
+	 * collapses multiple Set-Cookie headers into one comma-joined string, which
+	 * silently corrupts the value when the server sets more than one.
+	 */
+	async loginCookie(username: string, password: string): Promise<string> {
+		const response = await fetch(`${this.baseURL}/api/v1/auth/password/login`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ username, password }),
+		});
+		if (!response.ok) {
+			const text = await response.text();
+			throw new Error(
+				`Login for '${username}' failed: HTTP ${response.status}: ${text}`,
+			);
 		}
-		return new ApiClient(this.baseURL, headers);
+		const cookie = response.headers
+			.getSetCookie()
+			.map((raw) => raw.split(";")[0].trim())
+			.find((pair) => pair.startsWith("moatless_session="));
+		if (!cookie) {
+			throw new Error(
+				`Login for '${username}' succeeded but set no moatless_session cookie`,
+			);
+		}
+		return cookie;
+	}
+
+	/**
+	 * Log in as `username` and return a client authenticated as them.
+	 */
+	async asUser(username: string, password: string): Promise<ApiClient> {
+		return this.withSessionCookie(await this.loginCookie(username, password));
+	}
+
+	/**
+	 * Create a local password user via the admin API. Idempotent — an existing
+	 * login answers 409, which is not an error for a test fixture.
+	 */
+	async ensureUser(
+		login: string,
+		password: string,
+		role: "user" | "admin" = "user",
+	): Promise<void> {
+		const response = await fetch(`${this.baseURL}/api/v1/users`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", ...this.defaultHeaders },
+			body: JSON.stringify({
+				isBot: false,
+				login,
+				password,
+				role,
+				mustChangePassword: false,
+			}),
+		});
+		if (!response.ok && response.status !== 409) {
+			const text = await response.text();
+			throw new Error(
+				`Failed to create user '${login}': HTTP ${response.status}: ${text}`,
+			);
+		}
 	}
 
 	// =========================================================================

@@ -33,6 +33,8 @@ Options:
 
 Environment variables (passthrough):
   GITHUB_PAT             Required — tests/api validates it via the gh CLI
+  ADMIN_PASSWORD         Admin password the suites log in with
+                         (default: ci-admin-password-1234, matching docker-compose.ci.yml)
   TASK_TOKEN_SECRET      Auto-generated if unset
   DATA_DIR               Default: \$HOME/.moatless/data
   DOCKER_COMPOSE_URL     Override the target URL (default: per-suite in-network)
@@ -76,6 +78,9 @@ if [ -z "${TASK_TOKEN_SECRET:-}" ]; then
   TASK_TOKEN_SECRET=$(openssl rand -hex 32)
   echo -e "${BLUE}Generated TASK_TOKEN_SECRET${NC}"
 fi
+
+export ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
+export ADMIN_PASSWORD="${ADMIN_PASSWORD:-ci-admin-password-1234}"
 
 if [ -z "${GITHUB_PAT:-}" ]; then
   echo -e "${YELLOW}Warning: GITHUB_PAT is unset — tests/api/global-setup.ts will fail fast.${NC}"

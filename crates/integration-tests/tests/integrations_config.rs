@@ -20,7 +20,7 @@ fn timestamp_suffix() -> String {
 
 #[tokio::test]
 async fn task_route_trigger_crud_chain() {
-    let client = test_client();
+    let client = test_client().await;
     let repo_id = ensure_template_repo(&client).await;
     let suffix = timestamp_suffix();
     let source = format!("crud-test-{suffix}");
@@ -97,7 +97,7 @@ async fn task_route_trigger_crud_chain() {
 
 #[tokio::test]
 async fn schedule_trigger_crud_and_next_fire_chain() {
-    let client = test_client();
+    let client = test_client().await;
     let repo_id = ensure_template_repo(&client).await;
     let suffix = timestamp_suffix();
     let before_create = Utc::now();

@@ -85,7 +85,7 @@ struct ValuesInput<'a> {
 #[derive(Copy, Clone, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 enum AuthChoice {
-    None,
+    LocalPassword,
     Github,
     Auth0,
 }
@@ -93,11 +93,15 @@ enum AuthChoice {
 impl AuthChoice {
     fn from_str(s: &str) -> Result<Self, ClientError> {
         match s.trim().to_ascii_lowercase().as_str() {
-            "" | "none" | "off" | "disabled" => Ok(AuthChoice::None),
+            // `none`/`disabled` are the old spellings of no-auth mode, which
+            // is now local username/password.
+            "" | "local" | "password" | "none" | "off" | "disabled" => {
+                Ok(AuthChoice::LocalPassword)
+            }
             "github" | "gh" => Ok(AuthChoice::Github),
             "auth0" => Ok(AuthChoice::Auth0),
             other => Err(ClientError::Other(format!(
-                "Unknown auth provider '{other}'. Expected one of: none, github, auth0."
+                "Unknown auth provider '{other}'. Expected one of: local, github, auth0."
             ))),
         }
     }
@@ -107,7 +111,7 @@ fn resolve_auth(explicit: Option<String>) -> Result<AuthChoice, ClientError> {
     if let Some(s) = explicit {
         return AuthChoice::from_str(&s);
     }
-    let choices = ["none", "github", "auth0"];
+    let choices = ["local", "github", "auth0"];
     let idx = Select::with_theme(&ColorfulTheme::default())
         .with_prompt("Auth provider")
         .items(choices)
@@ -199,7 +203,9 @@ fn build_values(input: &ValuesInput<'_>) -> serde_json::Value {
         "frontendUrl": format!("https://{}", input.domain),
     });
     match input.auth {
-        AuthChoice::None => {}
+        AuthChoice::LocalPassword => {
+            auth_block["provider"] = json!("local");
+        }
         AuthChoice::Github => {
             auth_block["provider"] = json!("github");
             auth_block["github"] = json!({
@@ -241,7 +247,9 @@ fn build_values(input: &ValuesInput<'_>) -> serde_json::Value {
             "domain": input.proxy_domain,
             "protocol": "https",
             "traefikIngressRoute": { "enabled": true },
-            "traefikMiddleware": { "enabled": matches!(input.auth, AuthChoice::Github | AuthChoice::Auth0) },
+            // Unconditional: `/verify` now authenticates in every mode, so
+            // gating this would leave preview routes open under local auth.
+            "traefikMiddleware": { "enabled": true },
         },
         "auth": auth_block,
         "database": { "urlSecretKey": "DATABASE_URL" },

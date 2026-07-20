@@ -11,10 +11,10 @@
  * Standalone: AUTH-25, AUTH-26
  */
 
-import { test, expect } from "../fixtures/auth-fixtures";
-import { ChainContext } from "../context/chain-context";
-import { seedTestUsers } from "../helpers/seed-users";
 import type { ApiClient } from "../../shared/api-client";
+import { ChainContext } from "../context/chain-context";
+import { expect, loginAs, test } from "../fixtures/auth-fixtures";
+import { seedTestUsers } from "../helpers/seed-users";
 
 /**
  * Helper to create a repository with scope fields.
@@ -60,13 +60,13 @@ test.describe("Chain 1: Repository Scope Filtering", () => {
 	});
 
 	// Setup: Alice creates a team and adds Bob
-	test("Setup: Alice creates team and adds Bob", async ({ alice }) => {
+	test("Setup: Alice creates team and adds Bob", async ({ alice, bob }) => {
 		const team = await alice.createTeam({
 			name: "Scope Team",
 			slug: `scope-${suffix}`,
 		});
 		ctx.set("teamId", team.id);
-		await alice.addTeamMember(team.id, "bob-test", "member");
+		await alice.addTeamMember(team.id, await bob.userId(), "member");
 	});
 
 	// ─── AUTH-20: Create global-scoped repository ────────────────────────
@@ -88,11 +88,7 @@ test.describe("Chain 1: Repository Scope Filtering", () => {
 	// ─── AUTH-20.1: Other user can see global repository ─────────────────
 
 	test("AUTH-20.1: Other user can see global repository", async ({ bob }) => {
-		const bobWithTeam = bob.asUser({
-			userId: "bob-test",
-			login: "bob",
-			teamIds: [ctx.get<string>("teamId")!],
-		});
+		const bobWithTeam = await loginAs("bob");
 		const repos = await bobWithTeam.listRepositories();
 		const found = repos.some((r) => r.id === ctx.get<string>("globalRepoId"));
 		expect(found).toBe(true);
@@ -102,11 +98,7 @@ test.describe("Chain 1: Repository Scope Filtering", () => {
 
 	test("AUTH-21: Create team-scoped repository", async ({ alice }) => {
 		const teamId = ctx.get<string>("teamId")!;
-		const aliceWithTeam = alice.asUser({
-			userId: "alice-test",
-			login: "alice",
-			teamIds: [teamId],
-		});
+		const aliceWithTeam = await loginAs("alice");
 
 		const repo = await createScopedRepo(aliceWithTeam, {
 			name: `Team Repo ${suffix}`,
@@ -126,11 +118,7 @@ test.describe("Chain 1: Repository Scope Filtering", () => {
 	// ─── AUTH-21.1: Team member can see team repository ──────────────────
 
 	test("AUTH-21.1: Team member can see team repository", async ({ bob }) => {
-		const bobWithTeam = bob.asUser({
-			userId: "bob-test",
-			login: "bob",
-			teamIds: [ctx.get<string>("teamId")!],
-		});
+		const bobWithTeam = await loginAs("bob");
 		const repos = await bobWithTeam.listRepositories();
 		const found = repos.some((r) => r.id === ctx.get<string>("teamRepoId"));
 		expect(found).toBe(true);
@@ -140,11 +128,7 @@ test.describe("Chain 1: Repository Scope Filtering", () => {
 
 	test("AUTH-21.2: Non-member cannot see team repository", async ({ api }) => {
 		// Carol without team membership (non-admin view)
-		const outsider = api.asUser({
-			userId: "carol-admin",
-			login: "carol",
-			// No role, no teamIds — regular user perspective
-		});
+		const outsider = await loginAs("carol-nonadmin");
 		const repos = await outsider.listRepositories();
 		const found = repos.some((r) => r.id === ctx.get<string>("teamRepoId"));
 		expect(found).toBe(false);
@@ -211,20 +195,16 @@ test.describe("Chain 2: Task Scope Inheritance", () => {
 	});
 
 	// Setup: Alice creates a team, adds Bob, and creates a team-scoped repo
-	test("Setup: Alice creates team + team-scoped repo", async ({ alice }) => {
+	test("Setup: Alice creates team + team-scoped repo", async ({ alice, bob }) => {
 		const team = await alice.createTeam({
 			name: "Task Scope Team",
 			slug: `task-scope-${suffix}`,
 		});
 		ctx.set("teamId", team.id);
 
-		await alice.addTeamMember(team.id, "bob-test", "member");
+		await alice.addTeamMember(team.id, await bob.userId(), "member");
 
-		const aliceWithTeam = alice.asUser({
-			userId: "alice-test",
-			login: "alice",
-			teamIds: [team.id],
-		});
+		const aliceWithTeam = await loginAs("alice");
 
 		const repo = await createScopedRepo(aliceWithTeam, {
 			name: `Task Scope Repo ${suffix}`,
@@ -238,11 +218,7 @@ test.describe("Chain 2: Task Scope Inheritance", () => {
 	// ─── AUTH-23: Create task under team-scoped repository ───────────────
 
 	test("AUTH-23: Create task under team-scoped repository", async ({ alice }) => {
-		const aliceWithTeam = alice.asUser({
-			userId: "alice-test",
-			login: "alice",
-			teamIds: [ctx.get<string>("teamId")!],
-		});
+		const aliceWithTeam = await loginAs("alice");
 
 		const task = await aliceWithTeam.createVibeTask({
 			templateId: ctx.repositoryId!,
@@ -258,11 +234,7 @@ test.describe("Chain 2: Task Scope Inheritance", () => {
 	// ─── AUTH-23.1: Task inherits team scope from repository ─────────────
 
 	test("AUTH-23.1: Task inherits team scope from repository", async ({ alice }) => {
-		const aliceWithTeam = alice.asUser({
-			userId: "alice-test",
-			login: "alice",
-			teamIds: [ctx.get<string>("teamId")!],
-		});
+		const aliceWithTeam = await loginAs("alice");
 		const task = await aliceWithTeam.getTask(ctx.taskId!);
 
 		// The task response should reflect the scope inherited from the repo
@@ -273,11 +245,7 @@ test.describe("Chain 2: Task Scope Inheritance", () => {
 	// ─── AUTH-23.2: Team member can see the task ─────────────────────────
 
 	test("AUTH-23.2: Team member can see the task", async ({ bob }) => {
-		const bobWithTeam = bob.asUser({
-			userId: "bob-test",
-			login: "bob",
-			teamIds: [ctx.get<string>("teamId")!],
-		});
+		const bobWithTeam = await loginAs("bob");
 		const tasks = await bobWithTeam.listTasks();
 		const found = tasks.items.some((t) => t.taskId === ctx.taskId);
 		expect(found).toBe(true);
@@ -286,10 +254,7 @@ test.describe("Chain 2: Task Scope Inheritance", () => {
 	// ─── AUTH-23.3: Non-member cannot see the task ───────────────────────
 
 	test("AUTH-23.3: Non-member cannot see the task", async ({ api }) => {
-		const outsider = api.asUser({
-			userId: "outsider-user",
-			login: "outsider",
-		});
+		const outsider = await loginAs("outsider");
 		const tasks = await outsider.listTasks();
 		const found = tasks.items.some((t) => t.taskId === ctx.taskId);
 		expect(found).toBe(false);
@@ -342,11 +307,7 @@ test.describe("Chain 3: Admin Bypass", () => {
 		repoIds.push(userRepo.id);
 
 		// Team-scoped repo
-		const aliceWithTeam = alice.asUser({
-			userId: "alice-test",
-			login: "alice",
-			teamIds: [team.id],
-		});
+		const aliceWithTeam = await loginAs("alice");
 		const teamRepo = await createScopedRepo(aliceWithTeam, {
 			name: `Team Only ${suffix}`,
 			kind: "template",
@@ -410,11 +371,7 @@ test("AUTH-25: Listing repositories filters by scope", async ({
 		slug: `filter-${suffix}`,
 	});
 
-	const aliceWithTeam = alice.asUser({
-		userId: "alice-test",
-		login: "alice",
-		teamIds: [team.id],
-	});
+	const aliceWithTeam = await loginAs("alice");
 
 	// Create repos with different scopes
 	const globalRepo = await createScopedRepo(aliceWithTeam, {
@@ -442,11 +399,7 @@ test("AUTH-25: Listing repositories filters by scope", async ({
 		expect(bobRepos.some((r) => r.id === userRepo.id)).toBe(false);
 
 		// Bob WITH team membership — should also see team repo
-		const bobWithTeam = api.asUser({
-			userId: "bob-test",
-			login: "bob",
-			teamIds: [team.id],
-		});
+		const bobWithTeam = await loginAs("bob");
 		const bobTeamRepos = await bobWithTeam.listRepositories();
 		expect(bobTeamRepos.some((r) => r.id === globalRepo.id)).toBe(true);
 		expect(bobTeamRepos.some((r) => r.id === teamRepo.id)).toBe(true);
@@ -470,11 +423,7 @@ test("AUTH-26: Listing tasks filters by scope", async ({ alice, api }) => {
 		slug: `task-filter-${suffix}`,
 	});
 
-	const aliceWithTeam = alice.asUser({
-		userId: "alice-test",
-		login: "alice",
-		teamIds: [team.id],
-	});
+	const aliceWithTeam = await loginAs("alice");
 
 	// Create a team-scoped repo + task
 	const teamRepo = await createScopedRepo(aliceWithTeam, {
@@ -492,10 +441,7 @@ test("AUTH-26: Listing tasks filters by scope", async ({ alice, api }) => {
 
 	try {
 		// Outsider should NOT see the task
-		const outsider = api.asUser({
-			userId: "outsider-user-2",
-			login: "outsider2",
-		});
+		const outsider = await loginAs("outsider2");
 		const outsiderTasks = await outsider.listTasks();
 		expect(outsiderTasks.items.some((t) => t.taskId === task.taskId)).toBe(false);
 
