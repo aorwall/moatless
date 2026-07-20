@@ -19,7 +19,7 @@ export function useRepositoriesList(
   options?: Omit<UseQueryOptions<RepositoryResponse[]>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
-    queryKey: queryKeys.repositoriesList(),
+    queryKey: queryKeys.repositories.list(),
     queryFn: () => repositoriesApi.listRepositories(),
     ...options,
   })
@@ -30,7 +30,7 @@ export function useRepository(
   options?: Omit<UseQueryOptions<RepositoryResponse>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
-    queryKey: queryKeys.repositoryDetail(repoId),
+    queryKey: queryKeys.repositories.detail(repoId),
     queryFn: () => repositoriesApi.getRepository(repoId),
     enabled: !!repoId,
     ...options,
@@ -47,7 +47,7 @@ export function useCreateRepository(
     mutationFn: (request: CreateRepositoryRequest) => repositoriesApi.createRepository(request),
     onSuccess: (data, variables, onMutateResult, mutationContext) => {
       // Invalidate repositories list to refresh with new repository
-      queryClient.invalidateQueries({ queryKey: queryKeys.repositories() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.repositories.all() })
       options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
     },
     ...options,
@@ -68,10 +68,10 @@ export function useUpdateRepository(
     onSuccess: (data, variables, onMutateResult, mutationContext) => {
       // Invalidate specific repository detail
       queryClient.invalidateQueries({
-        queryKey: queryKeys.repositoryDetail(variables.repoId),
+        queryKey: queryKeys.repositories.detail(variables.repoId),
       })
       // Invalidate repositories list
-      queryClient.invalidateQueries({ queryKey: queryKeys.repositories() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.repositories.all() })
       options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
     },
     ...options,
@@ -86,10 +86,10 @@ export function useDeleteRepository(options?: UseMutationOptions<void, Error, st
     onSuccess: (data, repoId, onMutateResult, mutationContext) => {
       // Remove from cache
       queryClient.removeQueries({
-        queryKey: queryKeys.repositoryDetail(repoId),
+        queryKey: queryKeys.repositories.detail(repoId),
       })
       // Invalidate repositories list
-      queryClient.invalidateQueries({ queryKey: queryKeys.repositories() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.repositories.all() })
       options?.onSuccess?.(data, repoId, onMutateResult, mutationContext)
     },
     ...options,
@@ -106,10 +106,10 @@ export function useConvertToTemplate(
     onSuccess: (data, repoId, onMutateResult, mutationContext) => {
       // Invalidate specific repository detail
       queryClient.invalidateQueries({
-        queryKey: queryKeys.repositoryDetail(repoId),
+        queryKey: queryKeys.repositories.detail(repoId),
       })
       // Invalidate repositories list
-      queryClient.invalidateQueries({ queryKey: queryKeys.repositories() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.repositories.all() })
       options?.onSuccess?.(data, repoId, onMutateResult, mutationContext)
     },
     ...options,
@@ -121,7 +121,7 @@ export function useBranches(
   options?: Omit<UseQueryOptions<BranchListResponse>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
-    queryKey: queryKeys.repositoryBranches(repoId),
+    queryKey: queryKeys.repositories.branches(repoId),
     queryFn: () => repositoriesApi.getBranches(repoId),
     enabled: !!repoId,
     staleTime: 60_000, // Cache for 1 minute

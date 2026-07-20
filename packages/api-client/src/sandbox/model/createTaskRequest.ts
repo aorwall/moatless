@@ -33,4 +33,12 @@ export interface CreateTaskRequest {
   repositoryId: string;
   /** @nullable */
   taskTemplateId?: string | null;
+  /**
+   * Optional explicit workspace to run the task in (multi-repo flows). When
+unset, the task derives the repository's deterministic shadow workspace,
+keeping the single-repo path unchanged. When set, `repository_id` must be
+the workspace's primary repository.
+   * @nullable
+   */
+  workspaceId?: string | null;
 }

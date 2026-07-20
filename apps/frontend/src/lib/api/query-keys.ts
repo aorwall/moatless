@@ -76,11 +76,19 @@ export const queryKeys = {
     members: (teamId: string) => [...queryKeys.teams.all, 'members', teamId] as const,
   },
 
-  repositories: () => [...queryKeys.all, 'repositories'] as const,
-  repositoriesList: () => [...queryKeys.repositories(), 'list'] as const,
-  repositoryDetail: (repoId: string) => [...queryKeys.repositories(), 'detail', repoId] as const,
-  repositoryBranches: (repoId: string) =>
-    [...queryKeys.repositories(), 'branches', repoId] as const,
+  repositories: {
+    all: () => [...queryKeys.all, 'repositories'] as const,
+    list: () => [...queryKeys.repositories.all(), 'list'] as const,
+    detail: (repoId: string) => [...queryKeys.repositories.all(), 'detail', repoId] as const,
+    branches: (repoId: string) => [...queryKeys.repositories.all(), 'branches', repoId] as const,
+  },
+
+  workspaces: {
+    all: () => [...queryKeys.all, 'workspaces'] as const,
+    list: () => [...queryKeys.workspaces.all(), 'list'] as const,
+    detail: (workspaceId: string) =>
+      [...queryKeys.workspaces.all(), 'detail', workspaceId] as const,
+  },
 
   agents: {
     all: () => [...queryKeys.all, 'agents'] as const,

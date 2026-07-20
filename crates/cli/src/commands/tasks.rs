@@ -196,6 +196,7 @@ pub async fn run(
             let has_message = message.is_some();
             let req = CreateTaskRequest {
                 repository_id: repo_id,
+                workspace_id: None,
                 name,
                 message,
                 branch,

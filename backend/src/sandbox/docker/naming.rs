@@ -54,10 +54,10 @@ pub fn generate_server_container_name(task_id: &str, server_name: &str) -> Strin
     format!("{prefix}{sanitized_task}{separator}{sanitized_name}")
 }
 
-/// Generate the host volume path for a task's workspace.
+/// Generate the host volume path for a task's sandbox.
 ///
 /// Format: `{data_dir}/tasks/{task_id}/repo`
-pub fn generate_workspace_host_path(data_dir: &str, task_id: &str) -> String {
+pub fn generate_sandbox_host_path(data_dir: &str, task_id: &str) -> String {
     let mut path = PathBuf::from(data_dir);
     path.push("tasks");
     path.push(task_id);
@@ -128,17 +128,17 @@ mod tests {
     }
 
     #[test]
-    fn workspace_path_basic() {
+    fn sandbox_path_basic() {
         assert_eq!(
-            generate_workspace_host_path("/data", "task-123"),
+            generate_sandbox_host_path("/data", "task-123"),
             "/data/tasks/task-123/repo"
         );
     }
 
     #[test]
-    fn workspace_path_trailing_slash() {
+    fn sandbox_path_trailing_slash() {
         // PathBuf normalises, so trailing slash on data_dir is handled
-        let path = generate_workspace_host_path("/data/", "task-123");
+        let path = generate_sandbox_host_path("/data/", "task-123");
         assert!(path.contains("tasks"));
         assert!(path.contains("task-123"));
     }

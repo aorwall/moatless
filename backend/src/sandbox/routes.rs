@@ -23,6 +23,7 @@ use crate::repository::dao::RepoRepository;
 use crate::secret::service::SecretService;
 use crate::task::dao::TaskRepository;
 use crate::team::dao::TeamRepository;
+use crate::workspace::dao::WorkspaceRepository;
 
 /// State shared across sandbox API handlers.
 #[derive(Clone)]
@@ -40,6 +41,9 @@ pub struct SandboxApiState {
     pub provider_tokens: Option<Arc<dyn ProviderTokenRepository>>,
     /// Optional plugin repo repository — enables plugin git URL resolution for provisioning.
     pub plugin_repos: Option<Arc<dyn PluginRepoRepository>>,
+    /// Optional workspace repository — resolves a task's repository composition
+    /// for provisioning when `tasks.workspace_id` is set.
+    pub workspaces: Option<Arc<dyn WorkspaceRepository>>,
     /// Optional scoped secret service — enables server-targeted secret delivery.
     pub secrets: Option<Arc<SecretService>>,
 }

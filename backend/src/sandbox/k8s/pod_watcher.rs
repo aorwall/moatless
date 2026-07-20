@@ -42,6 +42,7 @@ use crate::repository::dao::RepoRepository;
 use crate::task::dao::{TaskPatch, TaskRepository};
 use crate::task::models::{SandboxDesiredState, SandboxStopReason};
 use crate::task_event::dao::TaskEventRepository;
+use crate::workspace::dao::WorkspaceRepository;
 
 /// Optional DB + config dependencies the watcher needs to auto-disable a
 /// crash-looping server container. All repositories are optional because the
@@ -53,6 +54,7 @@ struct WatcherDeps {
     repos: Option<Arc<dyn RepoRepository>>,
     provider_tokens: Option<Arc<dyn ProviderTokenRepository>>,
     plugin_repos: Option<Arc<dyn PluginRepoRepository>>,
+    workspaces: Option<Arc<dyn WorkspaceRepository>>,
     /// Task-event repo, used to look up the active turn when a pod terminates
     /// involuntarily so `turn_interrupted` carries the right turn context (and
     /// is suppressed when no turn is in flight). `None` in DB-less setups.
@@ -202,6 +204,7 @@ pub fn spawn_pod_lifecycle_watcher(
     repos: Option<Arc<dyn RepoRepository>>,
     provider_tokens: Option<Arc<dyn ProviderTokenRepository>>,
     plugin_repos: Option<Arc<dyn PluginRepoRepository>>,
+    workspaces: Option<Arc<dyn WorkspaceRepository>>,
     task_events: Option<Arc<dyn TaskEventRepository>>,
     config: Arc<Config>,
 ) -> JoinHandle<()> {
@@ -219,6 +222,7 @@ pub fn spawn_pod_lifecycle_watcher(
         repos,
         provider_tokens,
         plugin_repos,
+        workspaces,
         task_events,
         config,
     };
@@ -1222,11 +1226,12 @@ async fn auto_disable_server(
     );
 
     // Need full DB access to determine default-ness, persist, and redeploy.
-    let (Some(tasks), Some(repos), Some(provider_tokens), Some(plugin_repos)) = (
+    let (Some(tasks), Some(repos), Some(provider_tokens), Some(plugin_repos), Some(workspaces)) = (
         deps.tasks.as_ref(),
         deps.repos.as_ref(),
         deps.provider_tokens.as_ref(),
         deps.plugin_repos.as_ref(),
+        deps.workspaces.as_ref(),
     ) else {
         debug!(
             task_id = %task_id,
@@ -1312,6 +1317,7 @@ async fn auto_disable_server(
         repos.as_ref(),
         provider_tokens.as_ref(),
         plugin_repos.as_ref(),
+        workspaces.as_ref(),
         task_id,
     )
     .await

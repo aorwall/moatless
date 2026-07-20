@@ -96,6 +96,7 @@ pub async fn ensure_sandbox_and_notify(state: &AppState, task_id: &str) -> Resul
         state.repositories.as_ref(),
         state.provider_tokens.as_ref(),
         state.plugin_repos.as_ref(),
+        state.workspaces.as_ref(),
         task_id,
     )
     .await

@@ -455,6 +455,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     use crate::task_event::routes::TaskEventApiDoc;
     use crate::task_template::routes::TaskTemplateApiDoc;
     use crate::team::routes::TeamApiDoc;
+    use crate::workspace::routes::WorkspaceApiDoc;
     use utoipa::OpenApi;
 
     #[derive(OpenApi)]
@@ -526,6 +527,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     merged.merge(TaskTemplateApiDoc::openapi());
     merged.merge(FeatureFlagsApiDoc::openapi());
     merged.merge(SkillApiDoc::openapi());
+    merged.merge(WorkspaceApiDoc::openapi());
 
     merged.info = utoipa::openapi::InfoBuilder::new()
         .title("Moatless Vibe Backend API")

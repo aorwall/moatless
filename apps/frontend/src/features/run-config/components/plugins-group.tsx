@@ -1,19 +1,16 @@
-import type { UpdateRepositoryRequest } from '@moatless/api-client'
 import { Loader2, Package, Plus, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { usePlugins } from '@/features/plugins/hooks/use-plugins'
-import { PluginPickerDialog } from '@/features/repositories/components/plugin-picker-dialog'
 import { ConfigurationGroup, ConfigurationItem } from '@/lib/components/configuration'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
 import type { PluginInfo } from '@/lib/types/plugins'
+import type { RunConfigFormValues, UpdateRunConfigField } from '../types'
+import { PluginPickerDialog } from './plugin-picker-dialog'
 
 interface PluginsGroupProps {
-  formData: Partial<UpdateRepositoryRequest>
-  onUpdateField: <K extends keyof UpdateRepositoryRequest>(
-    field: K,
-    value: UpdateRepositoryRequest[K],
-  ) => void
+  formData: RunConfigFormValues
+  onUpdateField: UpdateRunConfigField
 }
 
 export function PluginsGroup({ formData, onUpdateField }: PluginsGroupProps) {

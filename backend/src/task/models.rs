@@ -35,6 +35,11 @@ pub struct Task {
     pub last_message_at: String,
     pub agent_type: AgentType,
     pub repository_id: String,
+    /// Workspace this task runs against (Phase A: nullable during the additive
+    /// transition; backfilled to the repository's shadow workspace). When set,
+    /// provisioning resolves the repository composition via the workspace;
+    /// otherwise it falls back to `repository_id`.
+    pub workspace_id: Option<String>,
     pub status: TaskStatus,
     pub total_cost_usd: f64,
     pub site_url: Option<String>,

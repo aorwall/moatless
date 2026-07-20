@@ -11,8 +11,9 @@ use moatless_vibe_backend::auth::github_app_registry::GitHubAppRegistry;
 use moatless_vibe_backend::command::models::Command;
 use moatless_vibe_backend::config::{
     AuthConfig, CodexOAuthConfig, Config, DatabaseConfig, DockerConfig, GithubPrConfig,
-    LinearConfig, ProxyConfig, RedisConfig, S3Config, SandboxConfig, SandboxProviderType,
-    SecretsConfig, ServerConfig, SkillConfig, SlackConfig, SseConfig, TelegramConfig,
+    LinearConfig, ProxyConfig, ReconcileConfig, RedisConfig, S3Config, SandboxConfig,
+    SandboxProviderType, SecretsConfig, ServerConfig, SkillConfig, SlackConfig, SseConfig,
+    TelegramConfig,
 };
 use moatless_vibe_backend::message::models::{MessageRole, MessageType, TaskMessage};
 use moatless_vibe_backend::repository::models::{Repository, RepositoryKind, RepositoryProvider};
@@ -24,6 +25,7 @@ use moatless_vibe_backend::sandbox::schemas::*;
 use moatless_vibe_backend::shared_models::AgentType;
 use moatless_vibe_backend::state::AppState;
 use moatless_vibe_backend::task::models::{SandboxDesiredState, Task, TaskStatus, Visibility};
+use moatless_vibe_backend::workspace::models::{Workspace, WorkspaceRepo};
 
 // =========================================================================
 // Mock sandbox provider
@@ -122,6 +124,11 @@ pub fn test_config() -> Config {
             resources_memory_limit: "512Mi".into(),
             resources_cpu_request: "100m".into(),
             resources_memory_request: "128Mi".into(),
+            run_as_non_root: false,
+            shared_data_size: "2Gi".into(),
+            build_cache_size: "1536Mi".into(),
+            persist_toolchain: false,
+            cargo_target_on_build_cache: false,
             storage_enabled: false,
             storage_size: "1Gi".into(),
             storage_class: None,
@@ -136,6 +143,7 @@ pub fn test_config() -> Config {
             idle_reaper_enabled: false,
             liveness_enabled: false,
             idle_timeout_minutes: 15,
+            busy_extension_max_hours: 4,
             idle_check_interval_secs: 300,
             inactive_task_timeout_days: 0,
             orphan_gc_enabled: false,
@@ -191,6 +199,7 @@ pub fn test_config() -> Config {
         redis: RedisConfig {
             url: None,
             max_stream_length: 100,
+            event_handler_enabled: true,
         },
         sse: SseConfig {
             broadcast_capacity: 16,
@@ -262,6 +271,12 @@ pub fn test_config() -> Config {
             issuer: "https://auth.openai.com".into(),
             client_id: "test-client".into(),
         },
+        reconcile: ReconcileConfig {
+            reprovision_enabled: false,
+            pending_timeout_enabled: false,
+            pending_timeout_minutes: 15,
+            max_reprovision_attempts: 3,
+        },
         default_run_as_user_id: None,
     }
 }
@@ -324,6 +339,7 @@ pub fn make_task_row(task_id: &str, user_id: &str) -> Task {
         inactive_ttl_days: 7,
         task_template_id: None,
         trigger_id: None,
+        workspace_id: None,
         disabled_servers: None,
     }
 }
@@ -357,6 +373,7 @@ pub fn make_repository_row(id: &str, user_id: &str) -> Repository {
         team_id: Some(format!("personal-{user_id}")),
         owner_user_id: Some(user_id.to_string()),
         created_by: Some(user_id.to_string()),
+        sandbox_service_account: None,
         resources: None,
         deleted: Some(false),
         created_at: Some(now),
@@ -496,4 +513,61 @@ pub async fn body_json(response: axum::http::Response<axum::body::Body>) -> serd
         .unwrap()
         .to_bytes();
     serde_json::from_slice(&bytes).unwrap()
+}
+
+// =========================================================================
+// Workspace factories
+// =========================================================================
+
+/// Create a minimal user-scoped Workspace row for tests.
+///
+/// `kind` starts at `blank`; use `refresh_kind` after adding placements to
+/// derive the real label. Run-config columns are left empty — placement and
+/// ACL behavior is what the DAO tests exercise.
+#[allow(dead_code)]
+pub fn make_workspace_row(id: &str, user_id: &str) -> Workspace {
+    let now = chrono::Utc::now();
+    Workspace {
+        id: id.to_string(),
+        name: format!("ws-{id}"),
+        description: None,
+        kind: "blank".to_string(),
+        docker_image: None,
+        docker_access: None,
+        sandbox_service_account: None,
+        system_prompt: None,
+        setup_commands: None,
+        env_vars: None,
+        servers: None,
+        plugins: None,
+        resources: None,
+        scope: moatless_vibe_backend::scope::Scope::User,
+        team_id: Some(format!("personal-{user_id}")),
+        owner_user_id: Some(user_id.to_string()),
+        created_by: Some(user_id.to_string()),
+        deleted: Some(false),
+        created_at: Some(now),
+        updated_at: Some(now),
+    }
+}
+
+/// Create a `WorkspaceRepo` placement row for tests.
+#[allow(dead_code)]
+pub fn make_workspace_repo_row(
+    id: &str,
+    workspace_id: &str,
+    repository_id: &str,
+    is_primary: bool,
+    position: i32,
+) -> WorkspaceRepo {
+    WorkspaceRepo {
+        id: id.to_string(),
+        workspace_id: workspace_id.to_string(),
+        repository_id: repository_id.to_string(),
+        branch: None,
+        mount_name: None,
+        is_primary,
+        position,
+        created_at: Some(chrono::Utc::now()),
+    }
 }

@@ -919,6 +919,7 @@ async fn create_provider_event_task(
             .unwrap_or(crate::task::models::DEFAULT_INACTIVE_TTL_DAYS),
         task_template_id: None,
         trigger_id: Some(rule.id.clone()),
+        workspace_id: None,
         disabled_servers: None,
     };
 
@@ -1082,6 +1083,7 @@ async fn provision_task(state: &AppState, task_id: &str) {
         state.repositories.as_ref(),
         state.provider_tokens.as_ref(),
         state.plugin_repos.as_ref(),
+        state.workspaces.as_ref(),
         task_id,
     )
     .await

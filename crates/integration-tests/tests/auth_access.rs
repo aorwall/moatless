@@ -164,6 +164,7 @@ async fn task_scope_inheritance() {
         .api()
         .create_task(&CreateTaskRequest {
             repository_id: team_repo.id.clone(),
+            workspace_id: None,
             message: Some("Test task for scope inheritance".into()),
             name: Some(format!("Scoped Task {suffix}")),
             branch: None,
@@ -366,6 +367,7 @@ async fn listing_tasks_filters_by_scope() {
         .api()
         .create_task(&CreateTaskRequest {
             repository_id: team_repo.id.clone(),
+            workspace_id: None,
             message: Some("Scoped task test".into()),
             name: Some(format!("Scoped Task {suffix}")),
             branch: None,

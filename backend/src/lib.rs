@@ -50,3 +50,4 @@ pub mod task_template;
 pub mod task_turn;
 pub mod team;
 pub mod triggers;
+pub mod workspace;

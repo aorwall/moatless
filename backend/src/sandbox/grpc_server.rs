@@ -92,7 +92,7 @@ fn transcript_key(prefix: &str, task_id: &str) -> String {
 /// Build the S3 key for a task's workspace archive:
 /// `<prefix>/<task_id>/workspace.tar`. The `<prefix>/<task_id>/` portion is the
 /// same one `provider.rs::cleanup` deletes, so uploads and cleanup stay aligned.
-fn workspace_key(prefix: &str, task_id: &str) -> String {
+fn sandbox_key(prefix: &str, task_id: &str) -> String {
     format!("{}/{}/workspace.tar", prefix.trim_end_matches('/'), task_id)
 }
 
@@ -1315,7 +1315,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             return Err(Status::failed_precondition("S3 bucket not configured"));
         };
 
-        let key = workspace_key(&self.workspace_s3_prefix, &req.task_id);
+        let key = sandbox_key(&self.workspace_s3_prefix, &req.task_id);
 
         let put_url = file_s3::presign_put(s3_client, bucket, &key, WORKSPACE_PRESIGN_TTL)
             .await
@@ -2360,6 +2360,7 @@ mod tests {
             inactive_ttl_days: 0,
             task_template_id: None,
             trigger_id: None,
+            workspace_id: None,
             disabled_servers: None,
         }
     }

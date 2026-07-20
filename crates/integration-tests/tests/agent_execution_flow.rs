@@ -34,6 +34,7 @@ async fn agent_execution_and_multi_turn() {
     // AGENT-01: Create task WITH message to trigger agent execution
     let req = CreateTaskRequest {
         repository_id: repo_id.clone(),
+        workspace_id: None,
         message: Some(
             "Create a file called e2e-success.txt with the content 'E2E Test Success'".into(),
         ),
