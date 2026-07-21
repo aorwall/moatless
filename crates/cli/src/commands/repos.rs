@@ -1,13 +1,13 @@
 //! Repository commands: list, get, create, update.
-
-use std::collections::HashMap;
+//!
+//! A repository is only a connection to a git repo — run-configuration lives on
+//! the workspace (synced from the repo's `.moatless/`), so these commands set
+//! only git-connection fields.
 
 use clap::Subcommand;
 use moatless_api_schemas::enums::{RepositoryKind, RepositoryProvider, Scope};
 use moatless_api_schemas::repository::{
-    CreateRepositoryRequest, DOCKER_STORAGE_MODES, RepositoryResponse, ResourceConfig,
-    STORAGE_MODES, ServerConfig, UpdateRepositoryRequest, is_valid_docker_storage_mode,
-    is_valid_storage_mode,
+    CreateRepositoryRequest, RepositoryResponse, UpdateRepositoryRequest,
 };
 
 use crate::client::{ClientError, MoatClient};
@@ -37,87 +37,9 @@ pub enum RepoAction {
         /// Repository kind: remote, template, or git
         #[arg(long, default_value = "remote")]
         kind: String,
-        /// CPU request (e.g. "200m")
-        #[arg(long)]
-        resource_cpu_request: Option<String>,
-        /// CPU limit (e.g. "4")
-        #[arg(long)]
-        resource_cpu_limit: Option<String>,
-        /// Memory request (e.g. "2560Mi")
-        #[arg(long)]
-        resource_memory_request: Option<String>,
-        /// Memory limit (e.g. "4096Mi")
-        #[arg(long)]
-        resource_memory_limit: Option<String>,
-        /// Workspace size override, e.g. "8Gi" (sizes the PVC or the ephemeral/s3 emptyDir).
-        /// Like the --resource-* flags, a resources update replaces the whole resources
-        /// object, so pass all desired resource flags together.
-        #[arg(long)]
-        storage: Option<String>,
-        /// Storage tier: "ebs" (default, per-task PVC), "ephemeral" (node-local
-        /// emptyDir, no PVC), "s3" (node-local emptyDir + git-tree sync to S3),
-        /// or "node" (best-effort node-local hostPath)
-        #[arg(long)]
-        storage_mode: Option<String>,
-        /// Size cap for the dind sidecar's /var/lib/docker emptyDir, e.g. "50Gi"
-        /// (only meaningful with --docker-storage-mode emptyDir)
-        #[arg(long)]
-        docker_storage: Option<String>,
-        /// Storage tier for the dind sidecar's /var/lib/docker: "node" (default,
-        /// best-effort hostPath) or "emptyDir" (capped by --docker-storage)
-        #[arg(long)]
-        docker_storage_mode: Option<String>,
-        /// Docker image for sandbox (e.g. "myregistry/my-sandbox:latest")
-        #[arg(long)]
-        docker_image: Option<String>,
-        /// Enable Docker-in-Docker access (privileged dind sidecar) so Testcontainers
-        /// can run inside the sandbox
-        #[arg(long)]
-        docker_access: Option<bool>,
-        /// Kubernetes ServiceAccount for this repo's sandboxes (overrides the global
-        /// default). Used for shadow-dev sandboxes that need the backend's RBAC.
-        #[arg(long)]
-        sandbox_service_account: Option<String>,
-        /// Network profile: sandbox pods get label moatless.io/network-profile=<value>,
-        /// which a static (GitOps-owned) NetworkPolicy selects. Selects a policy only.
-        #[arg(long)]
-        network_profile: Option<String>,
-        /// Plugin references (repeatable, e.g. "name@url")
-        #[arg(long = "plugin")]
-        plugins: Vec<String>,
-        /// System prompt for the repository
-        #[arg(long)]
-        system_prompt: Option<String>,
         /// Repository description
         #[arg(long)]
         description: Option<String>,
-        /// Build command
-        #[arg(long)]
-        build_command: Option<String>,
-        /// Build output directory
-        #[arg(long)]
-        build_output_dir: Option<String>,
-        /// Enable inspector
-        #[arg(long)]
-        enable_inspector: Option<bool>,
-        /// Enable auto-reload
-        #[arg(long)]
-        auto_reload: Option<bool>,
-        /// Repo-level environment variables as KEY=VALUE (repeatable)
-        #[arg(long = "env-var")]
-        env_vars: Vec<String>,
-        /// Setup commands run before server starts (repeatable)
-        #[arg(long = "setup-command")]
-        setup_commands: Vec<String>,
-        /// Legacy server start commands (repeatable)
-        #[arg(long = "server-start-command")]
-        server_start_commands: Vec<String>,
-        /// Full servers config as JSON string
-        #[arg(long)]
-        servers_json: Option<String>,
-        /// Startup timeout in seconds
-        #[arg(long)]
-        startup_timeout: Option<i32>,
         /// Team ID
         #[arg(long)]
         team_id: Option<String>,
@@ -140,87 +62,9 @@ pub enum RepoAction {
         branch: Option<String>,
         #[arg(long)]
         git_url: Option<String>,
-        /// CPU request (e.g. "200m")
-        #[arg(long)]
-        resource_cpu_request: Option<String>,
-        /// CPU limit (e.g. "4")
-        #[arg(long)]
-        resource_cpu_limit: Option<String>,
-        /// Memory request (e.g. "2560Mi")
-        #[arg(long)]
-        resource_memory_request: Option<String>,
-        /// Memory limit (e.g. "4096Mi")
-        #[arg(long)]
-        resource_memory_limit: Option<String>,
-        /// Workspace size override, e.g. "8Gi" (sizes the PVC or the ephemeral/s3 emptyDir).
-        /// Like the --resource-* flags, a resources update replaces the whole resources
-        /// object, so pass all desired resource flags together.
-        #[arg(long)]
-        storage: Option<String>,
-        /// Storage tier: "ebs" (default, per-task PVC), "ephemeral" (node-local
-        /// emptyDir, no PVC), "s3" (node-local emptyDir + git-tree sync to S3),
-        /// or "node" (best-effort node-local hostPath)
-        #[arg(long)]
-        storage_mode: Option<String>,
-        /// Size cap for the dind sidecar's /var/lib/docker emptyDir, e.g. "50Gi"
-        /// (only meaningful with --docker-storage-mode emptyDir)
-        #[arg(long)]
-        docker_storage: Option<String>,
-        /// Storage tier for the dind sidecar's /var/lib/docker: "node" (default,
-        /// best-effort hostPath) or "emptyDir" (capped by --docker-storage)
-        #[arg(long)]
-        docker_storage_mode: Option<String>,
-        /// Docker image for sandbox (e.g. "myregistry/my-sandbox:latest")
-        #[arg(long)]
-        docker_image: Option<String>,
-        /// Enable Docker-in-Docker access (privileged dind sidecar) so Testcontainers
-        /// can run inside the sandbox
-        #[arg(long)]
-        docker_access: Option<bool>,
-        /// Kubernetes ServiceAccount for this repo's sandboxes (overrides the global
-        /// default). Used for shadow-dev sandboxes that need the backend's RBAC.
-        #[arg(long)]
-        sandbox_service_account: Option<String>,
-        /// Network profile: sandbox pods get label moatless.io/network-profile=<value>,
-        /// which a static (GitOps-owned) NetworkPolicy selects. Selects a policy only.
-        #[arg(long)]
-        network_profile: Option<String>,
-        /// Setup commands run before server starts (repeatable)
-        #[arg(long = "setup-command")]
-        setup_commands: Vec<String>,
-        /// Legacy server start commands (repeatable)
-        #[arg(long = "server-start-command")]
-        server_start_commands: Vec<String>,
-        /// Repo-level environment variables as KEY=VALUE (repeatable)
-        #[arg(long = "env-var")]
-        env_vars: Vec<String>,
-        /// Startup timeout in seconds
-        #[arg(long)]
-        startup_timeout: Option<i32>,
-        /// Full servers config as JSON string
-        #[arg(long)]
-        servers_json: Option<String>,
-        /// Plugin references (repeatable, e.g. "name@url")
-        #[arg(long = "plugin")]
-        plugins: Vec<String>,
-        /// System prompt for the repository
-        #[arg(long)]
-        system_prompt: Option<String>,
         /// Repository description
         #[arg(long)]
         description: Option<String>,
-        /// Build command
-        #[arg(long)]
-        build_command: Option<String>,
-        /// Build output directory
-        #[arg(long)]
-        build_output_dir: Option<String>,
-        /// Enable inspector
-        #[arg(long)]
-        enable_inspector: Option<bool>,
-        /// Enable auto-reload
-        #[arg(long)]
-        auto_reload: Option<bool>,
     },
     /// Sync .moatless/config.json from the remote repository
     SyncConfig { repo_id: String },
@@ -257,90 +101,19 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             branch,
             provider,
             kind,
-            resource_cpu_request,
-            resource_cpu_limit,
-            resource_memory_request,
-            resource_memory_limit,
-            storage,
-            storage_mode,
-            docker_storage,
-            docker_storage_mode,
-            docker_image,
-            docker_access,
-            sandbox_service_account,
-            network_profile,
-            plugins,
-            system_prompt,
             description,
-            build_command,
-            build_output_dir,
-            enable_inspector,
-            auto_reload,
-            env_vars,
-            setup_commands,
-            server_start_commands,
-            servers_json,
-            startup_timeout,
             team_id,
             scope,
         } => {
-            validate_storage_mode(storage_mode.as_deref())?;
-            validate_docker_storage_mode(docker_storage_mode.as_deref())?;
-            let resources = build_resource_config(
-                resource_cpu_request,
-                resource_cpu_limit,
-                resource_memory_request,
-                resource_memory_limit,
-                storage,
-                storage_mode,
-                docker_storage,
-                docker_storage_mode,
-            );
-            let servers = match servers_json {
-                Some(ref json_str) => {
-                    let parsed: Vec<ServerConfig> = serde_json::from_str(json_str)
-                        .map_err(|e| ClientError::Other(format!("Invalid --servers-json: {e}")))?;
-                    Some(parsed)
-                }
-                None => None,
-            };
             let req = CreateRepositoryRequest {
                 name,
                 kind: parse_repo_kind(&kind),
                 remote_url: Some(git_url),
                 default_branch: Some(branch),
                 provider: parse_repo_provider(&provider),
-                auto_reload,
-                build_command,
-                build_output_directory: build_output_dir,
                 description,
-                docker_image,
-                docker_access,
-                sandbox_service_account,
-                network_profile,
-                enable_inspector,
-                env_vars: parse_env_vars(&env_vars),
-                plugins: if plugins.is_empty() {
-                    None
-                } else {
-                    Some(plugins)
-                },
-                server_start_commands: if server_start_commands.is_empty() {
-                    None
-                } else {
-                    Some(server_start_commands)
-                },
-                servers,
-                setup_commands: if setup_commands.is_empty() {
-                    None
-                } else {
-                    Some(setup_commands)
-                },
-                startup_timeout_seconds: startup_timeout,
                 scope: scope.as_deref().and_then(parse_scope),
-                system_prompt,
                 team_id,
-                resources,
             };
             let created = client.api().create_repository(&req).await?;
             if json {
@@ -356,51 +129,8 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             team_id,
             branch,
             git_url,
-            resource_cpu_request,
-            resource_cpu_limit,
-            resource_memory_request,
-            resource_memory_limit,
-            storage,
-            storage_mode,
-            docker_storage,
-            docker_storage_mode,
-            docker_image,
-            docker_access,
-            sandbox_service_account,
-            network_profile,
-            setup_commands,
-            server_start_commands,
-            env_vars,
-            startup_timeout,
-            servers_json,
-            plugins,
-            system_prompt,
             description,
-            build_command,
-            build_output_dir,
-            enable_inspector,
-            auto_reload,
         } => {
-            validate_storage_mode(storage_mode.as_deref())?;
-            validate_docker_storage_mode(docker_storage_mode.as_deref())?;
-            let resources = build_resource_config(
-                resource_cpu_request,
-                resource_cpu_limit,
-                resource_memory_request,
-                resource_memory_limit,
-                storage,
-                storage_mode,
-                docker_storage,
-                docker_storage_mode,
-            );
-            let servers = match servers_json {
-                Some(ref json_str) => {
-                    let parsed: Vec<ServerConfig> = serde_json::from_str(json_str)
-                        .map_err(|e| ClientError::Other(format!("Invalid --servers-json: {e}")))?;
-                    Some(parsed)
-                }
-                None => None,
-            };
             let parsed_scope = match scope.as_deref() {
                 Some(s) => match parse_scope(s) {
                     Some(sc) => Some(sc),
@@ -418,35 +148,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 team_id,
                 default_branch: branch,
                 remote_url: git_url,
-                auto_reload,
-                build_command,
-                build_output_directory: build_output_dir,
                 description,
-                docker_image,
-                docker_access,
-                sandbox_service_account,
-                network_profile,
-                enable_inspector,
-                env_vars: parse_env_vars(&env_vars),
-                plugins: if plugins.is_empty() {
-                    None
-                } else {
-                    Some(plugins)
-                },
-                server_start_commands: if server_start_commands.is_empty() {
-                    None
-                } else {
-                    Some(server_start_commands)
-                },
-                servers,
-                setup_commands: if setup_commands.is_empty() {
-                    None
-                } else {
-                    Some(setup_commands)
-                },
-                startup_timeout_seconds: startup_timeout,
-                system_prompt,
-                resources,
             };
             let updated = client.api().update_repository(&repo_id, &req).await?;
             if json {
@@ -511,88 +213,6 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
     Ok(())
 }
 
-/// Reject an unknown `--storage-mode` before it silently falls back to the EBS
-/// tier at provision time. `None` (flag omitted) is always accepted.
-fn validate_storage_mode(mode: Option<&str>) -> Result<(), ClientError> {
-    match mode {
-        Some(m) if !is_valid_storage_mode(m) => Err(ClientError::Other(format!(
-            "Invalid --storage-mode '{m}'. Valid values: {}",
-            STORAGE_MODES.join(", ")
-        ))),
-        _ => Ok(()),
-    }
-}
-
-/// Reject an unknown `--docker-storage-mode`.
-fn validate_docker_storage_mode(mode: Option<&str>) -> Result<(), ClientError> {
-    match mode {
-        Some(m) if !is_valid_docker_storage_mode(m) => Err(ClientError::Other(format!(
-            "Invalid --docker-storage-mode '{m}'. Valid values: {}",
-            DOCKER_STORAGE_MODES.join(", ")
-        ))),
-        _ => Ok(()),
-    }
-}
-
-/// Build a `ResourceConfig` from individual CLI flags.
-/// Returns `None` if no resource flags were provided.
-fn build_resource_config(
-    cpu_request: Option<String>,
-    cpu_limit: Option<String>,
-    memory_request: Option<String>,
-    memory_limit: Option<String>,
-    storage: Option<String>,
-    storage_mode: Option<String>,
-    docker_storage: Option<String>,
-    docker_storage_mode: Option<String>,
-) -> Option<ResourceConfig> {
-    let has_any = cpu_request.is_some()
-        || cpu_limit.is_some()
-        || memory_request.is_some()
-        || memory_limit.is_some()
-        || storage.is_some()
-        || storage_mode.is_some()
-        || docker_storage.is_some()
-        || docker_storage_mode.is_some();
-
-    if !has_any {
-        return None;
-    }
-
-    let mut requests = HashMap::new();
-    let mut limits = HashMap::new();
-
-    if let Some(v) = cpu_request {
-        requests.insert("cpu".to_string(), v);
-    }
-    if let Some(v) = memory_request {
-        requests.insert("memory".to_string(), v);
-    }
-    if let Some(v) = cpu_limit {
-        limits.insert("cpu".to_string(), v);
-    }
-    if let Some(v) = memory_limit {
-        limits.insert("memory".to_string(), v);
-    }
-
-    Some(ResourceConfig {
-        requests: if requests.is_empty() {
-            None
-        } else {
-            Some(requests)
-        },
-        limits: if limits.is_empty() {
-            None
-        } else {
-            Some(limits)
-        },
-        storage,
-        storage_mode,
-        docker_storage,
-        docker_storage_mode,
-    })
-}
-
 fn parse_repo_kind(s: &str) -> RepositoryKind {
     match s {
         "template" => RepositoryKind::Template,
@@ -637,21 +257,6 @@ fn format_repo_list(repos: &[RepositoryResponse]) {
     output::print_table(&["ID", "NAME", "PROVIDER", "BRANCH"], &rows);
 }
 
-/// Parse `KEY=VALUE` strings into a `HashMap`. Returns `None` if the list is empty.
-fn parse_env_vars(raw: &[String]) -> Option<HashMap<String, String>> {
-    if raw.is_empty() {
-        return None;
-    }
-    let map: HashMap<String, String> = raw
-        .iter()
-        .filter_map(|entry| {
-            let (k, v) = entry.split_once('=')?;
-            Some((k.to_string(), v.to_string()))
-        })
-        .collect();
-    if map.is_empty() { None } else { Some(map) }
-}
-
 fn format_repo_detail(r: &RepositoryResponse) {
     println!("ID:       {}", r.id);
     println!("Name:     {}", r.name);
@@ -663,88 +268,8 @@ fn format_repo_detail(r: &RepositoryResponse) {
     );
     println!("Branch:   {}", r.default_branch.as_deref().unwrap_or("-"));
     println!("Git URL:  {}", r.remote_url.as_deref().unwrap_or("-"));
-    if let Some(ref img) = r.docker_image {
-        println!("Image:    {img}");
-    }
-    if let Some(ref res) = r.resources {
-        if let Some(ref req) = res.requests {
-            let parts: Vec<String> = req.iter().map(|(k, v)| format!("{k}={v}")).collect();
-            println!("Resource requests: {}", parts.join(", "));
-        }
-        if let Some(ref lim) = res.limits {
-            let parts: Vec<String> = lim.iter().map(|(k, v)| format!("{k}={v}")).collect();
-            println!("Resource limits:   {}", parts.join(", "));
-        }
-        if let Some(ref storage) = res.storage {
-            println!("Storage:           {storage}");
-        }
-        if let Some(ref mode) = res.storage_mode {
-            println!("Storage mode:      {mode}");
-        }
-        if let Some(ref ds) = res.docker_storage {
-            println!("Docker storage:    {ds}");
-        }
-        if let Some(ref mode) = res.docker_storage_mode {
-            println!("Docker storage mode: {mode}");
-        }
-    }
-    if let Some(ref servers) = r.servers {
-        if !servers.is_empty() {
-            println!("Servers:");
-            for s in servers {
-                println!("  {}:", s.name);
-                println!("    Port:     {}", s.port);
-                if let Some(ref cmds) = s.start_commands {
-                    println!("    Commands: {}", cmds.join("; "));
-                }
-                if let Some(ref vars) = s.env_vars {
-                    if !vars.is_empty() {
-                        let parts: Vec<String> =
-                            vars.iter().map(|(k, v)| format!("{k}={v}")).collect();
-                        println!("    Env:      {}", parts.join(", "));
-                    }
-                }
-                if let Some(timeout) = s.startup_timeout_seconds {
-                    println!("    Timeout:  {timeout}s");
-                }
-            }
-        }
-    }
-    if let Some(ref cmds) = r.setup_commands {
-        if !cmds.is_empty() {
-            println!("Setup commands: {}", cmds.join("; "));
-        }
-    }
-    if let Some(ref cmds) = r.server_start_commands {
-        if !cmds.is_empty() {
-            println!("Server start commands: {}", cmds.join("; "));
-        }
-    }
-    if let Some(ref vars) = r.env_vars {
-        if !vars.is_empty() {
-            let parts: Vec<String> = vars.iter().map(|(k, v)| format!("{k}={v}")).collect();
-            println!("Env vars: {}", parts.join(", "));
-        }
-    }
-    if let Some(timeout) = r.startup_timeout_seconds {
-        println!("Startup timeout: {timeout}s");
-    }
-    if let Some(ref cmd) = r.build_command {
-        println!("Build command: {cmd}");
-    }
-    if let Some(ref dir) = r.build_output_directory {
-        println!("Build output dir: {dir}");
-    }
     if let Some(ref desc) = r.description {
         println!("Description: {desc}");
-    }
-    if let Some(ref prompt) = r.system_prompt {
-        let display = if prompt.len() > 120 {
-            format!("{}…", &prompt[..120])
-        } else {
-            prompt.clone()
-        };
-        println!("System prompt: {display}");
     }
     println!("Scope:      {}", r.scope);
     if let Some(ref tid) = r.team_id {
@@ -752,55 +277,5 @@ fn format_repo_detail(r: &RepositoryResponse) {
     }
     if let Some(ref owner) = r.owner_user_id {
         println!("Owner:      {owner}");
-    }
-    if let Some(ref plugins) = r.plugins {
-        if !plugins.is_empty() {
-            println!("Plugins: {}", plugins.join(", "));
-        }
-    }
-    if let Some(inspector) = r.enable_inspector {
-        println!("Inspector:   {inspector}");
-    }
-    if let Some(reload) = r.auto_reload {
-        println!("Auto-reload: {reload}");
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn validate_storage_mode_accepts_known_and_omitted() {
-        assert!(validate_storage_mode(None).is_ok());
-        assert!(validate_storage_mode(Some("ebs")).is_ok());
-        assert!(validate_storage_mode(Some("ephemeral")).is_ok());
-        assert!(validate_storage_mode(Some("s3")).is_ok());
-        assert!(validate_storage_mode(Some("node")).is_ok());
-        assert!(validate_storage_mode(Some(" S3 ")).is_ok());
-    }
-
-    #[test]
-    fn validate_storage_mode_rejects_unknown_with_hint() {
-        let err = validate_storage_mode(Some("s33")).unwrap_err();
-        let msg = err.to_string();
-        assert!(msg.contains("s33"), "error names the bad value: {msg}");
-        assert!(msg.contains("s3"), "error lists valid values: {msg}");
-    }
-
-    #[test]
-    fn validate_docker_storage_mode_accepts_known_and_omitted() {
-        assert!(validate_docker_storage_mode(None).is_ok());
-        assert!(validate_docker_storage_mode(Some("node")).is_ok());
-        assert!(validate_docker_storage_mode(Some("emptyDir")).is_ok());
-        assert!(validate_docker_storage_mode(Some(" EMPTYDIR ")).is_ok());
-    }
-
-    #[test]
-    fn validate_docker_storage_mode_rejects_unknown_with_hint() {
-        let err = validate_docker_storage_mode(Some("s3")).unwrap_err();
-        let msg = err.to_string();
-        assert!(msg.contains("s3"), "error names the bad value: {msg}");
-        assert!(msg.contains("node"), "error lists valid values: {msg}");
     }
 }

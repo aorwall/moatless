@@ -10,25 +10,149 @@
 //!
 //! Git-synced workspaces are read-only in the UI and write API — only a re-sync
 //! from git changes them. The sync writes through the DAO directly, bypassing
-//! the read-only guard by design.
+//! the read-only guard by design. The `.moatless/` file schemas + provider
+//! fetchers live here too — the repository module owns only the git connection.
 
 use std::collections::HashSet;
 
 use chrono::Utc;
+use serde::Deserialize;
 use tracing::{debug, info, warn};
 
-use super::config_reader::{
-    AccessStatus, MoatlessWorkspaceEntry, MoatlessWorkspaceRepoRef, fetch_moatless_config,
-    fetch_moatless_workspaces, verify_repository_access,
-};
-use super::dao::RepositoryPatch;
-use super::error::RepositoryError;
-use super::handlers::{normalize_remote_url, validate_non_secret_env_vars};
-use super::models::{Repository, RepositoryKind, RepositoryProvider};
 use crate::extractors::AuthUser;
+use crate::repository::config_reader::{
+    AccessStatus, fetch_provider_file, verify_repository_access,
+};
+use crate::repository::dao::RepositoryPatch;
+use crate::repository::error::RepositoryError;
+use crate::repository::handlers::{normalize_remote_url, validate_non_secret_env_vars};
+use crate::repository::models::{Repository, RepositoryKind, RepositoryProvider, ResourceConfig};
+use crate::sandbox::models::ServerConfig;
 use crate::state::AppState;
 use crate::workspace::dao::{WorkspacePatch, ensure_shadow_workspace};
 use crate::workspace::models::{Workspace, WorkspaceRepo};
+
+// =============================================================================
+// `.moatless/` file schemas
+// =============================================================================
+
+/// Top-level `.moatless/config.json` schema.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MoatlessRepoConfig {
+    pub docker_image: Option<String>,
+    pub code_execution: Option<CodeExecution>,
+    pub servers: Option<Vec<ServerConfig>>,
+    pub system_prompt: Option<String>,
+    pub resources: Option<ResourceConfig>,
+    /// Per-repo Kubernetes ServiceAccount for this repo's sandboxes. Overrides the
+    /// global default. Security: the named SA must exist and be RBAC-bound in the
+    /// sandbox namespace — this field only selects it, it grants nothing on its own.
+    pub sandbox_service_account: Option<String>,
+    /// Per-repo network profile — pods carry `moatless.io/network-profile=<value>`
+    /// for a static NetworkPolicy to select. Selects a policy; grants nothing.
+    pub network_profile: Option<String>,
+}
+
+/// Code execution settings.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeExecution {
+    pub setup_commands: Option<Vec<String>>,
+}
+
+/// Top-level `.moatless/workspaces.json` schema — the default (non-legacy) form,
+/// a list of workspaces the repo declares, each with its own run-config and
+/// explicit repository URL(s).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MoatlessWorkspacesFile {
+    #[allow(dead_code)] // reserved for forward-compat; not yet branched on
+    pub version: Option<u32>,
+    pub workspaces: Vec<MoatlessWorkspaceEntry>,
+}
+
+/// One workspace entry in `.moatless/workspaces.json`.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MoatlessWorkspaceEntry {
+    /// Stable natural key within the repo. When present, renaming `name` keeps
+    /// the workspace identity; when absent, the slugified `name` is the key.
+    pub key: Option<String>,
+    pub name: String,
+    pub description: Option<String>,
+    pub repos: Vec<MoatlessWorkspaceRepoRef>,
+    // --- Run configuration (mirrors `.moatless/config.json`) ---
+    pub docker_image: Option<String>,
+    pub docker_access: Option<bool>,
+    pub code_execution: Option<CodeExecution>,
+    pub servers: Option<Vec<ServerConfig>>,
+    pub system_prompt: Option<String>,
+    pub resources: Option<ResourceConfig>,
+    pub env_vars: Option<std::collections::HashMap<String, String>>,
+    pub plugins: Option<Vec<String>>,
+    pub sandbox_service_account: Option<String>,
+    pub network_profile: Option<String>,
+}
+
+/// A repository reference inside a `workspaces.json` entry.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MoatlessWorkspaceRepoRef {
+    pub url: String,
+    pub branch: Option<String>,
+    pub mount_name: Option<String>,
+    #[serde(default)]
+    pub primary: bool,
+}
+
+/// Fetch `.moatless/config.json` from a remote repository.
+///
+/// Returns `Ok(None)` when the file does not exist (HTTP 404).
+/// Token is optional — GitHub public repos can be fetched without auth.
+pub async fn fetch_moatless_config(
+    remote_url: &str,
+    branch: Option<&str>,
+    token: Option<&str>,
+    provider: RepositoryProvider,
+) -> Result<Option<MoatlessRepoConfig>, RepositoryError> {
+    let Some(body) =
+        fetch_provider_file(remote_url, ".moatless/config.json", branch, token, provider).await?
+    else {
+        return Ok(None);
+    };
+    let config = serde_json::from_str(&body).map_err(|e| {
+        RepositoryError::ProviderError(format!("Failed to parse .moatless/config.json: {e}"))
+    })?;
+    Ok(Some(config))
+}
+
+/// Fetch and parse `.moatless/workspaces.json` from a remote repository.
+///
+/// Returns `Ok(None)` when the file does not exist. This is the default
+/// (non-legacy) workspace declaration form; `.moatless/config.json` remains the
+/// legacy single-workspace form.
+pub async fn fetch_moatless_workspaces(
+    remote_url: &str,
+    branch: Option<&str>,
+    token: Option<&str>,
+    provider: RepositoryProvider,
+) -> Result<Option<MoatlessWorkspacesFile>, RepositoryError> {
+    let Some(body) =
+        fetch_provider_file(remote_url, ".moatless/workspaces.json", branch, token, provider)
+            .await?
+    else {
+        return Ok(None);
+    };
+    let file = serde_json::from_str(&body).map_err(|e| {
+        RepositoryError::ProviderError(format!("Failed to parse .moatless/workspaces.json: {e}"))
+    })?;
+    Ok(Some(file))
+}
+
+// =============================================================================
+// Sync service
+// =============================================================================
 
 /// The deterministic `source_key` for the legacy single `.moatless/config.json`
 /// workspace, which flags a repo's existing shadow workspace in place.
@@ -130,19 +254,27 @@ pub async fn sync_repo_workspaces(
         }
         None => {
             // Fall back to config.json: flag the repo's shadow workspace in place.
-            if fetch_moatless_config(remote_url, branch, token_str, provider)
+            if let Some(config) = fetch_moatless_config(remote_url, branch, token_str, provider)
                 .await?
-                .is_some()
             {
+                let run = match run_config_from_moatless_config(&config) {
+                    Ok(run) => run,
+                    Err(e) => {
+                        summary.skipped.push(WorkspaceSyncSkip {
+                            source_key: CONFIG_JSON_KEY.to_string(),
+                            reason: format!("serialize run-config: {e}"),
+                        });
+                        return Ok(summary);
+                    }
+                };
                 present.insert(CONFIG_JSON_KEY.to_string());
                 let desired = DesiredWorkspace {
                     fixed_id: Some(format!("ws_{}", repo.id)),
                     source_key: CONFIG_JSON_KEY.to_string(),
                     name: repo.name.clone(),
                     description: repo.description.clone(),
-                    // The shadow mirrors the repo's run-config (config.json also
-                    // updates the repository row independently).
-                    run: run_config_from_repo(repo),
+                    // The shadow mirrors the run-config declared in config.json.
+                    run,
                     placements: vec![ResolvedPlacement {
                         repository_id: repo.id.clone(),
                         branch: None,
@@ -183,7 +315,7 @@ pub async fn sync_repo_workspaces(
     Ok(summary)
 }
 
-/// Run-config fields shared by the entry and repo-derived paths.
+/// Run-config fields shared by the entry and config.json paths.
 struct RunConfig {
     docker_image: Option<String>,
     docker_access: Option<bool>,
@@ -250,19 +382,30 @@ fn run_config_from_entry(entry: &MoatlessWorkspaceEntry) -> Result<RunConfig, se
     })
 }
 
-fn run_config_from_repo(repo: &Repository) -> RunConfig {
-    RunConfig {
-        docker_image: repo.docker_image.clone(),
-        docker_access: repo.docker_access,
-        sandbox_service_account: repo.sandbox_service_account.clone(),
-        network_profile: repo.network_profile.clone(),
-        system_prompt: repo.system_prompt.clone(),
-        setup_commands: repo.setup_commands.clone(),
-        env_vars: repo.env_vars.clone(),
-        servers: repo.servers.clone(),
-        plugins: repo.plugins.clone(),
-        resources: repo.resources.clone(),
-    }
+/// Build the shadow workspace's run-config from a parsed legacy
+/// `.moatless/config.json`. The file has no `dockerAccess`/`envVars`/`plugins`,
+/// so those are `None`.
+fn run_config_from_moatless_config(
+    config: &MoatlessRepoConfig,
+) -> Result<RunConfig, serde_json::Error> {
+    let setup_commands = config
+        .code_execution
+        .as_ref()
+        .and_then(|c| c.setup_commands.as_ref())
+        .map(serde_json::to_value)
+        .transpose()?;
+    Ok(RunConfig {
+        docker_image: config.docker_image.clone(),
+        docker_access: None,
+        sandbox_service_account: config.sandbox_service_account.clone(),
+        network_profile: config.network_profile.clone(),
+        system_prompt: config.system_prompt.clone(),
+        setup_commands,
+        env_vars: None,
+        servers: config.servers.as_ref().map(serde_json::to_value).transpose()?,
+        plugins: None,
+        resources: config.resources.as_ref().map(serde_json::to_value).transpose()?,
+    })
 }
 
 /// Insert or update the workspace row + placements for one desired workspace.
@@ -459,28 +602,12 @@ async fn resolve_or_create_repo(
         kind: RepositoryKind::Remote,
         remote_url: Some(url.to_string()),
         default_branch: None,
-        docker_image: None,
-        docker_access: None,
-        sandbox_service_account: None,
-        network_profile: None,
-        system_prompt: None,
-        setup_commands: None,
-        env_vars: None,
-        servers: None,
-        plugins: None,
-        server_start_commands: None,
-        startup_timeout_seconds: None,
-        build_command: None,
-        build_output_directory: None,
-        enable_inspector: None,
-        auto_reload: None,
         description: None,
         provider: Some(provider),
         scope: source_repo.scope,
         team_id: source_repo.team_id.clone(),
         owner_user_id: source_repo.owner_user_id.clone(),
         created_by: source_repo.created_by.clone(),
-        resources: None,
         access_status: status.as_str().to_string(),
         access_checked_at: Some(now),
         access_error: access_error_for(status, url),
@@ -610,5 +737,153 @@ mod tests {
         assert!(access_error_for(AccessStatus::NotFound, "u").is_some());
         assert!(access_error_for(AccessStatus::Forbidden, "u").is_some());
         assert!(access_error_for(AccessStatus::Error, "u").is_some());
+    }
+
+    #[test]
+    fn parse_config_json() {
+        let json = r#"{
+            "codeExecution": {
+                "setupCommands": ["bun install"]
+            },
+            "servers": [
+                {
+                    "name": "dev",
+                    "label": "Dev Server",
+                    "port": 3000,
+                    "startCommands": ["bun run dev"],
+                    "startupTimeoutSeconds": 30,
+                    "autoReload": true,
+                    "enableInspector": true,
+                    "default": true
+                }
+            ]
+        }"#;
+
+        let config: MoatlessRepoConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.servers.as_ref().unwrap().len(), 1);
+        assert_eq!(config.servers.as_ref().unwrap()[0].name, "dev");
+        assert_eq!(
+            config
+                .code_execution
+                .as_ref()
+                .unwrap()
+                .setup_commands
+                .as_ref()
+                .unwrap(),
+            &vec!["bun install".to_string()]
+        );
+    }
+
+    #[test]
+    fn run_config_from_moatless_config_maps_fields() {
+        let config = MoatlessRepoConfig {
+            docker_image: Some("myregistry/custom-sandbox:latest".to_string()),
+            code_execution: Some(CodeExecution {
+                setup_commands: Some(vec!["npm install".to_string()]),
+            }),
+            servers: Some(vec![ServerConfig {
+                name: "dev".to_string(),
+                port: 3000,
+                default: true,
+                ..Default::default()
+            }]),
+            system_prompt: Some("Be helpful".to_string()),
+            resources: None,
+            sandbox_service_account: Some("moatless-dev".to_string()),
+            network_profile: None,
+        };
+
+        let run = run_config_from_moatless_config(&config).unwrap();
+        assert_eq!(
+            run.docker_image,
+            Some("myregistry/custom-sandbox:latest".to_string())
+        );
+        assert_eq!(
+            run.sandbox_service_account,
+            Some("moatless-dev".to_string())
+        );
+        assert_eq!(run.system_prompt, Some("Be helpful".to_string()));
+        assert!(run.servers.is_some());
+        assert!(run.setup_commands.is_some());
+        // config.json has no dockerAccess/envVars/plugins.
+        assert!(run.docker_access.is_none());
+        assert!(run.env_vars.is_none());
+        assert!(run.plugins.is_none());
+    }
+
+    #[test]
+    fn config_carries_storage_mode_from_git_repo() {
+        // A repo selecting the ephemeral storage tier via its committed
+        // `.moatless/config.json`. The nested `ResourceConfig` must read the
+        // camelCase keys and round-trip back to camelCase in the stored JSONB so
+        // the provision-time deserialize reads it correctly.
+        let json = r#"{
+            "resources": { "storageMode": "ephemeral", "storage": "8Gi" }
+        }"#;
+        let config: MoatlessRepoConfig = serde_json::from_str(json).unwrap();
+        let resources = config.resources.as_ref().expect("resources present");
+        assert_eq!(resources.storage_mode.as_deref(), Some("ephemeral"));
+        assert_eq!(resources.storage.as_deref(), Some("8Gi"));
+
+        let run = run_config_from_moatless_config(&config).unwrap();
+        let value = run.resources.expect("resources value present");
+        assert_eq!(
+            value.get("storageMode"),
+            Some(&serde_json::json!("ephemeral"))
+        );
+        assert_eq!(value.get("storage"), Some(&serde_json::json!("8Gi")));
+        assert!(
+            value.get("storage_mode").is_none(),
+            "snake_case key must not leak into stored JSONB"
+        );
+    }
+
+    #[test]
+    fn parse_workspaces_json() {
+        let json = r#"{
+            "version": 1,
+            "workspaces": [
+                {
+                    "key": "api",
+                    "name": "API",
+                    "description": "backend",
+                    "repos": [
+                        { "url": "https://github.com/acme/api", "primary": true },
+                        { "url": "https://github.com/acme/shared", "mountName": "shared" }
+                    ],
+                    "dockerImage": "acme/sandbox:latest",
+                    "codeExecution": { "setupCommands": ["bun install"] },
+                    "servers": [{ "name": "dev", "port": 3000, "default": true }],
+                    "envVars": { "LOG_LEVEL": "debug" },
+                    "networkProfile": "sealed"
+                },
+                { "name": "Web Only", "repos": [{ "url": "https://github.com/acme/web" }] }
+            ]
+        }"#;
+
+        let file: MoatlessWorkspacesFile = serde_json::from_str(json).unwrap();
+        assert_eq!(file.version, Some(1));
+        assert_eq!(file.workspaces.len(), 2);
+
+        let api = &file.workspaces[0];
+        assert_eq!(api.key.as_deref(), Some("api"));
+        assert_eq!(api.name, "API");
+        assert_eq!(api.repos.len(), 2);
+        assert!(api.repos[0].primary);
+        assert_eq!(api.repos[0].url, "https://github.com/acme/api");
+        assert_eq!(api.repos[1].mount_name.as_deref(), Some("shared"));
+        assert!(!api.repos[1].primary);
+        assert_eq!(api.docker_image.as_deref(), Some("acme/sandbox:latest"));
+        assert_eq!(
+            api.code_execution.as_ref().unwrap().setup_commands.as_ref().unwrap(),
+            &vec!["bun install".to_string()]
+        );
+        assert_eq!(api.network_profile.as_deref(), Some("sealed"));
+
+        // Missing key → resolved later from the name; primary defaults to false.
+        let web = &file.workspaces[1];
+        assert!(web.key.is_none());
+        assert_eq!(web.name, "Web Only");
+        assert!(!web.repos[0].primary);
     }
 }

@@ -1,6 +1,5 @@
 //! Seed default template repositories on startup.
 
-use serde_json::json;
 use tracing::info;
 
 use super::dao::RepoRepository;
@@ -29,37 +28,15 @@ async fn seed_moatable(repos: &dyn RepoRepository) -> Result<(), sqlx::Error> {
     }
 
     let now = chrono::Utc::now();
+    // Pure git pointer: run-config (setupCommands + the preview server) lives in
+    // git at `aorwall/moatable` `.moatless/config.json` and is synced into the
+    // workspace on repo-create / task-start.
     let row = Repository {
         id: uuid::Uuid::new_v4().to_string(),
         name: "Moatable".to_string(),
         kind: RepositoryKind::Template,
         remote_url: Some("https://github.com/aorwall/moatable".to_string()),
         default_branch: Some("main".to_string()),
-        docker_image: None,
-        docker_access: None,
-        sandbox_service_account: None,
-        network_profile: None,
-        system_prompt: None,
-        setup_commands: Some(json!(["bun install"])),
-        env_vars: None,
-        servers: Some(json!([{
-            "name": "preview",
-            "label": "Preview",
-            "port": 3000,
-            "startCommands": ["bun run dev"],
-            "startupTimeoutSeconds": 30,
-            "autoReload": true,
-            "enableInspector": true,
-            "default": true
-        }])),
-        plugins: None,
-        server_start_commands: None,
-        startup_timeout_seconds: None,
-        build_command: None,
-        build_output_directory: None,
-        enable_inspector: None,
-        auto_reload: None,
-        resources: None,
         description: Some("React + TypeScript + Vite + Tailwind CSS starter template".to_string()),
         provider: Some(RepositoryProvider::Github),
         scope: Scope::Global,

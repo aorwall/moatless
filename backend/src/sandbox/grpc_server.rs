@@ -43,6 +43,7 @@ use crate::file_storage::s3 as file_s3;
 use crate::message::dao::MessageRepository;
 use crate::message::send::enrich_pending_with_commands;
 use crate::repository::dao::RepoRepository;
+use crate::workspace::dao::WorkspaceRepository;
 use crate::sandbox::jwt;
 use crate::sandbox::secrets::{
     resolve_server_env, resolve_task_credentials, resolve_task_repo_owner, resolve_task_ssh_keys,
@@ -139,9 +140,11 @@ pub struct BackendSandboxServiceImpl {
     /// through `store(.., WriteSource::SandboxRotation)` so the broadcast
     /// fan-out picks them up automatically.
     pub credentials_svc: Option<Arc<CredentialService>>,
-    /// Repository DAO — used to load `Repository.system_prompt` and `servers`
-    /// when assembling the agent's append system prompt.
+    /// Repository DAO — used to resolve a task's repo owner for credentials.
     pub repositories: Option<Arc<dyn RepoRepository>>,
+    /// Workspace DAO — used to load the workspace's `system_prompt` and `servers`
+    /// when assembling the agent's append system prompt.
+    pub workspaces: Option<Arc<dyn WorkspaceRepository>>,
     /// Backend config — supplies `frontend_url`, `proxy.domain`, `proxy.protocol`
     /// for the agent's append system prompt.
     pub backend_config: Option<Arc<Config>>,
@@ -1174,8 +1177,8 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
     ///
     /// The sandbox calls this once per agent run (in `start_session`) and
     /// caches the result for fallback on subsequent failures. Assembly
-    /// reads `Task.name`, `Task.append_system_prompt`, `Repository.system_prompt`,
-    /// `Repository.servers`, and the configured frontend/proxy URLs.
+    /// reads `Task.name`, `Task.append_system_prompt`, the workspace's
+    /// `system_prompt` + `servers`, and the configured frontend/proxy URLs.
     async fn get_system_prompt(
         &self,
         request: Request<GetSystemPromptRequest>,
@@ -1190,7 +1193,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         let system_prompt = prompt::build_for_task(
             &req.task_id,
             task.as_ref(),
-            self.repositories.as_ref(),
+            self.workspaces.as_ref(),
             self.task_relations.as_ref(),
             self.backend_config.as_ref(),
         )
@@ -2547,6 +2550,7 @@ mod tests {
             secrets: None,
             credentials_svc: None,
             repositories: None,
+            workspaces: None,
             backend_config: None,
             s3: None,
             files: None,

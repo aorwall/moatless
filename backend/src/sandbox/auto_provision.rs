@@ -11,16 +11,16 @@ use crate::plugin_repo::dao::PluginRepoRepository;
 use crate::repository::dao::RepoRepository;
 use crate::repository::models::RepositoryProvider;
 use crate::sandbox::error::SandboxError;
-use crate::sandbox::models::{ProvisionRequest, ServerConfig};
+use crate::sandbox::models::{ProvisionRequest, RepoConfig, ServerConfig};
 use crate::task::dao::TaskRepository;
 use crate::task::models::Task;
 use crate::workspace::dao::WorkspaceRepository;
 
-// Re-export the repo-config builders from k8s/auto_provision so existing
-// callers can use the same path.
+// Re-export the workspace-sourced config builders from k8s/auto_provision so
+// existing callers can use the same path.
 pub use crate::sandbox::k8s::auto_provision::{
-    build_repo_config, build_repo_config_from_workspace, build_server_configs,
-    filter_disabled_servers, get_server_configs, parse_disabled_servers,
+    build_repo_config_from_workspace, build_server_configs_from_workspace,
+    filter_disabled_servers, parse_disabled_servers, parse_env_vars_from_workspace,
 };
 
 /// Build a `ProvisionRequest` from database state.
@@ -90,10 +90,10 @@ pub async fn build_provision_request(
     let git_branch = task.branch.clone().or(repo.default_branch.clone());
     let user_id = task.created_by.as_deref().unwrap_or("system").to_string();
 
-    // Run-config source: the workspace when the task references one, else the
-    // repository row (legacy single-repo path). The repo row is still read above
-    // for git_clone_url/branch/provider (primary-repo checkout only this
-    // iteration).
+    // Run-config source: the task's workspace. insert_task backfills a shadow
+    // workspace for every task, so this is present for any real task. The repo
+    // row is still read above for git_clone_url/branch/provider (primary-repo
+    // checkout only this iteration).
     let workspace = match task.workspace_id.as_deref() {
         Some(ws_id) => workspaces.find_by_id(ws_id).await.map_err(|e| {
             SandboxError::Internal(format!("DB error reading workspace: {e}"))
@@ -101,24 +101,18 @@ pub async fn build_provision_request(
         None => None,
     };
 
-    let (mut repo_config, mut env_vars) = match &workspace {
-        Some(ws) => {
-            let mut rc = build_repo_config_from_workspace(ws);
-            // Fall back to repo-derived servers when the workspace declares none
-            // (preserves the injected preview server for old shadow workspaces).
-            if rc.servers.is_none() {
-                let repo_servers = build_server_configs(&repo);
-                if !repo_servers.is_empty() {
-                    rc.servers = Some(repo_servers);
-                }
-            }
-            let env = crate::sandbox::k8s::auto_provision::parse_env_vars_from_workspace(ws);
-            (rc, env)
-        }
-        None => (
-            build_repo_config(&repo),
-            crate::sandbox::k8s::auto_provision::parse_env_vars(&repo),
-        ),
+    let (mut repo_config, mut env_vars) = if let Some(ws) = &workspace {
+        (
+            build_repo_config_from_workspace(ws),
+            parse_env_vars_from_workspace(ws),
+        )
+    } else {
+        warn!(
+            task_id = %task_id,
+            workspace_id = ?task.workspace_id,
+            "Auto-provision: task has no workspace; provisioning with git-connection only"
+        );
+        (minimal_repo_config(&repo.name), None)
     };
 
     // Select the tmux Claude transport per the catalog when the task's agent
@@ -216,20 +210,66 @@ async fn resolve_primary_repository_id(
     }
 }
 
-/// Get server configs for a task, returning an empty vec on any failure.
+/// A run-config with only the repo name — used when a task unexpectedly has no
+/// workspace. Provisioning then falls back to global defaults (no servers).
+fn minimal_repo_config(name: &str) -> RepoConfig {
+    RepoConfig {
+        name: name.to_string(),
+        docker_image: None,
+        servers: None,
+        plugin_ids: None,
+        system_prompt: None,
+        code_execution: None,
+        preview_config: None,
+        resources: None,
+        plugin_repos: None,
+        docker_access: None,
+        docker_networks: None,
+        sandbox_service_account: None,
+        network_profile: None,
+    }
+}
+
+/// Get server configs for a task from its workspace, returning an empty vec on
+/// any failure.
 ///
 /// Convenience wrapper that handles the Option<Arc<dyn Repo>> pattern
 /// used throughout handlers.
 pub async fn get_server_configs_for_task(
     tasks: &dyn TaskRepository,
-    repos: &dyn RepoRepository,
+    workspaces: &dyn WorkspaceRepository,
     task_id: &str,
 ) -> Vec<ServerConfig> {
-    match get_server_configs(tasks, repos, task_id).await {
+    match resolve_server_configs(tasks, workspaces, task_id).await {
         Ok(configs) => configs,
         Err(e) => {
             warn!(task_id = %task_id, error = %e, "Failed to get server configs");
             vec![]
         }
     }
+}
+
+/// Resolve a task's server configs from its workspace's `servers` JSONB.
+///
+/// Resolves task_id → task → workspace → `build_server_configs_from_workspace`.
+/// Returns `Err` on DB failures or missing rows so callers can log.
+async fn resolve_server_configs(
+    tasks: &dyn TaskRepository,
+    workspaces: &dyn WorkspaceRepository,
+    task_id: &str,
+) -> Result<Vec<ServerConfig>, String> {
+    let task = tasks
+        .find_by_id_internal(task_id)
+        .await
+        .map_err(|e| format!("Failed to fetch task {task_id}: {e}"))?
+        .ok_or_else(|| format!("Task {task_id} not found"))?;
+    let Some(ws_id) = task.workspace_id.as_deref() else {
+        return Ok(vec![]);
+    };
+    let ws = workspaces
+        .find_by_id(ws_id)
+        .await
+        .map_err(|e| format!("Failed to fetch workspace {ws_id}: {e}"))?
+        .ok_or_else(|| format!("Workspace {ws_id} not found"))?;
+    Ok(build_server_configs_from_workspace(&ws))
 }

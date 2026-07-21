@@ -1,7 +1,6 @@
 import { toast } from 'sonner'
 import { Preview } from '@/features/preview'
 import type { PreviewPublish } from '@/features/preview/types'
-import { useRepository } from '@/features/repositories/hooks/use-repositories'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { useIsMobile } from '@/lib/hooks/use-mobile'
 import { getErrorMessage } from '@/lib/utils/error'
@@ -45,7 +44,6 @@ export function PreviewPanel({ kiosk = false }: PreviewPanelProps) {
 
   // Publish (deploy) state — composed here and passed into the presentational
   // Preview header so `features/preview` doesn't reach into task/repository data.
-  const { data: repository } = useRepository(task?.repositoryId ?? '')
   const deployTask = useDeployTask(taskId, {
     onSuccess: (data) => {
       if (data.success && data.siteUrl) {
@@ -65,7 +63,7 @@ export function PreviewPanel({ kiosk = false }: PreviewPanelProps) {
     },
   })
   const publish: PreviewPublish = {
-    canPublish: Boolean(task?.vibe) || Boolean(repository?.buildCommand),
+    canPublish: Boolean(task?.vibe),
     siteUrl: task?.siteUrl ?? undefined,
     onPublish: () => deployTask.mutate(),
     isPending: deployTask.isPending,

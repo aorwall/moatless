@@ -5,70 +5,25 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
-import type { CreateRepositoryRequestEnvVars } from './createRepositoryRequestEnvVars';
 import type { RepositoryKind } from './repositoryKind';
 import type { RepositoryProvider } from './repositoryProvider';
-import type { ResourceConfig } from './resourceConfig';
 import type { Scope } from './scope';
-import type { ServerConfig } from './serverConfig';
 
+/**
+ * A repository is a connection to a git repo. Run-configuration lives on the
+workspace, not here.
+ */
 export interface CreateRepositoryRequest {
-  /** @nullable */
-  autoReload?: boolean | null;
-  /** @nullable */
-  buildCommand?: string | null;
-  /** @nullable */
-  buildOutputDirectory?: string | null;
   /** @nullable */
   defaultBranch?: string | null;
   /** @nullable */
   description?: string | null;
-  /**
-   * Opt-in Docker-in-Docker access (privileged `dind` sidecar) — enables
-Testcontainers inside the sandbox. Defaults to false.
-   * @nullable
-   */
-  dockerAccess?: boolean | null;
-  /** @nullable */
-  dockerImage?: string | null;
-  /** @nullable */
-  enableInspector?: boolean | null;
-  /** @nullable */
-  envVars?: CreateRepositoryRequestEnvVars;
   kind: RepositoryKind;
   name: string;
-  /**
-   * Per-repo network profile. When set, sandbox pods carry the label
-`moatless.io/network-profile=<value>`, which a static (GitOps-owned)
-NetworkPolicy can select to govern egress/ingress. The field only selects
-a policy; it grants nothing on its own. Used for sealed benchmark runs.
-   * @nullable
-   */
-  networkProfile?: string | null;
-  /** @nullable */
-  plugins?: string[] | null;
   provider?: null | RepositoryProvider;
   /** @nullable */
   remoteUrl?: string | null;
-  resources?: null | ResourceConfig;
-  /**
-   * Per-repo Kubernetes ServiceAccount for this repo's sandbox pods. Overrides
-the global default when set. Used for shadow dev sandboxes that need the
-backend's RBAC to provision sandboxes.
-   * @nullable
-   */
-  sandboxServiceAccount?: string | null;
   scope?: null | Scope;
-  /** @nullable */
-  serverStartCommands?: string[] | null;
-  /** @nullable */
-  servers?: ServerConfig[] | null;
-  /** @nullable */
-  setupCommands?: string[] | null;
-  /** @nullable */
-  startupTimeoutSeconds?: number | null;
-  /** @nullable */
-  systemPrompt?: string | null;
   /** @nullable */
   teamId?: string | null;
 }

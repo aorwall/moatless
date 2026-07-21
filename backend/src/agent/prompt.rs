@@ -9,10 +9,10 @@ use std::sync::Arc;
 use tracing::warn;
 
 use crate::config::Config;
-use crate::repository::dao::RepoRepository;
 use crate::sandbox::models::ServerConfig;
 use crate::task::models::Task;
 use crate::task::relations::TaskRelationRepository;
+use crate::workspace::dao::WorkspaceRepository;
 
 /// Inputs needed to build the append-system-prompt for one task.
 pub struct PromptInputs<'a> {
@@ -23,7 +23,7 @@ pub struct PromptInputs<'a> {
     pub parent_task_id: Option<&'a str>,
     /// `Task.append_system_prompt` — trigger-set instructions.
     pub task_append_system_prompt: Option<&'a str>,
-    /// `Repository.system_prompt`.
+    /// The workspace's `system_prompt`.
     pub repo_system_prompt: Option<&'a str>,
     pub servers: &'a [ServerConfig],
     pub frontend_url: Option<&'a str>,
@@ -129,23 +129,22 @@ Available `moat` commands:
 
 /// Build the append-system-prompt for a task.
 ///
-/// Loads the repository (for `system_prompt` + `servers`) and reads URL
+/// Loads the task's workspace (for `system_prompt` + `servers`) and reads URL
 /// settings off `Config`, then delegates to [`build_append_system_prompt`].
-/// Falls back to a minimal prompt (no repo or server data) if the repo
-/// lookup fails or repositories aren't wired.
+/// Falls back to a minimal prompt (no workspace or server data) if the
+/// workspace lookup fails or workspaces aren't wired.
 pub async fn build_for_task(
     task_id: &str,
     task: Option<&Task>,
-    repositories: Option<&Arc<dyn RepoRepository>>,
+    workspaces: Option<&Arc<dyn WorkspaceRepository>>,
     task_relations: Option<&Arc<dyn TaskRelationRepository>>,
     config: Option<&Arc<Config>>,
 ) -> String {
-    let repo = match (task, repositories) {
-        (Some(t), Some(repos)) => repos
-            .find_repository_by_id(&t.repository_id)
-            .await
-            .ok()
-            .flatten(),
+    let workspace = match (task, workspaces) {
+        (Some(t), Some(ws)) => match t.workspace_id.as_deref() {
+            Some(ws_id) => ws.find_by_id(ws_id).await.ok().flatten(),
+            None => None,
+        },
         _ => None,
     };
 
@@ -161,15 +160,15 @@ pub async fn build_for_task(
         None => None,
     };
 
-    let servers: Vec<ServerConfig> = repo
+    let servers: Vec<ServerConfig> = workspace
         .as_ref()
-        .and_then(|r| r.servers.clone())
+        .and_then(|w| w.servers.clone())
         .map(|value| {
             serde_json::from_value::<Vec<ServerConfig>>(value).unwrap_or_else(|e| {
                 warn!(
                     error = %e,
                     task_id,
-                    "Failed to parse repository.servers as Vec<ServerConfig>; treating as empty"
+                    "Failed to parse workspace.servers as Vec<ServerConfig>; treating as empty"
                 );
                 Vec::new()
             })
@@ -185,7 +184,7 @@ pub async fn build_for_task(
         task_name: task.and_then(|t| t.name.as_deref()),
         parent_task_id: parent_task_id.as_deref(),
         task_append_system_prompt: task.and_then(|t| t.append_system_prompt.as_deref()),
-        repo_system_prompt: repo.as_ref().and_then(|r| r.system_prompt.as_deref()),
+        repo_system_prompt: workspace.as_ref().and_then(|w| w.system_prompt.as_deref()),
         servers: &servers,
         frontend_url,
         proxy_domain,

@@ -28,10 +28,12 @@ async fn sandbox_provision_failure_invalid_image() {
 
     let client = test_client().await;
 
-    // Create repository with a nonexistent Docker image
-    let mut repo_req = create_repo_request("Invalid Image E2E", RepositoryKind::Template);
-    repo_req.docker_image = Some("ghcr.io/nonexistent/image:does-not-exist".into());
-    repo_req.remote_url = Some("https://github.com/aorwall/hello-world-ui.git".into());
+    // Repositories are git connections only (no run-config), so an unreachable
+    // remote is the provisioning failure this exercises: the sandbox can't clone
+    // and never reaches ready.
+    let mut repo_req = create_repo_request("Invalid Repo E2E", RepositoryKind::Template);
+    repo_req.remote_url =
+        Some("https://github.com/aorwall/this-repo-does-not-exist-xyz-123.git".into());
 
     let repo = client
         .api()

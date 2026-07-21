@@ -9174,29 +9174,12 @@
       },
       "CreateRepositoryRequest": {
         "type": "object",
+        "description": "A repository is a connection to a git repo. Run-configuration lives on the\nworkspace, not here.",
         "required": [
           "name",
           "kind"
         ],
         "properties": {
-          "autoReload": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "buildCommand": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "buildOutputDirectory": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "defaultBranch": {
             "type": [
               "string",
@@ -9209,58 +9192,11 @@
               "null"
             ]
           },
-          "dockerAccess": {
-            "type": [
-              "boolean",
-              "null"
-            ],
-            "description": "Opt-in Docker-in-Docker access (privileged `dind` sidecar) — enables\nTestcontainers inside the sandbox. Defaults to false."
-          },
-          "dockerImage": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "enableInspector": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "envVars": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "additionalProperties": {
-              "type": "string"
-            },
-            "propertyNames": {
-              "type": "string"
-            }
-          },
           "kind": {
             "$ref": "#/components/schemas/RepositoryKind"
           },
           "name": {
             "type": "string"
-          },
-          "networkProfile": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Per-repo network profile. When set, sandbox pods carry the label\n`moatless.io/network-profile=<value>`, which a static (GitOps-owned)\nNetworkPolicy can select to govern egress/ingress. The field only selects\na policy; it grants nothing on its own. Used for sealed benchmark runs."
-          },
-          "plugins": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            }
           },
           "provider": {
             "oneOf": [
@@ -9278,23 +9214,6 @@
               "null"
             ]
           },
-          "resources": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ResourceConfig"
-              }
-            ]
-          },
-          "sandboxServiceAccount": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Per-repo Kubernetes ServiceAccount for this repo's sandbox pods. Overrides\nthe global default when set. Used for shadow dev sandboxes that need the\nbackend's RBAC to provision sandboxes."
-          },
           "scope": {
             "oneOf": [
               {
@@ -9303,46 +9222,6 @@
               {
                 "$ref": "#/components/schemas/Scope"
               }
-            ]
-          },
-          "serverStartCommands": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
-          "servers": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "$ref": "#/components/schemas/ServerConfig"
-            }
-          },
-          "setupCommands": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
-          "startupTimeoutSeconds": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32"
-          },
-          "systemPrompt": {
-            "type": [
-              "string",
-              "null"
             ]
           },
           "teamId": {
@@ -11776,24 +11655,6 @@
             "type": "string",
             "description": "Provider reachability of `remote_url`: `unchecked` | `ok` | `not_found`\n| `forbidden` | `error`. Stamped when the repo is auto-created by a\ngit-synced workspace."
           },
-          "autoReload": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "buildCommand": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "buildOutputDirectory": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "createdAt": {
             "type": [
               "string",
@@ -11818,36 +11679,6 @@
               "null"
             ]
           },
-          "dockerAccess": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "dockerImage": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "enableInspector": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "envVars": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "additionalProperties": {
-              "type": "string"
-            },
-            "propertyNames": {
-              "type": "string"
-            }
-          },
           "id": {
             "type": "string"
           },
@@ -11857,26 +11688,11 @@
           "name": {
             "type": "string"
           },
-          "networkProfile": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "ownerUserId": {
             "type": [
               "string",
               "null"
             ]
-          },
-          "plugins": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            }
           },
           "provider": {
             "oneOf": [
@@ -11894,64 +11710,8 @@
               "null"
             ]
           },
-          "resources": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ResourceConfig"
-              }
-            ]
-          },
-          "sandboxServiceAccount": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "scope": {
             "$ref": "#/components/schemas/Scope"
-          },
-          "serverStartCommands": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
-          "servers": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "$ref": "#/components/schemas/ServerConfig"
-            }
-          },
-          "setupCommands": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
-          "startupTimeoutSeconds": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32"
-          },
-          "systemPrompt": {
-            "type": [
-              "string",
-              "null"
-            ]
           },
           "teamId": {
             "type": [
@@ -15073,24 +14833,6 @@
       "UpdateRepositoryRequest": {
         "type": "object",
         "properties": {
-          "autoReload": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "buildCommand": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "buildOutputDirectory": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "defaultBranch": {
             "type": [
               "string",
@@ -15103,81 +14845,17 @@
               "null"
             ]
           },
-          "dockerAccess": {
-            "type": [
-              "boolean",
-              "null"
-            ],
-            "description": "Opt-in Docker-in-Docker access (privileged `dind` sidecar) — enables\nTestcontainers inside the sandbox. Defaults to false."
-          },
-          "dockerImage": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "enableInspector": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "envVars": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "additionalProperties": {
-              "type": "string"
-            },
-            "propertyNames": {
-              "type": "string"
-            }
-          },
           "name": {
             "type": [
               "string",
               "null"
             ]
           },
-          "networkProfile": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Per-repo network profile — pods carry `moatless.io/network-profile=<value>`\nfor a static NetworkPolicy to select. Selects a policy; grants nothing."
-          },
-          "plugins": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
           "remoteUrl": {
             "type": [
               "string",
               "null"
             ]
-          },
-          "resources": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ResourceConfig"
-              }
-            ]
-          },
-          "sandboxServiceAccount": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Per-repo Kubernetes ServiceAccount for this repo's sandbox pods. Overrides\nthe global default when set."
           },
           "scope": {
             "oneOf": [
@@ -15188,46 +14866,6 @@
                 "$ref": "#/components/schemas/Scope",
                 "description": "Change the repository's access scope (`global`, `team`, or `user`).\nWhen set, `team_id`/`owner_user_id` are re-resolved from the new scope\n(e.g. `global` moves it to the system team with no owner)."
               }
-            ]
-          },
-          "serverStartCommands": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
-          "servers": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "$ref": "#/components/schemas/ServerConfig"
-            }
-          },
-          "setupCommands": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
-          "startupTimeoutSeconds": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32"
-          },
-          "systemPrompt": {
-            "type": [
-              "string",
-              "null"
             ]
           },
           "teamId": {

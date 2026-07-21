@@ -7,6 +7,7 @@
 
 pub mod dao;
 pub mod error;
+pub mod git_sync;
 pub mod handlers;
 pub mod models;
 pub mod routes;

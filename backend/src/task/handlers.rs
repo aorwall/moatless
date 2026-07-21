@@ -1645,7 +1645,7 @@ async fn enrich_task(
     // Resolve live sandbox status (best-effort — leave None on failure)
     let server_configs = get_server_configs_for_task(
         state.tasks.as_ref(),
-        state.repositories.as_ref(),
+        state.workspaces.as_ref(),
         &row.task_id,
     )
     .await;

@@ -114,6 +114,8 @@ pub struct ServerConfig {
 // CreateRepositoryRequest
 // =============================================================================
 
+/// A repository is a connection to a git repo. Run-configuration lives on the
+/// workspace, not here.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -122,38 +124,10 @@ pub struct CreateRepositoryRequest {
     pub kind: RepositoryKind,
     pub remote_url: Option<String>,
     pub default_branch: Option<String>,
-    pub docker_image: Option<String>,
-    /// Opt-in Docker-in-Docker access (privileged `dind` sidecar) — enables
-    /// Testcontainers inside the sandbox. Defaults to false.
-    #[serde(default)]
-    pub docker_access: Option<bool>,
-    /// Per-repo Kubernetes ServiceAccount for this repo's sandbox pods. Overrides
-    /// the global default when set. Used for shadow dev sandboxes that need the
-    /// backend's RBAC to provision sandboxes.
-    #[serde(default)]
-    pub sandbox_service_account: Option<String>,
-    /// Per-repo network profile. When set, sandbox pods carry the label
-    /// `moatless.io/network-profile=<value>`, which a static (GitOps-owned)
-    /// NetworkPolicy can select to govern egress/ingress. The field only selects
-    /// a policy; it grants nothing on its own. Used for sealed benchmark runs.
-    #[serde(default)]
-    pub network_profile: Option<String>,
-    pub system_prompt: Option<String>,
     pub description: Option<String>,
     pub provider: Option<RepositoryProvider>,
     pub scope: Option<Scope>,
     pub team_id: Option<String>,
-    pub servers: Option<Vec<ServerConfig>>,
-    pub plugins: Option<Vec<String>>,
-    pub env_vars: Option<HashMap<String, String>>,
-    pub setup_commands: Option<Vec<String>>,
-    pub server_start_commands: Option<Vec<String>>,
-    pub startup_timeout_seconds: Option<i32>,
-    pub build_command: Option<String>,
-    pub build_output_directory: Option<String>,
-    pub enable_inspector: Option<bool>,
-    pub auto_reload: Option<bool>,
-    pub resources: Option<ResourceConfig>,
 }
 
 // =============================================================================
@@ -173,32 +147,7 @@ pub struct UpdateRepositoryRequest {
     pub team_id: Option<String>,
     pub remote_url: Option<String>,
     pub default_branch: Option<String>,
-    pub docker_image: Option<String>,
-    /// Opt-in Docker-in-Docker access (privileged `dind` sidecar) — enables
-    /// Testcontainers inside the sandbox. Defaults to false.
-    #[serde(default)]
-    pub docker_access: Option<bool>,
-    /// Per-repo Kubernetes ServiceAccount for this repo's sandbox pods. Overrides
-    /// the global default when set.
-    #[serde(default)]
-    pub sandbox_service_account: Option<String>,
-    /// Per-repo network profile — pods carry `moatless.io/network-profile=<value>`
-    /// for a static NetworkPolicy to select. Selects a policy; grants nothing.
-    #[serde(default)]
-    pub network_profile: Option<String>,
-    pub system_prompt: Option<String>,
     pub description: Option<String>,
-    pub servers: Option<Vec<ServerConfig>>,
-    pub plugins: Option<Vec<String>>,
-    pub env_vars: Option<HashMap<String, String>>,
-    pub setup_commands: Option<Vec<String>>,
-    pub server_start_commands: Option<Vec<String>>,
-    pub startup_timeout_seconds: Option<i32>,
-    pub build_command: Option<String>,
-    pub build_output_directory: Option<String>,
-    pub enable_inspector: Option<bool>,
-    pub auto_reload: Option<bool>,
-    pub resources: Option<ResourceConfig>,
 }
 
 // =============================================================================
@@ -214,30 +163,11 @@ pub struct RepositoryResponse {
     pub kind: RepositoryKind,
     pub remote_url: Option<String>,
     pub default_branch: Option<String>,
-    pub docker_image: Option<String>,
-    #[serde(default)]
-    pub docker_access: Option<bool>,
-    #[serde(default)]
-    pub sandbox_service_account: Option<String>,
-    #[serde(default)]
-    pub network_profile: Option<String>,
-    pub system_prompt: Option<String>,
     pub description: Option<String>,
     pub provider: Option<RepositoryProvider>,
     pub scope: Scope,
     pub team_id: Option<String>,
     pub owner_user_id: Option<String>,
-    pub servers: Option<Vec<ServerConfig>>,
-    pub plugins: Option<Vec<String>>,
-    pub env_vars: Option<HashMap<String, String>>,
-    pub setup_commands: Option<Vec<String>>,
-    pub server_start_commands: Option<Vec<String>>,
-    pub startup_timeout_seconds: Option<i32>,
-    pub build_command: Option<String>,
-    pub build_output_directory: Option<String>,
-    pub enable_inspector: Option<bool>,
-    pub auto_reload: Option<bool>,
-    pub resources: Option<ResourceConfig>,
     /// Provider reachability of `remote_url`: `unchecked` | `ok` | `not_found`
     /// | `forbidden` | `error`. Stamped when the repo is auto-created by a
     /// git-synced workspace.

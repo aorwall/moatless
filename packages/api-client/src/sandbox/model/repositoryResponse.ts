@@ -7,10 +7,7 @@
  */
 import type { RepositoryKind } from './repositoryKind';
 import type { RepositoryProvider } from './repositoryProvider';
-import type { RepositoryResponseEnvVars } from './repositoryResponseEnvVars';
-import type { ResourceConfig } from './resourceConfig';
 import type { Scope } from './scope';
-import type { ServerConfig } from './serverConfig';
 
 export interface RepositoryResponse {
   /** @nullable */
@@ -22,12 +19,6 @@ export interface RepositoryResponse {
 git-synced workspace. */
   accessStatus?: string;
   /** @nullable */
-  autoReload?: boolean | null;
-  /** @nullable */
-  buildCommand?: string | null;
-  /** @nullable */
-  buildOutputDirectory?: string | null;
-  /** @nullable */
   createdAt?: string | null;
   /** @nullable */
   createdBy?: string | null;
@@ -35,40 +26,15 @@ git-synced workspace. */
   defaultBranch?: string | null;
   /** @nullable */
   description?: string | null;
-  /** @nullable */
-  dockerAccess?: boolean | null;
-  /** @nullable */
-  dockerImage?: string | null;
-  /** @nullable */
-  enableInspector?: boolean | null;
-  /** @nullable */
-  envVars?: RepositoryResponseEnvVars;
   id: string;
   kind: RepositoryKind;
   name: string;
   /** @nullable */
-  networkProfile?: string | null;
-  /** @nullable */
   ownerUserId?: string | null;
-  /** @nullable */
-  plugins?: string[] | null;
   provider?: null | RepositoryProvider;
   /** @nullable */
   remoteUrl?: string | null;
-  resources?: null | ResourceConfig;
-  /** @nullable */
-  sandboxServiceAccount?: string | null;
   scope: Scope;
-  /** @nullable */
-  serverStartCommands?: string[] | null;
-  /** @nullable */
-  servers?: ServerConfig[] | null;
-  /** @nullable */
-  setupCommands?: string[] | null;
-  /** @nullable */
-  startupTimeoutSeconds?: number | null;
-  /** @nullable */
-  systemPrompt?: string | null;
   /** @nullable */
   teamId?: string | null;
   /** @nullable */

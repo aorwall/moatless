@@ -157,18 +157,19 @@ pub async fn sandbox_status_handler(
                 );
             }
 
-            let repo_docker_image = match &state.repos {
-                Some(repos) => repos
-                    .find_repository_by_id(&task.repository_id)
-                    .await
-                    .ok()
-                    .flatten()
-                    .and_then(|repo| repo.docker_image),
-                None => None,
-            };
+            let docker_image_override =
+                match (&state.workspaces, task.workspace_id.as_deref()) {
+                    (Some(workspaces), Some(ws_id)) => workspaces
+                        .find_by_id(ws_id)
+                        .await
+                        .ok()
+                        .flatten()
+                        .and_then(|ws| ws.docker_image),
+                    _ => None,
+                };
             let latest = state
                 .provider
-                .expected_sandbox_image(repo_docker_image.as_deref());
+                .expected_sandbox_image(docker_image_override.as_deref());
             resp.image_up_to_date = resp
                 .current_sandbox_image
                 .as_ref()
@@ -579,13 +580,17 @@ async fn record_sandbox_removed(state: &SandboxApiState, task_id: &str) {
     }
 }
 
-/// Resolve server configs from DB via the SandboxApiState repositories.
+/// Resolve server configs from the task's workspace via the SandboxApiState.
 async fn resolve_server_configs(state: &SandboxApiState, task_id: &str) -> Vec<ServerConfig> {
-    if let (Some(ref tasks), Some(ref repos)) = (&state.tasks, &state.repos) {
-        super::auto_provision::get_server_configs_for_task(tasks.as_ref(), repos.as_ref(), task_id)
-            .await
+    if let (Some(ref tasks), Some(ref workspaces)) = (&state.tasks, &state.workspaces) {
+        super::auto_provision::get_server_configs_for_task(
+            tasks.as_ref(),
+            workspaces.as_ref(),
+            task_id,
+        )
+        .await
     } else {
-        warn!(task_id = %task_id, "No task/repo repositories available for server config resolution");
+        warn!(task_id = %task_id, "No task/workspace repositories available for server config resolution");
         vec![]
     }
 }

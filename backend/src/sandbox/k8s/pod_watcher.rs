@@ -1244,7 +1244,7 @@ async fn auto_disable_server(
     // Never disable the default server — surface Failed and stop.
     let is_default = crate::sandbox::auto_provision::get_server_configs_for_task(
         tasks.as_ref(),
-        repos.as_ref(),
+        workspaces.as_ref(),
         task_id,
     )
     .await

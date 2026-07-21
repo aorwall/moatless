@@ -15,18 +15,11 @@ use crate::secret::models::looks_like_secret_key;
 use crate::state::AppState;
 use moatless_backend_core::scope::ScopedResource;
 
-use super::config_reader::{config_to_patch, fetch_moatless_config};
 use super::dao::RepositoryPatch;
 use super::error::RepositoryError;
 use super::models::{Repository, RepositoryKind, RepositoryProvider};
 use super::schemas::*;
-use super::workspace_sync::sync_repo_workspaces;
-
-/// Convert a serializable value to JSON Value, mapping errors to `RepositoryError`.
-fn to_json<T: serde::Serialize>(val: T) -> Result<serde_json::Value, RepositoryError> {
-    serde_json::to_value(val)
-        .map_err(|e| RepositoryError::BadRequest(format!("Serialization error: {e}")))
-}
+use crate::workspace::git_sync::sync_repo_workspaces;
 
 pub(crate) fn validate_non_secret_env_vars(
     env_vars: Option<&std::collections::HashMap<String, String>>,
@@ -74,9 +67,7 @@ pub async fn create_repository(
 
     let id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now();
-    let has_servers = req.servers.is_some();
     let user_id = auth.user_id.clone();
-    validate_non_secret_env_vars(req.env_vars.as_ref())?;
 
     let resolved_scope =
         resolve_scope_for_create(&state, &auth, req.scope, req.team_id.clone()).await?;
@@ -88,22 +79,6 @@ pub async fn create_repository(
         kind: req.kind,
         remote_url: req.remote_url,
         default_branch: req.default_branch,
-        docker_image: req.docker_image,
-        docker_access: req.docker_access,
-        sandbox_service_account: req.sandbox_service_account,
-        network_profile: req.network_profile,
-        system_prompt: req.system_prompt,
-        setup_commands: req.setup_commands.map(to_json).transpose()?,
-        env_vars: req.env_vars.map(to_json).transpose()?,
-        servers: req.servers.map(to_json).transpose()?,
-        plugins: req.plugins.map(to_json).transpose()?,
-        server_start_commands: req.server_start_commands.map(to_json).transpose()?,
-        startup_timeout_seconds: req.startup_timeout_seconds,
-        build_command: req.build_command,
-        build_output_directory: req.build_output_directory,
-        enable_inspector: req.enable_inspector,
-        auto_reload: req.auto_reload,
-        resources: req.resources.map(to_json).transpose()?,
         description: req.description,
         provider: req.provider,
         scope: resolved_scope.scope,
@@ -120,61 +95,8 @@ pub async fn create_repository(
 
     state.repositories.insert(&row).await?;
 
-    // Auto-read .moatless/config.json if no servers were provided and repo has a remote URL
-    if !has_servers {
-        if let Some(ref remote_url) = row.remote_url {
-            let provider = row.provider.unwrap_or(RepositoryProvider::Github);
-            let provider_str = provider.as_str();
-
-            // Try to get a provider token (optional for GitHub public repos)
-            let token = if provider == RepositoryProvider::Github {
-                resolve_optional_github_token(&state, &user_id)
-                    .await
-                    .unwrap_or_else(|e| {
-                        warn!(repository_id = %id, error = %e, "Failed to resolve GitHub token");
-                        None
-                    })
-            } else {
-                match state
-                    .provider_tokens
-                    .find_provider_token(&user_id, provider_str)
-                    .await
-                {
-                    Ok(t) => t.map(|t| t.access_token),
-                    Err(e) => {
-                        warn!(repository_id = %id, error = %e, "Failed to look up provider token");
-                        None
-                    }
-                }
-            };
-
-            let token_str = token.as_deref();
-            let branch = row.default_branch.as_deref();
-            match fetch_moatless_config(remote_url, branch, token_str, provider).await {
-                Ok(Some(config)) => {
-                    info!(repository_id = %id, "Auto-applying .moatless/config.json");
-                    match config_to_patch(&config) {
-                        Ok(patch) => {
-                            if let Err(e) = state.repositories.update(&id, &patch).await {
-                                warn!(repository_id = %id, error = %e, "Failed to apply repo config");
-                            }
-                        }
-                        Err(e) => {
-                            warn!(repository_id = %id, error = %e, "Failed to convert repo config to patch");
-                        }
-                    }
-                }
-                Ok(None) => {
-                    debug!(repository_id = %id, "No .moatless/config.json found");
-                }
-                Err(e) => {
-                    warn!(repository_id = %id, error = %e, "Failed to fetch .moatless/config.json");
-                }
-            }
-        }
-    }
-
-    // Re-fetch to include any config that was applied
+    // A repository is only a git connection; its run-config flows to the
+    // workspace via the git sync below, not into repo columns.
     let final_row = state
         .repositories
         .find_by_id(&id, &scope_ctx)
@@ -322,7 +244,6 @@ pub async fn update_repository(
         "repository",
     )
     .await?;
-    validate_non_secret_env_vars(req.env_vars.as_ref())?;
 
     // Changing scope re-resolves team_id/owner_user_id and re-validates that the
     // caller is allowed to own a resource at the target scope (same policy as create).
@@ -347,27 +268,7 @@ pub async fn update_repository(
         name: req.name,
         remote_url: req.remote_url.map(Some),
         default_branch: req.default_branch.map(Some),
-        docker_image: req.docker_image.map(Some),
-        docker_access: req.docker_access.map(Some),
-        sandbox_service_account: req.sandbox_service_account.map(Some),
-        network_profile: req.network_profile.map(Some),
-        system_prompt: req.system_prompt.map(Some),
         description: req.description.map(Some),
-        servers: req.servers.map(to_json).transpose()?.map(Some),
-        plugins: req.plugins.map(to_json).transpose()?.map(Some),
-        env_vars: req.env_vars.map(to_json).transpose()?.map(Some),
-        setup_commands: req.setup_commands.map(to_json).transpose()?.map(Some),
-        server_start_commands: req
-            .server_start_commands
-            .map(to_json)
-            .transpose()?
-            .map(Some),
-        startup_timeout_seconds: req.startup_timeout_seconds.map(Some),
-        build_command: req.build_command.map(Some),
-        build_output_directory: req.build_output_directory.map(Some),
-        enable_inspector: req.enable_inspector.map(Some),
-        auto_reload: req.auto_reload.map(Some),
-        resources: req.resources.map(to_json).transpose()?.map(Some),
         ..Default::default()
     };
 
@@ -1081,77 +982,42 @@ pub async fn sync_config(
     }))
 }
 
-/// Reconcile a repository's committed `.moatless/config.json` + `.moatless/loops/`
-/// into the DB and trigger tables.
+/// Reconcile a repository's committed `.moatless/loops/` + git-declared
+/// workspaces into the trigger tables and `workspaces` rows.
 ///
 /// Shared by the `sync-config` endpoint and the automatic sync on task start.
-/// Applying `config.json` is skipped when absent (a repo may ship only loops),
-/// and loop sync is best-effort: a fetch failure yields an empty summary rather
-/// than failing the whole reconcile. Returns the (possibly updated) repository
-/// row alongside the loop-sync summary.
+/// Run-config from `.moatless/config.json` / `.moatless/workspaces.json` flows
+/// into the workspace (via `sync_repo_workspaces`), not into repo columns — a
+/// repository is only a git connection. Loop sync is best-effort: a fetch
+/// failure yields an empty summary rather than failing the whole reconcile.
 pub(crate) async fn sync_repo_config(
     state: &AppState,
     repo: &Repository,
     auth: &AuthUser,
 ) -> Result<(Repository, LoopSyncSummary), RepositoryError> {
-    let scope_ctx = auth.scope_context();
-
-    let remote_url = repo
-        .remote_url
-        .as_deref()
-        .ok_or_else(|| RepositoryError::BadRequest("Repository has no remote URL".to_string()))?;
-
-    let provider = repo.provider.unwrap_or(RepositoryProvider::Github);
-    let provider_str = provider.as_str();
-
-    let token = if provider == RepositoryProvider::Github {
-        resolve_optional_github_token(state, &auth.user_id).await?
-    } else {
-        state
-            .provider_tokens
-            .find_provider_token(&auth.user_id, provider_str)
-            .await
-            .map_err(RepositoryError::Db)?
-            .map(|t| t.access_token)
-    };
-
-    let token_str = token.as_deref();
-    let branch = repo.default_branch.as_deref();
-
-    // Apply `.moatless/config.json` when present. A missing config is fine — a
-    // repo may ship only loops — so we sync loops regardless.
-    match fetch_moatless_config(remote_url, branch, token_str, provider).await? {
-        Some(config) => {
-            let patch = config_to_patch(&config)?;
-            state.repositories.update(&repo.id, &patch).await?;
-        }
-        None => {
-            debug!(repository_id = %repo.id, "No .moatless/config.json found; syncing loops only");
-        }
+    if repo.remote_url.is_none() {
+        return Err(RepositoryError::BadRequest(
+            "Repository has no remote URL".to_string(),
+        ));
     }
-
-    let updated = state
-        .repositories
-        .find_by_id(&repo.id, &scope_ctx)
-        .await?
-        .ok_or_else(|| RepositoryError::NotFound(repo.id.clone()))?;
 
     // Reconcile `.moatless/loops/` into the trigger tables. Best-effort: a fetch
     // failure surfaces an empty summary rather than failing the whole sync.
-    let loops = match sync_repo_loops(state, &updated, auth).await {
+    let loops = match sync_repo_loops(state, repo, auth).await {
         Ok(summary) => summary,
         Err(e) => {
-            warn!(repository_id = %updated.id, error = %e, "Loop sync failed during config sync");
+            warn!(repository_id = %repo.id, error = %e, "Loop sync failed during config sync");
             LoopSyncSummary::default()
         }
     };
 
-    // Reconcile git-declared workspaces. This also covers task start, since
-    // `maybe_sync_repo_config_on_start` calls `sync_repo_config` behind the
-    // `.moatless/` existence gate. Best-effort and non-fatal.
-    log_workspace_sync(state, &updated, auth, "sync-config").await;
+    // Reconcile git-declared workspaces (`.moatless/workspaces.json` or the
+    // legacy `.moatless/config.json` → workspace run-config). This also covers
+    // task start, since `maybe_sync_repo_config_on_start` calls `sync_repo_config`
+    // behind the `.moatless/` existence gate. Best-effort and non-fatal.
+    log_workspace_sync(state, repo, auth, "sync-config").await;
 
-    Ok((updated, loops))
+    Ok((repo.clone(), loops))
 }
 
 #[cfg(test)]

@@ -8,4 +8,3 @@ pub mod models;
 pub mod routes;
 pub mod schemas;
 pub mod seed;
-pub mod workspace_sync;

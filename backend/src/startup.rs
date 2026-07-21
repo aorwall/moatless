@@ -265,6 +265,8 @@ pub fn spawn_grpc_server(
         });
     let repositories: Option<Arc<dyn RepoRepository>> =
         db_pool.map(|pool| Arc::new(PgRepoRepository(pool.clone())) as _);
+    let grpc_workspaces: Option<Arc<dyn crate::workspace::dao::WorkspaceRepository>> = db_pool
+        .map(|pool| Arc::new(crate::workspace::dao::PgWorkspaceRepository(pool.clone())) as _);
     let users: Option<Arc<dyn UserRepository>> =
         db_pool.map(|pool| Arc::new(PgUserRepository(pool.clone())) as _);
     let teams: Option<Arc<dyn crate::team::dao::TeamRepository>> =
@@ -342,6 +344,7 @@ pub fn spawn_grpc_server(
             secrets,
             credentials_svc,
             repositories,
+            workspaces: grpc_workspaces,
             backend_config: Some(backend_config),
             s3,
             files,
