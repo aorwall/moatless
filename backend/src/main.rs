@@ -283,8 +283,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Arc::new(crate::auth::github_app_registry::GitHubAppRegistry::from_config(&config));
         let adapter_registry =
             adapters::Adapters::from_config(&config, pool.clone(), github_apps.clone()).await;
+        // Dedicated lock-only pool for per-Task lifecycle serialization. A held
+        // session advisory lock pins its connection for the operation's whole
+        // duration, so it must not share the main application pool.
+        let db_url = config
+            .database_url
+            .as_deref()
+            .ok_or("DATABASE_URL required to build the lifecycle lock pool")?;
+        let lock_pool = moatless_vibe_backend::db::create_pool_kind(
+            db_url,
+            config.database.max_connections,
+            moatless_vibe_backend::db::PoolKind::Lock,
+        )
+        .await?;
         let app_state = AppState::new(
             pool,
+            lock_pool,
             Arc::new(config.clone()),
             sandbox_provider,
             event_publisher,

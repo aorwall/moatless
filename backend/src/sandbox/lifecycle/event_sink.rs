@@ -16,12 +16,17 @@ use super::events::LifecycleEvent;
 use super::orchestrator::LifecycleEventSink;
 
 /// Publishes lifecycle events through the existing Redis outbox path.
+///
+/// The publisher is optional: with no event transport (Redis disabled) the sink
+/// no-ops, matching the rest of the system's Redis-down degradation. Completion
+/// facts stay durable regardless — the store commits them to `task_events`
+/// before publication.
 pub struct OutboxEventSink {
-    publisher: Arc<dyn EventPublisher>,
+    publisher: Option<Arc<dyn EventPublisher>>,
 }
 
 impl OutboxEventSink {
-    pub fn new(publisher: Arc<dyn EventPublisher>) -> Self {
+    pub fn new(publisher: Option<Arc<dyn EventPublisher>>) -> Self {
         Self { publisher }
     }
 }
@@ -29,6 +34,9 @@ impl OutboxEventSink {
 #[async_trait]
 impl LifecycleEventSink for OutboxEventSink {
     async fn publish(&self, task_id: &str, event: &LifecycleEvent) {
+        let Some(publisher) = &self.publisher else {
+            return;
+        };
         let payload = match serde_json::to_value(event.payload()) {
             Ok(payload) => payload,
             Err(e) => {
@@ -36,7 +44,7 @@ impl LifecycleEventSink for OutboxEventSink {
                 return;
             }
         };
-        self.publisher
+        publisher
             .publish_raw_event_with_id(
                 &event.event_id,
                 task_id,

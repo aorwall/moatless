@@ -55,21 +55,12 @@ pub(crate) mod outcome;
 pub(crate) mod runtime;
 pub(crate) mod types;
 
-// Infrastructure adapters implementing the ports. `pub(crate)` and, until the
-// caller migration constructs them, driven only by in-crate tests — so
-// dead_code is allowed deliberately rather than muted by widening to `pub`. The
-// caller-migration commit that wires them into `AppState`/`main` drops the
-// allow.
-// reason: staged delivery — the port adapters land before the code that drives them.
-#[allow(dead_code)]
+// Infrastructure adapters implementing the ports, `pub(crate)` and constructed
+// by `AppState` when it builds the `Lifecycle` handle.
 pub(crate) mod agent_stop;
-#[allow(dead_code)]
 pub(crate) mod dao;
-#[allow(dead_code)]
 pub(crate) mod event_sink;
-#[allow(dead_code)]
 pub(crate) mod lock;
-#[allow(dead_code)]
 pub(crate) mod runtime_bridge;
 
 // The lifecycle contract against local Postgres (Lifecycle over the Pg adapters).
@@ -94,3 +85,10 @@ pub use orchestrator::{
     AgentStopPort, IntentWrite, Lifecycle, LifecycleEventSink, LifecycleLock, LifecycleStore,
     LockGuard, StoreError, SystemWallClock, TaskIntent, WallClock,
 };
+
+// The concrete port adapters `AppState` assembles into a `Lifecycle`.
+pub(crate) use agent_stop::GrpcAgentStop;
+pub(crate) use dao::PgLifecycleStore;
+pub(crate) use event_sink::OutboxEventSink;
+pub(crate) use lock::PgLifecycleLock;
+pub(crate) use runtime_bridge::{ProvisionDeps, RuntimeBridge};
