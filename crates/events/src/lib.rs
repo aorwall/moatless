@@ -25,8 +25,9 @@ pub enum EventType {
     Agent,
     Server,
     Resources,
-    /// Derived, UI-only events (`message.upsert` / `message.deleted`). Assembled
-    /// server-side and relayed to clients, but never persisted to `task_events`.
+    /// Derived, UI-only events (`message.upsert` / `message.subagentProgress`).
+    /// Assembled server-side and relayed to clients, never persisted to
+    /// `task_events`.
     Message,
 }
 
@@ -367,7 +368,8 @@ pub enum MessageSubType {
     /// A subagent step advanced: carries the absolute `{ toolUseId,
     /// messageCount, tokens, status }` summary for one `Agent` tool call. UI-only
     /// — keeps the collapsed `Agent` card live without streaming transcript
-    /// content. Wire value is camelCase to match the frontend event contract.
+    /// content. Intentionally camelCase (not the crate's snake_case subtype
+    /// convention) so the wire value matches the frontend event contract.
     #[serde(rename = "subagentProgress")]
     SubagentProgress,
 }

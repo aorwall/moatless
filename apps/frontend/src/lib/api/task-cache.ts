@@ -2,7 +2,7 @@
  * Shared cache-shape primitives for the task/message caches.
  *
  * One owner of "how a Message lives in the messages cache", called by both the
- * event path (message.upsert / message.deleted) and the optimistic mutations.
+ * event path (message.upsert / message.subagentProgress) and the optimistic mutations.
  * Keeps the two writer families from drifting on the infinite-query page model.
  */
 import type { SubagentSummary, UiMessage } from '@moatless/api-client'

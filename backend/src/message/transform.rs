@@ -286,11 +286,9 @@ pub(crate) fn inject_subagent_summaries(
                 continue;
             };
             let (message_count, tokens) = aggregates.get(&id).copied().unwrap_or((0, 0));
-            let status = match result_status.get(&id) {
-                Some(true) => SubagentStatus::Error,
-                Some(false) => SubagentStatus::Completed,
-                None => SubagentStatus::Running,
-            };
+            let outer_result = result_status.get(&id).copied();
+            let status =
+                SubagentStatus::from_outer_result(outer_result.is_some(), outer_result == Some(true));
             b.subagent_summary = Some(SubagentSummary {
                 message_count,
                 tokens,

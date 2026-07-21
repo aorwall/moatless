@@ -174,8 +174,6 @@ export function ChatInputSection({
   // Stop agent mutation
   const stopAgent = useStopAgent(taskId)
 
-  // Delete queued message mutation
-
   // Message-send orchestration (free text, pending-tool responses)
   const {
     sendMessage,

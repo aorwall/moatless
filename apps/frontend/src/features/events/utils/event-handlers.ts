@@ -56,7 +56,7 @@ export const EVENT_INVALIDATION_MAP = {
     // Resource metrics are handled via direct cache updates, no invalidation needed
   },
   message: {
-    // Derived message.upsert/deleted apply by uuid via applyMessageEvent — no invalidation
+    // Derived message.upsert / subagentProgress apply via applyMessageEvent — no invalidation
   },
 } as const satisfies Record<Event['type'], InvalidationMapping>
 

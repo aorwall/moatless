@@ -10,11 +10,7 @@ function getTextContent(message: UiMessage): string {
   return message.content.flatMap((c) => (c.type === 'text' ? [c.text ?? ''] : [])).join('\n')
 }
 
-/**
- * View-only list of messages queued behind a running turn. The cancel
- * affordance was removed with the `DELETE /messages` route — the pending list
- * is informational only.
- */
+/** View-only list of messages queued behind a running turn (informational). */
 export function QueuedMessages({ messages }: QueuedMessagesProps) {
   if (messages.length === 0) {
     return null

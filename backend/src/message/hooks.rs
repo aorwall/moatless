@@ -20,7 +20,7 @@ use serde_json::json;
 use tracing::{debug, info, warn};
 
 use super::models::MessageType;
-use super::schemas::UiMessage;
+use super::schemas::{SubagentStatus, UiMessage};
 use crate::adapters::github_pr::api::GithubPrApi;
 use crate::auth::credentials::resolve_state_github_token;
 use crate::bindings::dao::PgTaskBindingRepository;
@@ -282,24 +282,21 @@ pub async fn emit_subagent_progress(state: &AppState, task_id: &str, tool_use_id
         )
     });
 
-    // Status: derived from the outer `Agent` tool_result. Present + is_error →
-    // error; present → completed; absent → running.
+    // Status: the one shared rule keyed on the outer `Agent` tool_result, so the
+    // live path can't drift from the read path's `inject_subagent_summaries`.
     let status = match state.messages.find_tool_call(task_id, tool_use_id).await {
-        Ok(Some(call)) if call.result_content.is_some() || call.is_error.is_some() => {
-            if call.is_error == Some(true) {
-                "error"
-            } else {
-                "completed"
-            }
+        Ok(Some(call)) => {
+            let present = call.result_content.is_some() || call.is_error.is_some();
+            SubagentStatus::from_outer_result(present, call.is_error == Some(true))
         }
-        _ => "running",
+        _ => SubagentStatus::Running,
     };
 
     let payload = json!({
         "toolUseId": tool_use_id,
         "messageCount": message_count,
         "tokens": tokens,
-        "status": status,
+        "status": status.as_str(),
     });
 
     events

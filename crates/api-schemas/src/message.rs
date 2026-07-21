@@ -102,6 +102,29 @@ pub enum SubagentStatus {
     Error,
 }
 
+impl SubagentStatus {
+    /// The single rule for subagent status, derived from the outer `Agent`
+    /// tool_result: present + `is_error` → `Error`; present → `Completed`;
+    /// absent → `Running`. Shared by the read path and the live progress event
+    /// so the collapsed card has one source of truth.
+    pub fn from_outer_result(present: bool, is_error: bool) -> Self {
+        match (present, is_error) {
+            (true, true) => Self::Error,
+            (true, false) => Self::Completed,
+            (false, _) => Self::Running,
+        }
+    }
+
+    /// camelCase wire value, matching the `subagentProgress` event contract.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Running => "running",
+            Self::Completed => "completed",
+            Self::Error => "error",
+        }
+    }
+}
+
 /// Derived aggregate metadata for a spawned subagent, carried on the `Agent`
 /// tool-use content block. Not content — the collapsed `Agent` card renders as
 /// a pure read of this. Shared shape between the read path and the live
