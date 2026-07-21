@@ -6,12 +6,14 @@
 
 use thiserror::Error;
 
+use crate::task::models::TaskStatus;
+
 use super::types::OperationKind;
 
 /// Coarse error class driving retry policy.
 ///
 /// The reconciler retries only *transient* classes (runtime/infra) under its
-/// attempt cap and never *permanent* ones (bad plan, Closed guard).
+/// attempt cap and never *permanent* ones (the Closed guard).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorClass {
     /// Transient infrastructure/runtime failure — safe to retry with backoff.
@@ -73,19 +75,25 @@ pub enum LifecycleError {
 
     /// The operation is not permitted for the task's current status — a
     /// `start`/`restart`/`redeploy` against a Closed task. Permanent (the
-    /// Closed guard is per-operation; stop/remove stay permitted).
+    /// Closed guard is per-operation; stop/remove stay permitted). The
+    /// [`TaskStatus`] is retained as a domain value and formatted only at the
+    /// response/logging boundary.
     #[error("operation {kind} not allowed for task {task_id} in status {status}")]
     NotAllowed {
         kind: OperationKind,
         task_id: String,
-        status: String,
+        status: TaskStatus,
     },
 
-    /// The workspace-to-runtime plan could not be constructed (repo row gone,
-    /// credentials revoked). Permanent w.r.t. retry — a fresh caller op or a
-    /// fixed workspace is required.
-    #[error("failed to build runtime plan for task {task_id}: {reason}")]
-    BadPlan { task_id: String, reason: String },
+    /// Loading the persisted intent failed — a *read*, so no write occurred.
+    /// Transient.
+    #[error("failed to load intent for task {task_id}: {reason}")]
+    IntentLoad { task_id: String, reason: String },
+
+    /// Allocating the operation generation failed. Transient — no runtime
+    /// effect (allocation precedes the intent write).
+    #[error("failed to allocate generation for task {task_id}: {reason}")]
+    GenerationUnavailable { task_id: String, reason: String },
 
     /// The persisted intent write failed. Transient — the operation left no
     /// runtime effect (intent is written before effect).
@@ -102,6 +110,12 @@ pub enum LifecycleError {
         source: RuntimeError,
     },
 
+    /// The completion transaction (persist the deterministic completion fact +
+    /// clear the marker) failed. Transient — intent and marker survive for the
+    /// reconciler, and the completion event was **not** published.
+    #[error("failed to commit completion for task {task_id}: {reason}")]
+    CompletionCommit { task_id: String, reason: String },
+
     /// Another lifecycle operation holds the per-Task lock. Carries the
     /// conflicting operation's `kind` so callers can react without a marker
     /// read — HTTP maps to 409, background to a bounded retry or a return to
@@ -109,15 +123,22 @@ pub enum LifecycleError {
     /// agent/process activity here).
     #[error("operation in progress on task: conflicting {kind}")]
     OperationInProgress { kind: OperationKind },
+
+    /// The detached transition task failed to join (panicked). A bug; permanent.
+    #[error("lifecycle transition failed for task {task_id}: {reason}")]
+    Interrupted { task_id: String, reason: String },
 }
 
 impl LifecycleError {
     pub fn class(&self) -> ErrorClass {
         match self {
-            Self::TaskNotFound(_) | Self::NotAllowed { .. } | Self::BadPlan { .. } => {
+            Self::TaskNotFound(_) | Self::NotAllowed { .. } | Self::Interrupted { .. } => {
                 ErrorClass::Permanent
             }
-            Self::IntentWrite { .. } => ErrorClass::Transient,
+            Self::IntentLoad { .. }
+            | Self::GenerationUnavailable { .. }
+            | Self::IntentWrite { .. }
+            | Self::CompletionCommit { .. } => ErrorClass::Transient,
             Self::Runtime { source, .. } => source.class(),
             Self::OperationInProgress { .. } => ErrorClass::Contention,
         }
@@ -139,18 +160,35 @@ mod tests {
         assert!(!LifecycleError::NotAllowed {
             kind: OperationKind::Start,
             task_id: "t".into(),
-            status: "closed".into(),
+            status: TaskStatus::Closed,
         }
         .is_retriable());
-        assert!(!LifecycleError::BadPlan {
+        assert!(!LifecycleError::Interrupted {
             task_id: "t".into(),
-            reason: "repo gone".into(),
+            reason: "panic".into(),
         }
         .is_retriable());
     }
 
     #[test]
     fn transient_errors_are_retriable() {
+        // Reads and writes to the store are transient — none left a runtime
+        // effect, and a completion-commit failure keeps intent+marker.
+        assert!(LifecycleError::IntentLoad {
+            task_id: "t".into(),
+            reason: "conn reset".into(),
+        }
+        .is_retriable());
+        assert!(LifecycleError::GenerationUnavailable {
+            task_id: "t".into(),
+            reason: "seq locked".into(),
+        }
+        .is_retriable());
+        assert!(LifecycleError::CompletionCommit {
+            task_id: "t".into(),
+            reason: "deadlock".into(),
+        }
+        .is_retriable());
         assert!(LifecycleError::IntentWrite {
             task_id: "t".into(),
             reason: "deadlock".into(),

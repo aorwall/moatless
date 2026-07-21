@@ -1,18 +1,17 @@
-//! The `SandboxRuntime` seam — the mutation interface lifecycle owns.
+//! The `SandboxRuntime` seam — the infrastructure-mutation interface lifecycle
+//! owns.
 //!
 //! Every mutation returns a typed [`RuntimeOutcome`] so lifecycle never infers
 //! what happened through a second status read, and takes a
 //! [`RuntimeOperationContext`] so the operation generation reaches the runtime
 //! and is stamped onto the resources it creates.
 //!
-//! This trait is the target of migration step 3 (`SandboxProvider` →
-//! `SandboxRuntime`, `provision` → `ensure_running`). It is introduced here
-//! against a recording adapter (step 1); the K8s/Docker adapters implement it
-//! when the seam is renamed. It is held **only** by the lifecycle module: a
-//! task-scoped lifecycle mutation that bypasses lifecycle is a compile error,
-//! not a review comment. The one named exception is the orphan resource sweep
-//! (label-based deletion of taskless resources), which lifecycle cannot
-//! express and which lives outside this seam.
+//! The seam is held **only** by the lifecycle module: a task-scoped lifecycle
+//! mutation that bypasses lifecycle is a compile error, not a review comment.
+//! The one named exception is the orphan resource sweep (label-based deletion
+//! of taskless resources), which lifecycle cannot express and which lives
+//! outside this seam. The K8s and Docker adapters implement this trait; a
+//! recording adapter implements it for lifecycle module tests.
 
 use async_trait::async_trait;
 

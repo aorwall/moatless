@@ -1,17 +1,23 @@
 //! The `Lifecycle` orchestrator and its ports.
 //!
 //! Callers identify a Task and request a transition. The orchestrator resolves
-//! intent, enforces the Closed guard, allocates a generation, **persists intent
-//! before the runtime effect**, issues a best-effort graceful `StopAgent`
-//! before the runtime effect on stop/remove, invokes the runtime seam, derives
-//! the typed outcome and its operation-level events, and returns.
+//! intent, enforces the Closed guard, allocates (or, on recovery, reuses) an
+//! operation generation, persists intent before the runtime effect, issues a
+//! best-effort graceful `StopAgent` before the runtime effect on stop/remove,
+//! invokes the runtime seam, and finalizes through one operation-aware
+//! completion path: completion facts are persisted and the marker cleared in a
+//! single transaction before the event is published; a pure no-op against an
+//! already-converged target clears its marker synchronously.
+//!
+//! Multi-step transitions run **detached** from the caller future (spawned and
+//! awaited through a join handle), so a caller disconnect cannot cancel a
+//! half-applied transition.
 //!
 //! Serialization, durable generation allocation, and intent persistence are
-//! expressed as **ports** so the ordering and decision logic here is tested
-//! against in-memory doubles. Their Postgres implementations
-//! (`pg_try_advisory_lock` on a dedicated pool; the single-statement intent
-//! write; the transactional-outbox completion commit) are the step-2 wiring
-//! this module is built to receive.
+//! expressed as ports so the ordering and decision logic here is exercised
+//! against in-memory doubles; the Postgres implementations
+//! (`pg_try_advisory_lock` on a dedicated pool, the single-statement intent
+//! write, the transactional-outbox completion commit) satisfy the same ports.
 
 use std::sync::Arc;
 
@@ -21,12 +27,12 @@ use chrono::{DateTime, Utc};
 use crate::task::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
 
 use super::error::LifecycleError;
-use super::events::{self, EventContext, LifecycleEvent};
+use super::events::{self, EventContext, EventFact, LifecycleEvent};
 use super::outcome::LifecycleOutcome;
-use super::runtime::{RuntimeOperationContext, SandboxRuntime};
+use super::runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
 use super::types::{
     ArchiveRetention, CorrelationMarker, IntentEffect, ObservedStatus, OperationGeneration,
-    OperationKind,
+    OperationKind, RuntimeEffect,
 };
 
 /// Persisted lifecycle intent for one Task.
@@ -42,6 +48,17 @@ pub struct TaskIntent {
     pub desired_state_updated_at: DateTime<Utc>,
 }
 
+/// The pre-effect facts of a finished operation, handed to `finalize`. Groups
+/// the operation's identity and intent result so completion derivation,
+/// event-id scoping, and marker acknowledgement share one value.
+struct OperationRun {
+    kind: OperationKind,
+    generation: OperationGeneration,
+    intent_effect: IntentEffect,
+    marker_was_incomplete: bool,
+    stop_reason: Option<SandboxStopReason>,
+}
+
 /// The atomic intent write — desired state, reason, retention, and the
 /// correlation marker, all in one statement/transaction so readers never
 /// observe partial intent.
@@ -53,11 +70,36 @@ pub struct IntentWrite {
     pub marker: CorrelationMarker,
 }
 
-/// Store-layer failure (transient by nature — intent is written before any
-/// runtime effect).
+/// A store-layer failure. Carries a human context and, when the backend
+/// provides one, the underlying source (e.g. a `sqlx::Error`), so the
+/// operation-specific [`LifecycleError`] the orchestrator raises does not
+/// flatten it to an opaque string.
 #[derive(Debug, thiserror::Error)]
-#[error("lifecycle store error: {0}")]
-pub struct StoreError(pub String);
+#[error("{context}")]
+pub struct StoreError {
+    pub context: String,
+    #[source]
+    pub source: Option<Box<dyn std::error::Error + Send + Sync + 'static>>,
+}
+
+impl StoreError {
+    pub fn new(context: impl Into<String>) -> Self {
+        Self {
+            context: context.into(),
+            source: None,
+        }
+    }
+
+    pub fn with_source(
+        context: impl Into<String>,
+        source: impl std::error::Error + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            context: context.into(),
+            source: Some(Box::new(source)),
+        }
+    }
+}
 
 /// Durable intent persistence + generation allocation.
 #[async_trait]
@@ -75,9 +117,15 @@ pub trait LifecycleStore: Send + Sync {
         write: &IntentWrite,
     ) -> Result<IntentEffect, StoreError>;
 
-    /// Atomically persist a completion fact and clear the marker in one
-    /// transaction (the transactional-outbox commit).
-    async fn commit_completion(&self, task_id: &str, event_id: &str) -> Result<(), StoreError>;
+    /// Persist the **full** deterministic completion event (id, status, and any
+    /// reason tag) and clear the marker in one transaction — the
+    /// transactional-outbox commit. The orchestrator publishes the event only
+    /// after this returns `Ok`.
+    async fn commit_completion(
+        &self,
+        task_id: &str,
+        event: &LifecycleEvent,
+    ) -> Result<(), StoreError>;
 
     /// Clear the marker synchronously — used for an `Unchanged` + `NoOp`
     /// against an already-converged target, where no completion fact will ever
@@ -119,15 +167,17 @@ pub trait LifecycleLock: Send + Sync {
     ) -> Result<Box<dyn LockGuard>, OperationKind>;
 }
 
-/// A monotonic clock port so marker timestamps are deterministic in tests.
-pub trait Clock: Send + Sync {
+/// A wall-clock source, used for marker timestamps. Named `WallClock` because
+/// the representation is `DateTime<Utc>` (wall time via `Utc::now()`), which
+/// can move backward under NTP adjustment — it is not monotonic.
+pub trait WallClock: Send + Sync {
     fn now(&self) -> DateTime<Utc>;
 }
 
-/// Production clock.
-pub struct SystemClock;
+/// Production wall clock.
+pub struct SystemWallClock;
 
-impl Clock for SystemClock {
+impl WallClock for SystemWallClock {
     fn now(&self) -> DateTime<Utc> {
         Utc::now()
     }
@@ -141,7 +191,7 @@ pub struct Lifecycle {
     agent_stop: Arc<dyn AgentStopPort>,
     events: Arc<dyn LifecycleEventSink>,
     lock: Arc<dyn LifecycleLock>,
-    clock: Arc<dyn Clock>,
+    clock: Arc<dyn WallClock>,
     /// Bounded lock-acquire attempts before surfacing `OperationInProgress`.
     lock_attempts: u32,
 }
@@ -153,7 +203,7 @@ impl Lifecycle {
         agent_stop: Arc<dyn AgentStopPort>,
         events: Arc<dyn LifecycleEventSink>,
         lock: Arc<dyn LifecycleLock>,
-        clock: Arc<dyn Clock>,
+        clock: Arc<dyn WallClock>,
     ) -> Self {
         Self {
             store,
@@ -171,13 +221,12 @@ impl Lifecycle {
         self
     }
 
-    // ---- Public operations ----
+    // ---- Public operations (detached from the caller future) ----
 
     pub async fn start(&self, task_id: &str) -> Result<LifecycleOutcome, LifecycleError> {
-        let _guard = self.acquire(task_id, OperationKind::Start).await?;
-        let intent = self.require_intent(task_id).await?;
-        Self::guard_toward_running(task_id, OperationKind::Start, &intent)?;
-        self.run_toward_running(task_id, OperationKind::Start, &intent).await
+        let me = self.clone();
+        let id = task_id.to_string();
+        Self::join(task_id.to_string(), tokio::spawn(async move { me.op_start(id).await })).await
     }
 
     pub async fn stop(
@@ -185,24 +234,33 @@ impl Lifecycle {
         task_id: &str,
         reason: SandboxStopReason,
     ) -> Result<LifecycleOutcome, LifecycleError> {
-        let _guard = self.acquire(task_id, OperationKind::Stop).await?;
-        let intent = self.require_intent(task_id).await?;
-        // stop is permitted in every status (idempotent for Closed).
-        self.run_stop(task_id, &intent, reason).await
+        let me = self.clone();
+        let id = task_id.to_string();
+        Self::join(
+            task_id.to_string(),
+            tokio::spawn(async move { me.op_stop(id, reason).await }),
+        )
+        .await
     }
 
     pub async fn restart(&self, task_id: &str) -> Result<LifecycleOutcome, LifecycleError> {
-        let _guard = self.acquire(task_id, OperationKind::Restart).await?;
-        let intent = self.require_intent(task_id).await?;
-        Self::guard_toward_running(task_id, OperationKind::Restart, &intent)?;
-        self.run_toward_running(task_id, OperationKind::Restart, &intent).await
+        let me = self.clone();
+        let id = task_id.to_string();
+        Self::join(
+            task_id.to_string(),
+            tokio::spawn(async move { me.op_edge(id, OperationKind::Restart).await }),
+        )
+        .await
     }
 
     pub async fn redeploy(&self, task_id: &str) -> Result<LifecycleOutcome, LifecycleError> {
-        let _guard = self.acquire(task_id, OperationKind::Redeploy).await?;
-        let intent = self.require_intent(task_id).await?;
-        Self::guard_toward_running(task_id, OperationKind::Redeploy, &intent)?;
-        self.run_toward_running(task_id, OperationKind::Redeploy, &intent).await
+        let me = self.clone();
+        let id = task_id.to_string();
+        Self::join(
+            task_id.to_string(),
+            tokio::spawn(async move { me.op_edge(id, OperationKind::Redeploy).await }),
+        )
+        .await
     }
 
     pub async fn remove(
@@ -210,13 +268,74 @@ impl Lifecycle {
         task_id: &str,
         retention: ArchiveRetention,
     ) -> Result<LifecycleOutcome, LifecycleError> {
-        let _guard = self.acquire(task_id, OperationKind::Remove).await?;
-        let intent = self.require_intent(task_id).await?;
-        // remove is permitted in every status.
-        self.run_remove(task_id, &intent, retention).await
+        let me = self.clone();
+        let id = task_id.to_string();
+        Self::join(
+            task_id.to_string(),
+            tokio::spawn(async move { me.op_remove(id, retention).await }),
+        )
+        .await
     }
 
-    // ---- Internals ----
+    /// Await a detached transition. Dropping the caller future drops this join
+    /// handle, which does **not** cancel the spawned task — the transition runs
+    /// to completion regardless.
+    async fn join(
+        task_id: String,
+        handle: tokio::task::JoinHandle<Result<LifecycleOutcome, LifecycleError>>,
+    ) -> Result<LifecycleOutcome, LifecycleError> {
+        match handle.await {
+            Ok(result) => result,
+            Err(join_err) => Err(LifecycleError::Interrupted {
+                task_id,
+                reason: join_err.to_string(),
+            }),
+        }
+    }
+
+    // ---- Detached bodies (own the lock guard for the transition) ----
+
+    async fn op_start(self, task_id: String) -> Result<LifecycleOutcome, LifecycleError> {
+        let _guard = self.acquire(&task_id, OperationKind::Start).await?;
+        let intent = self.require_intent(&task_id).await?;
+        Self::guard_toward_running(&task_id, OperationKind::Start, &intent)?;
+        self.run_toward_running(&task_id, OperationKind::Start, &intent).await
+    }
+
+    async fn op_edge(
+        self,
+        task_id: String,
+        kind: OperationKind,
+    ) -> Result<LifecycleOutcome, LifecycleError> {
+        let _guard = self.acquire(&task_id, kind).await?;
+        let intent = self.require_intent(&task_id).await?;
+        Self::guard_toward_running(&task_id, kind, &intent)?;
+        self.run_toward_running(&task_id, kind, &intent).await
+    }
+
+    async fn op_stop(
+        self,
+        task_id: String,
+        reason: SandboxStopReason,
+    ) -> Result<LifecycleOutcome, LifecycleError> {
+        let _guard = self.acquire(&task_id, OperationKind::Stop).await?;
+        let intent = self.require_intent(&task_id).await?;
+        // stop is permitted in every status (idempotent for Closed).
+        self.run_stop(&task_id, &intent, reason).await
+    }
+
+    async fn op_remove(
+        self,
+        task_id: String,
+        retention: ArchiveRetention,
+    ) -> Result<LifecycleOutcome, LifecycleError> {
+        let _guard = self.acquire(&task_id, OperationKind::Remove).await?;
+        let intent = self.require_intent(&task_id).await?;
+        // remove is permitted in every status.
+        self.run_remove(&task_id, &intent, retention).await
+    }
+
+    // ---- Shared helpers ----
 
     async fn acquire(
         &self,
@@ -237,9 +356,9 @@ impl Lifecycle {
         self.store
             .load(task_id)
             .await
-            .map_err(|e| LifecycleError::IntentWrite {
+            .map_err(|e| LifecycleError::IntentLoad {
                 task_id: task_id.to_string(),
-                reason: e.0,
+                reason: e.to_string(),
             })?
             .ok_or_else(|| LifecycleError::TaskNotFound(task_id.to_string()))
     }
@@ -256,10 +375,43 @@ impl Lifecycle {
             return Err(LifecycleError::NotAllowed {
                 kind,
                 task_id: task_id.to_string(),
-                status: intent.status.as_str().to_string(),
+                status: intent.status,
             });
         }
         Ok(())
+    }
+
+    /// Resolve the generation for an operation. A **recovery** — a level op
+    /// whose target already matches persisted intent and whose marker is for
+    /// the same kind — reuses the persisted generation so attempt identity and
+    /// deterministic event ids stay stable across retries; the boolean marks
+    /// that an incomplete marker preceded this attempt. Edges always allocate a
+    /// fresh generation (they deliberately supersede).
+    async fn resolve_generation(
+        &self,
+        task_id: &str,
+        kind: OperationKind,
+        intent: &TaskIntent,
+        target: SandboxDesiredState,
+    ) -> Result<(OperationGeneration, bool), LifecycleError> {
+        if !kind.is_edge() {
+            if let Some(marker) = intent.marker {
+                if marker.kind == kind && intent.desired_state == target {
+                    return Ok((marker.generation, true));
+                }
+            }
+        }
+        Ok((self.allocate(task_id).await?, false))
+    }
+
+    async fn allocate(&self, task_id: &str) -> Result<OperationGeneration, LifecycleError> {
+        self.store
+            .allocate_generation(task_id)
+            .await
+            .map_err(|e| LifecycleError::GenerationUnavailable {
+                task_id: task_id.to_string(),
+                reason: e.to_string(),
+            })
     }
 
     async fn persist(
@@ -272,7 +424,7 @@ impl Lifecycle {
             .await
             .map_err(|e| LifecycleError::IntentWrite {
                 task_id: task_id.to_string(),
-                reason: e.0,
+                reason: e.to_string(),
             })
     }
 
@@ -280,42 +432,68 @@ impl Lifecycle {
         &self,
         task_id: &str,
         kind: OperationKind,
-        _intent: &TaskIntent,
+        intent: &TaskIntent,
     ) -> Result<LifecycleOutcome, LifecycleError> {
-        // 1. Intent before effect: Running, clear stop reason, no retention.
-        let generation = self.allocate(task_id).await?;
+        let target = SandboxDesiredState::Running;
+        let (generation, marker_was_incomplete) =
+            self.resolve_generation(task_id, kind, intent, target).await?;
         let marker = CorrelationMarker::new(kind, generation, self.clock.now());
         let write = IntentWrite {
-            desired_state: SandboxDesiredState::Running,
+            desired_state: target,
             stop_reason: None,
             retention: None,
             marker,
         };
         let intent_effect = self.persist(task_id, &write).await?;
 
-        // 2. Runtime effect from a fresh plan / restart / redeploy.
         let ctx = RuntimeOperationContext::new(generation);
         let runtime_result = match kind {
             OperationKind::Start => self.runtime.ensure_running(task_id, ctx).await,
             OperationKind::Restart => self.runtime.restart(task_id, ctx).await,
             OperationKind::Redeploy => self.runtime.redeploy(task_id, ctx).await,
-            OperationKind::Stop | OperationKind::Remove => unreachable!("toward-running kinds only"),
+            OperationKind::Stop | OperationKind::Remove => {
+                unreachable!("toward-running kinds only")
+            }
         };
 
-        self.finish(task_id, kind, generation, intent_effect, None, runtime_result)
-            .await
+        self.finalize(
+            task_id,
+            OperationRun {
+                kind,
+                generation,
+                intent_effect,
+                marker_was_incomplete,
+                stop_reason: None,
+            },
+            runtime_result,
+        )
+        .await
     }
 
     async fn run_stop(
         &self,
         task_id: &str,
-        _intent: &TaskIntent,
+        intent: &TaskIntent,
         reason: SandboxStopReason,
     ) -> Result<LifecycleOutcome, LifecycleError> {
-        let generation = self.allocate(task_id).await?;
+        // stop is idempotent for a task already headed for removal: it must not
+        // resurrect a `Removed` intent to `Stopped` or discard its retention
+        // (which would drop a pending archive-deletion obligation).
+        if intent.desired_state == SandboxDesiredState::Removed {
+            return Ok(LifecycleOutcome::new(
+                IntentEffect::Unchanged,
+                RuntimeEffect::NoOp,
+                ObservedStatus::Stopped,
+            ));
+        }
+
+        let target = SandboxDesiredState::Stopped;
+        let (generation, marker_was_incomplete) = self
+            .resolve_generation(task_id, OperationKind::Stop, intent, target)
+            .await?;
         let marker = CorrelationMarker::new(OperationKind::Stop, generation, self.clock.now());
         let write = IntentWrite {
-            desired_state: SandboxDesiredState::Stopped,
+            desired_state: target,
             stop_reason: Some(reason),
             retention: None,
             marker,
@@ -328,12 +506,15 @@ impl Lifecycle {
         let ctx = RuntimeOperationContext::new(generation);
         let runtime_result = self.runtime.stop(task_id, ctx).await;
 
-        self.finish(
+        self.finalize(
             task_id,
-            OperationKind::Stop,
-            generation,
-            intent_effect,
-            Some(reason),
+            OperationRun {
+                kind: OperationKind::Stop,
+                generation,
+                intent_effect,
+                marker_was_incomplete,
+                stop_reason: Some(reason),
+            },
             runtime_result,
         )
         .await
@@ -343,26 +524,30 @@ impl Lifecycle {
         &self,
         task_id: &str,
         intent: &TaskIntent,
-        retention: ArchiveRetention,
+        requested_retention: ArchiveRetention,
     ) -> Result<LifecycleOutcome, LifecycleError> {
-        // A recovery of an incomplete remove reuses the persisted retention.
-        // A fresh caller op uses the supplied retention. We honor the supplied
-        // one here (callers pass the intended policy); the reconciler's retry
-        // path reuses `intent.retention`.
-        let marker_was_incomplete = intent.desired_state == SandboxDesiredState::Removed
-            && intent.marker.is_some_and(|m| m.kind == OperationKind::Remove);
-
-        let generation = self.allocate(task_id).await?;
+        let target = SandboxDesiredState::Removed;
+        let (generation, marker_was_incomplete) = self
+            .resolve_generation(task_id, OperationKind::Remove, intent, target)
+            .await?;
+        // Recovery reuses the persisted retention; a fresh caller op uses the
+        // supplied policy.
+        let retention = if marker_was_incomplete {
+            intent.retention.unwrap_or(requested_retention)
+        } else {
+            requested_retention
+        };
         let marker = CorrelationMarker::new(OperationKind::Remove, generation, self.clock.now());
         let write = IntentWrite {
-            desired_state: SandboxDesiredState::Removed,
+            desired_state: target,
             stop_reason: Some(SandboxStopReason::Cleanup),
             retention: Some(retention),
             marker,
         };
         let intent_effect = self.persist(task_id, &write).await?;
 
-        // Acceptance event: intent moved to Removed.
+        // Acceptance event: intent moved to Removed (published before the
+        // effect, so a later runtime failure still records that intent moved).
         let acc_ctx = EventContext {
             op: OperationKind::Remove,
             generation,
@@ -372,8 +557,8 @@ impl Lifecycle {
             marker_was_incomplete,
             stop_reason: None,
         };
-        for e in events::acceptance_events(task_id, &acc_ctx) {
-            self.events.publish(task_id, &e).await;
+        for event in events::acceptance_events(task_id, &acc_ctx) {
+            self.events.publish(task_id, &event).await;
         }
 
         // Graceful agent stop BEFORE the runtime effect (best-effort).
@@ -382,42 +567,41 @@ impl Lifecycle {
         let ctx = RuntimeOperationContext::new(generation);
         let runtime_result = self.runtime.remove(task_id, retention, ctx).await;
 
-        self.finish_remove(
+        self.finalize(
             task_id,
-            generation,
-            intent_effect,
-            marker_was_incomplete,
+            OperationRun {
+                kind: OperationKind::Remove,
+                generation,
+                intent_effect,
+                marker_was_incomplete,
+                stop_reason: None,
+            },
             runtime_result,
         )
         .await
     }
 
-    async fn allocate(&self, task_id: &str) -> Result<OperationGeneration, LifecycleError> {
-        self.store
-            .allocate_generation(task_id)
-            .await
-            .map_err(|e| LifecycleError::IntentWrite {
-                task_id: task_id.to_string(),
-                reason: e.0,
-            })
-    }
-
-    /// Shared finish for start/stop/restart/redeploy.
-    async fn finish(
+    /// The one operation-aware completion path.
+    ///
+    /// On runtime failure: publish the deterministic `Error` fact and return
+    /// the typed error (intent and marker survive). On success: derive the
+    /// operation's events; a completion fact (`Stopped`/`Removed`) is persisted
+    /// and the marker cleared in one transaction **before** the event is
+    /// published, so a commit failure propagates and nothing is published. If
+    /// no completion fact is owed and the operation is a pure no-op against its
+    /// already-converged target, clear the marker synchronously; otherwise the
+    /// marker is left for the reconciler to acknowledge.
+    async fn finalize(
         &self,
         task_id: &str,
-        kind: OperationKind,
-        generation: OperationGeneration,
-        intent_effect: IntentEffect,
-        stop_reason: Option<SandboxStopReason>,
-        runtime_result: Result<super::runtime::RuntimeOutcome, super::error::RuntimeError>,
+        run: OperationRun,
+        runtime_result: Result<RuntimeOutcome, super::error::RuntimeError>,
     ) -> Result<LifecycleOutcome, LifecycleError> {
         let runtime_outcome = match runtime_result {
-            Ok(o) => o,
+            Ok(outcome) => outcome,
             Err(source) => {
-                // Failure fact for this generation; intent stays the target.
                 self.events
-                    .publish(task_id, &events::error_event(task_id, generation))
+                    .publish(task_id, &events::error_event(task_id, run.generation))
                     .await;
                 return Err(LifecycleError::Runtime {
                     task_id: task_id.to_string(),
@@ -427,100 +611,70 @@ impl Lifecycle {
         };
 
         let outcome = LifecycleOutcome {
-            intent_effect,
-            runtime_effect: runtime_outcome.effect,
-            observed: runtime_outcome.observed,
-            diagnostics: runtime_outcome.diagnostics,
-        };
-
-        // Pure no-op → clear the marker synchronously and publish nothing.
-        if outcome.is_pure_no_op() {
-            self.clear_marker_best_effort(task_id).await;
-            return Ok(outcome);
-        }
-
-        let ctx = EventContext::from_outcome(kind, generation, &outcome, false, stop_reason);
-        for e in events::outcome_events(task_id, &ctx) {
-            self.publish_completion_or_infra(task_id, &e).await;
-        }
-
-        Ok(outcome)
-    }
-
-    /// Remove finish: strict success is the adapter's contract (it awaited
-    /// observed absence). On success we commit the `Removed` completion and
-    /// clear the marker in one transaction; on failure the marker and `Removed`
-    /// intent survive for the reconciler.
-    async fn finish_remove(
-        &self,
-        task_id: &str,
-        generation: OperationGeneration,
-        intent_effect: IntentEffect,
-        marker_was_incomplete: bool,
-        runtime_result: Result<super::runtime::RuntimeOutcome, super::error::RuntimeError>,
-    ) -> Result<LifecycleOutcome, LifecycleError> {
-        let runtime_outcome = match runtime_result {
-            Ok(o) => o,
-            Err(source) => {
-                self.events
-                    .publish(task_id, &events::error_event(task_id, generation))
-                    .await;
-                return Err(LifecycleError::Runtime {
-                    task_id: task_id.to_string(),
-                    source,
-                });
-            }
-        };
-
-        let outcome = LifecycleOutcome {
-            intent_effect,
+            intent_effect: run.intent_effect,
             runtime_effect: runtime_outcome.effect,
             observed: runtime_outcome.observed,
             diagnostics: runtime_outcome.diagnostics,
         };
 
         let ctx = EventContext::from_outcome(
-            OperationKind::Remove,
-            generation,
+            run.kind,
+            run.generation,
             &outcome,
-            marker_was_incomplete,
-            None,
+            run.marker_was_incomplete,
+            run.stop_reason,
         );
-        for e in events::outcome_events(task_id, &ctx) {
-            self.publish_completion_or_infra(task_id, &e).await;
+        let mut committed_completion = false;
+        for event in events::outcome_events(task_id, &ctx) {
+            if matches!(event.fact, EventFact::Stopped | EventFact::Removed) {
+                // Persist the full completion fact + clear the marker atomically;
+                // propagate failure and do NOT publish (intent + marker survive
+                // for the reconciler, so the deterministic id is never published
+                // without being persisted).
+                self.store
+                    .commit_completion(task_id, &event)
+                    .await
+                    .map_err(|e| LifecycleError::CompletionCommit {
+                        task_id: task_id.to_string(),
+                        reason: e.to_string(),
+                    })?;
+                committed_completion = true;
+            }
+            self.events.publish(task_id, &event).await;
+        }
+
+        // Synchronous clear only for a pure no-op against the already-converged
+        // target — no completion fact will ever exist for this generation, so
+        // waiting for one would strand the marker.
+        if !committed_completion
+            && outcome.is_pure_no_op()
+            && Self::observed_is_converged_target(run.kind, outcome.observed)
+        {
+            self.clear_marker_best_effort(task_id).await;
         }
 
         Ok(outcome)
     }
 
-    /// Completion events (`Stopped`/`Removed`) commit the fact + clear the
-    /// marker atomically; infrastructure events (`Initializing`) just publish.
-    async fn publish_completion_or_infra(&self, task_id: &str, event: &LifecycleEvent) {
-        use super::events::EventFact;
-        match event.fact {
-            EventFact::Stopped | EventFact::Removed => {
-                // The transactional-outbox commit: persist the event + clear
-                // the marker in one DB transaction, then publish.
-                if let Err(e) = self.store.commit_completion(task_id, &event.event_id).await {
-                    tracing::warn!(task_id = %task_id, error = %e, "failed to commit completion fact");
-                }
-                self.events.publish(task_id, event).await;
+    /// The observed status that means "converged" for an operation's target.
+    fn observed_is_converged_target(kind: OperationKind, observed: ObservedStatus) -> bool {
+        match kind {
+            OperationKind::Start | OperationKind::Restart | OperationKind::Redeploy => {
+                observed == ObservedStatus::Ready
             }
-            _ => self.events.publish(task_id, event).await,
+            OperationKind::Stop => observed == ObservedStatus::Stopped,
+            OperationKind::Remove => observed == ObservedStatus::Removed,
         }
     }
 
     async fn clear_marker_best_effort(&self, task_id: &str) {
+        // A no-op-generation marker owes no completion fact; if the clear fails
+        // the reconciler's marker acknowledgement is the backstop.
         if let Err(e) = self.store.clear_marker(task_id).await {
-            tracing::warn!(task_id = %task_id, error = %e, "failed to clear marker");
+            tracing::warn!(task_id = %task_id, error = %e, "failed to clear no-op marker");
         }
     }
 }
-
-// re-export for use by finish signatures without a leading `super::`.
-use super::runtime::RuntimeOutcome as _RuntimeOutcome;
-#[allow(unused_imports)]
-use _RuntimeOutcome as _KeepRuntimeOutcomeInScope;
 
 #[cfg(test)]
 mod tests {
@@ -528,7 +682,6 @@ mod tests {
     use std::sync::Mutex;
 
     use crate::sandbox::lifecycle::error::RuntimeError;
-    use crate::sandbox::lifecycle::runtime::RuntimeOutcome;
     use chrono::TimeZone;
 
     // ---- In-memory / recording doubles ----
@@ -538,7 +691,7 @@ mod tests {
     }
 
     struct TestClock;
-    impl Clock for TestClock {
+    impl WallClock for TestClock {
         fn now(&self) -> DateTime<Utc> {
             fixed_now()
         }
@@ -553,6 +706,7 @@ mod tests {
         commits: Mutex<Vec<String>>,
         marker_cleared: Mutex<bool>,
         fail_persist: bool,
+        fail_commit: bool,
     }
 
     impl InMemoryStore {
@@ -563,6 +717,7 @@ mod tests {
                 commits: Mutex::new(vec![]),
                 marker_cleared: Mutex::new(false),
                 fail_persist: false,
+                fail_commit: false,
             })
         }
         fn missing() -> Arc<Self> {
@@ -572,6 +727,7 @@ mod tests {
                 commits: Mutex::new(vec![]),
                 marker_cleared: Mutex::new(false),
                 fail_persist: false,
+                fail_commit: false,
             })
         }
         fn current(&self) -> Option<TaskIntent> {
@@ -602,7 +758,7 @@ mod tests {
             write: &IntentWrite,
         ) -> Result<IntentEffect, StoreError> {
             if self.fail_persist {
-                return Err(StoreError("persist failed".into()));
+                return Err(StoreError::new("persist failed"));
             }
             let mut slot = self.intent.lock().expect("lock");
             let effect = match slot.as_ref() {
@@ -626,8 +782,15 @@ mod tests {
             });
             Ok(effect)
         }
-        async fn commit_completion(&self, _task_id: &str, event_id: &str) -> Result<(), StoreError> {
-            self.commits.lock().expect("lock").push(event_id.to_string());
+        async fn commit_completion(
+            &self,
+            _task_id: &str,
+            event: &LifecycleEvent,
+        ) -> Result<(), StoreError> {
+            if self.fail_commit {
+                return Err(StoreError::new("commit failed"));
+            }
+            self.commits.lock().expect("lock").push(event.event_id.clone());
             // Committing a completion clears the marker atomically.
             if let Some(cur) = self.intent.lock().expect("lock").as_mut() {
                 cur.marker = None;
@@ -658,13 +821,20 @@ mod tests {
     }
     impl RecordingEvents {
         fn new() -> Arc<Self> {
-            Arc::new(Self { published: Mutex::new(vec![]) })
+            Arc::new(Self {
+                published: Mutex::new(vec![]),
+            })
         }
-        fn facts(&self) -> Vec<super::super::events::EventFact> {
+        fn facts(&self) -> Vec<EventFact> {
             self.published.lock().expect("lock").iter().map(|e| e.fact).collect()
         }
         fn ids(&self) -> Vec<String> {
-            self.published.lock().expect("lock").iter().map(|e| e.event_id.clone()).collect()
+            self.published
+                .lock()
+                .expect("lock")
+                .iter()
+                .map(|e| e.event_id.clone())
+                .collect()
         }
     }
     #[async_trait]
@@ -696,7 +866,9 @@ mod tests {
                 last_ctx: Mutex::new(None),
             }
         }
-        fn take(slot: &Mutex<Option<Result<RuntimeOutcome, RuntimeError>>>) -> Result<RuntimeOutcome, RuntimeError> {
+        fn take(
+            slot: &Mutex<Option<Result<RuntimeOutcome, RuntimeError>>>,
+        ) -> Result<RuntimeOutcome, RuntimeError> {
             slot.lock()
                 .expect("lock")
                 .take()
@@ -705,27 +877,48 @@ mod tests {
     }
     #[async_trait]
     impl SandboxRuntime for RecordingRuntime {
-        async fn ensure_running(&self, _t: &str, ctx: RuntimeOperationContext) -> Result<RuntimeOutcome, RuntimeError> {
+        async fn ensure_running(
+            &self,
+            _t: &str,
+            ctx: RuntimeOperationContext,
+        ) -> Result<RuntimeOutcome, RuntimeError> {
             self.log.lock().expect("lock").push("ensure_running".into());
             *self.last_ctx.lock().expect("lock") = Some(ctx);
             Self::take(&self.ensure)
         }
-        async fn stop(&self, _t: &str, ctx: RuntimeOperationContext) -> Result<RuntimeOutcome, RuntimeError> {
+        async fn stop(
+            &self,
+            _t: &str,
+            ctx: RuntimeOperationContext,
+        ) -> Result<RuntimeOutcome, RuntimeError> {
             self.log.lock().expect("lock").push("runtime_stop".into());
             *self.last_ctx.lock().expect("lock") = Some(ctx);
             Self::take(&self.stop_res)
         }
-        async fn restart(&self, _t: &str, ctx: RuntimeOperationContext) -> Result<RuntimeOutcome, RuntimeError> {
+        async fn restart(
+            &self,
+            _t: &str,
+            ctx: RuntimeOperationContext,
+        ) -> Result<RuntimeOutcome, RuntimeError> {
             self.log.lock().expect("lock").push("runtime_restart".into());
             *self.last_ctx.lock().expect("lock") = Some(ctx);
             Self::take(&self.restart_res)
         }
-        async fn redeploy(&self, _t: &str, ctx: RuntimeOperationContext) -> Result<RuntimeOutcome, RuntimeError> {
+        async fn redeploy(
+            &self,
+            _t: &str,
+            ctx: RuntimeOperationContext,
+        ) -> Result<RuntimeOutcome, RuntimeError> {
             self.log.lock().expect("lock").push("runtime_redeploy".into());
             *self.last_ctx.lock().expect("lock") = Some(ctx);
             Self::take(&self.redeploy_res)
         }
-        async fn remove(&self, _t: &str, _r: ArchiveRetention, ctx: RuntimeOperationContext) -> Result<RuntimeOutcome, RuntimeError> {
+        async fn remove(
+            &self,
+            _t: &str,
+            _r: ArchiveRetention,
+            ctx: RuntimeOperationContext,
+        ) -> Result<RuntimeOutcome, RuntimeError> {
             self.log.lock().expect("lock").push("runtime_remove".into());
             *self.last_ctx.lock().expect("lock") = Some(ctx);
             Self::take(&self.remove_res)
@@ -735,59 +928,81 @@ mod tests {
     struct TestGuard;
     impl LockGuard for TestGuard {}
 
-    /// A lock that grants unless pre-loaded with a conflicting holder.
-    struct InMemoryLock {
-        held_by: Mutex<Option<OperationKind>>,
+    /// A lock that denies `denies` times, then grants; holder kind is fixed.
+    struct FlakyLock {
+        denies: Mutex<u32>,
+        holder: OperationKind,
     }
-    impl InMemoryLock {
+    impl FlakyLock {
         fn free() -> Arc<Self> {
-            Arc::new(Self { held_by: Mutex::new(None) })
+            Arc::new(Self {
+                denies: Mutex::new(0),
+                holder: OperationKind::Stop,
+            })
         }
-        fn held(kind: OperationKind) -> Arc<Self> {
-            Arc::new(Self { held_by: Mutex::new(Some(kind)) })
+        fn denying(times: u32, holder: OperationKind) -> Arc<Self> {
+            Arc::new(Self {
+                denies: Mutex::new(times),
+                holder,
+            })
         }
     }
     #[async_trait]
-    impl LifecycleLock for InMemoryLock {
-        async fn try_acquire(&self, _t: &str, _kind: OperationKind) -> Result<Box<dyn LockGuard>, OperationKind> {
-            match *self.held_by.lock().expect("lock") {
-                Some(holder) => Err(holder),
-                None => Ok(Box::new(TestGuard)),
+    impl LifecycleLock for FlakyLock {
+        async fn try_acquire(
+            &self,
+            _t: &str,
+            _kind: OperationKind,
+        ) -> Result<Box<dyn LockGuard>, OperationKind> {
+            let mut d = self.denies.lock().expect("lock");
+            if *d > 0 {
+                *d -= 1;
+                Err(self.holder)
+            } else {
+                Ok(Box::new(TestGuard))
             }
         }
     }
 
     // ---- Builders ----
 
-    fn open_running() -> TaskIntent {
+    fn intent(
+        status: TaskStatus,
+        desired: SandboxDesiredState,
+        reason: Option<SandboxStopReason>,
+        retention: Option<ArchiveRetention>,
+        marker: Option<CorrelationMarker>,
+    ) -> TaskIntent {
         TaskIntent {
-            status: TaskStatus::Open,
-            desired_state: SandboxDesiredState::Running,
-            stop_reason: None,
-            retention: None,
-            marker: None,
+            status,
+            desired_state: desired,
+            stop_reason: reason,
+            retention,
+            marker,
             desired_state_updated_at: fixed_now(),
         }
+    }
+
+    fn open_running() -> TaskIntent {
+        intent(TaskStatus::Open, SandboxDesiredState::Running, None, None, None)
     }
     fn open_stopped() -> TaskIntent {
-        TaskIntent {
-            status: TaskStatus::Open,
-            desired_state: SandboxDesiredState::Stopped,
-            stop_reason: Some(SandboxStopReason::User),
-            retention: None,
-            marker: None,
-            desired_state_updated_at: fixed_now(),
-        }
+        intent(
+            TaskStatus::Open,
+            SandboxDesiredState::Stopped,
+            Some(SandboxStopReason::User),
+            None,
+            None,
+        )
     }
-    fn closed() -> TaskIntent {
-        TaskIntent {
-            status: TaskStatus::Closed,
-            desired_state: SandboxDesiredState::Removed,
-            stop_reason: Some(SandboxStopReason::Cleanup),
-            retention: Some(ArchiveRetention::RetainArchives),
-            marker: None,
-            desired_state_updated_at: fixed_now(),
-        }
+    fn closed_removed() -> TaskIntent {
+        intent(
+            TaskStatus::Closed,
+            SandboxDesiredState::Removed,
+            Some(SandboxStopReason::Cleanup),
+            Some(ArchiveRetention::RetainArchives),
+            None,
+        )
     }
 
     struct Harness {
@@ -798,12 +1013,8 @@ mod tests {
         log: Log,
     }
 
-    fn harness(intent: Option<TaskIntent>, lock: Arc<InMemoryLock>) -> Harness {
+    fn harness_with(store: Arc<InMemoryStore>, lock: Arc<dyn LifecycleLock>) -> Harness {
         let log: Log = Arc::new(Mutex::new(vec![]));
-        let store = match intent {
-            Some(i) => InMemoryStore::with_intent(i),
-            None => InMemoryStore::missing(),
-        };
         let runtime = Arc::new(RecordingRuntime::new(log.clone()));
         let events = RecordingEvents::new();
         let agent_stop = Arc::new(RecordingAgentStop { log: log.clone() });
@@ -815,7 +1026,17 @@ mod tests {
             lock,
             Arc::new(TestClock),
         );
-        Harness { lifecycle, store, runtime, events, log }
+        Harness {
+            lifecycle,
+            store,
+            runtime,
+            events,
+            log,
+        }
+    }
+
+    fn harness(intent: TaskIntent) -> Harness {
+        harness_with(InMemoryStore::with_intent(intent), FlakyLock::free())
     }
 
     // ============================ Tests ============================
@@ -825,32 +1046,66 @@ mod tests {
     #[tokio::test]
     async fn closed_task_rejects_start_restart_redeploy() {
         for op in ["start", "restart", "redeploy"] {
-            let h = harness(Some(closed()), InMemoryLock::free());
+            let h = harness(closed_removed());
             let res = match op {
                 "start" => h.lifecycle.start("t").await,
                 "restart" => h.lifecycle.restart("t").await,
                 _ => h.lifecycle.redeploy("t").await,
             };
             assert!(matches!(res, Err(LifecycleError::NotAllowed { .. })), "{op}");
-            // No runtime effect on a rejected op.
             assert!(h.log.lock().expect("lock").is_empty(), "{op}");
         }
     }
 
     #[tokio::test]
-    async fn closed_task_permits_idempotent_stop_and_remove() {
-        let h = harness(Some(closed()), InMemoryLock::free());
-        h.runtime.stop_res.lock().expect("lock").replace(Ok(RuntimeOutcome::no_op(ObservedStatus::Stopped)));
-        assert!(h.lifecycle.stop("t", SandboxStopReason::User).await.is_ok());
+    async fn error_status_start_is_resumable() {
+        // Error tasks are resumable: a start succeeds.
+        let h = harness(intent(
+            TaskStatus::Error,
+            SandboxDesiredState::Stopped,
+            Some(SandboxStopReason::Error),
+            None,
+            None,
+        ));
+        h.runtime
+            .ensure
+            .lock()
+            .expect("lock")
+            .replace(Ok(RuntimeOutcome::applied(ObservedStatus::Starting)));
+        let out = h.lifecycle.start("t").await.expect("ok");
+        assert_eq!(out.observed, ObservedStatus::Starting);
+        assert_eq!(h.store.current().expect("intent").desired_state, SandboxDesiredState::Running);
+    }
 
-        let h = harness(Some(closed()), InMemoryLock::free());
-        h.runtime.remove_res.lock().expect("lock").replace(Ok(RuntimeOutcome::no_op(ObservedStatus::Removed)));
+    #[tokio::test]
+    async fn closed_removed_stop_preserves_removed_intent() {
+        // stop is idempotent for Closed, but must not clobber Removed intent or
+        // discard its retention (the archive-deletion obligation).
+        let h = harness(closed_removed());
+        let out = h.lifecycle.stop("t", SandboxStopReason::User).await.expect("ok");
+        assert!(out.is_pure_no_op());
+        let cur = h.store.current().expect("intent");
+        assert_eq!(cur.desired_state, SandboxDesiredState::Removed);
+        assert_eq!(cur.retention, Some(ArchiveRetention::RetainArchives));
+        // No runtime effect, no events.
+        assert!(h.log.lock().expect("lock").is_empty());
+        assert!(h.events.facts().is_empty());
+    }
+
+    #[tokio::test]
+    async fn closed_task_permits_remove() {
+        let h = harness(closed_removed());
+        h.runtime
+            .remove_res
+            .lock()
+            .expect("lock")
+            .replace(Ok(RuntimeOutcome::no_op(ObservedStatus::Removed)));
         assert!(h.lifecycle.remove("t", ArchiveRetention::DeleteArchives).await.is_ok());
     }
 
     #[tokio::test]
     async fn missing_task_is_not_found() {
-        let h = harness(None, InMemoryLock::free());
+        let h = harness_with(InMemoryStore::missing(), FlakyLock::free());
         assert!(matches!(h.lifecycle.start("t").await, Err(LifecycleError::TaskNotFound(_))));
     }
 
@@ -858,10 +1113,13 @@ mod tests {
 
     #[tokio::test]
     async fn start_persists_running_intent_before_runtime_effect() {
-        let h = harness(Some(open_stopped()), InMemoryLock::free());
-        h.runtime.ensure.lock().expect("lock").replace(Ok(RuntimeOutcome::applied(ObservedStatus::Starting)));
+        let h = harness(open_stopped());
+        h.runtime
+            .ensure
+            .lock()
+            .expect("lock")
+            .replace(Ok(RuntimeOutcome::applied(ObservedStatus::Starting)));
         let out = h.lifecycle.start("t").await.expect("ok");
-        // Intent moved to Running, reason cleared.
         let cur = h.store.current().expect("intent");
         assert_eq!(cur.desired_state, SandboxDesiredState::Running);
         assert_eq!(cur.stop_reason, None);
@@ -872,35 +1130,64 @@ mod tests {
 
     #[tokio::test]
     async fn intent_write_failure_yields_no_runtime_effect() {
-        let log: Log = Arc::new(Mutex::new(vec![]));
         let store = Arc::new(InMemoryStore {
             intent: Mutex::new(Some(open_stopped())),
             next_gen: Mutex::new(1),
             commits: Mutex::new(vec![]),
             marker_cleared: Mutex::new(false),
             fail_persist: true,
+            fail_commit: false,
         });
-        let runtime = Arc::new(RecordingRuntime::new(log.clone()));
+        let h = harness_with(store, FlakyLock::free());
+        let res = h.lifecycle.start("t").await;
+        assert!(matches!(res, Err(LifecycleError::IntentWrite { .. })));
+        assert!(h.log.lock().expect("lock").is_empty());
+    }
+
+    #[tokio::test]
+    async fn load_failure_is_intent_load_not_write() {
+        // A read failure must classify as IntentLoad, not IntentWrite.
+        struct FailingLoad;
+        #[async_trait]
+        impl LifecycleStore for FailingLoad {
+            async fn load(&self, _t: &str) -> Result<Option<TaskIntent>, StoreError> {
+                Err(StoreError::new("conn reset"))
+            }
+            async fn allocate_generation(&self, _t: &str) -> Result<OperationGeneration, StoreError> {
+                Ok(OperationGeneration(1))
+            }
+            async fn persist_intent(&self, _t: &str, _w: &IntentWrite) -> Result<IntentEffect, StoreError> {
+                Ok(IntentEffect::Changed)
+            }
+            async fn commit_completion(&self, _t: &str, _e: &LifecycleEvent) -> Result<(), StoreError> {
+                Ok(())
+            }
+            async fn clear_marker(&self, _t: &str) -> Result<(), StoreError> {
+                Ok(())
+            }
+        }
+        let log: Log = Arc::new(Mutex::new(vec![]));
         let lifecycle = Lifecycle::new(
-            store,
-            runtime,
-            Arc::new(RecordingAgentStop { log: log.clone() }),
+            Arc::new(FailingLoad),
+            Arc::new(RecordingRuntime::new(log.clone())),
+            Arc::new(RecordingAgentStop { log }),
             RecordingEvents::new(),
-            InMemoryLock::free(),
+            FlakyLock::free(),
             Arc::new(TestClock),
         );
-        let res = lifecycle.start("t").await;
-        assert!(matches!(res, Err(LifecycleError::IntentWrite { .. })));
-        // Runtime never invoked.
-        assert!(log.lock().expect("lock").is_empty());
+        assert!(matches!(lifecycle.start("t").await, Err(LifecycleError::IntentLoad { .. })));
     }
 
     // ---- Graceful stop ordering ----
 
     #[tokio::test]
     async fn stop_issues_agent_stop_before_runtime_effect() {
-        let h = harness(Some(open_running()), InMemoryLock::free());
-        h.runtime.stop_res.lock().expect("lock").replace(Ok(RuntimeOutcome::applied(ObservedStatus::Stopped)));
+        let h = harness(open_running());
+        h.runtime
+            .stop_res
+            .lock()
+            .expect("lock")
+            .replace(Ok(RuntimeOutcome::applied(ObservedStatus::Stopped)));
         h.lifecycle.stop("t", SandboxStopReason::User).await.expect("ok");
         let log = h.log.lock().expect("lock").clone();
         let stop_agent = log.iter().position(|s| s == "stop_agent").expect("stop_agent");
@@ -910,8 +1197,12 @@ mod tests {
 
     #[tokio::test]
     async fn remove_issues_agent_stop_before_runtime_effect() {
-        let h = harness(Some(open_running()), InMemoryLock::free());
-        h.runtime.remove_res.lock().expect("lock").replace(Ok(RuntimeOutcome::applied(ObservedStatus::Removed)));
+        let h = harness(open_running());
+        h.runtime
+            .remove_res
+            .lock()
+            .expect("lock")
+            .replace(Ok(RuntimeOutcome::applied(ObservedStatus::Removed)));
         h.lifecycle.remove("t", ArchiveRetention::DeleteArchives).await.expect("ok");
         let log = h.log.lock().expect("lock").clone();
         let stop_agent = log.iter().position(|s| s == "stop_agent").expect("stop_agent");
@@ -923,134 +1214,298 @@ mod tests {
 
     #[tokio::test]
     async fn reusing_ready_sandbox_is_no_op_and_publishes_nothing() {
-        let h = harness(Some(open_running()), InMemoryLock::free());
-        h.runtime.ensure.lock().expect("lock").replace(Ok(RuntimeOutcome::no_op(ObservedStatus::Ready)));
+        let h = harness(open_running());
+        h.runtime
+            .ensure
+            .lock()
+            .expect("lock")
+            .replace(Ok(RuntimeOutcome::no_op(ObservedStatus::Ready)));
         let out = h.lifecycle.start("t").await.expect("ok");
         assert!(out.is_pure_no_op());
         assert!(h.events.facts().is_empty());
-        // Marker cleared synchronously.
         assert!(h.store.marker_cleared());
+    }
+
+    #[tokio::test]
+    async fn start_noop_still_starting_does_not_sync_clear_marker() {
+        // A no-op that observes Starting (reused a still-starting pod) is not
+        // converged, so the marker is left for the watcher's Ready convergence.
+        let h = harness(open_running());
+        h.runtime
+            .ensure
+            .lock()
+            .expect("lock")
+            .replace(Ok(RuntimeOutcome::no_op(ObservedStatus::Starting)));
+        let out = h.lifecycle.start("t").await.expect("ok");
+        assert!(out.is_pure_no_op());
+        assert!(!h.store.marker_cleared());
+        assert!(h.store.current().expect("intent").marker.is_some());
     }
 
     // ---- Start matrix (representative) ----
 
     #[tokio::test]
-    async fn start_ready_synchronously_docker_style() {
-        // Docker completes synchronously and reports Ready with Applied.
-        let h = harness(Some(open_stopped()), InMemoryLock::free());
-        h.runtime.ensure.lock().expect("lock").replace(Ok(RuntimeOutcome::applied(ObservedStatus::Ready)));
+    async fn start_ready_synchronously_publishes_initializing_not_ready() {
+        let h = harness(open_stopped());
+        h.runtime
+            .ensure
+            .lock()
+            .expect("lock")
+            .replace(Ok(RuntimeOutcome::applied(ObservedStatus::Ready)));
         let out = h.lifecycle.start("t").await.expect("ok");
         assert_eq!(out.observed, ObservedStatus::Ready);
-        // Applied start publishes Initializing (infra), never Ready.
-        assert!(h.events.facts().contains(&super::super::events::EventFact::Initializing));
-        assert!(h.events.published.lock().expect("lock").iter().all(|e| e.status != moatless_events::SandboxStatus::Ready));
+        assert!(h.events.facts().contains(&EventFact::Initializing));
+        assert!(h
+            .events
+            .published
+            .lock()
+            .expect("lock")
+            .iter()
+            .all(|e| e.status != moatless_events::SandboxStatus::Ready));
     }
 
     #[tokio::test]
     async fn start_runtime_failure_publishes_one_error_and_keeps_intent() {
-        let h = harness(Some(open_stopped()), InMemoryLock::free());
-        h.runtime.ensure.lock().expect("lock").replace(Err(RuntimeError::Infrastructure("timeout".into())));
+        let h = harness(open_stopped());
+        h.runtime
+            .ensure
+            .lock()
+            .expect("lock")
+            .replace(Err(RuntimeError::Infrastructure("timeout".into())));
         let res = h.lifecycle.start("t").await;
         assert!(matches!(res, Err(LifecycleError::Runtime { .. })));
-        // Intent still Running (target survives the failure).
         assert_eq!(h.store.current().expect("intent").desired_state, SandboxDesiredState::Running);
-        // Exactly one Error fact.
-        assert_eq!(h.events.facts(), vec![super::super::events::EventFact::Error]);
+        assert_eq!(h.events.facts(), vec![EventFact::Error]);
     }
 
     // ---- Correlation: generation reaches the adapter ----
 
     #[tokio::test]
     async fn generation_reaches_the_runtime_context() {
-        let h = harness(Some(open_stopped()), InMemoryLock::free());
-        h.runtime.ensure.lock().expect("lock").replace(Ok(RuntimeOutcome::applied(ObservedStatus::Starting)));
+        let h = harness(open_stopped());
+        h.runtime
+            .ensure
+            .lock()
+            .expect("lock")
+            .replace(Ok(RuntimeOutcome::applied(ObservedStatus::Starting)));
         h.lifecycle.start("t").await.expect("ok");
         let ctx = h.runtime.last_ctx.lock().expect("lock").expect("ctx");
-        // First allocated generation is 1.
         assert_eq!(ctx.operation_generation, OperationGeneration(1));
     }
 
-    // ---- Race matrix (contention) ----
+    // ---- Race matrix ----
 
     #[tokio::test]
     async fn contended_lock_surfaces_operation_in_progress_with_holder_kind() {
-        let h = harness(Some(open_running()), InMemoryLock::held(OperationKind::Stop));
+        let store = InMemoryStore::with_intent(open_running());
+        let h = harness_with(store, FlakyLock::denying(1, OperationKind::Stop));
         let res = h.lifecycle.start("t").await;
         match res {
             Err(LifecycleError::OperationInProgress { kind }) => assert_eq!(kind, OperationKind::Stop),
             other => panic!("expected OperationInProgress, got {other:?}"),
         }
-        // No runtime effect while contended.
         assert!(h.log.lock().expect("lock").is_empty());
+    }
+
+    #[tokio::test]
+    async fn bounded_lock_retry_eventually_succeeds() {
+        // Denies twice then grants; three attempts succeed.
+        let store = InMemoryStore::with_intent(open_running());
+        let log: Log = Arc::new(Mutex::new(vec![]));
+        let runtime = Arc::new(RecordingRuntime::new(log.clone()));
+        runtime
+            .ensure
+            .lock()
+            .expect("lock")
+            .replace(Ok(RuntimeOutcome::no_op(ObservedStatus::Ready)));
+        let lifecycle = Lifecycle::new(
+            store,
+            runtime,
+            Arc::new(RecordingAgentStop { log }),
+            RecordingEvents::new(),
+            FlakyLock::denying(2, OperationKind::Stop),
+            Arc::new(TestClock),
+        )
+        .with_lock_attempts(3);
+        assert!(lifecycle.start("t").await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn exhausted_lock_retry_surfaces_operation_in_progress() {
+        let store = InMemoryStore::with_intent(open_running());
+        let h_lock = FlakyLock::denying(10, OperationKind::Remove);
+        let h = harness_with(store, h_lock);
+        let res = h.lifecycle.with_lock_attempts(3).start("t").await;
+        assert!(matches!(
+            res,
+            Err(LifecycleError::OperationInProgress { kind: OperationKind::Remove })
+        ));
     }
 
     // ---- Stop completion + durability ----
 
     #[tokio::test]
     async fn stop_against_running_publishes_stopped_and_commits_completion() {
-        let h = harness(Some(open_running()), InMemoryLock::free());
-        h.runtime.stop_res.lock().expect("lock").replace(Ok(RuntimeOutcome::applied(ObservedStatus::Stopped)));
+        let h = harness(open_running());
+        h.runtime
+            .stop_res
+            .lock()
+            .expect("lock")
+            .replace(Ok(RuntimeOutcome::applied(ObservedStatus::Stopped)));
         h.lifecycle.stop("t", SandboxStopReason::IdleReaper).await.expect("ok");
-        assert!(h.events.facts().contains(&super::super::events::EventFact::Stopped));
-        // Completion fact committed atomically (marker cleared).
+        assert!(h.events.facts().contains(&EventFact::Stopped));
         assert_eq!(h.store.commits(), vec!["sandbox:t:1:stopped".to_string()]);
         assert!(h.store.current().expect("intent").marker.is_none());
     }
 
     #[tokio::test]
     async fn stop_against_already_stopped_is_changed_noop_still_publishes() {
-        // Reason changes (User → IdleReaper) so intent is Changed; compute is
-        // already stopped so runtime is NoOp. The stop is still real.
-        let h = harness(Some(open_stopped()), InMemoryLock::free());
-        h.runtime.stop_res.lock().expect("lock").replace(Ok(RuntimeOutcome::no_op(ObservedStatus::Stopped)));
+        let h = harness(open_stopped());
+        h.runtime
+            .stop_res
+            .lock()
+            .expect("lock")
+            .replace(Ok(RuntimeOutcome::no_op(ObservedStatus::Stopped)));
         let out = h.lifecycle.stop("t", SandboxStopReason::IdleReaper).await.expect("ok");
         assert!(out.intent_effect.changed());
         assert!(!out.runtime_effect.applied());
-        assert!(h.events.facts().contains(&super::super::events::EventFact::Stopped));
+        assert!(h.events.facts().contains(&EventFact::Stopped));
     }
 
-    // ---- Remove: acceptance + completion, strict success ----
+    #[tokio::test]
+    async fn completion_commit_failure_propagates_and_does_not_publish() {
+        // Durability: a failed completion transaction must not publish the event
+        // nor report success; intent + marker survive for the reconciler.
+        let store = Arc::new(InMemoryStore {
+            intent: Mutex::new(Some(open_running())),
+            next_gen: Mutex::new(1),
+            commits: Mutex::new(vec![]),
+            marker_cleared: Mutex::new(false),
+            fail_persist: false,
+            fail_commit: true,
+        });
+        let h = harness_with(store, FlakyLock::free());
+        h.runtime
+            .stop_res
+            .lock()
+            .expect("lock")
+            .replace(Ok(RuntimeOutcome::applied(ObservedStatus::Stopped)));
+        let res = h.lifecycle.stop("t", SandboxStopReason::User).await;
+        assert!(matches!(res, Err(LifecycleError::CompletionCommit { .. })));
+        // Stopped completion was NOT published; marker retained.
+        assert!(!h.events.facts().contains(&EventFact::Stopped));
+        assert!(h.store.current().expect("intent").marker.is_some());
+    }
+
+    // ---- Remove: acceptance + completion, strict success, recovery ----
 
     #[tokio::test]
     async fn successful_remove_emits_removing_then_removed_and_commits() {
-        let h = harness(Some(open_running()), InMemoryLock::free());
-        h.runtime.remove_res.lock().expect("lock").replace(Ok(RuntimeOutcome::applied(ObservedStatus::Removed)));
+        let h = harness(open_running());
+        h.runtime
+            .remove_res
+            .lock()
+            .expect("lock")
+            .replace(Ok(RuntimeOutcome::applied(ObservedStatus::Removed)));
         h.lifecycle.remove("t", ArchiveRetention::DeleteArchives).await.expect("ok");
-        assert_eq!(
-            h.events.facts(),
-            vec![super::super::events::EventFact::Removing, super::super::events::EventFact::Removed]
-        );
-        // Retention persisted with the Removed intent.
+        assert_eq!(h.events.facts(), vec![EventFact::Removing, EventFact::Removed]);
         assert_eq!(h.store.current().expect("intent").retention, Some(ArchiveRetention::DeleteArchives));
         assert_eq!(h.store.commits(), vec!["sandbox:t:1:removed".to_string()]);
     }
 
     #[tokio::test]
     async fn failed_remove_keeps_removed_intent_and_publishes_error() {
-        // Strict removal: an archive/absence failure is not success.
-        let h = harness(Some(open_running()), InMemoryLock::free());
-        h.runtime.remove_res.lock().expect("lock").replace(Err(RuntimeError::NotAbsent("pvc".into())));
+        let h = harness(open_running());
+        h.runtime
+            .remove_res
+            .lock()
+            .expect("lock")
+            .replace(Err(RuntimeError::NotAbsent("pvc".into())));
         let res = h.lifecycle.remove("t", ArchiveRetention::DeleteArchives).await;
         assert!(matches!(res, Err(LifecycleError::Runtime { .. })));
-        // Intent stays Removed with its policy for the reconciler to retry.
         let cur = h.store.current().expect("intent");
         assert_eq!(cur.desired_state, SandboxDesiredState::Removed);
         assert_eq!(cur.retention, Some(ArchiveRetention::DeleteArchives));
-        // Removing acceptance + Error, but NOT Removed completion.
         let facts = h.events.facts();
-        assert!(facts.contains(&super::super::events::EventFact::Removing));
-        assert!(facts.contains(&super::super::events::EventFact::Error));
-        assert!(!facts.contains(&super::super::events::EventFact::Removed));
-        // No completion committed.
+        assert!(facts.contains(&EventFact::Removing));
+        assert!(facts.contains(&EventFact::Error));
+        assert!(!facts.contains(&EventFact::Removed));
         assert!(h.store.commits().is_empty());
     }
 
-    // ---- Deterministic event ids dedup across a generation ----
+    #[tokio::test]
+    async fn remove_recovery_reuses_generation_and_persisted_retention() {
+        // A prior remove persisted Removed + RetainArchives with an incomplete
+        // Remove marker at generation 5. The recovery retry reuses generation 5
+        // (stable deterministic id) and the persisted retention — it does not
+        // allocate a fresh generation nor take the caller's DeleteArchives.
+        let prior_marker = CorrelationMarker::new(
+            OperationKind::Remove,
+            OperationGeneration(5),
+            fixed_now(),
+        );
+        let store = Arc::new(InMemoryStore {
+            intent: Mutex::new(Some(intent(
+                TaskStatus::Open,
+                SandboxDesiredState::Removed,
+                Some(SandboxStopReason::Cleanup),
+                Some(ArchiveRetention::RetainArchives),
+                Some(prior_marker),
+            ))),
+            next_gen: Mutex::new(100), // would be used only if it allocated afresh
+            commits: Mutex::new(vec![]),
+            marker_cleared: Mutex::new(false),
+            fail_persist: false,
+            fail_commit: false,
+        });
+        let h = harness_with(store, FlakyLock::free());
+        h.runtime
+            .remove_res
+            .lock()
+            .expect("lock")
+            .replace(Ok(RuntimeOutcome::applied(ObservedStatus::Removed)));
+        // Caller passes DeleteArchives, but recovery must keep RetainArchives.
+        h.lifecycle.remove("t", ArchiveRetention::DeleteArchives).await.expect("ok");
+        // Deterministic id reuses generation 5, not 100.
+        assert_eq!(h.store.commits(), vec!["sandbox:t:5:removed".to_string()]);
+        assert_eq!(h.store.current().expect("intent").retention, Some(ArchiveRetention::RetainArchives));
+    }
+
+    #[tokio::test]
+    async fn idempotent_re_remove_noop_clears_marker_synchronously() {
+        // finish path for remove must have a pure-no-op clear: an Unchanged +
+        // NoOp remove against an already-removed target (fresh marker, not a
+        // recovery) would otherwise strand its marker forever.
+        let h = harness(intent(
+            TaskStatus::Open,
+            SandboxDesiredState::Removed,
+            Some(SandboxStopReason::Cleanup),
+            Some(ArchiveRetention::DeleteArchives),
+            None, // no prior marker → not a recovery; a fresh no-op op
+        ));
+        h.runtime
+            .remove_res
+            .lock()
+            .expect("lock")
+            .replace(Ok(RuntimeOutcome::no_op(ObservedStatus::Removed)));
+        let out = h.lifecycle.remove("t", ArchiveRetention::DeleteArchives).await.expect("ok");
+        assert!(out.is_pure_no_op());
+        // No completion fact owed; marker cleared synchronously, none stranded.
+        assert!(h.store.marker_cleared());
+        assert!(h.store.current().expect("intent").marker.is_none());
+        assert!(h.store.commits().is_empty());
+    }
+
+    // ---- Deterministic event ids ----
 
     #[tokio::test]
     async fn error_event_id_is_generation_scoped() {
-        let h = harness(Some(open_stopped()), InMemoryLock::free());
-        h.runtime.ensure.lock().expect("lock").replace(Err(RuntimeError::Infrastructure("x".into())));
+        let h = harness(open_stopped());
+        h.runtime
+            .ensure
+            .lock()
+            .expect("lock")
+            .replace(Err(RuntimeError::Infrastructure("x".into())));
         let _ = h.lifecycle.start("t").await;
         assert_eq!(h.events.ids(), vec!["sandbox:t:1:error".to_string()]);
     }

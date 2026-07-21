@@ -3,48 +3,57 @@
 //! A deep module: callers identify a Task and request a lifecycle transition;
 //! the module resolves intent, persists it before any runtime effect,
 //! serializes per Task, invokes the runtime adapter behind the
-//! [`runtime::SandboxRuntime`] seam, records bookkeeping, publishes
-//! operation-level events, and returns a typed [`outcome::LifecycleOutcome`].
-//! Callers never supply a `ProvisionRequest`, repositories, event publishers,
-//! or the runtime adapter.
+//! [`SandboxRuntime`] seam, records bookkeeping, publishes operation-level
+//! events, and returns a typed [`LifecycleOutcome`]. Callers never supply a
+//! provision request, repositories, an event publisher, or the runtime adapter
+//! — the curated re-exports below are the whole surface, and the decision and
+//! implementation submodules are `pub(crate)` so a lifecycle mutation cannot
+//! bypass [`Lifecycle`].
 //!
-//! This module realizes migration step 1 of
-//! `specs/sandbox/04-lifecycle-architecture.md` ("Introduce lifecycle … add
-//! recording adapter tests"). It contains the full typed surface, the runtime
-//! seam, and the load-bearing decision logic as pure, exhaustively-tested
-//! functions:
+//! Guarantees:
 //!
-//! - [`convergence`] — the reconciler's one normalized desired/observed map.
-//! - [`classify`] — the watcher's four-case observation classification.
-//! - [`marker`] — per-class correlation-marker acknowledgement.
-//! - [`wake`] — message-wake causal precedence.
-//! - [`events`] — deterministic operation-generation event ids + acceptance /
-//!   completion / infrastructure derivation.
-//! - [`attempt`] — the leader-local attempt cap and backoff.
-//! - [`orchestrator`] — the [`Lifecycle`] type wiring the above over ports.
+//! - **Intent before effect.** Desired state, stop reason, retention, and the
+//!   correlation marker are written atomically before the runtime effect; a
+//!   runtime failure leaves the requested target for recovery.
+//! - **Deterministic, deduplicated events.** Operation events use the id
+//!   `sandbox:{task}:{operation_generation}:{fact}` over the idempotent outbox,
+//!   so at-least-once retries of one generation persist once. Completion facts
+//!   (`Stopped`/`Removed`) are persisted and the marker cleared in one
+//!   transaction before publication.
+//! - **Strict removal.** A remove reports success only on observed absence of
+//!   every resource (PVC included) and durable persistence of its completion
+//!   fact; the remove marker survives — never age-cleared — until then.
+//! - **Correlation.** The operation generation is threaded to every runtime
+//!   mutation and carried on watcher events, so superseded observations are
+//!   distinguished by identity, not the clock.
 //!
-//! The durability (marker acknowledgement, completion-fact persistence),
-//! event-deduplication (deterministic ids over the transactional outbox), and
-//! strict-removal (observed absence + archive obligation) rules are treated as
-//! load-bearing and are the subject of the tests in each submodule.
-//!
-//! Steps 2–4 (migrating the caller sites, adding the persisted marker/retention
-//! columns, threading `RuntimeOperationContext` through the K8s/Docker
-//! adapters, standing up the desired-state reconciler, renaming
-//! `SandboxProvider` → `SandboxRuntime`, and deleting the shallow paths) plug
-//! into the ports this module defines.
+//! The decision logic lives in [`convergence`] (reconciler desired/observed
+//! map), [`classify`] (watcher four-case classification), [`marker`] (per-class
+//! acknowledgement), [`wake`] (message-wake causal precedence), [`events`]
+//! (event derivation), and [`attempt`] (attempt cap + backoff).
 
-pub mod attempt;
-pub mod classify;
-pub mod convergence;
-pub mod error;
-pub mod events;
-pub mod marker;
-pub mod orchestrator;
-pub mod outcome;
-pub mod runtime;
-pub mod types;
-pub mod wake;
+// The pure decision core. Its in-crate consumers — the desired-state
+// reconciler and the pod/container watchers — arrive with the caller migration;
+// until then these tested functions have no non-test caller, so dead_code is
+// allowed deliberately rather than by widening their visibility to `pub`.
+// reason: staged delivery — decision logic lands before the code that drives it.
+#[allow(dead_code)]
+pub(crate) mod attempt;
+#[allow(dead_code)]
+pub(crate) mod classify;
+#[allow(dead_code)]
+pub(crate) mod convergence;
+#[allow(dead_code)]
+pub(crate) mod marker;
+#[allow(dead_code)]
+pub(crate) mod wake;
+
+pub(crate) mod error;
+pub(crate) mod events;
+pub(crate) mod orchestrator;
+pub(crate) mod outcome;
+pub(crate) mod runtime;
+pub(crate) mod types;
 
 // ---- Curated public surface ----
 
@@ -57,6 +66,6 @@ pub use types::{
 };
 
 pub use orchestrator::{
-    AgentStopPort, Clock, Lifecycle, LifecycleEventSink, LifecycleLock, LifecycleStore, LockGuard,
-    StoreError, SystemClock, TaskIntent,
+    AgentStopPort, IntentWrite, Lifecycle, LifecycleEventSink, LifecycleLock, LifecycleStore,
+    LockGuard, StoreError, SystemWallClock, TaskIntent, WallClock,
 };

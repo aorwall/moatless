@@ -70,7 +70,7 @@ impl Default for AckContext {
 ///   the archive-deletion obligation has no observable trace;
 /// - **edge** ops clear only when the replacement generation is observed Ready
 ///   (or the edge is durably abandoned with its `Error` fact persisted).
-pub fn acknowledge(marker: &CorrelationMarker, ctx: &AckContext) -> MarkerAck {
+pub fn acknowledge(marker: &CorrelationMarker, ctx: AckContext) -> MarkerAck {
     use SandboxObservedStatus as O;
     let clear = match marker.kind {
         OperationKind::Start => ctx.observed == O::Ready,
@@ -141,12 +141,12 @@ mod tests {
     fn start_marker_clears_only_on_ready() {
         let m = marker(OperationKind::Start);
         assert_eq!(
-            acknowledge(&m, &AckContext { observed: O::Ready, ..Default::default() }),
+            acknowledge(&m, AckContext { observed: O::Ready, ..Default::default() }),
             MarkerAck::Clear
         );
         for o in [O::Starting, O::Stopped, O::Absent, O::Error, O::Terminating] {
             assert_eq!(
-                acknowledge(&m, &AckContext { observed: o, ..Default::default() }),
+                acknowledge(&m, AckContext { observed: o, ..Default::default() }),
                 MarkerAck::Retain,
                 "{o:?}"
             );
@@ -160,22 +160,22 @@ mod tests {
         let m = marker(OperationKind::Stop);
         // Converged but completion not yet persisted → retain.
         assert_eq!(
-            acknowledge(&m, &AckContext { observed: O::Stopped, completion_persisted: false, ..Default::default() }),
+            acknowledge(&m, AckContext { observed: O::Stopped, completion_persisted: false, ..Default::default() }),
             MarkerAck::Retain
         );
         // Converged AND persisted → clear.
         assert_eq!(
-            acknowledge(&m, &AckContext { observed: O::Stopped, completion_persisted: true, ..Default::default() }),
+            acknowledge(&m, AckContext { observed: O::Stopped, completion_persisted: true, ..Default::default() }),
             MarkerAck::Clear
         );
         // Absent also satisfies stop convergence.
         assert_eq!(
-            acknowledge(&m, &AckContext { observed: O::Absent, completion_persisted: true, ..Default::default() }),
+            acknowledge(&m, AckContext { observed: O::Absent, completion_persisted: true, ..Default::default() }),
             MarkerAck::Clear
         );
         // Not converged → retain regardless of persistence.
         assert_eq!(
-            acknowledge(&m, &AckContext { observed: O::Ready, completion_persisted: true, ..Default::default() }),
+            acknowledge(&m, AckContext { observed: O::Ready, completion_persisted: true, ..Default::default() }),
             MarkerAck::Retain
         );
     }
@@ -188,17 +188,17 @@ mod tests {
         // Resources absent but completion (archive obligation) not persisted →
         // retain. Observed absence is NOT enough.
         assert_eq!(
-            acknowledge(&m, &AckContext { resources_absent: true, completion_persisted: false, ..Default::default() }),
+            acknowledge(&m, AckContext { resources_absent: true, completion_persisted: false, ..Default::default() }),
             MarkerAck::Retain
         );
         // Strict success (absent + persisted) → clear.
         assert_eq!(
-            acknowledge(&m, &AckContext { resources_absent: true, completion_persisted: true, ..Default::default() }),
+            acknowledge(&m, AckContext { resources_absent: true, completion_persisted: true, ..Default::default() }),
             MarkerAck::Clear
         );
         // Resources still present → retain even if a stray persist flag is set.
         assert_eq!(
-            acknowledge(&m, &AckContext { resources_absent: false, completion_persisted: true, ..Default::default() }),
+            acknowledge(&m, AckContext { resources_absent: false, completion_persisted: true, ..Default::default() }),
             MarkerAck::Retain
         );
     }
@@ -211,7 +211,7 @@ mod tests {
         assert!(is_stale(&m, at(1_000_000), Duration::from_secs(60)));
         // Acknowledgement with an unmet obligation still retains.
         assert_eq!(
-            acknowledge(&m, &AckContext { resources_absent: true, completion_persisted: false, ..Default::default() }),
+            acknowledge(&m, AckContext { resources_absent: true, completion_persisted: false, ..Default::default() }),
             MarkerAck::Retain
         );
     }
@@ -225,12 +225,12 @@ mod tests {
             // desired==observed alone (Ready of the superseded pod) must NOT
             // clear — only the replacement generation Ready does.
             assert_eq!(
-                acknowledge(&m, &AckContext { observed: O::Ready, replacement_ready: false, ..Default::default() }),
+                acknowledge(&m, AckContext { observed: O::Ready, replacement_ready: false, ..Default::default() }),
                 MarkerAck::Retain,
                 "{kind:?}"
             );
             assert_eq!(
-                acknowledge(&m, &AckContext { replacement_ready: true, ..Default::default() }),
+                acknowledge(&m, AckContext { replacement_ready: true, ..Default::default() }),
                 MarkerAck::Clear,
                 "{kind:?}"
             );
@@ -241,7 +241,7 @@ mod tests {
     fn edge_marker_clears_when_durably_abandoned() {
         let m = marker(OperationKind::Redeploy);
         assert_eq!(
-            acknowledge(&m, &AckContext { edge_abandoned_error_persisted: true, ..Default::default() }),
+            acknowledge(&m, AckContext { edge_abandoned_error_persisted: true, ..Default::default() }),
             MarkerAck::Clear
         );
     }

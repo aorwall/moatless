@@ -33,10 +33,9 @@ impl OperationKind {
         matches!(self, Self::Restart | Self::Redeploy)
     }
 
-    /// A toward-Running operation. Used by the inline `OperationInProgress`
-    /// fast path: a contending toward-Running kind can stop further inline work
-    /// (the reconciler will converge), while stop/remove gets a bounded inline
-    /// retry.
+    /// A toward-Running operation (start / restart / redeploy). Gates the
+    /// `Initializing` infrastructure event, which publishes only when such an
+    /// operation actually applies a runtime effect.
     pub fn is_toward_running(self) -> bool {
         matches!(self, Self::Start | Self::Restart | Self::Redeploy)
     }

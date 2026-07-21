@@ -37,11 +37,6 @@ pub enum SandboxObservedStatus {
 }
 
 impl SandboxObservedStatus {
-    /// Is any runtime resource still present (i.e. not fully absent)?
-    pub fn is_live(self) -> bool {
-        !matches!(self, Self::Absent)
-    }
-
     /// Normalize the display [`SandboxStatus`] projection into the reconciler's
     /// observed vocabulary.
     ///
