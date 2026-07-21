@@ -39,6 +39,21 @@ pub enum SandboxError {
     Internal(String),
 }
 
+impl From<crate::sandbox::lifecycle::LifecycleError> for SandboxError {
+    fn from(value: crate::sandbox::lifecycle::LifecycleError) -> Self {
+        use crate::sandbox::lifecycle::LifecycleError as LE;
+        match &value {
+            LE::TaskNotFound(id) => Self::NotFound(id.clone()),
+            // The Closed guard rejected the operation — a client state error.
+            LE::NotAllowed { .. } => Self::BadRequest(value.to_string()),
+            // Another operation holds the per-Task lock. SandboxError has no 409;
+            // NotReady (503) is the retry signal.
+            LE::OperationInProgress { .. } => Self::NotReady(value.to_string()),
+            _ => Self::Internal(value.to_string()),
+        }
+    }
+}
+
 impl IntoResponse for SandboxError {
     fn into_response(self) -> Response {
         let (status, message) = match &self {

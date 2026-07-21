@@ -128,6 +128,45 @@ pub struct AppState {
 /// reconciler is the durable retry owner — so this stays small.
 const LIFECYCLE_LOCK_ATTEMPTS: u32 = 3;
 
+/// Build the shared durable Sandbox lifecycle handle over its Postgres and
+/// runtime adapters. One instance is shared by `AppState`, the sandbox API, and
+/// the pod watcher so Sandbox intent writes and per-Task locks stay
+/// single-sourced. `pool` backs the store + plan repositories; `lock_pool` must
+/// be the dedicated lock-only pool.
+pub fn build_lifecycle(
+    pool: DbPool,
+    lock_pool: DbPool,
+    sandbox: Arc<dyn SandboxProvider>,
+    events: Option<Arc<dyn EventPublisher>>,
+) -> Arc<Lifecycle> {
+    let tasks: Arc<dyn TaskRepository> = Arc::new(PgTaskRepository(pool.clone()));
+    let repos: Arc<dyn RepoRepository> = Arc::new(PgRepoRepository(pool.clone()));
+    let provider_tokens: Arc<dyn ProviderTokenRepository> =
+        Arc::new(PgProviderTokenRepository(pool.clone()));
+    let plugin_repos: Arc<dyn PluginRepoRepository> = Arc::new(PgPluginRepoRepository(pool.clone()));
+    let workspaces: Arc<dyn WorkspaceRepository> = Arc::new(PgWorkspaceRepository(pool.clone()));
+    Arc::new(
+        Lifecycle::new(
+            Arc::new(PgLifecycleStore::new(pool.clone())),
+            Arc::new(RuntimeBridge::new(
+                sandbox.clone(),
+                ProvisionDeps {
+                    tasks,
+                    repos,
+                    provider_tokens,
+                    plugin_repos,
+                    workspaces,
+                },
+            )),
+            Arc::new(GrpcAgentStop::new(sandbox)),
+            Arc::new(OutboxEventSink::new(events)),
+            Arc::new(PgLifecycleLock::new(lock_pool)),
+            Arc::new(SystemWallClock),
+        )
+        .with_lock_attempts(LIFECYCLE_LOCK_ATTEMPTS),
+    )
+}
+
 impl AppState {
     /// Build `AppState` with Postgres-backed repositories.
     ///
@@ -139,7 +178,7 @@ impl AppState {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         pool: DbPool,
-        lock_pool: DbPool,
+        lifecycle: Arc<Lifecycle>,
         config: Arc<Config>,
         sandbox: Arc<dyn SandboxProvider>,
         events: Option<Arc<dyn EventPublisher>>,
@@ -221,29 +260,9 @@ impl AppState {
             std::time::Duration::from_secs(config.skill.cache_ttl_secs),
         ));
 
-        // The durable Sandbox lifecycle handle over its Postgres and runtime
-        // adapters. The lock adapter takes the dedicated lock-only pool; the
-        // runtime bridge owns plan construction over the provision repositories.
-        let lifecycle = Arc::new(
-            Lifecycle::new(
-                Arc::new(PgLifecycleStore::new(pool.clone())),
-                Arc::new(RuntimeBridge::new(
-                    sandbox.clone(),
-                    ProvisionDeps {
-                        tasks: tasks.clone(),
-                        repos: repositories.clone(),
-                        provider_tokens: provider_tokens.clone(),
-                        plugin_repos: plugin_repos.clone(),
-                        workspaces: workspaces.clone(),
-                    },
-                )),
-                Arc::new(GrpcAgentStop::new(sandbox.clone())),
-                Arc::new(OutboxEventSink::new(events.clone())),
-                Arc::new(PgLifecycleLock::new(lock_pool)),
-                Arc::new(SystemWallClock),
-            )
-            .with_lock_attempts(LIFECYCLE_LOCK_ATTEMPTS),
-        );
+        // The shared durable Sandbox lifecycle handle is built once by the caller
+        // (`build_lifecycle`) so the sandbox API and pod watcher share this
+        // instance — one intent writer, one per-Task lock.
 
         Self {
             tasks,

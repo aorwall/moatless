@@ -214,6 +214,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ))
         });
 
+    // Build the shared durable Sandbox lifecycle handle once (requires the DB).
+    // The sandbox API, the pod watcher, and AppState all drive transitions
+    // through this single instance, so Sandbox intent and per-Task locks stay
+    // single-sourced. The lock adapter needs a dedicated lock-only pool.
+    let lifecycle: Option<Arc<moatless_vibe_backend::sandbox::lifecycle::Lifecycle>> =
+        match db_pool.as_ref() {
+            Some(pool) => {
+                let db_url = config
+                    .database_url
+                    .as_deref()
+                    .ok_or("DATABASE_URL required to build the lifecycle lock pool")?;
+                let lock_pool = moatless_vibe_backend::db::create_pool_kind(
+                    db_url,
+                    config.database.max_connections,
+                    moatless_vibe_backend::db::PoolKind::Lock,
+                )
+                .await?;
+                Some(moatless_vibe_backend::state::build_lifecycle(
+                    pool.clone(),
+                    lock_pool,
+                    Arc::clone(&sandbox_provider),
+                    event_publisher.clone(),
+                ))
+            }
+            None => None,
+        };
+
     // Spawn the K8s pod lifecycle watcher now that the DB repos exist. It needs
     // task + repo access (plus credentials) to auto-disable crash-looping server
     // containers and redeploy without them. Only runs in K8s mode (reaper_k8s is
@@ -244,6 +271,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let sandbox_state = sandbox::routes::SandboxApiState {
         provider: Arc::clone(&sandbox_provider),
+        lifecycle: lifecycle.clone(),
         tasks: sandbox_tasks,
         teams: sandbox_teams,
         repos: sandbox_repos,
@@ -283,22 +311,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Arc::new(crate::auth::github_app_registry::GitHubAppRegistry::from_config(&config));
         let adapter_registry =
             adapters::Adapters::from_config(&config, pool.clone(), github_apps.clone()).await;
-        // Dedicated lock-only pool for per-Task lifecycle serialization. A held
-        // session advisory lock pins its connection for the operation's whole
-        // duration, so it must not share the main application pool.
-        let db_url = config
-            .database_url
-            .as_deref()
-            .ok_or("DATABASE_URL required to build the lifecycle lock pool")?;
-        let lock_pool = moatless_vibe_backend::db::create_pool_kind(
-            db_url,
-            config.database.max_connections,
-            moatless_vibe_backend::db::PoolKind::Lock,
-        )
-        .await?;
+        // The shared lifecycle was built above; it is present whenever the DB is.
+        let lifecycle = lifecycle
+            .ok_or("lifecycle handle required to build AppState (missing database pool)")?;
         let app_state = AppState::new(
             pool,
-            lock_pool,
+            lifecycle,
             Arc::new(config.clone()),
             sandbox_provider,
             event_publisher,
