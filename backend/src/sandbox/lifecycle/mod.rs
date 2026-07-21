@@ -61,6 +61,7 @@ pub mod agent_stop;
 pub mod dao;
 pub mod event_sink;
 pub mod lock;
+pub mod runtime_bridge;
 
 // The lifecycle contract against local Postgres (Lifecycle over the Pg adapters).
 #[cfg(all(test, feature = "db-tests"))]
@@ -85,3 +86,4 @@ pub use agent_stop::ProviderAgentStop;
 pub use dao::PgLifecycleStore;
 pub use event_sink::OutboxEventSink;
 pub use lock::PgLifecycleLock;
+pub use runtime_bridge::ProviderRuntime;
