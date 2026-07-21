@@ -155,6 +155,11 @@ proxy:
   # -- Create Traefik ForwardAuth Middleware CRD (requires Traefik CRDs installed)
   traefikMiddleware:
     enabled: false
+    # -- Render the middleware as a no-op passthrough instead of ForwardAuth.
+    # For single-user local clusters where the preview host is a different
+    # registrable domain than the app (e.g. *.preview.localhost) and cannot
+    # receive the SameSite session cookie over http. Leave false in production.
+    noAuth: false
   # -- Create Traefik IngressRoute CRDs for app routing (requires Traefik CRDs installed)
   # Set to false when using nginx or other non-Traefik ingress controllers
   traefikIngressRoute:

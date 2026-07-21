@@ -44,11 +44,9 @@ kubernetes:
   imagePrepull:
     enabled: false
   sandboxStorage:
-    # 'node' persists each workspace to a node-local hostPath under
-    # /mnt/cache/workspaces/<task-id> on the Docker Desktop VM disk — survives pod
-    # stop/start and cluster restarts, no PVC and no S3 bucket. The node-storage
-    # janitor stays disabled (above), so persisted dirs are never pruned.
-    defaultMode: "node"
+    # Default 's3' needs a real bucket; 'ephemeral' runs on a node-local emptyDir
+    # and avoids per-task PVC churn.
+    defaultMode: "ephemeral"
   # Drop the tcp_keepalive_* entries: some kubelets reject them as unsafe, which
   # blocks sandbox pod admission. Keep only the safe local-port-range sysctl.
   sandboxSysctls:
@@ -73,14 +71,25 @@ proxyIngress:
   enabled: false
 
 proxy:
-  # macOS resolves arbitrary *.localhost → 127.0.0.1. No dnsmasq, no nip.io.
-  domain: "preview.localhost"
+  # Previews are a subdomain of the app host (`{task}--{port}.preview.moatless.localhost`),
+  # not a separate `*.preview.localhost` site. Same registrable domain as
+  # `moatless.localhost`, so the session cookie (COOKIE_DOMAIN below) reaches
+  # preview hosts and ForwardAuth works. macOS resolves any *.localhost → 127.0.0.1.
+  domain: "preview.moatless.localhost"
   protocol: "http"
   # "web" (plain HTTP) entryPoint, not the TLS "websecure".
   traefikEntryPoint: "web"
   # Render the app IngressRoute CRDs (auth, sandbox-api, webhooks, sse, api, spa).
   traefikIngressRoute:
     enabled: true
+  # Create the `preview-auth` Middleware CRD as real ForwardAuth. The backend
+  # stamps it onto every per-sandbox preview IngressRoute; it forwards each
+  # preview request to /api/v1/auth/verify, which enforces the session and
+  # per-task access. Works because previews share the app's registrable domain
+  # (see `domain` above) so the session cookie is sent to them.
+  traefikMiddleware:
+    enabled: true
+    noAuth: false
   # No HSTS over plain HTTP locally.
   securityHeaders:
     enabled: false
@@ -97,6 +106,22 @@ networkPolicy:
 # auth. The admin account is seeded at startup from ADMIN_PASSWORD in the
 # hand-made moatless-secrets Secret (see README); without it a random password
 # is generated and logged once at WARN.
+
+# NODE_ENV for the backend. The default "production" sets `is_production`, which
+# marks the session cookie `Secure` — and a browser drops a Secure cookie over
+# plain http, so login silently fails to persist (you bounce back to /login).
+# The local cluster is http, so run non-production to keep the cookie usable.
+env: "development"
+
+auth:
+  # Post-login redirect target (FRONTEND_URL). Empty falls back to the backend
+  # default http://localhost:3000, which bounces the browser off the cluster
+  # after login. Point it at the app's own host so login lands on the SPA.
+  frontendUrl: "http://moatless.localhost"
+  # Session cookie Domain (COOKIE_DOMAIN). Scopes the cookie to the app host and
+  # every preview subdomain (`*.preview.moatless.localhost`) so preview ForwardAuth
+  # receives it. Must be the registrable domain shared by app and previews.
+  cookieDomain: "moatless.localhost"
 
 # Secret/moatless-secrets is created by hand (see README); keep create=false so
 # Helm does not fight the hand-made Secret.

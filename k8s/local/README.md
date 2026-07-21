@@ -224,11 +224,13 @@ IngressRoute matches on. No API key — local auth resolves every request to
 | `image.pullPolicy` / `backend.image.pullPolicy: IfNotPresent`, tag `dev` | Chart defaults both to `Always` + `latest`, which forces a Docker Hub pull and silently ignores locally built images. |
 | `kubernetes.nodeStorageJanitor.enabled: false` | Default janitor image is a private SOAP ECR ref → guaranteed `ImagePullBackOff`. |
 | `kubernetes.imagePrepull.enabled: false` | Pre-pulls the full 5-8GB sandbox image with `pullPolicy: Always`. |
-| `kubernetes.sandboxStorage.defaultMode: node` | Persists each workspace to a hostPath under `/mnt/cache/workspaces/<task-id>` on the VM disk — survives stop/start and cluster restarts, no bucket and no PVC. Its mkdir/chown init container reuses the sandbox image, so nothing extra is pulled. |
+| `kubernetes.sandboxStorage.defaultMode: ephemeral` | Default `s3` needs a real bucket; ephemeral avoids per-task PVC churn. |
 | `kubernetes.sandboxSysctls` — drop `tcp_keepalive_*` | Some kubelets reject them as unsafe → block sandbox pod admission. |
 | `networkPolicy.sandbox.enabled: false` | Expects a namespace literally named `traefik`; locally Traefik lives in `moatless`. |
-| `proxy.domain: preview.localhost`, `protocol: http`, `traefikEntryPoint: web` | macOS resolves arbitrary `*.localhost` → `127.0.0.1`. No dnsmasq, no nip.io. |
+| `proxy.domain: preview.moatless.localhost`, `protocol: http`, `traefikEntryPoint: web` | macOS resolves arbitrary `*.localhost` → `127.0.0.1`. Previews sit under the app host so they share its registrable domain (see `auth.cookieDomain`). No dnsmasq, no nip.io. |
 | `proxy.traefikIngressRoute.enabled: true` | Renders the app's Traefik `IngressRoute` CRDs (locally Traefik *is* the router). |
+| `proxy.traefikMiddleware.enabled: true`, `noAuth: false` | The backend stamps the `preview-auth` middleware onto every per-sandbox preview `IngressRoute`; without the CRD Traefik invalidates those routers and 404s every preview host. As real ForwardAuth it sends each preview request to `/api/v1/auth/verify`, which enforces the session and per-task access. Works over http because previews share the app's registrable domain, so the `SameSite=Lax` session cookie is sent to them. |
+| `auth.cookieDomain: moatless.localhost` | Scopes the session cookie to the app host **and** every preview subdomain (`*.preview.moatless.localhost`), so preview ForwardAuth receives it. |
 | `ingress.enabled: false`, `proxyIngress.enabled: false` | Both target a Service named `traefik:80` in-namespace — a cloud shape where an ALB fronts Traefik. Locally Traefik is the controller, so they are circular. |
 | `ingress.hosts` **kept despite `enabled: false`** | Trap: the IngressRoute templates read the app host from `ingress.hosts[0].host` regardless of the enable flag. Omit it and all 7 routes fall back to `vibe.example.com` and match nothing. |
 | `postgres.enabled: true`, `redis.enabled: true` | Uses the chart's first-party Postgres/Redis templates. |
