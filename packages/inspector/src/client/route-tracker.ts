@@ -1,10 +1,20 @@
 import { sendMessage } from './communication'
 
+/**
+ * Upper bound for a reported route. Anything longer is pathological (e.g. a
+ * self-preview loop where the host nests this app's URL back into its own
+ * `?path=`); report the pathname alone rather than propagating a giant string.
+ */
+const MAX_REPORTED_PATH_LENGTH = 2048
+
 /** Get the current path, accounting for hash-based routing */
-function getCurrentPath(): string {
+export function getCurrentPath(): string {
   let path = window.location.pathname + window.location.search
   if (window.location.hash?.startsWith('#/')) {
     path = window.location.hash
+  }
+  if (path.length > MAX_REPORTED_PATH_LENGTH) {
+    path = window.location.pathname
   }
   return path
 }

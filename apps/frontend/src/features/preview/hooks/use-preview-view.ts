@@ -6,6 +6,16 @@ import { useNavigate, useSearch } from '@tanstack/react-router'
  */
 export type DeviceMode = 'mobile' | 'tablet' | 'desktop'
 
+/**
+ * Upper bound for the `?path=` preview param. A preview route (plus any query
+ * of the previewed app) is never legitimately longer than this. The cap breaks
+ * a self-preview feedback loop: when the preview target is this app itself, the
+ * iframe reports its own `pathname + search` — which already contains `?path=` —
+ * and storing it verbatim would nest the URL one encoding layer deeper on every
+ * navigation, growing unboundedly.
+ */
+const MAX_PREVIEW_PATH_LENGTH = 2048
+
 /** Loose view of the route search params the preview hooks touch. */
 interface PreviewSearch {
   path?: string
@@ -40,6 +50,12 @@ export function usePreviewPath(): UsePreviewPathReturn {
   const previewPath = search.path ?? '/'
 
   const setPreviewPath = (path: string) => {
+    // Drop pathological values (see MAX_PREVIEW_PATH_LENGTH) instead of writing
+    // them to the URL; storing them would feed the self-preview recursion.
+    if (path.length > MAX_PREVIEW_PATH_LENGTH) {
+      return
+    }
+
     navigate({
       to: '.',
       search: (prev) => ({ ...(prev as PreviewSearch), path }),
