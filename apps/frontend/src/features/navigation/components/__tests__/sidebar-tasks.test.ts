@@ -1,6 +1,6 @@
 import type { TaskResponse } from '@moatless/api-client'
 import { describe, expect, it } from 'vitest'
-import { buildTaskGroups, type EnrichedTask } from '../sidebar-tasks'
+import { buildTaskGroups, type EnrichedTask } from '../sidebar-task-groups'
 
 const BASE_TIME = '2026-01-01T00:00:00.000Z'
 

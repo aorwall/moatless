@@ -15,6 +15,8 @@ interface SandboxWorkspacePanelProps {
   sandboxEvents?: LifecycleEvent[] | undefined
 }
 
+const EMPTY_SANDBOX_EVENTS: LifecycleEvent[] = []
+
 /**
  * Right-pane "Sandbox" view: the control panel on top and the shared server-log
  * console (Events tab) at the bottom. The console lives inside the workspace
@@ -25,7 +27,7 @@ export function SandboxWorkspacePanel({
   view,
   onViewChange,
   servers,
-  sandboxEvents = [],
+  sandboxEvents = EMPTY_SANDBOX_EVENTS,
 }: SandboxWorkspacePanelProps) {
   const [isConsoleExpanded, setIsConsoleExpanded] = useState(true)
   const isMobile = useIsMobile()

@@ -22,10 +22,16 @@ export function parseMessageContent(contentArray: UiContentBlock[]): {
   textContent: string
   toolCalls: UiContentBlock[]
 } {
-  const textContent = contentArray
-    .filter((c) => c.type === 'text')
-    .map((c) => c.text)
-    .join('\n')
-  const toolCalls = contentArray.filter((c) => c.type === 'tool_use')
-  return { textContent, toolCalls }
+  const textParts: string[] = []
+  const toolCalls: UiContentBlock[] = []
+
+  for (const content of contentArray) {
+    if (content.type === 'text') {
+      textParts.push(content.text ?? '')
+    } else if (content.type === 'tool_use') {
+      toolCalls.push(content)
+    }
+  }
+
+  return { textContent: textParts.join('\n'), toolCalls }
 }

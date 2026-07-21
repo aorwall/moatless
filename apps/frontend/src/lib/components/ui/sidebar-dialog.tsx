@@ -1,6 +1,6 @@
 import { Menu, Search, XIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useContext, useState, useSyncExternalStore } from 'react'
 import { cn } from '@/lib/utils'
 import { Button } from './button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './dialog'
@@ -25,21 +25,15 @@ const SidebarDialogContext = createContext<SidebarDialogContextValue>({
 
 // Hook to detect mobile viewport
 function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(false)
-
-  useEffect(() => {
-    const media = window.matchMedia(query)
-    setMatches(media.matches)
-
-    const listener = (event: MediaQueryListEvent) => {
-      setMatches(event.matches)
-    }
-
-    media.addEventListener('change', listener)
-    return () => media.removeEventListener('change', listener)
-  }, [query])
-
-  return matches
+  return useSyncExternalStore(
+    (onStoreChange) => {
+      const media = window.matchMedia(query)
+      media.addEventListener('change', onStoreChange)
+      return () => media.removeEventListener('change', onStoreChange)
+    },
+    () => window.matchMedia(query).matches,
+    () => false,
+  )
 }
 
 // Root Component
@@ -54,10 +48,11 @@ function SidebarDialogRoot({ open, onOpenChange, children, className }: SidebarD
   const isMobile = !useMediaQuery('(min-width: 640px)')
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
 
-  const contextValue = useMemo(
-    () => ({ isMobile, mobileSidebarOpen, setMobileSidebarOpen }),
-    [isMobile, mobileSidebarOpen],
-  )
+  const contextValue = {
+    isMobile,
+    mobileSidebarOpen,
+    setMobileSidebarOpen,
+  }
 
   return (
     <SidebarDialogContext value={contextValue}>

@@ -27,6 +27,56 @@ function isGitProvider(value: string): value is GitProvider {
   return (GIT_PROVIDERS as readonly string[]).includes(value)
 }
 
+function autoDetectProvider(url: string): GitProvider | null {
+  if (url.includes('github.com')) {
+    return 'github'
+  }
+  if (url.includes('gitlab.com')) {
+    return 'gitlab'
+  }
+  return null
+}
+
+function isSshUrl(input: string): boolean {
+  const trimmed = input.trim()
+  if (trimmed.startsWith('ssh://')) {
+    return true
+  }
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return false
+  }
+  const at = trimmed.indexOf('@')
+  const colon = trimmed.indexOf(':')
+  return at >= 0 && colon > at
+}
+
+function isValidGitUrl(input: string, selectedProvider: GitProvider): boolean {
+  const trimmed = input.trim()
+  if (isSshUrl(trimmed)) {
+    return true
+  }
+  if (!trimmed.startsWith('https://')) {
+    return false
+  }
+  if (selectedProvider === 'github') {
+    return trimmed.startsWith('https://github.com/')
+  }
+  if (selectedProvider === 'gitlab') {
+    return trimmed.startsWith('https://gitlab.com/')
+  }
+  return true
+}
+
+function extractRepoNameFromUrl(url: string): string | null {
+  const cleaned = url
+    .trim()
+    .replace(/\/$/, '')
+    .replace(/\.git$/, '')
+  const parts = cleaned.split('/')
+  const lastPart = parts.at(-1)?.split(':').pop()
+  return lastPart && lastPart.length > 0 ? lastPart : null
+}
+
 interface RepositoryConfigCreateSectionProps {
   onCancel: () => void
   onSuccess: (repositoryId: string) => void
@@ -41,66 +91,6 @@ export function RepositoryConfigCreateSection({
   const [inputValue, setInputValue] = useState('')
   const [inputError, setInputError] = useState<string | null>(null)
   const [provider, setProvider] = useState<GitProvider>('github')
-
-  // Helper: Auto-detect provider from Git URL (convenience — user can override)
-  const autoDetectProvider = (url: string): GitProvider | null => {
-    if (url.includes('github.com')) {
-      return 'github'
-    }
-    if (url.includes('gitlab.com')) {
-      return 'gitlab'
-    }
-    return null
-  }
-
-  // Helper: Detect an SSH clone URL (ssh:// or scp-like git@host:path).
-  // SSH remotes authenticate with a private key stored as a secret (kind
-  // `ssh_key`) and materialized into the sandbox's ~/.ssh — no provider token.
-  const isSshUrl = (input: string): boolean => {
-    const trimmed = input.trim()
-    if (trimmed.startsWith('ssh://')) {
-      return true
-    }
-    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-      return false
-    }
-    const at = trimmed.indexOf('@')
-    const colon = trimmed.indexOf(':')
-    return at >= 0 && colon > at
-  }
-
-  // Helper: Validate URL based on selected provider
-  const isValidGitUrl = (input: string, selectedProvider: GitProvider): boolean => {
-    const trimmed = input.trim()
-    // SSH URLs are accepted for any provider (auth via ssh_key secret).
-    if (isSshUrl(trimmed)) {
-      return true
-    }
-    if (!trimmed.startsWith('https://')) {
-      return false
-    }
-    if (selectedProvider === 'github') {
-      return trimmed.startsWith('https://github.com/')
-    }
-    if (selectedProvider === 'gitlab') {
-      return trimmed.startsWith('https://gitlab.com/')
-    }
-    // Gitness: any HTTPS URL is valid (self-hosted)
-    return true
-  }
-
-  // Helper: Extract repository name from a Git HTTPS or SSH URL
-  const extractRepoNameFromUrl = (url: string): string | null => {
-    const cleaned = url
-      .trim()
-      .replace(/\/$/, '')
-      .replace(/\.git$/, '')
-    const parts = cleaned.split('/')
-    // Last path segment; for scp-like SSH URLs without a '/' (git@host:repo)
-    // strip the leading `user@host:` by taking the part after the last ':'.
-    const lastPart = parts.at(-1)?.split(':').pop()
-    return lastPart && lastPart.length > 0 ? lastPart : null
-  }
 
   const handleSubmit = () => {
     const trimmedInput = inputValue.trim()

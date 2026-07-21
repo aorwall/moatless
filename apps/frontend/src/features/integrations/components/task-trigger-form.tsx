@@ -8,7 +8,7 @@ import {
 } from '@moatless/api-client'
 import { Link } from '@tanstack/react-router'
 import { Loader2 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 import {
   useCreateTrigger,
@@ -271,11 +271,43 @@ function buildCreateSource(form: TriggerFormState): CreateTriggerRequest['source
       }
 }
 
-export function TaskTriggerForm({ trigger, onSuccess, onCancel }: TriggerFormProps) {
-  const { data: adapters } = useIntegrationAdapters()
+export function TaskTriggerForm(props: TriggerFormProps) {
+  const { data: adapters, isLoading, error } = useIntegrationAdapters()
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (!adapters) {
+    return (
+      <div className="py-8 text-center text-sm text-destructive">
+        Failed to load integration adapters: {getErrorMessage(error)}
+      </div>
+    )
+  }
+
+  return (
+    <TaskTriggerFormFields
+      key={`${props.trigger?.id ?? 'new'}:${adapters.join(',')}`}
+      {...props}
+      adapters={adapters}
+    />
+  )
+}
+
+function TaskTriggerFormFields({
+  trigger,
+  onSuccess,
+  onCancel,
+  adapters,
+}: TriggerFormProps & { adapters: string[] }) {
   const { data: connections } = useIntegrationConnections()
   const { data: repositories } = useRepositoriesList()
-  const adapterItems = useMemo(() => adapters ?? [], [adapters])
+  const adapterItems = adapters
   const isEditing = !!trigger
   const createTrigger = useCreateTrigger()
   const updateTrigger = useUpdateTrigger()
@@ -283,14 +315,9 @@ export function TaskTriggerForm({ trigger, onSuccess, onCancel }: TriggerFormPro
 
   const [form, setForm] = useState<TriggerFormState>(() => makeInitialForm(trigger, adapterItems))
 
-  const connectionItems = useMemo(
-    () => (connections ?? []).filter((connection) => connection.adapterKind === form.adapter),
-    [connections, form.adapter],
+  const connectionItems = (connections ?? []).filter(
+    (connection) => connection.adapterKind === form.adapter,
   )
-
-  useEffect(() => {
-    setForm(makeInitialForm(trigger, adapterItems))
-  }, [trigger, adapterItems])
 
   const handleSubmit = async () => {
     const validationError = validateForm(form)

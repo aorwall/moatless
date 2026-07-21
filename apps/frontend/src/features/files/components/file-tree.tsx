@@ -1,7 +1,7 @@
 import type { FileTreeRowDecorationRenderer } from '@pierre/trees'
 import { FileTree as PierreFileTree, useFileTree as usePierreFileTree } from '@pierre/trees/react'
 import { Filter, GitBranch, PanelLeftClose } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/lib/components/ui/button'
 import { Skeleton } from '@/lib/components/ui/skeleton'
 import { useFileTree } from '../hooks/use-file-tree'
@@ -20,6 +20,8 @@ interface FileTreeProps {
   selectedPath: string | undefined
   onFileSelect: (filePath: string) => void
 }
+
+const FILE_TREE_SKELETON_WIDTHS = [72, 86, 64, 79, 90, 68, 83, 75] as const
 
 function decorationFromMetadata(metadata: RowMetadata | undefined): { text: string } | null {
   if (!metadata?.isChanged || metadata.type !== 'file') {
@@ -48,66 +50,61 @@ export function FileTree({ taskId, selectedPath, onFileSelect }: FileTreeProps) 
   const [showOnlyChanged, setShowOnlyChanged] = useState(false)
 
   const tree = data?.tree
-  const visibleTree = useMemo(() => {
+  const visibleTree = (() => {
     const currentTree = tree ?? []
     return showOnlyChanged ? filterChangedTree(currentTree) : currentTree
-  }, [showOnlyChanged, tree])
+  })()
 
-  const paths = useMemo(() => flattenToPaths(visibleTree), [visibleTree])
-  const gitStatus = useMemo(() => buildGitStatusEntries(visibleTree), [visibleTree])
-  const rowMetadata = useMemo(() => buildRowMetadata(tree ?? []), [tree])
-  const initialExpandedPaths = useMemo(() => collectChangedDirectoryPaths(tree ?? []), [tree])
+  const paths = flattenToPaths(visibleTree)
+  const gitStatus = buildGitStatusEntries(visibleTree)
+  const rowMetadata = buildRowMetadata(tree ?? [])
+  const initialExpandedPaths = collectChangedDirectoryPaths(tree ?? [])
 
-  const renderRowDecoration = useCallback<FileTreeRowDecorationRenderer>(
-    ({ item }) => decorationFromMetadata(rowMetadata.get(item.path)),
-    [rowMetadata],
-  )
+  const renderRowDecoration: FileTreeRowDecorationRenderer = ({ item }) =>
+    decorationFromMetadata(rowMetadata.get(item.path))
 
-  const onSelectionChange = useCallback(
-    (selected: readonly string[]) => {
-      const first = selected[0]
-      if (!first) {
-        return
-      }
-      const meta = rowMetadata.get(first)
-      if (meta?.type === 'directory') {
-        return
-      }
-      onFileSelect(first)
-    },
-    [onFileSelect, rowMetadata],
-  )
+  const onSelectionChange = (selected: readonly string[]) => {
+    const first = selected[0]
+    if (!first) {
+      return
+    }
+    const meta = rowMetadata.get(first)
+    if (meta?.type === 'directory') {
+      return
+    }
+    onFileSelect(first)
+  }
 
-  const initialPaths = useRef(paths)
-  const initialGitStatus = useRef(gitStatus)
-  const initialExpansion = useRef(initialExpandedPaths)
-  const initialSelection = useRef(selectedPath ? [selectedPath] : undefined)
+  const [initialPaths] = useState(paths)
+  const [initialGitStatus] = useState(gitStatus)
+  const [initialExpansion] = useState(initialExpandedPaths)
+  const [initialSelection] = useState(selectedPath ? [selectedPath] : undefined)
 
   const { model } = usePierreFileTree({
-    paths: initialPaths.current,
-    gitStatus: initialGitStatus.current,
+    paths: initialPaths,
+    gitStatus: initialGitStatus,
     onSelectionChange,
-    ...(initialSelection.current !== undefined && {
-      initialSelectedPaths: initialSelection.current,
+    ...(initialSelection !== undefined && {
+      initialSelectedPaths: initialSelection,
     }),
     initialExpansion: 'closed',
-    initialExpandedPaths: initialExpansion.current,
+    initialExpandedPaths: initialExpansion,
     renderRowDecoration,
   })
 
   useEffect(() => {
-    if (paths === initialPaths.current) {
+    if (paths === initialPaths) {
       return
     }
     model.resetPaths(paths, { initialExpandedPaths })
-  }, [model, paths, initialExpandedPaths])
+  }, [model, paths, initialPaths, initialExpandedPaths])
 
   useEffect(() => {
-    if (gitStatus === initialGitStatus.current) {
+    if (gitStatus === initialGitStatus) {
       return
     }
     model.setGitStatus(gitStatus)
-  }, [model, gitStatus])
+  }, [model, gitStatus, initialGitStatus])
 
   useEffect(() => {
     if (!selectedPath) {
@@ -127,13 +124,8 @@ export function FileTree({ taskId, selectedPath, onFileSelect }: FileTreeProps) 
   if (isLoading) {
     return (
       <div className="p-4 space-y-2">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <Skeleton
-            // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton list
-            key={i}
-            className="h-5"
-            style={{ width: `${60 + Math.random() * 30}%` }}
-          />
+        {FILE_TREE_SKELETON_WIDTHS.map((width) => (
+          <Skeleton key={width} className="h-5" style={{ width: `${width}%` }} />
         ))}
       </div>
     )

@@ -1,5 +1,4 @@
 import type { CommandResponse } from '@moatless/api-client'
-import { useCallback } from 'react'
 import { toast } from 'sonner'
 import type { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
 import { useSendMessage } from '@/features/tasks/hooks/use-tasks'
@@ -63,19 +62,16 @@ export function useChatSend({
   })
 
   // Handlers for user input submission (routed through sendMessage)
-  const handleQuestionSubmit = useCallback(
-    (answers: Record<string, string>) => {
-      sendMessage.mutate({
-        message: '',
-        toolUseId: pendingUserInput?.toolUseId,
-        toolName: 'AskUserQuestion',
-        toolResponse: { answers },
-      })
-    },
-    [sendMessage, pendingUserInput?.toolUseId],
-  )
+  const handleQuestionSubmit = (answers: Record<string, string>) => {
+    sendMessage.mutate({
+      message: '',
+      toolUseId: pendingUserInput?.toolUseId,
+      toolName: 'AskUserQuestion',
+      toolResponse: { answers },
+    })
+  }
 
-  const handlePlanApprove = useCallback(() => {
+  const handlePlanApprove = () => {
     sendMessage.mutate({
       message: '',
       toolUseId: pendingUserInput?.toolUseId,
@@ -84,22 +80,19 @@ export function useChatSend({
     })
     // Auto-switch to edit mode after approving plan
     setSelectedAgentMode('edit')
-  }, [sendMessage, pendingUserInput?.toolUseId, setSelectedAgentMode])
+  }
 
-  const handlePlanReject = useCallback(
-    (feedback?: string) => {
-      sendMessage.mutate({
-        message: '',
-        toolUseId: pendingUserInput?.toolUseId,
-        toolName: 'ExitPlanMode',
-        toolResponse: { approved: false, feedback },
-      })
-    },
-    [sendMessage, pendingUserInput?.toolUseId],
-  )
+  const handlePlanReject = (feedback?: string) => {
+    sendMessage.mutate({
+      message: '',
+      toolUseId: pendingUserInput?.toolUseId,
+      toolName: 'ExitPlanMode',
+      toolResponse: { approved: false, feedback },
+    })
+  }
 
   // Handle sending message
-  const handleChatSubmit = useCallback(() => {
+  const handleChatSubmit = () => {
     const trimmedMessage = message.trim()
     if (sendMessage.isPending || !trimmedMessage) {
       return
@@ -148,63 +141,44 @@ export function useChatSend({
         setStartFresh(false)
       },
     })
-  }, [
-    sendMessage,
-    message,
-    resumeConversation,
-    selectedModel,
-    selectedAgentMode,
-    selectedCommand,
-    clearSelectedCommand,
-    taskInputs,
-    isModelSelectorEnabled,
-    startFresh,
-    setStartFresh,
-    setMessage,
-  ])
+  }
 
   // Handle command button click
-  const handleCommandClick = useCallback(
-    (command: CommandResponse) => {
-      const commandData = {
-        message: '',
-        commandName: command.name,
-        resume: command.willNotResume !== true,
-        model: isModelSelectorEnabled ? modelToApiValue(selectedModel) : undefined,
-        agentMode: command.agentMode || selectedAgentMode,
-        fileIds: taskInputs.getFileIds(),
-        fileUploads: taskInputs.uploadedFiles,
-        contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,
-      }
+  const handleCommandClick = (command: CommandResponse) => {
+    const commandData = {
+      message: '',
+      commandName: command.name,
+      resume: command.willNotResume !== true,
+      model: isModelSelectorEnabled ? modelToApiValue(selectedModel) : undefined,
+      agentMode: command.agentMode || selectedAgentMode,
+      fileIds: taskInputs.getFileIds(),
+      fileUploads: taskInputs.uploadedFiles,
+      contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,
+    }
 
-      sendMessage.mutate(commandData, {
-        onSuccess: () => {
-          taskInputs.clearAll()
-        },
-      })
-    },
-    [sendMessage, isModelSelectorEnabled, selectedModel, selectedAgentMode, taskInputs],
-  )
+    sendMessage.mutate(commandData, {
+      onSuccess: () => {
+        taskInputs.clearAll()
+      },
+    })
+  }
 
   // Execute a command by name — used by external callers (e.g. preview troubleshoot button)
-  const executeCommandByName = useCallback(
-    (commandName: string) => {
-      const command = availableCommands.find((c) => c.name === commandName)
-      if (!command) {
-        return
-      }
+  const executeCommandByName = (commandName: string) => {
+    const command = availableCommands.find((c) => c.name === commandName)
+    if (!command) {
+      return
+    }
 
-      const commandData = {
-        message: '',
-        commandName: command.name,
-        resume: command.willNotResume !== true,
-        model: isModelSelectorEnabled ? modelToApiValue(selectedModel) : undefined,
-        agentMode: command.agentMode || selectedAgentMode,
-      }
-      sendMessage.mutate(commandData)
-    },
-    [availableCommands, sendMessage, isModelSelectorEnabled, selectedModel, selectedAgentMode],
-  )
+    const commandData = {
+      message: '',
+      commandName: command.name,
+      resume: command.willNotResume !== true,
+      model: isModelSelectorEnabled ? modelToApiValue(selectedModel) : undefined,
+      agentMode: command.agentMode || selectedAgentMode,
+    }
+    sendMessage.mutate(commandData)
+  }
 
   return {
     sendMessage,

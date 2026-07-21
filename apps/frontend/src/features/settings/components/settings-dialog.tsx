@@ -1,5 +1,5 @@
 import { Bot, GitBranch, Key, Lock, Sparkles, User } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { useAuthMode } from '@/features/auth/hooks/use-auth-mode'
 import { Github, Gitlab } from '@/lib/components/ui/brand-icons'
 import { SidebarDialog } from '@/lib/components/ui/sidebar-dialog'
@@ -31,7 +31,7 @@ export function SettingsDialog({
   const isGitnessEnabled = useFeatureFlag('GITNESS_ENABLED')
   const { isPasswordMode } = useAuthMode()
 
-  const sections = useMemo(() => {
+  const sections = (() => {
     const allSections = []
 
     allSections.push({
@@ -94,7 +94,7 @@ export function SettingsDialog({
     })
 
     return allSections
-  }, [showClaudeSettings, showCodexSettings, isGitLabEnabled, isGitnessEnabled, isPasswordMode])
+  })()
 
   return (
     <SidebarDialog open={open} onOpenChange={onOpenChange}>

@@ -176,7 +176,11 @@ export function CodexConfigurationSection() {
         )}
       </ConfigurationGroup>
 
-      <CodexDeviceLoginDialog open={loginOpen} onOpenChange={setLoginOpen} />
+      <CodexDeviceLoginDialog
+        key={loginOpen ? 'open' : 'closed'}
+        open={loginOpen}
+        onOpenChange={setLoginOpen}
+      />
     </ConfigurationSectionWrapper>
   )
 }

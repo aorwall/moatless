@@ -10,6 +10,4 @@
  * `features/tasks`. Both resolve to the same string; unify once `ViewTabs`
  * moves into the tasks feature (see the composability plan's rename table).
  */
-export const CHAT_VIEW = 'chat'
-export const FILES_VIEW = 'files'
 export const SANDBOX_VIEW = 'sandbox'

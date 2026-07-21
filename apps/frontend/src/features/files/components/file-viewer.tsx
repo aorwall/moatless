@@ -7,24 +7,15 @@ import { useFileContent } from '../hooks/use-file-content'
 import { usePierreOptions } from '../lib/use-pierre-theme'
 import { DiffFileView } from './diff-file-view'
 import { FileModeToggleGroup } from './file-mode-toggle'
+import { isHtmlFile, isMarkdownFile, isPreviewable } from './file-viewer-utils'
 import { HtmlPreview } from './html-preview'
 import { MarkdownPreview } from './markdown-preview'
 
 export type FileViewMode = 'code' | 'diff' | 'preview'
 
-function isMarkdownFile(filePath: string): boolean {
-  const ext = filePath.split('.').pop()?.toLowerCase() || ''
-  return ext === 'md' || ext === 'mdx'
-}
-
-function isHtmlFile(filePath: string): boolean {
-  const ext = filePath.split('.').pop()?.toLowerCase() || ''
-  return ext === 'html' || ext === 'htm'
-}
-
-export function isPreviewable(filePath: string): boolean {
-  return isMarkdownFile(filePath) || isHtmlFile(filePath)
-}
+const FILE_VIEWER_SKELETON_WIDTHS = [
+  42, 78, 55, 87, 64, 35, 71, 49, 82, 59, 90, 46, 74, 61, 38, 85, 52, 68, 44, 80,
+] as const
 
 function isImageMediaType(mediaType: string | undefined): boolean {
   return mediaType?.startsWith('image/') ?? false
@@ -304,13 +295,8 @@ export function FileViewer({
   } else if (isLoading) {
     body = (
       <div className="p-4 space-y-2">
-        {Array.from({ length: 20 }).map((_, i) => (
-          <Skeleton
-            // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton list
-            key={i}
-            className="h-4"
-            style={{ width: `${30 + Math.random() * 60}%` }}
-          />
+        {FILE_VIEWER_SKELETON_WIDTHS.map((width) => (
+          <Skeleton key={width} className="h-4" style={{ width: `${width}%` }} />
         ))}
       </div>
     )

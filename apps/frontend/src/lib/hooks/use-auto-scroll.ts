@@ -1,5 +1,5 @@
 import type React from 'react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from 'react'
 
 interface UseAutoScrollOptions {
   /** Threshold in pixels to consider user "at bottom" */
@@ -15,6 +15,10 @@ interface UseAutoScrollResult {
   isAtBottom: boolean
   scrollToBottom: () => void
   handleScroll: () => void
+}
+
+function getScrollElement(scrollRef: React.RefObject<HTMLDivElement | null>): Element | null {
+  return scrollRef.current?.querySelector('[data-slot="scroll-area-viewport"]') ?? null
 }
 
 /**
@@ -36,28 +40,20 @@ export function useAutoScroll({
     scrollHeight: 0,
   })
 
-  // Get the actual scrollable element
-  const getScrollElement = useCallback(() => {
-    if (!scrollRef.current) {
-      return null
-    }
-    return scrollRef.current.querySelector('[data-slot="scroll-area-viewport"]')
-  }, [])
-
   // Check if user is at bottom
-  const checkIsAtBottom = useCallback(() => {
-    const scrollElement = getScrollElement()
+  const checkIsAtBottom = () => {
+    const scrollElement = getScrollElement(scrollRef)
     if (!scrollElement) {
       return false
     }
 
     const { scrollTop, scrollHeight, clientHeight } = scrollElement
     return Math.abs(scrollHeight - clientHeight - scrollTop) < threshold
-  }, [getScrollElement, threshold])
+  }
 
   // Scroll to bottom
-  const scrollToBottom = useCallback(() => {
-    const scrollElement = getScrollElement()
+  const scrollToBottom = () => {
+    const scrollElement = getScrollElement(scrollRef)
     if (!scrollElement) {
       return
     }
@@ -65,11 +61,11 @@ export function useAutoScroll({
     requestAnimationFrame(() => {
       scrollElement.scrollTop = scrollElement.scrollHeight
     })
-  }, [getScrollElement])
+  }
 
   // Handle scroll events
-  const handleScroll = useCallback(() => {
-    const scrollElement = getScrollElement()
+  const handleScroll = () => {
+    const scrollElement = getScrollElement(scrollRef)
     if (!scrollElement) {
       return
     }
@@ -80,22 +76,26 @@ export function useAutoScroll({
     // Update previousScrollPosition when user manually scrolls
     const { scrollTop, scrollHeight, clientHeight } = scrollElement
     previousScrollPosition.current = { scrollTop, clientHeight, scrollHeight }
-  }, [checkIsAtBottom, getScrollElement])
+  }
+  const handleScrollEvent = useEffectEvent(handleScroll)
+  const scrollToBottomEvent = useEffectEvent(scrollToBottom)
 
   // Set up scroll listener
-  useEffect(() => {
-    const scrollElement = getScrollElement()
+  useLayoutEffect(() => {
+    const scrollElement = getScrollElement(scrollRef)
     if (!scrollElement) {
       return
     }
 
-    scrollElement.addEventListener('scroll', handleScroll)
-    handleScroll() // Check initial state
+    const onScroll = () => handleScrollEvent()
+    scrollElement.addEventListener('scroll', onScroll)
+    const initialMeasurementFrame = requestAnimationFrame(onScroll)
 
     return () => {
-      scrollElement.removeEventListener('scroll', handleScroll)
+      cancelAnimationFrame(initialMeasurementFrame)
+      scrollElement.removeEventListener('scroll', onScroll)
     }
-  }, [getScrollElement, handleScroll])
+  }, [])
 
   // Handle initial scroll on mount - retry until content is available
   useEffect(() => {
@@ -104,9 +104,9 @@ export function useAutoScroll({
     }
 
     const tryInitialScroll = () => {
-      const scrollElement = getScrollElement()
+      const scrollElement = getScrollElement(scrollRef)
       if (scrollElement && scrollElement.scrollHeight > scrollElement.clientHeight) {
-        scrollToBottom()
+        scrollToBottomEvent()
         hasScrolledOnMount.current = true
         return true
       }
@@ -134,11 +134,11 @@ export function useAutoScroll({
       clearInterval(intervalId)
       clearTimeout(timeoutId)
     }
-  }, [scrollOnMount, getScrollElement, scrollToBottom])
+  }, [scrollOnMount])
 
   // Auto-scroll when dependencies change if at bottom
   useEffect(() => {
-    const scrollElement = getScrollElement()
+    const scrollElement = getScrollElement(scrollRef)
     if (!scrollElement) {
       return
     }
@@ -195,7 +195,7 @@ export function useAutoScroll({
         scrollHeight,
       }
     }
-  }, [...dependencies, getScrollElement, threshold])
+  }, [...dependencies, threshold])
 
   return {
     scrollRef,

@@ -1,6 +1,6 @@
 import { AdapterKind } from '@moatless/api-client'
 import { Loader2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 import {
   useCreateIntegrationConnection,
@@ -108,12 +108,6 @@ export function ConnectionFormDialog({ open, onOpenChange }: ConnectionFormDialo
   const [form, setForm] = useState<ConnectionFormState>(() => makeInitialForm(defaultAdapter))
   const createConnection = useCreateIntegrationConnection()
   const isPending = createConnection.isPending
-
-  useEffect(() => {
-    if (open) {
-      setForm(makeInitialForm(defaultAdapter))
-    }
-  }, [open, defaultAdapter])
 
   const setAdapter = (adapter: string) => {
     setForm((prev) => ({

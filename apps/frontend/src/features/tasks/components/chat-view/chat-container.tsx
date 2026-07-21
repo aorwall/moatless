@@ -1,5 +1,4 @@
 import type { MessageContextInput, UiMessage } from '@moatless/api-client'
-import { useMemo } from 'react'
 import { ChatScrollArea } from '@/features/tasks/components/chat/chat-scroll-area'
 import { MessageHistory } from '@/features/tasks/components/chat/message-history'
 import { usePanelControls, useTaskId } from '@/features/tasks/contexts/task-providers'
@@ -24,6 +23,8 @@ interface ChatContainerProps {
   collapseToolCalls?: boolean
 }
 
+const EMPTY_CONTEXT_ITEMS: MessageContextInput[] = []
+
 /**
  * Composes the chat panel: message history on top, input section below.
  *
@@ -34,7 +35,7 @@ interface ChatContainerProps {
  */
 function ChatContainer({
   className,
-  contextItems = [],
+  contextItems = EMPTY_CONTEXT_ITEMS,
   onContextItemsChange,
   hideAgentModeSelector = false,
   collapseToolCalls = false,
@@ -67,20 +68,19 @@ function ChatContainer({
   // (`addToStart`), so `pages[0]` is the OLDEST cached page and `pages[last]`
   // is the newest. Each page is itself oldest-first. Plain flatMap therefore
   // yields a chronological array — no reverse.
-  const messages = useMemo(() => {
+  const messages = (() => {
     if (!messagesData) {
       return
     }
     return messagesData.pages.flatMap((p) => p.messages)
-  }, [messagesData])
+  })()
 
   // Agent running state: driven by sandbox status (updated via SSE events + backend gRPC)
   const isTaskRunning = sandboxStatus?.agentState === 'running'
 
   // Derive queued messages from the messages list
-  const queuedMessages = useMemo(
-    () => (messages ?? []).filter((m): m is UiMessage => m.role === 'user' && m.isQueued === true),
-    [messages],
+  const queuedMessages = (messages ?? []).filter(
+    (m): m is UiMessage => m.role === 'user' && m.isQueued === true,
   )
 
   // Detect pending user input from the last message

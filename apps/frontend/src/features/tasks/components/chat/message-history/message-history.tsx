@@ -1,14 +1,6 @@
 import type { EnvironmentStatus, UiMessage } from '@moatless/api-client'
 import { ArrowDown, Loader2 } from 'lucide-react'
-import React, {
-  Fragment,
-  type ReactNode,
-  useCallback,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
+import { Fragment, type ReactNode, useLayoutEffect, useRef, useState } from 'react'
 import {
   groupSubagentMessages,
   type UiMessageWithSubagents,
@@ -137,6 +129,10 @@ function buildRenderItems(messages: UiMessageWithSubagents[], cluster: boolean):
   return items
 }
 
+function itemId(item: RenderItem): string {
+  return item.kind === 'cluster' ? item.key : item.message.uuid
+}
+
 interface CommandClusterProps {
   taskId?: string | undefined
   messages: UiMessageWithSubagents[]
@@ -244,7 +240,7 @@ function MessageHistoryComponent({
   // the next scroll event with no user intent.
   const fetchArmedRef = useRef(true)
 
-  const toggleToolCallExpansion = useCallback((toolUseId: string) => {
+  const toggleToolCallExpansion = (toolUseId: string) => {
     setExpandedToolCalls((prev) => {
       const newSet = new Set(prev)
       if (newSet.has(toolUseId)) {
@@ -254,13 +250,13 @@ function MessageHistoryComponent({
       }
       return newSet
     })
-  }, [])
+  }
 
   // Subagent messages are attached under their parent Agent tool call. We
   // also drop empty-content rows here — backend pagination keeps them in the
   // page count so the cursor stays honest, but they shouldn't render as
   // blank gaps.
-  const flattenedMessages = useMemo(() => {
+  const flattenedMessages = (() => {
     if (!messages) {
       return []
     }
@@ -272,7 +268,7 @@ function MessageHistoryComponent({
         m.hasPendingUserInput === true,
     )
     return groupSubagentMessages(renderable)
-  }, [messages])
+  })()
 
   // Scroll to the bottom on initial load (and on task switch).
   useLayoutEffect(() => {
@@ -352,7 +348,7 @@ function MessageHistoryComponent({
     prevScrollTopRef.current = el.scrollTop
   })
 
-  const handleScroll = useCallback(() => {
+  const handleScroll = () => {
     const el = scrollContainerRef.current
     if (!el) {
       return
@@ -396,60 +392,54 @@ function MessageHistoryComponent({
       }
       fetchPreviousPage()
     }
-  }, [hasPreviousPage, isFetchingPreviousPage, fetchPreviousPage])
+  }
 
-  const scrollToBottom = useCallback(() => {
+  const scrollToBottom = () => {
     const el = scrollContainerRef.current
     if (!el) {
       return
     }
     el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
-  }, [])
+  }
 
-  const renderRow = useCallback(
-    (item: UiMessage) => {
-      if (item.messageType === 'error') {
-        return <ErrorMessageComponent key={item.uuid} message={item} />
-      }
-      if (item.role === 'user' && item.sourceTaskId) {
-        return <ExternalSourceMessageComponent key={item.uuid} message={item} variant="task" />
-      }
-      if (item.role === 'user' && item.externalSource) {
-        return <ExternalSourceMessageComponent key={item.uuid} message={item} />
-      }
-      if (item.role === 'user') {
-        return (
-          <UserMessageComponent
-            key={item.uuid}
-            message={item}
-            onPreviewUrlClick={onPreviewUrlClick}
-          />
-        )
-      }
-      if (item.role === 'system') {
-        return <SystemMessageComponent key={item.uuid} message={item} />
-      }
+  const renderRow = (item: UiMessage) => {
+    if (item.messageType === 'error') {
+      return <ErrorMessageComponent key={item.uuid} message={item} />
+    }
+    if (item.role === 'user' && item.sourceTaskId) {
+      return <ExternalSourceMessageComponent key={item.uuid} message={item} variant="task" />
+    }
+    if (item.role === 'user' && item.externalSource) {
+      return <ExternalSourceMessageComponent key={item.uuid} message={item} />
+    }
+    if (item.role === 'user') {
       return (
-        <AssistantMessageComponent
+        <UserMessageComponent
           key={item.uuid}
-          taskId={taskId}
           message={item}
-          expandedToolCalls={expandedToolCalls}
-          onToggleToolCall={toggleToolCallExpansion}
+          onPreviewUrlClick={onPreviewUrlClick}
         />
       )
-    },
-    [expandedToolCalls, onPreviewUrlClick, taskId, toggleToolCallExpansion],
-  )
+    }
+    if (item.role === 'system') {
+      return <SystemMessageComponent key={item.uuid} message={item} />
+    }
+    return (
+      <AssistantMessageComponent
+        key={item.uuid}
+        taskId={taskId}
+        message={item}
+        expandedToolCalls={expandedToolCalls}
+        onToggleToolCall={toggleToolCallExpansion}
+      />
+    )
+  }
 
-  const renderItems = useMemo(
-    () => buildRenderItems(flattenedMessages, collapseToolCalls),
-    [flattenedMessages, collapseToolCalls],
-  )
+  const renderItems = buildRenderItems(flattenedMessages, collapseToolCalls)
 
   // Find the last assistant message in the rendered list. Used to anchor the
   // action bar (Copy / Feedback) under the most recent reply only.
-  const lastAssistantMessage = useMemo<UiMessage | null>(() => {
+  const lastAssistantMessage = (() => {
     for (let i = renderItems.length - 1; i >= 0; i--) {
       const item = renderItems[i]
       if (item === undefined) {
@@ -460,13 +450,7 @@ function MessageHistoryComponent({
       }
     }
     return null
-  }, [renderItems])
-
-  // Stable id per render item — the message uuid or cluster key. Used both as
-  // the React key and as the virtualized row id (virtua caches row heights by
-  // child key, so this must survive prepends).
-  const itemId = (item: RenderItem): string =>
-    item.kind === 'cluster' ? item.key : item.message.uuid
+  })()
 
   // One ErrorBoundary-wrapped node per render item. Shared by both the
   // non-virtual (`renderItems.map` below) and virtual paths.
@@ -606,4 +590,4 @@ function MessageHistoryComponent({
   )
 }
 
-export const MessageHistory = React.memo(MessageHistoryComponent)
+export const MessageHistory = MessageHistoryComponent

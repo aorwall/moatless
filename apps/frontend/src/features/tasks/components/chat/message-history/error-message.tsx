@@ -7,8 +7,7 @@ interface ErrorMessageProps {
 
 function getErrorText(message: UiMessage): string {
   const text = message.content
-    .filter((c) => c.type === 'text')
-    .map((c) => c.text ?? '')
+    .flatMap((c) => (c.type === 'text' ? [c.text ?? ''] : []))
     .join('\n')
     .trim()
   return text || 'An error occurred.'

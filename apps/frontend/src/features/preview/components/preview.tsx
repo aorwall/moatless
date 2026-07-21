@@ -1,5 +1,5 @@
 import { Server } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type RefObject, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { useSandboxRetry } from '@/lib/api/task-sandbox-queries'
 import { StackedConsoleSplit } from '@/lib/layout/stacked-console-split'
 import { cn } from '@/lib/utils'
@@ -18,6 +18,30 @@ import { ProxyErrorOverlay } from './proxy-error-overlay'
 import { ResourceUsageFooter } from './resource-usage-footer'
 import { SandboxStatusOverlay } from './sandbox-status-overlay'
 import { ServerStatusView } from './server-status-view'
+
+interface PreviewIframeProps {
+  iframeRef: RefObject<HTMLIFrameElement | null>
+  src: string
+  onLoad: () => void
+}
+
+function PreviewIframe({ iframeRef, src, onLoad }: PreviewIframeProps) {
+  const [isLoaded, setIsLoaded] = useState(false)
+
+  return (
+    <iframe
+      ref={iframeRef}
+      src={src}
+      title="Application Preview"
+      sandbox="allow-scripts allow-forms allow-popups allow-modals allow-storage-access-by-user-activation"
+      onLoad={() => {
+        setIsLoaded(true)
+        onLoad()
+      }}
+      className={cn('w-full h-full border-none', !isLoaded && 'opacity-0')}
+    />
+  )
+}
 
 export function Preview({
   taskId,
@@ -49,11 +73,10 @@ export function Preview({
   const lastResetActiveServerRef = useRef<string | undefined | null>(null)
   // null = follow the auto-expand default; true/false = user's explicit choice.
   const [consoleExpandedOverride, setConsoleExpandedOverride] = useState<boolean | null>(null)
-  const [isLoaded, setIsLoaded] = useState(false)
   const [hasProxyError, setHasProxyError] = useState(false)
 
   // Find the active server entry from the servers array
-  const activeServerEntry = useMemo(() => {
+  const activeServerEntry = (() => {
     if (servers?.length === 0 || !servers) {
       return
     }
@@ -62,10 +85,10 @@ export function Preview({
     }
     // Default to the first server
     return servers[0]
-  }, [servers, activeServer])
+  })()
 
   // Derive server status and URL from the active server entry
-  const serverStatus = useMemo(() => {
+  const serverStatus = (() => {
     if (!activeServerEntry) {
       return
     }
@@ -74,7 +97,7 @@ export function Preview({
       url: activeServerEntry.url,
       error: activeServerEntry.error,
     }
-  }, [activeServerEntry])
+  })()
 
   // Auto-expand the console (Events tab) whenever the preview isn't live: the
   // sandbox is still coming up, or the active server hasn't started yet. The
@@ -119,7 +142,6 @@ export function Preview({
     }
     lastResetActiveServerRef.current = activeServer
 
-    setIsLoaded(false)
     resetInspector()
     resetScriptHealth()
     clearConsoleLogs()
@@ -144,30 +166,19 @@ export function Preview({
     if (serverStatus?.status === 'stopped') {
       clearConsoleLogs()
       resetInspector()
-      setIsLoaded(false)
       resetScriptHealth()
       // Keep path as-is so server can resume at same path when restarted
     }
   }, [serverStatus?.status, clearConsoleLogs, resetInspector, resetScriptHealth])
 
-  // Clear proxy error when server becomes ready/started
-  useEffect(() => {
-    if (serverStatus?.status === 'started') {
-      setHasProxyError(false)
-    }
-  }, [serverStatus?.status])
-
   // Helper: Handle route change message
-  const handleRouteChange = useCallback(
-    (payload: { path: string }) => {
-      setPath(payload.path)
-    },
-    [setPath],
-  )
+  const handleRouteChange = (payload: { path: string }) => {
+    setPath(payload.path)
+  }
 
-  const handleProxyError = useCallback(() => {
+  const handleProxyError = () => {
     setHasProxyError(true)
-  }, [])
+  }
 
   usePreviewMessages({
     onConsoleMessage: appendConsoleMessage,
@@ -193,23 +204,25 @@ export function Preview({
     }
   }, [onNavigationReady, navigatePreview])
 
-  const reloadPreview = useCallback(() => {
+  const reloadPreview = () => {
     // Disable inspector on reload
     deactivateInspector()
     reloadIframe()
-  }, [deactivateInspector, reloadIframe])
+  }
+  const notifyReloadReady = useEffectEvent(() => {
+    onReloadReady?.(reloadPreview)
+  })
 
   // Expose reload to the composing feature (e.g. the mobile overlay's actions
   // menu) so it can trigger a reload without owning the iframe.
   useEffect(() => {
     if (onReloadReady) {
-      onReloadReady(reloadPreview)
+      notifyReloadReady()
     }
-  }, [onReloadReady, reloadPreview])
+  }, [onReloadReady])
 
-  const handleIframeLoad = useCallback(() => {
+  const handleIframeLoad = () => {
     setHasProxyError(false)
-    setIsLoaded(true)
 
     // Reset script health status when iframe loads
     // If script is injected, we'll receive INSPECTOR_SCRIPT_LOADED message
@@ -221,11 +234,11 @@ export function Preview({
     // Script injection is now handled server-side to avoid cross-origin issues
     // The preview environment service automatically injects the inspector script
     // into the HTML files before serving them
-  }, [markNotInjected])
+  }
 
-  const handleToggleConsole = useCallback(() => {
+  const handleToggleConsole = () => {
     setConsoleExpandedOverride(!isConsoleExpanded)
-  }, [isConsoleExpanded])
+  }
 
   // Determine if we should show console (only for servers with console capability)
   const showConsole = capabilities?.console ?? false
@@ -316,14 +329,11 @@ export function Preview({
         {/* Render iframe only when server is started */}
         {previewUrl && serverStatus?.status === 'started' && (
           <DeviceFrame mode={capabilities?.viewport ? deviceMode : 'desktop'}>
-            <iframe
+            <PreviewIframe
               key={iframeSrcKey}
-              ref={iframeRef}
+              iframeRef={iframeRef}
               src={previewUrl}
-              title="Application Preview"
-              sandbox="allow-scripts allow-forms allow-popups allow-modals allow-same-origin allow-storage-access-by-user-activation"
               onLoad={handleIframeLoad}
-              className={cn('w-full h-full border-none', !isLoaded && 'opacity-0')}
             />
 
             {isInspectorActive && (

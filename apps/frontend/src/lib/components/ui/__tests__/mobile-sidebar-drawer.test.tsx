@@ -1,6 +1,22 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, render } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { MobileSidebarDrawer } from '@/lib/components/ui/mobile-sidebar-drawer'
+
+// jsdom exposes HTMLDialogElement but does not implement its modal lifecycle.
+Object.defineProperties(HTMLDialogElement.prototype, {
+  showModal: {
+    configurable: true,
+    value(this: HTMLDialogElement) {
+      this.setAttribute('open', '')
+    },
+  },
+  close: {
+    configurable: true,
+    value(this: HTMLDialogElement) {
+      this.removeAttribute('open')
+    },
+  },
+})
 
 /**
  * The drawer registers its gesture handlers on `document`, so these tests
@@ -22,12 +38,16 @@ function dispatchTouch(type: string, points: Point[]) {
 
 function renderDrawer(open: boolean) {
   const onOpenChange = vi.fn()
-  render(
+  const { container } = render(
     <MobileSidebarDrawer open={open} onOpenChange={onOpenChange}>
       <div>Task list content</div>
     </MobileSidebarDrawer>,
   )
-  const panel = screen.getByRole('dialog', { name: 'Task list' })
+  const dialog = container.querySelector('dialog')
+  const panel = container.querySelector<HTMLElement>('[data-mobile-sidebar-panel]')
+  if (!(dialog && panel)) {
+    throw new Error('Expected the mobile sidebar dialog and panel to render')
+  }
   return { onOpenChange, panel }
 }
 

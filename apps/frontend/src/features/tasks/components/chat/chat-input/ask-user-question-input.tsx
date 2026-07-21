@@ -1,5 +1,5 @@
 import { HelpCircle, Loader2, Send } from 'lucide-react'
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
 import { Button } from '@/lib/components/ui/button'
 import { Checkbox } from '@/lib/components/ui/checkbox'
 import { Input } from '@/lib/components/ui/input'
@@ -23,7 +23,7 @@ export function AskUserQuestionInput({
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [otherText, setOtherText] = useState<Record<string, string>>({})
 
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = () => {
     const finalAnswers: Record<string, string> = {}
     for (const q of questions) {
       const answer = answers[q.question]
@@ -33,7 +33,7 @@ export function AskUserQuestionInput({
       finalAnswers[q.question] = answer === 'Other' ? otherText[q.question] || answer : answer
     }
     onSubmit(finalAnswers)
-  }, [questions, answers, otherText, onSubmit])
+  }
 
   const allAnswered = questions.every((q) => answers[q.question])
 
@@ -54,116 +54,122 @@ export function AskUserQuestionInput({
               'scrollbar-thin scrollbar-track-transparent scrollbar-thumb-muted',
             )}
           >
-            {questions.map((question) => (
-              <div key={question.question} className="space-y-2">
-                {question.header && <h4 className="text-sm font-semibold">{question.header}</h4>}
-                <p className="text-sm text-muted-foreground">{question.question}</p>
+            {questions.map((question) => {
+              const selectedOptions = new Set(
+                answers[question.question]?.split(', ').filter(Boolean) ?? [],
+              )
 
-                {question.multiSelect ? (
-                  <div className="space-y-2 pl-1">
-                    {question.options.map((opt) => {
-                      const optId = `input-${question.question}-${opt.label}`
-                      return (
-                        <div key={opt.label} className="flex items-start gap-2">
-                          <Checkbox
-                            id={optId}
-                            checked={answers[question.question]?.includes(opt.label) ?? false}
-                            disabled={isPending}
-                            onCheckedChange={(checked) => {
-                              const current =
-                                answers[question.question]?.split(', ').filter(Boolean) ?? []
-                              const updated = checked
-                                ? [...current, opt.label].join(', ')
-                                : current.filter((l) => l !== opt.label).join(', ')
-                              setAnswers((prev) => ({ ...prev, [question.question]: updated }))
-                            }}
-                          />
-                          <Label htmlFor={optId} className="text-sm cursor-pointer">
-                            <span className="font-medium">{opt.label}</span>
-                            {opt.description && (
-                              <span className="text-muted-foreground ml-1">
-                                - {opt.description}
-                              </span>
-                            )}
-                          </Label>
-                        </div>
-                      )
-                    })}
-                  </div>
-                ) : (
-                  <div className="space-y-2 pl-1">
-                    {question.options.map((opt) => {
-                      const optId = `input-${question.question}-${opt.label}`
-                      return (
-                        <div key={opt.label} className="flex items-start gap-2">
-                          <input
-                            type="radio"
-                            id={optId}
-                            name={`input-${question.question}`}
-                            checked={answers[question.question] === opt.label}
-                            disabled={isPending}
-                            onChange={() =>
-                              setAnswers((prev) => ({ ...prev, [question.question]: opt.label }))
-                            }
-                            className="h-4 w-4 mt-0.5 accent-primary"
-                          />
-                          <Label htmlFor={optId} className="text-sm cursor-pointer">
-                            <span className="font-medium">{opt.label}</span>
-                            {opt.description && (
-                              <span className="text-muted-foreground ml-1">
-                                - {opt.description}
-                              </span>
-                            )}
-                          </Label>
-                        </div>
-                      )
-                    })}
-                    {/* Other option */}
-                    <div className="flex items-start gap-2">
-                      <input
-                        type="radio"
-                        id={`input-${question.question}-other`}
-                        name={`input-${question.question}`}
-                        checked={answers[question.question] === 'Other'}
-                        disabled={isPending}
-                        onChange={() =>
-                          setAnswers((prev) => ({ ...prev, [question.question]: 'Other' }))
-                        }
-                        className="h-4 w-4 mt-0.5 accent-primary"
-                      />
-                      <div className="flex-1 space-y-1">
-                        <Label
-                          htmlFor={`input-${question.question}-other`}
-                          className="text-sm font-medium"
-                        >
-                          Other
-                        </Label>
-                        {answers[question.question] === 'Other' && (
-                          <Input
-                            placeholder="Type your answer..."
-                            value={otherText[question.question] || ''}
-                            onChange={(e) =>
-                              setOtherText((prev) => ({
-                                ...prev,
-                                [question.question]: e.target.value,
-                              }))
-                            }
-                            disabled={isPending}
-                            className="h-8"
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' && !e.shiftKey && allAnswered && !isPending) {
-                                e.preventDefault()
-                                handleSubmit()
+              return (
+                <div key={question.question} className="space-y-2">
+                  {question.header && <h4 className="text-sm font-semibold">{question.header}</h4>}
+                  <p className="text-sm text-muted-foreground">{question.question}</p>
+
+                  {question.multiSelect ? (
+                    <div className="space-y-2 pl-1">
+                      {question.options.map((opt) => {
+                        const optId = `input-${question.question}-${opt.label}`
+                        return (
+                          <div key={opt.label} className="flex items-start gap-2">
+                            <Checkbox
+                              id={optId}
+                              checked={selectedOptions.has(opt.label)}
+                              disabled={isPending}
+                              onCheckedChange={(checked) => {
+                                const current =
+                                  answers[question.question]?.split(', ').filter(Boolean) ?? []
+                                const updated = checked
+                                  ? [...current, opt.label].join(', ')
+                                  : current.filter((l) => l !== opt.label).join(', ')
+                                setAnswers((prev) => ({ ...prev, [question.question]: updated }))
+                              }}
+                            />
+                            <Label htmlFor={optId} className="text-sm cursor-pointer">
+                              <span className="font-medium">{opt.label}</span>
+                              {opt.description && (
+                                <span className="text-muted-foreground ml-1">
+                                  - {opt.description}
+                                </span>
+                              )}
+                            </Label>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <div className="space-y-2 pl-1">
+                      {question.options.map((opt) => {
+                        const optId = `input-${question.question}-${opt.label}`
+                        return (
+                          <div key={opt.label} className="flex items-start gap-2">
+                            <input
+                              type="radio"
+                              id={optId}
+                              name={`input-${question.question}`}
+                              checked={answers[question.question] === opt.label}
+                              disabled={isPending}
+                              onChange={() =>
+                                setAnswers((prev) => ({ ...prev, [question.question]: opt.label }))
                               }
-                            }}
-                          />
-                        )}
+                              className="h-4 w-4 mt-0.5 accent-primary"
+                            />
+                            <Label htmlFor={optId} className="text-sm cursor-pointer">
+                              <span className="font-medium">{opt.label}</span>
+                              {opt.description && (
+                                <span className="text-muted-foreground ml-1">
+                                  - {opt.description}
+                                </span>
+                              )}
+                            </Label>
+                          </div>
+                        )
+                      })}
+                      {/* Other option */}
+                      <div className="flex items-start gap-2">
+                        <input
+                          type="radio"
+                          id={`input-${question.question}-other`}
+                          name={`input-${question.question}`}
+                          checked={answers[question.question] === 'Other'}
+                          disabled={isPending}
+                          onChange={() =>
+                            setAnswers((prev) => ({ ...prev, [question.question]: 'Other' }))
+                          }
+                          className="h-4 w-4 mt-0.5 accent-primary"
+                        />
+                        <div className="flex-1 space-y-1">
+                          <Label
+                            htmlFor={`input-${question.question}-other`}
+                            className="text-sm font-medium"
+                          >
+                            Other
+                          </Label>
+                          {answers[question.question] === 'Other' && (
+                            <Input
+                              placeholder="Type your answer..."
+                              value={otherText[question.question] || ''}
+                              onChange={(e) =>
+                                setOtherText((prev) => ({
+                                  ...prev,
+                                  [question.question]: e.target.value,
+                                }))
+                              }
+                              disabled={isPending}
+                              className="h-8"
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey && allAnswered && !isPending) {
+                                  e.preventDefault()
+                                  handleSubmit()
+                                }
+                              }}
+                            />
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
-              </div>
-            ))}
+                  )}
+                </div>
+              )
+            })}
           </div>
 
           {/* Error message */}

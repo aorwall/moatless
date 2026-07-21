@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
 import { z } from 'zod'
 import { useAuth } from '@/features/auth/hooks/use-auth'
 import { TopBar } from '@/features/navigation/components/top-bar'
@@ -27,12 +27,9 @@ function Dashboard() {
   const navigate = useNavigate({ from: '/' })
   const { user } = useAuth()
 
-  const handleSearchChange = useCallback(
-    async (params: DashboardSearchParams) => {
-      await navigate({ search: params })
-    },
-    [navigate],
-  )
+  const handleSearchChange = async (params: DashboardSearchParams) => {
+    await navigate({ search: params })
+  }
 
   return (
     <div className="flex flex-col h-full">

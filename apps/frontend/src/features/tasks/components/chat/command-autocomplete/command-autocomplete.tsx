@@ -1,6 +1,6 @@
 import { Sparkles } from 'lucide-react'
 import { useEffect, useRef } from 'react'
-import { getCommandIcon } from '@/features/tasks/components/chat-view/command-buttons'
+import { getCommandIcon } from '@/features/tasks/components/chat-view/command-icons'
 import type { Suggestion } from './use-command-autocomplete'
 
 interface CommandAutocompleteProps {

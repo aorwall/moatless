@@ -1,5 +1,4 @@
 import { useNavigate, useSearch } from '@tanstack/react-router'
-import { useCallback } from 'react'
 import type { FileViewMode } from '../components/file-viewer'
 
 interface UseFileViewStateReturn {
@@ -35,45 +34,39 @@ export function useFileViewState(): UseFileViewStateReturn {
   const fileView = isFileViewMode(search.fileView) ? search.fileView : 'code'
   const isExplorerCollapsed = search.filesCollapsed === true
 
-  const setFileView = useCallback(
-    (nextFileView: FileViewMode) => {
-      navigate({
-        to: '.',
-        search: (prev) => {
-          const prevSearch = prev as FileViewSearch
-          if (nextFileView === 'code') {
-            const { fileView: _fileView, ...rest } = prevSearch
-            return rest
-          }
-          return { ...prevSearch, fileView: nextFileView }
-        },
-        replace: true,
-      }).catch(() => {
-        /* ignore: URL state update */
-      })
-    },
-    [navigate],
-  )
+  const setFileView = (nextFileView: FileViewMode) => {
+    navigate({
+      to: '.',
+      search: (prev) => {
+        const prevSearch = prev as FileViewSearch
+        if (nextFileView === 'code') {
+          const { fileView: _fileView, ...rest } = prevSearch
+          return rest
+        }
+        return { ...prevSearch, fileView: nextFileView }
+      },
+      replace: true,
+    }).catch(() => {
+      /* ignore: URL state update */
+    })
+  }
 
-  const setExplorerCollapsed = useCallback(
-    (isCollapsed: boolean) => {
-      navigate({
-        to: '.',
-        search: (prev) => {
-          const prevSearch = prev as FileViewSearch
-          if (!isCollapsed) {
-            const { filesCollapsed: _filesCollapsed, ...rest } = prevSearch
-            return rest
-          }
-          return { ...prevSearch, filesCollapsed: true }
-        },
-        replace: true,
-      }).catch(() => {
-        /* ignore: URL state update */
-      })
-    },
-    [navigate],
-  )
+  const setExplorerCollapsed = (isCollapsed: boolean) => {
+    navigate({
+      to: '.',
+      search: (prev) => {
+        const prevSearch = prev as FileViewSearch
+        if (!isCollapsed) {
+          const { filesCollapsed: _filesCollapsed, ...rest } = prevSearch
+          return rest
+        }
+        return { ...prevSearch, filesCollapsed: true }
+      },
+      replace: true,
+    }).catch(() => {
+      /* ignore: URL state update */
+    })
+  }
 
   return { fileView, setFileView, isExplorerCollapsed, setExplorerCollapsed }
 }

@@ -14,43 +14,13 @@ import {
 } from '@/lib/components/ui/select'
 import { SidebarGroupAction } from '@/lib/components/ui/sidebar'
 import { Switch } from '@/lib/components/ui/switch'
+import {
+  DEFAULT_SIDEBAR_FILTERS,
+  hasActiveSidebarFilters,
+  type SidebarTaskFilterValues,
+} from './sidebar-task-filter-values'
 
 const STATUS_OPTIONS = ['open', 'error', 'closed'] as const
-
-/**
- * Filters applied to the sidebar task list. Mirrors the task dashboard filters
- * so the sidebar can surface non-followed / non-open ("not running") tasks too.
- */
-export interface SidebarTaskFilterValues {
-  /** `'all'` clears the status filter (open + error + closed). */
-  status: 'all' | 'open' | 'error' | 'closed'
-  /** Tag name, or `undefined` for all tags. */
-  tag?: string
-  /** Creator user id, or `'all'` for all users. */
-  createdBy?: string
-  /** Repository id, or `undefined` for all repositories. */
-  repositoryId?: string
-  /** When true, only show tasks the current user follows. */
-  onlyFollowed: boolean
-}
-
-/** Default sidebar view: open tasks the user follows (the personal task list). */
-export const DEFAULT_SIDEBAR_FILTERS: SidebarTaskFilterValues = {
-  status: 'open',
-  createdBy: 'all',
-  onlyFollowed: true,
-}
-
-/** Whether the given filters differ from the defaults (drives the active dot). */
-export function hasActiveSidebarFilters(filters: SidebarTaskFilterValues): boolean {
-  return (
-    filters.status !== DEFAULT_SIDEBAR_FILTERS.status ||
-    !!filters.tag ||
-    (!!filters.createdBy && filters.createdBy !== 'all') ||
-    !!filters.repositoryId ||
-    filters.onlyFollowed !== DEFAULT_SIDEBAR_FILTERS.onlyFollowed
-  )
-}
 
 interface SidebarTaskFiltersProps {
   filters: SidebarTaskFilterValues

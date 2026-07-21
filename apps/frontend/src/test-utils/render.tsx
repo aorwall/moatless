@@ -47,29 +47,3 @@ const customRender = (ui: ReactElement, options?: Omit<RenderOptions, 'wrapper'>
 // Re-export everything
 export * from '@testing-library/react'
 export { customRender as render }
-
-// Helper to render with router context
-export function renderWithRouter(
-  ui: ReactElement,
-  {
-    route = '/',
-    ...renderOptions
-  }: {
-    route?: string
-  } & Omit<RenderOptions, 'wrapper'> = {},
-) {
-  const queryClient = createTestQueryClient()
-
-  // For testing, we just render with query client
-  // Router mocking is handled in individual test files
-  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>, renderOptions)
-}
-
-// Helper to create wrapper for renderHook
-export function createWrapper() {
-  const queryClient = createTestQueryClient()
-
-  return ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-  )
-}

@@ -1,4 +1,4 @@
-export const FEATURE_FLAGS = {
+const FEATURE_FLAGS = {
   NETLIFY_PUBLISH: 'NETLIFY_PUBLISH',
   SHOW_CLAUDE_SETTINGS: 'SHOW_CLAUDE_SETTINGS',
   SHOW_CODEX_SETTINGS: 'SHOW_CODEX_SETTINGS',
@@ -8,12 +8,3 @@ export const FEATURE_FLAGS = {
 } as const
 
 export type FeatureFlagKey = keyof typeof FEATURE_FLAGS
-
-export const FEATURE_FLAG_DEFAULTS: Record<FeatureFlagKey, boolean> = {
-  NETLIFY_PUBLISH: false,
-  SHOW_CLAUDE_SETTINGS: true,
-  SHOW_CODEX_SETTINGS: true,
-  SHOW_MODEL_SELECTOR: true,
-  GITLAB_ENABLED: false,
-  GITNESS_ENABLED: false,
-}

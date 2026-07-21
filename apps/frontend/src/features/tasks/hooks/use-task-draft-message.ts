@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
 
 /**
  * Persists the chat input draft per task in localStorage so text survives
@@ -58,13 +58,10 @@ export function useTaskDraftMessage(taskId: string): [string, (value: string) =>
     setMessageState(readDraft(taskId))
   }
 
-  const setMessage = useCallback(
-    (value: string) => {
-      setMessageState(value)
-      writeDraft(taskId, value)
-    },
-    [taskId],
-  )
+  const setMessage = (value: string) => {
+    setMessageState(value)
+    writeDraft(taskId, value)
+  }
 
   return [message, setMessage]
 }

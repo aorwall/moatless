@@ -1,37 +1,10 @@
 import type { CommandResponse } from '@moatless/api-client'
-import {
-  GitBranch,
-  GitCommit,
-  GitMerge,
-  GitPullRequest,
-  MessageSquare,
-  Play,
-  Wrench,
-} from 'lucide-react'
+import { getCommandIcon } from './command-icons'
 
 interface CommandButtonsProps {
   commands: CommandResponse[]
   onCommandClick: (command: CommandResponse) => void
   disabled?: boolean
-}
-
-export function getCommandIcon(iconName?: string) {
-  switch (iconName) {
-    case 'GitCommit':
-      return GitCommit
-    case 'GitBranch':
-      return GitBranch
-    case 'GitMerge':
-      return GitMerge
-    case 'GitPullRequest':
-      return GitPullRequest
-    case 'Play':
-      return Play
-    case 'Wrench':
-      return Wrench
-    default:
-      return MessageSquare
-  }
 }
 
 export function CommandButtons({ commands, onCommandClick, disabled }: CommandButtonsProps) {

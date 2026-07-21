@@ -40,7 +40,6 @@ export function CodexDeviceLoginDialog({
     expiresAt: number
   } | null>(null)
   const [now, setNow] = useState(() => Date.now())
-  const [done, setDone] = useState(false)
   const startedFor = useRef<boolean>(false)
   const openedExternalFor = useRef<string | null>(null)
 
@@ -54,8 +53,6 @@ export function CodexDeviceLoginDialog({
       return
     }
     startedFor.current = true
-    setStart(null)
-    setDone(false)
     startLogin.mutate(undefined, {
       onSuccess: (payload) => {
         setStart({
@@ -74,15 +71,6 @@ export function CodexDeviceLoginDialog({
     })
   }, [open, startLogin])
 
-  // Tick the countdown clock once per second while the dialog is open.
-  useEffect(() => {
-    if (!(open && start && !done)) {
-      return
-    }
-    const id = window.setInterval(() => setNow(Date.now()), 1000)
-    return () => window.clearInterval(id)
-  }, [open, start, done])
-
   // Auto-open the verification URL once per device-code session.
   useEffect(() => {
     if (!start) {
@@ -95,7 +83,7 @@ export function CodexDeviceLoginDialog({
     window.open(start.verificationUrl, '_blank', 'noopener,noreferrer')
   }, [start])
 
-  const expired = !!start && now >= start.expiresAt
+  const clockExpired = !!start && now >= start.expiresAt
   const remainingMs = start ? Math.max(0, start.expiresAt - now) : 0
   const remainingSecs = Math.ceil(remainingMs / 1000)
   const mins = Math.floor(remainingSecs / 60)
@@ -104,10 +92,22 @@ export function CodexDeviceLoginDialog({
   const poll = useCodexDevicePoll(
     start ? { deviceAuthId: start.deviceAuthId, userCode: start.userCode } : null,
     {
-      enabled: open && !!start && !done && !expired,
+      enabled: open && !!start && !clockExpired,
       refetchInterval: start ? start.intervalSecs * 1000 : 5000,
     },
   )
+
+  const done = poll.data?.status === 'success' || poll.data?.status === 'expired'
+  const expired = clockExpired || poll.data?.status === 'expired'
+
+  // Tick the countdown clock once per second while the dialog is open.
+  useEffect(() => {
+    if (!(open && start && !done && !expired)) {
+      return
+    }
+    const id = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [open, start, done, expired])
 
   // Handle terminal poll outcomes.
   useEffect(() => {
@@ -115,19 +115,15 @@ export function CodexDeviceLoginDialog({
       return
     }
     if (poll.data.status === 'success') {
-      setDone(true)
       queryClient.invalidateQueries({ queryKey: queryKeys.settings.codex() })
       toast.success('Signed in to ChatGPT')
       onSuccess?.()
       onOpenChange(false)
-    } else if (poll.data.status === 'expired') {
-      setDone(true)
     }
   }, [open, poll.data, queryClient, onSuccess, onOpenChange])
 
   const handleRetry = () => {
     setStart(null)
-    setDone(false)
     startedFor.current = false
     openedExternalFor.current = null
     // Re-trigger by toggling: the open-effect will fire again because

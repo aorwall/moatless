@@ -1,6 +1,6 @@
 import type { UpdateRepositoryRequest } from '@moatless/api-client'
 import { AlertTriangle, ArrowRight, FileCode, Loader2, Save, Trash2 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 import {
   useConvertToTemplate,
@@ -62,7 +62,7 @@ export function RepositoryConfigEditSection({
   // than `Partial<>`) keeps value types free of the `| undefined` widening that
   // `Partial<>` adds under `exactOptionalPropertyTypes`, so the payload below
   // builds without a request cast.
-  const baseFormData = useMemo<UpdateRepositoryRequest>(() => {
+  const baseFormData = (() => {
     if (!repository) {
       return {}
     }
@@ -72,19 +72,16 @@ export function RepositoryConfigEditSection({
       description: repository.description || '',
       remoteUrl: repository.remoteUrl || '',
     }
-  }, [repository])
+  })()
 
   // Track user modifications locally
   const [userModifications, setUserModifications] = useState<UpdateRepositoryRequest>({})
 
   // Merge derived data with user modifications
-  const formData = useMemo(
-    () => ({
-      ...baseFormData,
-      ...userModifications,
-    }),
-    [baseFormData, userModifications],
-  )
+  const formData = {
+    ...baseFormData,
+    ...userModifications,
+  }
 
   // Update a specific field
   const updateField = <K extends keyof UpdateRepositoryRequest>(

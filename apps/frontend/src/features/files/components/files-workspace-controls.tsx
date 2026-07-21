@@ -1,12 +1,12 @@
 import { Code, ExternalLink, Eye, GitCompareArrows } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { useMemo } from 'react'
 import { Button } from '@/lib/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/lib/components/ui/tooltip'
 import { useFileContent } from '../hooks/use-file-content'
 import { useFileViewState } from '../hooks/use-file-view-state'
 import { useSelectedFile } from '../hooks/use-selected-file'
-import { type FileViewMode, isPreviewable } from './file-viewer'
+import type { FileViewMode } from './file-viewer'
+import { isPreviewable } from './file-viewer-utils'
 
 interface FilesWorkspaceControlsProps {
   taskId: string
@@ -54,13 +54,13 @@ export function FilesWorkspaceControls({ taskId }: FilesWorkspaceControlsProps) 
   const { fileView, setFileView } = useFileViewState()
   const { data } = useFileContent(taskId, selectedFile, selectedFile !== undefined)
 
-  const fileOnlyHref = useMemo(() => {
+  const fileOnlyHref = (() => {
     if (!selectedFile) {
       return
     }
     const params = new URLSearchParams({ file: selectedFile, fileView: 'preview' })
     return `/tasks/${encodeURIComponent(taskId)}/file?${params.toString()}`
-  }, [selectedFile, taskId])
+  })()
 
   const hasSelectedFile = selectedFile !== undefined
   const canDiff = data?.isModified === true && data.oldContent !== undefined

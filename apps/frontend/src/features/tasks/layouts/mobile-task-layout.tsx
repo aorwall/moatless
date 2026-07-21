@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react'
+import { useEffect } from 'react'
 import { TaskMobileHeader } from '../components/task-header/task-mobile-header'
 import { usePanelControls } from '../contexts/task-providers'
 import { useTaskView } from '../hooks/use-task-view'
@@ -13,8 +13,7 @@ export function MobileTaskLayout() {
   const { registerChatToggle } = usePanelControls()
   const { view, setView } = useTaskView({ fallback: 'chat' })
 
-  const showChat = useCallback(() => setView('chat'), [setView])
-  useEffect(() => registerChatToggle(showChat), [registerChatToggle, showChat])
+  useEffect(() => registerChatToggle(() => setView('chat')), [registerChatToggle, setView])
 
   return (
     <div className="h-full w-full flex flex-col overflow-hidden">

@@ -1,13 +1,5 @@
 import type { FeatureFlagsResponse } from '@moatless/api-client/sandbox/model'
-import {
-  createContext,
-  type ReactNode,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-} from 'react'
+import { createContext, type ReactNode, useContext, useEffect, useState } from 'react'
 import { apiClient } from '@/lib/api/client'
 import type { FeatureFlagKey } from '@/lib/types/feature-flags'
 
@@ -24,6 +16,26 @@ interface FeatureFlagsContextValue {
 
 const FeatureFlagsContext = createContext<FeatureFlagsContextValue | undefined>(undefined)
 
+const FEATURE_FLAGS_FALLBACK: FeatureFlagsResponse = {
+  netlify_publish: false,
+  gitlab_enabled: false,
+  show_claude_settings: false,
+  show_codex_settings: true,
+  show_model_selector: true,
+}
+
+async function loadFeatureFlags(): Promise<FeatureFlagsResponse> {
+  try {
+    return await apiClient.get<FeatureFlagsResponse>('/api/v1/feature-flags')
+  } catch {
+    // Feature flags are non-critical: on any failure (including a 503 while
+    // the backend restarts) fall back to safe defaults so the app keeps
+    // working. Only the auth-session probe drives the full-page
+    // `ServerDownGate`, so this must NOT flag the global server status.
+    return FEATURE_FLAGS_FALLBACK
+  }
+}
+
 interface FeatureFlagsProviderProps {
   children: ReactNode
 }
@@ -37,52 +49,43 @@ export function FeatureFlagsProvider({ children }: FeatureFlagsProviderProps) {
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    const fetchFlags = async () => {
-      try {
-        const response = await apiClient.get<FeatureFlagsResponse>('/api/v1/feature-flags')
-        setFlags(response)
-      } catch {
-        // Feature flags are non-critical: on any failure (including a 503 while
-        // the backend restarts) fall back to safe defaults so the app keeps
-        // working. Only the auth-session probe drives the full-page
-        // `ServerDownGate`, so this must NOT flag the global server status.
-        setFlags({
-          netlify_publish: false,
-          gitlab_enabled: false,
-          show_claude_settings: false,
-          show_codex_settings: true,
-          show_model_selector: true,
-        })
-      } finally {
-        setIsLoading(false)
-      }
-    }
+    let cancelled = false
 
-    fetchFlags().catch(() => {
-      /* ignore: fetchFlags handles all errors internally via try/catch/finally */
-    })
+    loadFeatureFlags()
+      .then((response) => {
+        if (!cancelled) {
+          setFlags(response)
+          setIsLoading(false)
+        }
+      })
+      .catch(() => {
+        // loadFeatureFlags already converts failures to the safe fallback.
+      })
+
+    return () => {
+      cancelled = true
+    }
   }, [])
 
-  const isEnabled = useCallback(
-    (flag: FeatureFlagKey): boolean => {
-      if (!flags) {
-        return false
-      }
-      const flagKey = flag.toLowerCase() as keyof FeatureFlagsResponse
-      const value = flags[flagKey]
-      return typeof value === 'boolean' ? value : false
-    },
-    [flags],
-  )
+  const isEnabled = (flag: FeatureFlagKey): boolean => {
+    if (!flags) {
+      return false
+    }
+    const flagKey = flag.toLowerCase() as keyof FeatureFlagsResponse
+    const value = flags[flagKey]
+    return typeof value === 'boolean' ? value : false
+  }
 
-  const getSlackConfig = useCallback((): SlackConfig | undefined => {
+  const getSlackConfig = (): SlackConfig | undefined => {
     return flags?.slack ?? undefined
-  }, [flags])
+  }
 
-  const value = useMemo(
-    () => ({ flags, isLoading, isEnabled, getSlackConfig }),
-    [flags, isLoading, isEnabled, getSlackConfig],
-  )
+  const value = {
+    flags,
+    isLoading,
+    isEnabled,
+    getSlackConfig,
+  }
 
   return <FeatureFlagsContext value={value}>{children}</FeatureFlagsContext>
 }

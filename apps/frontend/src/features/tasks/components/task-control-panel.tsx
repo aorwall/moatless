@@ -260,6 +260,7 @@ export function TaskControlPanel({ className }: TaskControlPanelProps) {
       </div>
 
       <EditTaskDialog
+        key={`${isEditDialogOpen ? 'open' : 'closed'}:${task.name ?? ''}:${task.description ?? ''}`}
         isOpen={isEditDialogOpen}
         onOpenChange={setIsEditDialogOpen}
         currentName={task.name || ''}

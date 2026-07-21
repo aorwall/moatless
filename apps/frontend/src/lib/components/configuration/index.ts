@@ -9,7 +9,6 @@ export type {
 // Field components
 export {
   ConfigurationInput,
-  ConfigurationSelect,
   ConfigurationSwitch,
   ConfigurationTextarea,
 } from './fields'

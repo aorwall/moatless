@@ -1,6 +1,6 @@
 import type { CommandResponse, SkillResponse } from '@moatless/api-client'
 import type React from 'react'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 
 /**
  * Entry in the "/" autocomplete dropdown. Commands come from the global DB
@@ -50,7 +50,7 @@ export function useCommandAutocomplete({
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
   // Filter suggestions client-side based on the current search term
-  const filteredSuggestions = useMemo(() => {
+  const filteredSuggestions = (() => {
     if (!state.isOpen || suggestions.length === 0) {
       return []
     }
@@ -61,154 +61,142 @@ export function useCommandAutocomplete({
     return suggestions.filter(
       (s) => s.name.toLowerCase().includes(term) || s.description.toLowerCase().includes(term),
     )
-  }, [state.isOpen, state.searchTerm, suggestions])
+  })()
 
-  const handleInputChange = useCallback(
-    (newValue: string, _cursorPosition: number) => {
-      if (!enabled || suggestions.length === 0) {
-        return
-      }
+  const handleInputChange = (newValue: string, _cursorPosition: number) => {
+    if (!enabled || suggestions.length === 0) {
+      return
+    }
 
-      // Only activate when `/` is the very first character
-      if (newValue.length === 0 || newValue[0] !== '/') {
-        if (state.selection) {
-          setState((prev) => ({ ...prev, selection: null, isOpen: false, searchTerm: '' }))
-        } else if (state.isOpen) {
-          setState((prev) => ({ ...prev, isOpen: false, searchTerm: '', selectedIndex: 0 }))
-        }
-        return
-      }
-
-      // If something was already selected, check if the prefix still matches
+    // Only activate when `/` is the very first character
+    if (newValue.length === 0 || newValue[0] !== '/') {
       if (state.selection) {
-        const expectedPrefix = `/${state.selection.name} `
-        if (!newValue.startsWith(expectedPrefix)) {
-          // User edited the command portion — clear selection and re-open autocomplete
-          setState((prev) => ({ ...prev, selection: null }))
-          // Fall through to re-parse
-        } else {
-          // Prefix still intact, user is typing after the command — no autocomplete needed
-          return
-        }
-      }
-
-      // Extract search term: text between `/` and first space
-      const spaceIndex = newValue.indexOf(' ')
-      const searchTerm = spaceIndex === -1 ? newValue.slice(1) : newValue.slice(1, spaceIndex)
-
-      // If there's a space, the user may have finished typing the command portion
-      // but didn't select from dropdown — keep autocomplete closed
-      if (spaceIndex !== -1) {
+        setState((prev) => ({ ...prev, selection: null, isOpen: false, searchTerm: '' }))
+      } else if (state.isOpen) {
         setState((prev) => ({ ...prev, isOpen: false, searchTerm: '', selectedIndex: 0 }))
+      }
+      return
+    }
+
+    // If something was already selected, check if the prefix still matches
+    if (state.selection) {
+      const expectedPrefix = `/${state.selection.name} `
+      if (!newValue.startsWith(expectedPrefix)) {
+        // User edited the command portion — clear selection and re-open autocomplete
+        setState((prev) => ({ ...prev, selection: null }))
+        // Fall through to re-parse
+      } else {
+        // Prefix still intact, user is typing after the command — no autocomplete needed
         return
       }
+    }
 
-      setState((prev) => ({
-        isOpen: true,
-        searchTerm,
-        selection: prev.selection,
-        selectedIndex: prev.searchTerm !== searchTerm ? 0 : prev.selectedIndex,
-      }))
-    },
-    [enabled, suggestions.length, state.selection, state.isOpen],
-  )
+    // Extract search term: text between `/` and first space
+    const spaceIndex = newValue.indexOf(' ')
+    const searchTerm = spaceIndex === -1 ? newValue.slice(1) : newValue.slice(1, spaceIndex)
 
-  const selectSuggestion = useCallback(
-    (suggestion: Suggestion) => {
-      const newValue = `/${suggestion.name} `
-      onValueChange(newValue)
+    // If there's a space, the user may have finished typing the command portion
+    // but didn't select from dropdown — keep autocomplete closed
+    if (spaceIndex !== -1) {
+      setState((prev) => ({ ...prev, isOpen: false, searchTerm: '', selectedIndex: 0 }))
+      return
+    }
 
-      setState({
-        isOpen: false,
-        searchTerm: '',
-        selectedIndex: 0,
-        selection: { kind: suggestion.kind, name: suggestion.name },
-      })
+    setState((prev) => ({
+      isOpen: true,
+      searchTerm,
+      selection: prev.selection,
+      selectedIndex: prev.searchTerm !== searchTerm ? 0 : prev.selectedIndex,
+    }))
+  }
 
-      // Move cursor to end
-      setTimeout(() => {
-        if (inputRef.current) {
-          const pos = newValue.length
-          inputRef.current.setSelectionRange(pos, pos)
-          inputRef.current.focus()
-        }
-      }, 0)
-    },
-    [onValueChange],
-  )
+  const selectSuggestion = (suggestion: Suggestion) => {
+    const newValue = `/${suggestion.name} `
+    onValueChange(newValue)
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (!(state.isOpen && filteredSuggestions.length > 0)) {
-        return
+    setState({
+      isOpen: false,
+      searchTerm: '',
+      selectedIndex: 0,
+      selection: { kind: suggestion.kind, name: suggestion.name },
+    })
+
+    // Move cursor to end
+    setTimeout(() => {
+      if (inputRef.current) {
+        const pos = newValue.length
+        inputRef.current.setSelectionRange(pos, pos)
+        inputRef.current.focus()
       }
+    }, 0)
+  }
 
-      switch (e.key) {
-        case 'ArrowDown':
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!(state.isOpen && filteredSuggestions.length > 0)) {
+      return
+    }
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault()
+        setState((prev) => ({
+          ...prev,
+          selectedIndex: Math.min(prev.selectedIndex + 1, filteredSuggestions.length - 1),
+        }))
+        break
+      case 'ArrowUp':
+        e.preventDefault()
+        setState((prev) => ({
+          ...prev,
+          selectedIndex: Math.max(prev.selectedIndex - 1, 0),
+        }))
+        break
+      case 'Enter': {
+        const enterSuggestion = filteredSuggestions[state.selectedIndex]
+        if (enterSuggestion) {
           e.preventDefault()
-          setState((prev) => ({
-            ...prev,
-            selectedIndex: Math.min(prev.selectedIndex + 1, filteredSuggestions.length - 1),
-          }))
-          break
-        case 'ArrowUp':
-          e.preventDefault()
-          setState((prev) => ({
-            ...prev,
-            selectedIndex: Math.max(prev.selectedIndex - 1, 0),
-          }))
-          break
-        case 'Enter': {
-          const enterSuggestion = filteredSuggestions[state.selectedIndex]
-          if (enterSuggestion) {
-            e.preventDefault()
-            selectSuggestion(enterSuggestion)
-          }
-          break
+          selectSuggestion(enterSuggestion)
         }
-        case 'Tab': {
-          const tabSuggestion = filteredSuggestions[state.selectedIndex]
-          if (tabSuggestion) {
-            e.preventDefault()
-            selectSuggestion(tabSuggestion)
-          }
-          break
-        }
-        case 'Escape':
-          e.preventDefault()
-          e.stopPropagation()
-          setState((prev) => ({ ...prev, isOpen: false }))
-          break
-        default:
-          break
+        break
       }
-    },
-    [state.isOpen, state.selectedIndex, filteredSuggestions, selectSuggestion],
-  )
+      case 'Tab': {
+        const tabSuggestion = filteredSuggestions[state.selectedIndex]
+        if (tabSuggestion) {
+          e.preventDefault()
+          selectSuggestion(tabSuggestion)
+        }
+        break
+      }
+      case 'Escape':
+        e.preventDefault()
+        e.stopPropagation()
+        setState((prev) => ({ ...prev, isOpen: false }))
+        break
+      default:
+        break
+    }
+  }
 
   /** The full suggestion record for the currently selected item, if any. */
-  const selectedItem = useMemo(() => {
+  const selectedItem = (() => {
     if (!state.selection) {
       return null
     }
     const key = `${state.selection.kind}:${state.selection.name}`
     return suggestions.find((s) => suggestionKey(s) === key) ?? null
-  }, [state.selection, suggestions])
+  })()
 
   /**
    * Convenience getter that's `null` when a skill was selected. Preserves the
    * old API shape for callers that only branch on "is this an invocable
    * command?".
    */
-  const selectedCommand = useMemo(
-    () => (selectedItem && selectedItem.kind === 'command' ? selectedItem : null),
-    [selectedItem],
-  )
+  const selectedCommand = selectedItem && selectedItem.kind === 'command' ? selectedItem : null
 
   /** Clear the selection (call on successful submit). */
-  const clearSelectedCommand = useCallback(() => {
+  const clearSelectedCommand = () => {
     setState((prev) => ({ ...prev, selection: null }))
-  }, [])
+  }
 
   return {
     inputRef,

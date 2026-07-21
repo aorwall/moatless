@@ -130,11 +130,11 @@ function SidebarProvider({
   // Persisted, resizable desktop width (px).
   const [width, _setWidth] = React.useState<number>(readSidebarWidthCookie)
   const [isResizing, setIsResizing] = React.useState(false)
-  const setWidth = React.useCallback((value: number) => {
+  const setWidth = (value: number) => {
     const clamped = clampSidebarWidth(value)
     _setWidth(clamped)
     setCookie(SIDEBAR_WIDTH_COOKIE_NAME, String(clamped), SIDEBAR_COOKIE_MAX_AGE)
-  }, [])
+  }
 
   // This is the internal state of the sidebar.
   // We use openProp and setOpenProp for control from outside the component.
@@ -142,60 +142,55 @@ function SidebarProvider({
   // falling back to defaultOpen on first visit.
   const [_open, _setOpen] = React.useState(() => readSidebarOpenStorage(defaultOpen))
   const open = openProp ?? _open
-  const setOpen = React.useCallback(
-    (value: boolean | ((value: boolean) => boolean)) => {
-      const openState = typeof value === 'function' ? value(open) : value
-      if (setOpenProp) {
-        setOpenProp(openState)
-      } else {
-        _setOpen(openState)
-      }
+  const setOpen = (value: boolean | ((value: boolean) => boolean)) => {
+    const openState = typeof value === 'function' ? value(open) : value
+    if (setOpenProp) {
+      setOpenProp(openState)
+    } else {
+      _setOpen(openState)
+    }
 
-      // Persist the state so it is restored on reload / return.
-      setCookie(SIDEBAR_COOKIE_NAME, openState.toString(), SIDEBAR_COOKIE_MAX_AGE)
-      writeSidebarOpenStorage(openState)
-    },
-    [setOpenProp, open],
-  )
+    // Persist the state so it is restored on reload / return.
+    setCookie(SIDEBAR_COOKIE_NAME, openState.toString(), SIDEBAR_COOKIE_MAX_AGE)
+    writeSidebarOpenStorage(openState)
+  }
 
   // Helper to toggle the sidebar.
-  const toggleSidebar = React.useCallback(() => {
+  const toggleSidebar = () => {
     return isMobile ? setOpenMobile((open) => !open) : setOpen((open) => !open)
-  }, [isMobile, setOpen])
+  }
+  const toggleSidebarEvent = React.useEffectEvent(toggleSidebar)
 
   // Adds a keyboard shortcut to toggle the sidebar.
   React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === SIDEBAR_KEYBOARD_SHORTCUT && (event.metaKey || event.ctrlKey)) {
         event.preventDefault()
-        toggleSidebar()
+        toggleSidebarEvent()
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [toggleSidebar])
+  }, [])
 
   // We add a state so that we can do data-state="expanded" or "collapsed".
   // This makes it easier to style the sidebar with Tailwind classes.
   const state = open ? 'expanded' : 'collapsed'
 
-  const contextValue = React.useMemo<SidebarContextProps>(
-    () => ({
-      state,
-      open,
-      setOpen,
-      isMobile,
-      openMobile,
-      setOpenMobile,
-      toggleSidebar,
-      width,
-      setWidth,
-      isResizing,
-      setIsResizing,
-    }),
-    [state, open, setOpen, isMobile, openMobile, toggleSidebar, width, setWidth, isResizing],
-  )
+  const contextValue: SidebarContextProps = {
+    state,
+    open,
+    setOpen,
+    isMobile,
+    openMobile,
+    setOpenMobile,
+    toggleSidebar,
+    width,
+    setWidth,
+    isResizing,
+    setIsResizing,
+  }
 
   return (
     <SidebarContext value={contextValue}>
@@ -322,36 +317,33 @@ function Sidebar({
 function SidebarResizeHandle({ side }: { side: 'left' | 'right' }) {
   const { width, setWidth, setIsResizing } = useSidebar()
 
-  const handlePointerDown = React.useCallback(
-    (event: React.PointerEvent<HTMLButtonElement>) => {
-      // Only respond to primary-button drags.
-      if (event.button !== 0) {
-        return
-      }
-      event.preventDefault()
-      const startX = event.clientX
-      const startWidth = width
-      setIsResizing(true)
-      document.body.style.cursor = 'col-resize'
-      document.body.style.userSelect = 'none'
+  const handlePointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
+    // Only respond to primary-button drags.
+    if (event.button !== 0) {
+      return
+    }
+    event.preventDefault()
+    const startX = event.clientX
+    const startWidth = width
+    setIsResizing(true)
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
 
-      const handleMove = (moveEvent: PointerEvent) => {
-        const delta = moveEvent.clientX - startX
-        // A left sidebar grows as the cursor moves right; a right one inverts.
-        setWidth(startWidth + (side === 'left' ? delta : -delta))
-      }
-      const handleUp = () => {
-        setIsResizing(false)
-        document.body.style.cursor = ''
-        document.body.style.userSelect = ''
-        window.removeEventListener('pointermove', handleMove)
-        window.removeEventListener('pointerup', handleUp)
-      }
-      window.addEventListener('pointermove', handleMove)
-      window.addEventListener('pointerup', handleUp)
-    },
-    [width, setWidth, setIsResizing, side],
-  )
+    const handleMove = (moveEvent: PointerEvent) => {
+      const delta = moveEvent.clientX - startX
+      // A left sidebar grows as the cursor moves right; a right one inverts.
+      setWidth(startWidth + (side === 'left' ? delta : -delta))
+    }
+    const handleUp = () => {
+      setIsResizing(false)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      window.removeEventListener('pointermove', handleMove)
+      window.removeEventListener('pointerup', handleUp)
+    }
+    window.addEventListener('pointermove', handleMove)
+    window.addEventListener('pointerup', handleUp)
+  }
 
   return (
     <button
@@ -707,10 +699,7 @@ function SidebarMenuSkeleton({
 }: React.ComponentProps<'div'> & {
   showIcon?: boolean
 }) {
-  // Random width between 50 to 90%.
-  const width = React.useMemo(() => {
-    return `${Math.floor(Math.random() * 40) + 50}%`
-  }, [])
+  const [width] = React.useState(() => `${Math.floor(Math.random() * 40) + 50}%`)
 
   return (
     <div

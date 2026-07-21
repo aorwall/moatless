@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ScriptHealthStatus } from '../types'
 
 /**
@@ -9,58 +9,46 @@ import type { ScriptHealthStatus } from '../types'
 export function useScriptHealth() {
   const [scriptHealthStatus, setScriptHealthStatus] = useState<ScriptHealthStatus>('not-injected')
   const [lastHeartbeat, setLastHeartbeat] = useState<number | null>(null)
-  const heartbeatTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
-  // Monitor heartbeat and update script health status
   useEffect(() => {
-    // Clear any existing timeout
-    if (heartbeatTimeoutRef.current) {
-      clearTimeout(heartbeatTimeoutRef.current)
+    if (lastHeartbeat === null) {
+      return
     }
 
-    // If we have a recent heartbeat, set status to reachable
-    if (lastHeartbeat && Date.now() - lastHeartbeat < 10_000) {
-      setScriptHealthStatus('injected-reachable')
-    }
-
-    // Set a timeout to mark script as not reachable if no heartbeat in 10 seconds
-    heartbeatTimeoutRef.current = setTimeout(() => {
-      if (scriptHealthStatus === 'injected-reachable') {
-        setScriptHealthStatus('injected-not-reachable')
-      }
+    const heartbeatTimeout = setTimeout(() => {
+      setScriptHealthStatus((status) =>
+        status === 'injected-reachable' ? 'injected-not-reachable' : status,
+      )
     }, 10_000)
 
-    return () => {
-      if (heartbeatTimeoutRef.current) {
-        clearTimeout(heartbeatTimeoutRef.current)
-      }
-    }
-  }, [lastHeartbeat, scriptHealthStatus])
+    return () => clearTimeout(heartbeatTimeout)
+  }, [lastHeartbeat])
 
   /** INSPECTOR_SCRIPT_LOADED: the script announced itself. */
-  const markScriptLoaded = useCallback(() => {
+  const markScriptLoaded = () => {
     setScriptHealthStatus('injected-reachable')
     setLastHeartbeat(Date.now())
-  }, [])
+  }
 
   /** HEARTBEAT: the script is still alive. */
-  const recordHeartbeat = useCallback(() => {
+  const recordHeartbeat = () => {
+    setScriptHealthStatus('injected-reachable')
     setLastHeartbeat(Date.now())
-  }, [])
+  }
 
   /**
    * Iframe (re)loaded: back to not-injected until the script announces
    * itself again. Keeps the last heartbeat timestamp.
    */
-  const markNotInjected = useCallback(() => {
+  const markNotInjected = () => {
     setScriptHealthStatus('not-injected')
-  }, [])
+  }
 
   /** Full reset (server changed or stopped). */
-  const resetScriptHealth = useCallback(() => {
+  const resetScriptHealth = () => {
     setScriptHealthStatus('not-injected')
     setLastHeartbeat(null)
-  }, [])
+  }
 
   return {
     scriptHealthStatus,

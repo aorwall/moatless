@@ -16,6 +16,9 @@ interface ConsoleLog {
   stack?: string | undefined
 }
 
+const EMPTY_CONSOLE_LOGS: ConsoleLog[] = []
+const EMPTY_SANDBOX_EVENTS: LifecycleEvent[] = []
+
 interface LogsPanelProps {
   className?: string | undefined
   onToggleExpanded?: (() => void) | undefined
@@ -33,10 +36,10 @@ export function LogsPanel({
   className,
   onToggleExpanded,
   isExpanded = false,
-  consoleLogs = [],
+  consoleLogs = EMPTY_CONSOLE_LOGS,
   serverName,
   showConsoleTab = true,
-  sandboxEvents = [],
+  sandboxEvents = EMPTY_SANDBOX_EVENTS,
 }: LogsPanelProps) {
   // Events are the default tab: sandbox/server lifecycle is what users most
   // often need when the console is auto-expanded during startup/failure.

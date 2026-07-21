@@ -118,11 +118,3 @@ export function getTaskStatusConfig(status: string): TaskStatusConfig {
       }
   }
 }
-
-export function getTaskStatusIcon(status: string, className?: string): ReactElement {
-  const config = getTaskStatusConfig(status)
-  const iconClass = className || `${config.color}`
-
-  // Clone the icon element with the new className
-  return <span className={iconClass}>{config.icon}</span>
-}

@@ -26,11 +26,16 @@ interface NestedToolCallItemProps {
 
 function NestedToolCallItem({ message }: NestedToolCallItemProps) {
   const [expanded, setExpanded] = useState(false)
-  const toolCalls = message.content.filter((c) => c.type === 'tool_use')
-  const textContent = message.content
-    .filter((c) => c.type === 'text')
-    .map((c) => c.text)
-    .join('\n')
+  const toolCalls: UiContentBlock[] = []
+  const textParts: string[] = []
+  for (const content of message.content) {
+    if (content.type === 'tool_use') {
+      toolCalls.push(content)
+    } else if (content.type === 'text') {
+      textParts.push(content.text ?? '')
+    }
+  }
+  const textContent = textParts.join('\n')
 
   if (toolCalls.length === 0 && !textContent) {
     return null

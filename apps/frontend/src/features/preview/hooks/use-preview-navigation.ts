@@ -1,4 +1,4 @@
-import { type RefObject, useCallback, useEffect, useRef, useState } from 'react'
+import { type RefObject, useEffect, useRef, useState } from 'react'
 
 interface UsePreviewNavigationOptions {
   iframeRef: RefObject<HTMLIFrameElement | null>
@@ -64,42 +64,39 @@ export function usePreviewNavigation({
   }, [serverStatus, path])
 
   // Navigate within the iframe without full page reload
-  const navigatePreview = useCallback(
-    (newPath: string) => {
-      if (iframeRef.current?.contentWindow) {
-        try {
-          // Update path state for UI
-          setPath(newPath)
-
-          // Use postMessage to request navigation (works cross-origin)
-          // The injected script will handle the actual navigation
-          iframeRef.current.contentWindow.postMessage(
-            {
-              type: 'NAVIGATE',
-              payload: { path: newPath },
-            },
-            '*',
-          )
-        } catch (_error) {
-          // Fallback: force reload by changing iframe src key
-          setPath(newPath)
-          setIframeSrcKey((prev) => prev + 1)
-        }
-      } else {
-        // No iframe yet, just update path for initial load
+  const navigatePreview = (newPath: string) => {
+    if (iframeRef.current?.contentWindow) {
+      try {
+        // Update path state for UI
         setPath(newPath)
+
+        // Use postMessage to request navigation (works cross-origin)
+        // The injected script will handle the actual navigation
+        iframeRef.current.contentWindow.postMessage(
+          {
+            type: 'NAVIGATE',
+            payload: { path: newPath },
+          },
+          '*',
+        )
+      } catch (_error) {
+        // Fallback: force reload by changing iframe src key
+        setPath(newPath)
+        setIframeSrcKey((prev) => prev + 1)
       }
-    },
-    [iframeRef, setPath],
-  )
+    } else {
+      // No iframe yet, just update path for initial load
+      setPath(newPath)
+    }
+  }
 
   /** Hard-reload the iframe at the current path. */
-  const reloadIframe = useCallback(() => {
+  const reloadIframe = () => {
     // Update target path to current path before reloading
     setIframeTargetPath(path)
     // Force reload by incrementing the iframe key
     setIframeSrcKey((prev) => prev + 1)
-  }, [path])
+  }
 
   return { iframeTargetPath, setIframeTargetPath, iframeSrcKey, navigatePreview, reloadIframe }
 }

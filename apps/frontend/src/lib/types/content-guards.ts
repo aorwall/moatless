@@ -36,16 +36,6 @@ export function isToolUseContent(content: unknown): content is ToolUseContent {
   )
 }
 
-export function isToolResultContent(content: unknown): content is ToolResultContent {
-  return (
-    content !== null &&
-    typeof content === 'object' &&
-    'type' in content &&
-    content.type === 'tool_result' &&
-    'tool_use_id' in content
-  )
-}
-
 export function isImageContentBlock(content: unknown): content is ImageContentBlock {
   return (
     content !== null &&
@@ -75,5 +65,11 @@ export function extractToolNames(content: unknown[]): string[] {
     return []
   }
 
-  return content.filter(isToolUseContent).map((item) => item.name)
+  const toolNames: string[] = []
+  for (const item of content) {
+    if (isToolUseContent(item)) {
+      toolNames.push(item.name)
+    }
+  }
+  return toolNames
 }

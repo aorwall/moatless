@@ -1,4 +1,4 @@
-import { type MouseEvent, useMemo, useState } from 'react'
+import { type MouseEvent, useState } from 'react'
 import type { TaskMessageTokenUsage } from '@/features/tasks/api/tasks'
 import { cn } from '@/lib/utils'
 
@@ -30,7 +30,7 @@ export function MessageTokenUsageChart({ messages }: MessageTokenUsageChartProps
   // Label by position, not turn: a turn spans every message of one agent run,
   // and queued messages have no turn until the run that consumes them acks —
   // so turn numbers are neither unique nor always present along this axis.
-  const labels = useMemo(() => messages.map((_message, index) => index + 1), [messages])
+  const labels = messages.map((_message, index) => index + 1)
 
   if (messages.length === 0) {
     return null
@@ -78,16 +78,16 @@ interface ChartPoint {
 function MiniLineChart({ title, colorClass, labels, values }: MiniLineChartProps) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null)
 
-  const max = useMemo(() => Math.max(0, ...values), [values])
+  const max = Math.max(0, ...values)
 
-  const points = useMemo<ChartPoint[]>(() => {
+  const points: ChartPoint[] = (() => {
     return values.map((value, index) => {
       const fraction = max > 0 ? value / max : 0
       const x = values.length > 1 ? (index / (values.length - 1)) * VIEW_W : VIEW_W / 2
       const y = PAD_Y + (1 - fraction) * (VIEW_H - PAD_Y * 2)
       return { label: labels[index] ?? index + 1, value, x, y }
     })
-  }, [values, labels, max])
+  })()
 
   const first = points[0]
   const last = points.at(-1)

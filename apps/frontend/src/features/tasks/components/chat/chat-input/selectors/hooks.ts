@@ -1,5 +1,5 @@
 import { Bot, Database, GitBranch, LayoutTemplate, Plus, Sparkles, Wand2 } from 'lucide-react'
-import { useCallback, useMemo, useState } from 'react'
+import { useState } from 'react'
 import type { AgentDescriptor, AgentModel } from '@/features/agents/types'
 import { useBranches, useRepositoriesList } from '@/features/repositories/hooks/use-repositories.ts'
 import type { TaskTemplateResponse } from '@/features/task-templates/api/task-templates'
@@ -19,53 +19,43 @@ export function useRepositorySelector(
 ) {
   const { data, isLoading, error, isError } = useRepositoriesList({ enabled })
 
-  const items = useMemo(
-    () =>
-      data?.map((repo) => ({
-        id: repo.id,
-        label: repo.name,
-      })) || [],
-    [data],
-  )
+  const items =
+    data?.map((repo) => ({
+      id: repo.id,
+      label: repo.name,
+    })) || []
 
   // Internal state for uncontrolled mode
   const [internalValue, setInternalValue] = useState('')
   const isControlled = value !== undefined
   const currentValue = isControlled ? value : internalValue
 
-  const handleChange = useCallback(
-    (newValue: string) => {
-      if (!isControlled) {
-        setInternalValue(newValue)
-      }
-      onChange?.(newValue)
-    },
-    [isControlled, onChange],
-  )
+  const handleChange = (newValue: string) => {
+    if (!isControlled) {
+      setInternalValue(newValue)
+    }
+    onChange?.(newValue)
+  }
 
-  const selectedRepo = useMemo(
-    () => data?.find((repo) => repo.id === currentValue),
-    [data, currentValue],
-  )
+  const selectedRepo = data?.find((repo) => repo.id === currentValue)
 
-  return useMemo(
-    () => ({
-      value: currentValue,
-      onChange: handleChange,
-      loading: isLoading,
-      error,
-      isError,
-      placeholder: 'Select repository',
-      items,
-      width: 'w-[180px]',
-      disabled: false,
-      // New popover selector props
-      icon: Database,
-      tooltip: 'Choose a repository',
-      displayValue: selectedRepo?.name || 'Select repository',
-    }),
-    [currentValue, handleChange, isLoading, error, isError, items, selectedRepo],
-  )
+  return {
+    value: currentValue,
+    onChange: handleChange,
+    loading: isLoading,
+    error,
+    isError,
+    placeholder: 'Select repository',
+    items,
+    width: 'w-[180px]',
+    disabled: false,
+
+    // New popover selector props
+    icon: Database,
+
+    tooltip: 'Choose a repository',
+    displayValue: selectedRepo?.name || 'Select repository',
+  }
 }
 
 // Branch selector hook - now controlled
@@ -84,14 +74,11 @@ export function useBranchSelector(
     enabled: enabled && !!repositoryId,
   })
 
-  const items = useMemo(
-    () =>
-      data?.branches.map((branch) => ({
-        id: branch.name,
-        label: branch.name,
-      })) || [],
-    [data?.branches],
-  )
+  const items =
+    data?.branches.map((branch) => ({
+      id: branch.name,
+      label: branch.name,
+    })) || []
 
   // Internal state for uncontrolled mode
   const [internalValue, setInternalValue] = useState('')
@@ -99,31 +86,25 @@ export function useBranchSelector(
   const currentValue = isControlled ? value : internalValue
 
   // Auto-select first branch if no value is set
-  const derivedValue = useMemo(() => {
+  const derivedValue = (() => {
     if (!currentValue && items.length > 0) {
       const firstItem = items[0]
       return firstItem?.id
     }
     return currentValue
-  }, [currentValue, items])
+  })()
 
-  const handleChange = useCallback(
-    (newValue: string) => {
-      if (!isControlled) {
-        setInternalValue(newValue)
-      }
-      onChange?.(newValue)
-    },
-    [isControlled, onChange],
-  )
+  const handleChange = (newValue: string) => {
+    if (!isControlled) {
+      setInternalValue(newValue)
+    }
+    onChange?.(newValue)
+  }
 
-  const selectedBranch = useMemo(
-    () => items.find((item) => item.id === derivedValue),
-    [items, derivedValue],
-  )
+  const selectedBranch = items.find((item) => item.id === derivedValue)
 
   // Determine if branch selector should be hidden
-  const hidden = useMemo(() => {
+  const hidden = (() => {
     if (!repository) {
       return false
     }
@@ -132,39 +113,27 @@ export function useBranchSelector(
     // 2. Repositories using git worktrees (each task gets its own worktree with selectable branch)
     // Hide for local/template repos without worktrees (they use the current branch)
     return !(repository.kind === 'remote' || repository.useGitWorktrees)
-  }, [repository])
+  })()
 
-  return useMemo(
-    () => ({
-      value: derivedValue,
-      onChange: handleChange,
-      loading: isLoading,
-      error,
-      isError,
-      placeholder: 'Select branch',
-      items,
-      width: 'w-[140px]',
-      disabled: !repositoryId,
-      hidden,
-      // New popover selector props
-      icon: GitBranch,
-      tooltip: 'Choose a branch',
-      displayValue: selectedBranch?.label || 'Select branch',
-      currentBranch: data?.defaultBranch ?? undefined,
-    }),
-    [
-      derivedValue,
-      handleChange,
-      isLoading,
-      error,
-      isError,
-      items,
-      repositoryId,
-      selectedBranch,
-      data?.defaultBranch,
-      hidden,
-    ],
-  )
+  return {
+    value: derivedValue,
+    onChange: handleChange,
+    loading: isLoading,
+    error,
+    isError,
+    placeholder: 'Select branch',
+    items,
+    width: 'w-[140px]',
+    disabled: !repositoryId,
+    hidden,
+
+    // New popover selector props
+    icon: GitBranch,
+
+    tooltip: 'Choose a branch',
+    displayValue: selectedBranch?.label || 'Select branch',
+    currentBranch: data?.defaultBranch ?? undefined,
+  }
 }
 
 const FALLBACK_MODELS: AgentModel[] = [
@@ -182,12 +151,12 @@ export function useModelSelector<T extends string = string>(
   models?: AgentModel[],
   defaultModelId?: string,
 ) {
-  const items = useMemo<AgentModel[]>(() => {
+  const items = (() => {
     if (models && models.length > 0) {
       return models
     }
     return FALLBACK_MODELS
-  }, [models])
+  })()
 
   const fallbackDefault = defaultModelId ?? DEFAULT_CLAUDE_MODEL
 
@@ -196,37 +165,30 @@ export function useModelSelector<T extends string = string>(
   const isControlled = value !== undefined
   const currentValue = isControlled ? value : internalValue
 
-  const handleChange = useCallback(
-    (newValue: string) => {
-      if (!isControlled) {
-        setInternalValue(newValue)
-      }
-      onChange?.(newValue as T)
-    },
-    [isControlled, onChange],
-  )
+  const handleChange = (newValue: string) => {
+    if (!isControlled) {
+      setInternalValue(newValue)
+    }
+    onChange?.(newValue as T)
+  }
 
-  const selectedModel = useMemo(
-    () => items.find((item) => item.id === currentValue),
-    [items, currentValue],
-  )
+  const selectedModel = items.find((item) => item.id === currentValue)
 
-  return useMemo(
-    () => ({
-      value: currentValue as string,
-      onChange: handleChange,
-      placeholder: 'Select model',
-      items,
-      width: 'w-[130px]',
-      loading: false,
-      disabled: false,
-      // New popover selector props
-      icon: Bot,
-      tooltip: 'Choose AI model',
-      displayValue: selectedModel?.label || 'Select model',
-    }),
-    [currentValue, handleChange, items, selectedModel],
-  )
+  return {
+    value: currentValue as string,
+    onChange: handleChange,
+    placeholder: 'Select model',
+    items,
+    width: 'w-[130px]',
+    loading: false,
+    disabled: false,
+
+    // New popover selector props
+    icon: Bot,
+
+    tooltip: 'Choose AI model',
+    displayValue: selectedModel?.label || 'Select model',
+  }
 }
 
 // Agent mode selector hook - now controlled
@@ -234,51 +196,41 @@ export function useAgentModeSelector(
   value?: 'edit' | 'plan',
   onChange?: (value: 'edit' | 'plan') => void,
 ) {
-  const items = useMemo(
-    () => [
-      { id: 'edit', label: 'Edit Mode' },
-      { id: 'plan', label: 'Plan Mode' },
-    ],
-    [],
-  )
+  const items = [
+    { id: 'edit', label: 'Edit Mode' },
+    { id: 'plan', label: 'Plan Mode' },
+  ]
 
   // Internal state for uncontrolled mode
   const [internalValue, setInternalValue] = useState<'edit' | 'plan'>('edit')
   const isControlled = value !== undefined
   const currentValue = isControlled ? value : internalValue
 
-  const handleChange = useCallback(
-    (newValue: string) => {
-      const modeValue = newValue as 'edit' | 'plan'
-      if (!isControlled) {
-        setInternalValue(modeValue)
-      }
-      onChange?.(modeValue)
-    },
-    [isControlled, onChange],
-  )
+  const handleChange = (newValue: string) => {
+    const modeValue = newValue as 'edit' | 'plan'
+    if (!isControlled) {
+      setInternalValue(modeValue)
+    }
+    onChange?.(modeValue)
+  }
 
-  const selectedMode = useMemo(
-    () => items.find((item) => item.id === currentValue),
-    [items, currentValue],
-  )
+  const selectedMode = items.find((item) => item.id === currentValue)
 
-  return useMemo(
-    () => ({
-      value: currentValue,
-      onChange: handleChange,
-      placeholder: 'Mode',
-      items,
-      width: 'w-[100px]',
-      loading: false,
-      disabled: false,
-      // New popover selector props
-      icon: Wand2,
-      tooltip: 'Choose agent mode',
-      displayValue: selectedMode?.label || 'Select mode',
-    }),
-    [currentValue, handleChange, items, selectedMode],
-  )
+  return {
+    value: currentValue,
+    onChange: handleChange,
+    placeholder: 'Mode',
+    items,
+    width: 'w-[100px]',
+    loading: false,
+    disabled: false,
+
+    // New popover selector props
+    icon: Wand2,
+
+    tooltip: 'Choose agent mode',
+    displayValue: selectedMode?.label || 'Select mode',
+  }
 }
 
 export type AgentType =
@@ -303,46 +255,37 @@ export function useAgentTypeSelector(
   const isControlled = value !== undefined
   const currentValue = isControlled ? value : internalValue
 
-  const items = useMemo(() => {
+  const items = (() => {
     return (agents ?? []).map((agent) => ({
       id: agent.id as AgentType,
       label: agent.label,
       description: agent.installed ? undefined : DISCONNECTED_DESCRIPTION,
       disabled: !agent.installed,
     }))
-  }, [agents])
+  })()
 
-  const handleChange = useCallback(
-    (newValue: string) => {
-      const typeValue = newValue as AgentType
-      if (!isControlled) {
-        setInternalValue(typeValue)
-      }
-      onChange?.(typeValue)
-    },
-    [isControlled, onChange],
-  )
+  const handleChange = (newValue: string) => {
+    const typeValue = newValue as AgentType
+    if (!isControlled) {
+      setInternalValue(typeValue)
+    }
+    onChange?.(typeValue)
+  }
 
-  const selectedType = useMemo(
-    () => items.find((item) => item.id === currentValue),
-    [items, currentValue],
-  )
+  const selectedType = items.find((item) => item.id === currentValue)
 
-  return useMemo(
-    () => ({
-      value: currentValue,
-      onChange: handleChange,
-      placeholder: 'Agent',
-      items,
-      width: 'w-[120px]',
-      loading: false,
-      disabled: false,
-      icon: Sparkles,
-      tooltip: 'Choose which agent runs the task',
-      displayValue: selectedType?.label || 'Select agent',
-    }),
-    [currentValue, handleChange, items, selectedType],
-  )
+  return {
+    value: currentValue,
+    onChange: handleChange,
+    placeholder: 'Agent',
+    items,
+    width: 'w-[120px]',
+    loading: false,
+    disabled: false,
+    icon: Sparkles,
+    tooltip: 'Choose which agent runs the task',
+    displayValue: selectedType?.label || 'Select agent',
+  }
 }
 
 // Task template selector hook - controlled. Lets the user pick a template from
@@ -359,62 +302,50 @@ export function useTaskTemplateSelector(
   const isControlled = value !== undefined
   const currentValue = isControlled ? value : internalValue
 
-  const items = useMemo(
-    () =>
-      templates.map((t) => ({
-        id: t.id,
-        label: t.name,
-        description: t.description ?? undefined,
-      })),
-    [templates],
-  )
+  const items = templates.map((t) => ({
+    id: t.id,
+    label: t.name,
+    description: t.description ?? undefined,
+  }))
 
-  const handleChange = useCallback(
-    (newValue: string) => {
-      const nextValue = newValue || undefined
-      if (!isControlled) {
-        setInternalValue(nextValue)
-      }
-      onChange?.(nextValue)
-    },
-    [isControlled, onChange],
-  )
+  const handleChange = (newValue: string) => {
+    const nextValue = newValue || undefined
+    if (!isControlled) {
+      setInternalValue(nextValue)
+    }
+    onChange?.(nextValue)
+  }
 
-  const selectedTemplate = useMemo(
-    () => templates.find((t) => t.id === currentValue),
-    [templates, currentValue],
-  )
+  const selectedTemplate = templates.find((t) => t.id === currentValue)
 
-  return useMemo(
-    () => ({
-      value: currentValue ?? '',
-      onChange: handleChange,
-      placeholder: 'Template',
-      items,
-      loading: isLoading,
-      disabled: false,
-      icon: LayoutTemplate,
-      tooltip: 'Choose a task template',
-      displayValue: selectedTemplate?.name ?? 'Template',
-    }),
-    [currentValue, handleChange, items, isLoading, selectedTemplate],
-  )
+  return {
+    value: currentValue ?? '',
+    onChange: handleChange,
+    placeholder: 'Template',
+    items,
+    loading: isLoading,
+    disabled: false,
+    icon: LayoutTemplate,
+    tooltip: 'Choose a task template',
+    displayValue: selectedTemplate?.name ?? 'Template',
+  }
 }
 
 // Attachment selector hook
 export function useAttachmentSelector(disabled = false, loading = false) {
-  return useMemo(
-    () => ({
-      value: '',
-      // biome-ignore lint/suspicious/noEmptyBlockStatements: Actions handled in popover content
-      onChange: () => {},
-      loading,
-      disabled,
-      // Popover selector props
-      icon: Plus,
-      tooltip: 'Add attachments',
-      displayValue: '',
-    }),
-    [disabled, loading],
-  )
+  return {
+    value: '',
+
+    // biome-ignore lint/suspicious/noEmptyBlockStatements: Actions handled in popover content
+    onChange: () => {},
+
+    loading,
+    disabled,
+
+    // Popover selector props
+    icon: Plus,
+
+    tooltip: 'Add attachments',
+    displayValue: '',
+  }
 }

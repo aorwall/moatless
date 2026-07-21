@@ -1,5 +1,4 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { useCallback } from 'react'
 import { z } from 'zod'
 import { useAuth } from '@/features/auth/hooks/use-auth'
 import { TaskDashboard } from '@/features/tasks/components/dashboard'
@@ -24,12 +23,9 @@ function TasksIndex() {
   const navigate = useNavigate({ from: '/tasks/' })
   const { user } = useAuth()
 
-  const handleSearchChange = useCallback(
-    async (params: DashboardSearchParams) => {
-      await navigate({ search: params })
-    },
-    [navigate],
-  )
+  const handleSearchChange = async (params: DashboardSearchParams) => {
+    await navigate({ search: params })
+  }
 
   return (
     <TaskDashboard

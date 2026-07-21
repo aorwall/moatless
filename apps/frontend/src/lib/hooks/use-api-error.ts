@@ -1,4 +1,3 @@
-import { useCallback } from 'react'
 import { ApiError } from '@/lib/api/client'
 import {
   getErrorMessage,
@@ -18,76 +17,73 @@ interface UseApiErrorResult {
   }
 }
 
-export function useApiError(): UseApiErrorResult {
-  const formatErrorForDisplay = useCallback((error: unknown) => {
-    try {
-      // Handle ApiError from our client
-      if (error instanceof ApiError && error.apiError) {
-        const apiError = error.apiError
-
-        if (isValidationError(apiError.error)) {
-          return {
-            title: 'Validation Error',
-            message: apiError.error.message,
-            validationErrors: getValidationErrors(apiError),
-          }
-        }
-
-        return {
-          title: `Error: ${apiError.error.code}`,
-          message: apiError.error.message,
-        }
-      }
-
-      // Handle raw API error response
-      if (isApiErrorResponse(error)) {
-        if (isValidationError(error.error)) {
-          return {
-            title: 'Validation Error',
-            message: error.error.message,
-            validationErrors: getValidationErrors(error),
-          }
-        }
-
-        return {
-          title: `Error: ${error.error.code}`,
-          message: error.error.message,
-        }
-      }
-
-      // Fallback for other errors
-      return {
-        title: 'Error',
-        message: getErrorMessage(error),
-      }
-    } catch (_err) {
-      return {
-        title: 'Error',
-        message: error instanceof Error ? error.message : 'An unexpected error occurred',
-      }
-    }
-  }, [])
-
-  const checkIsValidationError = useCallback((error: unknown): boolean => {
+function formatErrorForDisplay(error: unknown) {
+  try {
     if (error instanceof ApiError && error.apiError) {
-      return isValidationError(error.apiError.error)
+      const apiError = error.apiError
+
+      if (isValidationError(apiError.error)) {
+        return {
+          title: 'Validation Error',
+          message: apiError.error.message,
+          validationErrors: getValidationErrors(apiError),
+        }
+      }
+
+      return {
+        title: `Error: ${apiError.error.code}`,
+        message: apiError.error.message,
+      }
     }
 
     if (isApiErrorResponse(error)) {
-      return isValidationError(error.error)
+      if (isValidationError(error.error)) {
+        return {
+          title: 'Validation Error',
+          message: error.error.message,
+          validationErrors: getValidationErrors(error),
+        }
+      }
+
+      return {
+        title: `Error: ${error.error.code}`,
+        message: error.error.message,
+      }
     }
 
-    return false
-  }, [])
-
-  const extractValidationErrors = useCallback((error: unknown): Record<string, string> => {
-    if (error instanceof ApiError && error.apiError) {
-      return getValidationErrors(error.apiError)
+    return {
+      title: 'Error',
+      message: getErrorMessage(error),
     }
+  } catch (_err) {
+    return {
+      title: 'Error',
+      message: error instanceof Error ? error.message : 'An unexpected error occurred',
+    }
+  }
+}
 
-    return getValidationErrors(error)
-  }, [])
+function checkIsValidationError(error: unknown): boolean {
+  if (error instanceof ApiError && error.apiError) {
+    return isValidationError(error.apiError.error)
+  }
 
+  if (isApiErrorResponse(error)) {
+    return isValidationError(error.error)
+  }
+
+  return false
+}
+
+function extractValidationErrors(error: unknown): Record<string, string> {
+  if (error instanceof ApiError && error.apiError) {
+    return getValidationErrors(error.apiError)
+  }
+
+  return getValidationErrors(error)
+}
+
+export function useApiError(): UseApiErrorResult {
   return {
     getErrorMessage,
     getValidationErrors: extractValidationErrors,

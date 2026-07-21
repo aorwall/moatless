@@ -1,5 +1,5 @@
 import { Loader2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Button } from '@/lib/components/ui/button'
 import {
   Dialog,
@@ -48,15 +48,6 @@ export function EditTaskDialog({
   const [name, setName] = useState(currentName)
   const [description, setDescription] = useState(currentDescription)
   const [error, setError] = useState<string | null>(null)
-
-  // Reset form when dialog opens
-  useEffect(() => {
-    if (isOpen) {
-      setName(currentName)
-      setDescription(currentDescription)
-      setError(null)
-    }
-  }, [isOpen, currentName, currentDescription])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()

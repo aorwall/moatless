@@ -1,5 +1,5 @@
 import { Check, Copy } from 'lucide-react'
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
 import type { MessageAction } from '../message-action-bar'
 
 /**
@@ -9,7 +9,7 @@ import type { MessageAction } from '../message-action-bar'
 export function useCopyAction(text: string): MessageAction {
   const [copied, setCopied] = useState(false)
 
-  const onClick = useCallback(() => {
+  const onClick = () => {
     if (!text) {
       return
     }
@@ -24,7 +24,7 @@ export function useCopyAction(text: string): MessageAction {
           // Best-effort: copying isn't critical; ignore failures.
         })
     }
-  }, [text])
+  }
 
   return {
     key: 'copy',

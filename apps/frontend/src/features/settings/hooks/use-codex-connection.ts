@@ -73,7 +73,10 @@ export function useCodexDevicePoll(
       return codexConnectionApi.pollDeviceLogin(args)
     },
     enabled: enabled && !!args,
-    refetchInterval,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status
+      return status === 'success' || status === 'expired' ? false : refetchInterval
+    },
     gcTime: 0,
     staleTime: 0,
   })

@@ -1,7 +1,7 @@
 import type { CommandResponse } from '@moatless/api-client'
 import { Link } from '@tanstack/react-router'
 import { Plus, Terminal } from 'lucide-react'
-import { useState } from 'react'
+import { createElement, useState } from 'react'
 import { useCommandsList } from '@/features/commands/hooks/use-commands'
 import { getLucideIcon } from '@/features/commands/utils/lucide-icon'
 import { Badge } from '@/lib/components/ui/badge'
@@ -14,11 +14,9 @@ const sortByName = (a: CommandResponse, b: CommandResponse) => a.name.localeComp
 
 function CommandIcon({ icon }: { icon: string | null | undefined }) {
   const IconComponent = icon ? getLucideIcon(icon) : null
-  return IconComponent ? (
-    <IconComponent className="h-4 w-4 shrink-0 text-muted-foreground" />
-  ) : (
-    <Terminal className="h-4 w-4 shrink-0 text-muted-foreground" />
-  )
+  return IconComponent
+    ? createElement(IconComponent, { className: 'h-4 w-4 shrink-0 text-muted-foreground' })
+    : createElement(Terminal, { className: 'h-4 w-4 shrink-0 text-muted-foreground' })
 }
 
 export function AdminCommandsSidebar() {

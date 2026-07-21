@@ -1,5 +1,5 @@
 import { GitBranch, Plus, X } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { useRepositoriesList } from '@/features/repositories'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
@@ -57,20 +57,16 @@ export function AdditionalReposField({
   const { data: repositories } = useRepositoriesList()
   const [isAddOpen, setIsAddOpen] = useState(false)
 
-  const repoName = useMemo(() => {
+  const repoName = (() => {
     const byId = new Map(repositories?.map((r) => [r.id, r.name]))
     return (id: string) => byId.get(id) ?? id
-  }, [repositories])
+  })()
 
   // Repos selectable as additional placements: not templates, not the primary,
   // and not already added.
-  const placedIds = useMemo(
-    () => new Set([primaryRepositoryId, ...value.map((v) => v.repositoryId)]),
-    [primaryRepositoryId, value],
-  )
-  const available = useMemo(
-    () => (repositories ?? []).filter((r) => r.kind !== 'template' && !placedIds.has(r.id)),
-    [repositories, placedIds],
+  const placedIds = new Set([primaryRepositoryId, ...value.map((v) => v.repositoryId)])
+  const available = (repositories ?? []).filter(
+    (r) => r.kind !== 'template' && !placedIds.has(r.id),
   )
 
   const handleAdd = (draft: AdditionalRepoDraft) => {

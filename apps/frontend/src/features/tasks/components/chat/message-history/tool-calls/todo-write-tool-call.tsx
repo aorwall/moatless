@@ -1,15 +1,5 @@
-import type { UiContentBlock } from '@moatless/api-client'
 import { type Todo, TodoList } from './todo-list.tsx'
 import type { ToolCallProps } from './tool-call-props.ts'
-
-/** Guard: the TodoWrite renderer needs a valid `todos` array. */
-export function hasTodosInput(content: UiContentBlock): boolean {
-  if (!content.toolInput) {
-    return false
-  }
-  const toolInput = content.toolInput as { todos?: Todo[] }
-  return !!toolInput.todos && Array.isArray(toolInput.todos)
-}
 
 /** Todo-list rendering for the TodoWrite tool. */
 export function TodoWriteToolCall({ content }: ToolCallProps) {

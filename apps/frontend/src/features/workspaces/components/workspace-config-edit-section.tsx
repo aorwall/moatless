@@ -1,6 +1,6 @@
 import type { UpdateWorkspaceRequest } from '@moatless/api-client'
 import { GitBranch, Loader2, Save, Trash2 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 import {
   AgentConfigurationGroup,
@@ -65,7 +65,7 @@ export function WorkspaceConfigEditSection({
   // Derive base form data from the workspace. `UpdateWorkspaceRequest` is
   // all-optional, so using it directly (not `Partial<>`) keeps value types free
   // of the `| undefined` widening that would otherwise need a payload cast.
-  const baseFormData = useMemo<UpdateWorkspaceRequest>(() => {
+  const baseFormData = (() => {
     if (!workspace) {
       return {}
     }
@@ -79,14 +79,14 @@ export function WorkspaceConfigEditSection({
       ...(workspace.servers !== undefined && { servers: workspace.servers }),
       ...(workspace.plugins !== undefined && { plugins: workspace.plugins }),
     }
-  }, [workspace])
+  })()
 
   const [userModifications, setUserModifications] = useState<UpdateWorkspaceRequest>({})
 
-  const formData = useMemo(
-    () => ({ ...baseFormData, ...userModifications }),
-    [baseFormData, userModifications],
-  )
+  const formData = {
+    ...baseFormData,
+    ...userModifications,
+  }
 
   const updateField = <K extends keyof UpdateWorkspaceRequest>(
     field: K,

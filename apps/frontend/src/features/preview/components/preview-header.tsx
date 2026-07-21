@@ -1,6 +1,6 @@
 import type { ServerCapabilities, ServerEntry } from '@moatless/api-client'
 import { ExternalLink, MousePointer, RotateCcw } from 'lucide-react'
-import { type KeyboardEvent, useCallback, useState } from 'react'
+import { type KeyboardEvent, useState } from 'react'
 import { Button } from '@/lib/components/ui/button'
 import { Input } from '@/lib/components/ui/input'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/lib/components/ui/tooltip'
@@ -69,31 +69,28 @@ export function PreviewHeader({
     setLastPath(path)
   }
 
-  const handlePathSubmit = useCallback(
-    (e: KeyboardEvent<HTMLInputElement>) => {
-      if (e.key === 'Enter') {
-        let newPath = pathInput.trim()
-        if (!newPath.startsWith('/')) {
-          newPath = `/${newPath}`
-        }
-
-        // Disable inspector if active before navigating
-        if (isInspectorActive) {
-          onToggleInspector()
-        }
-
-        onNavigate(newPath)
+  const handlePathSubmit = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      let newPath = pathInput.trim()
+      if (!newPath.startsWith('/')) {
+        newPath = `/${newPath}`
       }
-    },
-    [pathInput, onNavigate, isInspectorActive, onToggleInspector],
-  )
 
-  const handleOpenInNewTab = useCallback(() => {
+      // Disable inspector if active before navigating
+      if (isInspectorActive) {
+        onToggleInspector()
+      }
+
+      onNavigate(newPath)
+    }
+  }
+
+  const handleOpenInNewTab = () => {
     if (serverUrl) {
       const fullUrl = `${serverUrl}${path}`
       window.open(fullUrl, '_blank', 'noopener,noreferrer')
     }
-  }, [serverUrl, path])
+  }
 
   // Derive which controls to show from capabilities
   const showAddressBar = capabilities?.addressBar ?? true

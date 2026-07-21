@@ -15,15 +15,14 @@ function getNextMode(currentMode: DeviceMode): DeviceMode {
   }
 }
 
-// Helper function to get icon for current mode
-function getIcon(mode: DeviceMode) {
+function DeviceIcon({ mode }: { mode: DeviceMode }) {
   switch (mode) {
     case 'desktop':
-      return Monitor
+      return <Monitor className="h-4 w-4" />
     case 'mobile':
-      return Smartphone
+      return <Smartphone className="h-4 w-4" />
     case 'tablet':
-      return Tablet
+      return <Tablet className="h-4 w-4" />
   }
 }
 
@@ -47,7 +46,6 @@ export function DeviceToggle() {
     setDeviceMode(nextMode)
   }
 
-  const Icon = getIcon(deviceMode)
   const tooltipText = getTooltipText(deviceMode)
 
   return (
@@ -60,7 +58,7 @@ export function DeviceToggle() {
           className="h-8 w-8"
           aria-label={`Current device: ${deviceMode}`}
         >
-          <Icon className="h-4 w-4" />
+          <DeviceIcon mode={deviceMode} />
         </Button>
       </TooltipTrigger>
       <TooltipContent>{tooltipText}</TooltipContent>

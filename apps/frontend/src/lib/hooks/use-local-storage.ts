@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { type Dispatch, type SetStateAction, useEffect, useState } from 'react'
 
 /**
  * A hook that provides localStorage functionality with React state synchronization.
@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState } from 'react'
  * @param defaultValue - The default value to use if no value exists in localStorage
  * @returns A tuple containing the current value and a setter function
  */
-export function useLocalStorage<T>(key: string, defaultValue: T): [T, (value: T) => void] {
+export function useLocalStorage<T>(key: string, defaultValue: T): [T, Dispatch<SetStateAction<T>>] {
   // Initialize state with value from localStorage or default
   const [storedValue, setStoredValue] = useState<T>(() => {
     // SSR safety check
@@ -32,23 +32,17 @@ export function useLocalStorage<T>(key: string, defaultValue: T): [T, (value: T)
     }
   })
 
-  // Update localStorage when state changes
-  const setValue = useCallback(
-    (value: T) => {
-      try {
-        setStoredValue(value)
-
-        if (typeof window !== 'undefined') {
-          // For strings, store as-is. For objects, stringify
-          const valueToStore = typeof value === 'string' ? value : JSON.stringify(value)
-          localStorage.setItem(key, valueToStore as string)
-        }
-      } catch (_error) {
-        // localStorage.setItem may throw in private browsing mode
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const valueToStore =
+          typeof storedValue === 'string' ? storedValue : JSON.stringify(storedValue)
+        localStorage.setItem(key, valueToStore)
       }
-    },
-    [key],
-  )
+    } catch (_error) {
+      // localStorage.setItem may throw in private browsing mode
+    }
+  }, [key, storedValue])
 
   // Listen for changes to localStorage from other tabs/windows
   useEffect(() => {
@@ -72,5 +66,5 @@ export function useLocalStorage<T>(key: string, defaultValue: T): [T, (value: T)
     return () => window.removeEventListener('storage', handleStorageChange)
   }, [key, defaultValue])
 
-  return [storedValue, setValue]
+  return [storedValue, setStoredValue]
 }

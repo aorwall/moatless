@@ -1,6 +1,6 @@
 import { SecretKind, type SecretMetadataResponse, SecretScopeType } from '@moatless/api-client'
 import { Loader2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 import { useAuth } from '@/features/auth/hooks/use-auth'
 import { TeamSelect } from '@/features/secrets/components/team-select'
@@ -52,6 +52,8 @@ interface FormState {
   value: string
 }
 
+const EMPTY_TEAMS: TeamResponse[] = []
+
 function initialForm(defaultScope: EditorScope): FormState {
   return {
     scope: defaultScope,
@@ -77,24 +79,19 @@ export function SecretEditorDialog({
   onOpenChange,
   editSecret,
   defaultScope = 'user',
-  teams = [],
+  teams = EMPTY_TEAMS,
   teamsError = null,
   teamsLoading = false,
 }: SecretEditorDialogProps) {
   const { isAdmin } = useAuth()
   const isEditing = !!editSecret
-  const [form, setForm] = useState<FormState>(() => initialForm(defaultScope))
+  const [form, setForm] = useState<FormState>(() =>
+    editSecret ? formFromSecret(editSecret) : initialForm(defaultScope),
+  )
 
   const putSecret = usePutSecret()
   const patchSecret = usePatchSecret()
   const isPending = putSecret.isPending || patchSecret.isPending
-
-  useEffect(() => {
-    if (!open) {
-      return
-    }
-    setForm(editSecret ? formFromSecret(editSecret) : initialForm(defaultScope))
-  }, [open, editSecret, defaultScope])
 
   const needsScopeId = form.scope === SecretScopeType.team
   const missingValue = !(isEditing || form.value)

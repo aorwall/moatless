@@ -1,10 +1,11 @@
 import type { UiContentBlock } from '@moatless/api-client'
 import type { ReactNode } from 'react'
-import { AskUserQuestionToolCall, hasQuestionsInput } from './ask-user-question-tool-call.tsx'
+import { AskUserQuestionToolCall } from './ask-user-question-tool-call.tsx'
 import { CodexToolCall } from './codex-tool-call.tsx'
 import { ExitPlanModeToolCall } from './exit-plan-mode-tool-call.tsx'
 import { GenericToolCall } from './generic-tool-call.tsx'
-import { hasTodosInput, TodoWriteToolCall } from './todo-write-tool-call.tsx'
+import { TodoWriteToolCall } from './todo-write-tool-call.tsx'
+import { hasQuestionsInput, hasTodosInput } from './tool-call-input-guards.ts'
 import type { ToolCallProps } from './tool-call-props.ts'
 
 interface SpecialToolRenderer {

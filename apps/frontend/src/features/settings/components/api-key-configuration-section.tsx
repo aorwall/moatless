@@ -40,6 +40,37 @@ import {
 } from '@/lib/components/ui/select'
 import { getErrorMessage } from '@/lib/utils/error'
 
+function formatDate(dateString: string | null | undefined) {
+  if (!dateString) {
+    return 'Never'
+  }
+  return new Date(dateString).toLocaleDateString()
+}
+
+function formatRelativeTime(dateString: string | null | undefined) {
+  if (!dateString) {
+    return 'Never used'
+  }
+  const date = new Date(dateString)
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+
+  if (diffDays === 0) {
+    return 'Today'
+  }
+  if (diffDays === 1) {
+    return 'Yesterday'
+  }
+  if (diffDays < 7) {
+    return `${diffDays} days ago`
+  }
+  if (diffDays < 30) {
+    return `${Math.floor(diffDays / 7)} weeks ago`
+  }
+  return formatDate(dateString)
+}
+
 export function ApiKeyConfigurationSection() {
   const { data: apiKeys, isLoading, error } = useApiKeys()
   const createApiKey = useCreateApiKey()
@@ -112,37 +143,6 @@ export function ApiKeyConfigurationSection() {
     } catch {
       toast.error('Failed to copy to clipboard')
     }
-  }
-
-  const formatDate = (dateString: string | null | undefined) => {
-    if (!dateString) {
-      return 'Never'
-    }
-    return new Date(dateString).toLocaleDateString()
-  }
-
-  const formatRelativeTime = (dateString: string | null | undefined) => {
-    if (!dateString) {
-      return 'Never used'
-    }
-    const date = new Date(dateString)
-    const now = new Date()
-    const diffMs = now.getTime() - date.getTime()
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
-
-    if (diffDays === 0) {
-      return 'Today'
-    }
-    if (diffDays === 1) {
-      return 'Yesterday'
-    }
-    if (diffDays < 7) {
-      return `${diffDays} days ago`
-    }
-    if (diffDays < 30) {
-      return `${Math.floor(diffDays / 7)} weeks ago`
-    }
-    return formatDate(dateString)
   }
 
   if (isLoading) {
@@ -239,7 +239,7 @@ export function ApiKeyConfigurationSection() {
                 id="keyName"
                 placeholder="e.g., CI/CD Pipeline, E2E Tests"
                 value={newKeyName}
-                onChange={(e) => setNewKeyName(e.target.value)}
+                onChange={(event) => setNewKeyName(event.target.value)}
               />
             </div>
             <div className="space-y-2">

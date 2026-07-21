@@ -1,6 +1,5 @@
 import type { ServerEntry } from '@moatless/api-client'
 import { useNavigate, useSearch } from '@tanstack/react-router'
-import { useMemo } from 'react'
 import type { TaskSearch } from '../types/task-search-schema'
 
 // Type exports for task view management
@@ -50,7 +49,7 @@ export function useTaskView({ servers, fallback }: UseTaskViewOptions = {}): Use
   const search = useTaskSearch()
 
   // Compute the effective view
-  const view = useMemo<TaskView>(() => {
+  const view = (() => {
     // If view is explicitly set in URL, use it
     if (search.view) {
       return search.view
@@ -76,7 +75,7 @@ export function useTaskView({ servers, fallback }: UseTaskViewOptions = {}): Use
 
     // Fallback (servers not loaded yet)
     return 'files'
-  }, [search.view, fallback, servers])
+  })()
 
   // Function to update the view in URL
   const setView = (newView: TaskView) => {

@@ -1,5 +1,5 @@
 import type React from 'react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { fetchFileContent } from '../api/files-api'
@@ -147,15 +147,13 @@ const REMARK_PLUGINS = [remarkGfm]
 export function MarkdownPreview({ content, taskId, filePath }: MarkdownPreviewProps) {
   // Memoize so react-markdown sees a stable `components` identity across parent
   // re-renders; it's only rebuilt when the image-resolution inputs change.
-  const components = useMemo<Components>(
-    () => ({
-      ...STATIC_MARKDOWN_COMPONENTS,
-      img: ({ alt, src, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) => (
-        <MarkdownImage alt={alt} src={src} taskId={taskId} markdownFilePath={filePath} {...props} />
-      ),
-    }),
-    [taskId, filePath],
-  )
+  const components = {
+    ...STATIC_MARKDOWN_COMPONENTS,
+
+    img: ({ alt, src, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) => (
+      <MarkdownImage alt={alt} src={src} taskId={taskId} markdownFilePath={filePath} {...props} />
+    ),
+  }
 
   return (
     <div className="prose prose-sm dark:prose-invert max-w-full p-6 min-w-0 prose-p:my-2 prose-pre:bg-muted prose-pre:text-foreground prose-code:bg-muted prose-code:text-foreground prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none prose-strong:text-current prose-a:text-primary prose-a:no-underline hover:prose-a:underline prose-ul:my-2 prose-ol:my-2 prose-li:my-0 prose-headings:scroll-mt-20 prose-table:overflow-x-auto prose-table:block prose-table:whitespace-nowrap">

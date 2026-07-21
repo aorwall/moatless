@@ -20,10 +20,3 @@ export function getIdleStopDeadlineMs(task: TaskResponse): number | null {
   }
   return getLastActivityMs(task) + task.ttlMinutes * 60_000
 }
-
-export function getAutoCloseDeadlineMs(task: TaskResponse): number | null {
-  if (task.inactiveTtlDays <= 0) {
-    return null
-  }
-  return getLastActivityMs(task) + task.inactiveTtlDays * 86_400_000
-}

@@ -1,10 +1,6 @@
 import { ArrowUp, Circle, Loader2, Paperclip } from 'lucide-react'
 import type React from 'react'
 import { useRef } from 'react'
-import {
-  FileAutocomplete,
-  type FileAutocompleteItem,
-} from '@/features/tasks/components/chat/file-autocomplete'
 import { Button } from '@/lib/components/ui/button'
 import {
   Tooltip,
@@ -23,35 +19,6 @@ export function Selectors({ children }: SelectorsProps) {
 
 // Re-export FileAttachments component
 export { FileAttachments } from './file-attachments'
-
-interface AutocompleteProps {
-  results: FileAutocompleteItem[]
-  selectedIndex: number
-  onSelect: (file: FileAutocompleteItem) => void
-  isLoading: boolean
-  error?: Error | null
-  position?: 'above' | 'below'
-}
-
-export function Autocomplete({
-  results,
-  selectedIndex,
-  onSelect,
-  isLoading,
-  error,
-  position = 'below',
-}: AutocompleteProps) {
-  return (
-    <FileAutocomplete
-      results={results}
-      selectedIndex={selectedIndex}
-      onSelect={onSelect}
-      isLoading={isLoading}
-      error={error}
-      position={position}
-    />
-  )
-}
 
 interface UploadButtonProps {
   onFileSelect: (file: File) => void

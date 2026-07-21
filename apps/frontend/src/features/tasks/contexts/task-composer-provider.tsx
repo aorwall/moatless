@@ -1,22 +1,12 @@
 import type { MessageContextInput } from '@moatless/api-client'
-import {
-  createContext,
-  type Dispatch,
-  type ReactNode,
-  type SetStateAction,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-} from 'react'
+import { createContext, type ReactNode, useContext, useState } from 'react'
 import { toast } from 'sonner'
 import { usePreviewPath } from '@/features/preview/hooks/use-preview-view'
 import type { ElementInfo } from '@/features/preview/types'
 
 interface ComposerContextValue {
   contextItems: MessageContextInput[]
-  setContextItems: Dispatch<SetStateAction<MessageContextInput[]>>
+  setContextItems: (items: MessageContextInput[]) => void
   /** Toggle an inspected element in the composer context (add if absent, remove if present). */
   toggleElementContext: (element: ElementInfo) => void
 }
@@ -29,91 +19,62 @@ const ComposerContext = createContext<ComposerContextValue | undefined>(undefine
  * mobile↔desktop swap doesn't drop the pending context.
  */
 export function TaskComposerProvider({ children }: { children: ReactNode }) {
-  const [contextItems, setContextItems] = useState<MessageContextInput[]>([])
+  const [manualContextItems, setManualContextItems] = useState<MessageContextInput[]>([])
 
   // Get current preview path from URL state
   const { previewPath } = usePreviewPath()
 
-  // Sync preview path to context items whenever it changes
-  useEffect(() => {
-    if (!previewPath || previewPath === '/') {
-      // Remove any existing preview URL context when preview is at root
-      setContextItems((prev) => prev.filter((item) => item.type !== 'previewUrl'))
-      return
-    }
-
-    // Add or update preview URL context
-    setContextItems((prev) => {
-      const existingIndex = prev.findIndex((item) => item.type === 'previewUrl')
-
-      if (existingIndex !== -1) {
-        // Update existing preview URL context
-        return prev.map((item, idx) =>
-          idx === existingIndex
-            ? {
-                type: 'previewUrl',
-                referenceId: previewPath,
-                data: { path: previewPath },
-              }
-            : item,
-        )
-      }
-
-      // Add new preview URL context
-      return [
-        ...prev,
-        {
+  const previewContext: MessageContextInput | null =
+    previewPath && previewPath !== '/'
+      ? {
           type: 'previewUrl',
           referenceId: previewPath,
           data: { path: previewPath },
-        },
-      ]
-    })
-  }, [previewPath])
+        }
+      : null
+  const contextItems = previewContext ? [...manualContextItems, previewContext] : manualContextItems
+
+  const setContextItems = (items: MessageContextInput[]) => {
+    setManualContextItems(items.filter((item) => item.type !== 'previewUrl'))
+  }
 
   // Handler to toggle element in context (add if not present, remove if present)
-  const toggleElementContext = useCallback(
-    (element: ElementInfo) => {
-      // Check if element already exists in context by componentId
-      const existingIndex = contextItems.findIndex((item) => {
-        if (item.type === 'element' && element.componentId) {
-          return item.data.componentId === element.componentId
-        }
-        return false
-      })
-
-      if (existingIndex !== -1) {
-        // Element exists - remove it
-        setContextItems((prev) => prev.filter((_, index) => index !== existingIndex))
-        toast.info('Element removed from context', {
-          description: `${element.componentName || 'Element'} removed from context`,
-        })
-      } else {
-        // Element doesn't exist - add it
-        const newContext: MessageContextInput = {
-          type: 'element',
-          referenceId: element.componentId,
-          data: {
-            componentId: element.componentId,
-            path: element.path,
-            line: element.line,
-            column: element.column,
-            componentName: element.componentName,
-          },
-        }
-        setContextItems((prev) => [...prev, newContext])
-        toast.success('Element added to context', {
-          description: `${element.componentName || 'Element'} added to context`,
-        })
+  const toggleElementContext = (element: ElementInfo) => {
+    // Check if element already exists in context by componentId
+    const existingIndex = manualContextItems.findIndex((item) => {
+      if (item.type === 'element' && element.componentId) {
+        return item.data.componentId === element.componentId
       }
-    },
-    [contextItems],
-  )
+      return false
+    })
 
-  const value = useMemo<ComposerContextValue>(
-    () => ({ contextItems, setContextItems, toggleElementContext }),
-    [contextItems, toggleElementContext],
-  )
+    if (existingIndex !== -1) {
+      // Element exists - remove it
+      setManualContextItems((items) => items.filter((_, index) => index !== existingIndex))
+      toast.info('Element removed from context', {
+        description: `${element.componentName || 'Element'} removed from context`,
+      })
+    } else {
+      // Element doesn't exist - add it
+      const newContext: MessageContextInput = {
+        type: 'element',
+        referenceId: element.componentId,
+        data: {
+          componentId: element.componentId,
+          path: element.path,
+          line: element.line,
+          column: element.column,
+          componentName: element.componentName,
+        },
+      }
+      setManualContextItems((items) => [...items, newContext])
+      toast.success('Element added to context', {
+        description: `${element.componentName || 'Element'} added to context`,
+      })
+    }
+  }
+
+  const value: ComposerContextValue = { contextItems, setContextItems, toggleElementContext }
 
   return <ComposerContext value={value}>{children}</ComposerContext>
 }

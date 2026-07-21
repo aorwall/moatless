@@ -1,4 +1,4 @@
-import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from 'react'
+import { createContext, type ReactNode, useContext, useState } from 'react'
 
 interface TaskUIState {
   // Panel and layout state
@@ -41,32 +41,23 @@ export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
   const [taskStates, setTaskStates] = useState<Map<string, TaskUIState>>(new Map())
 
   // Get current task's state or default - memoize to prevent changes on every render
-  const currentState = useMemo(
-    () => taskStates.get(taskId) || getDefaultTaskUIState(),
-    [taskStates, taskId],
-  )
+  const currentState = taskStates.get(taskId) || getDefaultTaskUIState()
 
   // All actions are automatically scoped to current task using useCallback
-  const setPanelSizes = useCallback(
-    (sizes: { left: number; right: number }) => {
-      setTaskStates((prev) => {
-        const newMap = new Map(prev)
-        const state = newMap.get(taskId) || getDefaultTaskUIState()
-        newMap.set(taskId, { ...state, panelSizes: sizes })
-        return newMap
-      })
-    },
-    [taskId],
-  )
+  const setPanelSizes = (sizes: { left: number; right: number }) => {
+    setTaskStates((prev) => {
+      const newMap = new Map(prev)
+      const state = newMap.get(taskId) || getDefaultTaskUIState()
+      newMap.set(taskId, { ...state, panelSizes: sizes })
+      return newMap
+    })
+  }
 
   // Context value is stable with memoized callbacks
-  const contextValue: TaskUIContextValue = useMemo(
-    () => ({
-      currentState,
-      setPanelSizes,
-    }),
-    [currentState, setPanelSizes],
-  )
+  const contextValue: TaskUIContextValue = {
+    currentState,
+    setPanelSizes,
+  }
 
   return <TaskUIContext value={contextValue}>{children}</TaskUIContext>
 }
@@ -81,10 +72,4 @@ export function useTaskUI() {
     throw new Error('useTaskUI must be used within TaskUIProvider')
   }
   return context
-}
-
-// Specialized hooks for specific UI state
-export function usePanelSizes() {
-  const { currentState, setPanelSizes } = useTaskUI()
-  return { panelSizes: currentState.panelSizes, setPanelSizes }
 }

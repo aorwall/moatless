@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
 
 export interface PreviewConsoleLog {
   id: string
@@ -13,7 +13,7 @@ export interface PreviewConsoleLog {
 export function useConsoleLogs() {
   const [consoleLogs, setConsoleLogs] = useState<PreviewConsoleLog[]>([])
 
-  const appendConsoleMessage = useCallback((data: MessageEvent['data']) => {
+  const appendConsoleMessage = (data: MessageEvent['data']) => {
     const { level, message, args, stack } = data
 
     setConsoleLogs((prev) => [
@@ -27,11 +27,11 @@ export function useConsoleLogs() {
         stack,
       },
     ])
-  }, [])
+  }
 
-  const clearConsoleLogs = useCallback(() => {
+  const clearConsoleLogs = () => {
     setConsoleLogs([])
-  }, [])
+  }
 
   return { consoleLogs, appendConsoleMessage, clearConsoleLogs }
 }

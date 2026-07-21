@@ -13,10 +13,7 @@ const COLLAPSED_LINES = 4
 const COLLAPSED_CHAR_THRESHOLD = 400
 
 function getTextContent(message: UiMessage): string {
-  return message.content
-    .filter((c) => c.type === 'text')
-    .map((c) => c.text ?? '')
-    .join('\n')
+  return message.content.flatMap((c) => (c.type === 'text' ? [c.text ?? ''] : [])).join('\n')
 }
 
 function CollapsibleBody({ textContent }: { textContent: string }) {

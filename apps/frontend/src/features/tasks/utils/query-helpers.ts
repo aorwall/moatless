@@ -145,33 +145,6 @@ export function updateTaskInLists(
   }
 }
 
-/**
- * Removes a task from all cached task list queries
- * Used when a task is deleted
- */
-export function removeTaskFromLists(queryClient: QueryClient, taskId: string) {
-  const queryCache = queryClient.getQueryCache()
-  const taskListQueries = queryCache.findAll({
-    queryKey: queryKeys.tasks.all,
-    exact: false,
-    type: 'active',
-  })
-
-  for (const query of taskListQueries) {
-    // Only process queries that contain 'list' in their key (task list queries)
-    if (query.queryKey.includes('list')) {
-      const data = query.state.data as ListTasksResponse | undefined
-      if (data?.items && Array.isArray(data.items)) {
-        const updatedTasks = data.items.filter((task) => task.taskId !== taskId)
-        queryClient.setQueryData(query.queryKey, {
-          ...data,
-          items: updatedTasks,
-        })
-      }
-    }
-  }
-}
-
 // Helper: Get task updates for task events
 function getTaskEventUpdates(event: Event): Partial<TaskResponse> {
   if (event.subType === 'open') {
@@ -311,34 +284,4 @@ export function applyTaskMetadataUpdate(queryClient: QueryClient, event: Event):
   updateTaskInLists(queryClient, taskId, updates)
 
   return true
-}
-
-/**
- * Determines which query keys to invalidate based on task status change
- */
-export function getInvalidationKeys(
-  taskId: string,
-  oldStatus?: string,
-  newStatus?: string,
-): (readonly unknown[])[] {
-  const keys: (readonly unknown[])[] = []
-
-  // Always invalidate the specific task
-  keys.push(queryKeys.tasks.detail(taskId))
-
-  // If status changed, invalidate relevant list queries
-  if (oldStatus !== newStatus && newStatus) {
-    // Task status changed - invalidate lists that might be affected
-    if (newStatus === 'closed') {
-      // When closing, the sidebar (non-closed tasks) needs updating
-      keys.push(queryKeys.tasks.list())
-    } else if (newStatus === 'merged') {
-      // When merging, both open and merged lists need updating
-      keys.push(queryKeys.tasks.list({ status: 'open' }))
-      keys.push(queryKeys.tasks.list({ status: 'merged' }))
-      keys.push(queryKeys.tasks.list())
-    }
-  }
-
-  return keys
 }

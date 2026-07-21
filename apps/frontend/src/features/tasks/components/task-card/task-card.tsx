@@ -2,7 +2,7 @@ import type { TaskResponse } from '@moatless/api-client'
 import { Link } from '@tanstack/react-router'
 import { Globe, Lock, X } from 'lucide-react'
 import type React from 'react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { useTaskEventSubscription } from '@/features/events/contexts/global-event-stream-provider'
 import { type Todo, TodoList } from '@/features/tasks/components/chat/message-history/tool-calls'
@@ -178,7 +178,6 @@ function setupDurationInterval(
     setRunningDuration(formatRunningDuration(startTime))
   }
 
-  updateDuration() // Initial update
   const interval = setInterval(updateDuration, 1000)
 
   return () => clearInterval(interval)
@@ -258,6 +257,7 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
   const { formatErrorForDisplay } = useApiError()
 
   const isClosed = task.status === 'closed'
+  const taskRunning = isTaskRunning(task)
 
   // Close task mutation with error handling
   const closeTaskMutation = useCloseTask(task.taskId, {
@@ -293,58 +293,45 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
   })
 
   // State for live duration updates
-  const [runningDuration, setRunningDuration] = useState<string>('')
+  const [runningDuration, setRunningDuration] = useState(() =>
+    taskRunning ? formatRunningDuration(task.createdAt) : '',
+  )
 
   // State for real-time events
   const [realtimeEvents, setRealtimeEvents] = useState<Event[]>([])
 
   // Subscribe to real-time events for this task
-  const taskRunning = isTaskRunning(task)
-  const handleNewEvent = useCallback(
-    (event: Event) => {
-      if (taskRunning && isMessageOrToolEvent(event)) {
-        setRealtimeEvents((prev) => [...prev, event])
-      }
-    },
-    [taskRunning],
-  )
+  const handleNewEvent = (event: Event) => {
+    if (taskRunning && isMessageOrToolEvent(event)) {
+      setRealtimeEvents((prev) => [...prev, event])
+    }
+  }
 
   useTaskEventSubscription(task.taskId, handleNewEvent)
 
   // Handle close/delete button click
-  const handleClose = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault()
-      e.stopPropagation()
-      if (isClosed) {
-        deleteTaskMutation.mutate(task.taskId)
-      } else {
-        closeTaskMutation.mutate()
-      }
-    },
-    [isClosed, deleteTaskMutation, closeTaskMutation, task.taskId],
-  )
+  const handleClose = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (isClosed) {
+      deleteTaskMutation.mutate(task.taskId)
+    } else {
+      closeTaskMutation.mutate()
+    }
+  }
 
-  const allEvents = useMemo(() => getUniqueEvents(realtimeEvents), [realtimeEvents])
+  const allEvents = getUniqueEvents(realtimeEvents)
 
   // Filter events to show only last 3 message/tool events
-  const displayedEvents = useMemo(() => getDisplayedEvents(allEvents), [allEvents])
+  const displayedEvents = getDisplayedEvents(allEvents)
 
   // Extract latest todos from all events
-  const latestTodos = useMemo(() => extractLatestTodos(allEvents), [allEvents])
-
-  // Reset realtime events when task status changes
-  useEffect(() => {
-    if (!taskRunning) {
-      setRealtimeEvents([])
-    }
-  }, [taskRunning])
+  const latestTodos = extractLatestTodos(allEvents)
 
   // Update running duration every second for running tasks
   const taskCreatedAt = task.createdAt
   useEffect(() => {
     if (!(taskRunning && taskCreatedAt)) {
-      setRunningDuration('')
       return
     }
 

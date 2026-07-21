@@ -1,5 +1,4 @@
 import { useQuery } from '@tanstack/react-query'
-import { useMemo } from 'react'
 import { type FeedbackResponse, feedbackApi } from '@/features/feedback/api/feedback.api'
 import { queryKeys } from '@/lib/api/query-keys'
 
@@ -32,7 +31,7 @@ const EMPTY: TaskFeedbackIndex = {
  */
 export function useTaskFeedbackIndex(taskId: string | undefined): TaskFeedbackIndex {
   const { data } = useTaskFeedback(taskId)
-  return useMemo<TaskFeedbackIndex>(() => {
+  return (() => {
     if (!data) {
       return EMPTY
     }
@@ -54,5 +53,5 @@ export function useTaskFeedbackIndex(taskId: string | undefined): TaskFeedbackIn
       byToolUseId,
       byTaskOnly,
     }
-  }, [data])
+  })()
 }

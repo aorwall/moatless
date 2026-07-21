@@ -1,5 +1,5 @@
 import type { RepositoryResponse } from '@moatless/api-client'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { useAgentAvailability } from '@/features/agents'
 import { useCommandsList } from '@/features/commands/hooks/use-commands'
@@ -31,7 +31,6 @@ import {
 } from '@/features/tasks/components/chat/chat-input/selectors'
 import {
   CommandAutocomplete,
-  type Suggestion,
   useCommandAutocomplete,
 } from '@/features/tasks/components/chat/command-autocomplete'
 import {
@@ -92,11 +91,8 @@ export function CreateCodeTask({
 
   // Backend-driven agent catalog (availability + per-agent model list),
   // plus model-reset-on-agent-change effect.
-  const { agents, selectedAgent, agentUnavailable, settingsSection } = useAgentAvailability({
-    agentType,
-    model,
-    onModelChange,
-  })
+  const { agents, selectedAgent, agentUnavailable, settingsSection, availableModel } =
+    useAgentAvailability({ agentType, model })
 
   // Fetch global commands for slash command autocomplete
   const { data: commands = [] } = useCommandsList()
@@ -116,13 +112,10 @@ export function CreateCodeTask({
   }, [skillsError])
 
   // Merge commands + skills into a single Suggestion[] for the "/" dropdown.
-  const suggestions = useMemo<Suggestion[]>(
-    () => [
-      ...commands.map((c) => ({ kind: 'command' as const, ...c })),
-      ...skills.map((s) => ({ kind: 'skill' as const, ...s })),
-    ],
-    [commands, skills],
-  )
+  const suggestions = [
+    ...commands.map((c) => ({ kind: 'command' as const, ...c })),
+    ...skills.map((s) => ({ kind: 'skill' as const, ...s })),
+  ]
 
   // Command autocomplete hook
   const {
@@ -167,7 +160,7 @@ export function CreateCodeTask({
 
   // Use controlled selectors
   const modelSelector = useModelSelector<ClaudeModel>(
-    isModelSelectorEnabled ? model : DEFAULT_CLAUDE_MODEL,
+    isModelSelectorEnabled ? availableModel : DEFAULT_CLAUDE_MODEL,
     isModelSelectorEnabled
       ? onModelChange
       : () => {
@@ -201,16 +194,13 @@ export function CreateCodeTask({
   }, [repoDialogOpen, repositoryId, repositories, onRepositoryChange])
 
   // Handle message changes with command autocomplete
-  const handleMessageChange = useCallback(
-    (newMessage: string) => {
-      setMessage(newMessage)
-      if (textareaRef.current) {
-        const cursorPosition = textareaRef.current.selectionStart || 0
-        handleCommandInputChange(newMessage, cursorPosition)
-      }
-    },
-    [handleCommandInputChange, textareaRef],
-  )
+  const handleMessageChange = (newMessage: string) => {
+    setMessage(newMessage)
+    if (textareaRef.current) {
+      const cursorPosition = textareaRef.current.selectionStart || 0
+      handleCommandInputChange(newMessage, cursorPosition)
+    }
+  }
 
   const handleSubmit = () => {
     if (!canSubmit) {
@@ -231,7 +221,7 @@ export function CreateCodeTask({
       fileIds: taskInputs.getFileIds(),
       agentMode: submitAgentMode,
       message: submitMessage,
-      model: isModelSelectorEnabled ? modelToApiValue(model) : undefined,
+      model: isModelSelectorEnabled ? modelToApiValue(availableModel) : undefined,
       contexts: taskInputs.contextItems,
       branch: branchSelector.value,
       commandName: selectedCommand?.name,

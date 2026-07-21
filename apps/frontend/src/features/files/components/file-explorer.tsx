@@ -90,6 +90,18 @@ export function FileExplorer({ taskId }: FileExplorerProps) {
     document.addEventListener('mouseup', handleMouseUp)
   }
 
+  const handleResizeKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    const delta = e.key === 'ArrowLeft' ? -10 : e.key === 'ArrowRight' ? 10 : 0
+    if (delta === 0) {
+      return
+    }
+
+    e.preventDefault()
+    setSidebarWidth((width) =>
+      Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, width + delta)),
+    )
+  }
+
   return (
     <div className="h-full flex flex-col relative">
       {showSearch && (
@@ -151,10 +163,12 @@ export function FileExplorer({ taskId }: FileExplorerProps) {
 
             {/* Desktop-only resize handle; on mobile the tree is full-width. */}
             {!isMobile && (
-              // biome-ignore lint/a11y/noStaticElementInteractions: resize handle requires mouse interaction
-              <div
-                className="w-1 cursor-col-resize hover:bg-ring transition-colors flex-shrink-0"
+              <button
+                type="button"
+                aria-label={`Resize file tree, currently ${sidebarWidth} pixels wide`}
+                className="w-1 cursor-col-resize border-0 p-0 hover:bg-ring transition-colors flex-shrink-0"
                 onMouseDown={handleMouseDown}
+                onKeyDown={handleResizeKeyDown}
                 style={isResizing ? { background: 'var(--ring)' } : undefined}
               />
             )}

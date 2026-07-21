@@ -1,6 +1,6 @@
 import { useNavigate } from '@tanstack/react-router'
 import { Loader2, Trash2 } from 'lucide-react'
-import { useState } from 'react'
+import { createElement, useState } from 'react'
 import { toast } from 'sonner'
 import { CommandForm } from '@/features/commands/components/command-form'
 import { useCommand, useDeleteCommand } from '@/features/commands/hooks/use-commands'
@@ -56,7 +56,9 @@ export function AdminCommandDetail({ name }: { name: string }) {
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-6">
       <DetailHeader
-        avatar={IconComponent ? <IconComponent className="mt-1 h-6 w-6" /> : undefined}
+        avatar={
+          IconComponent ? createElement(IconComponent, { className: 'mt-1 h-6 w-6' }) : undefined
+        }
         title={command.name}
         subtitle={command.description}
         badges={command.active === false ? <Badge variant="outline">inactive</Badge> : null}

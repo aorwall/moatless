@@ -1,17 +1,8 @@
-import type { UiContentBlock, UiToolResult } from '@moatless/api-client'
+import type { UiToolResult } from '@moatless/api-client'
 import { CheckCircle, ChevronDown, ChevronRight, HelpCircle } from 'lucide-react'
 import type { Question } from '@/lib/types/user-input'
 import { cn } from '@/lib/utils'
 import type { ToolCallProps } from './tool-call-props.ts'
-
-/** Guard: the AskUserQuestion renderer needs a valid `questions` array. */
-export function hasQuestionsInput(content: UiContentBlock): boolean {
-  if (!content.toolInput) {
-    return false
-  }
-  const toolInput = content.toolInput as { questions?: Question[] }
-  return !!toolInput.questions && Array.isArray(toolInput.questions)
-}
 
 /**
  * Parse answers from the tool result - try JSON first, fallback to the raw

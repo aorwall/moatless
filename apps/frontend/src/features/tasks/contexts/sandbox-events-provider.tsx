@@ -1,13 +1,4 @@
-import {
-  createContext,
-  type ReactNode,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
+import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from 'react'
 import type { LifecycleEvent, StartupEvent } from '@/features/events'
 import {
   toLifecycleEvent,
@@ -87,7 +78,7 @@ export function SandboxEventsProvider({ children }: { children: ReactNode }) {
     }
   }, [historicalEventsQuery.data])
 
-  const handleTaskEvent = useCallback((event: Event) => {
+  const handleTaskEvent = (event: Event) => {
     // Append sandbox/server events for the Events tab (with dedup)
     const se = toLifecycleEvent(event)
     if (se) {
@@ -120,14 +111,14 @@ export function SandboxEventsProvider({ children }: { children: ReactNode }) {
         setStartupEvents([])
       }
     }
-  }, [])
+  }
 
   useTaskEventSubscription(taskId, handleTaskEvent)
 
-  const value = useMemo<SandboxEventsContextValue>(
-    () => ({ sandboxEvents, startupEvents }),
-    [sandboxEvents, startupEvents],
-  )
+  const value = {
+    sandboxEvents,
+    startupEvents,
+  }
 
   return <SandboxEventsContext value={value}>{children}</SandboxEventsContext>
 }

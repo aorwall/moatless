@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 // SSE streaming — api-client can't generate a streaming fetch.
 // Path from OpenAPI spec: GET /api/sandbox/v1/tasks/{task_id}/servers/{server_name}/logs
@@ -10,6 +10,16 @@ interface UseServerLogsStreamResult {
   error: string | null
 }
 
+interface ServerLogsStreamState extends UseServerLogsStreamResult {
+  streamKey: string | null
+}
+
+const EMPTY_STREAM_STATE: UseServerLogsStreamResult = {
+  logs: '',
+  isConnected: false,
+  error: null,
+}
+
 // Get API base URL (same logic as client.ts)
 const getApiBaseUrl = () => {
   return import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL ?? '')
@@ -19,57 +29,45 @@ export function useServerLogsStream(
   taskId: string | undefined,
   serverName: string | undefined,
 ): UseServerLogsStreamResult {
-  const [logs, setLogs] = useState('')
-  const [isConnected, setIsConnected] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const eventSourceRef = useRef<EventSource | null>(null)
+  const streamKey = taskId && serverName ? `${taskId}:${serverName}` : null
+  const [streamState, setStreamState] = useState<ServerLogsStreamState>({
+    streamKey: null,
+    ...EMPTY_STREAM_STATE,
+  })
 
   useEffect(() => {
-    if (!(taskId && serverName)) {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close()
-        eventSourceRef.current = null
-        setIsConnected(false)
-      }
+    if (!(taskId && serverName && streamKey)) {
       return
     }
-
-    // Clean up existing connection
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close()
-      eventSourceRef.current = null
-    }
-
-    setLogs('')
-    setError(null)
 
     const baseUrl = getApiBaseUrl()
     const url = `${baseUrl}${SERVER_LOGS_PATH.replace(':taskId', taskId).replace(':serverName', serverName)}`
 
     const eventSource = new EventSource(url, { withCredentials: true })
-    eventSourceRef.current = eventSource
 
     eventSource.onopen = () => {
-      setIsConnected(true)
-      setError(null)
+      setStreamState({ streamKey, logs: '', isConnected: true, error: null })
     }
 
     eventSource.onmessage = (event) => {
-      setLogs((prev) => `${prev + event.data}\n`)
+      setStreamState((current) => ({
+        streamKey,
+        logs: `${current.streamKey === streamKey ? current.logs : ''}${event.data}\n`,
+        isConnected: true,
+        error: null,
+      }))
     }
 
     eventSource.onerror = () => {
       // EventSource automatically reconnects on transient errors.
       // Only mark disconnected — don't set error for transient issues.
-      setIsConnected(false)
+      setStreamState((current) =>
+        current.streamKey === streamKey ? { ...current, isConnected: false } : current,
+      )
     }
 
-    return () => {
-      eventSource.close()
-      eventSourceRef.current = null
-      setIsConnected(false)
-    }
-  }, [taskId, serverName])
+    return () => eventSource.close()
+  }, [taskId, serverName, streamKey])
 
-  return { logs, isConnected, error }
+  return streamState.streamKey === streamKey ? streamState : EMPTY_STREAM_STATE
 }

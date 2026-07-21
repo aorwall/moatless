@@ -1,7 +1,6 @@
 export { AskUserQuestionInput } from './ask-user-question-input'
 export { ChatInput } from './chat-input'
 export {
-  Autocomplete,
   FileAttachments,
   Selectors,
   SendButton,

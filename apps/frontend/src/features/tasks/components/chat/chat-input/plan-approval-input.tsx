@@ -1,5 +1,5 @@
 import { CheckCircle, FileText, Loader2, X, XCircle } from 'lucide-react'
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
 import { Response } from '@/lib/components/ai-elements/response'
 import { Button } from '@/lib/components/ui/button'
 import { Textarea } from '@/lib/components/ui/textarea'
@@ -23,7 +23,7 @@ export function PlanApprovalInput({
   const [showFeedback, setShowFeedback] = useState(false)
   const [feedback, setFeedback] = useState('')
 
-  const handleRejectClick = useCallback(() => {
+  const handleRejectClick = () => {
     if (showFeedback) {
       // Already showing feedback, submit the rejection
       onReject(feedback || undefined)
@@ -31,12 +31,12 @@ export function PlanApprovalInput({
       // First click, show feedback textarea
       setShowFeedback(true)
     }
-  }, [onReject, showFeedback, feedback])
+  }
 
-  const handleCancelFeedback = useCallback(() => {
+  const handleCancelFeedback = () => {
     setShowFeedback(false)
     setFeedback('')
-  }, [])
+  }
 
   return (
     <div className="z-10 flex-shrink-0 bg-background absolute bottom-0 left-0 right-0">

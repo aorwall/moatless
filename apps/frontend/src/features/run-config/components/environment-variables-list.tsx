@@ -83,8 +83,7 @@ export function EnvironmentVariablesList({
   }
 
   const handleRemove = (key: string) => {
-    const { [key]: _, ...rest } = variables
-    onChange(rest)
+    onChange(Object.fromEntries(Object.entries(variables).filter(([entryKey]) => entryKey !== key)))
   }
 
   const handleKeyChange = (oldKey: string, newKeyName: string) => {

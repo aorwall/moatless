@@ -1,5 +1,5 @@
 import { ChevronRight } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ImperativePanelHandle } from 'react-resizable-panels'
 import { Button } from '@/lib/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
@@ -23,19 +23,21 @@ export function DesktopTaskLayout() {
     chatPanelRef.current?.expand()
   }
 
-  const toggleChat = useCallback(() => {
-    const panel = chatPanelRef.current
-    if (!panel) {
-      return
-    }
-    if (panel.isCollapsed()) {
-      panel.expand()
-    } else {
-      panel.collapse()
-    }
-  }, [])
-
-  useEffect(() => registerChatToggle(toggleChat), [registerChatToggle, toggleChat])
+  useEffect(
+    () =>
+      registerChatToggle(() => {
+        const panel = chatPanelRef.current
+        if (!panel) {
+          return
+        }
+        if (panel.isCollapsed()) {
+          panel.expand()
+        } else {
+          panel.collapse()
+        }
+      }),
+    [registerChatToggle],
+  )
 
   return (
     <div className="h-full w-full relative">

@@ -1,4 +1,4 @@
-import { createContext, type ReactNode, useContext, useMemo, useRef } from 'react'
+import { createContext, type ReactNode, useContext, useEffect, useRef } from 'react'
 import { type TaskView, useTaskView } from '../hooks/use-task-view'
 
 /**
@@ -35,59 +35,64 @@ export function TaskPanelControlsProvider({ children }: { children: ReactNode })
 
   // Keep the latest setView without re-creating the (stable) context value.
   const setViewRef = useRef(setView)
-  setViewRef.current = setView
+  useEffect(() => {
+    setViewRef.current = setView
+  }, [setView])
 
   const chatToggleRef = useRef<(() => void) | null>(null)
   const commandExecutorRef = useRef<((name: string) => void) | null>(null)
   const previewNavigateRef = useRef<((path: string) => void) | null>(null)
   const previewReloadRef = useRef<(() => void) | null>(null)
 
-  const value = useMemo<TaskPanelControls>(
-    () => ({
-      toggleChat: () => chatToggleRef.current?.(),
-      showWorkspace: (view) => {
-        if (view) {
-          setViewRef.current(view)
+  const value: TaskPanelControls = {
+    toggleChat: () => chatToggleRef.current?.(),
+
+    showWorkspace: (view) => {
+      if (view) {
+        setViewRef.current(view)
+      }
+    },
+
+    navigatePreview: (path) => previewNavigateRef.current?.(path),
+    reloadPreview: () => previewReloadRef.current?.(),
+    executeCommand: (name) => commandExecutorRef.current?.(name),
+
+    registerCommandExecutor: (fn) => {
+      commandExecutorRef.current = fn
+      return () => {
+        if (commandExecutorRef.current === fn) {
+          commandExecutorRef.current = null
         }
-      },
-      navigatePreview: (path) => previewNavigateRef.current?.(path),
-      reloadPreview: () => previewReloadRef.current?.(),
-      executeCommand: (name) => commandExecutorRef.current?.(name),
-      registerCommandExecutor: (fn) => {
-        commandExecutorRef.current = fn
-        return () => {
-          if (commandExecutorRef.current === fn) {
-            commandExecutorRef.current = null
-          }
+      }
+    },
+
+    registerChatToggle: (fn) => {
+      chatToggleRef.current = fn
+      return () => {
+        if (chatToggleRef.current === fn) {
+          chatToggleRef.current = null
         }
-      },
-      registerChatToggle: (fn) => {
-        chatToggleRef.current = fn
-        return () => {
-          if (chatToggleRef.current === fn) {
-            chatToggleRef.current = null
-          }
+      }
+    },
+
+    registerPreviewNavigate: (fn) => {
+      previewNavigateRef.current = fn
+      return () => {
+        if (previewNavigateRef.current === fn) {
+          previewNavigateRef.current = null
         }
-      },
-      registerPreviewNavigate: (fn) => {
-        previewNavigateRef.current = fn
-        return () => {
-          if (previewNavigateRef.current === fn) {
-            previewNavigateRef.current = null
-          }
+      }
+    },
+
+    registerPreviewReload: (fn) => {
+      previewReloadRef.current = fn
+      return () => {
+        if (previewReloadRef.current === fn) {
+          previewReloadRef.current = null
         }
-      },
-      registerPreviewReload: (fn) => {
-        previewReloadRef.current = fn
-        return () => {
-          if (previewReloadRef.current === fn) {
-            previewReloadRef.current = null
-          }
-        }
-      },
-    }),
-    [],
-  )
+      }
+    },
+  }
 
   return <TaskPanelControlsContext value={value}>{children}</TaskPanelControlsContext>
 }

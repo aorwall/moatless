@@ -3,25 +3,12 @@
 // API
 export * from './api/tasks'
 
-// Components
-export { CreateTaskForm } from './components/create-task-form'
 // Tri-Context Pattern for performance optimization
 export {
   TaskDataProvider,
   TaskProviders,
   TaskUIProvider,
-  // Task context hooks
-  useEventStream,
-  // UI hooks
-  useIsAgentRunning,
-  useLatestContextTokens,
-  usePanelSizes,
-  useStreamingStatus,
-  useTaskEvents,
   useTaskId,
-  useTaskMetadata,
-  useTaskStatus,
-  useTaskStreamingState,
   useTaskUI,
 } from './contexts/task-providers'
 export * from './hooks/use-sandbox-status'
@@ -33,4 +20,3 @@ export { TaskPage } from './layouts/task-page'
 
 // Utils
 export * from './utils/format-duration'
-export * from './utils/query-helpers'

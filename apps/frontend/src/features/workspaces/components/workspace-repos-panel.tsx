@@ -1,6 +1,6 @@
 import type { WorkspaceRepoResponse } from '@moatless/api-client'
 import { GitBranch, Loader2, Plus, Star, Trash2 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import {
@@ -56,10 +56,10 @@ export function WorkspaceReposPanel({
   const setPrimary = useSetWorkspacePrimaryRepo()
   const [isAddOpen, setIsAddOpen] = useState(false)
 
-  const repoName = useMemo(() => {
+  const repoName = (() => {
     const byId = new Map(repositories?.map((r) => [r.id, r.name]))
     return (id: string) => byId.get(id) ?? id
-  }, [repositories])
+  })()
 
   const handleRemove = (placement: WorkspaceRepoResponse) => {
     removeRepo.mutate(
@@ -217,10 +217,10 @@ function AddRepoDialog({
   const [branch, setBranch] = useState('')
   const [mountName, setMountName] = useState('')
 
-  const available = useMemo(
-    () => repositories.filter((r) => !placedRepositoryIds.includes(r.id)),
-    [repositories, placedRepositoryIds],
-  )
+  const available = (() => {
+    const placedRepositoryIdSet = new Set(placedRepositoryIds)
+    return repositories.filter((repository) => !placedRepositoryIdSet.has(repository.id))
+  })()
 
   // Reset the form each time the dialog opens.
   const handleOpenChange = (next: boolean) => {

@@ -30,16 +30,32 @@ export function MobileSidebarDrawer({
   children,
   className,
 }: MobileSidebarDrawerProps) {
+  const dialogRef = React.useRef<HTMLDialogElement>(null)
   const panelRef = React.useRef<HTMLDivElement>(null)
 
   // Inline px offset applied only while dragging; when null the panel rests at
   // its open/closed position via CSS transition.
   const [dragX, setDragX] = React.useState<number | null>(null)
   const [isDragging, setIsDragging] = React.useState(false)
+  const [panelWidth, setPanelWidth] = React.useState(FALLBACK_WIDTH)
 
-  // Latest open state, read from inside the (stable) gesture handlers.
-  const openRef = React.useRef(openMobile)
-  openRef.current = openMobile
+  // Keep the native modal lifecycle in sync with the shared sidebar state.
+  // Opening during a drag makes the browser's focus trap active as soon as the
+  // drawer becomes visible; closing after the drag restores focus to the page.
+  React.useEffect(() => {
+    const dialog = dialogRef.current
+    if (!dialog) {
+      return
+    }
+
+    if (openMobile || isDragging) {
+      if (!dialog.open) {
+        dialog.showModal()
+      }
+    } else if (dialog.open) {
+      dialog.close()
+    }
+  }, [openMobile, isDragging])
 
   React.useEffect(() => {
     const gesture = {
@@ -65,7 +81,8 @@ export function MobileSidebarDrawer({
         return
       }
       const width = measure()
-      if (openRef.current) {
+      setPanelWidth(width)
+      if (openMobile) {
         // Drawer is open: allow a drag-to-close from anywhere over it.
         gesture.active = true
         gesture.base = 0
@@ -144,31 +161,26 @@ export function MobileSidebarDrawer({
       document.removeEventListener('touchend', handleTouchEnd)
       document.removeEventListener('touchcancel', handleTouchEnd)
     }
-  }, [setOpenMobile])
-
-  // Close on Escape while open.
-  React.useEffect(() => {
-    if (!openMobile) {
-      return
-    }
-    const handleKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setOpenMobile(false)
-      }
-    }
-    document.addEventListener('keydown', handleKey)
-    return () => document.removeEventListener('keydown', handleKey)
   }, [openMobile, setOpenMobile])
 
   // Progress 0 (closed) → 1 (open), for the backdrop opacity while dragging.
-  const width = panelRef.current?.offsetWidth || FALLBACK_WIDTH
-  const progress = dragX === null ? (openMobile ? 1 : 0) : (dragX + width) / width
+  const progress = dragX === null ? (openMobile ? 1 : 0) : (dragX + panelWidth) / panelWidth
   const showOverlay = openMobile || isDragging
 
   return (
-    <>
-      <div
-        aria-hidden="true"
+    <dialog
+      ref={dialogRef}
+      aria-label="Task list"
+      className="fixed inset-0 m-0 h-full max-h-none w-full max-w-none overflow-hidden bg-transparent p-0 backdrop:bg-transparent"
+      onCancel={(event) => {
+        event.preventDefault()
+        setOpenMobile(false)
+      }}
+    >
+      <button
+        type="button"
+        aria-label="Close task list"
+        tabIndex={-1}
         onClick={() => setOpenMobile(false)}
         className={cn(
           'fixed inset-0 z-40 bg-black/50',
@@ -179,9 +191,7 @@ export function MobileSidebarDrawer({
       />
       <div
         ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Task list"
+        data-mobile-sidebar-panel
         className={cn(
           'fixed inset-y-0 left-0 z-50 flex h-full w-80 max-w-[85vw] flex-col overflow-x-hidden overscroll-x-none border-r bg-sidebar text-sidebar-foreground',
           isDragging ? 'transition-none' : 'transition-transform duration-300 ease-in-out',
@@ -193,6 +203,6 @@ export function MobileSidebarDrawer({
       >
         {children}
       </div>
-    </>
+    </dialog>
   )
 }

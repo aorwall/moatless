@@ -1,5 +1,4 @@
 import type React from 'react'
-import { useCallback } from 'react'
 import {
   type Suggestion,
   useCommandAutocomplete,
@@ -70,29 +69,23 @@ export function useChatAutocomplete({
   })
 
   // Handle message changes with autocomplete
-  const handleMessageChange = useCallback(
-    (newMessage: string) => {
-      setMessage(newMessage)
-      // Update autocomplete state based on cursor position
-      if (textareaRef.current) {
-        const cursorPosition = textareaRef.current.selectionStart || 0
-        handleCommandInputChange(newMessage, cursorPosition)
-        handleInputChange(newMessage, cursorPosition)
-      }
-    },
-    [handleCommandInputChange, handleInputChange, textareaRef, setMessage],
-  )
+  const handleMessageChange = (newMessage: string) => {
+    setMessage(newMessage)
+    // Update autocomplete state based on cursor position
+    if (textareaRef.current) {
+      const cursorPosition = textareaRef.current.selectionStart || 0
+      handleCommandInputChange(newMessage, cursorPosition)
+      handleInputChange(newMessage, cursorPosition)
+    }
+  }
 
   // Compose key handlers: command autocomplete first, then file autocomplete
-  const handleCombinedKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      handleCommandKeyDown(e)
-      if (!e.defaultPrevented) {
-        handleFileKeyDown(e)
-      }
-    },
-    [handleCommandKeyDown, handleFileKeyDown],
-  )
+  const handleCombinedKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    handleCommandKeyDown(e)
+    if (!e.defaultPrevented) {
+      handleFileKeyDown(e)
+    }
+  }
 
   return {
     textareaRef,

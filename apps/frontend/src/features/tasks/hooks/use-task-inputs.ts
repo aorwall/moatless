@@ -1,6 +1,6 @@
 import type { MessageContextInput, UploadResponse } from '@moatless/api-client'
 import type React from 'react'
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 import { useAttachmentSelector } from '@/features/tasks/components/chat/chat-input/selectors'
 import { useImagePaste } from '@/features/uploads/hooks/use-image-paste'
@@ -97,51 +97,45 @@ export function useTaskInputs(options: UseTaskInputsOptions = {}): UseTaskInputs
   const attachmentSelector = useAttachmentSelector(uploadFile.isPending)
 
   // File removal handler
-  const handleRemoveFile = useCallback((fileId: string) => {
+  const handleRemoveFile = (fileId: string) => {
     setUploadedFiles((prev) => prev.filter((f) => f.fileId !== fileId))
-  }, [])
+  }
 
   // Context item handlers
-  const handleRemoveContext = useCallback(
-    (index: number) => {
-      if (useExternalContext && onContextItemsChange) {
-        const newContexts = contextItems.filter((_, i) => i !== index)
-        onContextItemsChange(newContexts)
-      } else {
-        setInternalContextItems((prev) => prev.filter((_, i) => i !== index))
-      }
-    },
-    [useExternalContext, onContextItemsChange, contextItems],
-  )
+  const handleRemoveContext = (index: number) => {
+    if (useExternalContext && onContextItemsChange) {
+      const newContexts = contextItems.filter((_, i) => i !== index)
+      onContextItemsChange(newContexts)
+    } else {
+      setInternalContextItems((prev) => prev.filter((_, i) => i !== index))
+    }
+  }
 
-  const handleAddContext = useCallback(
-    (context: MessageContextInput) => {
-      if (useExternalContext && onContextItemsChange) {
-        onContextItemsChange([...contextItems, context])
-      } else {
-        setInternalContextItems((prev) => [...prev, context])
-      }
-    },
-    [useExternalContext, onContextItemsChange, contextItems],
-  )
+  const handleAddContext = (context: MessageContextInput) => {
+    if (useExternalContext && onContextItemsChange) {
+      onContextItemsChange([...contextItems, context])
+    } else {
+      setInternalContextItems((prev) => [...prev, context])
+    }
+  }
 
   // Paste handling: images only
   const handlePaste = useImagePaste(uploadFile)
 
   // Utility: Get file IDs for API calls
-  const getFileIds = useCallback(() => {
+  const getFileIds = () => {
     return uploadedFiles.map((f) => f.fileId)
-  }, [uploadedFiles])
+  }
 
   // Utility: Clear all state
-  const clearAll = useCallback(() => {
+  const clearAll = () => {
     setUploadedFiles([])
     if (!useExternalContext) {
       setInternalContextItems([])
     } else if (onContextItemsChange) {
       onContextItemsChange([])
     }
-  }, [useExternalContext, onContextItemsChange])
+  }
 
   return {
     // File uploads

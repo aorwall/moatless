@@ -1,5 +1,5 @@
 import type { TaskResponse } from '@moatless/api-client'
-import { useCallback, useMemo, useState } from 'react'
+import { useState } from 'react'
 import type { TaskTemplateResponse } from '@/features/task-templates'
 import { TemplateChipsRow } from '@/features/task-templates'
 import type { AgentType } from '@/features/tasks/components/chat/chat-input/selectors'
@@ -38,24 +38,21 @@ function EmptyTaskState() {
 
   const { setRepositoryId, setAgentType, setAgentMode } = preferences
 
-  const handleTemplatePick = useCallback(
-    (template: TaskTemplateResponse) => {
-      setTemplateId(template.id)
-      if (template.repositoryId) {
-        setRepositoryId(template.repositoryId)
-      }
-      if (template.agentType) {
-        setAgentType(template.agentType as AgentType)
-      }
-      if (template.agentMode) {
-        setAgentMode(template.agentMode as 'edit' | 'plan')
-      }
-      if (template.defaultModel) {
-        setModel(template.defaultModel as ClaudeModel)
-      }
-    },
-    [setRepositoryId, setAgentType, setAgentMode],
-  )
+  const handleTemplatePick = (template: TaskTemplateResponse) => {
+    setTemplateId(template.id)
+    if (template.repositoryId) {
+      setRepositoryId(template.repositoryId)
+    }
+    if (template.agentType) {
+      setAgentType(template.agentType as AgentType)
+    }
+    if (template.agentMode) {
+      setAgentMode(template.agentMode as 'edit' | 'plan')
+    }
+    if (template.defaultModel) {
+      setModel(template.defaultModel as ClaudeModel)
+    }
+  }
 
   return (
     <div className="container mx-auto max-w-7xl p-6">
@@ -120,24 +117,21 @@ export function TaskDashboard({
     setAgentMode: prefSetAgentMode,
   } = preferences
 
-  const handleTemplatePick = useCallback(
-    (template: TaskTemplateResponse) => {
-      setTemplateId(template.id)
-      if (template.repositoryId) {
-        prefSetRepositoryId(template.repositoryId)
-      }
-      if (template.agentType) {
-        prefSetAgentType(template.agentType as AgentType)
-      }
-      if (template.agentMode) {
-        prefSetAgentMode(template.agentMode as 'edit' | 'plan')
-      }
-      if (template.defaultModel) {
-        setModel(template.defaultModel as ClaudeModel)
-      }
-    },
-    [prefSetRepositoryId, prefSetAgentType, prefSetAgentMode],
-  )
+  const handleTemplatePick = (template: TaskTemplateResponse) => {
+    setTemplateId(template.id)
+    if (template.repositoryId) {
+      prefSetRepositoryId(template.repositoryId)
+    }
+    if (template.agentType) {
+      prefSetAgentType(template.agentType as AgentType)
+    }
+    if (template.agentMode) {
+      prefSetAgentMode(template.agentMode as 'edit' | 'plan')
+    }
+    if (template.defaultModel) {
+      setModel(template.defaultModel as ClaudeModel)
+    }
+  }
 
   const offset = (page - 1) * PAGE_SIZE
 
@@ -164,15 +158,12 @@ export function TaskDashboard({
   )
 
   // Sort tasks by createdAt descending (derived state)
-  const sortedTasks = useMemo(() => {
-    if (!tasksData?.items) {
-      return []
-    }
-    return [...tasksData.items].sort(
-      (a: TaskResponse, b: TaskResponse) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-    )
-  }, [tasksData?.items])
+  const sortedTasks = tasksData?.items
+    ? tasksData.items.toSorted(
+        (a: TaskResponse, b: TaskResponse) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      )
+    : []
 
   const total = tasksData?.pagination?.total ?? 0
 
@@ -258,7 +249,7 @@ export function TaskDashboard({
               {sortedTasks.map((task: TaskResponse) => {
                 return (
                   <TaskCard
-                    key={task.taskId}
+                    key={`${task.taskId}:${task.status}`}
                     task={task}
                     repositoryName={task.repositoryName || task.repositoryId}
                   />

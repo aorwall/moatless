@@ -24,16 +24,3 @@ export function useFeaturedTaskTemplates(
     ...options,
   })
 }
-
-export function useTaskTemplate(
-  id: string | undefined,
-  options?: Omit<UseQueryOptions<TaskTemplateResponse>, 'queryKey' | 'queryFn'>,
-) {
-  return useQuery({
-    queryKey: queryKeys.taskTemplates.detail(id ?? ''),
-    queryFn: () =>
-      id ? taskTemplatesApi.getTaskTemplate(id) : Promise.reject(new Error('id is required')),
-    enabled: !!id,
-    ...options,
-  })
-}

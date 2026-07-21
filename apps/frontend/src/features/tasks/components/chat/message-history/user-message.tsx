@@ -13,10 +13,7 @@ interface UserMessageProps {
 
 // Extract text content from UiMessage content blocks
 function getTextContent(message: UiMessage): string {
-  return message.content
-    .filter((c) => c.type === 'text')
-    .map((c) => c.text ?? '')
-    .join('\n')
+  return message.content.flatMap((c) => (c.type === 'text' ? [c.text ?? ''] : [])).join('\n')
 }
 
 export function UserMessageComponent({ message, onPreviewUrlClick }: UserMessageProps) {

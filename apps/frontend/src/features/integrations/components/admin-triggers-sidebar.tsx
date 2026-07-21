@@ -1,7 +1,7 @@
 import type { AdapterConnectionResponse, TriggerResponse } from '@moatless/api-client'
 import { Link } from '@tanstack/react-router'
 import { Bell, Plus } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import {
   useIntegrationConnections,
   useTriggers,
@@ -44,9 +44,8 @@ export function AdminTriggersSidebar() {
   const { data: connections } = useIntegrationConnections()
   const [search, setSearch] = useState('')
 
-  const connectionsById = useMemo(
-    () => new Map((connections ?? []).map((connection) => [connection.id, connection])),
-    [connections],
+  const connectionsById = new Map(
+    (connections ?? []).map((connection) => [connection.id, connection]),
   )
   const items = useListFilter(triggers, search, getSearchText, sortByLabel)
 

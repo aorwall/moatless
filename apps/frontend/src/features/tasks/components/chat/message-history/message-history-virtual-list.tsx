@@ -1,5 +1,5 @@
 import { ArrowDown, Loader2 } from 'lucide-react'
-import { type ReactNode, useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffectEvent, useLayoutEffect, useRef, useState } from 'react'
 import { VList, type VListHandle } from 'virtua'
 import { Button } from '@/lib/components/ui/button.tsx'
 import { cn } from '@/lib/utils'
@@ -99,31 +99,29 @@ export function MessageHistoryVirtualList({
   // `initialPinningRef` so onScroll ignores the settling drift (which would
   // otherwise flip the at-bottom state and hide/show the button spuriously).
   // Non-smooth on purpose: smooth scrolling can't converge on a moving target.
-  const pinToBottom = useCallback(
-    (frames = 12) => {
-      atBottomRef.current = true
-      fetchArmedRef.current = true
-      initialPinningRef.current = true
-      setAtBottom(true)
-      let frame = 0
-      let raf = requestAnimationFrame(function tick() {
-        if (ref.current && rows.length > 0) {
-          ref.current.scrollToIndex(rows.length - 1, { align: 'end' })
-        }
-        frame += 1
-        if (frame < frames) {
-          raf = requestAnimationFrame(tick)
-        } else {
-          initialPinningRef.current = false
-        }
-      })
-      return () => {
-        cancelAnimationFrame(raf)
+  const pinToBottom = (frames = 12) => {
+    atBottomRef.current = true
+    fetchArmedRef.current = true
+    initialPinningRef.current = true
+    setAtBottom(true)
+    let frame = 0
+    let raf = requestAnimationFrame(function tick() {
+      if (ref.current && rows.length > 0) {
+        ref.current.scrollToIndex(rows.length - 1, { align: 'end' })
+      }
+      frame += 1
+      if (frame < frames) {
+        raf = requestAnimationFrame(tick)
+      } else {
         initialPinningRef.current = false
       }
-    },
-    [rows.length],
-  )
+    })
+    return () => {
+      cancelAnimationFrame(raf)
+      initialPinningRef.current = false
+    }
+  }
+  const pinToBottomEvent = useEffectEvent(pinToBottom)
 
   // Initial scroll-to-bottom on mount and on task switch.
   useLayoutEffect(() => {
@@ -131,8 +129,8 @@ export function MessageHistoryVirtualList({
       return
     }
     initialScrolledForTaskRef.current = taskKey
-    return pinToBottom()
-  }, [taskKey, rows.length, pinToBottom])
+    return pinToBottomEvent()
+  }, [taskKey, rows.length])
 
   // Stick-to-bottom: when rows are appended and the user was at the bottom,
   // pin to the newest row. Skipped while a prepend is in flight (that grows the
@@ -144,9 +142,9 @@ export function MessageHistoryVirtualList({
       return
     }
     if (rows.length > prevCount && atBottomRef.current) {
-      pinToBottom()
+      pinToBottomEvent()
     }
-  }, [rows.length, pinToBottom])
+  }, [rows.length])
 
   // Clear the prepend shift flag once the prepended rows have committed.
   useLayoutEffect(() => {
@@ -156,46 +154,43 @@ export function MessageHistoryVirtualList({
     }
   }, [isPrepending])
 
-  const handleScroll = useCallback(
-    (offset: number) => {
-      const handle = ref.current
-      if (!handle || initialPinningRef.current) {
-        return
-      }
-      const metrics = metricsFromHandle(handle, offset, bottomSpacerRef.current?.offsetHeight ?? 0)
-      const nowAtBottom = isAtBottom(metrics)
-      atBottomRef.current = nowAtBottom
-      setAtBottom(nowAtBottom)
+  const handleScroll = (offset: number) => {
+    const handle = ref.current
+    if (!handle || initialPinningRef.current) {
+      return
+    }
+    const metrics = metricsFromHandle(handle, offset, bottomSpacerRef.current?.offsetHeight ?? 0)
+    const nowAtBottom = isAtBottom(metrics)
+    atBottomRef.current = nowAtBottom
+    setAtBottom(nowAtBottom)
 
-      if (shouldRearmFetch(offset)) {
-        fetchArmedRef.current = true
-      }
+    if (shouldRearmFetch(offset)) {
+      fetchArmedRef.current = true
+    }
 
-      if (
-        shouldFetchPreviousPage({
-          scrollTop: offset,
-          armed: fetchArmedRef.current,
-          hasPreviousPage,
-          isFetchingPreviousPage,
-          canFetch: Boolean(fetchPreviousPage),
-          anchorPending: isPrependingRef.current,
-        }) &&
-        fetchPreviousPage
-      ) {
-        fetchArmedRef.current = false
-        isPrependingRef.current = true
-        setIsPrepending(true)
-        fetchPreviousPage()
-      }
-    },
-    [hasPreviousPage, isFetchingPreviousPage, fetchPreviousPage],
-  )
+    if (
+      shouldFetchPreviousPage({
+        scrollTop: offset,
+        armed: fetchArmedRef.current,
+        hasPreviousPage,
+        isFetchingPreviousPage,
+        canFetch: Boolean(fetchPreviousPage),
+        anchorPending: isPrependingRef.current,
+      }) &&
+      fetchPreviousPage
+    ) {
+      fetchArmedRef.current = false
+      isPrependingRef.current = true
+      setIsPrepending(true)
+      fetchPreviousPage()
+    }
+  }
 
-  const scrollToBottom = useCallback(() => {
+  const scrollToBottom = () => {
     if (rows.length > 0) {
       pinToBottom()
     }
-  }, [rows.length, pinToBottom])
+  }
 
   return (
     <div className={cn('flex-1 overflow-hidden min-h-0', className)}>

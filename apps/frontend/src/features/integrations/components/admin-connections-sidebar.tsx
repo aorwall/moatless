@@ -59,7 +59,11 @@ export function AdminConnectionsSidebar() {
           />
         ))}
       </ListDetailSidebar>
-      <ConnectionFormDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+      <ConnectionFormDialog
+        key={dialogOpen ? 'open' : 'closed'}
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+      />
     </>
   )
 }

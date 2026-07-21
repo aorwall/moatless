@@ -1,4 +1,4 @@
-import { createContext, type ReactNode, useCallback, useContext, useMemo, useRef } from 'react'
+import { createContext, type ReactNode, useContext } from 'react'
 import type { AgentType } from '@/features/tasks/components/chat/chat-input/selectors'
 import { useLocalStorage } from '@/lib/hooks/use-local-storage'
 import { type ClaudeModel, DEFAULT_CLAUDE_MODEL } from '@/lib/types/claude-models'
@@ -42,13 +42,7 @@ export function ComposeTaskProvider({ children }: { children: ReactNode }) {
   const [windows, setWindows] = useLocalStorage<ComposeWindowState[]>(STORAGE_KEY, DEFAULT_WINDOWS)
   const { repositoryId, agentMode, agentType } = useTaskPreferences()
 
-  // Keep a ref to the latest windows so the callbacks below stay stable and
-  // never operate on a stale snapshot when several updates fire in one tick
-  // (e.g. rapid typing across windows).
-  const windowsRef = useRef(windows)
-  windowsRef.current = windows
-
-  const open = useCallback(() => {
+  const open = () => {
     const newWindow: ComposeWindowState = {
       id: crypto.randomUUID(),
       minimized: false,
@@ -61,36 +55,34 @@ export function ComposeTaskProvider({ children }: { children: ReactNode }) {
       model: DEFAULT_CLAUDE_MODEL,
       templateId: undefined,
     }
-    setWindows([...windowsRef.current, newWindow])
-  }, [setWindows, repositoryId, agentMode, agentType])
+    setWindows((currentWindows) => [...currentWindows, newWindow])
+  }
 
-  const close = useCallback(
-    (id: string) => {
-      setWindows(windowsRef.current.filter((w) => w.id !== id))
-    },
-    [setWindows],
-  )
+  const close = (id: string) => {
+    setWindows((currentWindows) => currentWindows.filter((window) => window.id !== id))
+  }
 
-  const toggleMinimize = useCallback(
-    (id: string) => {
-      setWindows(
-        windowsRef.current.map((w) => (w.id === id ? { ...w, minimized: !w.minimized } : w)),
-      )
-    },
-    [setWindows],
-  )
+  const toggleMinimize = (id: string) => {
+    setWindows((currentWindows) =>
+      currentWindows.map((window) =>
+        window.id === id ? { ...window, minimized: !window.minimized } : window,
+      ),
+    )
+  }
 
-  const update = useCallback(
-    (id: string, patch: Partial<ComposeWindowState>) => {
-      setWindows(windowsRef.current.map((w) => (w.id === id ? { ...w, ...patch } : w)))
-    },
-    [setWindows],
-  )
+  const update = (id: string, patch: Partial<ComposeWindowState>) => {
+    setWindows((currentWindows) =>
+      currentWindows.map((window) => (window.id === id ? { ...window, ...patch } : window)),
+    )
+  }
 
-  const value = useMemo<ComposeTaskContextValue>(
-    () => ({ windows, open, close, toggleMinimize, update }),
-    [windows, open, close, toggleMinimize, update],
-  )
+  const value = {
+    windows,
+    open,
+    close,
+    toggleMinimize,
+    update,
+  }
 
   return <ComposeTaskContext value={value}>{children}</ComposeTaskContext>
 }

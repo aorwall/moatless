@@ -27,7 +27,7 @@ type ComposeTaskFormProps = UseComposeTaskFormArgs
  */
 export function ComposeTaskForm(props: ComposeTaskFormProps) {
   const { name, onNameChange, message } = props
-  const form = useComposeTaskForm(props)
+  const { textareaRef, ...form } = useComposeTaskForm(props)
 
   const handleBodyKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     form.handleCommandKeyDown(e)
@@ -150,7 +150,7 @@ export function ComposeTaskForm(props: ComposeTaskFormProps) {
       {/* Message body — like the email body */}
       <div className="relative min-h-0 flex-1">
         <Textarea
-          ref={form.textareaRef}
+          ref={textareaRef}
           value={message}
           onChange={(e) => form.handleMessageChange(e.target.value)}
           onKeyDown={handleBodyKeyDown}

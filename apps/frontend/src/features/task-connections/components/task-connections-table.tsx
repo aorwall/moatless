@@ -10,7 +10,8 @@ import {
   TableRow,
 } from '@/lib/components/ui/table'
 import { cn } from '@/lib/utils'
-import { ConnectionChip, formatTimestamp, ROW, statusBadgeClass } from './connection-chip'
+import { ConnectionChip } from './connection-chip'
+import { formatTimestamp, ROW, statusBadgeClass } from './connection-chip-utils'
 
 export function TaskConnectionsTable({ rows }: { rows: TaskConnectionRow[] }) {
   return (

@@ -1,4 +1,4 @@
-import { type RefObject, useCallback, useEffect, useState } from 'react'
+import { type RefObject, useEffect, useEffectEvent, useState } from 'react'
 import type { ElementInfo } from '../types'
 
 interface UsePreviewInspectorOptions {
@@ -25,7 +25,7 @@ export function usePreviewInspector({
   const [selectedComponentId, setSelectedComponentId] = useState<string | null>(null)
 
   // Function to request availability check from iframe
-  const requestAvailabilityCheck = useCallback(() => {
+  const requestAvailabilityCheck = () => {
     if (iframeRef.current?.contentWindow) {
       setIsPendingInspectorActivation(true)
       iframeRef.current.contentWindow.postMessage(
@@ -35,26 +35,24 @@ export function usePreviewInspector({
         '*',
       )
     }
-  }, [iframeRef])
+  }
 
   // Function to toggle the element selector in the iframe
-  const toggleSelector = useCallback(
-    (enabled: boolean) => {
-      if (iframeRef.current?.contentWindow) {
-        iframeRef.current.contentWindow.postMessage(
-          {
-            type: 'TOGGLE_SELECTOR',
-            payload: enabled,
-          },
-          '*',
-        )
-      }
-    },
-    [iframeRef],
-  )
+  const toggleSelector = (enabled: boolean) => {
+    if (iframeRef.current?.contentWindow) {
+      iframeRef.current.contentWindow.postMessage(
+        {
+          type: 'TOGGLE_SELECTOR',
+          payload: enabled,
+        },
+        '*',
+      )
+    }
+  }
+  const toggleSelectorEvent = useEffectEvent(toggleSelector)
 
   // Function to clear all selections
-  const clearSelection = useCallback(() => {
+  const clearSelection = () => {
     if (iframeRef.current?.contentWindow) {
       iframeRef.current.contentWindow.postMessage(
         {
@@ -63,139 +61,119 @@ export function usePreviewInspector({
         '*',
       )
     }
-  }, [iframeRef])
+  }
 
   // Function to add element to selection overlay
-  const addToSelection = useCallback(
-    (componentId: string) => {
-      if (iframeRef.current?.contentWindow) {
-        iframeRef.current.contentWindow.postMessage(
-          {
-            type: 'ADD_TO_SELECTION',
-            payload: { componentId },
-          },
-          '*',
-        )
-      }
-    },
-    [iframeRef],
-  )
+  const addToSelection = (componentId: string) => {
+    if (iframeRef.current?.contentWindow) {
+      iframeRef.current.contentWindow.postMessage(
+        {
+          type: 'ADD_TO_SELECTION',
+          payload: { componentId },
+        },
+        '*',
+      )
+    }
+  }
 
   // Function to remove element from selection overlay
-  const removeFromSelection = useCallback(
-    (componentId: string) => {
-      if (iframeRef.current?.contentWindow) {
-        iframeRef.current.contentWindow.postMessage(
-          {
-            type: 'REMOVE_FROM_SELECTION',
-            payload: { componentId },
-          },
-          '*',
-        )
-      }
-    },
-    [iframeRef],
-  )
+  const removeFromSelection = (componentId: string) => {
+    if (iframeRef.current?.contentWindow) {
+      iframeRef.current.contentWindow.postMessage(
+        {
+          type: 'REMOVE_FROM_SELECTION',
+          payload: { componentId },
+        },
+        '*',
+      )
+    }
+  }
 
   // Sync selector state with inspector active state
   useEffect(() => {
-    toggleSelector(isInspectorActive)
-  }, [isInspectorActive, toggleSelector])
+    toggleSelectorEvent(isInspectorActive)
+  }, [isInspectorActive])
 
   // Handle inspector availability message from the iframe
-  const handleInspectorAvailability = useCallback(
-    (payload: { isAvailable: boolean; elementCount?: number }) => {
-      setIsInspectorAvailable(payload.isAvailable)
+  const handleInspectorAvailability = (payload: {
+    isAvailable: boolean
+    elementCount?: number
+  }) => {
+    setIsInspectorAvailable(payload.isAvailable)
 
-      // If user was waiting for availability check, auto-enable or show dialog
-      if (isPendingInspectorActivation) {
-        setIsPendingInspectorActivation(false)
+    // If user was waiting for availability check, auto-enable or show dialog
+    if (isPendingInspectorActivation) {
+      setIsPendingInspectorActivation(false)
 
-        if (payload.isAvailable) {
-          // Auto-enable inspector
-          setIsInspectorActive(true)
-        } else {
-          // Show unavailable dialog
-          setIsInspectorDialogOpen(true)
-        }
+      if (payload.isAvailable) {
+        // Auto-enable inspector
+        setIsInspectorActive(true)
+      } else {
+        // Show unavailable dialog
+        setIsInspectorDialogOpen(true)
       }
-    },
-    [isPendingInspectorActivation],
-  )
+    }
+  }
 
-  const toggleInspector = useCallback(() => {
-    setIsInspectorActive((prev) => {
-      // If disabling inspector, clear selection
-      if (prev) {
-        setSelectedComponentId(null)
-      }
-      return !prev
-    })
-  }, [])
+  const toggleInspector = () => {
+    if (isInspectorActive) {
+      setSelectedComponentId(null)
+    }
+    setIsInspectorActive(!isInspectorActive)
+  }
 
   // Element selected in the InspectorOverlay
-  const handleElementSelected = useCallback(
-    (element: ElementInfo) => {
-      // Transform iframe-relative coordinates to parent-window coordinates
-      let transformedElement = element
-      if (element.elementRect && iframeRef.current) {
-        const iframeRect = iframeRef.current.getBoundingClientRect()
-        transformedElement = {
-          ...element,
-          elementRect: {
-            top: element.elementRect.top + iframeRect.top,
-            left: element.elementRect.left + iframeRect.left,
-            width: element.elementRect.width,
-            height: element.elementRect.height,
-            bottom: element.elementRect.bottom + iframeRect.top,
-            right: element.elementRect.right + iframeRect.left,
-          },
-        }
+  const handleElementSelected = (element: ElementInfo) => {
+    // Transform iframe-relative coordinates to parent-window coordinates
+    let transformedElement = element
+    if (element.elementRect && iframeRef.current) {
+      const iframeRect = iframeRef.current.getBoundingClientRect()
+      transformedElement = {
+        ...element,
+        elementRect: {
+          top: element.elementRect.top + iframeRect.top,
+          left: element.elementRect.left + iframeRect.left,
+          width: element.elementRect.width,
+          height: element.elementRect.height,
+          bottom: element.elementRect.bottom + iframeRect.top,
+          right: element.elementRect.right + iframeRect.left,
+        },
       }
+    }
 
-      // Check if clicking the same element again (to toggle it off)
-      const isSameElement =
-        selectedComponentId && transformedElement.componentId === selectedComponentId
+    // Check if clicking the same element again (to toggle it off)
+    const isSameElement =
+      selectedComponentId && transformedElement.componentId === selectedComponentId
 
-      if (isSameElement) {
-        // Clicking same element again - remove selection overlay and from context
-        removeFromSelection(transformedElement.componentId)
-        setSelectedComponentId(null)
-      } else {
-        // Different element - clear old selection and add new one
-        clearSelection()
-        addToSelection(transformedElement.componentId)
-        setSelectedComponentId(transformedElement.componentId)
-      }
+    if (isSameElement) {
+      // Clicking same element again - remove selection overlay and from context
+      removeFromSelection(transformedElement.componentId)
+      setSelectedComponentId(null)
+    } else {
+      // Different element - clear old selection and add new one
+      clearSelection()
+      addToSelection(transformedElement.componentId)
+      setSelectedComponentId(transformedElement.componentId)
+    }
 
-      // Notify parent of selection (optional callback)
-      onElementSelected?.(transformedElement)
-      // Automatically toggle element in context
-      onToggleElementContext?.(transformedElement)
-    },
-    [
-      iframeRef,
-      selectedComponentId,
-      removeFromSelection,
-      clearSelection,
-      addToSelection,
-      onElementSelected,
-      onToggleElementContext,
-    ],
-  )
+    // Notify parent of selection (optional callback)
+    onElementSelected?.(transformedElement)
+    // Automatically toggle element in context
+    onToggleElementContext?.(transformedElement)
+  }
 
   /** Reload: deactivate the inspector but keep the availability result. */
-  const deactivateInspector = useCallback(() => {
+  const deactivateInspector = () => {
     setIsInspectorActive(false)
     setSelectedComponentId(null)
-  }, [])
+  }
 
   /** Server changed or stopped: full inspector reset. */
-  const resetInspector = useCallback(() => {
+  const resetInspector = () => {
     setIsInspectorActive(false)
     setIsInspectorAvailable(null)
     setSelectedComponentId(null)
-  }, [])
+  }
 
   return {
     isInspectorActive,

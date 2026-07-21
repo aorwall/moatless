@@ -1,5 +1,3 @@
-import { useMemo } from 'react'
-
 /**
  * Filter (and optionally sort) a list for a search sidebar.
  *
@@ -16,7 +14,7 @@ export function useListFilter<T>(
   getSearchText: (item: T) => Array<string | null | undefined>,
   sortBy?: (a: T, b: T) => number,
 ): T[] {
-  return useMemo(() => {
+  return (() => {
     const all = items ?? []
     const term = search.trim().toLowerCase()
     const filtered = term
@@ -26,6 +24,6 @@ export function useListFilter<T>(
             .some((value) => value.toLowerCase().includes(term)),
         )
       : all
-    return sortBy ? [...filtered].sort(sortBy) : filtered
-  }, [items, search, getSearchText, sortBy])
+    return sortBy ? filtered.toSorted(sortBy) : filtered
+  })()
 }

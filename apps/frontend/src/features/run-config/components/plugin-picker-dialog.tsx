@@ -1,5 +1,5 @@
 import { Check, Package, Search } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
 import { Checkbox } from '@/lib/components/ui/checkbox'
@@ -44,7 +44,7 @@ export function PluginPickerDialog({
   }
 
   // Filter plugins by search query
-  const filteredPlugins = useMemo(() => {
+  const filteredPlugins = (() => {
     if (!searchQuery.trim()) {
       return plugins
     }
@@ -55,10 +55,10 @@ export function PluginPickerDialog({
         plugin.description?.toLowerCase().includes(query) ||
         plugin.marketplaceName.toLowerCase().includes(query),
     )
-  }, [plugins, searchQuery])
+  })()
 
   // Group filtered plugins by marketplace
-  const pluginsByMarketplace = useMemo(() => {
+  const pluginsByMarketplace = (() => {
     const groups = new Map<string, PluginInfo[]>()
     for (const plugin of filteredPlugins) {
       const existing = groups.get(plugin.marketplaceName) ?? []
@@ -66,7 +66,7 @@ export function PluginPickerDialog({
       groups.set(plugin.marketplaceName, existing)
     }
     return groups
-  }, [filteredPlugins])
+  })()
 
   const handleTogglePlugin = (pluginId: string) => {
     setLocalSelection((prev) =>

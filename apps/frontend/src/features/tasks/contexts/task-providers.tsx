@@ -36,7 +36,6 @@ export function TaskProviders({ taskId, children }: TaskProvidersProps) {
   )
 }
 
-export { useIsAgentRunning, useTaskMetadata, useTaskStatus } from '../hooks/use-task-context'
 export {
   SandboxEventsProvider,
   useSandboxEvents,
@@ -46,12 +45,7 @@ export { TaskComposerProvider, useComposer } from './task-composer-provider'
 // Export all the individual providers and hooks
 export {
   TaskDataProvider,
-  useEventStream,
-  useLatestContextTokens,
-  useStreamingStatus,
-  useTaskEvents,
   useTaskId,
-  useTaskStreamingState,
 } from './task-data-provider'
 export { TaskPanelControlsProvider, usePanelControls } from './task-panel-controls'
-export { TaskUIProvider, usePanelSizes, useTaskUI } from './task-ui-provider'
+export { TaskUIProvider, useTaskUI } from './task-ui-provider'

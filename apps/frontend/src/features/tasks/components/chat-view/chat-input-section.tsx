@@ -160,22 +160,20 @@ export function ChatInputSection({
   const [selectedAgentMode, setSelectedAgentMode] = useState<'edit' | 'plan'>('edit')
 
   // Initialize selectors with controlled state
-  const modelValue = isModelSelectorEnabled ? selectedModel : DEFAULT_CLAUDE_MODEL
+  // Resolve the task's agent from the catalog so the model list + default are
+  // scoped to whatever agent actually runs this task (e.g. codex, fable) rather
+  // than the hard-coded Claude fallback.
+  const { selectedAgent, availableModel } = useAgentAvailability({
+    agentType: task?.agentType ?? DEFAULT_AGENT_TYPE,
+    model: selectedModel,
+  })
+
+  const modelValue = isModelSelectorEnabled ? availableModel : DEFAULT_CLAUDE_MODEL
   const modelOnChange = isModelSelectorEnabled
     ? setSelectedModel
     : () => {
         /* no-op: model selector disabled */
       }
-
-  // Resolve the task's agent from the catalog so the model list + default are
-  // scoped to whatever agent actually runs this task (e.g. codex, fable) rather
-  // than the hard-coded Claude fallback. Also resets the selection when the
-  // current model isn't offered by the task's agent.
-  const { selectedAgent } = useAgentAvailability({
-    agentType: task?.agentType ?? DEFAULT_AGENT_TYPE,
-    model: selectedModel,
-    onModelChange: setSelectedModel,
-  })
 
   const modelSelector = useModelSelector<ClaudeModel>(
     modelValue,
@@ -207,7 +205,7 @@ export function ChatInputSection({
     selectedCommand,
     clearSelectedCommand,
     taskInputs,
-    selectedModel,
+    selectedModel: availableModel,
     selectedAgentMode,
     setSelectedAgentMode,
     isModelSelectorEnabled,

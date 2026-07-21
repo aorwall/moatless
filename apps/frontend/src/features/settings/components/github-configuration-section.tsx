@@ -167,7 +167,21 @@ export function GitHubConfigurationSection() {
     }
 
     const handleFocus = () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.settings.github() })
+      queryClient
+        .invalidateQueries({ queryKey: queryKeys.settings.github() })
+        .then(() => {
+          const latestConfig = queryClient.getQueryData<GitHubConfigResponse>(
+            queryKeys.settings.github(),
+          )
+          if (latestConfig?.connected) {
+            setIsConnecting(false)
+            popupRef.current = null
+            toast.success('Successfully connected to GitHub!')
+          }
+        })
+        .catch(() => {
+          // The query exposes its own error state; focus detection is best-effort.
+        })
     }
 
     window.addEventListener('focus', handleFocus)
@@ -176,15 +190,6 @@ export function GitHubConfigurationSection() {
       window.removeEventListener('focus', handleFocus)
     }
   }, [isConnecting, queryClient])
-
-  // Reset connecting state and show success when connection is detected
-  useEffect(() => {
-    if (isConnecting && githubConfig?.connected) {
-      setIsConnecting(false)
-      popupRef.current = null
-      toast.success('Successfully connected to GitHub!')
-    }
-  }, [isConnecting, githubConfig?.connected])
 
   // Poll to detect when popup window is closed
   useEffect(() => {

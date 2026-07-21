@@ -1,6 +1,6 @@
 import { type SecretMetadataResponse, SecretScopeType } from '@moatless/api-client'
 import { Plus } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { useAuth } from '@/features/auth/hooks/use-auth'
 import { SecretEditorDialog } from '@/features/secrets/components/secret-editor-dialog'
 import { SecretsList } from '@/features/secrets/components/secrets-list'
@@ -31,7 +31,7 @@ export function SecretsPanel({ defaultScope = 'user' }: SecretsPanelProps = {}) 
     enabled: scope === SecretScopeType.team || dialogOpen,
   })
 
-  const scopeId = useMemo(() => {
+  const scopeId = (() => {
     if (scope === SecretScopeType.user) {
       return user?.id ?? undefined
     }
@@ -39,7 +39,7 @@ export function SecretsPanel({ defaultScope = 'user' }: SecretsPanelProps = {}) 
       return teamId.trim() || undefined
     }
     return
-  }, [scope, teamId, user?.id])
+  })()
 
   const {
     data: secrets,
@@ -116,6 +116,7 @@ export function SecretsPanel({ defaultScope = 'user' }: SecretsPanelProps = {}) 
       )}
 
       <SecretEditorDialog
+        key={`${dialogOpen ? 'open' : 'closed'}:${editSecret?.id ?? 'new'}:${scope}`}
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         editSecret={editSecret}

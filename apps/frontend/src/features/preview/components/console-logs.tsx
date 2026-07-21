@@ -25,6 +25,46 @@ interface ConsoleLogsProps {
   logs?: ConsoleLog[]
 }
 
+function getLevelColor(level: ConsoleLog['level']) {
+  switch (level) {
+    case 'error':
+      return 'text-status-error'
+    case 'warn':
+      return 'text-status-warning'
+    case 'info':
+      return 'text-status-info'
+    case 'debug':
+      return 'text-muted-foreground'
+    case 'route':
+      return 'text-status-success'
+    default:
+      return 'text-foreground'
+  }
+}
+
+function formatMessage(log: ConsoleLog) {
+  const timestamp = new Date(log.timestamp).toLocaleTimeString()
+  if (log.level === 'route') {
+    return `[${timestamp}] [🧭 NAVIGATION] ${log.message}`
+  }
+  const prefix = `[${timestamp}] [${log.level.toUpperCase()}]`
+  return `${prefix} ${log.message}`
+}
+
+function formatStackTrace(stack: string) {
+  const lines = stack.split('\n').filter((line) => {
+    const trimmed = line.trim()
+    return (
+      trimmed &&
+      !trimmed.includes('console.<computed>') &&
+      !trimmed.includes('Preview Inspector') &&
+      !trimmed.includes('hookConsole')
+    )
+  })
+
+  return lines.join('\n').trim()
+}
+
 export function ConsoleLogs({ logs: propLogs }: ConsoleLogsProps = {}) {
   const [internalLogs, setInternalLogs] = useState<ConsoleLog[]>([])
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -83,48 +123,6 @@ export function ConsoleLogs({ logs: propLogs }: ConsoleLogsProps = {}) {
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
   }, [propLogs])
-
-  const getLevelColor = (level: ConsoleLog['level']) => {
-    switch (level) {
-      case 'error':
-        return 'text-status-error'
-      case 'warn':
-        return 'text-status-warning'
-      case 'info':
-        return 'text-status-info'
-      case 'debug':
-        return 'text-muted-foreground'
-      case 'route':
-        return 'text-status-success'
-      default:
-        return 'text-foreground'
-    }
-  }
-
-  const formatMessage = (log: ConsoleLog) => {
-    const timestamp = new Date(log.timestamp).toLocaleTimeString()
-    if (log.level === 'route') {
-      return `[${timestamp}] [🧭 NAVIGATION] ${log.message}`
-    }
-    const prefix = `[${timestamp}] [${log.level.toUpperCase()}]`
-    return `${prefix} ${log.message}`
-  }
-
-  const formatStackTrace = (stack: string) => {
-    // Split by newlines and filter out the console call itself and other noise
-    const lines = stack.split('\n').filter((line) => {
-      const trimmed = line.trim()
-      // Filter out console call and internal preview script lines
-      return (
-        trimmed &&
-        !trimmed.includes('console.<computed>') &&
-        !trimmed.includes('Preview Inspector') &&
-        !trimmed.includes('hookConsole')
-      )
-    })
-
-    return lines.join('\n').trim()
-  }
 
   if (logs.length === 0) {
     return (

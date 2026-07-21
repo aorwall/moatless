@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { Loader2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { useExchangeGitHubToken } from '@/features/settings'
 import { Alert, AlertDescription, AlertTitle } from '@/lib/components/ui/alert'
 import { Button } from '@/lib/components/ui/button'
@@ -12,17 +12,16 @@ export const Route = createFileRoute('/oauth/github/callback')({
   component: GitHubOAuthCallback,
 })
 
+function closeWindow() {
+  window.close()
+}
+
 function GitHubOAuthCallback() {
   const { code, state } = Route.useSearch()
   const exchangeToken = useExchangeGitHubToken()
-  const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading')
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   useEffect(() => {
-    // Validate we have code and state
     if (!(code && state)) {
-      setStatus('error')
-      setErrorMessage('Missing code or state parameter from OAuth callback')
       return
     }
 
@@ -31,25 +30,16 @@ function GitHubOAuthCallback() {
       { code, state },
       {
         onSuccess: () => {
-          setStatus('success')
           // Close the popup window after a short delay
           setTimeout(() => {
             window.close()
           }, 2000)
         },
-        onError: (error) => {
-          setStatus('error')
-          setErrorMessage(getErrorMessage(error))
-        },
       },
     )
   }, [code, state, exchangeToken.mutate])
 
-  const handleClose = () => {
-    window.close()
-  }
-
-  if (status === 'loading') {
+  if (code && state && !exchangeToken.isSuccess && !exchangeToken.isError) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
@@ -63,7 +53,7 @@ function GitHubOAuthCallback() {
     )
   }
 
-  if (status === 'success') {
+  if (exchangeToken.isSuccess) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center max-w-md mx-auto p-6">
@@ -72,11 +62,16 @@ function GitHubOAuthCallback() {
           <p className="text-muted-foreground mb-6">
             Your GitHub account has been connected. This window will close automatically.
           </p>
-          <Button onClick={handleClose}>Close Window</Button>
+          <Button onClick={closeWindow}>Close Window</Button>
         </div>
       </div>
     )
   }
+
+  const errorMessage =
+    code && state && exchangeToken.error
+      ? getErrorMessage(exchangeToken.error)
+      : 'Missing code or state parameter from OAuth callback'
 
   return (
     <div className="flex items-center justify-center min-h-screen">
@@ -84,10 +79,8 @@ function GitHubOAuthCallback() {
         <Alert variant="destructive">
           <AlertTitle>Connection Failed</AlertTitle>
           <AlertDescription>
-            <p className="mb-4">
-              {errorMessage || 'Unable to connect to GitHub. Please try again.'}
-            </p>
-            <Button onClick={handleClose} variant="outline">
+            <p className="mb-4">{errorMessage}</p>
+            <Button onClick={closeWindow} variant="outline">
               Close Window
             </Button>
           </AlertDescription>

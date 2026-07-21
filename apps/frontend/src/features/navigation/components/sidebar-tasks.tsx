@@ -2,7 +2,7 @@ import type { TaskResponse } from '@moatless/api-client'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { ChevronDown, ChevronRight, X } from 'lucide-react'
 import type React from 'react'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { useAuth } from '@/features/auth/hooks/use-auth'
 import { SidebarTasksSkeleton } from '@/features/tasks/components/task-skeletons'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
@@ -22,9 +22,18 @@ import { activityToState, type TaskActivity, useTaskActivity } from '../hooks/us
 import {
   DEFAULT_SIDEBAR_FILTERS,
   hasActiveSidebarFilters,
-  SidebarTaskFilters,
   type SidebarTaskFilterValues,
-} from './sidebar-task-filters'
+} from './sidebar-task-filter-values'
+import { SidebarTaskFilters } from './sidebar-task-filters'
+import {
+  buildTaskGroups,
+  compareActivityDesc,
+  type EnrichedTask,
+  flattenGroupTasks,
+  RUNNING_STATE_ORDER,
+  type TaskGroup,
+  visibleGroupTaskIds,
+} from './sidebar-task-groups'
 
 function getRelativeTime(date: Date | string): string {
   const now = new Date()
@@ -56,52 +65,6 @@ function getRelativeTime(date: Date | string): string {
   }
   const years = Math.floor(days / 365)
   return `${years}y ago`
-}
-
-/** A task row enriched with its live stream activity, used for grouping/sorting. */
-export interface EnrichedTask {
-  task: TaskResponse
-  repositoryName: string
-  /**
-   * Live activity state (agent working / starting up / sandbox running / idle).
-   * Any non-idle state places the row in the "Running" section.
-   */
-  state: TaskActivityState
-  /**
-   * Whether the task has activity newer than the user's last read marker.
-   * The currently-open task is excluded from the unread treatment at render.
-   */
-  unread: boolean
-  /** Latest message preview, or `null` when the task has no message yet. */
-  preview: string | null
-  /**
-   * The last few streamed previews (oldest-first) for a running task, shown as
-   * several lines of live activity. Empty for idle tasks.
-   */
-  recentMessages: string[]
-  /** Effective last-activity timestamp used for sorting within a group. */
-  lastActivityAt: string
-}
-
-/** A visible sidebar family: one main task row and any children present in the current list. */
-export interface TaskGroup {
-  main: EnrichedTask
-  children: TaskGroup[]
-  state: TaskActivityState
-  lastActivityAt: string
-}
-
-/**
- * Sort priority for the "Running" section: group by activity state, most
- * active first. Sorting on this (then on the immutable creation time) keeps
- * rows from jumping around as messages stream in — unlike sorting on
- * last-activity, which changes constantly while a task is running.
- */
-const RUNNING_STATE_ORDER: Record<TaskActivityState, number> = {
-  'agent-working': 0,
-  starting: 1,
-  'sandbox-running': 2,
-  idle: 3,
 }
 
 /**
@@ -146,88 +109,6 @@ function enrichTask(task: TaskResponse, activity: TaskActivity | undefined): Enr
     recentMessages: activity?.recentMessages ?? [],
     lastActivityAt,
   }
-}
-
-function compareActivityDesc(a: EnrichedTask, b: EnrichedTask) {
-  return b.lastActivityAt.localeCompare(a.lastActivityAt)
-}
-
-function mostActiveState(tasks: EnrichedTask[]): TaskActivityState {
-  return tasks.reduce<TaskActivityState>((best, item) => {
-    return RUNNING_STATE_ORDER[item.state] < RUNNING_STATE_ORDER[best] ? item.state : best
-  }, 'idle')
-}
-
-function latestActivityAt(tasks: EnrichedTask[]): string {
-  return tasks.reduce((latest, item) => {
-    return item.lastActivityAt.localeCompare(latest) > 0 ? item.lastActivityAt : latest
-  }, tasks[0]?.lastActivityAt ?? '')
-}
-
-function flattenGroupTasks(group: TaskGroup): EnrichedTask[] {
-  return [group.main, ...group.children.flatMap(flattenGroupTasks)]
-}
-
-function visibleGroupTaskIds(group: TaskGroup, expandedGroupIds: Set<string>): string[] {
-  if (!expandedGroupIds.has(group.main.task.taskId)) {
-    return [group.main.task.taskId]
-  }
-  return [
-    group.main.task.taskId,
-    ...group.children.flatMap((child) => visibleGroupTaskIds(child, expandedGroupIds)),
-  ]
-}
-
-/**
- * Group visible tasks under their visible parent. If a parent is outside the
- * current filtered page, the child remains a top-level row so no task vanishes.
- */
-export function buildTaskGroups(items: EnrichedTask[]): TaskGroup[] {
-  const byId = new Map(items.map((item) => [item.task.taskId, item]))
-  const childrenByParent = new Map<string, EnrichedTask[]>()
-
-  for (const item of items) {
-    const parentId = item.task.parentTaskId
-    if (!(parentId && byId.has(parentId))) {
-      continue
-    }
-
-    const siblings = childrenByParent.get(parentId) ?? []
-    siblings.push(item)
-    childrenByParent.set(parentId, siblings)
-  }
-
-  const buildGroup = (main: EnrichedTask, ancestors: Set<string>): TaskGroup => {
-    const nextAncestors = new Set(ancestors)
-    nextAncestors.add(main.task.taskId)
-    const children = (childrenByParent.get(main.task.taskId) ?? [])
-      .filter((child) => !nextAncestors.has(child.task.taskId))
-      .sort(compareActivityDesc)
-      .map((child) => buildGroup(child, nextAncestors))
-    const group: TaskGroup = {
-      main,
-      children,
-      state: 'idle',
-      lastActivityAt: main.lastActivityAt,
-    }
-    const family = flattenGroupTasks(group)
-    return {
-      ...group,
-      state: mostActiveState(family),
-      lastActivityAt: latestActivityAt(family),
-    }
-  }
-
-  const roots = items.filter((item) => {
-    const parentId = item.task.parentTaskId
-    return !(parentId && byId.has(parentId))
-  })
-
-  // Defensive fallback for malformed cyclic data where every visible task has
-  // another visible task as its parent. Keep all rows reachable rather than
-  // rendering an empty sidebar.
-  const visibleRoots = roots.length > 0 ? roots : items
-  return visibleRoots.map((item) => buildGroup(item, new Set()))
 }
 
 /**
@@ -585,7 +466,7 @@ export function SidebarTasks() {
   // from the event stream, so this recomputes as those inputs update. Tasks
   // are grouped under visible parents after enrichment so child rows inherit
   // the same live/unread treatment as top-level rows.
-  const { running, open } = useMemo(() => {
+  const { running, open } = (() => {
     const enrich = (task: TaskResponse) => enrichTask(task, activityByTask.get(task.taskId))
 
     const byGroupActivityDesc = (a: TaskGroup, b: TaskGroup) =>
@@ -612,19 +493,20 @@ export function SidebarTasks() {
     // as running above (avoids duplicates while the personal default overlaps
     // the filter).
     const openItems = (filteredQuery.data?.items ?? [])
-      .map(enrich)
-      .filter((t) => !runningIds.has(t.task.taskId))
+      .flatMap((task) => {
+        const item = enrich(task)
+        return runningIds.has(item.task.taskId) ? [] : [item]
+      })
       .sort(compareActivityDesc)
     const open = buildTaskGroups(openItems).sort(byGroupActivityDesc)
 
     return { running, open }
-  }, [runningQuery.data?.items, filteredQuery.data?.items, activityByTask])
+  })()
 
   // Displayed order (running first, then open) so we can pick the neighbouring
   // task to jump to when the active one is closed.
-  const orderedIds = useMemo(
-    () => [...running, ...open].flatMap((group) => visibleGroupTaskIds(group, expandedGroupIds)),
-    [running, open, expandedGroupIds],
+  const orderedIds = [...running, ...open].flatMap((group) =>
+    visibleGroupTaskIds(group, expandedGroupIds),
   )
   const neighborOf = (taskId: string): string | null => {
     const index = orderedIds.indexOf(taskId)

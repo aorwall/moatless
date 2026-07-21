@@ -8,6 +8,10 @@ import { isServerUnavailable } from '@/lib/api/server-status'
 
 const API_BASE_URL = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL ?? '')
 
+function logout() {
+  window.location.href = `${API_BASE_URL}/api/v1/auth/logout`
+}
+
 /**
  * Colocated `queryKey` + `queryFn` (+ defaults) for the current auth session.
  * Shared between the `useAuth` hook and route loaders (e.g. the admin guard) so
@@ -33,16 +37,6 @@ export function authSessionQueryOptions() {
  */
 export function useAuth() {
   const { data: session, isLoading, error, refetch } = useQuery(authSessionQueryOptions())
-
-  /**
-   * Logout by navigating to the logout endpoint
-   * Uses GET request via window.location to allow proper redirect handling
-   * For Auth0 users, backend will redirect to Auth0 logout, then back to app
-   * For GitHub users, backend will return JSON and redirect to home
-   */
-  const logout = () => {
-    window.location.href = `${API_BASE_URL}/api/v1/auth/logout`
-  }
 
   const providers: ProviderConnection[] = session?.providers ?? []
   const githubProvider = providers.find((p) => p.provider === 'github')

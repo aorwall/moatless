@@ -1,6 +1,6 @@
 import { useNavigate } from '@tanstack/react-router'
 import { AlertCircle, Loader2, RefreshCw, Trash2 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 import {
   useMarketplaces,
@@ -67,9 +67,8 @@ function AdminMarketplaceDetailBody({ marketplace }: { marketplace: PluginMarket
   const removeMarketplace = useRemoveMarketplace()
   const [confirmOpen, setConfirmOpen] = useState(false)
 
-  const plugins = useMemo(
-    () => (pluginsData?.plugins ?? []).filter((plugin) => plugin.marketplaceId === marketplace.id),
-    [pluginsData, marketplace.id],
+  const plugins = (pluginsData?.plugins ?? []).filter(
+    (plugin) => plugin.marketplaceId === marketplace.id,
   )
 
   const isFailed = marketplace.status === 'failed'

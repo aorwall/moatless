@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { useAgentAvailability } from '@/features/agents'
 import { useCommandsList } from '@/features/commands/hooks/use-commands'
@@ -15,10 +15,7 @@ import {
   useRepositorySelector,
   useTaskTemplateSelector,
 } from '@/features/tasks/components/chat/chat-input/selectors'
-import {
-  type Suggestion,
-  useCommandAutocomplete,
-} from '@/features/tasks/components/chat/command-autocomplete'
+import { useCommandAutocomplete } from '@/features/tasks/components/chat/command-autocomplete'
 import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
 import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
 import { queryKeys } from '@/lib/api/query-keys'
@@ -81,11 +78,8 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
   const [repoDialogOpen, setRepoDialogOpen] = useState(false)
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
 
-  const { agents, selectedAgent, agentUnavailable, settingsSection } = useAgentAvailability({
-    agentType,
-    model,
-    onModelChange,
-  })
+  const { agents, selectedAgent, agentUnavailable, settingsSection, availableModel } =
+    useAgentAvailability({ agentType, model })
 
   const { data: commands = [] } = useCommandsList()
   const { data: skills = [], error: skillsError } = useRepositorySkills(repositoryId || undefined)
@@ -98,13 +92,10 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
     }
   }, [skillsError])
 
-  const suggestions = useMemo<Suggestion[]>(
-    () => [
-      ...commands.map((c) => ({ kind: 'command' as const, ...c })),
-      ...skills.map((s) => ({ kind: 'skill' as const, ...s })),
-    ],
-    [commands, skills],
-  )
+  const suggestions = [
+    ...commands.map((c) => ({ kind: 'command' as const, ...c })),
+    ...skills.map((s) => ({ kind: 'skill' as const, ...s })),
+  ]
 
   const {
     inputRef: textareaRef,
@@ -145,7 +136,7 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
   }, [repositoryError, onRepositoryChange])
 
   const modelSelector = useModelSelector<ClaudeModel>(
-    isModelSelectorEnabled ? model : DEFAULT_CLAUDE_MODEL,
+    isModelSelectorEnabled ? availableModel : DEFAULT_CLAUDE_MODEL,
     isModelSelectorEnabled
       ? onModelChange
       : () => {
@@ -195,20 +186,17 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
     },
   })
 
-  const handleMessageChange = useCallback(
-    (newMessage: string) => {
-      onMessageChange(newMessage)
-      if (textareaRef.current) {
-        const cursorPosition = textareaRef.current.selectionStart || 0
-        handleCommandInputChange(newMessage, cursorPosition)
-      }
-    },
-    [handleCommandInputChange, textareaRef, onMessageChange],
-  )
+  const handleMessageChange = (newMessage: string) => {
+    onMessageChange(newMessage)
+    if (textareaRef.current) {
+      const cursorPosition = textareaRef.current.selectionStart || 0
+      handleCommandInputChange(newMessage, cursorPosition)
+    }
+  }
 
   const canSubmit = !!repositoryId && !agentUnavailable
 
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = () => {
     if (!canSubmit) {
       return
     }
@@ -220,7 +208,7 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
     )
 
     const trimmedName = name.trim()
-    const modelValue = isModelSelectorEnabled ? modelToApiValue(model) : undefined
+    const modelValue = isModelSelectorEnabled ? modelToApiValue(availableModel) : undefined
     createTask.mutate(
       {
         agentType,
@@ -243,23 +231,7 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
         },
       },
     )
-  }, [
-    canSubmit,
-    message,
-    agentMode,
-    selectedCommand,
-    createTask,
-    agentType,
-    name,
-    repositoryId,
-    isModelSelectorEnabled,
-    model,
-    taskInputs,
-    branchSelector.value,
-    templateId,
-    clearSelectedCommand,
-    onSuccess,
-  ])
+  }
 
   const placeholder = isTemplate
     ? 'Describe what you want to build…'
