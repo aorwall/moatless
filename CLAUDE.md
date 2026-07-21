@@ -4,158 +4,67 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-### Frontend Development Commands
+### Frontend (bun 1.2.19+)
 ```bash
-# Install dependencies (requires bun 1.2.19+)
 bun install
-
-# Development (runs frontend dev server with Turborepo)
-bun run dev
-
-# Build frontend for production
-bun run build
-
-# Run frontend tests (tiered by speed and scope)
+bun run dev              # frontend dev server (Turborepo)
+bun run build            # production build
 bun run test             # standard tests (excludes E2E)
-bun run test:unit        # unit tests only (fastest)
-bun run test:integration # integration tests only
-bun run test:e2e         # E2E tests only (slowest, Playwright)
-bun run test:coverage    # with coverage report
-
-# Type checking (frontend + shared packages)
-bun run type:check
-
-# Linting and formatting
-bun run biome:check      # check for issues
-bun run biome:fix        # auto-fix issues
-
-# Run all frontend checks (optimized for speed with Turborepo)
-bun run check:turbo
-
-# Install shadcn/ui components (run from frontend app)
+bun run test:unit        # fastest
+bun run test:integration
+bun run test:e2e         # Playwright, slowest
+bun run test:coverage
+bun run type:check       # frontend + shared packages
+bun run biome:check      # lint/format check
+bun run biome:fix        # auto-fix
+bun run check:turbo      # all checks (Turborepo)
 cd apps/frontend && bunx shadcn@latest add [component]
 ```
 
-### Rust Backend & Sandbox Commands
+### Rust backend & sandbox
 ```bash
-# Build
-cargo build -p moatless-vibe-backend     # build backend
-cargo build -p moatless-sandbox          # build sandbox
-
-# Lint
+cargo build -p moatless-vibe-backend        # or moatless-sandbox
 cargo clippy -p moatless-vibe-backend -- -D warnings
-cargo clippy -p moatless-sandbox -- -D warnings
+cargo test -p moatless-vibe-backend         # or moatless-sandbox, claude-agent-sdk, moatless-events
 
-# Test
-cargo test -p moatless-vibe-backend      # backend tests
-cargo test -p moatless-sandbox           # sandbox tests
-cargo test -p claude-agent-sdk           # SDK tests
-cargo test -p moatless-events            # event system tests
-
-# E2E tests (requires `claude` CLI + API key)
+# E2E (requires `claude` CLI + API key)
 CLAUDE_SDK_E2E=1 cargo test -p moatless-sandbox --test agent_e2e -- --ignored --nocapture
 CLAUDE_SDK_E2E=1 cargo test -p claude-agent-sdk -- --ignored
 ```
 
-### Integration Tests (Taskfile + Docker Compose)
+### Integration tests (Taskfile + Docker Compose; requires taskfile.dev, Docker)
 ```bash
-# Requires: https://taskfile.dev, Docker
-
-# Run DB-tier tests (API CRUD, auth, channels — no sandbox needed, fastest)
-task test:compose:db
-
-# Run sandbox-tier tests (file ops, lifecycle — builds sandbox image)
-task test:compose:sandbox
-
-# Run all tiers including agent tests (requires CLAUDE_CODE_OAUTH_TOKEN in .env)
-task test:compose:all
-
-# Run a single test file
-task test:compose -- --test message_acknowledgment
-
-# Reuse existing images (skip rebuild)
-task test:compose -- --skip-build --tier agent
-
-# Keep containers running after tests (for debugging)
-task test:compose -- --keep-running --test message_acknowledgment
+task test:compose:db         # DB tier: API CRUD, auth, channels (no sandbox, fastest)
+task test:compose:sandbox    # sandbox tier: file ops, lifecycle (builds sandbox image)
+task test:compose:all        # all tiers incl. agent (needs CLAUDE_CODE_OAUTH_TOKEN in .env)
+task test:compose -- --test message_acknowledgment      # single file
+task test:compose -- --skip-build --tier agent          # reuse images
+task test:compose -- --keep-running --test <name>       # keep containers for debugging
 ```
+Test tiers: **db** (non-ignored), **sandbox** (`SANDBOX_E2E=1`), **agent** (`CLAUDE_SDK_E2E=1`), **all** (db then all ignored).
 
-The test runner (`docker-compose/test-runner.sh`) handles the full lifecycle:
-build images → start Postgres/Redis/backend → reset DB → run tests → tear down.
-
-### Playwright E2E in Docker (`docker-compose/playwright-runner.sh`)
+### Playwright / SDK E2E in Docker
 ```bash
-# API-only chains (needs GITHUB_PAT), browser suite, or both. Runs the suites
-# inside a container (docker/Dockerfile.e2e) on the compose network.
-task test:compose:e2e                       # API suite (default)
-task test:compose:e2e -- --suite ui         # browser suite (builds frontend)
-task test:compose:e2e -- --suite all        # both
+task test:compose:e2e                  # API suite (needs GITHUB_PAT)
+task test:compose:e2e -- --suite ui    # browser suite (builds frontend)
+task test:sdk:claude:docker -- smoke   # claude-agent-sdk vs pinned Claude CLI
+OPENAI_API_KEY=sk-... task test:sdk:codex:docker   # Codex `codex exec` path
 ```
+All of the above also run via the manual `E2E (manual)` workflow (`.github/workflows/e2e.yml`).
 
-### SDK E2E in Docker (`crates/*/scripts/test-docker.sh`)
+> **Apple Silicon**: `docker/build-sandbox.sh --local --only base` builds native arm64 sandbox images.
+
+### Docker build / K8s deploy / release
 ```bash
-# claude-agent-sdk against the pinned Claude CLI (slim image)
-task test:sdk:claude:docker -- smoke        # or: sdk-e2e / sandbox-transport
-# Codex CLI path — how the sandbox actually runs Codex (`codex exec`), in the
-# sandbox base image (ships the codex CLI). Runs test_spawn_agent_codex.
-OPENAI_API_KEY=sk-... task test:sdk:codex:docker
+./docker/build-app.sh [--tag v1.0.0] [--push]      # frontend
+./docker/build-backend.sh [IMAGE_NAME] [TAG]        # backend
+./docker/build-sandbox.sh [--tag v1.0.0] [--push]   # sandbox
+bun run dev:docker                                   # local Docker Compose
+
+task deploy [TAG=v2.0.0]     # build, push, deploy; also deploy:frontend, status, logs, restart
+
+git tag v0.1.21 && git push origin v0.1.21           # triggers release.yml
 ```
-
-> The standalone `codex-sdk` crate (in-process app-server) is **not** used by the
-> sandbox runtime and has no Docker harness — test it manually per
-> `crates/codex-sdk/CLAUDE.md`. The Docker path above exercises the production
-> `codex exec` CLI in `sandbox/src/agent/codex_exec.rs`.
-
-All of the above also run on demand via the manual `E2E (manual)` GitHub
-workflow (`.github/workflows/e2e.yml`).
-
-Test tiers:
-- **db**: Non-ignored tests — task CRUD, repo CRUD, auth, channels (no sandbox)
-- **sandbox**: `SANDBOX_E2E=1` — file operations, sandbox lifecycle
-- **agent**: `CLAUDE_SDK_E2E=1` — agent execution, multi-message, plan mode (requires Claude CLI + API key)
-- **all**: Runs db first, then all ignored tests
-
-> **Apple Silicon**: Use `docker/build-sandbox.sh --local --only base` to build
-> native arm64 sandbox images. The build script cross-compiles the sandbox binary
-> and installs the Claude CLI via npm for the correct architecture.
-
-### Docker Build Commands
-```bash
-# Build Docker images
-./docker/build-app.sh [--tag v1.0.0] [--push]         # frontend (Nginx)
-./docker/build-backend.sh [IMAGE_NAME] [TAG]           # backend (cross-compile + push)
-./docker/build-sandbox.sh [--tag v1.0.0] [--push]      # sandbox images
-
-# Local development with Docker Compose
-bun run dev:docker
-```
-
-### Kubernetes Deployment (via Taskfile)
-```bash
-# Requires: https://taskfile.dev
-task deploy              # build, push, and deploy everything
-task deploy:frontend     # build, push, and deploy frontend only
-task deploy TAG=v2.0.0   # deploy with specific tag
-task status              # show deployment status
-task logs                # show app logs
-task restart             # restart app deployment
-```
-
-### Releasing
-```bash
-# Check the latest release tag
-git tag --sort=-creatordate | head -5
-
-# Create and push a version tag to trigger release workflows
-git tag v0.1.21
-git push origin v0.1.21
-```
-
-This triggers the **release.yml** workflow which:
-- Builds Rust sandbox binary
-- Creates Docker images (app, sandbox, backend)
-- Packages and pushes Helm chart to GHCR
-- Generates changelog using `changelogithub`
 
 ## Mandatory Workflow
 
@@ -184,571 +93,48 @@ must be clean). The baseline can only shrink.
 
 ## Commit Conventions
 
-### Commit Message Format
-This project uses conventional commit format with commitlint enforcement:
+Conventional commit format, enforced by commitlint. Header (first line) must be ≤100 characters.
 
 ```
 <type>: <description>
-
-[optional body]
-
-[optional footer(s)]
 ```
 
-**Important:** The header (first line) must be ≤100 characters due to commitlint rules.
+- **Types**: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
+- **Scopes** (optional; commitlint rejects others): `components`, `layout`, `routes`, `styles`, `utils`, `hooks`. Omit the scope for anything else — `feat: description`.
 
-### Commit Types
-- `feat:` - New features
-- `fix:` - Bug fixes
-- `docs:` - Documentation changes
-- `style:` - Code style changes (formatting, missing semicolons, etc.)
-- `refactor:` - Code refactoring without feature changes
-- `test:` - Adding or updating tests
-- `chore:` - Maintenance tasks, dependency updates
+Pre-commit hooks: **pre-push** runs `bun run test:fast`; **commit-msg** validates format via commitlint.
 
-### Scope Guidelines
-The project enforces specific commit scopes via commitlint:
-- `components` - UI component changes
-- `layout` - Layout-related changes
-- `routes` - Route/page-level changes
-- `styles` - Styling changes
-- `utils` - Utility function changes
-- `hooks` - React hook changes
-- Or omit the scope entirely: `feat: description` instead of `feat(scope): description`
+## Critical Development Rules
 
-**Note**: Commits with scopes outside this list will be rejected by commitlint.
+**Type Safety (TypeScript — NEVER violate)**:
+- Use TypeScript strict mode
+- **NEVER use `any`** — use proper types or `unknown`
+- **NEVER cast to `any`** — fix the underlying type issue
+- Use type guards and narrowing for runtime type checking
 
-### Examples
-```bash
-# Good commit messages
-feat: add gRPC health check for sandbox pods
-fix: resolve memory leak in task event streaming
-docs: update CLAUDE.md for Rust backend
-test: add integration tests for sandbox provisioning
+**Rust Safety**:
+- All warnings must be resolved (`-D warnings` in clippy)
+- Use `thiserror` for error types, not string errors
+- Use `Arc` for shared state across async tasks
+- Use `CancellationToken` from tokio-util for graceful shutdown
 
-# With scope
-feat(components): add loading skeleton for task list
-feat(utils): add environment service with file search
-fix(hooks): handle edge case in validation hooks
-```
+**State Management (Frontend)**:
+- Use TanStack Query for server state (NEVER duplicate in React state)
+- Use React state for local UI state only
+- Calculate derived values during render (don't use effects)
 
-### Pre-commit Hooks
-- **pre-push**: Runs fast tests (`bun run test:fast`) before pushing
-- **commit-msg**: Validates commit message format using commitlint
+**Error Handling**:
+- Frontend: error boundaries for rendering errors; always handle loading/error states in data fetching
+- Backend: module-specific error enums with `thiserror`, implement `IntoResponse` for Axum
 
-## Skills System
-
-This project uses Claude Code's skills system to provide comprehensive development guidance. Skills are automatically activated based on the files you're working on or keywords in your requests.
-
-### Available Skills
-
-#### frontend-dev-guidelines
-**Automatically activated when working on**: Frontend code (`apps/frontend/src/**/*.tsx`, `*.ts`)
-
-**Covers**: React 19 patterns, TanStack Query/Router, Tailwind v4, shadcn/ui, component design, data fetching, routing, state management, derived state, error handling, performance optimization, TypeScript patterns, testing
-
-**Use this skill when**:
-- Creating or modifying React components
-- Implementing data fetching with TanStack Query
-- Working with routes and pages (TanStack Router)
-- Styling components with Tailwind CSS
-- Managing state or computing derived values
-- Optimizing performance
-- Writing frontend tests
-
-#### backend-dev-guidelines
-**Automatically activated when working on**: Backend code (`backend/src/**/*.rs`, `sandbox/src/**/*.rs`, `crates/**/*.rs`)
-
-**Covers**: Axum HTTP + OpenAPI (utoipa), gRPC (tonic), SQLx PostgreSQL, layered architecture (routes→handlers→services→dao), Kubernetes pod management, error handling with thiserror, Rust patterns, testing
-
-**Use this skill when**:
-- Creating new API endpoints
-- Implementing business logic in handlers/services
-- Working with database queries (dao layer)
-- Defining API schemas and OpenAPI docs
-- Working with Kubernetes resource management
-- Working on gRPC communication between backend and sandbox
-- Writing backend or sandbox tests
-
-#### testing-guidelines
-**Automatically activated when working on**: Test files (`**/*.test.ts`, `**/*.test.tsx`, `**/__tests__/**/*`, `**/tests/*.rs`)
-
-**Covers**: Vitest patterns (frontend), Rust test patterns (backend/sandbox), React Testing Library, strategic mocking, test tier classification, unit vs integration tests, coverage goals, test organization
-
-**Use this skill when**:
-- Writing any type of test
-- Deciding what to mock
-- Determining test coverage priorities
-- Organizing test suites
-
-### How Skills Work
-
-1. **Automatic Activation**: Skills are automatically suggested when you work on files matching their patterns or use relevant keywords
-2. **On-Demand Access**: Ask Claude to "use the [skill-name] skill" to access detailed guidance
-3. **Contextual Help**: Skills provide detailed patterns, code examples, and anti-patterns
-4. **Consistency**: Skills ensure all developers follow the same patterns
-
-### Skill vs CLAUDE.md
-
-- **CLAUDE.md** (this file): Commands, workflows, commit conventions, project structure, high-level principles
-- **Skills**: Detailed implementation patterns, code examples, best practices, anti-patterns, comprehensive guidance
-
-**When in doubt**: Consult the appropriate skill for detailed implementation guidance.
+**Conventions**:
+- Path alias `@/*` → `./src/*` (frontend TS + Vite)
+- File naming: kebab-case (frontend, enforced by Biome), snake_case (Rust)
+- `routeTree.gen.ts` is generated — excluded from lint/format
+- `any` is allowed in TypeScript test files
 
 ## Architecture
 
-For a comprehensive overview of the system architecture, see [Architecture Overview](./docs/architecture-overview.md).
-For sandbox-specific architecture, see [Sandbox Architecture](./docs/sandbox-architecture.md).
-For sandbox lifecycle handling (provisioning, pod watcher, idle reaper, recovery), see [Sandbox Lifecycle](./docs/sandbox-lifecycle.md).
+See [Architecture Overview](./docs/architecture-overview.md), [Sandbox Architecture](./docs/sandbox-architecture.md), and [Sandbox Lifecycle](./docs/sandbox-lifecycle.md).
 
-### Project Structure
-```
-├── apps/                          # JavaScript application packages
-│   └── frontend/                  # React frontend application
-│   │   ├── src/
-│   │   │   ├── features/          # Feature-based modules
-│   │   │   │   ├── claude-code/       # Claude Code integration
-│   │   │   │   ├── environments/      # Environment management
-│   │   │   │   ├── navigation/        # Navigation components
-│   │   │   │   ├── preview/           # Preview functionality
-│   │   │   │   ├── settings/          # Settings management
-│   │   │   │   └── tasks/             # Tasks feature
-│   │   │   ├── lib/               # Shared utilities and components
-│   │   │   │   ├── api/               # Core API utilities (client, query-client, query-keys)
-│   │   │   │   ├── components/        # Shared components (ui/, error-boundary, theme-provider)
-│   │   │   │   ├── hooks/             # Shared hooks
-│   │   │   │   ├── layout/            # Layout components
-│   │   │   │   ├── styles/            # Global styles
-│   │   │   │   └── utils/             # Utility functions
-│   │   │   ├── routes/            # Page components & routing (TanStack Router)
-│   │   │   └── main.tsx           # Application entry point
-│   │   ├── package.json
-│   │   └── vite.config.ts
-├── backend/                       # Rust backend (Axum + Tonic gRPC)
-│   ├── src/
-│   │   ├── main.rs                # Entry point
-│   │   ├── config.rs              # Configuration from env vars
-│   │   ├── db.rs                  # PostgreSQL connection pool (sqlx)
-│   │   ├── state.rs               # Shared application state
-│   │   ├── startup.rs             # Server initialization
-│   │   ├── auth/                  # OAuth, sessions, API keys
-│   │   ├── sandbox/               # Kubernetes sandbox management
-│   │   │   ├── k8s/              # K8s client + resource CRUD
-│   │   │   ├── routes.rs         # HTTP API endpoints
-│   │   │   ├── handlers.rs       # Request handlers
-│   │   │   └── grpc_client.rs    # gRPC calls to sandbox pods
-│   │   ├── task/                  # Task domain (models, dao, handlers, routes)
-│   │   ├── repository/            # Repository domain
-│   │   ├── message/               # Message handling
-│   │   ├── channel/               # Slack/webhook integrations
-│   │   ├── event_handler/         # Event consumption
-│   │   ├── sse/                   # Server-Sent Events
-│   │   ├── sandbox_grpc_server.rs # gRPC server (receives from sandbox pods)
-│   │   └── metrics.rs             # Prometheus metrics
-│   ├── tests/
-│   └── Cargo.toml
-├── sandbox/                       # Rust sandbox runtime (runs in K8s pods)
-│   ├── src/
-│   │   ├── main.rs                # Entry point: config → gRPC server + HTTP /health
-│   │   ├── config.rs              # Config from env vars
-│   │   ├── grpc_server.rs         # SandboxService gRPC (receives from backend)
-│   │   ├── backend_client.rs      # gRPC client (calls backend)
-│   │   ├── agent/                 # Claude CLI orchestration
-│   │   │   ├── claude_code.rs     # Claude Agent SDK wrapper
-│   │   │   ├── agent_state.rs     # Agent state machine
-│   │   │   ├── permission_handler.rs  # Interactive prompts
-│   │   │   └── consumer.rs        # Message fetching via gRPC
-│   │   ├── server/                # Server process monitoring
-│   │   └── files/                 # File operations
-│   ├── tests/
-│   └── Cargo.toml
-├── crates/                        # Shared Rust crates
-│   ├── events/                    # Typed event system (shared between backend & sandbox)
-│   ├── sandbox-proto/             # gRPC protobuf definitions
-│   └── claude-agent-sdk/          # Rust SDK for Claude CLI subprocess
-├── packages/                      # Shared TypeScript packages
-│   ├── types/                     # @moatless/types - shared types
-│   ├── api-client/                # API client package
-│   ├── api-contract/              # API contract definitions
-│   ├── events/                    # Event types (TypeScript)
-│   ├── sandbox-schemas/           # Sandbox schema definitions
-│   └── shell-utils/               # Shell utility functions
-├── docker/                        # Docker configurations
-│   ├── Dockerfile.app             # Frontend (Nginx + static files)
-│   ├── Dockerfile.backend         # Backend (multi-stage cross-compile)
-│   ├── Dockerfile.backend-cross   # Backend (minimal runtime, local cross-compile)
-│   ├── Dockerfile.sandbox         # Base sandbox (Ubuntu 24.04 + Claude CLI)
-│   ├── Dockerfile.sandbox-js      # JS/TS sandbox (+ Playwright)
-│   ├── Dockerfile.sandbox-full    # Full dev sandbox (Python/Rust/Go/Java)
-│   └── build-*.sh                 # Build scripts
-├── docker-compose/                # Local Docker Compose deployment
-│   ├── docker-compose.yml         # PostgreSQL, Redis, backend, Dozzle
-│   └── dev-docker.sh              # Dev mode launcher
-├── k8s/                           # Kubernetes deployment
-│   └── helm/moatless-vibe/        # Helm chart
-├── backend/migrations/            # PostgreSQL migrations (sqlx SQL files, compiled in)
-├── Cargo.toml                     # Rust workspace root
-├── Taskfile.yml                   # Deployment automation (taskfile.dev)
-└── package.json                   # Root npm config (frontend/scripts)
-```
-
-### Technology Stack
-
-**Frontend:**
-- **Framework**: React 19 with TypeScript
-- **Routing**: TanStack Router (file-based)
-- **Data Fetching**: TanStack Query (React Query)
-- **Styling**: Tailwind CSS v4
-- **Build Tool**: Vite
-- **Code Quality**: Biome
-- **Testing**: Vitest + React Testing Library
-
-**Backend (Rust):**
-- **HTTP Framework**: Axum 0.8
-- **Async Runtime**: Tokio
-- **gRPC**: Tonic 0.12 + Prost (protobuf)
-- **Database**: PostgreSQL via SQLx 0.8 (async, compile-time checked queries)
-- **Kubernetes**: kube 3.0 client + k8s-openapi
-- **Caching**: Moka (in-memory)
-- **Auth**: JWT (jsonwebtoken), OAuth
-- **Storage**: AWS S3 SDK
-- **Event Streaming**: Redis Streams
-- **API Docs**: utoipa (OpenAPI generation)
-- **Observability**: tracing + Prometheus metrics
-- **Error Handling**: thiserror
-
-**Sandbox (Rust):**
-- **Runtime**: Rust binary running inside K8s pods
-- **Agent**: Claude CLI via claude-agent-sdk (NDJSON over stdin/stdout)
-- **Communication**: gRPC (tonic) to/from backend
-- **Health Probes**: Axum HTTP server
-
-**Infrastructure:**
-- **Monorepo**: Turborepo (frontend) + Cargo workspaces (Rust)
-- **Package Manager**: bun workspaces (frontend)
-- **Container Orchestration**: Kubernetes (production), Docker Compose (local)
-- **Ingress**: Traefik (preview server routing)
-- **Database Migrations**: sqlx SQL files in `backend/migrations/`, compiled into the binary and run at startup
-
-### Communication Architecture
-
-```
-Frontend (React)
-    ↓ HTTPS (fetch API)
-Nginx (static files + reverse proxy)
-    ↓ HTTP
-Backend (Rust/Axum, port 8080)
-    ├→ PostgreSQL (sqlx async pool)
-    ├→ Redis Streams (event publishing)
-    ├→ Kubernetes API (pod lifecycle)
-    └→ gRPC to Sandbox Pods (port 50052)
-
-Sandbox Pods (Rust, per-task)
-    ├→ Claude CLI subprocess (claude-agent-sdk)
-    ├→ File/git operations
-    └→ gRPC back to Backend (port 50051)
-        ├→ PublishEvent (replaces Redis XADD)
-        ├→ GetPendingMessages (replaces HTTP polling)
-        └→ GetCredentials (with JWT auth)
-```
-
-### Sandbox Pod Structure (per task)
-Each task gets its own Kubernetes Deployment with a multi-container pod:
-- **sandbox container**: Rust binary + Claude CLI (ports 8001 HTTP, 50052 gRPC)
-- **server containers**: Dynamic, data-driven (files-server, preview-server, etc.)
-- **volumes**: workspace-data (PVC), shared-data, build-cache, tmp (memory-backed)
-
-Kubernetes resources created per sandbox: Deployment, Service (ClusterIP), PVC, Secret, IngressRoute (Traefik CRD).
-
-### Backend Module Pattern
-Each domain module in the Rust backend follows a consistent structure:
-```
-{module}/
-├── mod.rs          # Module declarations
-├── models.rs       # Domain types (sqlx::FromRow)
-├── dao.rs          # Database persistence layer (SQL queries)
-├── schemas.rs      # API request/response DTOs
-├── handlers.rs     # HTTP request handlers
-├── routes.rs       # Axum router + OpenAPI annotations (utoipa)
-└── error.rs        # Module-specific error types
-```
-
-### API Integration
-
-All frontend API calls use TanStack Query hooks for consistent caching, error handling, and loading states. Query keys are centralized in `src/lib/api/query-keys.ts` using a hierarchical structure for efficient cache invalidation.
-
-### Development Guidelines
-
-**IMPORTANT: Consult the appropriate skill for detailed implementation patterns:**
-
-| Working On... | Skill to Use | Key Topics |
-|---------------|--------------|------------|
-| React components, pages, UI | **frontend-dev-guidelines** | Components, hooks, data fetching, routing, state, styling, performance |
-| Rust API endpoints, services, DB | **backend-dev-guidelines** | Axum routes, handlers, dao, K8s, gRPC, sqlx |
-| Any type of test | **testing-guidelines** | Test strategy, mocking, tier classification, organization |
-
-**General Development Principles:**
-- **Path Aliases**: `@/*` maps to `./src/*` in TypeScript and Vite (frontend only)
-- **File Naming**: Kebab-case convention enforced by Biome (frontend), snake_case for Rust
-- **Import Organization**: Biome automatically organizes imports when running `bun run biome:fix`
-- **Generated Files**: `routeTree.gen.ts` is excluded from linting/formatting (auto-generated by TanStack Router)
-- **Feature-Based Architecture** (frontend):
-  - Features contain components, hooks, and API code
-  - Shared utilities in `/lib/`
-  - Page logic lives in `/routes/` files
-
-#### Component Organization (Frontend)
-
-- **Route Files** (`/routes/*.tsx`): Handle data fetching, page-level state, layout composition
-- **Feature Components** (`/features/*/components/`): Handle UI implementation, interactions, reusable logic
-- **Shared Components** (`/lib/components/`): Generic, reusable UI components
-
-#### Critical Development Rules
-
-**Type Safety (TypeScript - NEVER violate these)**:
-  - Use TypeScript strict mode
-  - **NEVER use `any` type** - always use proper types or `unknown`
-  - **NEVER cast to `any`** - fix the underlying type issue instead
-  - Use type guards and narrowing for runtime type checking
-
-**Rust Safety**:
-  - All warnings must be resolved (`-D warnings` in clippy)
-  - Use `thiserror` for error types, not string errors
-  - Use `Arc` for shared state across async tasks
-  - Use `CancellationToken` from tokio-util for graceful shutdown
-
-**State Management (Frontend)**:
-  - Use TanStack Query for server state (NEVER duplicate in React state)
-  - Use React state for local UI state only
-  - Calculate derived values during render (don't use effects)
-
-**Error Handling**:
-  - Frontend: Use error boundaries to catch rendering errors
-  - Backend: Use module-specific error enums with `thiserror`, implement `IntoResponse` for Axum
-  - Always handle loading and error states in data fetching
-
-### Skill Usage Quick Reference
-
-| Task | Skill | Resource |
-|------|-------|----------|
-| React components | frontend-dev-guidelines | Component Patterns, Routing |
-| Data fetching | frontend-dev-guidelines | Data Fetching |
-| State management | frontend-dev-guidelines | State Management, Derived State |
-| Styling | frontend-dev-guidelines | Styling |
-| Rust API endpoints | backend-dev-guidelines | Routes, Handlers, OpenAPI |
-| Database queries | backend-dev-guidelines | DAO Pattern, SQLx |
-| K8s sandbox management | backend-dev-guidelines | Sandbox Module |
-| gRPC communication | backend-dev-guidelines | sandbox-proto, tonic |
-| Any testing | testing-guidelines | Testing Philosophy, Strategic Mocking |
-
-## Testing
-
-### Frontend Testing
-This project uses Vitest for unit and integration testing, with React Testing Library for component testing. Tests are organized in `__tests__` directories co-located with source code:
-
-```
-src/features/tasks/
-├── components/
-│   ├── __tests__/
-│   │   ├── task-viewer.test.tsx
-│   │   └── task-header.test.tsx
-│   └── task-viewer.tsx
-├── hooks/
-│   ├── __tests__/
-│   │   └── use-tasks.test.ts
-│   └── use-tasks.ts
-```
-
-### Backend Testing (Rust)
-Backend tests use standard Rust test conventions with `cargo test`:
-
-- **Unit Tests**: Inline `#[cfg(test)] mod tests` within source files
-- **Integration Tests**: `tests/` directory at crate root
-- **E2E Tests**: Gated behind environment variables (e.g., `CLAUDE_SDK_E2E=1`)
-
-### Integration Tests (`crates/integration-tests/`)
-End-to-end tests exercising the full backend API with real database and sandbox.
-Run via Taskfile (`task test:compose:db`, `task test:compose:all`) — see [Integration Tests](#integration-tests-taskfile--docker-compose) above.
-
-Test tiers:
-- **db** (no `#[ignore]`): Task CRUD, repo CRUD, auth, channels, messages — backend + DB only
-- **sandbox** (`#[ignore]`, `SANDBOX_E2E=1`): File operations, sandbox lifecycle — needs sandbox container
-- **agent** (`#[ignore]`, `CLAUDE_SDK_E2E=1`): Agent execution, multi-message same-session, plan mode, stop/recovery — needs sandbox + Claude CLI
-
-Test infrastructure (`crates/integration-tests/src/`):
-- `test_client()`, `admin_client()` — API clients authenticated as the bootstrap admin
-- `client_as_user(login, role)`, `client_as_user_with_teams(...)` — create a user
-  via the admin API and log in as them; `relogin(&user)` after any membership
-  change, since team ids are baked into the session JWT at login
-- `unauthenticated_client()` — for asserting that endpoints reject anonymous callers
-- `ensure_template_repo()` — creates or finds template repository
-- `EventCollector` — SSE stream collector with `wait_for_event()`, `wait_for_nth_event()`, `count_events()`
-- `sandbox_helpers::wait_for_sandbox_ready()`, `wait_for_agent_idle()` — polling helpers
-- `callback_server` — in-process HTTP server for webhook tests
-
-### Test Performance Tiers
-**FAST Tests (<200ms)** - Run on every push:
-- Pure unit tests with mocked dependencies
-- No file system, network, or database operations
-
-**MODERATE Tests (200ms-2s)** - Run in CI:
-- Integration tests with real file system or database
-- Git operation tests
-
-**SLOW Tests (>2s)** - Run separately:
-- E2E tests with real servers or Claude CLI
-- Process lifecycle tests
-
-### Testing Strategy
-
-Key principles:
-- Test behavior, not implementation details
-- **Prioritize integration over isolation** for route and page components
-- Mock strategically - only external dependencies
-- Aim for >80% coverage on critical paths (Tier 1)
-- Always test loading states, error states, and edge cases
-- **Note**: `any` types are allowed in TypeScript test files
-
-<!-- rtk-instructions v2 -->
-# RTK (Rust Token Killer) - Token-Optimized Commands
-
-## Golden Rule
-
-**If `rtk` is installed, always prefix commands with it.** If RTK has a dedicated filter, it uses it. If not, it passes through unchanged. This means RTK is always safe to use.
-
-**Check availability first**: `rtk` is not preinstalled in Moatless task
-sandboxes. Run `which rtk` once at the start of a session — if it's missing,
-run commands without the prefix (do NOT retry failed `rtk ...` commands or
-attempt to install it).
-
-**Important**: Even in command chains with `&&`, use `rtk`:
-```bash
-# ❌ Wrong
-git add . && git commit -m "msg" && git push
-
-# ✅ Correct
-rtk git add . && rtk git commit -m "msg" && rtk git push
-```
-
-## RTK Commands by Workflow
-
-### Build & Compile (80-90% savings)
-```bash
-rtk cargo build         # Cargo build output
-rtk cargo check         # Cargo check output
-rtk cargo clippy        # Clippy warnings grouped by file (80%)
-rtk tsc                 # TypeScript errors grouped by file/code (83%)
-rtk lint                # ESLint/Biome violations grouped (84%)
-rtk prettier --check    # Files needing format only (70%)
-rtk next build          # Next.js build with route metrics (87%)
-```
-
-### Test (60-99% savings)
-```bash
-rtk cargo test          # Cargo test failures only (90%)
-rtk go test             # Go test failures only (90%)
-rtk jest                # Jest failures only (99.5%)
-rtk vitest              # Vitest failures only (99.5%)
-rtk playwright test     # Playwright failures only (94%)
-rtk pytest              # Python test failures only (90%)
-rtk rake test           # Ruby test failures only (90%)
-rtk rspec               # RSpec test failures only (60%)
-rtk test <cmd>          # Generic test wrapper - failures only
-```
-
-### Git (59-80% savings)
-```bash
-rtk git status          # Compact status
-rtk git log             # Compact log (works with all git flags)
-rtk git diff            # Compact diff (80%)
-rtk git show            # Compact show (80%)
-rtk git add             # Ultra-compact confirmations (59%)
-rtk git commit          # Ultra-compact confirmations (59%)
-rtk git push            # Ultra-compact confirmations
-rtk git pull            # Ultra-compact confirmations
-rtk git branch          # Compact branch list
-rtk git fetch           # Compact fetch
-rtk git stash           # Compact stash
-rtk git worktree        # Compact worktree
-```
-
-Note: Git passthrough works for ALL subcommands, even those not explicitly listed.
-
-### GitHub (26-87% savings)
-```bash
-rtk gh pr view <num>    # Compact PR view (87%)
-rtk gh pr checks        # Compact PR checks (79%)
-rtk gh run list         # Compact workflow runs (82%)
-rtk gh issue list       # Compact issue list (80%)
-rtk gh api              # Compact API responses (26%)
-```
-
-### JavaScript/TypeScript Tooling (70-90% savings)
-```bash
-rtk pnpm list           # Compact dependency tree (70%)
-rtk pnpm outdated       # Compact outdated packages (80%)
-rtk pnpm install        # Compact install output (90%)
-rtk npm run <script>    # Compact npm script output
-rtk npx <cmd>           # Compact npx command output
-rtk prisma              # Prisma without ASCII art (88%)
-```
-
-### Files & Search (60-75% savings)
-```bash
-rtk ls <path>           # Tree format, compact (65%)
-rtk read <file>         # Code reading with filtering (60%)
-rtk grep <pattern>      # Search grouped by file (75%)
-rtk find <pattern>      # Find grouped by directory (70%)
-```
-
-### Analysis & Debug (70-90% savings)
-```bash
-rtk err <cmd>           # Filter errors only from any command
-rtk log <file>          # Deduplicated logs with counts
-rtk json <file>         # JSON structure without values
-rtk deps                # Dependency overview
-rtk env                 # Environment variables compact
-rtk summary <cmd>       # Smart summary of command output
-rtk diff                # Ultra-compact diffs
-```
-
-### Infrastructure (85% savings)
-```bash
-rtk docker ps           # Compact container list
-rtk docker images       # Compact image list
-rtk docker logs <c>     # Deduplicated logs
-rtk kubectl get         # Compact resource list
-rtk kubectl logs        # Deduplicated pod logs
-```
-
-### Network (65-70% savings)
-```bash
-rtk curl <url>          # Compact HTTP responses (70%)
-rtk wget <url>          # Compact download output (65%)
-```
-
-### Meta Commands
-```bash
-rtk gain                # View token savings statistics
-rtk gain --history      # View command history with savings
-rtk discover            # Analyze Claude Code sessions for missed RTK usage
-rtk proxy <cmd>         # Run command without filtering (for debugging)
-rtk init                # Add RTK instructions to CLAUDE.md
-rtk init --global       # Add RTK to ~/.claude/CLAUDE.md
-```
-
-## Token Savings Overview
-
-| Category | Commands | Typical Savings |
-|----------|----------|-----------------|
-| Tests | vitest, playwright, cargo test | 90-99% |
-| Build | next, tsc, lint, prettier | 70-87% |
-| Git | status, log, diff, add, commit | 59-80% |
-| GitHub | gh pr, gh run, gh issue | 26-87% |
-| Package Managers | pnpm, npm, npx | 70-90% |
-| Files | ls, read, grep, find | 60-75% |
-| Infrastructure | docker, kubectl | 85% |
-| Network | curl, wget | 65-70% |
-
-Overall average: **60-90% token reduction** on common development operations.
-<!-- /rtk-instructions -->
+Backend Rust modules follow a layered structure: `models.rs` (domain types) → `dao.rs` (SQL) → `schemas.rs` (DTOs) → `handlers.rs` → `routes.rs` (Axum + utoipa OpenAPI) → `error.rs`. Frontend is feature-based: `routes/*.tsx` fetch data and compose layout, `features/*/components/` hold UI, `lib/components/` are shared/generic.
