@@ -428,8 +428,13 @@ impl RedisStreamConsumer {
 
                 // Extract the `payload` field from the entry
                 if let Some(payload) = extract_field(fields, "payload") {
-                    // Broadcast raw JSON to all SSE subscribers
-                    let _ = self.tx.send(payload);
+                    // Relay to clients with `agent.message` reduced to its
+                    // metadata skeleton (ADR-0003): content reaches the Chat once
+                    // via the derived `message.upsert`, never a second time as the
+                    // raw source event. Non-agent-message events relay untouched.
+                    let relayed = crate::event_handler::skeleton::slim_relayed_event(&payload)
+                        .unwrap_or(payload);
+                    let _ = self.tx.send(relayed);
                 }
 
                 entry_ids.push(entry_id);

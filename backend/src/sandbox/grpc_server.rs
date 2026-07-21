@@ -420,10 +420,13 @@ async fn write_state_then_publish(
     payload: Value,
     state: Option<TurnStateEvent>,
 ) {
+    let is_agent_message = crate::event_handler::skeleton::is_agent_message(event_type, sub_type);
+
     // Tracks whether `task_events` actually holds the full payload. Only then
     // may the publisher truncate an oversized one; on a failed commit the
     // consumer's fallback insert is the last route to Postgres and must see
-    // the whole thing.
+    // the whole thing. `agent.message` is persisted as a skeleton, so its full
+    // payload is never durable in `task_events` — see the `None` arm below.
     let payload_persisted = match state {
         // State-bearing: event row, turn projection, and task-status flip all
         // commit in one transaction.
@@ -443,9 +446,18 @@ async fn write_state_then_publish(
             None => false,
         },
         // Everything else still needs its row committed before the fan-out.
-        // `agent.message` lands here, and it carries the largest payloads.
+        // `agent.message` lands here, and it carries the largest payloads — so it
+        // is persisted as a metadata skeleton (ADR-0003). Its full content stays
+        // on the Redis stream for the ingestion consumer to build the Message
+        // store; `task_events` keeps only the skeleton, so the publisher must
+        // NOT truncate the Redis payload (there is no full copy to fall back to).
         None => match task_events {
             Some(events) => {
+                let stored_payload = if is_agent_message {
+                    crate::event_handler::skeleton::agent_message_skeleton(&payload)
+                } else {
+                    payload.clone()
+                };
                 let insert = InsertTaskEvent {
                     event_id: event_id.to_string(),
                     task_id: task_id.to_string(),
@@ -454,12 +466,14 @@ async fn write_state_then_publish(
                     is_error: sub_type == "error" || sub_type == "failed",
                     agent_type: None,
                     turn_number,
-                    payload: payload.clone(),
+                    payload: stored_payload,
                     timestamp: chrono::Utc::now()
                         .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
                 };
                 match events.insert_event(&insert).await {
-                    Ok(()) => true,
+                    // `agent.message`: task_events holds only the skeleton, so the
+                    // Redis payload is not durable-elsewhere — keep it whole.
+                    Ok(()) => !is_agent_message,
                     Err(e) => {
                         warn!(
                             task_id = %task_id,

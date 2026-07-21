@@ -586,6 +586,188 @@ async fn find_tool_call_returns_parent_message_uuid(pool: PgPool) {
     assert_eq!(found.result_content.as_deref(), Some("hi"));
 }
 
+/// A tool_use content block carrying `tool_use_id`, mirroring what
+/// `build_content_blocks_from_payload` persists at ingest.
+fn tool_use_block(tool_use_id: &str) -> TaskMessageContentBlock {
+    TaskMessageContentBlock {
+        id: 0,
+        task_message_id: 0,
+        sort_order: 1,
+        block_type: ContentBlockType::ToolUse,
+        show_in_ui: true,
+        text_content: None,
+        tool_use_id: Some(tool_use_id.to_string()),
+        tool_result_content: None,
+        tool_result_is_error: None,
+        image_media_type: None,
+        image_data: None,
+        created_at: None,
+    }
+}
+
+fn tool_result_block(tool_use_id: &str, content: &str) -> TaskMessageContentBlock {
+    TaskMessageContentBlock {
+        id: 0,
+        task_message_id: 0,
+        sort_order: 0,
+        block_type: ContentBlockType::ToolResult,
+        show_in_ui: false,
+        text_content: None,
+        tool_use_id: Some(tool_use_id.to_string()),
+        tool_result_content: Some(content.to_string()),
+        tool_result_is_error: Some(false),
+        image_media_type: None,
+        image_data: None,
+        created_at: None,
+    }
+}
+
+/// Seam 2 (loader): a change to a folded `tool_result` row resolves to its
+/// parent assistant Message and loads the anchor plus its folded siblings.
+#[sqlx::test]
+async fn get_message_for_assembly_resolves_affected_parent(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+
+    let mut assistant = make_message_row("task-1", "a1");
+    assistant.message_type = MessageType::Assistant;
+    assistant.message_role = MessageRole::Assistant;
+    assistant.message_content = serde_json::json!([
+        { "type": "tool_use", "id": "t1", "name": "Bash", "input": { "command": "ls" } }
+    ]);
+    message_dao::append(&pool, &assistant, &[], &[tool_use_block("t1")])
+        .await
+        .unwrap();
+
+    let mut system = make_message_row("task-1", "sys1");
+    system.message_type = MessageType::System;
+    system.message_role = MessageRole::User;
+    system.message_content = serde_json::json!([
+        { "type": "tool_result", "tool_use_id": "t1", "content": "ok", "is_error": false }
+    ]);
+    message_dao::append(&pool, &system, &[], &[tool_result_block("t1", "ok")])
+        .await
+        .unwrap();
+
+    let repo = PgMessageRepository(pool.clone());
+
+    // The folded tool_result row resolves to the parent assistant Message.
+    let ((messages, _ctx, _blocks), target) = repo
+        .get_message_for_assembly("task-1", "sys1")
+        .await
+        .unwrap()
+        .expect("affected parent resolved");
+    assert_eq!(target, "a1");
+    let uuids: Vec<&str> = messages.iter().map(|m| m.uuid.as_str()).collect();
+    assert!(uuids.contains(&"a1"), "anchor loaded");
+    assert!(uuids.contains(&"sys1"), "folded sibling loaded");
+
+    // A standalone assistant Message resolves to itself.
+    let (_page, self_target) = repo
+        .get_message_for_assembly("task-1", "a1")
+        .await
+        .unwrap()
+        .expect("standalone resolves");
+    assert_eq!(self_target, "a1");
+}
+
+/// Seam 3 (backfill): a fat `agent.message` task_events row is reduced to the
+/// skeleton, its raw content dropped, while the assembled Message store row is
+/// untouched. Mirrors migration 0089's slimming statement.
+#[sqlx::test]
+async fn backfill_slims_fat_agent_message_events(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+
+    // The assembled Message store row (must survive untouched).
+    let mut assistant = make_message_row("task-1", "assistant-uuid");
+    assistant.message_type = MessageType::Assistant;
+    assistant.message_role = MessageRole::Assistant;
+    assistant.message_content = serde_json::json!([
+        { "type": "text", "text": "working" },
+        { "type": "tool_use", "id": "t1", "name": "Bash", "input": { "command": "ls" } }
+    ]);
+    message_dao::append(&pool, &assistant, &[], &[])
+        .await
+        .unwrap();
+    let stored_before: serde_json::Value = sqlx::query_scalar(
+        "SELECT message_content FROM task_messages WHERE uuid = 'assistant-uuid'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    // A fat agent.message source event on the append-only log.
+    let fat = serde_json::json!({
+        "message": { "role": "assistant", "content": [
+            { "type": "text", "text": "working" },
+            { "type": "tool_use", "id": "t1", "name": "Bash", "input": { "command": "ls" } },
+            { "type": "tool_use", "id": "t2", "name": "Edit", "input": {} }
+        ] },
+        "uuid": "assistant-uuid",
+        "session_id": "sess-1"
+    });
+    sqlx::query(
+        r#"INSERT INTO task_events
+             (event_id, task_id, event_type, sub_type, is_error, turn_number, payload, timestamp)
+           VALUES ($1, $2, 'agent', 'message', false, 1, $3, $4)"#,
+    )
+    .bind("evt-fat")
+    .bind("task-1")
+    .bind(&fat)
+    .bind("2026-07-21T00:00:00.000Z")
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Run migration 0089's slimming statement (single batch; one row here).
+    let backfill = r#"
+        UPDATE task_events t
+        SET payload = jsonb_build_object(
+            'message', jsonb_build_object(
+                'role', COALESCE(t.payload -> 'message' ->> 'role', 'assistant')),
+            'uuid', COALESCE(t.payload -> 'uuid', 'null'::jsonb),
+            'blockCount', CASE
+                WHEN jsonb_typeof(t.payload -> 'message' -> 'content') = 'array'
+                    THEN jsonb_array_length(t.payload -> 'message' -> 'content')
+                ELSE 0 END,
+            'toolNames', CASE
+                WHEN jsonb_typeof(t.payload -> 'message' -> 'content') = 'array' THEN
+                    COALESCE((SELECT jsonb_agg(elem ->> 'name')
+                        FROM jsonb_array_elements(t.payload -> 'message' -> 'content') elem
+                        WHERE elem ->> 'type' = 'tool_use'), '[]'::jsonb)
+                ELSE '[]'::jsonb END)
+        WHERE t.event_type = 'agent' AND t.sub_type = 'message'
+          AND t.payload -> 'message' ? 'content'
+    "#;
+    let slimmed = sqlx::query(backfill).execute(&pool).await.unwrap();
+    assert_eq!(slimmed.rows_affected(), 1);
+
+    let payload: serde_json::Value =
+        sqlx::query_scalar("SELECT payload FROM task_events WHERE event_id = 'evt-fat'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(payload["message"]["role"], "assistant");
+    assert_eq!(payload["uuid"], "assistant-uuid");
+    assert_eq!(payload["blockCount"], 3);
+    assert_eq!(payload["toolNames"], serde_json::json!(["Bash", "Edit"]));
+    // Heavy content and extra fields are gone.
+    assert!(payload["message"].get("content").is_none());
+    assert!(payload.get("session_id").is_none());
+
+    // Idempotent: the slimmed row is gated out on a re-run.
+    let again = sqlx::query(backfill).execute(&pool).await.unwrap();
+    assert_eq!(again.rows_affected(), 0);
+
+    // The assembled Message store row is untouched.
+    let stored_after: serde_json::Value = sqlx::query_scalar(
+        "SELECT message_content FROM task_messages WHERE uuid = 'assistant-uuid'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(stored_before, stored_after);
+}
+
 
 async fn seed_acknowledged_turn(pool: &PgPool, task_id: &str, uuid: &str, turn_number: i32) {
     let mut msg = make_message_row(task_id, uuid);

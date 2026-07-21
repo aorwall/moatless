@@ -7,6 +7,7 @@ pub mod agent_handlers;
 pub mod consumer;
 pub mod metrics;
 pub mod models;
+pub mod skeleton;
 
 use redis::aio::ConnectionManager;
 use tokio_util::sync::CancellationToken;

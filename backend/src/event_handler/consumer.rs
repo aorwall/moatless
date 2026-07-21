@@ -321,7 +321,18 @@ impl EventHandlerConsumer {
     }
 
     /// Persist an event to the database (best-effort, never blocks dispatch).
+    ///
+    /// `agent.message` is persisted as a metadata skeleton (ADR-0003): its full
+    /// content is a transient ingestion payload consumed once (from Redis, by
+    /// `dispatch_event`) to build the Message store, and must never accumulate
+    /// as a second copy in the append-only `task_events` log.
     async fn persist_event(&self, event: &AgentEvent) {
+        let payload = if super::skeleton::is_agent_message(event.event_type.as_str(), &event.sub_type)
+        {
+            super::skeleton::agent_message_skeleton(&event.payload)
+        } else {
+            event.payload.clone()
+        };
         let insert = InsertTaskEvent {
             event_id: event.event_id.clone(),
             task_id: event.task_id.clone(),
@@ -330,7 +341,7 @@ impl EventHandlerConsumer {
             is_error: event.is_error,
             agent_type: event.agent_type.clone(),
             turn_number: event.turn_number,
-            payload: event.payload.clone(),
+            payload,
             timestamp: event.timestamp.clone(),
         };
         if let Err(e) = self.state.task_events.insert_event(&insert).await {
