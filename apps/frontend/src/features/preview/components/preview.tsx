@@ -46,6 +46,7 @@ export function Preview({
   // Determine if sandbox is running
   const isSandboxRunning = environmentStatus === 'ready'
   const iframeRef = useRef<HTMLIFrameElement>(null)
+  const lastResetActiveServerRef = useRef<string | undefined | null>(null)
   // null = follow the auto-expand default; true/false = user's explicit choice.
   const [consoleExpandedOverride, setConsoleExpandedOverride] = useState<boolean | null>(null)
   const [isLoaded, setIsLoaded] = useState(false)
@@ -112,8 +113,12 @@ export function Preview({
     usePreviewNavigation({ iframeRef, path, setPath, serverStatus: serverStatus?.status })
 
   // Reset state when active server changes
-  // biome-ignore lint/correctness/useExhaustiveDependencies: activeServer is the trigger for resetting state
   useEffect(() => {
+    if (lastResetActiveServerRef.current === activeServer) {
+      return
+    }
+    lastResetActiveServerRef.current = activeServer
+
     setIsLoaded(false)
     resetInspector()
     resetScriptHealth()
@@ -124,7 +129,15 @@ export function Preview({
     setDevice('desktop')
     // Re-apply the auto-expand default for the newly selected server.
     setConsoleExpandedOverride(null)
-  }, [activeServer])
+  }, [
+    activeServer,
+    clearConsoleLogs,
+    resetInspector,
+    resetScriptHealth,
+    setDevice,
+    setIframeTargetPath,
+    setPath,
+  ])
 
   // Cleanup when server stops
   useEffect(() => {

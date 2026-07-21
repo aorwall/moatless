@@ -1,5 +1,5 @@
 import { Loader2, Plus, Trash2 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 import type {
   AdminTeam,
@@ -154,8 +154,8 @@ function TeamMembersCard({
   const [newUserId, setNewUserId] = useState('')
   const [newRole, setNewRole] = useState<(typeof TEAM_ROLES)[number]>('member')
 
-  const usersById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users])
-  const memberIds = useMemo(() => new Set(members.map((member) => member.userId)), [members])
+  const usersById = new Map(users.map((user) => [user.id, user]))
+  const memberIds = new Set(members.map((member) => member.userId))
   const eligibleUsers = users.filter((user) => !memberIds.has(user.id))
 
   const handleAddMember = () => {

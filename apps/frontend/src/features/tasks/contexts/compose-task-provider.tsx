@@ -36,9 +36,10 @@ interface ComposeTaskContextValue {
 const ComposeTaskContext = createContext<ComposeTaskContextValue | null>(null)
 
 const STORAGE_KEY = 'composeTaskWindows'
+const DEFAULT_WINDOWS: ComposeWindowState[] = []
 
 export function ComposeTaskProvider({ children }: { children: ReactNode }) {
-  const [windows, setWindows] = useLocalStorage<ComposeWindowState[]>(STORAGE_KEY, [])
+  const [windows, setWindows] = useLocalStorage<ComposeWindowState[]>(STORAGE_KEY, DEFAULT_WINDOWS)
   const { repositoryId, agentMode, agentType } = useTaskPreferences()
 
   // Keep a ref to the latest windows so the callbacks below stay stable and

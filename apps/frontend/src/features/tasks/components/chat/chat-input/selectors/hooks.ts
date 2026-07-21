@@ -290,6 +290,7 @@ export type AgentType =
 export const DEFAULT_AGENT_TYPE: AgentType = 'claude-code'
 
 const DISCONNECTED_DESCRIPTION = 'Not connected — open Settings to add a token'
+const EMPTY_TASK_TEMPLATES: TaskTemplateResponse[] = []
 
 // Agent type selector hook - controlled. Picks which agent CLI runs the task.
 // Accepts optional `agents` list from the backend catalog to drive availability.
@@ -352,7 +353,7 @@ export function useTaskTemplateSelector(
   _templates?: TaskTemplateResponse[],
 ) {
   const { data: fetchedTemplates, isLoading } = useTaskTemplatesList()
-  const templates = _templates ?? fetchedTemplates ?? []
+  const templates = _templates ?? fetchedTemplates ?? EMPTY_TASK_TEMPLATES
 
   const [internalValue, setInternalValue] = useState<string | undefined>(undefined)
   const isControlled = value !== undefined

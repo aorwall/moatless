@@ -1,5 +1,5 @@
 import { Loader2, Package, Plus, X } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { usePlugins } from '@/features/plugins/hooks/use-plugins'
 import { ConfigurationGroup, ConfigurationItem } from '@/lib/components/configuration'
 import { Badge } from '@/lib/components/ui/badge'
@@ -20,20 +20,12 @@ export function PluginsGroup({ formData, onUpdateField }: PluginsGroupProps) {
   const [isPickerOpen, setIsPickerOpen] = useState(false)
 
   // Create a map for quick plugin lookup
-  const pluginMap = useMemo(() => {
-    const map = new Map<string, PluginInfo>()
-    for (const plugin of plugins) {
-      map.set(plugin.id, plugin)
-    }
-    return map
-  }, [plugins])
+  const pluginMap = new Map<string, PluginInfo>(plugins.map((plugin) => [plugin.id, plugin]))
 
   // Get selected plugin objects
-  const selectedPlugins = useMemo(() => {
-    return selectedPluginIds
-      .map((id) => pluginMap.get(id))
-      .filter((plugin): plugin is PluginInfo => plugin !== undefined)
-  }, [selectedPluginIds, pluginMap])
+  const selectedPlugins = selectedPluginIds
+    .map((id) => pluginMap.get(id))
+    .filter((plugin): plugin is PluginInfo => plugin !== undefined)
 
   const handleRemovePlugin = (pluginId: string) => {
     const filtered = selectedPluginIds.filter((p) => p !== pluginId)
