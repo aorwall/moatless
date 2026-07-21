@@ -815,7 +815,7 @@ export type liveStatusHandlerResponse500 = {
   data: ErrorBody
   status: 500
 }
-
+    
 export type liveStatusHandlerResponseSuccess = (liveStatusHandlerResponse200) & {
   headers: Headers;
 };
@@ -828,19 +828,19 @@ export type liveStatusHandlerResponse = (liveStatusHandlerResponseSuccess | live
 export const getLiveStatusHandlerUrl = (taskId: string,) => {
 
 
-
+  
 
   return `/api/sandbox/v1/tasks/${taskId}/live-status`
 }
 
 export const liveStatusHandler = async (taskId: string, options?: RequestInit): Promise<liveStatusHandlerResponse> => {
-
+  
   return customInstance<liveStatusHandlerResponse>(getLiveStatusHandlerUrl(taskId),
-  {
+  {      
     ...options,
     method: 'GET'
-
-
+    
+    
   }
 );}
 
@@ -854,7 +854,7 @@ export const getLiveStatusHandlerQueryKey = (taskId: string,) => {
     ] as const;
     }
 
-
+    
 export const getLiveStatusHandlerQueryOptions = <TData = Awaited<ReturnType<typeof liveStatusHandler>>, TError = ErrorType<ErrorBody>>(taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof liveStatusHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
@@ -862,13 +862,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getLiveStatusHandlerQueryKey(taskId);
 
-
+  
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof liveStatusHandler>>> = ({ signal }) => liveStatusHandler(taskId, { signal, ...requestOptions });
 
+      
 
-
-
+      
 
    return  { queryKey, queryFn, enabled: !!(taskId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof liveStatusHandler>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
 }
@@ -907,7 +907,7 @@ export function useLiveStatusHandler<TData = Awaited<ReturnType<typeof liveStatu
 
 export function useLiveStatusHandler<TData = Awaited<ReturnType<typeof liveStatusHandler>>, TError = ErrorType<ErrorBody>>(
  taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof liveStatusHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
+ , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
 
   const queryOptions = getLiveStatusHandlerQueryOptions(taskId,options)
@@ -1715,3 +1715,4 @@ export const useStopHandler = <TError = ErrorType<ErrorBody>,
       > => {
       return useMutation(getStopHandlerMutationOptions(options), queryClient);
     }
+    

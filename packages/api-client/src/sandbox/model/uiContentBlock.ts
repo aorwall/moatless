@@ -5,6 +5,7 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { SubagentSummary } from './subagentSummary';
 import type { UiContentBlockToolInput } from './uiContentBlockToolInput';
 
 /**
@@ -13,6 +14,7 @@ import type { UiContentBlockToolInput } from './uiContentBlockToolInput';
 export interface UiContentBlock {
   /** @nullable */
   showInUi?: boolean | null;
+  subagentSummary?: null | SubagentSummary;
   /** @nullable */
   text?: string | null;
   toolInput?: UiContentBlockToolInput;

@@ -5312,6 +5312,58 @@
         }
       }
     },
+    "/api/v1/tasks/{task_id}/tool-calls/{tool_use_id}/messages": {
+      "get": {
+        "tags": [
+          "messages"
+        ],
+        "summary": "Get the assembled subagent transcript for a single `Agent` tool call.",
+        "description": "Runs the fold-resolving row-transform over the rows whose `parent_uuid`\nequals `tool_use_id`. Returned whole (no pagination) — bounded per call and\nfetched on demand when the collapsed `Agent` card is expanded.",
+        "operationId": "get_subagent_transcript",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tool_use_id",
+            "in": "path",
+            "description": "Spawning Agent tool-use id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Subagent transcript",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubagentTranscriptResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tasks/{task_id}/ttl": {
       "put": {
         "tags": [
@@ -12778,6 +12830,56 @@
           }
         }
       },
+      "SubagentStatus": {
+        "type": "string",
+        "description": "Status of a spawned subagent, derived from the outer `Agent` tool_result:\npresent + `is_error` → `Error`; present → `Completed`; absent → `Running`.",
+        "enum": [
+          "running",
+          "completed",
+          "error"
+        ]
+      },
+      "SubagentSummary": {
+        "type": "object",
+        "description": "Derived aggregate metadata for a spawned subagent, carried on the `Agent`\ntool-use content block. Not content — the collapsed `Agent` card renders as\na pure read of this. Shared shape between the read path and the live\n`subagentProgress` event (absolute values).",
+        "required": [
+          "messageCount",
+          "tokens",
+          "status"
+        ],
+        "properties": {
+          "messageCount": {
+            "type": "integer",
+            "format": "int32",
+            "description": "`COUNT(*)` of the subagent's rows (rows whose `parent_uuid` equals the\n`Agent` tool-use id).",
+            "minimum": 0
+          },
+          "status": {
+            "$ref": "#/components/schemas/SubagentStatus"
+          },
+          "tokens": {
+            "type": "integer",
+            "format": "int32",
+            "description": "`SUM(input_tokens + output_tokens)` across the subagent's assistant rows.",
+            "minimum": 0
+          }
+        }
+      },
+      "SubagentTranscriptResponse": {
+        "type": "object",
+        "description": "Response for GET /tasks/{task_id}/tool-calls/{tool_use_id}/messages — the\non-demand subagent transcript. The assembled, fold-resolved Messages of the\nsubagent spawned by the given `Agent` tool call.",
+        "required": [
+          "messages"
+        ],
+        "properties": {
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UiMessage"
+            }
+          }
+        }
+      },
       "SyncConfigResponse": {
         "type": "object",
         "description": "Response for `POST /api/v1/repositories/{id}/sync-config`.\n\nWraps the updated repository plus the loop reconciliation summary.",
@@ -13867,6 +13969,17 @@
             "type": [
               "boolean",
               "null"
+            ]
+          },
+          "subagentSummary": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SubagentSummary",
+                "description": "For `Agent` tool-use blocks only: a derived summary of the spawned\nsubagent's activity. Injected post-transform from a batched aggregate;\nabsent on non-`Agent` blocks and on the live `subagentProgress` path."
+              }
             ]
           },
           "text": {

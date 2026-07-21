@@ -32,6 +32,7 @@ import type {
   GetPendingMessagesResponse,
   SendMessageRequest,
   SendMessageResponse,
+  SubagentTranscriptResponse,
   ToolCallDetailResponse
 } from '.././model';
 
@@ -644,6 +645,149 @@ export const prefetchGetToolCallDetailQuery = async <TData = Awaited<ReturnType<
   ): Promise<QueryClient> => {
 
   const queryOptions = getGetToolCallDetailQueryOptions(taskId,toolUseId,options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+/**
+ * Runs the fold-resolving row-transform over the rows whose `parent_uuid`
+equals `tool_use_id`. Returned whole (no pagination) — bounded per call and
+fetched on demand when the collapsed `Agent` card is expanded.
+ * @summary Get the assembled subagent transcript for a single `Agent` tool call.
+ */
+export type getSubagentTranscriptResponse200 = {
+  data: SubagentTranscriptResponse
+  status: 200
+}
+
+export type getSubagentTranscriptResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type getSubagentTranscriptResponseSuccess = (getSubagentTranscriptResponse200) & {
+  headers: Headers;
+};
+export type getSubagentTranscriptResponseError = (getSubagentTranscriptResponse404) & {
+  headers: Headers;
+};
+
+export type getSubagentTranscriptResponse = (getSubagentTranscriptResponseSuccess | getSubagentTranscriptResponseError)
+
+export const getGetSubagentTranscriptUrl = (taskId: string,
+    toolUseId: string,) => {
+
+
+  
+
+  return `/api/v1/tasks/${taskId}/tool-calls/${toolUseId}/messages`
+}
+
+export const getSubagentTranscript = async (taskId: string,
+    toolUseId: string, options?: RequestInit): Promise<getSubagentTranscriptResponse> => {
+  
+  return customInstance<getSubagentTranscriptResponse>(getGetSubagentTranscriptUrl(taskId,toolUseId),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
+
+export const getGetSubagentTranscriptQueryKey = (taskId: string,
+    toolUseId: string,) => {
+    return [
+    `/api/v1/tasks/${taskId}/tool-calls/${toolUseId}/messages`
+    ] as const;
+    }
+
+    
+export const getGetSubagentTranscriptQueryOptions = <TData = Awaited<ReturnType<typeof getSubagentTranscript>>, TError = ErrorType<ErrorBody>>(taskId: string,
+    toolUseId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSubagentTranscript>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetSubagentTranscriptQueryKey(taskId,toolUseId);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getSubagentTranscript>>> = ({ signal }) => getSubagentTranscript(taskId,toolUseId, { signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(taskId && toolUseId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getSubagentTranscript>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type GetSubagentTranscriptQueryResult = NonNullable<Awaited<ReturnType<typeof getSubagentTranscript>>>
+export type GetSubagentTranscriptQueryError = ErrorType<ErrorBody>
+
+
+export function useGetSubagentTranscript<TData = Awaited<ReturnType<typeof getSubagentTranscript>>, TError = ErrorType<ErrorBody>>(
+ taskId: string,
+    toolUseId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSubagentTranscript>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getSubagentTranscript>>,
+          TError,
+          Awaited<ReturnType<typeof getSubagentTranscript>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useGetSubagentTranscript<TData = Awaited<ReturnType<typeof getSubagentTranscript>>, TError = ErrorType<ErrorBody>>(
+ taskId: string,
+    toolUseId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSubagentTranscript>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getSubagentTranscript>>,
+          TError,
+          Awaited<ReturnType<typeof getSubagentTranscript>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useGetSubagentTranscript<TData = Awaited<ReturnType<typeof getSubagentTranscript>>, TError = ErrorType<ErrorBody>>(
+ taskId: string,
+    toolUseId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSubagentTranscript>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+/**
+ * @summary Get the assembled subagent transcript for a single `Agent` tool call.
+ */
+
+export function useGetSubagentTranscript<TData = Awaited<ReturnType<typeof getSubagentTranscript>>, TError = ErrorType<ErrorBody>>(
+ taskId: string,
+    toolUseId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSubagentTranscript>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getGetSubagentTranscriptQueryOptions(taskId,toolUseId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get the assembled subagent transcript for a single `Agent` tool call.
+ */
+export const prefetchGetSubagentTranscriptQuery = async <TData = Awaited<ReturnType<typeof getSubagentTranscript>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, taskId: string,
+    toolUseId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSubagentTranscript>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getGetSubagentTranscriptQueryOptions(taskId,toolUseId,options)
 
   await queryClient.prefetchQuery(queryOptions);
 
