@@ -11,12 +11,10 @@ function TaskCreationFallback({
   error,
   reset,
   componentName = 'Component',
-  repositoryId = '0ee846ce-fabd-4b90-9ec5-def401a5d802',
 }: {
   error: Error
   reset: () => void
   componentName?: string
-  repositoryId?: string
 }) {
   const [showCreateTask, setShowCreateTask] = useState(false)
 
@@ -82,7 +80,6 @@ Please investigate and fix this issue.`
       <CreateTaskDialog
         open={showCreateTask}
         onOpenChange={setShowCreateTask}
-        defaultRepositoryId={repositoryId}
         defaultMessage={formatErrorForTask()}
       />
     </>
@@ -97,7 +94,6 @@ interface ErrorBoundaryProps {
   resetKeys?: (string | number)[]
   resetOnPropsChange?: boolean
   isolate?: boolean
-  repositoryId?: string // For task creation fallback
   enableTaskCreation?: boolean // Enable the task creation fallback
 }
 

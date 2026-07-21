@@ -22,4 +22,5 @@ export const EventType = {
   agent: 'agent',
   server: 'server',
   resources: 'resources',
+  message: 'message',
 } as const;

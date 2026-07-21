@@ -1,14 +1,67 @@
-import { Bot, Database, GitBranch, LayoutTemplate, Plus, Sparkles, Wand2 } from 'lucide-react'
+import {
+  Bot,
+  Database,
+  GitBranch,
+  Layers,
+  LayoutTemplate,
+  Plus,
+  Sparkles,
+  Wand2,
+} from 'lucide-react'
 import { useState } from 'react'
 import type { AgentDescriptor, AgentModel } from '@/features/agents/types'
 import { useBranches, useRepositoriesList } from '@/features/repositories/hooks/use-repositories.ts'
 import type { TaskTemplateResponse } from '@/features/task-templates/api/task-templates'
 import { useTaskTemplatesList } from '@/features/task-templates/hooks/use-task-templates'
+import { useWorkspacesList } from '@/features/workspaces/hooks/use-workspaces'
 import {
   CLAUDE_MODEL_DISPLAY_NAMES,
   CLAUDE_MODELS,
   DEFAULT_CLAUDE_MODEL,
 } from '@/lib/types/claude-models'
+
+// Workspace selector hook - controlled
+export function useWorkspaceSelector(
+  value?: string,
+  onChange?: (value: string) => void,
+  enabled = true,
+) {
+  const { data, isLoading, error, isError } = useWorkspacesList({ enabled })
+
+  const items =
+    data?.map((ws) => ({
+      id: ws.id,
+      label: ws.name,
+    })) || []
+
+  const [internalValue, setInternalValue] = useState('')
+  const isControlled = value !== undefined
+  const currentValue = isControlled ? value : internalValue
+
+  const handleChange = (newValue: string) => {
+    if (!isControlled) {
+      setInternalValue(newValue)
+    }
+    onChange?.(newValue)
+  }
+
+  const selectedWorkspace = data?.find((ws) => ws.id === currentValue)
+
+  return {
+    value: currentValue,
+    onChange: handleChange,
+    loading: isLoading,
+    error,
+    isError,
+    placeholder: 'Select workspace',
+    items,
+    width: 'w-[180px]',
+    disabled: false,
+    icon: Layers,
+    tooltip: 'Choose a workspace',
+    displayValue: selectedWorkspace?.name || 'Select workspace',
+  }
+}
 
 // Repository selector hook - now controlled
 // Shows all repositories (including templates)

@@ -1,4 +1,5 @@
 import { Minus, X } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { type ComposeWindowState, useComposeTask } from '../../contexts/compose-task-provider'
 import { ComposeTaskForm } from './compose-task-form'
 
@@ -15,7 +16,12 @@ export function ComposeWindow({ window }: ComposeWindowProps) {
   const { id, minimized } = window
 
   return (
-    <div className="flex w-[500px] max-w-[calc(100vw-2rem)] flex-col rounded-t-lg border border-b-0 bg-background shadow-2xl">
+    <div
+      className={cn(
+        'flex flex-col rounded-t-lg border border-b-0 bg-background shadow-2xl',
+        minimized ? 'w-auto' : 'w-full sm:w-[500px] sm:max-w-[calc(100vw-2rem)]',
+      )}
+    >
       <div className="flex items-center justify-between rounded-t-lg bg-muted pl-3 pr-2">
         <button
           type="button"
@@ -45,7 +51,7 @@ export function ComposeWindow({ window }: ComposeWindowProps) {
       </div>
 
       {!minimized && (
-        <div className="h-[460px] px-3 pb-3 pt-2">
+        <div className="h-[calc(100dvh-3rem)] px-3 pb-3 pt-2 sm:h-[460px]">
           <ComposeTaskForm
             navigateOnSuccess={false}
             onSuccess={() => close(id)}
@@ -55,8 +61,8 @@ export function ComposeWindow({ window }: ComposeWindowProps) {
             onMessageChange={(value) => update(id, { message: value })}
             branch={window.branch}
             onBranchChange={(value) => update(id, { branch: value })}
-            repositoryId={window.repositoryId}
-            onRepositoryChange={(value) => update(id, { repositoryId: value })}
+            workspaceId={window.workspaceId}
+            onWorkspaceChange={(value) => update(id, { workspaceId: value })}
             model={window.model}
             onModelChange={(value) => update(id, { model: value })}
             agentMode={window.agentMode}

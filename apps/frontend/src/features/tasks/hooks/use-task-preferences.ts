@@ -9,10 +9,10 @@ type AgentMode = 'edit' | 'plan'
 interface TaskPreferences {
   agentMode: AgentMode
   agentType: AgentType
-  repositoryId: string
+  workspaceId: string
   setAgentMode: (mode: AgentMode) => void
   setAgentType: (type: AgentType) => void
-  setRepositoryId: (id: string) => void
+  setWorkspaceId: (id: string) => void
 }
 
 /**
@@ -21,7 +21,7 @@ interface TaskPreferences {
  * Provides a clean API for getting and setting all task-related preferences:
  * - Agent mode (edit/plan)
  * - Agent type (claude-code/codex)
- * - Repository ID
+ * - Workspace ID
  *
  * All values are automatically persisted to localStorage and synchronized
  * across browser tabs/windows.
@@ -34,14 +34,14 @@ export function useTaskPreferences(): TaskPreferences {
     'lastSelectedAgentType',
     DEFAULT_AGENT_TYPE,
   )
-  const [repositoryId, setRepositoryId] = useLocalStorage<string>('lastSelectedRepositoryId', '')
+  const [workspaceId, setWorkspaceId] = useLocalStorage<string>('lastSelectedWorkspaceId', '')
 
   return {
     agentMode,
     agentType,
-    repositoryId,
+    workspaceId,
     setAgentMode,
     setAgentType,
-    setRepositoryId,
+    setWorkspaceId,
   }
 }

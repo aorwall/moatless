@@ -1,3 +1,4 @@
+import { cn } from '@/lib/utils'
 import { useComposeTask } from '../../contexts/compose-task-provider'
 import { ComposeWindow } from './compose-window'
 
@@ -13,9 +14,12 @@ export function ComposeDock() {
   }
 
   return (
-    <div className="pointer-events-none fixed bottom-0 right-0 z-50 flex items-end gap-3 px-4">
+    <div className="pointer-events-none fixed bottom-0 inset-x-0 z-50 flex justify-end items-end sm:inset-x-auto sm:right-0 sm:gap-3 sm:px-4">
       {windows.map((window) => (
-        <div key={window.id} className="pointer-events-auto">
+        <div
+          key={window.id}
+          className={cn('pointer-events-auto sm:w-auto', window.minimized ? 'w-auto' : 'w-full')}
+        >
           <ComposeWindow window={window} />
         </div>
       ))}

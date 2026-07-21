@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { useAgentAvailability } from '@/features/agents'
 import { useCommandsList } from '@/features/commands/hooks/use-commands'
-import { useRepositoriesList, useRepository } from '@/features/repositories'
+import { useRepository } from '@/features/repositories'
 import { useRepositorySkills } from '@/features/skills'
 import {
   type AgentType,
@@ -12,12 +12,13 @@ import {
   useAgentTypeSelector,
   useBranchSelector,
   useModelSelector,
-  useRepositorySelector,
   useTaskTemplateSelector,
+  useWorkspaceSelector,
 } from '@/features/tasks/components/chat/chat-input/selectors'
 import { useCommandAutocomplete } from '@/features/tasks/components/chat/command-autocomplete'
 import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
 import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
+import { useWorkspace, useWorkspacesList } from '@/features/workspaces/hooks/use-workspaces'
 import { queryKeys } from '@/lib/api/query-keys'
 import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
 import { type ClaudeModel, DEFAULT_CLAUDE_MODEL, modelToApiValue } from '@/lib/types/claude-models'
@@ -30,8 +31,8 @@ export interface UseComposeTaskFormArgs {
   onMessageChange: (value: string) => void
   branch: string
   onBranchChange: (value: string) => void
-  repositoryId: string
-  onRepositoryChange: (value: string) => void
+  workspaceId: string
+  onWorkspaceChange: (value: string) => void
   model: ClaudeModel
   onModelChange: (value: ClaudeModel) => void
   agentMode: 'edit' | 'plan'
@@ -58,8 +59,8 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
     onMessageChange,
     branch,
     onBranchChange,
-    repositoryId,
-    onRepositoryChange,
+    workspaceId,
+    onWorkspaceChange,
     model,
     onModelChange,
     agentMode,
@@ -75,14 +76,18 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
-  const [repoDialogOpen, setRepoDialogOpen] = useState(false)
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
 
   const { agents, selectedAgent, agentUnavailable, settingsSection, availableModel } =
     useAgentAvailability({ agentType, model })
 
   const { data: commands = [] } = useCommandsList()
-  const { data: skills = [], error: skillsError } = useRepositorySkills(repositoryId || undefined)
+
+  // Derive primary repo from the selected workspace for branch/skills
+  const { data: workspaceDetails } = useWorkspace(workspaceId, { enabled: !!workspaceId })
+  const primaryRepoId = workspaceDetails?.repos.find((r) => r.isPrimary)?.repositoryId ?? undefined
+
+  const { data: skills = [], error: skillsError } = useRepositorySkills(primaryRepoId)
 
   useEffect(() => {
     if (skillsError) {
@@ -117,9 +122,9 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
 
   const taskInputs = useTaskInputs()
 
-  const { data: repositories } = useRepositoriesList()
-  const { data: repositoryDetails, error: repositoryError } = useRepository(repositoryId, {
-    enabled: !!repositoryId,
+  const { data: workspaces } = useWorkspacesList()
+  const { data: repositoryDetails, error: repositoryError } = useRepository(primaryRepoId ?? '', {
+    enabled: !!primaryRepoId,
   })
 
   const isTemplate = repositoryDetails?.kind === 'template'
@@ -130,10 +135,10 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
       'status' in repositoryError &&
       (repositoryError as { status: number }).status === 404
     ) {
-      onRepositoryChange('')
-      toast.info('Previously selected repository no longer exists')
+      onWorkspaceChange('')
+      toast.info('Previously selected workspace is no longer available')
     }
-  }, [repositoryError, onRepositoryChange])
+  }, [repositoryError, onWorkspaceChange])
 
   const modelSelector = useModelSelector<ClaudeModel>(
     isModelSelectorEnabled ? availableModel : DEFAULT_CLAUDE_MODEL,
@@ -147,9 +152,9 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
   )
   const agentModeSelector = useAgentModeSelector(agentMode, onAgentModeChange)
   const agentTypeSelector = useAgentTypeSelector(agentType, onAgentTypeChange, agents)
-  const repoSelector = useRepositorySelector(repositoryId, onRepositoryChange, true)
+  const workspaceSelector = useWorkspaceSelector(workspaceId, onWorkspaceChange, true)
   const branchSelector = useBranchSelector(
-    repositoryId,
+    primaryRepoId,
     branch,
     onBranchChange,
     true,
@@ -165,14 +170,15 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
     }
   }, [branchSelector.error])
 
+  // Auto-select first workspace when none is selected
   useEffect(() => {
-    if (!(repoDialogOpen || repositoryId) && repositories && repositories.length > 0) {
-      const firstRepo = repositories[0]
-      if (firstRepo) {
-        onRepositoryChange(firstRepo.id)
+    if (!workspaceId && workspaces && workspaces.length > 0) {
+      const firstWorkspace = workspaces[0]
+      if (firstWorkspace) {
+        onWorkspaceChange(firstWorkspace.id)
       }
     }
-  }, [repoDialogOpen, repositoryId, repositories, onRepositoryChange])
+  }, [workspaceId, workspaces, onWorkspaceChange])
 
   const createTask = useCreateTask({
     onSuccess: (data) => {
@@ -194,7 +200,7 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
     }
   }
 
-  const canSubmit = !!repositoryId && !agentUnavailable
+  const canSubmit = !!workspaceId && !agentUnavailable
 
   const handleSubmit = () => {
     if (!canSubmit) {
@@ -212,7 +218,7 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
     createTask.mutate(
       {
         agentType,
-        repositoryId,
+        workspaceId,
         agentMode: submitAgentMode,
         fileIds: taskInputs.getFileIds(),
         ...(trimmedName !== '' && { name: trimmedName }),
@@ -239,7 +245,7 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
 
   return {
     // selectors
-    repoSelector,
+    workspaceSelector,
     branchSelector,
     modelSelector,
     agentModeSelector,
@@ -267,8 +273,6 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
     canSubmit,
     isPending: createTask.isPending,
     // dialogs
-    repoDialogOpen,
-    setRepoDialogOpen,
     settingsDialogOpen,
     setSettingsDialogOpen,
   }

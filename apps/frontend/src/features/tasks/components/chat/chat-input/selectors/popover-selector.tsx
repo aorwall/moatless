@@ -15,6 +15,8 @@ export interface PopoverSelectorProps {
   error?: boolean | undefined
   children: React.ReactNode
   className?: string | undefined
+  /** Always show the text label regardless of screen size (default: hidden on xs). */
+  showLabel?: boolean | undefined
 }
 
 export function PopoverSelector({
@@ -27,6 +29,7 @@ export function PopoverSelector({
   error = false,
   children,
   className,
+  showLabel = false,
 }: PopoverSelectorProps) {
   const hasValue = value && value !== '' && value !== '__none__'
   const buttonText = hasValue ? displayValue || value : undefined
@@ -49,7 +52,14 @@ export function PopoverSelector({
             >
               <Icon className="h-3.5 w-3.5 shrink-0" />
               {buttonText && (
-                <span className="hidden sm:inline truncate max-w-[200px]">{buttonText}</span>
+                <span
+                  className={cn(
+                    showLabel ? 'inline' : 'hidden sm:inline',
+                    'truncate max-w-[200px]',
+                  )}
+                >
+                  {buttonText}
+                </span>
               )}
             </Button>
           </TooltipTrigger>

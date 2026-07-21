@@ -36,13 +36,10 @@ function EmptyTaskState() {
   const [model, setModel] = useState<ClaudeModel>(DEFAULT_CLAUDE_MODEL)
   const [templateId, setTemplateId] = useState<string | undefined>(undefined)
 
-  const { setRepositoryId, setAgentType, setAgentMode } = preferences
+  const { setAgentType, setAgentMode } = preferences
 
   const handleTemplatePick = (template: TaskTemplateResponse) => {
     setTemplateId(template.id)
-    if (template.repositoryId) {
-      setRepositoryId(template.repositoryId)
-    }
     if (template.agentType) {
       setAgentType(template.agentType as AgentType)
     }
@@ -71,8 +68,8 @@ function EmptyTaskState() {
           onAgentModeChange={preferences.setAgentMode}
           agentType={preferences.agentType}
           onAgentTypeChange={preferences.setAgentType}
-          repositoryId={preferences.repositoryId}
-          onRepositoryChange={preferences.setRepositoryId}
+          workspaceId={preferences.workspaceId}
+          onWorkspaceChange={preferences.setWorkspaceId}
           templateId={templateId}
           onTemplateChange={setTemplateId}
         />
@@ -111,17 +108,10 @@ export function TaskDashboard({
   const [model, setModel] = useState<ClaudeModel>(DEFAULT_CLAUDE_MODEL)
   const [templateId, setTemplateId] = useState<string | undefined>(undefined)
 
-  const {
-    setRepositoryId: prefSetRepositoryId,
-    setAgentType: prefSetAgentType,
-    setAgentMode: prefSetAgentMode,
-  } = preferences
+  const { setAgentType: prefSetAgentType, setAgentMode: prefSetAgentMode } = preferences
 
   const handleTemplatePick = (template: TaskTemplateResponse) => {
     setTemplateId(template.id)
-    if (template.repositoryId) {
-      prefSetRepositoryId(template.repositoryId)
-    }
     if (template.agentType) {
       prefSetAgentType(template.agentType as AgentType)
     }
@@ -214,8 +204,8 @@ export function TaskDashboard({
           onAgentModeChange={preferences.setAgentMode}
           agentType={preferences.agentType}
           onAgentTypeChange={preferences.setAgentType}
-          repositoryId={preferences.repositoryId}
-          onRepositoryChange={preferences.setRepositoryId}
+          workspaceId={preferences.workspaceId}
+          onWorkspaceChange={preferences.setWorkspaceId}
           templateId={templateId}
           onTemplateChange={setTemplateId}
         />

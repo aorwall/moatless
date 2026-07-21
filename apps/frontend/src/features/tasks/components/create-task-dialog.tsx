@@ -7,20 +7,20 @@ import { CreateCodeTask } from './create-task/create-code-task'
 interface CreateTaskDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  defaultRepositoryId?: string
+  defaultWorkspaceId?: string
   defaultMessage?: string
 }
 
 export function CreateTaskDialog({
   open,
   onOpenChange,
-  defaultRepositoryId,
+  defaultWorkspaceId,
   defaultMessage,
 }: CreateTaskDialogProps) {
   const preferences = useTaskPreferences()
   const [model, setModel] = useState<ClaudeModel>(DEFAULT_CLAUDE_MODEL)
   const [agentMode, setAgentMode] = useState<'edit' | 'plan'>('edit')
-  const [repositoryId, setRepositoryId] = useState<string>(defaultRepositoryId || '')
+  const [workspaceId, setWorkspaceId] = useState<string>(defaultWorkspaceId || '')
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -36,8 +36,8 @@ export function CreateTaskDialog({
             onAgentModeChange={setAgentMode}
             agentType={preferences.agentType}
             onAgentTypeChange={preferences.setAgentType}
-            repositoryId={repositoryId}
-            onRepositoryChange={setRepositoryId}
+            workspaceId={workspaceId}
+            onWorkspaceChange={setWorkspaceId}
             onSuccess={() => onOpenChange(false)}
           />
         </div>

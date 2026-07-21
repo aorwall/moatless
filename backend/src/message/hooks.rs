@@ -14,6 +14,7 @@
 use std::borrow::Cow;
 use std::fmt::Write;
 
+use moatless_events::{EventType, MessageSubType};
 use serde_json::json;
 use tracing::{debug, info, warn};
 
@@ -125,6 +126,96 @@ pub async fn on_agent_message_persisted(
             handle_git_push(state, task_id, parent_uuid, result_text).await;
         }
     }
+}
+
+// =============================================================================
+// message.upsert — derived, UI-only assembled Message events (ADR-0002)
+// =============================================================================
+
+/// Assembly window for a derived `message.upsert`. The affected Message is the
+/// newest row, so its just-arrived tool_result siblings are on the newest page;
+/// re-assembling that page via the same path as `GET /messages` keeps the
+/// streamed `UiMessage` byte-identical to the read path.
+const MESSAGE_UPSERT_ASSEMBLY_LIMIT: i32 = 100;
+
+/// Re-assemble the Message identified by `message_uuid` and publish a derived
+/// `message.upsert` carrying the assembled `UiMessage`. UI-only — the
+/// event-handler consumer gates `message.*` out of `task_events`, and the SSE
+/// consumer relays it to clients. Fire-and-forget: assembly failures are logged
+/// and the read path hydrates on next open.
+pub async fn emit_message_upsert(state: &AppState, task_id: &str, message_uuid: &str) {
+    let Some(events) = state.events.as_ref() else {
+        return;
+    };
+
+    let (messages, contexts, blocks) = match state
+        .messages
+        .get_paginated(task_id, None, MESSAGE_UPSERT_ASSEMBLY_LIMIT)
+        .await
+    {
+        Ok(page) => page,
+        Err(e) => {
+            warn!(task_id = %task_id, error = %e, "Failed to load page for message.upsert assembly");
+            return;
+        }
+    };
+
+    // Legacy file-context fallback, mirroring the read path.
+    let legacy_file_ids: Vec<String> = messages
+        .iter()
+        .flat_map(super::models::TaskMessage::file_ids)
+        .collect();
+    let file_metadata = if legacy_file_ids.is_empty() {
+        std::collections::HashMap::new()
+    } else {
+        state
+            .files
+            .find_by_ids(&legacy_file_ids)
+            .await
+            .unwrap_or_else(|e| {
+                warn!(task_id = %task_id, error = %e, "Failed to batch-load file metadata for message.upsert");
+                std::collections::HashMap::new()
+            })
+    };
+
+    let assembled = super::transform::transform_to_ui_with_files(
+        &messages,
+        &contexts,
+        &blocks,
+        &file_metadata,
+    )
+    .into_iter()
+    .find(|m| m.uuid == message_uuid);
+
+    let Some(message) = assembled else {
+        // No standalone assembled Message for this uuid: either a tool_result /
+        // System row (inlined into its parent assistant Message — surfaces on
+        // the parent's next upsert or the turn-final reconcile), or a row past
+        // the assembly window. Both are covered by the read-path hydration.
+        debug!(task_id = %task_id, uuid = %message_uuid, "no standalone Message for uuid; skipping upsert");
+        return;
+    };
+
+    // Slim shape matches the frontend read path (`summary: true`).
+    let slim = crate::message::handlers::strip_heavy_fields(message);
+    let payload = match serde_json::to_value(&slim) {
+        Ok(v) => v,
+        Err(e) => {
+            warn!(task_id = %task_id, error = %e, "Failed to serialize UiMessage for message.upsert");
+            return;
+        }
+    };
+
+    events
+        .publish_raw_event(
+            task_id,
+            EventType::Message.as_str(),
+            MessageSubType::Upsert.as_str(),
+            None,
+            None,
+            payload,
+        )
+        .await;
 }
 
 // =============================================================================

@@ -25,6 +25,9 @@ impl From<moatless_events::EventType> for EventType {
             moatless_events::EventType::Agent => EventType::Agent,
             moatless_events::EventType::Server => EventType::Server,
             moatless_events::EventType::Resources => EventType::Resources,
+            // Derived, UI-only event; never sent over the sandbox proto. This
+            // arm exists only for exhaustiveness — the sandbox has no `Message`.
+            moatless_events::EventType::Message => EventType::Resources,
         }
     }
 }
