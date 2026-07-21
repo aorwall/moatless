@@ -34,32 +34,31 @@ use super::pod_status::{
     extract_container_observed_statuses, is_sandbox_container_ready,
     DEFAULT_SERVER_READINESS_TIMEOUT_SECS,
 };
-use crate::auth::provider_token_dao::ProviderTokenRepository;
-use crate::config::Config;
 use crate::events::EventPublisher;
-use crate::plugin_repo::dao::PluginRepoRepository;
-use crate::repository::dao::RepoRepository;
+use crate::sandbox::lifecycle::Lifecycle;
 use crate::task::dao::{TaskPatch, TaskRepository};
-use crate::task::models::{SandboxDesiredState, SandboxStopReason};
+use crate::task::models::SandboxStopReason;
 use crate::task_event::dao::TaskEventRepository;
 use crate::workspace::dao::WorkspaceRepository;
 
-/// Optional DB + config dependencies the watcher needs to auto-disable a
-/// crash-looping server container. All repositories are optional because the
-/// watcher also runs in setups without a database (where remediation degrades
-/// to publishing a `Failed` event only).
+/// Dependencies the watcher needs to remediate a crash-looping sandbox. The
+/// lifecycle owns plan construction and intent, so the watcher only carries the
+/// handle plus the task/workspace repos its auto-disable decision reads. All are
+/// optional because the watcher also runs in setups without a database (where
+/// remediation degrades to publishing a `Failed` event / raw scale-to-0).
 #[derive(Clone)]
 struct WatcherDeps {
+    /// Shared durable lifecycle handle — the sole writer of Sandbox intent. The
+    /// watcher drives crash auto-stop (`stop`) and auto-disable redeploy
+    /// (`redeploy`) through it. `None` in DB-less setups, where crash mitigation
+    /// degrades to a raw scale-to-0 and auto-disable is skipped.
+    lifecycle: Option<Arc<Lifecycle>>,
     tasks: Option<Arc<dyn TaskRepository>>,
-    repos: Option<Arc<dyn RepoRepository>>,
-    provider_tokens: Option<Arc<dyn ProviderTokenRepository>>,
-    plugin_repos: Option<Arc<dyn PluginRepoRepository>>,
     workspaces: Option<Arc<dyn WorkspaceRepository>>,
     /// Task-event repo, used to look up the active turn when a pod terminates
     /// involuntarily so `turn_interrupted` carries the right turn context (and
     /// is suppressed when no turn is in flight). `None` in DB-less setups.
     task_events: Option<Arc<dyn TaskEventRepository>>,
-    config: Arc<Config>,
 }
 
 /// Pod-Pending duration after which the watcher emits `scheduling_blocked`,
@@ -200,13 +199,10 @@ pub fn spawn_pod_lifecycle_watcher(
     event_publisher: Arc<dyn EventPublisher>,
     cancel: CancellationToken,
     max_crash_restart_count: i32,
+    lifecycle: Option<Arc<Lifecycle>>,
     tasks: Option<Arc<dyn TaskRepository>>,
-    repos: Option<Arc<dyn RepoRepository>>,
-    provider_tokens: Option<Arc<dyn ProviderTokenRepository>>,
-    plugin_repos: Option<Arc<dyn PluginRepoRepository>>,
     workspaces: Option<Arc<dyn WorkspaceRepository>>,
     task_events: Option<Arc<dyn TaskEventRepository>>,
-    config: Arc<Config>,
 ) -> JoinHandle<()> {
     let identity = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
     metrics::describe_counter!(
@@ -218,13 +214,10 @@ pub fn spawn_pod_lifecycle_watcher(
         "Sandbox startup latency in seconds, measured from pod creation to the sandbox container's first Ready"
     );
     let deps = WatcherDeps {
+        lifecycle,
         tasks,
-        repos,
-        provider_tokens,
-        plugin_repos,
         workspaces,
         task_events,
-        config,
     };
 
     tokio::spawn(async move {
@@ -894,26 +887,16 @@ async fn process_watcher_event(
             // retries. Without this retry the crossing edge never re-fires
             // (`restart_count` stays `>= threshold`) and the pod crash-loops
             // forever.
-            if new_state.auto_stop_pending && !is_intentional_stop {
-                match deployment::scale_deployment(k8s, &task_id, 0).await {
-                    Ok(()) => {
-                        info!(
-                            task_id = %task_id,
-                            pod_name = %pod_name,
-                            "Auto-stop scale-to-0 succeeded"
-                        );
-                        new_state.auto_stop_pending = false;
-                        record_crash_autostop_intent(deps, &task_id).await;
-                    }
-                    Err(e) => {
-                        warn!(
-                            task_id = %task_id,
-                            pod_name = %pod_name,
-                            error = %e,
-                            "Failed to auto-stop sandbox; will retry on the next event/sweep"
-                        );
-                    }
-                }
+            if new_state.auto_stop_pending
+                && !is_intentional_stop
+                && crash_autostop(deps, k8s, &task_id).await
+            {
+                info!(
+                    task_id = %task_id,
+                    pod_name = %pod_name,
+                    "Crash auto-stop succeeded"
+                );
+                new_state.auto_stop_pending = false;
             }
 
             // Reconcile a clean sandbox exit (Completed, exit 0) against the
@@ -1008,7 +991,6 @@ async fn process_watcher_event(
                         .unwrap_or(&sc.name)
                         .to_string();
                     auto_disable_server(
-                        k8s,
                         &task_id,
                         &server_name,
                         &sc,
@@ -1204,7 +1186,6 @@ async fn publish_server_failed(
 ///   without the container.
 #[allow(clippy::too_many_arguments)]
 async fn auto_disable_server(
-    k8s: &K8sClient,
     task_id: &str,
     server_name: &str,
     sc: &ServerContainerState,
@@ -1225,14 +1206,9 @@ async fn auto_disable_server(
         sc.restart_count, max_crash_restart_count
     );
 
-    // Need full DB access to determine default-ness, persist, and redeploy.
-    let (Some(tasks), Some(repos), Some(provider_tokens), Some(plugin_repos), Some(workspaces)) = (
-        deps.tasks.as_ref(),
-        deps.repos.as_ref(),
-        deps.provider_tokens.as_ref(),
-        deps.plugin_repos.as_ref(),
-        deps.workspaces.as_ref(),
-    ) else {
+    // Need DB access to determine default-ness and persist the disabled set; the
+    // lifecycle owns the redeploy plan repositories.
+    let (Some(tasks), Some(workspaces)) = (deps.tasks.as_ref(), deps.workspaces.as_ref()) else {
         debug!(
             task_id = %task_id,
             "No DB access in watcher — surfacing server Failed without auto-disable"
@@ -1310,29 +1286,16 @@ async fn auto_disable_server(
         )
         .await;
 
-    // Rebuild the provision request (now filters the disabled server) and
-    // redeploy from the new pod spec.
-    let request = match crate::sandbox::auto_provision::build_provision_request(
-        tasks.as_ref(),
-        repos.as_ref(),
-        provider_tokens.as_ref(),
-        plugin_repos.as_ref(),
-        workspaces.as_ref(),
-        task_id,
-    )
-    .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            warn!(task_id = %task_id, error = %e, "Failed to build provision request for redeploy");
-            return;
-        }
+    // Redeploy through the lifecycle: it rebuilds the plan (now filtering the
+    // disabled server), threads the Running intent + generation, and applies the
+    // fresh pod spec. `disabled_servers` is already persisted above, so the
+    // rebuilt plan drops the crash-looping server. The lifecycle handle is always
+    // present when DB access is (the branch above already required `tasks`).
+    let Some(lifecycle) = deps.lifecycle.as_ref() else {
+        warn!(task_id = %task_id, "No lifecycle handle — skipping redeploy after auto-disable");
+        return;
     };
-
-    // Token minting (bootstrap + optional legacy user token) happens inside
-    // redeploy_with_plan from config; a missing TASK_TOKEN_SECRET surfaces as an
-    // error there.
-    if let Err(e) = deployment::redeploy_with_plan(k8s, &deps.config, task_id, &request).await {
+    if let Err(e) = lifecycle.redeploy(task_id).await {
         warn!(task_id = %task_id, error = %e, "Failed to redeploy after auto-disabling server");
     } else {
         info!(
@@ -1343,22 +1306,26 @@ async fn auto_disable_server(
     }
 }
 
-async fn record_crash_autostop_intent(deps: &WatcherDeps, task_id: &str) {
-    let Some(tasks) = deps.tasks.as_ref() else {
-        return;
-    };
-    if let Err(e) = tasks
-        .update_task(
-            task_id,
-            &TaskPatch {
-                sandbox_desired_state: Some(SandboxDesiredState::Stopped),
-                sandbox_stop_reason: Some(Some(SandboxStopReason::Error)),
-                ..Default::default()
-            },
-        )
-        .await
-    {
-        warn!(task_id = %task_id, error = %e, "Failed to persist crash auto-stop intent");
+/// Stop a crash-looping sandbox. Through the lifecycle (Stopped/Error intent +
+/// graceful stop + scale-to-0) when a DB-backed handle is available; otherwise a
+/// raw scale-to-0 so the crash loop still halts in DB-less setups. Returns
+/// whether the stop landed, so callers can clear their pending-retry flag.
+async fn crash_autostop(deps: &WatcherDeps, k8s: &K8sClient, task_id: &str) -> bool {
+    match deps.lifecycle.as_ref() {
+        Some(lifecycle) => match lifecycle.stop(task_id, SandboxStopReason::Error).await {
+            Ok(_) => true,
+            Err(e) => {
+                warn!(task_id = %task_id, error = %e, "Crash auto-stop via lifecycle failed; will retry");
+                false
+            }
+        },
+        None => match deployment::scale_deployment(k8s, task_id, 0).await {
+            Ok(()) => true,
+            Err(e) => {
+                warn!(task_id = %task_id, error = %e, "Crash auto-stop scale-to-0 failed; will retry");
+                false
+            }
+        },
     }
 }
 
@@ -2125,24 +2092,19 @@ async fn retry_pending_auto_stops(
         if !state.auto_stop_pending {
             continue;
         }
-        match deployment::scale_deployment(k8s, &state.task_id, 0).await {
-            Ok(()) => {
-                info!(
-                    task_id = %state.task_id,
-                    pod_name = %state.pod_name,
-                    "Auto-stop scale-to-0 succeeded on periodic retry"
-                );
-                state.auto_stop_pending = false;
-                record_crash_autostop_intent(deps, &state.task_id).await;
-            }
-            Err(e) => {
-                warn!(
-                    task_id = %state.task_id,
-                    pod_name = %state.pod_name,
-                    error = %e,
-                    "Auto-stop scale-to-0 still failing; will retry next sweep"
-                );
-            }
+        if crash_autostop(deps, k8s, &state.task_id).await {
+            info!(
+                task_id = %state.task_id,
+                pod_name = %state.pod_name,
+                "Crash auto-stop succeeded on periodic retry"
+            );
+            state.auto_stop_pending = false;
+        } else {
+            warn!(
+                task_id = %state.task_id,
+                pod_name = %state.pod_name,
+                "Crash auto-stop still failing; will retry next sweep"
+            );
         }
     }
 }

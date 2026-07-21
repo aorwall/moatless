@@ -252,13 +252,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 publisher.clone(),
                 cancel.clone(),
                 config.sandbox.max_crash_restart_count,
+                lifecycle.clone(),
                 sandbox_tasks.clone(),
-                sandbox_repos.clone(),
-                sandbox_provider_tokens.clone(),
-                sandbox_plugin_repos.clone(),
                 sandbox_workspaces.clone(),
                 sandbox_task_events.clone(),
-                Arc::new(config.clone()),
             );
             info!(
                 max_crash_restart_count = config.sandbox.max_crash_restart_count,
