@@ -13,19 +13,19 @@ use crate::sandbox::provider::SandboxProvider;
 
 use super::orchestrator::AgentStopPort;
 
-/// Issues `StopAgent` over the provider's sandbox gRPC client.
-pub struct ProviderAgentStop {
+/// Issues `StopAgent` over the sandbox gRPC client.
+pub struct GrpcAgentStop {
     provider: Arc<dyn SandboxProvider>,
 }
 
-impl ProviderAgentStop {
+impl GrpcAgentStop {
     pub fn new(provider: Arc<dyn SandboxProvider>) -> Self {
         Self { provider }
     }
 }
 
 #[async_trait]
-impl AgentStopPort for ProviderAgentStop {
+impl AgentStopPort for GrpcAgentStop {
     async fn stop_agent(&self, task_id: &str) {
         match self.provider.sandbox_client(task_id).await {
             Ok(client) => {

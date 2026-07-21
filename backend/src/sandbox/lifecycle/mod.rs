@@ -55,17 +55,30 @@ pub(crate) mod outcome;
 pub(crate) mod runtime;
 pub(crate) mod types;
 
-// Infrastructure adapters implementing the ports. Public so `AppState`/`main`
-// construct them and integration tests exercise them against a live Postgres.
-pub mod agent_stop;
-pub mod dao;
-pub mod event_sink;
-pub mod lock;
-pub mod runtime_bridge;
+// Infrastructure adapters implementing the ports. `pub(crate)` and, until the
+// caller migration constructs them, driven only by in-crate tests — so
+// dead_code is allowed deliberately rather than muted by widening to `pub`. The
+// caller-migration commit that wires them into `AppState`/`main` drops the
+// allow.
+// reason: staged delivery — the port adapters land before the code that drives them.
+#[allow(dead_code)]
+pub(crate) mod agent_stop;
+#[allow(dead_code)]
+pub(crate) mod dao;
+#[allow(dead_code)]
+pub(crate) mod event_sink;
+#[allow(dead_code)]
+pub(crate) mod lock;
+#[allow(dead_code)]
+pub(crate) mod runtime_bridge;
 
 // The lifecycle contract against local Postgres (Lifecycle over the Pg adapters).
 #[cfg(all(test, feature = "db-tests"))]
 mod contract_tests;
+
+// Shared test seeding for the db-tests modules.
+#[cfg(all(test, feature = "db-tests"))]
+pub(crate) mod test_support;
 
 // ---- Curated public surface ----
 
@@ -81,9 +94,3 @@ pub use orchestrator::{
     AgentStopPort, IntentWrite, Lifecycle, LifecycleEventSink, LifecycleLock, LifecycleStore,
     LockGuard, StoreError, SystemWallClock, TaskIntent, WallClock,
 };
-
-pub use agent_stop::ProviderAgentStop;
-pub use dao::PgLifecycleStore;
-pub use event_sink::OutboxEventSink;
-pub use lock::PgLifecycleLock;
-pub use runtime_bridge::ProviderRuntime;

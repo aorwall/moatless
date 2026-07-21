@@ -123,9 +123,8 @@ impl LifecycleEvent {
 }
 
 /// `(lifecycle_event, initiator)` tags carried on a `Stopped` completion so the
-/// UI attributes an intentional stop — mirroring the tags the reaper and pod
-/// watcher stamp today (idle stop → `idle_reaped`/`reaper`, crash →
-/// `crash_autostop`).
+/// UI attributes an intentional stop (idle stop → `idle_reaped`/`reaper`, crash →
+/// `crash_autostop`), matching the tags the reaper and pod watcher stamp.
 fn stop_reason_tags(reason: SandboxStopReason) -> (Option<&'static str>, &'static str) {
     match reason {
         SandboxStopReason::User => (None, "user"),

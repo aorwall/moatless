@@ -1,12 +1,11 @@
-//! [`SandboxRuntime`] over the existing [`SandboxProvider`].
+//! [`SandboxRuntime`] implemented over the [`SandboxProvider`].
 //!
-//! Step 2's runtime seam: the K8s and Docker providers are not yet native
-//! `SandboxRuntime` implementations (that is step 3), so this bridge adapts the
-//! provider's imperative surface into the typed `RuntimeOutcome` lifecycle needs.
-//! It owns plan construction (moved behind lifecycle) and derives the effect axis
-//! at the adapter from an observed-status read taken under the per-Task lock —
-//! never inferred by the orchestrator. Removal is strict: it awaits observed
-//! absence before reporting success.
+//! The bridge adapts the provider's imperative surface into the typed
+//! `RuntimeOutcome` the lifecycle seam needs. It owns plan construction (the
+//! provision repositories live behind lifecycle) and derives the effect axis at
+//! the adapter from an observed-status read taken under the per-Task lock —
+//! never inferred by the orchestrator. Removal is strict: it reports success
+//! only on observed absence of every resource and durable archive deletion.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -25,6 +24,7 @@ use crate::task::dao::TaskRepository;
 use crate::workspace::dao::WorkspaceRepository;
 
 use super::error::RuntimeError;
+use super::outcome::{DegradationWarning, Diagnostics};
 use super::runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
 use super::types::{ArchiveRetention, ObservedStatus, RuntimeEffect};
 
@@ -33,38 +33,34 @@ use super::types::{ArchiveRetention, ObservedStatus, RuntimeEffect};
 const REMOVE_ABSENCE_POLLS: u32 = 45;
 const REMOVE_ABSENCE_INTERVAL: Duration = Duration::from_secs(2);
 
-/// Bridges the lifecycle runtime seam onto the provider plus plan construction.
-pub struct ProviderRuntime {
-    provider: Arc<dyn SandboxProvider>,
-    tasks: Arc<dyn TaskRepository>,
-    repos: Arc<dyn RepoRepository>,
-    provider_tokens: Arc<dyn ProviderTokenRepository>,
-    plugin_repos: Arc<dyn PluginRepoRepository>,
-    workspaces: Arc<dyn WorkspaceRepository>,
+/// The repositories [`build_provision_request`] reads to assemble a fresh plan.
+///
+/// Bundled into one dependency so the bridge — and future native adapters —
+/// take a single value instead of five positional `Arc`s.
+#[derive(Clone)]
+pub struct ProvisionDeps {
+    pub tasks: Arc<dyn TaskRepository>,
+    pub repos: Arc<dyn RepoRepository>,
+    pub provider_tokens: Arc<dyn ProviderTokenRepository>,
+    pub plugin_repos: Arc<dyn PluginRepoRepository>,
+    pub workspaces: Arc<dyn WorkspaceRepository>,
 }
 
-impl ProviderRuntime {
-    pub fn new(
-        provider: Arc<dyn SandboxProvider>,
-        tasks: Arc<dyn TaskRepository>,
-        repos: Arc<dyn RepoRepository>,
-        provider_tokens: Arc<dyn ProviderTokenRepository>,
-        plugin_repos: Arc<dyn PluginRepoRepository>,
-        workspaces: Arc<dyn WorkspaceRepository>,
-    ) -> Self {
-        Self {
-            provider,
-            tasks,
-            repos,
-            provider_tokens,
-            plugin_repos,
-            workspaces,
-        }
+/// Bridges the lifecycle runtime seam onto the provider plus plan construction.
+pub struct RuntimeBridge {
+    provider: Arc<dyn SandboxProvider>,
+    plan: ProvisionDeps,
+}
+
+impl RuntimeBridge {
+    pub fn new(provider: Arc<dyn SandboxProvider>, plan: ProvisionDeps) -> Self {
+        Self { provider, plan }
     }
 
     /// The infrastructure status observed right now, under the operation's lock.
     async fn observed(&self, task_id: &str) -> Result<SandboxStatus, RuntimeError> {
         let task = self
+            .plan
             .tasks
             .find_by_id_internal(task_id)
             .await
@@ -82,11 +78,11 @@ impl ProviderRuntime {
     /// lifecycle).
     async fn build_request(&self, task_id: &str) -> Result<ProvisionRequest, RuntimeError> {
         build_provision_request(
-            self.tasks.as_ref(),
-            self.repos.as_ref(),
-            self.provider_tokens.as_ref(),
-            self.plugin_repos.as_ref(),
-            self.workspaces.as_ref(),
+            self.plan.tasks.as_ref(),
+            self.plan.repos.as_ref(),
+            self.plan.provider_tokens.as_ref(),
+            self.plan.plugin_repos.as_ref(),
+            self.plan.workspaces.as_ref(),
             task_id,
         )
         .await
@@ -109,7 +105,7 @@ impl ProviderRuntime {
 }
 
 #[async_trait]
-impl SandboxRuntime for ProviderRuntime {
+impl SandboxRuntime for RuntimeBridge {
     async fn ensure_running(
         &self,
         task_id: &str,
@@ -161,8 +157,24 @@ impl SandboxRuntime for ProviderRuntime {
     ) -> Result<RuntimeOutcome, RuntimeError> {
         // Edges deliberately supersede — always an applied effect.
         self.provider.restart(task_id).await.map_err(map_runtime_err)?;
-        let observed = to_running_observed(self.observed(task_id).await.unwrap_or(SandboxStatus::Initializing));
-        Ok(RuntimeOutcome::applied(observed))
+        // Reporting `Starting` on an observation failure is the correct floor for
+        // a just-issued restart, but the failure itself is not swallowed: it is
+        // logged and surfaced as a diagnostic.
+        let (observed, diagnostics) = match self.observed(task_id).await {
+            Ok(status) => (to_running_observed(status), Diagnostics::default()),
+            Err(e) => {
+                tracing::warn!(task_id, error = %e, "failed to observe status after restart; reporting Starting");
+                let diagnostics = Diagnostics {
+                    degradations: vec![DegradationWarning {
+                        code: "restart_observation_failed".into(),
+                        message: e.to_string(),
+                    }],
+                    server_failures: vec![],
+                };
+                (ObservedStatus::Starting, diagnostics)
+            }
+        };
+        Ok(RuntimeOutcome::applied(observed).with_diagnostics(diagnostics))
     }
 
     async fn redeploy(
@@ -187,12 +199,18 @@ impl SandboxRuntime for ProviderRuntime {
     ) -> Result<RuntimeOutcome, RuntimeError> {
         let pre = self.observed(task_id).await?;
         // `retain_storage = true` keeps S3 archives; runtime resources always go.
+        // `cleanup` is strict: it awaits pod + PVC absence and, on a hard delete,
+        // durable archive deletion, surfacing any failure as a typed error.
         self.provider
             .cleanup(task_id, retention.retains())
             .await
             .map_err(map_runtime_err)?;
         self.wait_for_absence(task_id).await?;
-        let effect = if is_absent(pre) {
+        // The effect reflects what cleanup did, not the runtime pre-read alone: a
+        // `DeleteArchives` remove always performs S3 deletion, so it is `Applied`
+        // even when the runtime was already gone. Only a retention-preserving
+        // remove against already-absent resources did nothing.
+        let effect = if is_absent(pre) && retention.retains() {
             RuntimeEffect::NoOp
         } else {
             RuntimeEffect::Applied

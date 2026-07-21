@@ -4,13 +4,14 @@
 //! Every operation takes `pg_try_advisory_lock` keyed on the Task. The two-int
 //! lock space is used deliberately: it never collides with the one-int
 //! `pg_advisory_*` locks elsewhere (codex refresh, task turns). The holder keeps
-//! its lock connection for the operation's whole duration; on drop the lock is
-//! released, and if the unlock does not succeed the connection is **closed** so
-//! the session — and its lock — die with it, never returning to the pool.
+//! its lock connection for the operation's whole duration; on drop the connection
+//! is detached from the pool and unlocked, and because a detached connection
+//! closes its session on drop, the lock dies with it even if the unlock never
+//! runs — it can never return to the pool still held.
 
 use async_trait::async_trait;
 use sqlx::pool::PoolConnection;
-use sqlx::{Connection, Postgres};
+use sqlx::Postgres;
 
 use crate::db::DbPool;
 
@@ -45,29 +46,28 @@ impl LockGuard for PgLockGuard {}
 
 impl Drop for PgLockGuard {
     fn drop(&mut self) {
-        let Some(mut conn) = self.conn.take() else {
+        let Some(conn) = self.conn.take() else {
             return;
         };
         let key = self.key;
-        // Unlock is async; run it on the runtime. A clean unlock returns the
-        // connection to the pool; anything else closes it, and closing a session
-        // releases every advisory lock it held.
+        // Detach from the pool *before* handing the connection to the spawned
+        // unlock. A detached connection closes its session on drop, so even if
+        // this task is never polled (runtime shutting down, executor dropped),
+        // the session — and its advisory lock — die with the dropped connection.
+        // A pooled connection would instead return to the pool still holding the
+        // lock, silently leaking a foreign per-Task lock to the next checkout.
+        let mut conn = conn.detach();
         tokio::spawn(async move {
-            match sqlx::query_scalar::<_, bool>("SELECT pg_advisory_unlock($1, $2)")
+            if let Err(e) = sqlx::query("SELECT pg_advisory_unlock($1, $2)")
                 .bind(LIFECYCLE_LOCK_NS)
                 .bind(key)
-                .fetch_one(&mut *conn)
+                .execute(&mut conn)
                 .await
             {
-                Ok(true) => {
-                    // Released cleanly; connection returns to the pool on drop.
-                }
-                Ok(false) | Err(_) => {
-                    // Unlock did not take. Destroy the session so the lock cannot
-                    // outlive us — never return this connection to the pool.
-                    let _ = conn.detach().close().await;
-                }
+                tracing::debug!(error = %e, "lifecycle advisory unlock failed; session close releases the lock");
             }
+            // `conn` is detached: dropping it here closes the session, releasing
+            // any lock the explicit unlock did not.
         });
     }
 }
@@ -131,36 +131,31 @@ impl PgLifecycleLock {
                 .fetch_optional(&mut **conn)
                 .await
                 .map(Option::flatten);
-        marker
-            .ok()
-            .flatten()
-            .and_then(|s| OperationKind::from_db_str(&s))
-            .unwrap_or(fallback)
+        match marker {
+            Ok(Some(s)) => OperationKind::from_db_str(&s).unwrap_or(fallback),
+            Ok(None) => {
+                // Contended in the window between lock acquisition and the intent
+                // write: no marker yet, so the true holder's kind is unknowable.
+                tracing::debug!(
+                    task_id,
+                    "lifecycle lock contended before marker write; reporting requester kind"
+                );
+                fallback
+            }
+            Err(e) => {
+                tracing::warn!(task_id, error = %e, "failed to read lifecycle holder kind; reporting requester kind");
+                fallback
+            }
+        }
     }
 }
 
 #[cfg(all(test, feature = "db-tests"))]
 mod db_tests {
+    use super::super::test_support::seed_task as seed;
     use super::*;
     use crate::db::create_pool;
     use sqlx::PgPool;
-
-    async fn seed(pool: &PgPool, task_id: &str) {
-        sqlx::query("INSERT INTO teams (id, name, slug) VALUES ('team-x', 'Team X', 'team-x') ON CONFLICT (id) DO NOTHING")
-            .execute(pool)
-            .await
-            .expect("seed team");
-        sqlx::query(
-            r#"INSERT INTO tasks (task_id, created_at, last_message_at, agent_type, repository_id,
-                   status, total_cost_usd, visibility, scope, team_id, created_by, owner_user_id)
-               VALUES ($1, NOW()::text, NOW()::text, 'claude-code', 'repo-x', 'open', 0,
-                   'private', 'user', 'team-x', 'user-1', 'user-1')"#,
-        )
-        .bind(task_id)
-        .execute(pool)
-        .await
-        .expect("seed task");
-    }
 
     #[sqlx::test]
     async fn contended_acquire_returns_holder_kind_from_marker(pool: PgPool) {

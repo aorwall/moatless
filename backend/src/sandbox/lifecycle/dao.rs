@@ -31,6 +31,30 @@ impl PgLifecycleStore {
     }
 }
 
+/// The statement that clears the correlation marker (kind/generation/started_at).
+/// Shared by the standalone clear and the completion transaction so the two
+/// cannot drift.
+const CLEAR_MARKER_SQL: &str = r#"UPDATE tasks SET
+       sandbox_operation_kind = NULL,
+       sandbox_operation_generation = NULL,
+       sandbox_operation_started_at = NULL,
+       updated_at = NOW()
+   WHERE task_id = $1"#;
+
+/// Clear the correlation marker on `executor`. Generic over the executor so the
+/// completion transaction (`&mut tx`) and the standalone clear (`&pool`) issue
+/// one and the same statement.
+async fn clear_marker_on<'e, E>(executor: E, task_id: &str) -> Result<(), sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    sqlx::query(CLEAR_MARKER_SQL)
+        .bind(task_id)
+        .execute(executor)
+        .await
+        .map(|_| ())
+}
+
 /// Reconstruct the persisted correlation marker from its three columns. Present
 /// iff `sandbox_operation_kind` is set.
 fn marker_from_columns(
@@ -200,18 +224,9 @@ impl LifecycleStore for PgLifecycleStore {
 
         // Clear the marker in the same transaction: the fact is durable and the
         // operation is acknowledged together.
-        sqlx::query(
-            r#"UPDATE tasks SET
-                   sandbox_operation_kind = NULL,
-                   sandbox_operation_generation = NULL,
-                   sandbox_operation_started_at = NULL,
-                   updated_at = NOW()
-               WHERE task_id = $1"#,
-        )
-        .bind(task_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| StoreError::with_source("clear marker on completion", e))?;
+        clear_marker_on(&mut *tx, task_id)
+            .await
+            .map_err(|e| StoreError::with_source("clear marker on completion", e))?;
 
         tx.commit()
             .await
@@ -219,18 +234,9 @@ impl LifecycleStore for PgLifecycleStore {
     }
 
     async fn clear_marker(&self, task_id: &str) -> Result<(), StoreError> {
-        sqlx::query(
-            r#"UPDATE tasks SET
-                   sandbox_operation_kind = NULL,
-                   sandbox_operation_generation = NULL,
-                   sandbox_operation_started_at = NULL,
-                   updated_at = NOW()
-               WHERE task_id = $1"#,
-        )
-        .bind(task_id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| StoreError::with_source("clear marker", e))?;
+        clear_marker_on(&self.pool, task_id)
+            .await
+            .map_err(|e| StoreError::with_source("clear marker", e))?;
         Ok(())
     }
 }
@@ -267,63 +273,10 @@ mod tests {
 #[cfg(all(test, feature = "db-tests"))]
 mod db_tests {
     use super::super::events::EventFact;
+    use super::super::test_support::seed_task as seed;
     use super::*;
-    use crate::scope::Scope;
-    use crate::shared_models::AgentType;
-    use crate::task::dao;
-    use crate::task::models::{Task, TaskStatus, Visibility};
     use moatless_events::SandboxStatus;
     use sqlx::PgPool;
-
-    fn task_row(task_id: &str) -> Task {
-        let now = Utc::now().to_rfc3339();
-        Task {
-            task_id: task_id.to_string(),
-            short_id: None,
-            created_at: now.clone(),
-            last_message_at: now,
-            agent_type: AgentType("claude-code".to_string()),
-            repository_id: "repo-x".to_string(),
-            workspace_id: None,
-            status: TaskStatus::Open,
-            total_cost_usd: 0.0,
-            site_url: None,
-            template_id: None,
-            vibe: None,
-            name: None,
-            description: None,
-            site_id: None,
-            site_provider: None,
-            branch: None,
-            created_by: Some("user-1".to_string()),
-            visibility: Visibility::Private,
-            scope: Scope::User,
-            team_id: Some("team-x".to_string()),
-            owner_user_id: Some("user-1".to_string()),
-            created_at_db: None,
-            updated_at: None,
-            append_system_prompt: None,
-            sandbox_started_at: None,
-            sandbox_desired_state: SandboxDesiredState::Running,
-            sandbox_stop_reason: None,
-            sandbox_desired_state_updated_at: Utc::now(),
-            headless: false,
-            ttl_minutes: 15,
-            inactive_ttl_days: 7,
-            trigger_id: None,
-            disabled_servers: None,
-        }
-    }
-
-    async fn seed(pool: &PgPool, task_id: &str) {
-        // Satisfy the tasks.team_id NOT NULL column (no FK, but seed a row so the
-        // fixture matches production shape).
-        sqlx::query("INSERT INTO teams (id, name, slug) VALUES ('team-x', 'Team X', 'team-x') ON CONFLICT (id) DO NOTHING")
-            .execute(pool)
-            .await
-            .expect("seed team");
-        dao::insert_task(pool, &task_row(task_id)).await.expect("seed task");
-    }
 
     fn marker(kind: OperationKind, generation: i64) -> CorrelationMarker {
         CorrelationMarker::new(kind, OperationGeneration(generation), Utc::now())

@@ -3,9 +3,9 @@
 //! Drives the `Lifecycle` orchestrator over the real `PgLifecycleStore` and
 //! `PgLifecycleLock` with a recording runtime, exercising the Postgres half of
 //! the contract: intent persistence, deterministic completion + marker
-//! acknowledgement, genuine per-Task serialization across pools, bounded
-//! lock-retry exhaustion, the Error-resumable eligibility row, and the bad-plan
-//! start case.
+//! acknowledgement, genuine per-Task serialization across distinct lock pools,
+//! bounded lock-retry exhaustion, the Error-resumable eligibility row, and the
+//! orchestrator's permanent-rejection (bad-plan) handling.
 //!
 //! Gated on `db-tests`; run with
 //! `cargo test -p moatless-vibe-backend --features db-tests --lib`.
@@ -19,34 +19,17 @@ use tokio::sync::Notify;
 
 use crate::task::models::SandboxStopReason;
 
+use super::dao::PgLifecycleStore;
 use super::events::{EventFact, LifecycleEvent};
+use super::lock::PgLifecycleLock;
+use super::test_support::seed_task_with as seed;
 use super::{
     AgentStopPort, ArchiveRetention, Lifecycle, LifecycleError, LifecycleEventSink, LifecycleStore,
-    ObservedStatus, OperationKind, PgLifecycleLock, PgLifecycleStore, RuntimeError,
-    RuntimeOperationContext, RuntimeOutcome, SandboxRuntime, SystemWallClock,
+    ObservedStatus, OperationKind, RuntimeError, RuntimeOperationContext, RuntimeOutcome,
+    SandboxRuntime, SystemWallClock,
 };
 
 // ---- Fixtures ----
-
-async fn seed(pool: &PgPool, task_id: &str, status: &str, desired: &str) {
-    sqlx::query("INSERT INTO teams (id, name, slug) VALUES ('team-x', 'Team X', 'team-x') ON CONFLICT (id) DO NOTHING")
-        .execute(pool)
-        .await
-        .expect("seed team");
-    sqlx::query(
-        r#"INSERT INTO tasks (task_id, created_at, last_message_at, agent_type, repository_id,
-               status, total_cost_usd, visibility, scope, team_id, created_by, owner_user_id,
-               sandbox_desired_state)
-           VALUES ($1, NOW()::text, NOW()::text, 'claude-code', 'repo-x', $2, 0,
-               'private', 'user', 'team-x', 'user-1', 'user-1', $3)"#,
-    )
-    .bind(task_id)
-    .bind(status)
-    .bind(desired)
-    .execute(pool)
-    .await
-    .expect("seed task");
-}
 
 /// Build two pools (store + lock) on the same isolated test database, mirroring
 /// production's dedicated lock-only pool.
@@ -57,13 +40,18 @@ async fn pools(opts: &PgPoolOptions, conn: &PgConnectOptions) -> (PgPool, PgPool
         .connect_with(conn.clone())
         .await
         .expect("store pool");
-    let lock = opts
-        .clone()
+    let lock = lock_pool(opts, conn).await;
+    (store, lock)
+}
+
+/// A dedicated lock-only pool on the isolated test database. A second one models
+/// a second backend replica for cross-pool serialization.
+async fn lock_pool(opts: &PgPoolOptions, conn: &PgConnectOptions) -> PgPool {
+    opts.clone()
         .max_connections(6)
         .connect_with(conn.clone())
         .await
-        .expect("lock pool");
-    (store, lock)
+        .expect("lock pool")
 }
 
 // ---- Recording ports ----
@@ -298,6 +286,11 @@ async fn closed_task_start_is_rejected(opts: PgPoolOptions, conn: PgConnectOptio
 
 // ---- Bad plan ----
 
+// The recording runtime injects the permanent `Rejected`, so this covers the
+// orchestrator's response to a bad plan (intent kept, Error fact, non-retriable)
+// — not `RuntimeBridge::build_request`'s own unbuildable-plan → `Rejected`
+// mapping, which gets a `RuntimeBridge`-level test when the caller migration
+// wires the bridge over a real (broken) repo config.
 #[sqlx::test]
 async fn bad_plan_start_is_permanent_and_keeps_intent(opts: PgPoolOptions, conn: PgConnectOptions) {
     let (store_pool, lock_pool) = pools(&opts, &conn).await;
@@ -322,25 +315,31 @@ async fn concurrent_starts_serialize_and_contender_gets_operation_in_progress(
     opts: PgPoolOptions,
     conn: PgConnectOptions,
 ) {
-    let (store_pool, lock_pool) = pools(&opts, &conn).await;
+    let (store_pool, lock_a) = pools(&opts, &conn).await;
+    // A second, distinct lock pool models a second backend replica: the two
+    // lifecycles serialize across separate lock connection pools, not by sharing
+    // one — genuine cross-replica serialization against the same database.
+    let lock_b = lock_pool(&opts, &conn).await;
     seed(&store_pool, "t1", "open", "stopped").await;
     let gate = Arc::new(Gate::default());
-    let h = build(
-        store_pool,
-        lock_pool,
+    let ha = build(
+        store_pool.clone(),
+        lock_a,
         RecordingRuntime::new()
             .with_ensure(Ok(RuntimeOutcome::applied(ObservedStatus::Ready)))
             .gated(gate.clone()),
         1,
     );
+    let hb = build(store_pool, lock_b, RecordingRuntime::new(), 1);
 
-    // A acquires the lock and blocks inside the runtime.
-    let lc = h.lifecycle.clone();
+    // Replica A acquires the lock and blocks inside the runtime.
+    let lc = ha.lifecycle.clone();
     let a = tokio::spawn(async move { lc.start("t1").await });
     gate.entered.notified().await;
 
-    // B contends; with a single lock attempt it exhausts immediately.
-    let b = h.lifecycle.start("t1").await;
+    // Replica B contends over its own lock pool; with a single lock attempt it
+    // exhausts immediately and reads A's marker for the holder kind.
+    let b = hb.lifecycle.start("t1").await;
     match b {
         Err(LifecycleError::OperationInProgress { kind }) => assert_eq!(kind, OperationKind::Start),
         other => panic!("expected OperationInProgress, got {other:?}"),
