@@ -96,7 +96,7 @@ pub async fn send_message_flow(
     source_task_id: Option<&str>,
     start_fresh: bool,
     sent_by: Option<&str>,
-) -> Result<(), MessageError> {
+) -> Result<Option<String>, MessageError> {
     // A closed task is terminal (no reopen path) so no send may persist a
     // message or wake the agent. Inbound external messages are dropped
     // silently — backstop for the close-vs-comment race; steady state,
@@ -110,7 +110,7 @@ pub async fn send_message_flow(
                 external_adapter = %adapter,
                 "Dropping inbound external message for closed task"
             );
-            return Ok(());
+            return Ok(None);
         }
         return Err(MessageError::TaskClosed(task_id.to_string()));
     }
@@ -128,7 +128,7 @@ pub async fn send_message_flow(
                 external_event_id = %ext_id,
                 "Filtered self-echo via recently_sent cache"
             );
-            return Ok(());
+            return Ok(None);
         }
 
         // 2. DB check — tolerates both new prefixed format and any legacy
@@ -151,7 +151,7 @@ pub async fn send_message_flow(
             .map_err(|e| MessageError::Internal(format!("Dedup check failed: {e}")))?;
         if exists {
             tracing::debug!(task_id = %task_id, external_event_id = %ext_id, "Duplicate external message, skipping");
-            return Ok(());
+            return Ok(None);
         }
     }
 
@@ -315,7 +315,7 @@ pub async fn send_message_flow(
         .await
         .map_err(|e| MessageError::Internal(format!("Failed to update task: {e}")))?;
 
-    Ok(())
+    Ok(Some(msg_row.uuid))
 }
 
 /// Persist an error result message visible in the chat.

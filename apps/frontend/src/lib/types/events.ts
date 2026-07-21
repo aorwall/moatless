@@ -11,7 +11,11 @@ import type {
   StreamEvent,
   TaskSubType,
   TaskTurnSubType,
+  UiMessage,
 } from '@moatless/api-client/sandbox/model'
+
+/** Derived, UI-only message-event subtypes (not in the generated model). */
+export type MessageSubType = 'upsert' | 'deleted'
 
 export interface TaskEvent extends StreamEvent {
   type: 'task'
@@ -44,6 +48,24 @@ export interface AgentEvent extends StreamEvent {
   payload: AgentEventPayload
 }
 
+/**
+ * Derived, UI-only event carrying a server-assembled Message (ADR-0002).
+ * `upsert` payload is the assembled `UiMessage`; `deleted` payload is its uuid.
+ */
+export interface MessageUpsertEvent extends StreamEvent {
+  type: 'message'
+  subType: 'upsert'
+  payload: UiMessage
+}
+
+export interface MessageDeletedEvent extends StreamEvent {
+  type: 'message'
+  subType: 'deleted'
+  payload: { uuid: string }
+}
+
+export type MessageEvent = MessageUpsertEvent | MessageDeletedEvent
+
 export interface NavigationEvent extends Omit<StreamEvent, 'type'> {
   type: 'navigation'
 }
@@ -63,6 +85,8 @@ export type Event =
   | ServerEvent
   | ResourcesEvent
   | AgentEvent
+  | MessageUpsertEvent
+  | MessageDeletedEvent
   | NavigationEvent
   | PreviewEvent
 

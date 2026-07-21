@@ -25,6 +25,9 @@ pub enum EventType {
     Agent,
     Server,
     Resources,
+    /// Derived, UI-only events (`message.upsert` / `message.deleted`). Assembled
+    /// server-side and relayed to clients, but never persisted to `task_events`.
+    Message,
 }
 
 impl EventType {
@@ -36,6 +39,7 @@ impl EventType {
             Self::Agent => "agent",
             Self::Server => "server",
             Self::Resources => "resources",
+            Self::Message => "message",
         }
     }
 }
@@ -56,6 +60,7 @@ impl TryFrom<&str> for EventType {
             "agent" => Ok(Self::Agent),
             "server" => Ok(Self::Server),
             "resources" => Ok(Self::Resources),
+            "message" => Ok(Self::Message),
             other => Err(format!("unknown EventType: {other}")),
         }
     }
@@ -352,6 +357,48 @@ impl TryFrom<&str> for TaskTurnSubType {
     }
 }
 
+/// Message sub-types — derived, UI-only events carrying an assembled `UiMessage`.
+///
+/// `upsert` replaces-or-inserts a Message by `uuid` in the live Chat; `deleted`
+/// removes one (a queued Message the user cancelled). Neither is an error.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum MessageSubType {
+    Upsert,
+    Deleted,
+}
+
+impl MessageSubType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Upsert => "upsert",
+            Self::Deleted => "deleted",
+        }
+    }
+
+    pub fn is_error(&self) -> bool {
+        false
+    }
+}
+
+impl std::fmt::Display for MessageSubType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl TryFrom<&str> for MessageSubType {
+    type Error = String;
+    fn try_from(s: &str) -> Result<Self, String> {
+        match s {
+            "upsert" => Ok(Self::Upsert),
+            "deleted" => Ok(Self::Deleted),
+            other => Err(format!("unknown MessageSubType: {other}")),
+        }
+    }
+}
+
 /// Server event payload — matches frontend `ServerEventPayloadSchema`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -509,6 +556,7 @@ pub enum SubType {
     Agent(AgentSubType),
     Task(TaskSubType),
     TaskTurn(TaskTurnSubType),
+    Message(MessageSubType),
     /// Raw string for event types not yet typed (e.g., resources).
     Raw(String),
 }
@@ -521,6 +569,7 @@ impl SubType {
             Self::Agent(s) => s.as_str(),
             Self::Task(s) => s.as_str(),
             Self::TaskTurn(s) => s.as_str(),
+            Self::Message(s) => s.as_str(),
             Self::Raw(s) => s.as_str(),
         }
     }
@@ -570,6 +619,12 @@ impl From<TaskSubType> for SubType {
 impl From<TaskTurnSubType> for SubType {
     fn from(s: TaskTurnSubType) -> Self {
         Self::TaskTurn(s)
+    }
+}
+
+impl From<MessageSubType> for SubType {
+    fn from(s: MessageSubType) -> Self {
+        Self::Message(s)
     }
 }
 

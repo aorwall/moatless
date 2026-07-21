@@ -638,7 +638,7 @@ async fn notify_parent_task_of_child_terminal(
     )
     .await
     {
-        Ok(()) => {
+        Ok(_message_uuid) => {
             if let Err(error_msg) =
                 crate::sandbox::notify::ensure_sandbox_and_notify(state, &relation.to_task_id).await
             {
@@ -964,6 +964,9 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
                 &content,
             )
             .await;
+            // Server-owned assembly (ADR-0002): re-assemble the affected Message
+            // and publish a derived `message.upsert` for the live Chat.
+            crate::message::hooks::emit_message_upsert(state, &event.task_id, uuid).await;
         }
         Err(e) => {
             tracing::warn!(

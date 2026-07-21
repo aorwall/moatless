@@ -310,6 +310,11 @@ pub struct SendMessageRequest {
 pub struct SendMessageResponse {
     pub status: String,
     pub timestamp: String,
+    /// Persisted `uuid` of the user Message, so the client can reconcile its
+    /// optimistic entry with the later `message.upsert`. `None` on the
+    /// tool-response branch, which produces no single user Message.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uuid: Option<String>,
 }
 
 // =========================================================================

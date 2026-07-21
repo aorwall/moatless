@@ -25,6 +25,7 @@ import type { MessagesPage } from '@/features/tasks/api/tasks'
 import { tasksApi } from '@/features/tasks/api/tasks'
 import { updateTaskInLists } from '@/features/tasks/utils/query-helpers'
 import { queryKeys } from '@/lib/api/query-keys'
+import { swapMessageUuid } from '@/lib/api/task-cache'
 import type { AskUserQuestionResponse, ExitPlanModeResponse } from '@/lib/types/user-input'
 
 export const MESSAGES_PAGE_SIZE = 200
@@ -300,6 +301,7 @@ export function useSendMessage(
     {
       previousMessages: MessagesInfiniteData | undefined
       previousTask: TaskResponse | undefined
+      optimisticUuid: string
     }
   >,
 ) {
@@ -312,6 +314,7 @@ export function useSendMessage(
     {
       previousMessages: MessagesInfiniteData | undefined
       previousTask: TaskResponse | undefined
+      optimisticUuid: string
     }
   >({
     ...options,
@@ -355,8 +358,9 @@ export function useSendMessage(
         })),
       ]
 
+      const optimisticUuid = `temp-message-${Date.now()}`
       const optimisticMessage: UiMessage = {
-        uuid: `temp-message-${Date.now()}`,
+        uuid: optimisticUuid,
         role: 'user',
         content: [{ type: 'text', text: variables.message }],
         timestamp: new Date().toISOString(),
@@ -380,11 +384,16 @@ export function useSendMessage(
         )
       })
 
-      return { previousMessages, previousTask }
+      return { previousMessages, previousTask, optimisticUuid }
     },
     onSuccess: (data, variables, onMutateResult, mutationContext) => {
-      // Don't invalidate task detail - SSE events will update the cache
-      // Don't invalidate messages - they will be updated via SSE events when AI responds
+      // Swap the provisional uuid for the server-assigned one so the later
+      // `message.upsert` for this Message reconciles idempotently by uuid
+      // instead of appearing as a duplicate. SSE keeps the rest of the cache
+      // fresh — no invalidation here.
+      if (data.uuid && onMutateResult?.optimisticUuid) {
+        swapMessageUuid(queryClient, taskId, onMutateResult.optimisticUuid, data.uuid)
+      }
       options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
     },
     onError: (error, variables, onMutateResult, mutationContext) => {

@@ -4,6 +4,7 @@ import type React from 'react'
 import { createContext, useContext, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import {
+  applyMessageEvent,
   getInvalidationKeys,
   invalidateByTool,
   invalidateMessagesForEvent,
@@ -100,6 +101,7 @@ function updateSandboxStatus(
     case 'resources':
     case 'navigation':
     case 'preview':
+    case 'message':
       return current
   }
 }
@@ -179,6 +181,12 @@ export function GlobalEventStreamProvider({
   // Helper: Apply cache updates and invalidations for events with taskId
   const applyCacheUpdates = (event: Event) => {
     if (!event.taskId) {
+      return
+    }
+
+    // Derived, server-assembled Messages apply by uuid; nothing else to touch.
+    if (event.type === 'message') {
+      applyMessageEvent(event, queryClient)
       return
     }
 

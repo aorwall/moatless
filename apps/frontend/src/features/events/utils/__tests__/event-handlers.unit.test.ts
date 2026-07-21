@@ -1,6 +1,5 @@
-import type { UiMessage } from '@moatless/api-client'
 import type { QueryClient } from '@tanstack/react-query'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { queryKeys } from '@/lib/api/query-keys'
 import type {
   AgentEvent,
@@ -204,28 +203,17 @@ describe('event-handlers', () => {
     // path taken when no chat view observes the messages query.
     let observerCount = 1
     const invalidateQueriesMock = vi.fn()
-    const setQueryDataMock = vi.fn()
     const findMock = vi.fn(() => ({ getObserversCount: () => observerCount }))
     const queryClient = {
       getQueryCache: () => ({ find: findMock }),
       invalidateQueries: invalidateQueriesMock,
-      setQueryData: setQueryDataMock,
     } as unknown as QueryClient
 
     beforeEach(() => {
       observerCount = 1
       refreshNewestMessagesPageMock.mockClear()
       invalidateQueriesMock.mockClear()
-      setQueryDataMock.mockClear()
       findMock.mockClear()
-      vi.useFakeTimers()
-    })
-
-    afterEach(() => {
-      // Cancel any timers the debounce left pending so they can't fire into a
-      // later test's assertions.
-      vi.clearAllTimers()
-      vi.useRealTimers()
     })
 
     const trigger = (event: Event) => invalidateMessagesForEvent(event, queryClient)
@@ -245,7 +233,7 @@ describe('event-handlers', () => {
       { type: 'taskTurn', subType: 'error' },
       { type: 'agent', subType: 'session_init' },
     ] as const)(
-      'refetches immediately on $type/$subType events when the chat view is mounted',
+      'reconciles the newest page on $type/$subType when the chat view is mounted',
       ({ type, subType }) => {
         trigger(messageEvent({ type, subType }))
 
@@ -255,67 +243,17 @@ describe('event-handlers', () => {
       },
     )
 
-    it('coalesces a burst of streaming agent.message events into one refetch', () => {
-      trigger(messageEvent({ type: 'agent', subType: 'message', taskId: 'task-stream' }))
-      trigger(messageEvent({ type: 'agent', subType: 'message', taskId: 'task-stream' }))
+    it('does not refetch on streaming agent.message (message.upsert keeps the Chat live)', () => {
       trigger(messageEvent({ type: 'agent', subType: 'message', taskId: 'task-stream' }))
 
-      // Nothing fetched yet — the debounce window is still open.
       expect(refreshNewestMessagesPageMock).not.toHaveBeenCalled()
-
-      vi.advanceTimersByTime(200)
-
-      expect(refreshNewestMessagesPageMock).toHaveBeenCalledTimes(1)
-      expect(refreshNewestMessagesPageMock).toHaveBeenCalledWith(queryClient, 'task-stream')
+      expect(invalidateQueriesMock).not.toHaveBeenCalled()
     })
-
-    it('flushes a pending streaming refetch immediately on a turn-final event', () => {
-      trigger(messageEvent({ type: 'agent', subType: 'message', taskId: 'task-flush' }))
-      expect(refreshNewestMessagesPageMock).not.toHaveBeenCalled()
-
-      trigger(messageEvent({ type: 'taskTurn', subType: 'completed', taskId: 'task-flush' }))
-
-      // Immediate flush; the pending debounce is cancelled so no second fetch.
-      expect(refreshNewestMessagesPageMock).toHaveBeenCalledTimes(1)
-      vi.advanceTimersByTime(200)
-      expect(refreshNewestMessagesPageMock).toHaveBeenCalledTimes(1)
-    })
-
-    it.each([{ name: 'AskUserQuestion' }, { name: 'ExitPlanMode' }] as const)(
-      'appends the streamed message immediately when $name appears in agent.message',
-      ({ name }) => {
-        trigger(
-          messageEvent({
-            type: 'agent',
-            subType: 'message',
-            taskId: 'task-tool',
-            payload: {
-              message: {
-                content: [{ type: 'tool_use', id: 't1', name, input: {} }],
-              },
-            },
-          }),
-        )
-
-        // The message is written straight into the cache with the pending-input
-        // flag set, instead of triggering a newest-page refetch.
-        expect(setQueryDataMock).toHaveBeenCalledTimes(1)
-        const [key, updater] = setQueryDataMock.mock.calls[0] as [
-          unknown,
-          (data: undefined) => { pages: Array<{ messages: UiMessage[] }> },
-        ]
-        expect(key).toEqual(queryKeys.tasks.messages('task-tool'))
-        const [appended] = updater(undefined).pages[0]?.messages ?? []
-        expect(appended?.hasPendingUserInput).toBe(true)
-        expect(refreshNewestMessagesPageMock).not.toHaveBeenCalled()
-      },
-    )
 
     it('marks the query stale without fetching when no chat view is mounted', () => {
       observerCount = 0
 
-      trigger(messageEvent({ type: 'agent', subType: 'message', taskId: 'task-bg' }))
-      vi.advanceTimersByTime(200)
+      trigger(messageEvent({ type: 'taskTurn', subType: 'completed', taskId: 'task-bg' }))
 
       expect(refreshNewestMessagesPageMock).not.toHaveBeenCalled()
       expect(invalidateQueriesMock).toHaveBeenCalledWith({

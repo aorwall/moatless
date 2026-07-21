@@ -10064,7 +10064,8 @@
           "sandbox",
           "agent",
           "server",
-          "resources"
+          "resources",
+          "message"
         ]
       },
       "ExchangeTokenRequest": {
@@ -12860,6 +12861,13 @@
           },
           "timestamp": {
             "type": "string"
+          },
+          "uuid": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Persisted `uuid` of the user Message, so the client can reconcile its\noptimistic entry with the later `message.upsert`. `None` on the\ntool-response branch, which produces no single user Message."
           }
         }
       },

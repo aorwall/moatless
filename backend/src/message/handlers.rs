@@ -2,6 +2,7 @@
 
 use axum::extract::{Path, Query, State};
 use axum::Json;
+use moatless_events::{EventType, MessageSubType};
 use serde::Deserialize;
 
 use crate::extractors::AuthUser;
@@ -52,7 +53,12 @@ pub async fn send_message(
     }
 
     // Handle tool response (AskUserQuestion / ExitPlanMode)
-    if let (Some(_tool_use_id), Some(_tool_name)) = (&req.tool_use_id, &req.tool_name) {
+    // `message_uuid` is the persisted user Message's uuid so the client can
+    // reconcile its optimistic entry with the later `message.upsert`. The
+    // tool-response branch produces no single user Message, hence `None`.
+    let message_uuid = if let (Some(_tool_use_id), Some(_tool_name)) =
+        (&req.tool_use_id, &req.tool_name)
+    {
         send::send_tool_response_flow(
             &state,
             &task_id,
@@ -62,6 +68,7 @@ pub async fn send_message(
             Some(&auth.user_id),
         )
         .await?;
+        None
     } else {
         // Regular message or command — frontend sends the prompt text directly.
         // command_name is stored on the message for display purposes only.
@@ -83,8 +90,8 @@ pub async fn send_message(
             req.start_fresh.unwrap_or(false),
             Some(&auth.user_id),
         )
-        .await?;
-    }
+        .await?
+    };
 
     // Ensure the sandbox is running (auto-provisions if needed) and notify it.
     if let Err(error_msg) =
@@ -99,6 +106,7 @@ pub async fn send_message(
     Ok(Json(SendMessageResponse {
         status: "sent".to_string(),
         timestamp: now,
+        uuid: message_uuid,
     }))
 }
 
@@ -224,7 +232,7 @@ pub async fn get_messages(
 /// same compact "(arg)" suffix it does today, but without shipping full
 /// `Edit`/`Write` payloads or full `Bash` results across the wire on every
 /// list/SSE refresh.
-fn strip_heavy_fields(mut msg: UiMessage) -> UiMessage {
+pub(crate) fn strip_heavy_fields(mut msg: UiMessage) -> UiMessage {
     for block in &mut msg.content {
         if let Some(input) = block.tool_input.take() {
             let keep_full = block
@@ -571,6 +579,22 @@ pub async fn delete_queued_message(
     }
 
     tracing::info!(task_id = %task_id, message_id = %message_id, "Queued message deleted");
+
+    // Derived, UI-only `message.deleted` so the live Chat drops the row by uuid.
+    // The row is hard-deleted, so the payload carries identity only (task_id is
+    // on the stream envelope). Never persisted to `task_events`.
+    if let Some(ref events) = state.events {
+        events
+            .publish_raw_event(
+                &task_id,
+                EventType::Message.as_str(),
+                MessageSubType::Deleted.as_str(),
+                None,
+                None,
+                serde_json::json!({ "uuid": message_id }),
+            )
+            .await;
+    }
 
     Ok(Json(DeleteMessageResponse {
         status: "deleted".to_string(),

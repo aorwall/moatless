@@ -8,7 +8,7 @@ use redis::Value;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
-use moatless_events::{AgentSubType, SandboxSubType, TaskSubType, TaskTurnSubType};
+use moatless_events::{AgentSubType, EventType, SandboxSubType, TaskSubType, TaskTurnSubType};
 
 use crate::state::AppState;
 use crate::task_event::dao::InsertTaskEvent;
@@ -276,6 +276,13 @@ impl EventHandlerConsumer {
                 // Extract the `payload` field and parse as AgentEvent
                 if let Some(payload_str) = extract_field(fields, "payload") {
                     if let Ok(event) = serde_json::from_str::<AgentEvent>(&payload_str) {
+                        // Derived, UI-only `message.*` events are relayed to
+                        // clients by the SSE consumer but must never be
+                        // persisted to `task_events` (ADR-0002). ACK and skip.
+                        if event.event_type == EventType::Message {
+                            entry_ids.push(entry_id);
+                            continue;
+                        }
                         self.persist_event(&event).await;
                         self.project_turn_state(&event).await;
                         self.dispatch_event(&event).await;
