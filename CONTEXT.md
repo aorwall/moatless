@@ -191,19 +191,37 @@ The frontend view that renders a Task's Messages. A UI concept only — there is
 
 **Message upsert**:
 The assembled, UI-facing form of a Message (`UiMessage`) pushed to the Chat over
-the live stream — a `message.upsert` or `message.deleted` event keyed by the
-Message's `uuid`. Produced server-side by the one Message assembler after the
-source event is persisted; UI-only, never stored in `task_events`. The streamed
-form carries the persisted Message's `uuid` — it is the same Message, assembled,
-not a second identity.
+the live stream — a `message.upsert` event keyed by a Message's `uuid`. Produced
+server-side by the one Message assembler after the source event is persisted;
+UI-only, never stored in `task_events`. A derived upsert targets the **affected
+parent** Message: when the changed row folds into another (a `tool_result`/system
+row inlined into the assistant Message that called it), the upsert carries the
+**parent** assistant Message's `uuid`, so a top-level tool result renders live
+under its call. The streamed form carries the persisted Message's `uuid` — it is
+the same Message, assembled, not a second identity.
 _Avoid_: a separate `evt-*` identity for the streamed message; treating chat
 assembly as a client concern.
 
 **Source event vs derived event**:
-A **source event** (e.g. `agent.message`) is raw agent output — persisted to
-`task_events`, replayed as history, and shown in the Events panel. A **derived
-event** (`message.upsert` / `message.deleted`) is computed from persisted state
-for the live Chat and is never itself persisted. One seam separates them.
+A **source event** (e.g. `agent.message`) is raw agent output. Its full content
+is a **transient ingestion payload**: the Sandbox emits it to the Redis stream,
+the event-handler consumer reads it once to build the Message store, and it is
+never persisted to `task_events` nor relayed to clients in full. Its
+persisted-and-relayed form is a **metadata skeleton** (`{ message: { role },
+uuid, blockCount, toolNames }`). A **derived event** (`message.upsert` /
+`message.subagentProgress`) is computed from persisted state for the live Chat
+and is never itself persisted. Message content reaches clients only via the
+derived upsert (top-level) or the on-demand subagent transcript endpoint. One
+seam separates them.
+
+**Subagent transcript**:
+Lazy. The top-level Messages read carries only a small per-`Agent`-call
+**summary** (`{ messageCount, tokens, status }` on the `Agent` content block),
+and a `message.subagentProgress` event keeps it live on the wire — the collapsed
+`Agent` card renders from that alone. The full transcript is assembled
+server-side but **fetched on demand** from
+`GET …/tool-calls/{tool_use_id}/messages` when the card is expanded; it is never
+nested into the parent Message nor streamed on the wire.
 
 ### Access & commands
 
