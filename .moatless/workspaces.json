@@ -55,7 +55,6 @@
         { "url": "https://github.com/aorwall/moatless.git", "primary": true }
       ],
       "dockerImage": "aorwall/moatless-dev:dev",
-      "dockerAccess": true,
       "sandboxServiceAccount": "moatless-dev",
       "codeExecution": {
         "setupCommands": [
