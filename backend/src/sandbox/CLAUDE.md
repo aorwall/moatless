@@ -6,22 +6,35 @@ Rust (Axum) service managing the full lifecycle of Kubernetes- and Docker-based 
 
 ### Lifecycle module (`lifecycle/`)
 Deep module owning durable lifecycle intent and orchestration per Task, per
-`specs/sandbox/04-lifecycle-architecture.md`. **Migration status: step 1 landed**
-— the typed surface (`LifecycleOutcome` with independent intent/runtime effect
-axes, `ArchiveRetention`, classifiable `LifecycleError`/`RuntimeError`,
-`OperationGeneration`/`CorrelationMarker`), the `SandboxRuntime` seam
-(`RuntimeOperationContext` + `RuntimeOutcome`), the `Lifecycle` orchestrator over
-ports (`LifecycleStore`, `AgentStopPort`, `LifecycleEventSink`, `LifecycleLock`,
-`Clock`), and the load-bearing decision logic as pure, unit-tested functions:
-`convergence` (reconciler desired/observed map), `classify` (watcher four-case
-classification), `marker` (per-class acknowledgement), `wake` (message-wake
-causal precedence), `events` (deterministic `sandbox:{task}:{gen}:{fact}` ids +
-acceptance/completion/infrastructure derivation), `attempt` (leader-local cap +
-backoff). Durability, event-dedup, and strict-removal are treated as load-bearing.
-Steps 2–4 (migrate callers, add marker/retention columns, thread
-`RuntimeOperationContext` through the K8s/Docker adapters, stand up the
-reconciler, rename `SandboxProvider` → `SandboxRuntime`, delete shallow paths)
-plug into these ports and are pending.
+`specs/sandbox/04-lifecycle-architecture.md`. **Migration status: step 2 caller
+migration landed.** The typed surface (`LifecycleOutcome` with independent
+intent/runtime effect axes, `ArchiveRetention`, classifiable
+`LifecycleError`/`RuntimeError`, `OperationGeneration`/`CorrelationMarker`), the
+`SandboxRuntime` seam (`RuntimeOperationContext` + `RuntimeOutcome`), the
+`Lifecycle` orchestrator over ports (`LifecycleStore`, `AgentStopPort`,
+`LifecycleEventSink`, `LifecycleLock`, `Clock`), and the load-bearing decision
+logic as pure, unit-tested functions: `convergence` (reconciler desired/observed
+map), `classify` (watcher four-case classification), `marker` (per-class
+acknowledgement), `wake` (message-wake causal precedence), `events` (deterministic
+`sandbox:{task}:{gen}:{fact}` ids + acceptance/completion/infrastructure
+derivation), `attempt` (leader-local cap + backoff). Durability, event-dedup, and
+strict-removal are load-bearing.
+
+The `Lifecycle` handle is wired in production (`state::build_lifecycle`, shared by
+`AppState`, the sandbox API, and the pod watcher) and is the sole writer of
+Sandbox intent: every start/stop/restart/redeploy/remove caller — task and
+sandbox handlers, adapters, the reaper, message-send/notify, and the pod watcher's
+crash remediation — routes through it, over the `PgLifecycleStore`/`PgLifecycleLock`
+Postgres adapters, the `RuntimeBridge` over `SandboxProvider`, `GrpcAgentStop`, and
+the `OutboxEventSink`. `delete_task` requires a successful `lifecycle.remove` before
+row deletion. Marker/retention columns and the transactional outbox are in place.
+
+Remaining step-2 work: thread `RuntimeOperationContext` generation into the
+provider mutations so pods/containers carry generation labels (and restrict Docker
+observation to the sandbox container); add the pending-Message query/index and the
+desired-state reconciler (lease-elected on K8s, lease-free in Docker, subsuming the
+`Removed`-intent orphan rule). Steps 3–4 (rename `SandboxProvider` →
+`SandboxRuntime`, delete shallow paths) remain pending.
 
 ### Provider abstraction
 `SandboxProvider` trait (`provider.rs`) is the provider-agnostic interface for lifecycle operations (provision, start, stop, restart, cleanup, status, server logs, file search, `sandbox_client()`). Implementations: `K8sSandboxProvider` (`k8s/provider.rs`) and `DockerSandboxProvider` (`docker/provider.rs`). Migration step 3 renames this to `SandboxRuntime` (`provision` → `ensure_running`) and splits out the read-side `SandboxAccess` seam.
