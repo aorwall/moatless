@@ -14,6 +14,7 @@ pub mod grpc_server;
 pub mod handlers;
 pub mod jwt;
 pub mod k8s;
+pub mod lifecycle;
 pub mod live_status;
 pub mod metrics;
 pub mod models;
