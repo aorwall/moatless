@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "workspaces": [
+    {
+      "key": "dev",
+      "name": "Dev",
+      "description": "Regular dev — the Vite dev server on port 3000.",
+      "repos": [
+        { "url": "https://github.com/aorwall/moatless.git", "primary": true }
+      ],
+      "codeExecution": {
+        "setupCommands": ["bun install"]
+      },
+      "servers": [
+        {
+          "name": "dev",
+          "label": "Dev Server",
+          "port": 3000,
+          "startCommands": ["bun run dev -- --host 0.0.0.0"],
+          "startupTimeoutSeconds": 30,
+          "autoReload": true,
+          "enableInspector": true,
+          "default": true
+        }
+      ]
+    },
+    {
+      "key": "storybook",
+      "name": "Storybook",
+      "description": "Storybook component explorer on port 6006.",
+      "repos": [
+        { "url": "https://github.com/aorwall/moatless.git", "primary": true }
+      ],
+      "codeExecution": {
+        "setupCommands": ["bun install"]
+      },
+      "servers": [
+        {
+          "name": "storybook",
+          "label": "Storybook",
+          "port": 6006,
+          "startCommands": ["bun run storybook -- -p 6006 --host 0.0.0.0 --no-open"],
+          "startupTimeoutSeconds": 60,
+          "autoReload": false,
+          "enableInspector": false,
+          "default": true
+        }
+      ]
+    }
+  ]
+}

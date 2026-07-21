@@ -80,9 +80,10 @@ dev-browser/
 .claude/worktrees/
 .claude/scheduled_tasks.lock
 
-# Moatless local config (keep config.json and declared loops tracked)
+# Moatless local config (keep config.json/workspaces.json and declared loops tracked)
 .moatless/*
 !.moatless/config.json
+!.moatless/workspaces.json
 !.moatless/loops/
 
 # Playwright CLI logs
