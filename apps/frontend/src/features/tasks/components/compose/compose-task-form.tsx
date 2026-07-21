@@ -1,5 +1,4 @@
 import type React from 'react'
-import { CreateRepositoryDialog } from '@/features/repositories'
 import { SettingsDialog } from '@/features/settings'
 import { ContextItems, FileAttachments } from '@/features/tasks/components/chat/chat-input'
 import {
@@ -21,7 +20,7 @@ import { Textarea } from '@/lib/components/ui/textarea'
 type ComposeTaskFormProps = UseComposeTaskFormArgs
 
 /**
- * Gmail-compose-style task creator: stacked labeled rows (Repository / Agent /
+ * Gmail-compose-style task creator: stacked labeled rows (Workspace / Agent /
  * Name — like To / Cc / Subject) above a large message body and a bottom
  * toolbar. Meant to fill a docked compose window.
  */
@@ -46,23 +45,22 @@ export function ComposeTaskForm(props: ComposeTaskFormProps) {
     <div className="flex h-full flex-col">
       {/* Header rows — the "To / Cc / Subject" of the task */}
       <div className="flex flex-col text-sm">
-        <ComposeRow label="Repository">
+        <ComposeRow label="Workspace">
           <PopoverSelector
-            icon={form.repoSelector.icon}
-            value={form.repoSelector.value}
-            displayValue={form.repoSelector.displayValue}
-            tooltip={form.repoSelector.tooltip}
-            loading={form.repoSelector.loading}
-            disabled={form.repoSelector.disabled}
+            icon={form.workspaceSelector.icon}
+            value={form.workspaceSelector.value}
+            displayValue={form.workspaceSelector.displayValue}
+            tooltip={form.workspaceSelector.tooltip}
+            loading={form.workspaceSelector.loading}
+            disabled={form.workspaceSelector.disabled}
+            showLabel
           >
             <SearchablePopoverContent
-              items={form.repoSelector.items}
-              value={form.repoSelector.value}
-              onChange={form.repoSelector.onChange}
-              placeholder="Search repositories…"
-              emptyText="No repositories found"
-              onEmptyAction={() => form.setRepoDialogOpen(true)}
-              emptyActionText="Create Repository"
+              items={form.workspaceSelector.items}
+              value={form.workspaceSelector.value}
+              onChange={form.workspaceSelector.onChange}
+              placeholder="Search workspaces…"
+              emptyText="No workspaces found"
             />
           </PopoverSelector>
 
@@ -96,6 +94,7 @@ export function ComposeTaskForm(props: ComposeTaskFormProps) {
             tooltip={form.agentTypeSelector.tooltip}
             loading={form.agentTypeSelector.loading}
             disabled={form.agentTypeSelector.disabled}
+            showLabel
           >
             <SimpleListPopoverContent
               items={form.agentTypeSelector.items}
@@ -111,6 +110,7 @@ export function ComposeTaskForm(props: ComposeTaskFormProps) {
             tooltip={form.agentModeSelector.tooltip}
             loading={form.agentModeSelector.loading}
             disabled={form.agentModeSelector.disabled}
+            showLabel
           >
             <SimpleListPopoverContent
               items={form.agentModeSelector.items}
@@ -226,11 +226,6 @@ export function ComposeTaskForm(props: ComposeTaskFormProps) {
         </PopoverSelector>
       </div>
 
-      <CreateRepositoryDialog
-        open={form.repoDialogOpen}
-        onOpenChange={form.setRepoDialogOpen}
-        onCreated={(repositoryId) => form.repoSelector.onChange(repositoryId)}
-      />
       <SettingsDialog
         open={form.settingsDialogOpen}
         onOpenChange={form.setSettingsDialogOpen}

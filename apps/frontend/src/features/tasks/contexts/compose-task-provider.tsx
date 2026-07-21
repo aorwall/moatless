@@ -15,7 +15,7 @@ export interface ComposeWindowState {
   /** Optional task name (the "subject"). Left blank, the agent generates one. */
   name: string
   message: string
-  repositoryId: string
+  workspaceId: string
   branch: string
   agentType: AgentType
   agentMode: 'edit' | 'plan'
@@ -40,7 +40,7 @@ const DEFAULT_WINDOWS: ComposeWindowState[] = []
 
 export function ComposeTaskProvider({ children }: { children: ReactNode }) {
   const [windows, setWindows] = useLocalStorage<ComposeWindowState[]>(STORAGE_KEY, DEFAULT_WINDOWS)
-  const { repositoryId, agentMode, agentType } = useTaskPreferences()
+  const { workspaceId, agentMode, agentType } = useTaskPreferences()
 
   const open = () => {
     const newWindow: ComposeWindowState = {
@@ -48,7 +48,7 @@ export function ComposeTaskProvider({ children }: { children: ReactNode }) {
       minimized: false,
       name: '',
       message: '',
-      repositoryId,
+      workspaceId,
       branch: '',
       agentType,
       agentMode,
