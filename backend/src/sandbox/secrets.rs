@@ -5,11 +5,11 @@ use std::sync::Arc;
 
 use tracing::warn;
 
-use crate::auth::credentials::resolve_user_github_token;
+use crate::auth::credentials::resolve_github_token_for_scopes;
 use crate::auth::github_app_registry::GitHubAppRegistry;
 use crate::auth::github_app_service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenRepository;
-use crate::auth::provider_tokens::{ProviderTokenAuthRepository, AUTH_METHOD_SECRET_REF};
+use crate::auth::provider_tokens::ProviderTokenAuthRepository;
 use crate::auth::users::UserRepository;
 use crate::credentials::CredentialService;
 use crate::repository::dao::RepoRepository;
@@ -96,32 +96,33 @@ pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMa
 
 /// Resolve only the GitHub token a task's sandbox would receive.
 ///
-/// Mirrors the priority chain used by `resolve_task_credentials` (team
-/// `provider_tokens` → user `provider_tokens` with GitHub-App refresh) but
-/// skips the scoped-secret fallback: an operator-set `GITHUB_TOKEN` secret
-/// is an escape hatch that we deliberately don't pre-validate at provision
-/// time, so callers who use it can still start a sandbox even if the GitHub
-/// API is unreachable from the backend.
+/// Runs the same `user > team > global` walk as `resolve_task_credentials`,
+/// so preflight and provisioning cannot disagree about whether a token exists.
+///
+/// `input.secrets` must be wired: it dereferences `secret_ref` rows, whose
+/// `access_token` holds a sentinel rather than a token. Passing `None` makes
+/// every PAT-backed credential resolve as absent.
+///
+/// Skips only the `env`-kind scoped-secret fallback: an operator-set
+/// `GITHUB_TOKEN` env secret is an escape hatch that we deliberately don't
+/// pre-validate at provision time, so callers who use it can still start a
+/// sandbox even if the GitHub API is unreachable from the backend.
 pub async fn resolve_task_github_token(input: TaskCredentialInputs<'_>) -> Option<String> {
     let provider_tokens = input.provider_tokens?;
     let mut credentials: HashMap<String, String> = HashMap::new();
 
-    if let Some(team_id) = input.team_id {
-        fill_team_provider_tokens(&mut credentials, provider_tokens, team_id).await;
-    }
-    if !credentials.contains_key(GITHUB_TOKEN) {
-        fill_user_provider_tokens(
-            &mut credentials,
-            provider_tokens,
-            input.secrets,
-            input.user_id,
-            input.github_app_service,
-            input.provider_token_auth,
-            input.github_apps,
-            input.repo_owner,
-        )
-        .await;
-    }
+    fill_github(
+        &mut credentials,
+        provider_tokens,
+        input.secrets,
+        input.user_id,
+        input.team_id,
+        input.github_app_service,
+        input.provider_token_auth,
+        input.github_apps,
+        input.repo_owner,
+    )
+    .await;
 
     if let Some(token) = credentials.remove(GITHUB_TOKEN) {
         return Some(token);
@@ -291,20 +292,22 @@ async fn fill_provider_tokens(
         return;
     };
 
-    if let Some(team_id) = team_id {
-        fill_team_provider_tokens(credentials, provider_tokens, team_id).await;
-    }
-    fill_user_provider_tokens(
+    fill_github(
         credentials,
         provider_tokens,
         secrets,
         user_id,
+        team_id,
         github_app_service,
         provider_token_auth,
         github_apps,
         repo_owner,
     )
     .await;
+    if let Some(team_id) = team_id {
+        fill_team_provider_tokens(credentials, provider_tokens, team_id).await;
+    }
+    fill_user_provider_tokens(credentials, provider_tokens, user_id).await;
     fill_codex(
         credentials,
         provider_tokens,
@@ -314,6 +317,60 @@ async fn fill_provider_tokens(
         current_task_id,
     )
     .await;
+}
+
+/// Resolve `GITHUB_TOKEN` for this task.
+///
+/// Delegates to [`resolve_github_token_for_scopes`], which owns the
+/// `user > team > global` precedence walk — the user's own credential wins,
+/// and an admin-set org-wide token backstops users who have none. Routing
+/// GitHub through the canonical resolver (rather than the raw team/user
+/// `access_token` reads used for the other providers) is also what keeps a
+/// `secret_ref` row from delivering its sentinel to the sandbox.
+#[allow(clippy::too_many_arguments)]
+// reason: mirrors `fill_user_provider_tokens`' dependency list; bundling would
+// only move the argument count to the call site.
+async fn fill_github(
+    credentials: &mut HashMap<String, String>,
+    provider_tokens: &Arc<dyn ProviderTokenRepository>,
+    secrets: Option<&Arc<SecretService>>,
+    user_id: &str,
+    team_id: Option<&str>,
+    github_app_service: Option<&Arc<GitHubAppService>>,
+    provider_token_auth: Option<&Arc<dyn ProviderTokenAuthRepository>>,
+    github_apps: Option<&Arc<GitHubAppRegistry>>,
+    repo_owner: Option<&str>,
+) {
+    if credentials.contains_key(GITHUB_TOKEN) {
+        return;
+    }
+
+    let team_ids: Vec<String> = team_id.map(str::to_string).into_iter().collect();
+    // An empty registry stands in when none is wired: only bot rows need it,
+    // and for those an error beats handing the sandbox the placeholder.
+    let fallback_registry = GitHubAppRegistry::default();
+    let registry = github_apps.map_or(&fallback_registry, Arc::as_ref);
+
+    match resolve_github_token_for_scopes(
+        provider_tokens.as_ref(),
+        provider_token_auth.map(Arc::as_ref),
+        github_app_service.map(Arc::as_ref),
+        registry,
+        secrets.map(Arc::as_ref),
+        user_id,
+        &team_ids,
+        repo_owner,
+    )
+    .await
+    {
+        Ok(Some(resolved)) => {
+            credentials.insert(GITHUB_TOKEN.to_string(), resolved.token);
+        }
+        Ok(None) => {}
+        Err(e) => {
+            warn!(error = %e, user_id, "Failed to resolve GitHub token for sandbox");
+        }
+    }
 }
 
 /// Resolve `CODEX_AUTH_JSON` for this task.
@@ -381,8 +438,11 @@ async fn fill_team_provider_tokens(
     provider_tokens: &Arc<dyn ProviderTokenRepository>,
     team_id: &str,
 ) {
+    // GitHub is resolved through `fill_github`, which walks user > team >
+    // global in one pass; intentionally not handled here. Reading the team
+    // row directly would both shadow the user's own token and hand a
+    // `secret_ref` row's sentinel to the sandbox.
     for (provider, cred_key) in [
-        ("github", GITHUB_TOKEN),
         ("gitlab", GITLAB_TOKEN),
         ("gitness", GITNESS_TOKEN),
         ("openai", OPENAI_API_KEY),
@@ -420,63 +480,12 @@ async fn fill_team_provider_tokens(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn fill_user_provider_tokens(
     credentials: &mut HashMap<String, String>,
     provider_tokens: &Arc<dyn ProviderTokenRepository>,
-    secrets: Option<&Arc<SecretService>>,
     user_id: &str,
-    github_app_service: Option<&Arc<GitHubAppService>>,
-    provider_token_auth: Option<&Arc<dyn ProviderTokenAuthRepository>>,
-    github_apps: Option<&Arc<GitHubAppRegistry>>,
-    repo_owner: Option<&str>,
 ) {
-    if !credentials.contains_key(GITHUB_TOKEN) {
-        if let Some(registry) = github_apps {
-            match resolve_user_github_token(
-                provider_tokens.as_ref(),
-                provider_token_auth.map(Arc::as_ref),
-                github_app_service.map(Arc::as_ref),
-                registry.as_ref(),
-                secrets.map(Arc::as_ref),
-                user_id,
-                repo_owner,
-            )
-            .await
-            {
-                Ok(Some(token)) => {
-                    credentials.insert(GITHUB_TOKEN.to_string(), token);
-                }
-                Ok(None) => {}
-                Err(e) => {
-                    warn!(error = %e, user_id, "Failed to resolve GitHub token for sandbox");
-                }
-            }
-        } else {
-            // Registry not wired (legacy code paths without GitHubAppRegistry).
-            // Mirror the canonical dispatch: the row decides. We can't refresh
-            // or mint here, but a `secret_ref` row's column holds only a
-            // sentinel, so its value has to come from the secret.
-            match provider_tokens
-                .find_provider_token_full(user_id, "github")
-                .await
-            {
-                Ok(Some(row)) if row.auth_method.as_deref() == Some(AUTH_METHOD_SECRET_REF) => {
-                    if let Some(token) = resolve_validated_github_secret(secrets, user_id).await {
-                        credentials.insert(GITHUB_TOKEN.to_string(), token);
-                    }
-                }
-                Ok(Some(row)) => {
-                    credentials.insert(GITHUB_TOKEN.to_string(), row.access_token);
-                }
-                Ok(None) => {}
-                Err(e) => {
-                    warn!(error = %e, user_id, "Failed to query github provider_token");
-                }
-            }
-        }
-    }
-
+    // GitHub is resolved through `fill_github`; intentionally not handled here.
     for (provider, cred_key) in [
         ("gitlab", GITLAB_TOKEN),
         ("gitness", GITNESS_TOKEN),
@@ -563,6 +572,7 @@ async fn fill_git_identity(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::auth::provider_tokens::AUTH_METHOD_SECRET_REF;
 
     #[test]
     fn provider_token_value_wins_over_scoped_secret_with_same_key() {
@@ -649,7 +659,7 @@ mod tests {
     async fn provider_token_kind_secret_satisfies_preflight() {
         // A PAT this backend validated against GitHub is as trustworthy as a
         // provider_tokens row, so preflight must accept it.
-        let tokens: Arc<dyn ProviderTokenRepository> = Arc::new(StubProviderTokens(None));
+        let tokens: Arc<dyn ProviderTokenRepository> = Arc::new(StubProviderTokens::with_user_row(None));
         let secrets = Arc::new(service_with(vec![secret(
             "user",
             Some("u1"),
@@ -667,7 +677,7 @@ mod tests {
         // A plain `env` GITHUB_TOKEN is the operator escape hatch: deliberately
         // unvalidated, so preflight must not treat it as a verified credential.
         // `resolve_task_credentials` still injects it into the sandbox.
-        let tokens: Arc<dyn ProviderTokenRepository> = Arc::new(StubProviderTokens(None));
+        let tokens: Arc<dyn ProviderTokenRepository> = Arc::new(StubProviderTokens::with_user_row(None));
         let secrets = Arc::new(service_with(vec![secret(
             "user",
             Some("u1"),
@@ -682,7 +692,7 @@ mod tests {
 
     #[tokio::test]
     async fn provider_tokens_row_still_wins_over_the_secret() {
-        let tokens: Arc<dyn ProviderTokenRepository> = Arc::new(StubProviderTokens(Some(
+        let tokens: Arc<dyn ProviderTokenRepository> = Arc::new(StubProviderTokens::with_user_row(Some(
             crate::auth::test_support::github_row("oauth", "gho_from_row"),
         )));
         let secrets = Arc::new(service_with(vec![secret(
@@ -702,7 +712,7 @@ mod tests {
         // No App registry wired: the fallback dispatch still has to honour
         // `secret_ref`, or the sandbox would receive the sentinel string.
         let tokens: Arc<dyn ProviderTokenRepository> =
-            Arc::new(StubProviderTokens(Some(crate::auth::test_support::github_row(
+            Arc::new(StubProviderTokens::with_user_row(Some(crate::auth::test_support::github_row(
                 AUTH_METHOD_SECRET_REF,
                 crate::auth::provider_tokens::SECRET_REF_TOKEN_PLACEHOLDER,
             ))));
@@ -716,6 +726,92 @@ mod tests {
 
         let token = resolve_task_github_token(github_inputs(&tokens, Some(&secrets))).await;
         assert_eq!(token, Some("ghp_from_secret".to_string()));
+    }
+
+    #[tokio::test]
+    async fn secret_ref_row_without_a_secret_service_resolves_to_none() {
+        // Pins the trap that made preflight report a connected PAT as "GitHub
+        // account not connected": with no secret service the sentinel cannot be
+        // dereferenced, and the error is swallowed into an absent credential.
+        // Callers must wire `secrets` — see `preflight_validate_github_token`.
+        let tokens: Arc<dyn ProviderTokenRepository> =
+            Arc::new(StubProviderTokens::with_user_row(Some(crate::auth::test_support::github_row(
+                AUTH_METHOD_SECRET_REF,
+                crate::auth::provider_tokens::SECRET_REF_TOKEN_PLACEHOLDER,
+            ))));
+
+        let token = resolve_task_github_token(github_inputs(&tokens, None)).await;
+        assert_eq!(token, None);
+    }
+
+    // --- GITHUB_TOKEN scope precedence: user > team > global ---
+
+    fn github_inputs_in_team<'a>(
+        provider_tokens: &'a Arc<dyn ProviderTokenRepository>,
+        team_id: &'a str,
+    ) -> TaskCredentialInputs<'a> {
+        TaskCredentialInputs {
+            team_id: Some(team_id),
+            ..github_inputs(provider_tokens, None)
+        }
+    }
+
+    #[tokio::test]
+    async fn user_github_token_wins_over_the_team_one() {
+        // Regression pin: team credentials used to be filled before user ones,
+        // so a team row silently shadowed the user's own token.
+        let tokens: Arc<dyn ProviderTokenRepository> = Arc::new(
+            StubProviderTokens::with_user_row(Some(crate::auth::test_support::github_row(
+                "oauth",
+                "gho_mine",
+            )))
+            .with_team_row(
+                "t1",
+                crate::auth::test_support::github_row("manual", "ghp_team"),
+            ),
+        );
+
+        let token = resolve_task_github_token(github_inputs_in_team(&tokens, "t1")).await;
+        assert_eq!(token, Some("gho_mine".to_string()));
+    }
+
+    #[tokio::test]
+    async fn global_github_token_backstops_a_user_with_none() {
+        let tokens: Arc<dyn ProviderTokenRepository> = Arc::new(
+            StubProviderTokens::default()
+                .with_global_row(crate::auth::test_support::github_row("manual", "ghp_org")),
+        );
+
+        let token = resolve_task_github_token(github_inputs(&tokens, None)).await;
+        assert_eq!(token, Some("ghp_org".to_string()));
+    }
+
+    #[tokio::test]
+    async fn team_github_secret_ref_never_delivers_the_sentinel() {
+        // Team rows used to be read via `find_team_token`, which returns
+        // `access_token` verbatim — for a reference row that is the sentinel.
+        let tokens: Arc<dyn ProviderTokenRepository> =
+            Arc::new(StubProviderTokens::default().with_team_row(
+                "t1",
+                crate::auth::test_support::github_row(
+                    AUTH_METHOD_SECRET_REF,
+                    crate::auth::provider_tokens::SECRET_REF_TOKEN_PLACEHOLDER,
+                ),
+            ));
+        let secrets = Arc::new(service_with(vec![secret(
+            "team",
+            Some("t1"),
+            "provider_token",
+            GITHUB_TOKEN,
+            "ghp_team_secret",
+        )]));
+
+        let token = resolve_task_github_token(TaskCredentialInputs {
+            secrets: Some(&secrets),
+            ..github_inputs_in_team(&tokens, "t1")
+        })
+        .await;
+        assert_eq!(token, Some("ghp_team_secret".to_string()));
     }
 
     fn make_user(

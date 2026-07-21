@@ -443,7 +443,7 @@ pub async fn get_branches(
 
     // Get user's provider token (refresh expired GitHub App tokens)
     let access_token = if provider == RepositoryProvider::Github {
-        resolve_github_token(&state, &auth.user_id).await?
+        resolve_github_token(&state, &auth.user_id, &auth.team_ids).await?
     } else {
         state.provider_tokens.find_provider_token(&auth.user_id, provider_str)
             .await
@@ -532,8 +532,12 @@ pub async fn get_branches(
 /// Resolve a usable GitHub token for the user via the canonical resolver —
 /// refreshing App tokens, minting installation tokens, and decrypting
 /// `secret_ref` PATs as the row's `auth_method` requires.
-async fn resolve_github_token(state: &AppState, user_id: &str) -> Result<String, RepositoryError> {
-    resolve_optional_github_token(state, user_id)
+async fn resolve_github_token(
+    state: &AppState,
+    user_id: &str,
+    team_ids: &[String],
+) -> Result<String, RepositoryError> {
+    resolve_optional_github_token(state, user_id, team_ids)
         .await?
         .ok_or_else(|| {
             RepositoryError::BadRequest(
@@ -548,8 +552,9 @@ async fn resolve_github_token(state: &AppState, user_id: &str) -> Result<String,
 async fn resolve_optional_github_token(
     state: &AppState,
     user_id: &str,
+    team_ids: &[String],
 ) -> Result<Option<String>, RepositoryError> {
-    crate::auth::credentials::resolve_state_github_token(state, user_id, None)
+    crate::auth::credentials::resolve_state_github_token_for(state, user_id, team_ids, None)
         .await
         .map_err(|e| RepositoryError::ProviderError(format!("GitHub token resolution failed: {e}")))
 }

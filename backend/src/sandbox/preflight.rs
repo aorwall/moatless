@@ -13,15 +13,16 @@
 //!    parseable `github.com` URL.
 //!
 //! Token resolution mirrors `resolve_task_credentials`: team
-//! `provider_tokens` → user `provider_tokens` (with GitHub-App refresh).
-//! Scoped secrets are intentionally not consulted — operator-set
-//! `GITHUB_TOKEN` secrets are an escape hatch we don't pre-validate.
+//! `provider_tokens` → user `provider_tokens` (with GitHub-App refresh),
+//! resolving `secret_ref` rows through the `SecretService`. Only a
+//! `provider_token`-kind `GITHUB_TOKEN` secret satisfies the check; a plain
+//! `env` one stays the operator escape hatch we don't pre-validate.
 
 use async_trait::async_trait;
 use tracing::warn;
 
 use crate::repository::handlers::parse_github_owner_repo;
-use crate::repository::models::{Repository, RepositoryProvider};
+use crate::repository::models::{Repository, RepositoryKind, RepositoryProvider};
 use crate::sandbox::secrets::{resolve_task_github_token, TaskCredentialInputs};
 use crate::state::AppState;
 use crate::task::models::Task;
@@ -102,7 +103,7 @@ pub async fn preflight_validate_github_token(
     repo: &Repository,
     validator: &dyn GithubValidator,
 ) -> Result<(), PreflightError> {
-    if repo.provider != Some(RepositoryProvider::Github) {
+    if !requires_github_preflight(repo) {
         return Ok(());
     }
 
@@ -117,7 +118,9 @@ pub async fn preflight_validate_github_token(
         task_id: &task.task_id,
         user_id: &user_id,
         team_id: task.team_id.as_deref(),
-        secrets: None,
+        // Required to dereference a `secret_ref` row's sentinel; without it
+        // every PAT-backed credential resolves as absent.
+        secrets: Some(&state.secrets),
         provider_tokens: Some(&state.provider_tokens),
         github_app_service: state.github_app_service.as_ref(),
         provider_token_auth: Some(&state.provider_token_auth),
@@ -171,6 +174,14 @@ pub async fn preflight_validate_github_token(
     }
 
     Ok(())
+}
+
+/// Whether a repo's sandbox needs a validated GitHub credential to start.
+///
+/// Templates are public starter repos the sandbox clones anonymously, so they
+/// are exempt even though they carry `provider: Github`.
+fn requires_github_preflight(repo: &Repository) -> bool {
+    repo.provider == Some(RepositoryProvider::Github) && repo.kind != RepositoryKind::Template
 }
 
 fn is_github_dot_com(url: &str) -> bool {
@@ -273,6 +284,55 @@ mod tests {
     #[test]
     fn truncate_returns_input_when_short() {
         assert_eq!(truncate("short", 100), "short");
+    }
+
+    /// Minimal repo carrying only the fields the preflight gate reads.
+    fn repo(kind: RepositoryKind, provider: Option<RepositoryProvider>) -> Repository {
+        Repository {
+            id: "r".into(),
+            name: "r".into(),
+            kind,
+            remote_url: Some("https://github.com/o/r".into()),
+            default_branch: None,
+            description: None,
+            provider,
+            scope: moatless_api_schemas::enums::Scope::User,
+            team_id: None,
+            owner_user_id: None,
+            created_by: None,
+            access_status: "unchecked".into(),
+            access_checked_at: None,
+            access_error: None,
+            deleted: None,
+            created_at: None,
+            updated_at: None,
+        }
+    }
+
+    #[test]
+    fn github_remote_repo_requires_preflight() {
+        let r = repo(RepositoryKind::Remote, Some(RepositoryProvider::Github));
+        assert!(requires_github_preflight(&r));
+    }
+
+    #[test]
+    fn template_repo_is_exempt_even_when_provider_is_github() {
+        // The seeded starter template is a public repo the sandbox clones
+        // anonymously — requiring a token would wall off first-run users.
+        let r = repo(RepositoryKind::Template, Some(RepositoryProvider::Github));
+        assert!(!requires_github_preflight(&r));
+    }
+
+    #[test]
+    fn non_github_and_provider_less_repos_are_exempt() {
+        assert!(!requires_github_preflight(&repo(
+            RepositoryKind::Remote,
+            Some(RepositoryProvider::Gitlab)
+        )));
+        assert!(!requires_github_preflight(&repo(
+            RepositoryKind::Remote,
+            None
+        )));
     }
 
     #[test]

@@ -18,6 +18,9 @@ use crate::state::AppState;
         handlers::get_github_oauth_url,
         handlers::exchange_github_token,
         handlers::delete_github_config,
+        handlers::admin_get_global_github_config,
+        handlers::admin_save_global_github_pat,
+        handlers::admin_delete_global_github_pat,
         handlers::get_gitness_config,
         handlers::save_gitness_pat,
         handlers::delete_gitness_config,
@@ -42,6 +45,11 @@ pub fn provider_settings_router(state: AppState) -> (axum::Router, utoipa::opena
         .routes(routes!(
             handlers::save_github_pat,
             handlers::delete_github_pat_override
+        ))
+        .routes(routes!(handlers::admin_get_global_github_config))
+        .routes(routes!(
+            handlers::admin_save_global_github_pat,
+            handlers::admin_delete_global_github_pat
         ))
         .routes(routes!(handlers::get_github_oauth_url))
         .routes(routes!(handlers::exchange_github_token))

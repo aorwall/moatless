@@ -14,6 +14,9 @@ pub enum ProviderSettingsError {
     #[error("Bad request: {0}")]
     BadRequest(String),
 
+    #[error("Forbidden: {0}")]
+    Forbidden(String),
+
     #[error("Database error: {0}")]
     Db(#[from] sqlx::Error),
 
@@ -29,6 +32,7 @@ impl IntoResponse for ProviderSettingsError {
         let (status, message) = match &self {
             Self::NotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
             Self::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            Self::Forbidden(_) => (StatusCode::FORBIDDEN, self.to_string()),
             Self::Db(e) => {
                 error!(error = %e, "Provider settings database error");
                 (

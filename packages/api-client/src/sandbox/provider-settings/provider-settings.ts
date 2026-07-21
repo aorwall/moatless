@@ -248,6 +248,337 @@ export const useAdminDeleteGlobalCodexConfig = <TError = ErrorType<ErrorBody>,
       return useMutation(getAdminDeleteGlobalCodexConfigMutationOptions(options), queryClient);
     }
     /**
+ * @summary Read the org-wide GitHub token's status. Admin only.
+ */
+export type adminGetGlobalGithubConfigResponse200 = {
+  data: GitHubConfigResponse
+  status: 200
+}
+
+export type adminGetGlobalGithubConfigResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+
+export type adminGetGlobalGithubConfigResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+    
+export type adminGetGlobalGithubConfigResponseSuccess = (adminGetGlobalGithubConfigResponse200) & {
+  headers: Headers;
+};
+export type adminGetGlobalGithubConfigResponseError = (adminGetGlobalGithubConfigResponse401 | adminGetGlobalGithubConfigResponse403) & {
+  headers: Headers;
+};
+
+export type adminGetGlobalGithubConfigResponse = (adminGetGlobalGithubConfigResponseSuccess | adminGetGlobalGithubConfigResponseError)
+
+export const getAdminGetGlobalGithubConfigUrl = () => {
+
+
+  
+
+  return `/api/v1/admin/settings/github/config`
+}
+
+export const adminGetGlobalGithubConfig = async ( options?: RequestInit): Promise<adminGetGlobalGithubConfigResponse> => {
+  
+  return customInstance<adminGetGlobalGithubConfigResponse>(getAdminGetGlobalGithubConfigUrl(),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
+
+export const getAdminGetGlobalGithubConfigQueryKey = () => {
+    return [
+    `/api/v1/admin/settings/github/config`
+    ] as const;
+    }
+
+    
+export const getAdminGetGlobalGithubConfigQueryOptions = <TData = Awaited<ReturnType<typeof adminGetGlobalGithubConfig>>, TError = ErrorType<ErrorBody>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminGetGlobalGithubConfig>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetGlobalGithubConfigQueryKey();
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetGlobalGithubConfig>>> = ({ signal }) => adminGetGlobalGithubConfig({ signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetGlobalGithubConfig>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type AdminGetGlobalGithubConfigQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetGlobalGithubConfig>>>
+export type AdminGetGlobalGithubConfigQueryError = ErrorType<ErrorBody>
+
+
+export function useAdminGetGlobalGithubConfig<TData = Awaited<ReturnType<typeof adminGetGlobalGithubConfig>>, TError = ErrorType<ErrorBody>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminGetGlobalGithubConfig>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof adminGetGlobalGithubConfig>>,
+          TError,
+          Awaited<ReturnType<typeof adminGetGlobalGithubConfig>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useAdminGetGlobalGithubConfig<TData = Awaited<ReturnType<typeof adminGetGlobalGithubConfig>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminGetGlobalGithubConfig>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof adminGetGlobalGithubConfig>>,
+          TError,
+          Awaited<ReturnType<typeof adminGetGlobalGithubConfig>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useAdminGetGlobalGithubConfig<TData = Awaited<ReturnType<typeof adminGetGlobalGithubConfig>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminGetGlobalGithubConfig>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+/**
+ * @summary Read the org-wide GitHub token's status. Admin only.
+ */
+
+export function useAdminGetGlobalGithubConfig<TData = Awaited<ReturnType<typeof adminGetGlobalGithubConfig>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminGetGlobalGithubConfig>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getAdminGetGlobalGithubConfigQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Read the org-wide GitHub token's status. Admin only.
+ */
+export const prefetchAdminGetGlobalGithubConfigQuery = async <TData = Awaited<ReturnType<typeof adminGetGlobalGithubConfig>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient,  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminGetGlobalGithubConfig>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getAdminGetGlobalGithubConfigQueryOptions(options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+/**
+ * Sits at the bottom of the `user > team > global` precedence chain: any user
+with their own token shadows this one. It exists so a user who has never
+connected GitHub can still read repositories.
+ * @summary Set the org-wide GitHub token after validating it. Admin only.
+ */
+export type adminSaveGlobalGithubPatResponse200 = {
+  data: GitHubConfigResponse
+  status: 200
+}
+
+export type adminSaveGlobalGithubPatResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type adminSaveGlobalGithubPatResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+
+export type adminSaveGlobalGithubPatResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+    
+export type adminSaveGlobalGithubPatResponseSuccess = (adminSaveGlobalGithubPatResponse200) & {
+  headers: Headers;
+};
+export type adminSaveGlobalGithubPatResponseError = (adminSaveGlobalGithubPatResponse400 | adminSaveGlobalGithubPatResponse401 | adminSaveGlobalGithubPatResponse403) & {
+  headers: Headers;
+};
+
+export type adminSaveGlobalGithubPatResponse = (adminSaveGlobalGithubPatResponseSuccess | adminSaveGlobalGithubPatResponseError)
+
+export const getAdminSaveGlobalGithubPatUrl = () => {
+
+
+  
+
+  return `/api/v1/admin/settings/github/pat`
+}
+
+export const adminSaveGlobalGithubPat = async (savePatRequest: SavePatRequest, options?: RequestInit): Promise<adminSaveGlobalGithubPatResponse> => {
+  
+  return customInstance<adminSaveGlobalGithubPatResponse>(getAdminSaveGlobalGithubPatUrl(),
+  {      
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      savePatRequest,)
+  }
+);}
+
+
+
+
+export const getAdminSaveGlobalGithubPatMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSaveGlobalGithubPat>>, TError,{data: SavePatRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminSaveGlobalGithubPat>>, TError,{data: SavePatRequest}, TContext> => {
+
+const mutationKey = ['adminSaveGlobalGithubPat'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminSaveGlobalGithubPat>>, {data: SavePatRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminSaveGlobalGithubPat(data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminSaveGlobalGithubPatMutationResult = NonNullable<Awaited<ReturnType<typeof adminSaveGlobalGithubPat>>>
+    export type AdminSaveGlobalGithubPatMutationBody = SavePatRequest
+    export type AdminSaveGlobalGithubPatMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Set the org-wide GitHub token after validating it. Admin only.
+ */
+export const useAdminSaveGlobalGithubPat = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSaveGlobalGithubPat>>, TError,{data: SavePatRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof adminSaveGlobalGithubPat>>,
+        TError,
+        {data: SavePatRequest},
+        TContext
+      > => {
+      return useMutation(getAdminSaveGlobalGithubPatMutationOptions(options), queryClient);
+    }
+    /**
+ * @summary Remove the org-wide GitHub token. Admin only.
+ */
+export type adminDeleteGlobalGithubPatResponse200 = {
+  data: GitHubConfigResponse
+  status: 200
+}
+
+export type adminDeleteGlobalGithubPatResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+
+export type adminDeleteGlobalGithubPatResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+    
+export type adminDeleteGlobalGithubPatResponseSuccess = (adminDeleteGlobalGithubPatResponse200) & {
+  headers: Headers;
+};
+export type adminDeleteGlobalGithubPatResponseError = (adminDeleteGlobalGithubPatResponse401 | adminDeleteGlobalGithubPatResponse403) & {
+  headers: Headers;
+};
+
+export type adminDeleteGlobalGithubPatResponse = (adminDeleteGlobalGithubPatResponseSuccess | adminDeleteGlobalGithubPatResponseError)
+
+export const getAdminDeleteGlobalGithubPatUrl = () => {
+
+
+  
+
+  return `/api/v1/admin/settings/github/pat`
+}
+
+export const adminDeleteGlobalGithubPat = async ( options?: RequestInit): Promise<adminDeleteGlobalGithubPatResponse> => {
+  
+  return customInstance<adminDeleteGlobalGithubPatResponse>(getAdminDeleteGlobalGithubPatUrl(),
+  {      
+    ...options,
+    method: 'DELETE'
+    
+    
+  }
+);}
+
+
+
+
+export const getAdminDeleteGlobalGithubPatMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminDeleteGlobalGithubPat>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminDeleteGlobalGithubPat>>, TError,void, TContext> => {
+
+const mutationKey = ['adminDeleteGlobalGithubPat'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminDeleteGlobalGithubPat>>, void> = () => {
+          
+
+          return  adminDeleteGlobalGithubPat(requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminDeleteGlobalGithubPatMutationResult = NonNullable<Awaited<ReturnType<typeof adminDeleteGlobalGithubPat>>>
+    
+    export type AdminDeleteGlobalGithubPatMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Remove the org-wide GitHub token. Admin only.
+ */
+export const useAdminDeleteGlobalGithubPat = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminDeleteGlobalGithubPat>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof adminDeleteGlobalGithubPat>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getAdminDeleteGlobalGithubPatMutationOptions(options), queryClient);
+    }
+    /**
  * @summary Get current Codex configuration for the user.
  */
 export type getCodexConfigResponse200 = {

@@ -1090,6 +1090,148 @@
         }
       }
     },
+    "/api/v1/admin/settings/github/config": {
+      "get": {
+        "tags": [
+          "provider-settings"
+        ],
+        "summary": "Read the org-wide GitHub token's status. Admin only.",
+        "operationId": "admin_get_global_github_config",
+        "responses": {
+          "200": {
+            "description": "Organization GitHub config",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubConfigResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/settings/github/pat": {
+      "put": {
+        "tags": [
+          "provider-settings"
+        ],
+        "summary": "Set the org-wide GitHub token after validating it. Admin only.",
+        "description": "Sits at the bottom of the `user > team > global` precedence chain: any user\nwith their own token shadows this one. It exists so a user who has never\nconnected GitHub can still read repositories.",
+        "operationId": "admin_save_global_github_pat",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SavePatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Organization PAT saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubConfigResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "provider-settings"
+        ],
+        "summary": "Remove the org-wide GitHub token. Admin only.",
+        "operationId": "admin_delete_global_github_pat",
+        "responses": {
+          "200": {
+            "description": "Organization PAT removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubConfigResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/task-connections": {
       "get": {
         "tags": [
@@ -4480,7 +4622,7 @@
             }
           },
           "403": {
-            "description": "No access to GitHub repository",
+            "description": "GitHub not connected, or no access to the repository",
             "content": {
               "application/json": {
                 "schema": {
@@ -13044,6 +13186,17 @@
             },
             "description": "Connection state for each external provider (GitHub, etc.). Empty when\nno authenticated user. The frontend uses this to surface reconnect\nprompts when a provider token has been revoked or failed to refresh."
           },
+          "setup": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SetupStatus",
+                "description": "What the environment still needs before it can do its job. Populated\nonly by `GET /api/v1/auth/me`; absent on login and profile-update\nresponses, which the frontend treats as \"nothing to report\"."
+              }
+            ]
+          },
           "user": {
             "oneOf": [
               {
@@ -13080,6 +13233,103 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "SetupAction": {
+        "type": "object",
+        "description": "A remediation step the frontend can offer. `target` is machine-readable:\na settings-section id, an in-app route, or an absolute URL, per `kind`.",
+        "required": [
+          "kind",
+          "target"
+        ],
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/SetupActionKind"
+          },
+          "target": {
+            "type": "string"
+          }
+        }
+      },
+      "SetupActionKind": {
+        "type": "string",
+        "enum": [
+          "open_settings",
+          "admin_route",
+          "external_link",
+          "unknown"
+        ]
+      },
+      "SetupRequirement": {
+        "type": "object",
+        "description": "One thing the environment needs before it can do its job.",
+        "required": [
+          "id",
+          "status",
+          "severity"
+        ],
+        "properties": {
+          "actions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SetupAction"
+            },
+            "description": "Remediation steps, most-preferred first. Empty when satisfied.\nAdmin-only actions are omitted for non-admin callers, so the frontend\nnever has to re-derive who may do what."
+          },
+          "id": {
+            "$ref": "#/components/schemas/SetupRequirementId"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/SetupSeverity"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SetupRequirementStatus"
+          }
+        }
+      },
+      "SetupRequirementId": {
+        "type": "string",
+        "description": "Which requirement this is. `Unknown` exists so an older client (notably the\n`moat` CLI, which deserializes `SessionResponse`) doesn't hard-fail against\na newer server; the backend never constructs it.",
+        "enum": [
+          "github_token",
+          "unknown"
+        ]
+      },
+      "SetupRequirementStatus": {
+        "type": "string",
+        "description": "Tri-state because \"configured but unusable\" needs different copy from\n\"never configured\": a `secret_ref` row whose secret is gone is `Broken`,\nand telling that user to \"connect GitHub\" would be wrong.",
+        "enum": [
+          "satisfied",
+          "missing",
+          "broken"
+        ]
+      },
+      "SetupSeverity": {
+        "type": "string",
+        "description": "A closed vocabulary: a new value here is a real contract change the\nfrontend should fail to compile against rather than silently ignore.",
+        "enum": [
+          "required",
+          "recommended"
+        ]
+      },
+      "SetupStatus": {
+        "type": "object",
+        "description": "Environment-setup state for the current user.",
+        "required": [
+          "complete"
+        ],
+        "properties": {
+          "complete": {
+            "type": "boolean",
+            "description": "True when every `Required`-severity requirement is `Satisfied`."
+          },
+          "requirements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SetupRequirement"
+            },
+            "description": "Every evaluated requirement, satisfied ones included, so the frontend\ncan render a full checklist as well as a nag banner."
           }
         }
       },

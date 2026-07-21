@@ -20,7 +20,7 @@ use super::parser::parse_loop;
 use crate::adapters::common::next_fire_at;
 use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::models::RoutingMode;
-use crate::auth::credentials::resolve_state_github_token;
+use crate::auth::credentials::resolve_state_github_token_for;
 use crate::extractors::AuthUser;
 use crate::repository::handlers::parse_github_owner_repo;
 use crate::repository::models::{Repository, RepositoryProvider};
@@ -553,7 +553,7 @@ async fn upsert_loop(
 /// rows all yield a usable token. Returns `None` (unauthenticated fetch, works
 /// for public repos) when there's no connection or resolution fails.
 async fn resolve_github_token(state: &AppState, auth: &AuthUser) -> Option<String> {
-    match resolve_state_github_token(state, &auth.user_id, None).await {
+    match resolve_state_github_token_for(state, &auth.user_id, &auth.team_ids, None).await {
         Ok(token) => token,
         Err(e) => {
             warn!(error = %e, "Loop sync: failed to resolve GitHub token");

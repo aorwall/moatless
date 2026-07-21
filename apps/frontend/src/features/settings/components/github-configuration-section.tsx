@@ -4,6 +4,8 @@ import { ExternalLink, Loader2, LogOut, Plug } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { useAuth } from '@/features/auth/hooks/use-auth'
+import { GitHubPatForm } from '@/features/settings/components/github-pat-form'
+import { GitHubPatHelp } from '@/features/settings/components/github-pat-help'
 import {
   useDisconnectGitHub,
   useGetGitHubOAuthUrl,
@@ -19,7 +21,6 @@ import {
 } from '@/lib/components/configuration'
 import { Alert, AlertDescription, AlertTitle } from '@/lib/components/ui/alert'
 import { Button } from '@/lib/components/ui/button'
-import { Input } from '@/lib/components/ui/input'
 import { getErrorMessage } from '@/lib/utils/error'
 
 /**
@@ -33,21 +34,11 @@ function GitHubPATOverrideSection({
 }) {
   const savePAT = useSaveGitHubPAT()
   const removePATOverride = useRemoveGitHubPATOverride()
-  const [pat, setPat] = useState('')
 
-  const handleSavePAT = () => {
-    if (!pat.trim()) {
-      toast.error('Please enter a Personal Access Token')
-      return
-    }
-
-    savePAT.mutate(
-      { token: pat },
+  const handleSavePAT = async (token: string) => {
+    const result = await savePAT.mutateAsync(
+      { token },
       {
-        onSuccess: () => {
-          toast.success('Personal Access Token saved successfully')
-          setPat('')
-        },
         onError: (error) => {
           toast.error('Failed to save Personal Access Token', {
             description: getErrorMessage(error),
@@ -55,13 +46,14 @@ function GitHubPATOverrideSection({
         },
       },
     )
+    toast.success('Personal Access Token saved successfully')
+    return result
   }
 
   const handleRemovePATOverride = () => {
     removePATOverride.mutate(undefined, {
       onSuccess: () => {
         toast.success('PAT override removed, reverted to OAuth token')
-        setPat('')
       },
       onError: (error) => {
         toast.error('Failed to remove PAT override', {
@@ -71,13 +63,15 @@ function GitHubPATOverrideSection({
     })
   }
 
+  const hasOverride = githubConfig?.hasPatOverride ?? false
+
   return (
     <ConfigurationItem
       label="Personal Access Token Override"
       description="Provide a PAT to use instead of your OAuth token for git operations (e.g., for additional scopes or private repo access)"
     >
-      {githubConfig?.hasPatOverride ? (
-        <div className="space-y-3">
+      <div className="space-y-3">
+        {hasOverride && (
           <Alert>
             <Plug className="h-4 w-4" />
             <AlertTitle>PAT Override Active</AlertTitle>
@@ -91,56 +85,16 @@ function GitHubPATOverrideSection({
               )}
             </AlertDescription>
           </Alert>
-          <div className="flex gap-2">
-            <Input
-              type="password"
-              placeholder="Enter a new PAT to replace the current one"
-              value={pat}
-              onChange={(e) => setPat(e.target.value)}
-              className="flex-1 font-mono"
-            />
-            <Button
-              onClick={handleSavePAT}
-              disabled={savePAT.isPending || !pat.trim()}
-              variant="outline"
-            >
-              {savePAT.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Update'}
-            </Button>
-          </div>
-          <div className="flex justify-end">
-            <Button
-              onClick={handleRemovePATOverride}
-              disabled={removePATOverride.isPending}
-              variant="outline"
-              size="sm"
-            >
-              {removePATOverride.isPending ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <LogOut className="mr-2 h-4 w-4" />
-              )}
-              Remove PAT Override
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <div className="flex gap-2">
-          <Input
-            type="password"
-            placeholder="Enter your GitHub personal access token"
-            value={pat}
-            onChange={(e) => setPat(e.target.value)}
-            className="flex-1 font-mono"
-          />
-          <Button
-            onClick={handleSavePAT}
-            disabled={savePAT.isPending || !pat.trim()}
-            variant="outline"
-          >
-            {savePAT.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save'}
-          </Button>
-        </div>
-      )}
+        )}
+        <GitHubPatForm
+          hasToken={hasOverride}
+          onSave={handleSavePAT}
+          isSaving={savePAT.isPending}
+          onRemove={handleRemovePATOverride}
+          isRemoving={removePATOverride.isPending}
+          removeLabel="Remove PAT Override"
+        />
+      </div>
     </ConfigurationItem>
   )
 }
@@ -151,7 +105,6 @@ export function GitHubConfigurationSection() {
   const disconnectGitHub = useDisconnectGitHub()
   const savePAT = useSaveGitHubPAT()
   const [isConnecting, setIsConnecting] = useState(false)
-  const [pat, setPat] = useState('')
   const queryClient = useQueryClient()
   const popupRef = useRef<Window | null>(null)
 
@@ -249,7 +202,6 @@ export function GitHubConfigurationSection() {
     disconnectGitHub.mutate(undefined, {
       onSuccess: () => {
         toast.success('GitHub account disconnected')
-        setPat('')
       },
       onError: (error) => {
         toast.error('Failed to disconnect GitHub', {
@@ -259,19 +211,10 @@ export function GitHubConfigurationSection() {
     })
   }
 
-  const handleSavePAT = () => {
-    if (!pat.trim()) {
-      toast.error('Please enter a Personal Access Token')
-      return
-    }
-
-    savePAT.mutate(
-      { token: pat },
+  const handleSavePAT = async (token: string) => {
+    const result = await savePAT.mutateAsync(
+      { token },
       {
-        onSuccess: () => {
-          toast.success('Personal Access Token saved successfully')
-          setPat('')
-        },
         onError: (error) => {
           toast.error('Failed to save Personal Access Token', {
             description: getErrorMessage(error),
@@ -279,6 +222,8 @@ export function GitHubConfigurationSection() {
         },
       },
     )
+    toast.success('Personal Access Token saved successfully')
+    return result
   }
 
   if (configLoading) {
@@ -411,47 +356,10 @@ export function GitHubConfigurationSection() {
               label="Personal Access Token"
               description="Alternatively, use a GitHub PAT for authentication"
             >
-              <div className="flex gap-2">
-                <Input
-                  type="password"
-                  placeholder="Enter your GitHub personal access token"
-                  value={pat}
-                  onChange={(e) => setPat(e.target.value)}
-                  className="flex-1 font-mono"
-                />
-                <Button
-                  onClick={handleSavePAT}
-                  disabled={savePAT.isPending || !pat.trim()}
-                  variant="outline"
-                >
-                  {savePAT.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save'}
-                </Button>
-              </div>
+              <GitHubPatForm hasToken={false} onSave={handleSavePAT} isSaving={savePAT.isPending} />
             </ConfigurationItem>
 
-            <Alert>
-              <AlertTitle>How to create a Personal Access Token</AlertTitle>
-              <AlertDescription className="space-y-2">
-                <ol className="list-decimal list-inside space-y-1 text-sm">
-                  <li>
-                    Go to{' '}
-                    <a
-                      href="https://github.com/settings/tokens/new"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-600 hover:underline inline-flex items-center gap-1"
-                    >
-                      GitHub Settings → Personal access tokens
-                      <ExternalLink className="h-3 w-3" />
-                    </a>
-                  </li>
-                  <li>Click "Generate new token (classic)"</li>
-                  <li>Give your token a descriptive name</li>
-                  <li>Select the "repo" scope for repository access</li>
-                  <li>Click "Generate token" and copy it</li>
-                </ol>
-              </AlertDescription>
-            </Alert>
+            <GitHubPatHelp />
           </div>
         )}
 

@@ -3,6 +3,7 @@
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::enums::UserRole;
+use crate::setup::SetupStatus;
 
 // ============================================================================
 // Request types
@@ -83,6 +84,11 @@ pub struct SessionResponse {
     /// prompts when a provider token has been revoked or failed to refresh.
     #[serde(default)]
     pub providers: Vec<ProviderConnection>,
+    /// What the environment still needs before it can do its job. Populated
+    /// only by `GET /api/v1/auth/me`; absent on login and profile-update
+    /// responses, which the frontend treats as "nothing to report".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup: Option<SetupStatus>,
 }
 
 /// Connection state for an external provider (OAuth app, GitHub App, PAT, …).

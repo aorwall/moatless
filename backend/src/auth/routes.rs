@@ -17,6 +17,7 @@ use crate::config::{AuthProvider, Config};
 use crate::db::DbPool;
 use crate::error::ErrorBody;
 use crate::secret::service::SecretService;
+use crate::setup::{evaluate_setup, SetupContext};
 use moatless_backend_core::scope::ScopeContext;
 
 use super::api_key;
@@ -437,6 +438,7 @@ async fn password_login_handler(
             }),
             expires_at: Some(format_datetime(expires_at)),
             providers: Vec::new(),
+            setup: None,
         }),
     )
         .into_response())
@@ -866,7 +868,17 @@ async fn me_handler(
         return Err(AuthError::SessionExpired);
     };
 
-    let providers = check_provider_connections(&state, &identity.user_id).await;
+    let setup_ctx = SetupContext {
+        user_id: &identity.user_id,
+        team_ids: &identity.team_ids,
+        is_admin: identity.role == UserRole::Admin,
+        provider_tokens: state.provider_tokens_dao.as_ref(),
+        secrets: Some(state.secrets.as_ref()),
+    };
+    let (providers, setup) = tokio::join!(
+        check_provider_connections(&state, &identity.user_id),
+        evaluate_setup(&setup_ctx),
+    );
 
     Ok(Json(SessionResponse {
         user: Some(UserInfo {
@@ -880,6 +892,7 @@ async fn me_handler(
         }),
         expires_at: None,
         providers,
+        setup: Some(setup),
     }))
 }
 
@@ -1064,6 +1077,7 @@ async fn update_me_handler(
         }),
         expires_at: expires_at.map(format_datetime),
         providers: Vec::new(),
+        setup: None,
     }))
 }
 
@@ -1532,6 +1546,7 @@ async fn exchange_api_key_handler(
         }),
         expires_at: None,
         providers: Vec::new(),
+        setup: None,
     };
 
     let mut resp_headers = HeaderMap::new();

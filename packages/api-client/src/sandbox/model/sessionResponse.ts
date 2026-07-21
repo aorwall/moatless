@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ProviderConnection } from './providerConnection';
+import type { SetupStatus } from './setupStatus';
 import type { UserInfo } from './userInfo';
 
 /**
@@ -18,5 +19,6 @@ export interface SessionResponse {
 no authenticated user. The frontend uses this to surface reconnect
 prompts when a provider token has been revoked or failed to refresh. */
   providers?: ProviderConnection[];
+  setup?: null | SetupStatus;
   user?: null | UserInfo;
 }

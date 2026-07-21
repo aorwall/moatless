@@ -9,6 +9,7 @@ use crate::auth::credentials::{
 use crate::auth::provider_tokens::{AUTH_METHOD_SECRET_REF, SECRET_REF_TOKEN_PLACEHOLDER};
 use crate::credentials::codex::oauth::{self as codex_oauth, PollStatus};
 use crate::credentials::codex::{save_codex_auth_for_scope, CodexScope};
+use crate::credentials::github::scope::GitHubScope;
 use crate::credentials::WriteSource;
 use crate::extractors::AuthUser;
 use crate::sandbox::secrets::GITHUB_TOKEN;
@@ -75,6 +76,175 @@ pub async fn get_github_config(
             },
         })),
     }
+}
+
+// ============================================================================
+// Org-wide (global) GitHub token — admin only
+// ============================================================================
+
+fn require_admin(auth: &AuthUser, action: &str) -> Result<(), ProviderSettingsError> {
+    if auth.role.as_deref() == Some("admin") {
+        return Ok(());
+    }
+    Err(ProviderSettingsError::Forbidden(format!(
+        "Admin role required to {action} the organization GitHub token"
+    )))
+}
+
+/// Read the org-wide GitHub token's status. Admin only.
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/settings/github/config",
+    tag = "provider-settings",
+    responses(
+        (status = 200, description = "Organization GitHub config", body = GitHubConfigResponse),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
+        (status = 403, description = "Admin only", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn admin_get_global_github_config(
+    State(state): State<AppState>,
+    auth: AuthUser,
+) -> Result<Json<GitHubConfigResponse>, ProviderSettingsError> {
+    require_admin(&auth, "read")?;
+
+    let row = state
+        .provider_tokens
+        .find_github_row(&GitHubScope::Global)
+        .await?;
+
+    Ok(Json(match row {
+        Some(row) => GitHubConfigResponse {
+            connected: true,
+            login: row
+                .metadata
+                .as_ref()
+                .and_then(|m| m.get("login"))
+                .and_then(|v| v.as_str())
+                .map(std::string::ToString::to_string),
+            token_type: row.token_type,
+            // A PAT override is a GitHub-OAuth-user concept; the org-wide
+            // token is always a PAT, so there's nothing to override.
+            has_pat_override: None,
+        },
+        None => GitHubConfigResponse {
+            connected: false,
+            login: None,
+            token_type: None,
+            has_pat_override: None,
+        },
+    }))
+}
+
+/// Set the org-wide GitHub token after validating it. Admin only.
+///
+/// Sits at the bottom of the `user > team > global` precedence chain: any user
+/// with their own token shadows this one. It exists so a user who has never
+/// connected GitHub can still read repositories.
+#[utoipa::path(
+    put,
+    path = "/api/v1/admin/settings/github/pat",
+    tag = "provider-settings",
+    request_body = SavePatRequest,
+    responses(
+        (status = 200, description = "Organization PAT saved", body = GitHubConfigResponse),
+        (status = 400, description = "Invalid token", body = crate::error::ErrorBody),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
+        (status = 403, description = "Admin only", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn admin_save_global_github_pat(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Json(req): Json<SavePatRequest>,
+) -> Result<Json<GitHubConfigResponse>, ProviderSettingsError> {
+    require_admin(&auth, "set")?;
+
+    let login = github_client::validate_github_token(&req.token)
+        .await
+        .map_err(ProviderSettingsError::ProviderError)?;
+
+    // Secret first, reference row second — a reference row pointing at a
+    // missing secret is a hard failure on read. `put_secret` re-checks
+    // admin-for-global via `ensure_scope_access`.
+    state
+        .secrets
+        .put_secret(
+            &auth.scope_context(),
+            &auth.user_id,
+            PutSecretRequest {
+                scope_type: SecretScopeType::Global,
+                scope_id: None,
+                key: GITHUB_TOKEN.to_string(),
+                kind: SecretKind::ProviderToken,
+                provider: Some("github".to_string()),
+                value: Some(req.token.clone()),
+                external_ref: None,
+            },
+        )
+        .await?;
+
+    state
+        .provider_tokens
+        .upsert_github_row(
+            &GitHubScope::Global,
+            AUTH_METHOD_SECRET_REF,
+            SECRET_REF_TOKEN_PLACEHOLDER,
+            Some("pat"),
+            Some(&serde_json::json!({ "login": login })),
+        )
+        .await?;
+
+    Ok(Json(GitHubConfigResponse {
+        connected: true,
+        login: Some(login),
+        token_type: Some("pat".to_string()),
+        has_pat_override: None,
+    }))
+}
+
+/// Remove the org-wide GitHub token. Admin only.
+#[utoipa::path(
+    delete,
+    path = "/api/v1/admin/settings/github/pat",
+    tag = "provider-settings",
+    responses(
+        (status = 200, description = "Organization PAT removed", body = GitHubConfigResponse),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
+        (status = 403, description = "Admin only", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn admin_delete_global_github_pat(
+    State(state): State<AppState>,
+    auth: AuthUser,
+) -> Result<Json<GitHubConfigResponse>, ProviderSettingsError> {
+    require_admin(&auth, "remove")?;
+
+    // Reference row first: while both exist the row resolves fine, but a row
+    // outliving its secret is a hard error for every reader.
+    state
+        .provider_tokens
+        .delete_github_row(&GitHubScope::Global)
+        .await?;
+
+    state
+        .secrets
+        .delete_scope_secret(
+            &auth.scope_context(),
+            &auth.user_id,
+            SecretScopeType::Global,
+            None,
+            GITHUB_TOKEN,
+            Some(SecretKind::ProviderToken),
+        )
+        .await?;
+
+    Ok(Json(GitHubConfigResponse {
+        connected: false,
+        login: None,
+        token_type: None,
+        has_pat_override: None,
+    }))
 }
 
 /// Save a GitHub Personal Access Token after validating it.
@@ -691,7 +861,7 @@ pub async fn admin_save_global_codex_auth(
     Json(req): Json<SaveCodexAuthRequest>,
 ) -> Result<Json<CodexConfigResponse>, ProviderSettingsError> {
     if auth.role.as_deref() != Some("admin") {
-        return Err(ProviderSettingsError::BadRequest(
+        return Err(ProviderSettingsError::Forbidden(
             "Admin role required to set the global Codex blob".to_string(),
         ));
     }
@@ -715,7 +885,7 @@ pub async fn admin_delete_global_codex_config(
     auth: AuthUser,
 ) -> Result<Json<CodexConfigResponse>, ProviderSettingsError> {
     if auth.role.as_deref() != Some("admin") {
-        return Err(ProviderSettingsError::BadRequest(
+        return Err(ProviderSettingsError::Forbidden(
             "Admin role required to delete the global Codex blob".to_string(),
         ));
     }

@@ -16,6 +16,7 @@
 
 pub mod codex;
 pub mod error;
+pub mod github;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -473,7 +474,8 @@ impl CredentialService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::models::{ProviderAccessToken, ProviderToken};
+    use crate::auth::models::{GithubTokenPresence, ProviderAccessToken, ProviderToken};
+    use crate::credentials::github::scope::GitHubScope;
     use async_trait::async_trait;
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -611,6 +613,36 @@ mod tests {
 
         async fn delete_codex_blob(&self, _scope: &CodexScope) -> Result<(), sqlx::Error> {
             Ok(())
+        }
+
+        async fn find_github_row(
+            &self,
+            _scope: &GitHubScope,
+        ) -> Result<Option<ProviderToken>, sqlx::Error> {
+            Ok(None)
+        }
+
+        async fn upsert_github_row(
+            &self,
+            _scope: &GitHubScope,
+            _auth_method: &str,
+            _access_token: &str,
+            _token_type: Option<&str>,
+            _metadata: Option<&serde_json::Value>,
+        ) -> Result<(), sqlx::Error> {
+            Ok(())
+        }
+
+        async fn delete_github_row(&self, _scope: &GitHubScope) -> Result<(), sqlx::Error> {
+            Ok(())
+        }
+
+        async fn find_github_scope_presence(
+            &self,
+            _user_id: &str,
+            _team_ids: &[String],
+        ) -> Result<Option<GithubTokenPresence>, sqlx::Error> {
+            Ok(None)
         }
     }
 

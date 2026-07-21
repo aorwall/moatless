@@ -442,6 +442,7 @@ fn team_error_from_provider_settings(
     use crate::provider_settings::error::ProviderSettingsError;
     match err {
         ProviderSettingsError::BadRequest(m) => TeamError::BadRequest(m),
+        ProviderSettingsError::Forbidden(m) => TeamError::Forbidden(m),
         ProviderSettingsError::NotFound(m) => TeamError::NotFound(m),
         ProviderSettingsError::Db(e) => TeamError::Db(e),
         ProviderSettingsError::ProviderError(m) => TeamError::BadRequest(m),

@@ -39,7 +39,7 @@ use super::schemas::*;
     responses(
         (status = 200, description = "Task created", body = CreateTaskResponse),
         (status = 400, description = "Invalid request or unusable Codex credential", body = crate::error::ErrorBody),
-        (status = 403, description = "No access to GitHub repository", body = crate::error::ErrorBody),
+        (status = 403, description = "GitHub not connected, or no access to the repository", body = crate::error::ErrorBody),
         (status = 404, description = "Repository not found", body = crate::error::ErrorBody)
     )
 )]
@@ -99,63 +99,6 @@ pub async fn create_task(
             repo.owner_user_id.as_deref().or(repo.created_by.as_deref()),
         ),
     )?;
-
-    // Verify GitHub repository access for non-template repos
-    if repo.provider == Some(RepositoryProvider::Github) && repo.kind != RepositoryKind::Template {
-        if let Some(ref remote_url) = repo.remote_url {
-            if let Some((owner, repo_name)) =
-                crate::repository::handlers::parse_github_owner_repo(remote_url)
-            {
-                // Resolve a fresh GitHub token via the credentials service so
-                // GitHub App user-tokens get refreshed before we hit GitHub.
-                // Without this, an expired access_token left in
-                // `provider_tokens` (App tokens expire every ~8h) leaks
-                // straight to `check_github_repo_access` and the user gets
-                // an opaque 401 even though their setup is fine — the
-                // sandbox-provision path (which goes through the same
-                // service) keeps working in parallel.
-                let access_token = if let Ok(t) = state
-                    .credentials_svc
-                    .ensure_fresh(&auth.user_id, "GITHUB_TOKEN")
-                    .await
-                {
-                    t
-                } else {
-                    // Fall back to a team-level PAT if the user has
-                    // none — preserves the previous team-token path.
-                    let team_token = if let Some(ref team_id) = repo.team_id {
-                        state
-                            .provider_tokens
-                            .find_team_token(team_id, "github")
-                            .await
-                            .map_err(|e| {
-                                TaskError::Internal(format!(
-                                    "Failed to look up team GitHub token: {e}"
-                                ))
-                            })?
-                    } else {
-                        None
-                    };
-                    match team_token {
-                        Some(t) => t.access_token,
-                        None => {
-                            return Err(TaskError::Forbidden(
-                                "GitHub account not connected. Please connect your GitHub account to create tasks for this repository.".to_string(),
-                            ));
-                        }
-                    }
-                };
-
-                crate::provider_settings::github_client::check_github_repo_access(
-                    &access_token,
-                    &owner,
-                    &repo_name,
-                )
-                .await
-                .map_err(TaskError::Forbidden)?;
-            }
-        }
-    }
 
     // Validate name if provided
     if let Some(ref name) = req.name {
@@ -283,17 +226,9 @@ async fn insert_and_provision_task(
 ) -> Result<Json<CreateTaskResponse>, TaskError> {
     let task_id = &row.task_id;
 
-    state.tasks.insert_task(row).await?;
-    tracing::info!(task_id = %task_id, user_id = %auth.user_id, repository_id = %row.repository_id, "Task created");
-
-    if let Some(parent) = parent {
-        crate::task::relations::record_created_by(state.task_relations.as_ref(), task_id, parent)
-            .await;
-    }
-
-    // Pre-flight: validate the GitHub token before any sandbox resources
-    // are created. The task row already exists, so on failure we mark it
-    // Error + publish a sandbox.error event and skip provisioning entirely.
+    // Pre-flight: validate the GitHub token before the task row is written, so
+    // an unusable credential rejects the request outright rather than leaving
+    // a task stranded in Error.
     let repo = state
         .repositories
         .find_repository_by_id(&row.repository_id)
@@ -305,45 +240,16 @@ async fn insert_and_provision_task(
         crate::sandbox::preflight::preflight_validate_github_token(state, row, &repo, &validator)
             .await
     {
-        let msg = e.user_message();
         tracing::warn!(task_id = %task_id, error = %e, "Sandbox preflight failed");
-        if let Err(db_err) = state
-            .tasks
-            .update_task(
-                task_id,
-                &TaskPatch {
-                    status: Some(TaskStatus::Error),
-                    ..Default::default()
-                },
-            )
-            .await
-        {
-            tracing::error!(
-                task_id = %task_id,
-                error = %db_err,
-                "Failed to mark task Error after preflight failure"
-            );
-        }
-        if let Some(ref events) = state.events {
-            events
-                .publish_sandbox_event_with_payload(
-                    task_id,
-                    SandboxSubType::Error,
-                    &SandboxEventPayload {
-                        message: msg,
-                        error: Some(e.to_string()),
-                        lifecycle_event: Some("preflight_failed".to_string()),
-                        ..Default::default()
-                    },
-                )
-                .await;
-        }
-        let task_response = enrich_task(row, state, &auth.user_id).await?;
-        return Ok(Json(CreateTaskResponse {
-            task_id: row.task_id.clone(),
-            status: TaskStatus::Error,
-            task: task_response,
-        }));
+        return Err(TaskError::Forbidden(e.user_message()));
+    }
+
+    state.tasks.insert_task(row).await?;
+    tracing::info!(task_id = %task_id, user_id = %auth.user_id, repository_id = %row.repository_id, "Task created");
+
+    if let Some(parent) = parent {
+        crate::task::relations::record_created_by(state.task_relations.as_ref(), task_id, parent)
+            .await;
     }
 
     // Always provision sandbox
@@ -1294,7 +1200,12 @@ async fn maybe_sync_repo_config_on_start(
     // Resolve a token for the existence probe; fall back to an unauthenticated
     // probe (works for public repos) if we can't load one.
     let token = if provider == RepositoryProvider::Github {
-        crate::auth::credentials::resolve_state_github_token(state, &auth.user_id, None)
+        crate::auth::credentials::resolve_state_github_token_for(
+            state,
+            &auth.user_id,
+            &auth.team_ids,
+            None,
+        )
             .await
             .unwrap_or_else(|e| {
                 tracing::warn!(repository_id = %repo.id, error = %e, "Config auto-sync: failed to resolve GitHub token; probing unauthenticated");

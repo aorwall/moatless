@@ -3,8 +3,9 @@
 use async_trait::async_trait;
 use sqlx::AssertSqlSafe;
 
-use super::models::{ProviderAccessToken, ProviderToken};
+use super::models::{GithubTokenPresence, ProviderAccessToken, ProviderToken};
 use crate::credentials::codex::scope::CodexScope;
+use crate::credentials::github::scope::{GitHubScope, SYSTEM_TEAM_ID};
 use crate::db::DbPool;
 
 pub(crate) async fn ensure_personal_team(
@@ -46,6 +47,25 @@ pub(crate) async fn ensure_personal_team(
     .await?;
 
     Ok(team_id)
+}
+
+/// Ensure the reserved `'system'` team exists before writing a global-scope
+/// `provider_tokens` row (`team_id` is `NOT NULL` with an FK to `teams`).
+///
+/// Migration `0049` seeds this row, but nothing stops it being deleted
+/// afterwards — and when it is, every global-scope write fails on the foreign
+/// key. Re-seeding here keeps the global path self-healing.
+pub(crate) async fn ensure_system_team(pool: &DbPool) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"INSERT INTO teams (id, name, slug, description, is_default, settings, created_at, updated_at)
+           VALUES ($1, 'System', 'system', 'Reserved team for global system resources',
+                   false, '{}'::jsonb, NOW(), NOW())
+           ON CONFLICT (id) DO NOTHING"#,
+    )
+    .bind(SYSTEM_TEAM_ID)
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 fn personal_team_slug(user_id: &str) -> String {
@@ -170,6 +190,42 @@ pub trait ProviderTokenRepository: Send + Sync {
 
     /// Delete the codex row at the requested scope.
     async fn delete_codex_blob(&self, scope: &CodexScope) -> Result<(), sqlx::Error>;
+
+    // ---- Scope-aware github methods ----
+
+    /// Find the github `provider_tokens` row addressed by `scope`.
+    ///
+    /// Unlike [`find_team_token`], this filters on `scope`, so passing
+    /// `GitHubScope::Team(SYSTEM_TEAM_ID)` cannot accidentally return the
+    /// global row.
+    ///
+    /// [`find_team_token`]: ProviderTokenRepository::find_team_token
+    async fn find_github_row(
+        &self,
+        scope: &GitHubScope,
+    ) -> Result<Option<ProviderToken>, sqlx::Error>;
+
+    /// Upsert the github row at the requested scope.
+    async fn upsert_github_row(
+        &self,
+        scope: &GitHubScope,
+        auth_method: &str,
+        access_token: &str,
+        token_type: Option<&str>,
+        metadata: Option<&serde_json::Value>,
+    ) -> Result<(), sqlx::Error>;
+
+    /// Delete the github row at the requested scope.
+    async fn delete_github_row(&self, scope: &GitHubScope) -> Result<(), sqlx::Error>;
+
+    /// Resolve the `user > team > global` scope walk in one query, returning
+    /// only addressing info — no token material, no decrypt, no write. Drives
+    /// both `/me`'s setup evaluation and the token resolver's scope selection.
+    async fn find_github_scope_presence(
+        &self,
+        user_id: &str,
+        team_ids: &[String],
+    ) -> Result<Option<GithubTokenPresence>, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`ProviderTokenRepository`].
@@ -410,6 +466,7 @@ impl ProviderTokenRepository for PgProviderTokenRepository {
                 // Global codex row: pinned to the reserved `'system'` team.
                 // `provider_tokens_scope_uq UNIQUE NULLS NOT DISTINCT
                 // (user_id, provider, team_id)` covers this row uniquely.
+                ensure_system_team(&self.0).await?;
                 sqlx::query(
                     r#"INSERT INTO provider_tokens (
                            team_id, provider, auth_method, access_token, refresh_token,
@@ -444,5 +501,125 @@ impl ProviderTokenRepository for PgProviderTokenRepository {
             .execute(&self.0)
             .await?;
         Ok(())
+    }
+
+    async fn find_github_row(
+        &self,
+        scope: &GitHubScope,
+    ) -> Result<Option<ProviderToken>, sqlx::Error> {
+        let where_clause = scope.where_clause("$1");
+        // `ProviderToken::user_id` is `NOT NULL` in the Rust struct so
+        // coalesce NULL to '' for team / global rows.
+        let sql = format!(
+            r#"SELECT COALESCE(user_id, '') AS user_id, provider, access_token, refresh_token,
+                      token_type, auth_method, expires_at, metadata, created_at, updated_at,
+                      provider_user_id, provider_login
+               FROM provider_tokens
+               WHERE {where_clause}"#,
+        );
+        sqlx::query_as::<_, ProviderToken>(AssertSqlSafe(sql))
+            .bind(scope.bind_value())
+            .fetch_optional(&self.0)
+            .await
+    }
+
+    async fn upsert_github_row(
+        &self,
+        scope: &GitHubScope,
+        auth_method: &str,
+        access_token: &str,
+        token_type: Option<&str>,
+        metadata: Option<&serde_json::Value>,
+    ) -> Result<(), sqlx::Error> {
+        match scope {
+            GitHubScope::User(user_id) => {
+                self.upsert_token_with_auth_method(
+                    user_id,
+                    "github",
+                    auth_method,
+                    access_token,
+                    None,
+                    token_type,
+                    metadata,
+                )
+                .await
+            }
+            GitHubScope::Team(team_id) => {
+                self.upsert_team_token(
+                    team_id,
+                    "github",
+                    auth_method,
+                    access_token,
+                    None,
+                    token_type,
+                    metadata,
+                )
+                .await
+            }
+            GitHubScope::Global => {
+                // Global github row: pinned to the reserved `'system'` team.
+                // `provider_tokens_scope_uq UNIQUE NULLS NOT DISTINCT
+                // (user_id, provider, team_id)` covers this row uniquely, and
+                // the provider column keeps it distinct from the global codex
+                // row sharing the same team.
+                ensure_system_team(&self.0).await?;
+                sqlx::query(
+                    r#"INSERT INTO provider_tokens (
+                           team_id, provider, auth_method, access_token, refresh_token,
+                           token_type, metadata, connected_at, updated_at, scope,
+                           owner_user_id, user_id
+                       )
+                       VALUES ($1, 'github', $2, $3, NULL, $4, $5, NOW(), NOW(),
+                               'global', NULL, NULL)
+                       ON CONFLICT ON CONSTRAINT provider_tokens_scope_uq
+                       DO UPDATE SET access_token = $3, refresh_token = NULL,
+                                     token_type = $4, metadata = $5,
+                                     auth_method = $2, scope = 'global',
+                                     owner_user_id = NULL, updated_at = NOW()"#,
+                )
+                .bind(SYSTEM_TEAM_ID)
+                .bind(auth_method)
+                .bind(access_token)
+                .bind(token_type)
+                .bind(metadata)
+                .execute(&self.0)
+                .await?;
+                Ok(())
+            }
+        }
+    }
+
+    async fn delete_github_row(&self, scope: &GitHubScope) -> Result<(), sqlx::Error> {
+        let where_clause = scope.where_clause("$1");
+        let sql = format!("DELETE FROM provider_tokens WHERE {where_clause}");
+        sqlx::query(AssertSqlSafe(sql))
+            .bind(scope.bind_value())
+            .execute(&self.0)
+            .await?;
+        Ok(())
+    }
+
+    async fn find_github_scope_presence(
+        &self,
+        user_id: &str,
+        team_ids: &[String],
+    ) -> Result<Option<GithubTokenPresence>, sqlx::Error> {
+        sqlx::query_as::<_, GithubTokenPresence>(
+            r#"SELECT scope, user_id, team_id, auth_method,
+                      metadata->>'login' AS login,
+                      (metadata->>'refresh_failure') IS NOT NULL AS refresh_failure
+               FROM provider_tokens
+               WHERE provider = 'github'
+                 AND (   (scope = 'user'   AND user_id = $1)
+                      OR (scope = 'team'   AND user_id IS NULL AND team_id = ANY($2))
+                      OR (scope = 'global' AND user_id IS NULL AND team_id = $3))
+               ORDER BY CASE scope WHEN 'user' THEN 0 WHEN 'team' THEN 1 ELSE 2 END
+               LIMIT 1"#,
+        )
+        .bind(user_id)
+        .bind(team_ids)
+        .bind(SYSTEM_TEAM_ID)
+        .fetch_optional(&self.0)
+        .await
     }
 }

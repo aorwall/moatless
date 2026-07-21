@@ -12,6 +12,7 @@ import {
   Users,
 } from 'lucide-react'
 import type { ComponentType, SVGProps } from 'react'
+import { Github } from '@/lib/components/ui/brand-icons'
 import {
   Sidebar,
   SidebarContent,
@@ -40,6 +41,7 @@ const ADMIN_NAV: AdminNavGroup[] = [
   {
     label: 'Integrations',
     items: [
+      { label: 'GitHub', to: '/admin/integrations/github', icon: Github },
       { label: 'Connections', to: '/admin/integrations/connections', icon: Plug },
       { label: 'Task Connections', to: '/admin/task-connections', icon: Link2 },
     ],

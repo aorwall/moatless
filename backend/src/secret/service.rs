@@ -429,9 +429,26 @@ impl SecretService {
         key: &str,
         kind: Option<SecretKind>,
     ) -> Result<Option<String>, SecretError> {
+        self.resolve_scope_secret(SecretScopeType::User, Some(actor_id), key, kind)
+            .await
+    }
+
+    /// Read one secret at an explicit scope. Backs [`resolve_user_secret`] and
+    /// the team / global reads behind an org-wide provider token.
+    ///
+    /// Access is not re-checked here: callers reach this only after resolving
+    /// which scope owns the credential, and the scope walk itself is the
+    /// authorization. Use [`Self::get_secret`] for actor-driven reads.
+    pub async fn resolve_scope_secret(
+        &self,
+        scope_type: SecretScopeType,
+        scope_id: Option<&str>,
+        key: &str,
+        kind: Option<SecretKind>,
+    ) -> Result<Option<String>, SecretError> {
         let Some(record) = self
             .secrets
-            .find_by_scope_key(SecretScopeType::User.as_str(), Some(actor_id), key)
+            .find_by_scope_key(scope_type.as_str(), scope_id, key)
             .await?
         else {
             return Ok(None);
@@ -449,6 +466,28 @@ impl SecretService {
         Ok(Some(value))
     }
 
+    /// Existence + kind probe with no decrypt and no `mark_used` write.
+    ///
+    /// `/me` runs on every page load and only needs to know whether a
+    /// `secret_ref` row's target is still there — decrypting and stamping
+    /// `last_used_at` for that would be an AES round and a write per request.
+    pub async fn secret_exists(
+        &self,
+        scope_type: SecretScopeType,
+        scope_id: Option<&str>,
+        key: &str,
+        kind: Option<SecretKind>,
+    ) -> Result<bool, SecretError> {
+        let Some(record) = self
+            .secrets
+            .find_by_scope_key(scope_type.as_str(), scope_id, key)
+            .await?
+        else {
+            return Ok(false);
+        };
+        Ok(record.enabled && kind.is_none_or(|kind| record.kind == kind.as_str()))
+    }
+
     /// Delete a user-scoped secret by key for an already-authorized internal
     /// workflow. `kind` guards the delete so a caller cleaning up its own
     /// bookkeeping can't remove a user-managed secret that happens to share the
@@ -462,6 +501,37 @@ impl SecretService {
         let Some(record) = self
             .secrets
             .find_by_scope_key(SecretScopeType::User.as_str(), Some(actor_id), key)
+            .await?
+        else {
+            return Ok(false);
+        };
+        if kind.is_some_and(|kind| record.kind != kind.as_str()) {
+            return Ok(false);
+        }
+        let removed = self.secrets.delete(&record.id).await?;
+        if removed {
+            self.audit(Some(&record.id), actor_id, "delete", &record, "success")
+                .await?;
+        }
+        Ok(removed)
+    }
+
+    /// Delete a secret at an explicit scope, gated by the caller's access to
+    /// that scope. `kind` guards the delete so a caller cleaning up its own
+    /// bookkeeping can't remove a user-managed secret sharing the key.
+    pub async fn delete_scope_secret(
+        &self,
+        ctx: &ScopeContext,
+        actor_id: &str,
+        scope_type: SecretScopeType,
+        scope_id: Option<&str>,
+        key: &str,
+        kind: Option<SecretKind>,
+    ) -> Result<bool, SecretError> {
+        ensure_scope_access(ctx, scope_type, scope_id)?;
+        let Some(record) = self
+            .secrets
+            .find_by_scope_key(scope_type.as_str(), scope_id, key)
             .await?
         else {
             return Ok(false);

@@ -6,13 +6,47 @@
 
 use async_trait::async_trait;
 
-use super::models::{ProviderAccessToken, ProviderToken};
+use super::models::{GithubTokenPresence, ProviderAccessToken, ProviderToken};
 use super::provider_token_dao::ProviderTokenRepository;
+use crate::credentials::github::scope::{GitHubScope, SYSTEM_TEAM_ID};
 use crate::credentials::CodexScope;
 
-/// Returns one canned user-level row for every provider lookup; writes are
-/// accepted and dropped.
-pub struct StubProviderTokens(pub Option<ProviderToken>);
+/// Canned `provider_tokens` rows at each scope. Writes are accepted and
+/// dropped. Reads honour the same `user > team > global` precedence as
+/// `PgProviderTokenRepository`.
+#[derive(Default)]
+pub struct StubProviderTokens {
+    /// Row returned for every user-scope lookup, regardless of user id.
+    pub user_row: Option<ProviderToken>,
+    /// Team-scope github rows, keyed by team id.
+    pub team_rows: Vec<(String, ProviderToken)>,
+    /// The singleton global github row.
+    pub global_row: Option<ProviderToken>,
+}
+
+impl StubProviderTokens {
+    /// One canned user-level row for every provider lookup.
+    pub fn with_user_row(row: Option<ProviderToken>) -> Self {
+        Self {
+            user_row: row,
+            ..Self::default()
+        }
+    }
+
+    pub fn with_team_row(mut self, team_id: impl Into<String>, row: ProviderToken) -> Self {
+        self.team_rows.push((team_id.into(), row));
+        self
+    }
+
+    pub fn with_global_row(mut self, row: ProviderToken) -> Self {
+        self.global_row = Some(row);
+        self
+    }
+
+    fn github_user_row(&self) -> Option<&ProviderToken> {
+        self.user_row.as_ref().filter(|r| r.provider == "github")
+    }
+}
 
 /// Build a GitHub `provider_tokens` row with the given `auth_method` and
 /// `access_token`.
@@ -33,6 +67,32 @@ pub fn github_row(auth_method: &str, access_token: &str) -> ProviderToken {
     }
 }
 
+fn presence(scope: &GitHubScope, row: &ProviderToken) -> GithubTokenPresence {
+    GithubTokenPresence {
+        scope: scope.scope_kind().to_string(),
+        user_id: match scope {
+            GitHubScope::User(id) => Some(id.clone()),
+            _ => None,
+        },
+        team_id: match scope {
+            GitHubScope::Team(id) => Some(id.clone()),
+            GitHubScope::Global => Some(SYSTEM_TEAM_ID.to_string()),
+            GitHubScope::User(_) => None,
+        },
+        auth_method: row.auth_method.clone(),
+        login: row
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get("login"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        refresh_failure: row
+            .metadata
+            .as_ref()
+            .is_some_and(|m| m.get("refresh_failure").is_some()),
+    }
+}
+
 #[async_trait]
 impl ProviderTokenRepository for StubProviderTokens {
     async fn find_provider_token(
@@ -41,7 +101,7 @@ impl ProviderTokenRepository for StubProviderTokens {
         provider: &str,
     ) -> Result<Option<ProviderAccessToken>, sqlx::Error> {
         Ok(self
-            .0
+            .user_row
             .as_ref()
             .filter(|r| r.provider == provider)
             .map(|r| ProviderAccessToken {
@@ -54,7 +114,11 @@ impl ProviderTokenRepository for StubProviderTokens {
         _user_id: &str,
         provider: &str,
     ) -> Result<Option<ProviderToken>, sqlx::Error> {
-        Ok(self.0.as_ref().filter(|r| r.provider == provider).cloned())
+        Ok(self
+            .user_row
+            .as_ref()
+            .filter(|r| r.provider == provider)
+            .cloned())
     }
 
     async fn upsert_token(
@@ -88,10 +152,16 @@ impl ProviderTokenRepository for StubProviderTokens {
 
     async fn find_team_token(
         &self,
-        _team_id: &str,
-        _provider: &str,
+        team_id: &str,
+        provider: &str,
     ) -> Result<Option<ProviderAccessToken>, sqlx::Error> {
-        Ok(None)
+        Ok(self
+            .team_rows
+            .iter()
+            .find(|(id, r)| id == team_id && r.provider == provider)
+            .map(|(_, r)| ProviderAccessToken {
+                access_token: r.access_token.clone(),
+            }))
     }
 
     async fn upsert_team_token(
@@ -135,5 +205,58 @@ impl ProviderTokenRepository for StubProviderTokens {
 
     async fn delete_codex_blob(&self, _scope: &CodexScope) -> Result<(), sqlx::Error> {
         Ok(())
+    }
+
+    async fn find_github_row(
+        &self,
+        scope: &GitHubScope,
+    ) -> Result<Option<ProviderToken>, sqlx::Error> {
+        Ok(match scope {
+            GitHubScope::User(_) => self.github_user_row().cloned(),
+            GitHubScope::Team(team_id) => self
+                .team_rows
+                .iter()
+                .find(|(id, r)| id == team_id && r.provider == "github")
+                .map(|(_, r)| r.clone()),
+            GitHubScope::Global => self.global_row.clone(),
+        })
+    }
+
+    async fn upsert_github_row(
+        &self,
+        _scope: &GitHubScope,
+        _auth_method: &str,
+        _access_token: &str,
+        _token_type: Option<&str>,
+        _metadata: Option<&serde_json::Value>,
+    ) -> Result<(), sqlx::Error> {
+        Ok(())
+    }
+
+    async fn delete_github_row(&self, _scope: &GitHubScope) -> Result<(), sqlx::Error> {
+        Ok(())
+    }
+
+    async fn find_github_scope_presence(
+        &self,
+        user_id: &str,
+        team_ids: &[String],
+    ) -> Result<Option<GithubTokenPresence>, sqlx::Error> {
+        if let Some(row) = self.github_user_row() {
+            return Ok(Some(presence(&GitHubScope::user(user_id), row)));
+        }
+        for team_id in team_ids {
+            if let Some((_, row)) = self
+                .team_rows
+                .iter()
+                .find(|(id, r)| id == team_id && r.provider == "github")
+            {
+                return Ok(Some(presence(&GitHubScope::team(team_id), row)));
+            }
+        }
+        Ok(self
+            .global_row
+            .as_ref()
+            .map(|row| presence(&GitHubScope::Global, row)))
     }
 }

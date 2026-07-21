@@ -120,6 +120,8 @@ export const queryKeys = {
     all: () => [...queryKeys.all, 'admin'] as const,
     taskConnections: (params?: { limit?: number; offset?: number; refresh?: boolean }) =>
       [...queryKeys.admin.all(), 'task-connections', params] as const,
+    /** Org-wide GitHub token — distinct from `settings.github()` (per-user). */
+    github: () => [...queryKeys.admin.all(), 'github'] as const,
   },
 
   settings: {

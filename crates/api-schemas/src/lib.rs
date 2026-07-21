@@ -29,6 +29,7 @@ pub mod plugin_repo;
 pub mod provider_settings;
 pub mod repository;
 pub mod sandbox;
+pub mod setup;
 pub mod shared;
 pub mod skill;
 pub mod tag;
