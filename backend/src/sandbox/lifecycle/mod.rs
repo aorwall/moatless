@@ -55,6 +55,10 @@ pub(crate) mod outcome;
 pub(crate) mod runtime;
 pub(crate) mod types;
 
+// Infrastructure adapters implementing the ports. Public so `AppState`/`main`
+// construct them and integration tests exercise them against a live Postgres.
+pub mod dao;
+
 // ---- Curated public surface ----
 
 pub use error::{ErrorClass, LifecycleError, RuntimeError};
@@ -69,3 +73,5 @@ pub use orchestrator::{
     AgentStopPort, IntentWrite, Lifecycle, LifecycleEventSink, LifecycleLock, LifecycleStore,
     LockGuard, StoreError, SystemWallClock, TaskIntent, WallClock,
 };
+
+pub use dao::PgLifecycleStore;

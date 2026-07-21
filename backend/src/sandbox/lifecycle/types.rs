@@ -50,6 +50,18 @@ impl OperationKind {
             Self::Remove => "remove",
         }
     }
+
+    /// Parse the persisted slug back into a kind. `None` for an unknown value.
+    pub fn from_db_str(s: &str) -> Option<Self> {
+        match s {
+            "start" => Some(Self::Start),
+            "stop" => Some(Self::Stop),
+            "restart" => Some(Self::Restart),
+            "redeploy" => Some(Self::Redeploy),
+            "remove" => Some(Self::Remove),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for OperationKind {
@@ -151,6 +163,15 @@ impl ArchiveRetention {
             Self::DeleteArchives => "delete_archives",
         }
     }
+
+    /// Parse the persisted slug back into a policy. `None` for an unknown value.
+    pub fn from_db_str(s: &str) -> Option<Self> {
+        match s {
+            "retain_archives" => Some(Self::RetainArchives),
+            "delete_archives" => Some(Self::DeleteArchives),
+            _ => None,
+        }
+    }
 }
 
 /// Monotonic, comparable operation identity.
@@ -243,6 +264,25 @@ mod tests {
     fn archive_retention_semantics() {
         assert!(ArchiveRetention::RetainArchives.retains());
         assert!(!ArchiveRetention::DeleteArchives.retains());
+    }
+
+    #[test]
+    fn db_str_round_trips() {
+        for kind in [
+            OperationKind::Start,
+            OperationKind::Stop,
+            OperationKind::Restart,
+            OperationKind::Redeploy,
+            OperationKind::Remove,
+        ] {
+            assert_eq!(OperationKind::from_db_str(kind.as_str()), Some(kind));
+        }
+        assert_eq!(OperationKind::from_db_str("bogus"), None);
+
+        for r in [ArchiveRetention::RetainArchives, ArchiveRetention::DeleteArchives] {
+            assert_eq!(ArchiveRetention::from_db_str(r.as_str()), Some(r));
+        }
+        assert_eq!(ArchiveRetention::from_db_str("bogus"), None);
     }
 
     #[test]
