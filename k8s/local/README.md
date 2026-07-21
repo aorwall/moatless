@@ -224,7 +224,7 @@ IngressRoute matches on. No API key — local auth resolves every request to
 | `image.pullPolicy` / `backend.image.pullPolicy: IfNotPresent`, tag `dev` | Chart defaults both to `Always` + `latest`, which forces a Docker Hub pull and silently ignores locally built images. |
 | `kubernetes.nodeStorageJanitor.enabled: false` | Default janitor image is a private SOAP ECR ref → guaranteed `ImagePullBackOff`. |
 | `kubernetes.imagePrepull.enabled: false` | Pre-pulls the full 5-8GB sandbox image with `pullPolicy: Always`. |
-| `kubernetes.sandboxStorage.defaultMode: ephemeral` | Default `s3` needs a real bucket; ephemeral avoids per-task PVC churn. |
+| `kubernetes.sandboxStorage.defaultMode: node` | Persists each workspace to a hostPath under `/mnt/cache/workspaces/<task-id>` on the VM disk — survives stop/start and cluster restarts, no bucket and no PVC. Its mkdir/chown init container reuses the sandbox image, so nothing extra is pulled. |
 | `kubernetes.sandboxSysctls` — drop `tcp_keepalive_*` | Some kubelets reject them as unsafe → block sandbox pod admission. |
 | `networkPolicy.sandbox.enabled: false` | Expects a namespace literally named `traefik`; locally Traefik lives in `moatless`. |
 | `proxy.domain: preview.localhost`, `protocol: http`, `traefikEntryPoint: web` | macOS resolves arbitrary `*.localhost` → `127.0.0.1`. No dnsmasq, no nip.io. |
