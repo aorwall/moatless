@@ -16,7 +16,8 @@ use crate::bindings::dao::PgTaskBindingRepository;
 use crate::shared_models::AgentType;
 use crate::state::AppState;
 use crate::task::dao::TaskPatch;
-use crate::task::models::{SandboxDesiredState, SandboxStopReason, Task, TaskStatus, Visibility};
+use crate::sandbox::lifecycle::ArchiveRetention;
+use crate::task::models::{SandboxDesiredState, Task, TaskStatus, Visibility};
 use crate::triggers::rule_dao::PgTaskTriggerRouteRepository;
 
 use super::adapter::{resolve_user_or_fallback, PrCloseInfo};
@@ -701,8 +702,6 @@ pub async fn close_tasks_for_pr(
                 task_id,
                 &TaskPatch {
                     status: Some(TaskStatus::Closed),
-                    sandbox_desired_state: Some(SandboxDesiredState::Removed),
-                    sandbox_stop_reason: Some(Some(SandboxStopReason::Cleanup)),
                     ..Default::default()
                 },
             )
@@ -712,15 +711,16 @@ pub async fn close_tasks_for_pr(
             continue;
         }
 
-        // Stop the agent gracefully, then tear down K8s resources. Both
-        // best-effort and run with `Closed` already committed, so a teardown
-        // failure never leaves the task in a non-terminal state. `stop_agent`
-        // cancels an in-flight review promptly instead of riding the pod's full
-        // termination grace until SIGKILL (exit 137).
-        crate::sandbox::notify::stop_agent_for_task(state, task_id).await;
-        let retain_storage = state.config.sandbox.retain_storage_on_close;
-        if let Err(e) = state.sandbox.cleanup(task_id, retain_storage).await {
-            warn!(task_id = %task_id, error = %e, "Failed to cleanup sandbox on PR close");
+        // Remove the sandbox (best-effort, `Closed` already committed so a
+        // teardown failure never leaves a non-terminal task). Lifecycle issues
+        // the graceful agent stop and retains S3 archives per config.
+        let retention = if state.config.sandbox.retain_storage_on_close {
+            ArchiveRetention::RetainArchives
+        } else {
+            ArchiveRetention::DeleteArchives
+        };
+        if let Err(e) = state.lifecycle.remove(task_id, retention).await {
+            warn!(task_id = %task_id, error = %e, "Failed to remove sandbox on PR close");
         }
 
         // A closed task is terminal — deactivate its bindings so later comments
@@ -1076,27 +1076,8 @@ fn parse_pr_destination_config(
 }
 
 async fn provision_task(state: &AppState, task_id: &str) {
-    match crate::sandbox::auto_provision::build_provision_request(
-        state.tasks.as_ref(),
-        state.repositories.as_ref(),
-        state.provider_tokens.as_ref(),
-        state.plugin_repos.as_ref(),
-        state.workspaces.as_ref(),
-        task_id,
-    )
-    .await
-    {
-        Ok(request) => match state.sandbox.provision(task_id, &request).await {
-            Ok(_) => {
-                info!(task_id = %task_id, "Sandbox provisioning started for GitHub PR task");
-            }
-            Err(e) => {
-                warn!(task_id = %task_id, error = %e, "Failed to provision sandbox for GitHub PR task");
-            }
-        },
-        Err(e) => {
-            warn!(task_id = %task_id, error = %e, "Failed to build provision request for GitHub PR task");
-        }
+    if let Err(e) = state.lifecycle.start(task_id).await {
+        warn!(task_id = %task_id, error = %e, "Failed to start sandbox for GitHub PR task");
     }
 }
 
