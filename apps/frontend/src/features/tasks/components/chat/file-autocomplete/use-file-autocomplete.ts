@@ -42,7 +42,6 @@ export function useFileAutocomplete({
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Trigger search when search term changes (debounced)
-  // biome-ignore lint/correctness/useExhaustiveDependencies: onSearch is expected to be stable from caller
   useEffect(() => {
     if (!(enabled && state.isOpen && state.searchTerm) || state.searchTerm.length < 2) {
       return
@@ -64,7 +63,7 @@ export function useFileAutocomplete({
         clearTimeout(debounceTimerRef.current)
       }
     }
-  }, [state.isOpen, state.searchTerm, enabled])
+  }, [state.isOpen, state.searchTerm, enabled, onSearch])
 
   const handleInputChange = useCallback(
     (value: string, cursorPosition: number) => {

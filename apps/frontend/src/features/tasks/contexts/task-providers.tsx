@@ -24,7 +24,7 @@ interface TaskProvidersProps {
  */
 export function TaskProviders({ taskId, children }: TaskProvidersProps) {
   return (
-    <TaskDataProvider taskId={taskId}>
+    <TaskDataProvider key={taskId} taskId={taskId}>
       <SandboxEventsProvider>
         <TaskComposerProvider>
           <TaskPanelControlsProvider>

@@ -1,4 +1,3 @@
-import React from 'react'
 import { FullPageError } from '@/lib/components/full-page-error'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar'
 import { useIsMobile } from '@/lib/hooks/use-mobile'
@@ -52,4 +51,4 @@ function TaskPageComponent({ kiosk = false }: TaskPageProps) {
   return isMobile ? <MobileTaskLayout /> : <DesktopTaskLayout />
 }
 
-export const TaskPage = React.memo(TaskPageComponent)
+export const TaskPage = TaskPageComponent

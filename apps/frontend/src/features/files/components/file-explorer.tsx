@@ -1,5 +1,5 @@
 import { PanelLeftOpen, Search } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/lib/components/ui/button'
 import { useIsMobile } from '@/lib/hooks/use-mobile'
 import { useFileSearch } from '../hooks/use-file-search'
@@ -28,13 +28,10 @@ export function FileExplorer({ taskId }: FileExplorerProps) {
   const fileSearch = useFileSearch(taskId)
   const isMobile = useIsMobile()
 
-  const handleFileSelect = useCallback(
-    (filePath: string) => {
-      setSelectedFile(filePath)
-      setShowSearch(false)
-    },
-    [setSelectedFile],
-  )
+  const handleFileSelect = (filePath: string) => {
+    setSelectedFile(filePath)
+    setShowSearch(false)
+  }
 
   // On mobile the tree and viewer are a single swappable pane — once a file is
   // selected, collapse the tree so the viewer takes over the screen. Driven by
@@ -68,33 +65,30 @@ export function FileExplorer({ taskId }: FileExplorerProps) {
     }
   }, [searchQuery, fileSearch.mutate])
 
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault()
-      setIsResizing(true)
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault()
+    setIsResizing(true)
 
-      const startX = e.clientX
-      const startWidth = sidebarWidth
+    const startX = e.clientX
+    const startWidth = sidebarWidth
 
-      const handleMouseMove = (moveEvent: MouseEvent) => {
-        const newWidth = Math.max(
-          MIN_SIDEBAR_WIDTH,
-          Math.min(MAX_SIDEBAR_WIDTH, startWidth + (moveEvent.clientX - startX)),
-        )
-        setSidebarWidth(newWidth)
-      }
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const newWidth = Math.max(
+        MIN_SIDEBAR_WIDTH,
+        Math.min(MAX_SIDEBAR_WIDTH, startWidth + (moveEvent.clientX - startX)),
+      )
+      setSidebarWidth(newWidth)
+    }
 
-      const handleMouseUp = () => {
-        setIsResizing(false)
-        document.removeEventListener('mousemove', handleMouseMove)
-        document.removeEventListener('mouseup', handleMouseUp)
-      }
+    const handleMouseUp = () => {
+      setIsResizing(false)
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
 
-      document.addEventListener('mousemove', handleMouseMove)
-      document.addEventListener('mouseup', handleMouseUp)
-    },
-    [sidebarWidth],
-  )
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+  }
 
   return (
     <div className="h-full flex flex-col relative">

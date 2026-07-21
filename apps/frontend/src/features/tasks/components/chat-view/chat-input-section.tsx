@@ -1,5 +1,5 @@
 import type { MessageContextInput, UiMessage } from '@moatless/api-client'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { useAgentAvailability } from '@/features/agents/hooks/use-agent-availability'
 import { useRepositorySkills } from '@/features/skills'
@@ -118,13 +118,10 @@ export function ChatInputSection({
 
   // Merge commands + skills for the autocomplete dropdown. Command buttons
   // bar below is still commands-only.
-  const suggestions = useMemo<Suggestion[]>(
-    () => [
-      ...availableCommands.map((c) => ({ kind: 'command' as const, ...c })),
-      ...repoSkills.map((s) => ({ kind: 'skill' as const, ...s })),
-    ],
-    [availableCommands, repoSkills],
-  )
+  const suggestions: Suggestion[] = [
+    ...availableCommands.map((c) => ({ kind: 'command' as const, ...c })),
+    ...repoSkills.map((s) => ({ kind: 'skill' as const, ...s })),
+  ]
 
   // Local state for chat values. The message draft is persisted per task in
   // localStorage so text survives reloads and switching tasks.
@@ -187,18 +184,6 @@ export function ChatInputSection({
     selectedAgent?.defaultModel ?? DEFAULT_CLAUDE_MODEL,
   )
   const agentModeSelector = useAgentModeSelector(selectedAgentMode, setSelectedAgentMode)
-
-  // Clear state when task changes. The message draft is intentionally NOT
-  // cleared here — useTaskDraftMessage loads the per-task draft on task change.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: taskId is from params and we want to reset state when it changes
-  useEffect(() => {
-    taskInputs.clearAll()
-    // Reset selectors to defaults. useAgentAvailability re-derives the correct
-    // per-agent default once the task's agent catalog entry resolves.
-    setSelectedModel(DEFAULT_CLAUDE_MODEL)
-    setSelectedAgentMode('edit')
-    setStartFresh(false)
-  }, [taskId])
 
   // Stop agent mutation
   const stopAgent = useStopAgent(taskId)

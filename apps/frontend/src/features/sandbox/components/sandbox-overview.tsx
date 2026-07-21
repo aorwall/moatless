@@ -4,7 +4,7 @@ import { sandboxStatusHandler } from '@moatless/api-client/sandbox/sandbox/sandb
 import { useQueries } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { AlertTriangle, ArrowLeft, CheckCircle, Loader2, OctagonX, Server } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { useTasksList } from '@/features/tasks/hooks/use-tasks'
 import { queryKeys } from '@/lib/api/query-keys'
 import { Badge } from '@/lib/components/ui/badge'
@@ -153,42 +153,32 @@ export function SandboxOverview() {
     })),
   })
 
-  const tasksWithStatus: TaskWithStatus[] = useMemo(
-    () =>
-      tasks.map((task, i) => ({
-        task,
-        status: statusQueries[i]?.data,
-        isLoading: statusQueries[i]?.isLoading ?? true,
-      })),
-    [tasks, statusQueries],
-  )
+  const tasksWithStatus: TaskWithStatus[] = tasks.map((task, i) => ({
+    task,
+    status: statusQueries[i]?.data,
+    isLoading: statusQueries[i]?.isLoading ?? true,
+  }))
 
-  const filteredTasks = useMemo(
-    () =>
-      filter === 'all'
-        ? tasksWithStatus
-        : tasksWithStatus.filter((t) => t.status?.environmentStatus === filter),
-    [tasksWithStatus, filter],
-  )
+  const filteredTasks =
+    filter === 'all'
+      ? tasksWithStatus
+      : tasksWithStatus.filter((t) => t.status?.environmentStatus === filter)
 
-  const counts = useMemo(() => {
-    const c = { ready: 0, error: 0, initializing: 0, stopped: 0, other: 0 }
-    for (const t of tasksWithStatus) {
-      const s = t.status?.environmentStatus
-      if (s === 'ready') {
-        c.ready++
-      } else if (s === 'error') {
-        c.error++
-      } else if (s === 'initializing') {
-        c.initializing++
-      } else if (s === 'stopped') {
-        c.stopped++
-      } else {
-        c.other++
-      }
+  const counts = { ready: 0, error: 0, initializing: 0, stopped: 0, other: 0 }
+  for (const taskWithStatus of tasksWithStatus) {
+    const status = taskWithStatus.status?.environmentStatus
+    if (status === 'ready') {
+      counts.ready++
+    } else if (status === 'error') {
+      counts.error++
+    } else if (status === 'initializing') {
+      counts.initializing++
+    } else if (status === 'stopped') {
+      counts.stopped++
+    } else {
+      counts.other++
     }
-    return c
-  }, [tasksWithStatus])
+  }
 
   return (
     <div className="space-y-6">

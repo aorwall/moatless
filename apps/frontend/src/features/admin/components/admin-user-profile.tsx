@@ -3,7 +3,7 @@ import { unwrapResponse } from '@moatless/api-client/custom-instance'
 import { adminResetPasswordHandler } from '@moatless/api-client/sandbox/users/users'
 import { useMutation } from '@tanstack/react-query'
 import { Bot, Loader2 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 import {
   useAdminTeamMembersByTeam,
@@ -77,17 +77,14 @@ function AdminUserProfileForm({
   const teams = teamsQuery.data ?? []
   const memberQueries = useAdminTeamMembersByTeam(teams)
 
-  const memberships = useMemo(() => {
-    const result: { teamId: string; teamName: string; role: string }[] = []
-    for (const [index, team] of teams.entries()) {
-      const members = memberQueries[index]?.data ?? []
-      const membership = members.find((member) => member.userId === user.id)
-      if (membership) {
-        result.push({ teamId: team.id, teamName: team.name, role: membership.role })
-      }
+  const memberships: { teamId: string; teamName: string; role: string }[] = []
+  for (const [index, team] of teams.entries()) {
+    const members = memberQueries[index]?.data ?? []
+    const membership = members.find((member) => member.userId === user.id)
+    if (membership) {
+      memberships.push({ teamId: team.id, teamName: team.name, role: membership.role })
     }
-    return result
-  }, [teams, memberQueries, user.id])
+  }
 
   const form = useDirtyForm<{ name: string; email: string; role: UserRoleValue }>({
     name: user.name ?? '',

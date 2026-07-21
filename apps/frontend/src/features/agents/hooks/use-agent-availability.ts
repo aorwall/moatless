@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect } from 'react'
 import { useAgents } from '@/features/agents/hooks/use-agents'
 import type { AgentDescriptor } from '@/features/agents/types'
 import { type ClaudeModel, DEFAULT_CLAUDE_MODEL } from '@/lib/types/claude-models'
@@ -25,7 +25,7 @@ export function useAgentAvailability({
 }: UseAgentAvailabilityArgs): UseAgentAvailabilityResult {
   const { data: agents } = useAgents()
 
-  const selectedAgent = useMemo(() => agents?.find((a) => a.id === agentType), [agents, agentType])
+  const selectedAgent = agents?.find((a) => a.id === agentType)
 
   useEffect(() => {
     if (!(selectedAgent && onModelChange)) {

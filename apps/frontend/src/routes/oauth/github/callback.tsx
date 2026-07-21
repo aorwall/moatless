@@ -18,7 +18,6 @@ function GitHubOAuthCallback() {
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: exchangeToken.mutate is stable from react-query
   useEffect(() => {
     // Validate we have code and state
     if (!(code && state)) {
@@ -44,7 +43,7 @@ function GitHubOAuthCallback() {
         },
       },
     )
-  }, [code, state])
+  }, [code, state, exchangeToken.mutate])
 
   const handleClose = () => {
     window.close()

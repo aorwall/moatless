@@ -47,16 +47,16 @@ export function FileTree({ taskId, selectedPath, onFileSelect }: FileTreeProps) 
   const { data, isLoading, error } = useFileTree(taskId)
   const [showOnlyChanged, setShowOnlyChanged] = useState(false)
 
-  const tree = data?.tree ?? []
-  const visibleTree = useMemo(
-    () => (showOnlyChanged ? filterChangedTree(tree) : tree),
-    [showOnlyChanged, tree],
-  )
+  const tree = data?.tree
+  const visibleTree = useMemo(() => {
+    const currentTree = tree ?? []
+    return showOnlyChanged ? filterChangedTree(currentTree) : currentTree
+  }, [showOnlyChanged, tree])
 
   const paths = useMemo(() => flattenToPaths(visibleTree), [visibleTree])
   const gitStatus = useMemo(() => buildGitStatusEntries(visibleTree), [visibleTree])
-  const rowMetadata = useMemo(() => buildRowMetadata(tree), [tree])
-  const initialExpandedPaths = useMemo(() => collectChangedDirectoryPaths(tree), [tree])
+  const rowMetadata = useMemo(() => buildRowMetadata(tree ?? []), [tree])
+  const initialExpandedPaths = useMemo(() => collectChangedDirectoryPaths(tree ?? []), [tree])
 
   const renderRowDecoration = useCallback<FileTreeRowDecorationRenderer>(
     ({ item }) => decorationFromMetadata(rowMetadata.get(item.path)),
