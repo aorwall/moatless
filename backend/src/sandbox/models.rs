@@ -111,46 +111,7 @@ pub struct ServerConfig {
     pub env_vars: Option<HashMap<String, String>>,
 }
 
-/// Matches TS SandboxStateSchema: 'exists' | 'missing'
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "lowercase")]
-pub enum SandboxState {
-    Exists,
-    Missing,
-}
-
-/// Re-export `SandboxStatus` from the events crate as the canonical environment status type.
-/// This replaces the previous `EnvironmentStatus` enum.
-pub use moatless_events::SandboxStatus;
-
-/// Backwards-compatible type alias.
-pub type EnvironmentStatus = SandboxStatus;
-
-/// Matches TS AgentStateSchema: 'idle' | 'running' | 'none' | 'unknown'
-///
-/// `Unknown` means the sandbox pod is running/ready but the backend could not
-/// reach the agent over gRPC to determine its state — distinct from `None`
-/// ("agent legitimately idle / never started"), so a hung or unreachable agent
-/// on an otherwise-ready pod is no longer silently reported as idle.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "lowercase")]
-pub enum AgentState {
-    Idle,
-    Running,
-    None,
-    Unknown,
-}
-
-impl From<&str> for AgentState {
-    fn from(s: &str) -> Self {
-        match s {
-            "running" => AgentState::Running,
-            "idle" => AgentState::Idle,
-            "unknown" => AgentState::Unknown,
-            _ => AgentState::None,
-        }
-    }
-}
+pub use super::live_status::SandboxStatus;
 
 /// Matches TS ServerStatusEnumSchema: 'stopped' | 'installing' | 'starting' | 'started' | 'failed'
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -226,11 +187,6 @@ impl PodPhase {
             PodPhase::NotFound => SandboxStatus::NotCreated,
             PodPhase::Failed | PodPhase::Unknown => SandboxStatus::Error,
         }
-    }
-
-    /// Backwards-compatible alias.
-    pub fn to_environment_status(&self) -> SandboxStatus {
-        self.to_sandbox_status()
     }
 }
 
@@ -706,54 +662,48 @@ mod tests {
     }
 
     // =========================================================================
-    // PodPhase::to_environment_status()
+    // PodPhase::to_sandbox_status()
     // =========================================================================
 
     #[test]
     fn pod_phase_pending_maps_to_initializing() {
         assert_eq!(
-            PodPhase::Pending.to_environment_status(),
-            EnvironmentStatus::Initializing
+            PodPhase::Pending.to_sandbox_status(),
+            SandboxStatus::Initializing
         );
     }
 
     #[test]
     fn pod_phase_running_maps_to_ready() {
-        assert_eq!(
-            PodPhase::Running.to_environment_status(),
-            EnvironmentStatus::Ready
-        );
+        assert_eq!(PodPhase::Running.to_sandbox_status(), SandboxStatus::Ready);
     }
 
     #[test]
     fn pod_phase_stopped_maps_to_stopped() {
         assert_eq!(
-            PodPhase::Stopped.to_environment_status(),
-            EnvironmentStatus::Stopped
+            PodPhase::Stopped.to_sandbox_status(),
+            SandboxStatus::Stopped
         );
     }
 
     #[test]
     fn pod_phase_not_found_maps_to_not_created() {
         assert_eq!(
-            PodPhase::NotFound.to_environment_status(),
-            EnvironmentStatus::NotCreated
+            PodPhase::NotFound.to_sandbox_status(),
+            SandboxStatus::NotCreated
         );
     }
 
     #[test]
     fn pod_phase_failed_maps_to_error() {
-        assert_eq!(
-            PodPhase::Failed.to_environment_status(),
-            EnvironmentStatus::Error
-        );
+        assert_eq!(PodPhase::Failed.to_sandbox_status(), SandboxStatus::Error);
     }
 
     #[test]
     fn pod_phase_terminating_maps_to_removing() {
         assert_eq!(
-            PodPhase::Terminating.to_environment_status(),
-            EnvironmentStatus::Removing
+            PodPhase::Terminating.to_sandbox_status(),
+            SandboxStatus::Removing
         );
     }
 
@@ -851,41 +801,6 @@ mod tests {
     }
 
     // =========================================================================
-    // AgentState serde + From
-    // =========================================================================
-
-    #[test]
-    fn agent_state_serializes_lowercase() {
-        assert_eq!(
-            serde_json::to_string(&AgentState::Idle).unwrap(),
-            "\"idle\""
-        );
-        assert_eq!(
-            serde_json::to_string(&AgentState::Running).unwrap(),
-            "\"running\""
-        );
-        assert_eq!(
-            serde_json::to_string(&AgentState::None).unwrap(),
-            "\"none\""
-        );
-        assert_eq!(
-            serde_json::to_string(&AgentState::Unknown).unwrap(),
-            "\"unknown\""
-        );
-    }
-
-    #[test]
-    fn agent_state_from_str() {
-        assert!(matches!(AgentState::from("running"), AgentState::Running));
-        assert!(matches!(AgentState::from("idle"), AgentState::Idle));
-        assert!(matches!(AgentState::from("unknown"), AgentState::Unknown));
-        assert!(matches!(AgentState::from("none"), AgentState::None));
-        assert!(matches!(AgentState::from(""), AgentState::None));
-        // Any unrecognized status still falls back to `None`.
-        assert!(matches!(AgentState::from("bogus"), AgentState::None));
-    }
-
-    // =========================================================================
     // ServerStatus serde + From
     // =========================================================================
 
@@ -939,25 +854,25 @@ mod tests {
     }
 
     // =========================================================================
-    // EnvironmentStatus Display
+    // SandboxStatus Display
     // =========================================================================
 
     #[test]
-    fn environment_status_display() {
-        assert_eq!(EnvironmentStatus::NotCreated.to_string(), "not_created");
-        assert_eq!(EnvironmentStatus::Initializing.to_string(), "initializing");
-        assert_eq!(EnvironmentStatus::Ready.to_string(), "ready");
-        assert_eq!(EnvironmentStatus::Stopped.to_string(), "stopped");
-        assert_eq!(EnvironmentStatus::Removing.to_string(), "removing");
-        assert_eq!(EnvironmentStatus::Error.to_string(), "error");
+    fn sandbox_status_display() {
+        assert_eq!(SandboxStatus::NotCreated.to_string(), "not_created");
+        assert_eq!(SandboxStatus::Initializing.to_string(), "initializing");
+        assert_eq!(SandboxStatus::Ready.to_string(), "ready");
+        assert_eq!(SandboxStatus::Stopped.to_string(), "stopped");
+        assert_eq!(SandboxStatus::Removing.to_string(), "removing");
+        assert_eq!(SandboxStatus::Error.to_string(), "error");
     }
 
     #[test]
-    fn environment_status_serde_roundtrip() {
-        let json = serde_json::to_string(&EnvironmentStatus::Ready).unwrap();
+    fn sandbox_status_serde_roundtrip() {
+        let json = serde_json::to_string(&SandboxStatus::Ready).unwrap();
         assert_eq!(json, "\"ready\"");
-        let back: EnvironmentStatus = serde_json::from_str(&json).unwrap();
-        assert_eq!(back, EnvironmentStatus::Ready);
+        let back: SandboxStatus = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, SandboxStatus::Ready);
     }
 
     // =========================================================================
@@ -1098,22 +1013,6 @@ mod tests {
     fn server_status_terminated_zero_exit_no_reason_is_stopped() {
         let cs = ContainerObservedStatus::test_terminated("preview-server", None, Some(0));
         assert_eq!(cs.to_server_status(), ServerStatus::Stopped);
-    }
-
-    // =========================================================================
-    // SandboxState serde
-    // =========================================================================
-
-    #[test]
-    fn sandbox_state_serde() {
-        assert_eq!(
-            serde_json::to_string(&SandboxState::Exists).unwrap(),
-            "\"exists\""
-        );
-        assert_eq!(
-            serde_json::to_string(&SandboxState::Missing).unwrap(),
-            "\"missing\""
-        );
     }
 
     // =========================================================================

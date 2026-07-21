@@ -82,12 +82,13 @@ async fn sandbox_provision_failure_invalid_image() {
         .expect("Failed to get sandbox status");
     println!(
         "Sandbox status: env={}, error={:?}",
-        status.environment_status, status.environment_error
+        status.sandbox_status, status.sandbox_error
     );
 
     // Verify it's not in "ready" state
     assert_ne!(
-        status.environment_status, "ready",
+        status.sandbox_status,
+        moatless_api_schemas::sandbox::SandboxStatus::Ready,
         "Sandbox should not be ready with invalid image"
     );
 
@@ -96,7 +97,7 @@ async fn sandbox_provision_failure_invalid_image() {
     } else {
         println!(
             "SANDBOX-06: No explicit error reported, but sandbox is not ready (status={})",
-            status.environment_status
+            status.sandbox_status
         );
     }
 

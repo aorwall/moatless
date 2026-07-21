@@ -1,4 +1,5 @@
-import type { TaskResponse } from '@moatless/api-client'
+import type { LiveStatus, TaskResponse } from '@moatless/api-client'
+import { useQueries } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { ChevronDown, ChevronRight, X } from 'lucide-react'
 import type React from 'react'
@@ -7,7 +8,8 @@ import { useAuth } from '@/features/auth/hooks/use-auth'
 import { SidebarTasksSkeleton } from '@/features/tasks/components/task-skeletons'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useCloseTask, useTasksList } from '@/features/tasks/hooks/use-tasks'
-import type { TaskActivityState } from '@/features/tasks/utils/task-status'
+import { liveStatusToActivityState } from '@/features/tasks/utils/live-status'
+import { taskLiveStatusQueryOptions } from '@/lib/api/task-live-status-queries'
 import { Button } from '@/lib/components/ui/button'
 import {
   SidebarGroup,
@@ -67,32 +69,16 @@ function getRelativeTime(date: Date | string): string {
   return `${years}y ago`
 }
 
-/**
- * Best-effort activity state from the task list row itself. The list endpoint
- * populates `agentState`/`environmentStatus` for open tasks (agent state from
- * the last lifecycle event, sandbox state from a cluster-wide LIST), which seed
- * the state on first render before any live event arrives; live activity takes
- * precedence.
- */
-function taskRowState(task: TaskResponse): TaskActivityState {
-  if (task.agentState === 'running') {
-    return 'agent-working'
-  }
-  if (task.environmentStatus === 'initializing') {
-    return 'starting'
-  }
-  if (task.environmentStatus === 'ready') {
-    return 'sandbox-running'
-  }
-  return 'idle'
-}
-
 /** Merge a task with its live activity, deriving activity state and preview. */
-function enrichTask(task: TaskResponse, activity: TaskActivity | undefined): EnrichedTask {
+function enrichTask(
+  task: TaskResponse,
+  activity: TaskActivity | undefined,
+  liveStatus: LiveStatus | undefined,
+): EnrichedTask {
   const repositoryName = task.repositoryName || task.repositoryId
-  // Live stream state wins; fall back to whatever the list row reported.
+  // Live stream state wins; fall back to the independently-cached live status.
   const liveState = activityToState(activity)
-  const state = liveState !== 'idle' ? liveState : taskRowState(task)
+  const state = liveState !== 'idle' ? liveState : liveStatusToActivityState(liveStatus)
   const lastActivityAt = activity?.lastMessageAt || task.lastMessageAt || task.createdAt
 
   // Unread when there's activity the user hasn't seen: never opened, or the
@@ -109,6 +95,40 @@ function enrichTask(task: TaskResponse, activity: TaskActivity | undefined): Enr
     recentMessages: activity?.recentMessages ?? [],
     lastActivityAt,
   }
+}
+
+function useLiveStatusMap(tasks: TaskResponse[]): Map<string, LiveStatus | undefined> {
+  const openTasks = tasks.filter(
+    (task, index) =>
+      task.status === 'open' &&
+      tasks.findIndex((candidate) => candidate.taskId === task.taskId) === index,
+  )
+  const queries = useQueries({
+    queries: openTasks.map((task) => taskLiveStatusQueryOptions(task.taskId)),
+  })
+
+  return new Map(openTasks.map((task, index) => [task.taskId, queries[index]?.data]))
+}
+
+function useSidebarTaskLists(userId: string | undefined, filters: SidebarTaskFilterValues) {
+  const runningQuery = useTasksList({
+    limit: 100,
+    status: 'open',
+    ...(userId !== undefined && { followedBy: userId }),
+  })
+  const filteredQueryStatus = filters.status === 'all' ? undefined : filters.status
+  const filteredQueryCreatedBy = filters.createdBy === 'all' ? undefined : filters.createdBy
+  const filteredQueryFollowedBy = filters.onlyFollowed ? userId : undefined
+  const filteredQuery = useTasksList({
+    limit: 100,
+    ...(filteredQueryStatus !== undefined && { status: filteredQueryStatus }),
+    ...(filters.tag !== undefined && { tag: filters.tag }),
+    ...(filteredQueryCreatedBy !== undefined && { createdBy: filteredQueryCreatedBy }),
+    ...(filters.repositoryId !== undefined && { repositoryId: filters.repositoryId }),
+    ...(filteredQueryFollowedBy !== undefined && { followedBy: filteredQueryFollowedBy }),
+  })
+
+  return { runningQuery, filteredQuery }
 }
 
 /**
@@ -438,26 +458,12 @@ export function SidebarTasks() {
   //  - `filteredQuery` applies the header filter and feeds the "Tasks" section.
   // When the filter is at its default, both share the same params (and thus the
   // same query key), so React Query dedupes them into a single request.
-  const runningQuery = useTasksList({
-    limit: 100,
-    status: 'open',
-    // Personal task list: tasks the user follows. Users auto-follow tasks they
-    // create or message, and can follow other users' tasks explicitly, so this
-    // shows own tasks alongside followed ones.
-    ...(user?.id !== undefined && { followedBy: user.id }),
-  })
-  const filteredQueryStatus = filters.status === 'all' ? undefined : filters.status
-  const filteredQueryCreatedBy = filters.createdBy === 'all' ? undefined : filters.createdBy
-  const filteredQueryFollowedBy = filters.onlyFollowed ? user?.id : undefined
-  const filteredQuery = useTasksList({
-    limit: 100,
-    ...(filteredQueryStatus !== undefined && { status: filteredQueryStatus }),
-    ...(filters.tag !== undefined && { tag: filters.tag }),
-    ...(filteredQueryCreatedBy !== undefined && { createdBy: filteredQueryCreatedBy }),
-    ...(filters.repositoryId !== undefined && { repositoryId: filters.repositoryId }),
-    // Cleared when the user opts to see everyone's tasks via the filter.
-    ...(filteredQueryFollowedBy !== undefined && { followedBy: filteredQueryFollowedBy }),
-  })
+  const { runningQuery, filteredQuery } = useSidebarTaskLists(user?.id, filters)
+
+  const liveStatusByTask = useLiveStatusMap([
+    ...(runningQuery.data?.items ?? []),
+    ...(filteredQuery.data?.items ?? []),
+  ])
 
   const isLoadingTasks = runningQuery.isLoading || filteredQuery.isLoading
   const tasksError = runningQuery.error || filteredQuery.error
@@ -467,7 +473,8 @@ export function SidebarTasks() {
   // are grouped under visible parents after enrichment so child rows inherit
   // the same live/unread treatment as top-level rows.
   const { running, open } = (() => {
-    const enrich = (task: TaskResponse) => enrichTask(task, activityByTask.get(task.taskId))
+    const enrich = (task: TaskResponse) =>
+      enrichTask(task, activityByTask.get(task.taskId), liveStatusByTask.get(task.taskId))
 
     const byGroupActivityDesc = (a: TaskGroup, b: TaskGroup) =>
       b.lastActivityAt.localeCompare(a.lastActivityAt)

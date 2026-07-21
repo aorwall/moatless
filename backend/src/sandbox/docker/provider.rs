@@ -269,10 +269,24 @@ impl SandboxProvider for DockerSandboxProvider {
         &self,
         task_id: &str,
         server_configs: &[ServerConfig],
+        task_status: crate::task::models::TaskStatus,
+        desired_state: crate::task::models::SandboxDesiredState,
     ) -> Result<SandboxStatusFullResponse, SandboxError> {
         Ok(self
             .status_resolver
-            .resolve_sandbox_status(task_id, server_configs)
+            .resolve_sandbox_status(task_id, server_configs, task_status, desired_state)
+            .await)
+    }
+
+    async fn live_status(
+        &self,
+        task_id: &str,
+        task_status: crate::task::models::TaskStatus,
+        desired_state: crate::task::models::SandboxDesiredState,
+    ) -> Result<crate::sandbox::live_status::LiveStatus, SandboxError> {
+        Ok(self
+            .status_resolver
+            .resolve_live_status(task_id, task_status, desired_state)
             .await)
     }
 

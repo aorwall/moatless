@@ -33,16 +33,16 @@ export const EVENT_INVALIDATION_MAP = {
   },
   agent: {
     // Agent subtypes have different invalidation needs
-    started: [queryKeys.tasks.sandboxStatus],
-    stopped: [queryKeys.tasks.sandboxStatus],
+    started: [queryKeys.tasks.liveStatus, queryKeys.tasks.sandboxStatus],
+    stopped: [queryKeys.tasks.liveStatus, queryKeys.tasks.sandboxStatus],
     session_init: [], // Newest-page refetch instead (see MESSAGE_REFRESH_TRIGGERS)
     message: [], // Newest-page refetch instead (see MESSAGE_REFRESH_TRIGGERS)
-    completed: [queryKeys.tasks.detail, queryKeys.tasks.sandboxStatus], // Full turn impact
-    error: [queryKeys.tasks.detail, queryKeys.tasks.sandboxStatus],
+    completed: [queryKeys.tasks.detail, queryKeys.tasks.liveStatus, queryKeys.tasks.sandboxStatus], // Full turn impact
+    error: [queryKeys.tasks.detail, queryKeys.tasks.liveStatus, queryKeys.tasks.sandboxStatus],
   },
   sandbox: {
     // Sandbox lifecycle changes affect sandbox status and setup
-    '*': [queryKeys.tasks.sandboxStatus, queryKeys.tasks.sandboxSetup],
+    '*': [queryKeys.tasks.liveStatus, queryKeys.tasks.sandboxStatus, queryKeys.tasks.sandboxSetup],
   },
   server: {
     // Server events affect sandbox status (servers are embedded in sandbox status)

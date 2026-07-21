@@ -58,8 +58,9 @@ async fn sandbox_lifecycle_chain() {
 
     let status = client.api().sandbox_status(task_id).await.unwrap();
     assert_eq!(
-        status.environment_status, "ready",
-        "environment_status should be ready"
+        status.sandbox_status,
+        moatless_api_schemas::sandbox::SandboxStatus::Ready,
+        "sandbox_status should be ready"
     );
 
     // SANDBOX-01.1: SSE event for sandbox ready
@@ -80,7 +81,8 @@ async fn sandbox_lifecycle_chain() {
     // Verify still ready after provision
     let status = client.api().sandbox_status(task_id).await.unwrap();
     assert_eq!(
-        status.environment_status, "ready",
+        status.sandbox_status,
+        moatless_api_schemas::sandbox::SandboxStatus::Ready,
         "Should still be ready after re-provision"
     );
     println!(

@@ -659,7 +659,8 @@ mod tests {
     async fn provider_token_kind_secret_satisfies_preflight() {
         // A PAT this backend validated against GitHub is as trustworthy as a
         // provider_tokens row, so preflight must accept it.
-        let tokens: Arc<dyn ProviderTokenRepository> = Arc::new(StubProviderTokens::with_user_row(None));
+        let tokens: Arc<dyn ProviderTokenRepository> =
+            Arc::new(StubProviderTokens::with_user_row(None));
         let secrets = Arc::new(service_with(vec![secret(
             "user",
             Some("u1"),
@@ -677,7 +678,8 @@ mod tests {
         // A plain `env` GITHUB_TOKEN is the operator escape hatch: deliberately
         // unvalidated, so preflight must not treat it as a verified credential.
         // `resolve_task_credentials` still injects it into the sandbox.
-        let tokens: Arc<dyn ProviderTokenRepository> = Arc::new(StubProviderTokens::with_user_row(None));
+        let tokens: Arc<dyn ProviderTokenRepository> =
+            Arc::new(StubProviderTokens::with_user_row(None));
         let secrets = Arc::new(service_with(vec![secret(
             "user",
             Some("u1"),
@@ -692,9 +694,10 @@ mod tests {
 
     #[tokio::test]
     async fn provider_tokens_row_still_wins_over_the_secret() {
-        let tokens: Arc<dyn ProviderTokenRepository> = Arc::new(StubProviderTokens::with_user_row(Some(
-            crate::auth::test_support::github_row("oauth", "gho_from_row"),
-        )));
+        let tokens: Arc<dyn ProviderTokenRepository> =
+            Arc::new(StubProviderTokens::with_user_row(Some(
+                crate::auth::test_support::github_row("oauth", "gho_from_row"),
+            )));
         let secrets = Arc::new(service_with(vec![secret(
             "user",
             Some("u1"),
@@ -711,11 +714,12 @@ mod tests {
     async fn secret_ref_row_resolves_via_the_secret_not_the_sentinel() {
         // No App registry wired: the fallback dispatch still has to honour
         // `secret_ref`, or the sandbox would receive the sentinel string.
-        let tokens: Arc<dyn ProviderTokenRepository> =
-            Arc::new(StubProviderTokens::with_user_row(Some(crate::auth::test_support::github_row(
+        let tokens: Arc<dyn ProviderTokenRepository> = Arc::new(StubProviderTokens::with_user_row(
+            Some(crate::auth::test_support::github_row(
                 AUTH_METHOD_SECRET_REF,
                 crate::auth::provider_tokens::SECRET_REF_TOKEN_PLACEHOLDER,
-            ))));
+            )),
+        ));
         let secrets = Arc::new(service_with(vec![secret(
             "user",
             Some("u1"),
@@ -734,11 +738,12 @@ mod tests {
         // account not connected": with no secret service the sentinel cannot be
         // dereferenced, and the error is swallowed into an absent credential.
         // Callers must wire `secrets` — see `preflight_validate_github_token`.
-        let tokens: Arc<dyn ProviderTokenRepository> =
-            Arc::new(StubProviderTokens::with_user_row(Some(crate::auth::test_support::github_row(
+        let tokens: Arc<dyn ProviderTokenRepository> = Arc::new(StubProviderTokens::with_user_row(
+            Some(crate::auth::test_support::github_row(
                 AUTH_METHOD_SECRET_REF,
                 crate::auth::provider_tokens::SECRET_REF_TOKEN_PLACEHOLDER,
-            ))));
+            )),
+        ));
 
         let token = resolve_task_github_token(github_inputs(&tokens, None)).await;
         assert_eq!(token, None);
@@ -762,8 +767,7 @@ mod tests {
         // so a team row silently shadowed the user's own token.
         let tokens: Arc<dyn ProviderTokenRepository> = Arc::new(
             StubProviderTokens::with_user_row(Some(crate::auth::test_support::github_row(
-                "oauth",
-                "gho_mine",
+                "oauth", "gho_mine",
             )))
             .with_team_row(
                 "t1",
@@ -924,7 +928,10 @@ mod tests {
         let mut credentials = HashMap::new();
         fill_git_identity(&mut credentials, Some(&users), "u1").await;
 
-        assert_eq!(credentials.get(GIT_USER_NAME).map(String::as_str), Some("acme[bot]"));
+        assert_eq!(
+            credentials.get(GIT_USER_NAME).map(String::as_str),
+            Some("acme[bot]")
+        );
         assert_eq!(
             credentials.get(GIT_USER_EMAIL).map(String::as_str),
             Some("acme[bot]@users.noreply.github.com")

@@ -1,12 +1,10 @@
-import type { SandboxStatusFullResponse, TaskResponse } from '@moatless/api-client'
-import { unwrapResponse } from '@moatless/api-client/custom-instance'
-import { sandboxStatusHandler } from '@moatless/api-client/sandbox/sandbox/sandbox'
+import type { LiveStatus, TaskResponse } from '@moatless/api-client'
 import { useQueries } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { AlertTriangle, ArrowLeft, CheckCircle, Loader2, OctagonX, Server } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, CheckCircle, Loader2, OctagonX } from 'lucide-react'
 import { useState } from 'react'
 import { useTasksList } from '@/features/tasks/hooks/use-tasks'
-import { queryKeys } from '@/lib/api/query-keys'
+import { taskLiveStatusQueryOptions } from '@/lib/api/task-live-status-queries'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/lib/components/ui/card'
@@ -38,7 +36,7 @@ function statusBadgeVariant(
 }
 
 function agentBadgeVariant(
-  state: string | undefined,
+  state: string | null | undefined,
 ): 'default' | 'secondary' | 'destructive' | 'outline' {
   switch (state) {
     case 'running':
@@ -56,7 +54,7 @@ function agentBadgeVariant(
 
 interface TaskWithStatus {
   task: TaskResponse
-  status?: SandboxStatusFullResponse | undefined
+  status?: LiveStatus | undefined
   isLoading: boolean
 }
 
@@ -79,8 +77,8 @@ function SandboxTableRow({ task, status, isLoading }: TaskWithStatus) {
         {isLoading ? (
           <Loader2 className="h-4 w-4 animate-spin" />
         ) : (
-          <Badge variant={statusBadgeVariant(status?.environmentStatus)}>
-            {status?.environmentStatus ?? 'unknown'}
+          <Badge variant={statusBadgeVariant(status?.sandboxStatus)}>
+            {status?.sandboxStatus ?? 'unknown'}
           </Badge>
         )}
       </TableCell>
@@ -88,38 +86,9 @@ function SandboxTableRow({ task, status, isLoading }: TaskWithStatus) {
         {isLoading ? (
           <Loader2 className="h-4 w-4 animate-spin" />
         ) : (
-          <Badge variant={agentBadgeVariant(status?.agentState)}>
-            {status?.agentState ?? 'unknown'}
+          <Badge variant={agentBadgeVariant(status?.agentStatus)}>
+            {status?.agentStatus ?? 'unknown'}
           </Badge>
-        )}
-      </TableCell>
-      <TableCell>
-        {status?.resources?.cpuUsagePercent != null ? (
-          <span className="font-mono text-sm">{status.resources.cpuUsagePercent.toFixed(0)}%</span>
-        ) : (
-          <span className="text-sm text-muted-foreground">-</span>
-        )}
-      </TableCell>
-      <TableCell>
-        {status?.resources?.memoryUsageMb != null ? (
-          <span className="font-mono text-sm">
-            {status.resources.memoryUsageMb} MB
-            {status.resources.memoryLimitMb != null && (
-              <span className="text-muted-foreground"> / {status.resources.memoryLimitMb}</span>
-            )}
-          </span>
-        ) : (
-          <span className="text-sm text-muted-foreground">-</span>
-        )}
-      </TableCell>
-      <TableCell>
-        {status?.servers && status.servers.length > 0 ? (
-          <div className="flex items-center gap-1">
-            <Server className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="text-sm">{status.servers.length}</span>
-          </div>
-        ) : (
-          <span className="text-sm text-muted-foreground">-</span>
         )}
       </TableCell>
       <TableCell>
@@ -128,11 +97,7 @@ function SandboxTableRow({ task, status, isLoading }: TaskWithStatus) {
         </span>
       </TableCell>
       <TableCell className="text-right">
-        <SandboxActionButtons
-          taskId={task.taskId}
-          environmentStatus={status?.environmentStatus}
-          compact
-        />
+        <SandboxActionButtons taskId={task.taskId} sandboxStatus={status?.sandboxStatus} compact />
       </TableCell>
     </TableRow>
   )
@@ -145,12 +110,7 @@ export function SandboxOverview() {
   const tasks = tasksQuery.data?.items ?? []
 
   const statusQueries = useQueries({
-    queries: tasks.map((task) => ({
-      queryKey: queryKeys.tasks.sandboxStatus(task.taskId),
-      queryFn: () => unwrapResponse<SandboxStatusFullResponse>(sandboxStatusHandler(task.taskId)),
-      enabled: !!task.taskId,
-      staleTime: 10_000,
-    })),
+    queries: tasks.map((task) => taskLiveStatusQueryOptions(task.taskId)),
   })
 
   const tasksWithStatus: TaskWithStatus[] = tasks.map((task, i) => ({
@@ -162,11 +122,11 @@ export function SandboxOverview() {
   const filteredTasks =
     filter === 'all'
       ? tasksWithStatus
-      : tasksWithStatus.filter((t) => t.status?.environmentStatus === filter)
+      : tasksWithStatus.filter((t) => t.status?.sandboxStatus === filter)
 
   const counts = { ready: 0, error: 0, initializing: 0, stopped: 0, other: 0 }
   for (const taskWithStatus of tasksWithStatus) {
-    const status = taskWithStatus.status?.environmentStatus
+    const status = taskWithStatus.status?.sandboxStatus
     if (status === 'ready') {
       counts.ready++
     } else if (status === 'error') {
@@ -273,11 +233,8 @@ export function SandboxOverview() {
             <TableHeader>
               <TableRow>
                 <TableHead>Task</TableHead>
-                <TableHead>Environment</TableHead>
+                <TableHead>Sandbox</TableHead>
                 <TableHead>Agent</TableHead>
-                <TableHead>CPU</TableHead>
-                <TableHead>Memory</TableHead>
-                <TableHead>Servers</TableHead>
                 <TableHead>Repository</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -285,7 +242,7 @@ export function SandboxOverview() {
             <TableBody>
               {filteredTasks.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
                     {filter === 'all' ? 'No active tasks' : `No sandboxes with status: ${filter}`}
                   </TableCell>
                 </TableRow>

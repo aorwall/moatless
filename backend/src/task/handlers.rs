@@ -2,20 +2,17 @@
 
 use std::collections::HashSet;
 
-use axum::Json;
 use axum::extract::{Path, Query, State};
+use axum::Json;
 
-use moatless_events::{SandboxEventPayload, SandboxStatus, SandboxSubType, TaskSubType};
-
-use crate::access_control::{
-    ensure_can_control_task, ensure_can_use_repository, resolve_scope_for_create,
-};
-use crate::sandbox::auto_provision::get_server_configs_for_task;
-use crate::sandbox::models::AgentState;
+use moatless_events::{SandboxEventPayload, SandboxStatus, TaskSubType};
 
 use super::dao::{TaskFilter, TaskPatch};
 use super::models::Task;
 use super::relations::{CreatedByParent, TaskRelationType};
+use crate::access_control::{
+    ensure_can_control_task, ensure_can_use_repository, resolve_scope_for_create,
+};
 use crate::extractors::AuthUser;
 use crate::shared_models::{AgentMode, AgentType};
 use crate::state::AppState;
@@ -24,7 +21,7 @@ use moatless_backend_core::scope::{Scope, ScopedResource};
 
 use crate::repository::models::{RepositoryKind, RepositoryProvider};
 
-use crate::bindings::dao::{PgTaskBindingRepository, get_bindings_for_tasks};
+use crate::bindings::dao::{get_bindings_for_tasks, PgTaskBindingRepository};
 use crate::bindings::schemas::TaskBindingSummary;
 
 use super::error::TaskError;
@@ -73,10 +70,7 @@ pub async fn create_task(
                 .find_primary_repo(&ws.id)
                 .await?
                 .ok_or_else(|| {
-                    TaskError::BadRequest(format!(
-                        "Workspace {} has no primary repository",
-                        ws.id
-                    ))
+                    TaskError::BadRequest(format!("Workspace {} has no primary repository", ws.id))
                 })?
                 .repository_id
         }
@@ -270,7 +264,7 @@ async fn insert_and_provision_task(
                     events
                         .publish_sandbox_event_with_payload(
                             task_id,
-                            SandboxSubType::Error,
+                            SandboxStatus::Error,
                             &SandboxEventPayload {
                                 message: format!("Failed to provision sandbox: {e}"),
                                 error: Some(e.to_string()),
@@ -287,7 +281,7 @@ async fn insert_and_provision_task(
                 events
                     .publish_sandbox_event_with_payload(
                         task_id,
-                        SandboxSubType::Error,
+                        SandboxStatus::Error,
                         &SandboxEventPayload {
                             message: format!("Failed to build provision request: {e}"),
                             error: Some(e.to_string()),
@@ -431,32 +425,6 @@ pub async fn list_tasks(
             Default::default()
         });
 
-    // Resolve live environment status (stopped/starting/ready) for open tasks
-    // via a single cluster-wide LIST, so the UI reflects sandbox state on load
-    // rather than relying solely on the event stream. Best-effort — empty when
-    // the provider can't answer (e.g. non-k8s) or the LIST fails.
-    let open_task_ids: Vec<String> = rows
-        .iter()
-        .filter(|r| r.status == TaskStatus::Open)
-        .map(|r| r.task_id.clone())
-        .collect();
-    let env_status = state.sandbox.bulk_environment_status(&open_task_ids).await;
-
-    // Resolve each open task's agent run-state from its most recent agent
-    // lifecycle event (a single batched query). The list endpoint historically
-    // left `agentState` unset, so consumers could not tell a working agent from
-    // an idle one without opening the per-task status endpoint / SSE stream.
-    // This is the last-known DB state (eventually consistent with the live gRPC
-    // status), which is the right cost/accuracy trade-off for a list view.
-    let agent_lifecycle = state
-        .task_events
-        .get_latest_agent_lifecycle(&open_task_ids)
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(error = %e, "Failed to batch resolve agent lifecycle");
-            Default::default()
-        });
-
     let items: Vec<TaskResponse> = rows
         .iter()
         .map(|row| {
@@ -508,29 +476,6 @@ pub async fn list_tasks(
                 .get(&row.task_id)
                 .map(chrono::DateTime::to_rfc3339);
             resp.is_following = Some(followed.contains(&row.task_id));
-            if let Some(status) = env_status.get(&row.task_id) {
-                let ready = *status == SandboxStatus::Ready;
-                resp.environment_status = Some(status.as_str().to_string());
-                resp.is_running = Some(ready);
-                // The agent can only be running when the sandbox is ready; when
-                // it is not, force `none` regardless of the last lifecycle event
-                // (a stale `started` from before an idle-stop must not read as
-                // "running"). When ready, map the last lifecycle sub_type to the
-                // same vocabulary as the per-task status endpoint.
-                let agent_state = if ready {
-                    match agent_lifecycle
-                        .get(&row.task_id)
-                        .map(|(sub_type, _)| sub_type.as_str())
-                    {
-                        Some("started") => "running",
-                        Some("completed" | "stopped" | "error") => "idle",
-                        _ => "none",
-                    }
-                } else {
-                    "none"
-                };
-                resp.agent_state = Some(agent_state.to_string());
-            }
             resp
         })
         .collect();
@@ -1128,7 +1073,7 @@ pub async fn start_task(
             events
                 .publish_sandbox_event_with_payload(
                     &task_id,
-                    SandboxSubType::Error,
+                    SandboxStatus::Error,
                     &SandboxEventPayload {
                         message: msg.clone(),
                         error: Some(e.to_string()),
@@ -1549,31 +1494,6 @@ async fn enrich_task(
         relations,
     );
 
-    // Resolve live sandbox status (best-effort — leave None on failure)
-    let server_configs = get_server_configs_for_task(
-        state.tasks.as_ref(),
-        state.workspaces.as_ref(),
-        &row.task_id,
-    )
-    .await;
-    if let Ok(status) = state
-        .sandbox
-        .sandbox_status(&row.task_id, &server_configs)
-        .await
-    {
-        resp.environment_status = Some(status.environment_status.as_str().to_string());
-        resp.agent_state = Some(
-            match status.agent_state {
-                AgentState::Idle => "idle",
-                AgentState::Running => "running",
-                AgentState::None => "none",
-                AgentState::Unknown => "unknown",
-            }
-            .to_string(),
-        );
-        resp.is_running = Some(status.environment_status == SandboxStatus::Ready);
-    }
-
     // Resolve the requesting user's read marker (best-effort — leave None on
     // failure). Drives the unread indicator in clients.
     match state
@@ -1654,9 +1574,6 @@ fn build_task_response(
         append_system_prompt: row.append_system_prompt.clone(),
         tags,
         bindings,
-        environment_status: None,
-        agent_state: None,
-        is_running: None,
         ttl_minutes: row.ttl_minutes,
         inactive_ttl_days: row.inactive_ttl_days,
         sandbox_started_at: row.sandbox_started_at.map(|t| t.to_rfc3339()),

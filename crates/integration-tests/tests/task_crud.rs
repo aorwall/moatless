@@ -52,6 +52,77 @@ async fn task_crud_chain() {
     assert!(!task.repository_id.is_empty());
     assert!(!task.created_at.is_empty());
 
+    // Live status is a dedicated resource, not embedded in Task responses.
+    let list_json = client.raw_get("/api/v1/tasks").await.unwrap();
+    let listed_task = list_json["items"]
+        .as_array()
+        .and_then(|items| items.iter().find(|item| item["taskId"] == task_id))
+        .expect("created task missing from raw list response");
+    for legacy_field in [
+        "environmentStatus",
+        "agentState",
+        "isRunning",
+        "sandboxStatus",
+        "agentStatus",
+        "sandboxError",
+    ] {
+        assert!(
+            listed_task.get(legacy_field).is_none(),
+            "unexpected {legacy_field}"
+        );
+    }
+
+    let task_json = client
+        .raw_get(&format!("/api/v1/tasks/{task_id}"))
+        .await
+        .unwrap();
+    for legacy_field in [
+        "environmentStatus",
+        "agentState",
+        "isRunning",
+        "sandboxStatus",
+        "agentStatus",
+        "sandboxError",
+    ] {
+        assert!(
+            task_json.get(legacy_field).is_none(),
+            "unexpected {legacy_field}"
+        );
+    }
+
+    let live_status = client
+        .raw_get(&format!("/api/sandbox/v1/tasks/{task_id}/live-status"))
+        .await
+        .unwrap();
+    let live_fields = live_status
+        .as_object()
+        .expect("live status response should be an object");
+    assert_eq!(live_fields.len(), 3);
+    assert!(live_fields.contains_key("sandboxStatus"));
+    assert!(live_fields.contains_key("agentStatus"));
+    assert!(live_fields.contains_key("sandboxError"));
+
+    let full_status = client
+        .raw_get(&format!("/api/sandbox/v1/tasks/{task_id}/status"))
+        .await
+        .unwrap();
+    for field in ["sandboxStatus", "agentStatus", "sandboxError", "servers"] {
+        assert!(full_status.get(field).is_some(), "missing {field}");
+    }
+    for legacy_field in [
+        "environmentStatus",
+        "agentState",
+        "environmentError",
+        "sandboxReady",
+        "canExecute",
+        "sandboxState",
+    ] {
+        assert!(
+            full_status.get(legacy_field).is_none(),
+            "unexpected {legacy_field}"
+        );
+    }
+
     // TASK-04: Update task metadata
     let update = UpdateTaskMetadataRequest {
         name: Some("Updated CRUD Test Task".into()),

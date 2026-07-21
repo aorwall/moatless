@@ -1,4 +1,10 @@
-import type { ResourceMetrics, SandboxStatusFullResponse, ServerEntry } from '@moatless/api-client'
+import type {
+  LiveStatus,
+  ResourceMetrics,
+  SandboxStatus,
+  SandboxStatusFullResponse,
+  ServerEntry,
+} from '@moatless/api-client'
 import { useQueryClient } from '@tanstack/react-query'
 import type React from 'react'
 import { createContext, useContext, useEffect, useEffectEvent, useRef, useState } from 'react'
@@ -38,63 +44,63 @@ function isStreamEvent(value: unknown): value is Event {
   )
 }
 
-function updateSandboxStatus(
-  event: Event,
-  old: SandboxStatusFullResponse | undefined,
-): SandboxStatusFullResponse | undefined {
-  const current: SandboxStatusFullResponse = old ?? {
-    sandboxState: 'missing',
-    environmentStatus: 'not_created',
-    agentState: 'none',
-    servers: [],
-    sandboxReady: false,
-    canExecute: false,
+const SANDBOX_STATUSES: readonly SandboxStatus[] = [
+  'not_created',
+  'initializing',
+  'ready',
+  'stopped',
+  'removing',
+  'removed',
+  'error',
+]
+
+function isSandboxStatus(value: string): value is SandboxStatus {
+  return SANDBOX_STATUSES.includes(value as SandboxStatus)
+}
+
+function updateAgentLiveStatus(event: Event, current: LiveStatus): LiveStatus {
+  if (event.subType === 'started') {
+    return { ...current, sandboxStatus: 'ready', agentStatus: 'running' }
+  }
+  if (event.subType === 'completed' || event.subType === 'stopped' || event.subType === 'error') {
+    return { ...current, sandboxStatus: 'ready', agentStatus: 'idle' }
+  }
+  return current
+}
+
+function sandboxErrorFromEvent(event: Event, sandboxStatus: SandboxStatus): string | null {
+  if (sandboxStatus !== 'error' || typeof event.payload !== 'object' || event.payload === null) {
+    return null
+  }
+  const message = (event.payload as Record<string, unknown>)['message']
+  return typeof message === 'string' ? message : null
+}
+
+function updateSandboxLiveStatus(event: Event, current: LiveStatus): LiveStatus {
+  if (!isSandboxStatus(event.subType)) {
+    return current
+  }
+  const sandboxStatus = event.subType
+  return {
+    ...current,
+    sandboxStatus,
+    agentStatus: sandboxStatus === 'ready' ? (current.agentStatus ?? 'unknown') : null,
+    sandboxError: sandboxErrorFromEvent(event, sandboxStatus),
+  }
+}
+
+function updateLiveStatus(event: Event, old: LiveStatus | undefined): LiveStatus {
+  const current: LiveStatus = old ?? {
+    sandboxStatus: 'not_created',
+    agentStatus: null,
+    sandboxError: null,
   }
 
   switch (event.type) {
     case 'agent':
-      if (event.subType === 'started') {
-        return { ...current, agentState: 'running' }
-      }
-      if (
-        event.subType === 'completed' ||
-        event.subType === 'stopped' ||
-        event.subType === 'error'
-      ) {
-        return { ...current, agentState: 'idle' }
-      }
-      return current
-    case 'sandbox': {
-      const validStatuses = [
-        'not_created',
-        'initializing',
-        'ready',
-        'stopped',
-        'removing',
-        'removed',
-        'error',
-      ]
-      if (validStatuses.includes(event.subType || '')) {
-        return {
-          ...current,
-          environmentStatus: event.subType as
-            | 'not_created'
-            | 'initializing'
-            | 'ready'
-            | 'stopped'
-            | 'removing'
-            | 'removed'
-            | 'error',
-          sandboxReady: event.subType === 'ready',
-          canExecute: event.subType === 'ready' && current.agentState === 'idle',
-        }
-      }
-      const validStates = ['exists', 'missing']
-      if (validStates.includes(event.subType || '')) {
-        return { ...current, sandboxState: event.subType as 'exists' | 'missing' }
-      }
-      return current
-    }
+      return updateAgentLiveStatus(event, current)
+    case 'sandbox':
+      return updateSandboxLiveStatus(event, current)
     case 'task':
     case 'taskTurn':
     case 'server':
@@ -104,6 +110,16 @@ function updateSandboxStatus(
     case 'message':
       return current
   }
+}
+
+function updateSandboxStatus(
+  event: Event,
+  old: SandboxStatusFullResponse | undefined,
+): SandboxStatusFullResponse | undefined {
+  if (!old) {
+    return old
+  }
+  return { ...old, ...updateLiveStatus(event, old) }
 }
 
 function isCloseEvent(line: string): boolean {
@@ -200,9 +216,13 @@ export function GlobalEventStreamProvider({
 
     // Apply optimistic updates for sandbox status events
     if (event.type === 'agent' || event.type === 'sandbox') {
-      const queryKey = queryKeys.tasks.sandboxStatus(event.taskId)
-      queryClient.setQueryData(queryKey, (old: SandboxStatusFullResponse | undefined) =>
-        updateSandboxStatus(event, old),
+      queryClient.setQueryData(
+        queryKeys.tasks.liveStatus(event.taskId),
+        (old: LiveStatus | undefined) => updateLiveStatus(event, old),
+      )
+      queryClient.setQueryData(
+        queryKeys.tasks.sandboxStatus(event.taskId),
+        (old: SandboxStatusFullResponse | undefined) => updateSandboxStatus(event, old),
       )
     }
 

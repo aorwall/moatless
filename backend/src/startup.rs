@@ -462,7 +462,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
         components(schemas(
             // Event types + sub-types
             moatless_events::EventType,
-            moatless_events::SandboxSubType,
+            moatless_events::SandboxStatus,
             moatless_events::ServerSubType,
             moatless_events::AgentSubType,
             moatless_events::TaskSubType,

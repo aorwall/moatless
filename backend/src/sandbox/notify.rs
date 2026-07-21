@@ -1,7 +1,7 @@
 //! Sandbox notification and wake-up helpers.
 
 use super::client::SandboxClient;
-use super::models::EnvironmentStatus;
+use super::models::SandboxStatus;
 use crate::config::SandboxProviderType;
 use crate::state::AppState;
 
@@ -106,7 +106,7 @@ pub async fn ensure_sandbox_and_notify(state: &AppState, task_id: &str) -> Resul
     })?;
 
     match state.sandbox.provision(task_id, &request).await {
-        Ok(resp) if resp.status == EnvironmentStatus::Ready => {
+        Ok(resp) if resp.status == SandboxStatus::Ready => {
             notify_sandbox_for_task(state, task_id).await;
         }
         Ok(_) => {

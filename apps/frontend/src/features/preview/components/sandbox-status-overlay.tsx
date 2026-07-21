@@ -2,7 +2,7 @@ import { AlertCircle, Loader2, XCircle } from 'lucide-react'
 import { ApiError } from '@/lib/api/client'
 import { Button } from '@/lib/components/ui/button'
 
-type EnvironmentStatus =
+type SandboxStatus =
   | 'not_created'
   | 'initializing'
   | 'ready'
@@ -19,10 +19,10 @@ interface SandboxStatusConfig {
 }
 
 function getSandboxStatusConfig(
-  status: EnvironmentStatus,
+  status: SandboxStatus,
   error?: string | null | undefined,
 ): SandboxStatusConfig {
-  const configs: Record<EnvironmentStatus, SandboxStatusConfig> = {
+  const configs: Record<SandboxStatus, SandboxStatusConfig> = {
     not_created: {
       icon: <AlertCircle className="h-12 w-12 text-orange-500" />,
       title: 'Sandbox Not Running',
@@ -86,25 +86,25 @@ function getMutationErrorMessage(error: Error): string {
 }
 
 interface SandboxStatusOverlayProps {
-  environmentStatus: EnvironmentStatus
-  environmentError?: string | null | undefined
+  sandboxStatus: SandboxStatus
+  sandboxError?: string | null | undefined
   onRetry: () => void
   isRetrying: boolean
   retryError?: Error | null | undefined
 }
 
 export function SandboxStatusOverlay({
-  environmentStatus,
-  environmentError,
+  sandboxStatus,
+  sandboxError,
   onRetry,
   isRetrying,
   retryError,
 }: SandboxStatusOverlayProps) {
-  if (environmentStatus === 'ready') {
+  if (sandboxStatus === 'ready') {
     return null
   }
 
-  const config = getSandboxStatusConfig(environmentStatus, environmentError)
+  const config = getSandboxStatusConfig(sandboxStatus, sandboxError)
 
   const showProvisioningError = config.showRetry && retryError
 

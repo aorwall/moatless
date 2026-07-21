@@ -73,8 +73,8 @@ export function PreviewPanel({ kiosk = false }: PreviewPanelProps) {
     <ErrorBoundary componentName="Preview">
       <Preview
         taskId={taskId}
-        environmentStatus={sandboxStatus?.environmentStatus}
-        environmentError={sandboxStatus?.environmentError ?? undefined}
+        sandboxStatus={sandboxStatus?.sandboxStatus}
+        sandboxError={sandboxStatus?.sandboxError ?? undefined}
         startupEvents={startupEvents}
         onToggleElementContext={composer.toggleElementContext}
         onNavigationReady={controls.registerPreviewNavigate}

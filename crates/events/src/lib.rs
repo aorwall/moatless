@@ -68,7 +68,7 @@ impl TryFrom<&str> for EventType {
 
 /// Sandbox status — valid status values for sandbox lifecycle events.
 ///
-/// These match the frontend `EnvironmentStatusSchema` values.
+/// These match the frontend `SandboxStatus` values.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
@@ -81,9 +81,6 @@ pub enum SandboxStatus {
     Removed,
     Error,
 }
-
-/// Backwards-compatible type alias.
-pub type SandboxSubType = SandboxStatus;
 
 impl SandboxStatus {
     pub fn as_str(&self) -> &'static str {

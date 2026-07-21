@@ -72,6 +72,7 @@ export function useSandboxRetry(taskId: string) {
     mutationFn: () => provisionHandler(taskId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.sandboxStatus(taskId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.liveStatus(taskId) })
     },
   })
 }

@@ -3,10 +3,8 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use super::models::{
-    AgentState, ResourceMetrics, SandboxState, SandboxStatus, ServerCapabilities, ServerSnapshot,
-    ServerStatus,
-};
+use super::live_status::{AgentStatus, SandboxStatus};
+use super::models::{ResourceMetrics, ServerCapabilities, ServerSnapshot, ServerStatus};
 use crate::task::models::SandboxDesiredState;
 
 /// Provision response
@@ -130,13 +128,12 @@ pub struct BackgroundProcess {
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SandboxStatusFullResponse {
-    pub sandbox_state: SandboxState,
-    pub environment_status: SandboxStatus,
-    pub environment_error: Option<String>,
-    pub agent_state: AgentState,
+    pub sandbox_status: SandboxStatus,
+    #[schema(required = true)]
+    pub sandbox_error: Option<String>,
+    #[schema(required = true)]
+    pub agent_status: Option<AgentStatus>,
     pub servers: Vec<ServerEntry>,
-    pub sandbox_ready: bool,
-    pub can_execute: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resources: Option<ResourceMetrics>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -461,13 +458,10 @@ mod tests {
     #[test]
     fn empty_scheduled_jobs_omitted_from_response() {
         let resp = SandboxStatusFullResponse {
-            sandbox_state: SandboxState::Exists,
-            environment_status: SandboxStatus::Ready,
-            environment_error: None,
-            agent_state: AgentState::Idle,
+            sandbox_status: SandboxStatus::Ready,
+            sandbox_error: None,
+            agent_status: Some(AgentStatus::Idle),
             servers: vec![],
-            sandbox_ready: true,
-            can_execute: true,
             resources: None,
             container_diagnostics: None,
             runtime_events: None,
@@ -486,13 +480,10 @@ mod tests {
     #[test]
     fn populated_scheduled_jobs_serialized_in_response() {
         let resp = SandboxStatusFullResponse {
-            sandbox_state: SandboxState::Exists,
-            environment_status: SandboxStatus::Ready,
-            environment_error: None,
-            agent_state: AgentState::Running,
+            sandbox_status: SandboxStatus::Ready,
+            sandbox_error: None,
+            agent_status: Some(AgentStatus::Running),
             servers: vec![],
-            sandbox_ready: true,
-            can_execute: true,
             resources: None,
             container_diagnostics: None,
             runtime_events: None,
@@ -524,13 +515,10 @@ mod tests {
     #[test]
     fn background_processes_serialized_camel_case() {
         let resp = SandboxStatusFullResponse {
-            sandbox_state: SandboxState::Exists,
-            environment_status: SandboxStatus::Ready,
-            environment_error: None,
-            agent_state: AgentState::Idle,
+            sandbox_status: SandboxStatus::Ready,
+            sandbox_error: None,
+            agent_status: Some(AgentStatus::Idle),
             servers: vec![],
-            sandbox_ready: true,
-            can_execute: true,
             resources: None,
             container_diagnostics: None,
             runtime_events: None,

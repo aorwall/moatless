@@ -205,12 +205,6 @@ pub struct TaskResponse {
     pub tags: Vec<TagResponse>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bindings: Vec<TaskBindingSummary>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub environment_status: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub agent_state: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_running: Option<bool>,
     /// Idle TTL in minutes. The reaper stops the sandbox when no activity has
     /// occurred for this many minutes. `0` means "never reap".
     pub ttl_minutes: i32,

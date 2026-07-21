@@ -56,15 +56,6 @@ export function getTaskActivityConfig(state: TaskActivityState): TaskStatusConfi
   }
 }
 
-/**
- * Determines if a task is currently running based on task status.
- * Note: The backend task status only tracks lifecycle (open/closed/error).
- * Agent running state is tracked via workspace agentState in real-time.
- */
-export function isTaskRunning(task: { status: string }): boolean {
-  return task.status === 'running'
-}
-
 export function getTaskStatusConfig(status: string): TaskStatusConfig {
   switch (status) {
     case 'open':

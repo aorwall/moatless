@@ -46,6 +46,7 @@ export function useSandboxRestart(taskId: string) {
     mutationFn: () => restartHandler(taskId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.sandboxStatus(taskId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.liveStatus(taskId) })
     },
   })
 }
@@ -59,6 +60,7 @@ export function useSandboxStop(taskId: string) {
     mutationFn: () => stopHandler(taskId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.sandboxStatus(taskId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.liveStatus(taskId) })
     },
   })
 }
@@ -73,6 +75,7 @@ export function useSandboxRedeploy(taskId: string) {
     mutationFn: () => redeployHandler(taskId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.sandboxStatus(taskId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.liveStatus(taskId) })
     },
   })
 }
@@ -86,6 +89,7 @@ export function useSandboxCleanup(taskId: string) {
     mutationFn: () => cleanupHandler(taskId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.sandboxStatus(taskId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.liveStatus(taskId) })
     },
   })
 }

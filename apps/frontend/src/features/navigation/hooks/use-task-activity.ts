@@ -8,12 +8,10 @@ import { formatPreview } from './message-preview'
 /**
  * Live, per-task activity derived from the global event stream.
  *
- * The task list API seeds `agentState`/`isRunning`/`environmentStatus` for list
- * rows (a last-known, eventually-consistent snapshot), but the live message
- * preview and up-to-the-second running state still come from the SSE stream.
- * Entries accumulate as events arrive and are merged with the cached task list
- * at render time, with live activity taking precedence over the seeded row
- * state.
+ * The per-Task live-status query seeds current Sandbox and Agent status. Live
+ * message previews and up-to-the-second transitions come from the SSE stream,
+ * which also overlays the live-status cache. Entries accumulate as events
+ * arrive, with streamed activity taking precedence while rendering.
  */
 /** How many recent message previews to keep for the live running view. */
 export const MAX_RECENT_MESSAGES = 3

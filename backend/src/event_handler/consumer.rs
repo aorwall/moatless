@@ -8,7 +8,7 @@ use redis::Value;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
-use moatless_events::{AgentSubType, EventType, SandboxSubType, TaskSubType, TaskTurnSubType};
+use moatless_events::{AgentSubType, EventType, SandboxStatus, TaskSubType, TaskTurnSubType};
 
 use crate::state::AppState;
 use crate::task_event::dao::InsertTaskEvent;
@@ -510,7 +510,7 @@ impl EventHandlerConsumer {
             // Sandbox error — pod watcher detected a fatal crash; transcript-only
             // for the agent (auto-error reply), and a Linear `error` activity
             // for any active Linear binding.
-            EventKey::Sandbox(SandboxSubType::Error) => {
+            EventKey::Sandbox(SandboxStatus::Error) => {
                 let body = event
                     .payload
                     .get("message")
@@ -533,9 +533,9 @@ impl EventHandlerConsumer {
             // Linear's UI (no UUIDs leak, no historical pile-up). The full
             // history still lives in Moatless and in the linked task URL.
             EventKey::Sandbox(
-                status @ (SandboxSubType::Initializing
-                | SandboxSubType::Ready
-                | SandboxSubType::Stopped),
+                status @ (SandboxStatus::Initializing
+                | SandboxStatus::Ready
+                | SandboxStatus::Stopped),
             ) => {
                 if self.state.linear_active_turns.is_open(&event.task_id) {
                     tokio::spawn(crate::adapters::linear::agent_runtime::notify_linear_action(

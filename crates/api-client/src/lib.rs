@@ -341,6 +341,15 @@ impl ApiClient {
             .await
     }
 
+    /// GET /api/sandbox/v1/tasks/{task_id}/live-status
+    pub async fn live_status(
+        &self,
+        task_id: &str,
+    ) -> Result<moatless_api_schemas::sandbox::LiveStatus, ApiError> {
+        self.get(&format!("/api/sandbox/v1/tasks/{task_id}/live-status"))
+            .await
+    }
+
     /// POST /api/sandbox/v1/tasks/{task_id}/restart
     pub async fn restart_sandbox(&self, task_id: &str) -> Result<(), ApiError> {
         self.post_empty(&format!("/api/sandbox/v1/tasks/{task_id}/restart"))

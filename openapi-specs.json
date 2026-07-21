@@ -413,6 +413,48 @@
         }
       }
     },
+    "/api/sandbox/v1/tasks/{task_id}/live-status": {
+      "get": {
+        "tags": [
+          "sandbox"
+        ],
+        "summary": "Get the canonical live status for a Task's Sandbox and Agent.",
+        "operationId": "live_status_handler",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Task live status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveStatus"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/sandbox/v1/tasks/{task_id}/provision": {
       "post": {
         "tags": [
@@ -635,7 +677,7 @@
         "tags": [
           "sandbox"
         ],
-        "summary": "Get full sandbox status including servers and agent state.",
+        "summary": "Get full sandbox status including servers and Agent status.",
         "operationId": "sandbox_status_handler",
         "parameters": [
           {
@@ -7620,13 +7662,12 @@
           }
         }
       },
-      "AgentState": {
+      "AgentStatus": {
         "type": "string",
-        "description": "Matches TS AgentStateSchema: 'idle' | 'running' | 'none' | 'unknown'\n\n`Unknown` means the sandbox pod is running/ready but the backend could not\nreach the agent over gRPC to determine its state — distinct from `None`\n(\"agent legitimately idle / never started\"), so a hung or unreachable agent\non an otherwise-ready pod is no longer silently reported as idle.",
+        "description": "Observed Agent lifecycle while its Sandbox is ready.",
         "enum": [
-          "idle",
           "running",
-          "none",
+          "idle",
           "unknown"
         ]
       },
@@ -10410,6 +10451,36 @@
           }
         }
       },
+      "LiveStatus": {
+        "type": "object",
+        "description": "The complete live status of a Task's Sandbox and Agent.",
+        "required": [
+          "sandboxStatus",
+          "agentStatus",
+          "sandboxError"
+        ],
+        "properties": {
+          "agentStatus": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentStatus"
+              }
+            ]
+          },
+          "sandboxError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sandboxStatus": {
+            "$ref": "#/components/schemas/SandboxStatus"
+          }
+        }
+      },
       "LoopSyncSkip": {
         "type": "object",
         "description": "One loop that was skipped during a sync, with a human-readable reason\n(e.g. \"no github connection for org acme\").",
@@ -11556,17 +11627,9 @@
           }
         }
       },
-      "SandboxState": {
-        "type": "string",
-        "description": "Matches TS SandboxStateSchema: 'exists' | 'missing'",
-        "enum": [
-          "exists",
-          "missing"
-        ]
-      },
       "SandboxStatus": {
         "type": "string",
-        "description": "Sandbox status — valid status values for sandbox lifecycle events.\n\nThese match the frontend `EnvironmentStatusSchema` values.",
+        "description": "Sandbox status — valid status values for sandbox lifecycle events.\n\nThese match the frontend `SandboxStatus` values.",
         "enum": [
           "not_created",
           "initializing",
@@ -11581,16 +11644,21 @@
         "type": "object",
         "description": "Full sandbox status response to frontend (matches TS SandboxStatusFullResponse)",
         "required": [
-          "sandboxState",
-          "environmentStatus",
-          "agentState",
-          "servers",
-          "sandboxReady",
-          "canExecute"
+          "sandboxStatus",
+          "sandboxError",
+          "agentStatus",
+          "servers"
         ],
         "properties": {
-          "agentState": {
-            "$ref": "#/components/schemas/AgentState"
+          "agentStatus": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentStatus"
+              }
+            ]
           },
           "backgroundProcesses": {
             "type": "array",
@@ -11598,9 +11666,6 @@
               "$ref": "#/components/schemas/BackgroundProcess"
             },
             "description": "Live background processes (`run_in_background` jobs, ad-hoc daemons) still\nrunning in the sandbox. Empty when idle with no background work."
-          },
-          "canExecute": {
-            "type": "boolean"
           },
           "containerDiagnostics": {
             "type": [
@@ -11617,15 +11682,6 @@
               "null"
             ],
             "description": "Image the currently-provisioned sandbox container is running, read from\nthe live Deployment/container. `None` when no sandbox exists yet."
-          },
-          "environmentError": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "environmentStatus": {
-            "$ref": "#/components/schemas/SandboxStatus"
           },
           "imageUpToDate": {
             "type": [
@@ -11671,11 +11727,14 @@
               }
             ]
           },
-          "sandboxReady": {
-            "type": "boolean"
+          "sandboxError": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
-          "sandboxState": {
-            "$ref": "#/components/schemas/SandboxState"
+          "sandboxStatus": {
+            "$ref": "#/components/schemas/SandboxStatus"
           },
           "scheduledJobs": {
             "type": "array",
@@ -13115,12 +13174,6 @@
           "sandboxDesiredStateUpdatedAt"
         ],
         "properties": {
-          "agentState": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "agentType": {
             "$ref": "#/components/schemas/AgentType"
           },
@@ -13163,12 +13216,6 @@
               "null"
             ]
           },
-          "environmentStatus": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "inactiveTtlDays": {
             "type": "integer",
             "format": "int32",
@@ -13180,12 +13227,6 @@
               "null"
             ],
             "description": "Whether the requesting user follows this task. Followed tasks appear in\nthe user's personal task list. `None` when the response was built\nwithout a requesting-user context."
-          },
-          "isRunning": {
-            "type": [
-              "boolean",
-              "null"
-            ]
           },
           "lastMessageAt": {
             "type": "string"

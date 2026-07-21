@@ -4,7 +4,7 @@ import { type ColumnDef, flexRender, getCoreRowModel, useReactTable } from '@tan
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
-import { useSandboxStatus } from '@/features/tasks/hooks/use-sandbox-status'
+import { useTaskLiveStatusQuery } from '@/features/tasks/hooks/use-task-queries'
 import { useCloseTask, useDeleteTask } from '@/features/tasks/hooks/use-tasks'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
@@ -46,13 +46,10 @@ function formatDate(date: Date | string): string {
 }
 
 function TaskStatusCell({ task }: { task: TaskResponse }) {
-  // Render from the task row plus any sandbox status already in the query cache
-  // (populated by the task page or SSE patches). `enabled: false` keeps the
-  // dashboard from firing a per-row `GET /sandbox/status` on mount — a table of
-  // N tasks would otherwise burst N requests. The cell still subscribes to the
-  // cache, so it upgrades to live data whenever an entry is present.
-  const { data: sandboxStatus } = useSandboxStatus(task.taskId, task, { enabled: false })
-  return <TaskStatusIcon task={task} sandbox={sandboxStatus} showText={true} />
+  const { data: liveStatus } = useTaskLiveStatusQuery(task.taskId, {
+    enabled: task.status === 'open',
+  })
+  return <TaskStatusIcon task={task} liveStatus={liveStatus} showText={true} />
 }
 
 function TaskActionCell({ task }: { task: TaskResponse }) {

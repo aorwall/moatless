@@ -5,13 +5,12 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
-import type { AgentState } from './agentState';
+import type { AgentStatus } from './agentStatus';
 import type { BackgroundProcess } from './backgroundProcess';
 import type { ContainerDiagnostics } from './containerDiagnostics';
 import type { ResourceMetrics } from './resourceMetrics';
 import type { RuntimeEvent } from './runtimeEvent';
 import type { SandboxDesiredState } from './sandboxDesiredState';
-import type { SandboxState } from './sandboxState';
 import type { SandboxStatus } from './sandboxStatus';
 import type { ScheduledJobInfo } from './scheduledJobInfo';
 import type { ServerEntry } from './serverEntry';
@@ -20,11 +19,10 @@ import type { ServerEntry } from './serverEntry';
  * Full sandbox status response to frontend (matches TS SandboxStatusFullResponse)
  */
 export interface SandboxStatusFullResponse {
-  agentState: AgentState;
+  agentStatus: null | AgentStatus;
   /** Live background processes (`run_in_background` jobs, ad-hoc daemons) still
 running in the sandbox. Empty when idle with no background work. */
   backgroundProcesses?: BackgroundProcess[];
-  canExecute: boolean;
   /** @nullable */
   containerDiagnostics?: ContainerDiagnostics[] | null;
   /**
@@ -33,9 +31,6 @@ the live Deployment/container. `None` when no sandbox exists yet.
    * @nullable
    */
   currentSandboxImage?: string | null;
-  /** @nullable */
-  environmentError?: string | null;
-  environmentStatus: SandboxStatus;
   /**
    * `true` when `current_sandbox_image` matches `latest_sandbox_image`.
 `None` when either image is unknown (e.g. no sandbox provisioned).
@@ -54,8 +49,9 @@ redeploy would change the image.
   /** @nullable */
   runtimeEvents?: RuntimeEvent[] | null;
   sandboxDesiredState?: null | SandboxDesiredState;
-  sandboxReady: boolean;
-  sandboxState: SandboxState;
+  /** @nullable */
+  sandboxError: string | null;
+  sandboxStatus: SandboxStatus;
   scheduledJobs?: ScheduledJobInfo[];
   servers: ServerEntry[];
 }

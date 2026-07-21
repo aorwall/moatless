@@ -19,24 +19,24 @@ use super::pod_status::{
 };
 use crate::config::Config;
 use crate::sandbox::client::SandboxClient;
+use crate::sandbox::live_status::{derive_live_status, AgentStatus, LiveStatus};
 use crate::sandbox::models::*;
 use crate::sandbox::schemas::*;
+use crate::task::models::{SandboxDesiredState, TaskStatus};
 
 /// Snapshot of the agent's gRPC status response — state, scheduled jobs, and
 /// live background processes.
 struct AgentStatusSnapshot {
-    state: AgentState,
+    status: Option<AgentStatus>,
     scheduled_jobs: Vec<ScheduledJobInfo>,
     background_processes: Vec<BackgroundProcess>,
 }
 
 impl AgentStatusSnapshot {
-    /// The agent is running/ready but unreachable over gRPC. Distinct from an
-    /// idle agent so a hung/unreachable agent on a ready pod is not reported as
-    /// `none` ("idle / never started"). Only produced from the running branch.
+    /// The ready Sandbox's Agent is unreachable, so no raw Agent signal exists.
     fn unreachable() -> Self {
         Self {
-            state: AgentState::Unknown,
+            status: None,
             scheduled_jobs: Vec::new(),
             background_processes: Vec::new(),
         }
@@ -65,10 +65,12 @@ impl StatusResolver {
         &self,
         task_id: &str,
         server_configs: &[ServerConfig],
+        task_status: TaskStatus,
+        desired_state: SandboxDesiredState,
     ) -> SandboxStatusFullResponse {
-        let (phase, environment_error, current_sandbox_image) =
+        let (phase, resolver_error, current_sandbox_image) =
             self.resolve_pod_phase_and_error(task_id).await;
-        let environment_status = phase.to_sandbox_status();
+        let sandbox_status = phase.to_sandbox_status();
         let is_running = phase == PodPhase::Running;
 
         if is_running {
@@ -107,22 +109,27 @@ impl StatusResolver {
 
             // Query actual agent status from the sandbox pod via gRPC
             let AgentStatusSnapshot {
-                state: agent_state,
+                status: agent_status,
                 scheduled_jobs,
                 background_processes,
-            } = self.fetch_agent_state(task_id).await;
+            } = self.fetch_agent_status(task_id).await;
+
+            let live_status = derive_live_status(
+                task_status,
+                desired_state,
+                sandbox_status,
+                resolver_error,
+                agent_status,
+            );
 
             // Fetch all container statuses for diagnostics
             let container_diagnostics = self.fetch_container_diagnostics(task_id).await;
 
             return SandboxStatusFullResponse {
-                sandbox_state: SandboxState::Exists,
-                environment_status,
-                environment_error,
-                agent_state,
+                sandbox_status: live_status.sandbox_status,
+                sandbox_error: live_status.sandbox_error,
+                agent_status: live_status.agent_status,
                 servers,
-                sandbox_ready: true,
-                can_execute: true,
                 resources: None,
                 container_diagnostics,
                 runtime_events: None,
@@ -134,14 +141,6 @@ impl StatusResolver {
                 image_up_to_date: None,
             };
         }
-
-        // Pod is not running
-        let sandbox_state = match phase {
-            PodPhase::NotFound => SandboxState::Missing,
-            _ => SandboxState::Exists,
-        };
-
-        let can_execute = phase == PodPhase::Stopped;
 
         // For Pending/Failed/Unknown phases, overlay K8s container statuses on config
         let servers = if matches!(
@@ -223,14 +222,19 @@ impl StatusResolver {
             None
         };
 
+        let live_status = derive_live_status(
+            task_status,
+            desired_state,
+            sandbox_status,
+            resolver_error,
+            None,
+        );
+
         SandboxStatusFullResponse {
-            sandbox_state,
-            environment_status,
-            environment_error,
-            agent_state: AgentState::None,
+            sandbox_status: live_status.sandbox_status,
+            sandbox_error: live_status.sandbox_error,
+            agent_status: live_status.agent_status,
             servers,
-            sandbox_ready: false,
-            can_execute,
             resources: None,
             container_diagnostics,
             runtime_events,
@@ -243,6 +247,30 @@ impl StatusResolver {
         }
     }
 
+    /// Resolve only the Task's live status, omitting servers and diagnostics.
+    pub async fn resolve_live_status(
+        &self,
+        task_id: &str,
+        task_status: TaskStatus,
+        desired_state: SandboxDesiredState,
+    ) -> LiveStatus {
+        let (phase, resolver_error, _) = self.resolve_pod_phase_and_error(task_id).await;
+        let sandbox_status = phase.to_sandbox_status();
+        let agent_status = if sandbox_status == SandboxStatus::Ready {
+            self.fetch_agent_status(task_id).await.status
+        } else {
+            None
+        };
+
+        derive_live_status(
+            task_status,
+            desired_state,
+            sandbox_status,
+            resolver_error,
+            agent_status,
+        )
+    }
+
     // =========================================================================
     // Private helpers
     // =========================================================================
@@ -250,10 +278,8 @@ impl StatusResolver {
     /// Query the sandbox pod for current agent status via gRPC.
     ///
     /// Only called when the pod is running, so any gRPC error (timeout,
-    /// unavailable, etc.) means the agent is unreachable rather than idle:
-    /// returns `AgentState::Unknown` (no jobs) so status resolution stays
-    /// resilient without masking an unreachable agent as `none`.
-    async fn fetch_agent_state(&self, task_id: &str) -> AgentStatusSnapshot {
+    /// unavailable, etc.) means the Agent is unreachable rather than idle.
+    async fn fetch_agent_status(&self, task_id: &str) -> AgentStatusSnapshot {
         let service_name = generate_service_name(task_id);
         let client = match SandboxClient::for_service(
             &service_name,
@@ -269,7 +295,7 @@ impl StatusResolver {
 
         match client.get_agent_status().await {
             Ok(resp) => AgentStatusSnapshot {
-                state: AgentState::from(resp.status.as_str()),
+                status: Some(AgentStatus::from(resp.status.as_str())),
                 scheduled_jobs: resp
                     .scheduled_jobs
                     .into_iter()
@@ -342,22 +368,21 @@ impl StatusResolver {
         task_id: &str,
     ) -> (PodPhase, Option<String>, Option<String>) {
         // Check Deployment replicas first
-        let current_image = if let Ok(Some(dep)) =
-            deployment::find_deployment(&self.k8s, task_id).await
-        {
-            let image = deployment::deployment_sandbox_image(&dep);
-            if let Ok((desired, _ready)) =
-                deployment::get_deployment_replicas(&self.k8s, task_id).await
-            {
-                if desired == 0 {
-                    return (PodPhase::Stopped, None, image);
+        let current_image =
+            if let Ok(Some(dep)) = deployment::find_deployment(&self.k8s, task_id).await {
+                let image = deployment::deployment_sandbox_image(&dep);
+                if let Ok((desired, _ready)) =
+                    deployment::get_deployment_replicas(&self.k8s, task_id).await
+                {
+                    if desired == 0 {
+                        return (PodPhase::Stopped, None, image);
+                    }
                 }
-            }
-            image
-        } else {
-            // No Deployment found — sandbox doesn't exist
-            return (PodPhase::NotFound, None, None);
-        };
+                image
+            } else {
+                // No Deployment found — sandbox doesn't exist
+                return (PodPhase::NotFound, None, None);
+            };
 
         // Deployment exists with replicas > 0, check actual pod status
         let pods_api: Api<Pod> = Api::namespaced(self.k8s.client.clone(), self.k8s.namespace());

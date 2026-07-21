@@ -219,6 +219,7 @@ export function applyTaskEventUpdate(queryClient: QueryClient, event: Event): vo
     case 'resources':
     case 'navigation':
     case 'preview':
+    case 'message':
       // These event types do not carry task-level updates
       break
   }

@@ -1,4 +1,4 @@
-import type { EnvironmentStatus, UiMessage } from '@moatless/api-client'
+import type { SandboxStatus, UiMessage } from '@moatless/api-client'
 import { ArrowDown, Loader2 } from 'lucide-react'
 import { Fragment, type ReactNode, useLayoutEffect, useRef, useState } from 'react'
 import {
@@ -179,8 +179,8 @@ interface MessageHistoryProps {
   error?: Error | null | undefined
   className?: string | undefined
   isRunning?: boolean | undefined
-  environmentStatus?: EnvironmentStatus | undefined
-  environmentError?: string | undefined
+  sandboxStatus?: SandboxStatus | undefined
+  sandboxError?: string | undefined
   onPreviewUrlClick?: ((path: string) => void) | undefined
   hasPreviousPage?: boolean | undefined
   isFetchingPreviousPage?: boolean | undefined
@@ -200,8 +200,8 @@ function MessageHistoryComponent({
   error = null,
   className,
   isRunning = false,
-  environmentStatus,
-  environmentError,
+  sandboxStatus,
+  sandboxError,
   onPreviewUrlClick,
   hasPreviousPage = false,
   isFetchingPreviousPage = false,
@@ -478,19 +478,19 @@ function MessageHistoryComponent({
   // and the last-assistant action bar). Each carries a stable id so it can be a
   // keyed virtualized tail row.
   const footerRows: VirtualRow[] = []
-  if (environmentStatus === 'initializing') {
+  if (sandboxStatus === 'initializing') {
     footerRows.push({
       id: 'env-initializing',
       node: <EnvironmentIndicator key="env-initializing" status="initializing" />,
     })
   }
-  if (environmentStatus === 'error') {
+  if (sandboxStatus === 'error') {
     footerRows.push({
       id: 'env-error',
-      node: <EnvironmentIndicator key="env-error" status="error" errorMessage={environmentError} />,
+      node: <EnvironmentIndicator key="env-error" status="error" errorMessage={sandboxError} />,
     })
   }
-  if (isRunning && environmentStatus !== 'initializing') {
+  if (isRunning && sandboxStatus !== 'initializing') {
     footerRows.push({ id: 'thinking', node: <ThinkingIndicator key="thinking" /> })
   }
   if (!isRunning && taskId && lastAssistantMessage) {

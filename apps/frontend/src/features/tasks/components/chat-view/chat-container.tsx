@@ -48,7 +48,7 @@ function ChatContainer({
   // Poll sandbox status only while the task remains open (hook handles gating)
   const sandboxStatusQuery = useSandboxStatus(taskId, task)
   const sandboxStatus = sandboxStatusQuery.data
-  const envStatus = sandboxStatus?.environmentStatus
+  const envStatus = sandboxStatus?.sandboxStatus
 
   // Retry sandbox mutation for handling failed provisioning
   const retrySandboxMutation = useSandboxRetry(taskId)
@@ -76,7 +76,7 @@ function ChatContainer({
   })()
 
   // Agent running state: driven by sandbox status (updated via SSE events + backend gRPC)
-  const isTaskRunning = sandboxStatus?.agentState === 'running'
+  const isTaskRunning = sandboxStatus?.agentStatus === 'running'
 
   // Derive queued messages from the messages list
   const queuedMessages = (messages ?? []).filter(
@@ -94,8 +94,8 @@ function ChatContainer({
         isLoading={isLoadingMessages}
         error={messagesError as Error | null}
         isRunning={isTaskRunning}
-        environmentStatus={envStatus}
-        environmentError={sandboxStatus?.environmentError ?? undefined}
+        sandboxStatus={envStatus}
+        sandboxError={sandboxStatus?.sandboxError ?? undefined}
         onPreviewUrlClick={navigatePreview}
         hasPreviousPage={hasPreviousPage}
         isFetchingPreviousPage={isFetchingPreviousPage}
@@ -104,9 +104,9 @@ function ChatContainer({
       />
 
       {/* Sandbox error banner with retry button */}
-      {envStatus === 'error' && sandboxStatus?.environmentError && (
+      {envStatus === 'error' && sandboxStatus?.sandboxError && (
         <SandboxErrorBanner
-          errorMessage={sandboxStatus.environmentError}
+          errorMessage={sandboxStatus.sandboxError}
           onRetry={() => retrySandboxMutation.mutate()}
           isRetrying={retrySandboxMutation.isPending}
         />

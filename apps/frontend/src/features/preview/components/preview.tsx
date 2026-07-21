@@ -45,8 +45,8 @@ function PreviewIframe({ iframeRef, src, onLoad }: PreviewIframeProps) {
 
 export function Preview({
   taskId,
-  environmentStatus,
-  environmentError,
+  sandboxStatus,
+  sandboxError,
   onElementSelected,
   onToggleElementContext,
   onNavigationReady,
@@ -68,7 +68,7 @@ export function Preview({
   const retryMutation = useSandboxRetry(taskId)
 
   // Determine if sandbox is running
-  const isSandboxRunning = environmentStatus === 'ready'
+  const isSandboxRunning = sandboxStatus === 'ready'
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const lastResetActiveServerRef = useRef<string | undefined | null>(null)
   // null = follow the auto-expand default; true/false = user's explicit choice.
@@ -290,10 +290,10 @@ export function Preview({
       >
         {/* Preview content panel */}
         {/* Sandbox not running overlay */}
-        {!isSandboxRunning && environmentStatus && (
+        {!isSandboxRunning && sandboxStatus && (
           <SandboxStatusOverlay
-            environmentStatus={environmentStatus}
-            environmentError={environmentError}
+            sandboxStatus={sandboxStatus}
+            sandboxError={sandboxError}
             onRetry={() => retryMutation.mutate()}
             isRetrying={retryMutation.isPending}
             retryError={retryMutation.error}

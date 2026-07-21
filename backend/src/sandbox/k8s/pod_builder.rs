@@ -2658,18 +2658,14 @@ mod tests {
             .resources
             .as_ref()
             .expect("nvme-setup must declare resources");
-        assert!(
-            resources
-                .requests
-                .as_ref()
-                .is_some_and(|r| r.contains_key("cpu") && r.contains_key("memory"))
-        );
-        assert!(
-            resources
-                .limits
-                .as_ref()
-                .is_some_and(|l| l.contains_key("cpu") && l.contains_key("memory"))
-        );
+        assert!(resources
+            .requests
+            .as_ref()
+            .is_some_and(|r| r.contains_key("cpu") && r.contains_key("memory")));
+        assert!(resources
+            .limits
+            .as_ref()
+            .is_some_and(|l| l.contains_key("cpu") && l.contains_key("memory")));
     }
 
     /// The toolchain-persistence and cargo-target flags are off by default —

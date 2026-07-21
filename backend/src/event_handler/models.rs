@@ -1,7 +1,7 @@
 //! Event handler payload types.
 
 use moatless_events::{
-    AgentSubType, EventType, SandboxSubType, ServerSubType, TaskSubType, TaskTurnSubType,
+    AgentSubType, EventType, SandboxStatus, ServerSubType, TaskSubType, TaskTurnSubType,
 };
 use serde::Deserialize;
 
@@ -11,7 +11,7 @@ pub enum EventKey {
     Agent(AgentSubType),
     Task(TaskSubType),
     TaskTurn(TaskTurnSubType),
-    Sandbox(SandboxSubType),
+    Sandbox(SandboxStatus),
     Server(ServerSubType),
     /// Unrecognised event_type + sub_type pair.
     Unknown(String, String),
@@ -43,7 +43,7 @@ impl AgentEvent {
                 .map_or_else(|_| self.unknown(), EventKey::Task),
             EventType::TaskTurn => TaskTurnSubType::try_from(self.sub_type.as_str())
                 .map_or_else(|_| self.unknown(), EventKey::TaskTurn),
-            EventType::Sandbox => SandboxSubType::try_from(self.sub_type.as_str())
+            EventType::Sandbox => SandboxStatus::try_from(self.sub_type.as_str())
                 .map_or_else(|_| self.unknown(), EventKey::Sandbox),
             EventType::Server => ServerSubType::try_from(self.sub_type.as_str())
                 .map_or_else(|_| self.unknown(), EventKey::Server),

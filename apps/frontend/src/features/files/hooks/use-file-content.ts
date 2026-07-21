@@ -6,7 +6,7 @@ import type { FileContentResponse } from '../types'
 
 export function useFileContent(taskId: string, filePath: string | undefined, withChanges = true) {
   const { data: sandboxStatus } = useTaskSandboxStatusQuery(taskId)
-  const isSandboxReady = sandboxStatus?.environmentStatus === 'ready'
+  const isSandboxReady = sandboxStatus?.sandboxStatus === 'ready'
 
   return useQuery<FileContentResponse>({
     queryKey: queryKeys.tasks.fileContent(taskId, filePath, withChanges),

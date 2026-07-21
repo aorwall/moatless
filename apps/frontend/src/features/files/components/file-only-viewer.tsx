@@ -12,7 +12,7 @@ interface FileOnlyViewerProps {
   taskId: string
 }
 
-type EnvironmentStatus =
+type SandboxStatus =
   | 'not_created'
   | 'initializing'
   | 'ready'
@@ -21,7 +21,7 @@ type EnvironmentStatus =
   | 'removed'
   | 'error'
 
-function getStatusLabel(status: EnvironmentStatus | undefined, isLoading: boolean): string {
+function getStatusLabel(status: SandboxStatus | undefined, isLoading: boolean): string {
   if (isLoading) {
     return 'Checking sandbox'
   }
@@ -46,7 +46,7 @@ function getStatusLabel(status: EnvironmentStatus | undefined, isLoading: boolea
   }
 }
 
-function canStartSandbox(status: EnvironmentStatus | undefined): boolean {
+function canStartSandbox(status: SandboxStatus | undefined): boolean {
   return (
     status === 'not_created' || status === 'stopped' || status === 'error' || status === 'removed'
   )
@@ -60,7 +60,7 @@ function FileOnlyTopBar({
   onStart,
 }: {
   filePath: string | undefined
-  status: EnvironmentStatus | undefined
+  status: SandboxStatus | undefined
   isLoading: boolean
   isStarting: boolean
   onStart: () => void
@@ -105,12 +105,12 @@ export function FileOnlyViewer({ taskId }: FileOnlyViewerProps) {
   const { selectedFile } = useSelectedFile()
   const { fileView, setFileView } = useFileViewState()
   const sandboxStatusQuery = useTaskSandboxStatusQuery(taskId)
-  const sandboxStatus = sandboxStatusQuery.data
+  const status = sandboxStatusQuery.data
   const retryMutation = useSandboxRetry(taskId)
 
-  const environmentStatus = sandboxStatus?.environmentStatus
-  const displayStatus = environmentStatus ?? (sandboxStatusQuery.error ? 'error' : undefined)
-  const environmentError = sandboxStatus?.environmentError ?? sandboxStatusQuery.error?.message
+  const sandboxStatus = status?.sandboxStatus
+  const displayStatus = sandboxStatus ?? (sandboxStatusQuery.error ? 'error' : undefined)
+  const sandboxError = status?.sandboxError ?? sandboxStatusQuery.error?.message
   const isSandboxReady = displayStatus === 'ready'
 
   return (
@@ -135,8 +135,8 @@ export function FileOnlyViewer({ taskId }: FileOnlyViewerProps) {
           />
         ) : displayStatus ? (
           <SandboxStatusOverlay
-            environmentStatus={displayStatus}
-            environmentError={environmentError}
+            sandboxStatus={displayStatus}
+            sandboxError={sandboxError}
             onRetry={() => retryMutation.mutate()}
             isRetrying={retryMutation.isPending}
             retryError={retryMutation.error}

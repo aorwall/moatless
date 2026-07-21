@@ -25,6 +25,7 @@ export const queryKeys = {
     toolCall: (taskId: string, toolUseId: string) =>
       [...queryKeys.tasks.detail(taskId), 'tool-call', toolUseId] as const,
     sandboxStatus: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'sandbox'] as const,
+    liveStatus: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'live-status'] as const,
     sandboxSetup: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'sandbox-setup'] as const,
     serverStatus: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'server'] as const,
     serverLogs: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'server-logs'] as const,

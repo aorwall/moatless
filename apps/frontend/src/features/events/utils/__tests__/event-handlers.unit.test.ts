@@ -58,11 +58,12 @@ describe('event-handlers', () => {
 
       const keys = getInvalidationKeys(event)
 
-      // Should invalidate task detail and sandbox status (so thinking indicator clears)
-      expect(keys).toHaveLength(2)
-      const [agentKey0, agentKey1] = keys
+      // Refresh both status resources; task detail clears the thinking indicator.
+      expect(keys).toHaveLength(3)
+      const [agentKey0, agentKey1, agentKey2] = keys
       expect(agentKey0?.('task-456')).toEqual(queryKeys.tasks.detail('task-456'))
-      expect(agentKey1?.('task-456')).toEqual(queryKeys.tasks.sandboxStatus('task-456'))
+      expect(agentKey1?.('task-456')).toEqual(queryKeys.tasks.liveStatus('task-456'))
+      expect(agentKey2?.('task-456')).toEqual(queryKeys.tasks.sandboxStatus('task-456'))
     })
 
     it('should not invalidate messages key for AGENT MESSAGE event', () => {
@@ -109,10 +110,11 @@ describe('event-handlers', () => {
 
       const keys = getInvalidationKeys(event)
 
-      expect(keys).toHaveLength(2)
-      const [sandboxKey0, sandboxKey1] = keys
-      expect(sandboxKey0?.('task-999')).toEqual(queryKeys.tasks.sandboxStatus('task-999'))
-      expect(sandboxKey1?.('task-999')).toEqual(queryKeys.tasks.sandboxSetup('task-999'))
+      expect(keys).toHaveLength(3)
+      const [sandboxKey0, sandboxKey1, sandboxKey2] = keys
+      expect(sandboxKey0?.('task-999')).toEqual(queryKeys.tasks.liveStatus('task-999'))
+      expect(sandboxKey1?.('task-999')).toEqual(queryKeys.tasks.sandboxStatus('task-999'))
+      expect(sandboxKey2?.('task-999')).toEqual(queryKeys.tasks.sandboxSetup('task-999'))
     })
   })
 

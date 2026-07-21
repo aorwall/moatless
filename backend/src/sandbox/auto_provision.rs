@@ -19,8 +19,8 @@ use crate::workspace::dao::WorkspaceRepository;
 // Re-export the workspace-sourced config builders from k8s/auto_provision so
 // existing callers can use the same path.
 pub use crate::sandbox::k8s::auto_provision::{
-    build_repo_config_from_workspace, build_server_configs_from_workspace,
-    filter_disabled_servers, parse_disabled_servers, parse_env_vars_from_workspace,
+    build_repo_config_from_workspace, build_server_configs_from_workspace, filter_disabled_servers,
+    parse_disabled_servers, parse_env_vars_from_workspace,
 };
 
 /// Build a `ProvisionRequest` from database state.
@@ -95,9 +95,10 @@ pub async fn build_provision_request(
     // row is still read above for git_clone_url/branch/provider (primary-repo
     // checkout only this iteration).
     let workspace = match task.workspace_id.as_deref() {
-        Some(ws_id) => workspaces.find_by_id(ws_id).await.map_err(|e| {
-            SandboxError::Internal(format!("DB error reading workspace: {e}"))
-        })?,
+        Some(ws_id) => workspaces
+            .find_by_id(ws_id)
+            .await
+            .map_err(|e| SandboxError::Internal(format!("DB error reading workspace: {e}")))?,
         None => None,
     };
 
@@ -125,10 +126,7 @@ pub async fn build_provision_request(
     }
 
     // Resolve plugin git repos from the join table
-    match plugin_repos
-        .find_by_repository_id(&repository_id)
-        .await
-    {
+    match plugin_repos.find_by_repository_id(&repository_id).await {
         Ok(plugins) if !plugins.is_empty() => {
             let urls: Vec<String> = plugins.into_iter().map(|p| p.git_url).collect();
             info!(

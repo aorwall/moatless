@@ -5,7 +5,7 @@
 import type {
   AgentEventPayload,
   AgentSubType,
-  SandboxSubType,
+  SandboxStatus,
   ServerEventPayload,
   ServerSubType,
   StreamEvent,
@@ -29,7 +29,7 @@ export interface TaskTurnEvent extends StreamEvent {
 
 export interface SandboxEvent extends StreamEvent {
   type: 'sandbox'
-  subType: SandboxSubType
+  subType: SandboxStatus
 }
 
 export interface ServerEvent extends StreamEvent {

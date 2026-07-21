@@ -16,8 +16,6 @@ import type { TaskStatus } from './taskStatus';
 import type { Visibility } from './visibility';
 
 export interface TaskResponse {
-  /** @nullable */
-  agentState?: string | null;
   agentType: AgentType;
   /** @nullable */
   appendSystemPrompt?: string | null;
@@ -31,8 +29,6 @@ export interface TaskResponse {
   createdByDisplayName?: string | null;
   /** @nullable */
   description?: string | null;
-  /** @nullable */
-  environmentStatus?: string | null;
   /** Inactive TTL in days. The reaper auto-closes the task when no activity
 has occurred for this many days. `0` means "never auto-close". */
   inactiveTtlDays: number;
@@ -43,8 +39,6 @@ without a requesting-user context.
    * @nullable
    */
   isFollowing?: boolean | null;
-  /** @nullable */
-  isRunning?: boolean | null;
   lastMessageAt: string;
   /**
    * RFC3339 timestamp of when the requesting user last read this task's
