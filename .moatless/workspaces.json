@@ -46,6 +46,52 @@
           "default": true
         }
       ]
+    },
+    {
+      "key": "shadow",
+      "name": "Backend + Frontend",
+      "description": "Shadow dev — runs the moatless-vibe backend (:8080) and frontend Vite dev server (:3000) as sidecars on the precompiled moatless-dev image.",
+      "repos": [
+        { "url": "https://github.com/aorwall/moatless.git", "primary": true }
+      ],
+      "dockerImage": "aorwall/moatless-dev:dev",
+      "dockerAccess": true,
+      "sandboxServiceAccount": "moatless-dev",
+      "codeExecution": {
+        "setupCommands": [
+          "curl -fsSL https://bun.sh/install | BUN_INSTALL=/opt/moatless/data/.bun bash",
+          "/opt/moatless/data/.bun/bin/bun install",
+          "mkdir -p /opt/moatless/data/shadow"
+        ]
+      },
+      "resources": {
+        "storageMode": "ephemeral",
+        "storage": "20Gi",
+        "dockerStorageMode": "node",
+        "dockerStorage": "20Gi"
+      },
+      "servers": [
+        {
+          "name": "dev",
+          "label": "Frontend (dev)",
+          "port": 3000,
+          "startCommands": ["/opt/moatless/data/.bun/bin/bun run dev -- --host 0.0.0.0"],
+          "startupTimeoutSeconds": 120,
+          "autoReload": true,
+          "enableInspector": true,
+          "default": true
+        },
+        {
+          "name": "backend",
+          "label": "Shadow Backend",
+          "port": 8080,
+          "startCommands": ["bash scripts/shadow/up.sh"],
+          "startupTimeoutSeconds": 600,
+          "autoReload": false,
+          "enableInspector": false,
+          "default": false
+        }
+      ]
     }
   ]
 }
