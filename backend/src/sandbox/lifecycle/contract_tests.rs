@@ -287,10 +287,9 @@ async fn closed_task_start_is_rejected(opts: PgPoolOptions, conn: PgConnectOptio
 // ---- Bad plan ----
 
 // The recording runtime injects the permanent `Rejected`, so this covers the
-// orchestrator's response to a bad plan (intent kept, Error fact, non-retriable)
-// — not `RuntimeBridge::build_request`'s own unbuildable-plan → `Rejected`
-// mapping, which gets a `RuntimeBridge`-level test when the caller migration
-// wires the bridge over a real (broken) repo config.
+// orchestrator's response to a bad plan (intent kept, Error fact, non-retriable).
+// The real plan path — `RuntimeBridge::build_request`'s unbuildable-plan →
+// `Rejected` mapping — is covered by `runtime_bridge::db_tests`.
 #[sqlx::test]
 async fn bad_plan_start_is_permanent_and_keeps_intent(opts: PgPoolOptions, conn: PgConnectOptions) {
     let (store_pool, lock_pool) = pools(&opts, &conn).await;

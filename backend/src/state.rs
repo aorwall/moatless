@@ -53,9 +53,10 @@ pub struct AppState {
     pub config: Arc<Config>,
     /// Sandbox workspace provider (trait object for K8s or future backends).
     pub sandbox: Arc<dyn SandboxProvider>,
-    /// Durable Sandbox lifecycle handle — the only writer of Sandbox intent.
-    /// Callers request transitions (`start`/`stop`/`restart`/`redeploy`/`remove`)
-    /// through it rather than driving the provider directly.
+    /// Durable Sandbox lifecycle handle — owns Sandbox lifecycle intent and
+    /// operations. Callers request transitions
+    /// (`start`/`stop`/`restart`/`redeploy`/`remove`) through it rather than
+    /// driving the provider directly.
     pub lifecycle: Arc<Lifecycle>,
     /// Optional event publisher for real-time event streaming (trait object).
     pub events: Option<Arc<dyn EventPublisher>>,

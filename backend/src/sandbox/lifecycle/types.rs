@@ -157,6 +157,17 @@ impl ArchiveRetention {
         matches!(self, Self::RetainArchives)
     }
 
+    /// The close-time policy from the `SANDBOX_RETAIN_STORAGE_ON_CLOSE` flag:
+    /// retain archives (revivable) when set, delete them otherwise. One helper
+    /// so the close/auto-close/adapter-close sites can't drift.
+    pub fn on_close(retain_archives: bool) -> Self {
+        if retain_archives {
+            Self::RetainArchives
+        } else {
+            Self::DeleteArchives
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::RetainArchives => "retain_archives",

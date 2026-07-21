@@ -2,7 +2,7 @@
 
 use super::client::SandboxClient;
 use crate::config::SandboxProviderType;
-use crate::sandbox::lifecycle::ObservedStatus;
+use crate::sandbox::lifecycle::{LifecycleError, ObservedStatus};
 use crate::state::AppState;
 
 /// Convenience helper: notify the sandbox for a given task_id.
@@ -73,6 +73,17 @@ pub async fn ensure_sandbox_and_notify(state: &AppState, task_id: &str) -> Resul
         }
         Ok(_) => {
             tracing::info!(task_id = %task_id, "Sandbox starting, skipping notification");
+        }
+        Err(LifecycleError::OperationInProgress { kind }) => {
+            // A concurrent lifecycle op holds the per-Task lock. The persisted
+            // pending message is the reconciler's durable wake input, so this is
+            // never surfaced as an agent error: a toward-Running op already
+            // covers the wake, and a stop/remove is left for the reconciler.
+            if kind.is_toward_running() {
+                tracing::debug!(task_id, ?kind, "message wake coincided with an in-flight start; covered");
+            } else {
+                tracing::info!(task_id, ?kind, "message wake contended with stop/remove; left as pending reconciler input");
+            }
         }
         Err(e) => {
             tracing::warn!(task_id = %task_id, error = %e, "Failed to start sandbox for message delivery");

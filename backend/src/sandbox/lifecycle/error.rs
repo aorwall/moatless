@@ -120,7 +120,9 @@ pub enum LifecycleError {
     /// conflicting operation's `kind` so callers can react without a marker
     /// read — HTTP maps to 409, background to a bounded retry or a return to
     /// the reconciler. Deliberately **not** "Busy" (which already means
-    /// agent/process activity here).
+    /// agent/process activity here). The `kind` is best-effort: in the brief
+    /// window between lock acquisition and the intent write, the holder's marker
+    /// is not yet persisted, so `kind` reports the requester's own kind.
     #[error("operation in progress on task: conflicting {kind}")]
     OperationInProgress { kind: OperationKind },
 

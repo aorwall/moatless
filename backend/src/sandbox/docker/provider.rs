@@ -89,7 +89,7 @@ impl SandboxProvider for DockerSandboxProvider {
                     new_image = %expected,
                     "Sandbox image changed since stop, recreating container"
                 );
-                self.force_remove_container(&container_name, task_id).await;
+                self.force_remove_container(&container_name, task_id).await?;
                 self.remove_server_containers(task_id).await;
             }
             ExistingContainerResult::NotFound => {} // Continue provisioning
@@ -353,12 +353,13 @@ impl SandboxProvider for DockerSandboxProvider {
     ) -> Result<ProvisionResponse, SandboxError> {
         info!(task_id = %task_id, "Redeploying Docker sandbox (remove containers, reprovision)");
 
-        // Remove server containers
+        // Remove server containers (subordinate — best-effort).
         self.remove_server_containers(task_id).await;
 
-        // Remove sandbox container
+        // Strict edge teardown: never provision past a failed remove, or the
+        // fresh plan would reuse the stale sandbox container.
         let container_name = generate_container_name(task_id);
-        self.force_remove_container(&container_name, task_id).await;
+        self.force_remove_container(&container_name, task_id).await?;
 
         // Reprovision with fresh config (workspace dirs on host are preserved)
         self.provision(task_id, request).await
@@ -370,13 +371,14 @@ impl SandboxProvider for DockerSandboxProvider {
         // containers themselves.
         info!(task_id = %task_id, "Cleaning up Docker sandbox");
 
-        // Remove server containers first
+        // Remove server containers first (subordinate — best-effort).
         self.remove_server_containers(task_id).await;
 
         let container_name = generate_container_name(task_id);
 
-        // Force remove sandbox container (stops it if running)
-        self.force_remove_container(&container_name, task_id).await;
+        // Load-bearing: strict removal must not report success while the sandbox
+        // container lingers, and the `Removed` event must not fire on failure.
+        self.force_remove_container(&container_name, task_id).await?;
 
         if let Some(ref publisher) = self.event_publisher {
             publisher
@@ -667,15 +669,22 @@ impl DockerSandboxProvider {
     }
 
     /// Force-remove all server containers for a task.
+    /// Server containers are subordinate runtime resources — best-effort.
     async fn remove_server_containers(&self, task_id: &str) {
         for name in self.list_server_container_names(task_id).await {
-            self.force_remove_container(&name, task_id).await;
+            let _ = self.force_remove_container(&name, task_id).await;
         }
     }
 
-    /// Force-remove a container, ignoring 404 (already gone).
-    async fn force_remove_container(&self, container_name: &str, task_id: &str) {
-        if let Err(e) = self
+    /// Force-remove a container. `Ok` on success or when it is already gone
+    /// (404); a non-404 error propagates so removal can be load-bearing —
+    /// strict cleanup and edge teardown must not proceed past a failed remove.
+    async fn force_remove_container(
+        &self,
+        container_name: &str,
+        task_id: &str,
+    ) -> Result<(), SandboxError> {
+        match self
             .client
             .docker
             .remove_container(
@@ -689,14 +698,16 @@ impl DockerSandboxProvider {
             )
             .await
         {
-            if !matches!(
-                e,
-                bollard::errors::Error::DockerResponseServerError {
-                    status_code: 404,
-                    ..
-                }
-            ) {
+            Ok(()) => Ok(()),
+            Err(bollard::errors::Error::DockerResponseServerError {
+                status_code: 404,
+                ..
+            }) => Ok(()),
+            Err(e) => {
                 warn!(task_id = %task_id, container = %container_name, error = %e, "Failed to remove container");
+                Err(SandboxError::DockerError(format!(
+                    "remove container {container_name}: {e}"
+                )))
             }
         }
     }

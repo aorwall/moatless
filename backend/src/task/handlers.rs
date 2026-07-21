@@ -855,11 +855,7 @@ async fn close_single_task(state: &AppState, task_id: &str) -> Result<(), TaskEr
     // Remove the sandbox (best-effort on close). Preserve S3 archives when
     // configured so the task can later be revived via reopen; a failure leaves
     // the `Removed` intent for the reconciler.
-    let retention = if state.config.sandbox.retain_storage_on_close {
-        ArchiveRetention::RetainArchives
-    } else {
-        ArchiveRetention::DeleteArchives
-    };
+    let retention = ArchiveRetention::on_close(state.config.sandbox.retain_storage_on_close);
     if let Err(e) = state.lifecycle.remove(task_id, retention).await {
         tracing::warn!(task_id, error = %e, "Failed to remove sandbox on close");
     }
@@ -1148,56 +1144,30 @@ pub async fn stop_task(
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
     ensure_can_control_task(&state, &auth, &task_resource(&task)).await?;
 
-    // Stop the agent process via gRPC (keeps sandbox pod running). When this
-    // call succeeds the sandbox publishes `agent.stopped` itself, so we must
-    // not publish it again or the event fan-out doubles per request.
-    let mut sandbox_published_stop = false;
-    match state.sandbox.sandbox_client(&task_id).await {
-        Ok(client) => match client.stop_agent().await {
-            Ok(()) => {
-                sandbox_published_stop = true;
-            }
-            Err(e) => {
-                tracing::warn!(task_id = %task_id, error = %e, "Failed to stop agent via gRPC");
-            }
-        },
-        Err(e) => {
-            tracing::warn!(task_id = %task_id, error = %e, "Failed to get sandbox client for agent stop");
-        }
-    }
-
-    // Fallback publish only when the sandbox couldn't publish for us
-    // (Docker container killed mid-call, pod gone, gRPC unreachable).
-    // `handle_agent_stopped` is the sole owner of `taskTurn.stopped` —
-    // never publish it from here.
-    if !sandbox_published_stop {
-        if let Some(ref events) = state.events {
-            events
-                .publish_agent_event(
-                    &task_id,
-                    moatless_events::AgentSubType::Stopped,
-                    None,
-                    serde_json::json!({}),
-                )
-                .await;
-        }
-    }
-
-    // Update task status and record that this was an intentional user stop.
+    // lifecycle owns the Stopped intent + user reason, stops compute, and issues
+    // the graceful StopAgent. Task status is not lifecycle's to write.
     state
-        .tasks
-        .update_task(
-            &task_id,
-            &TaskPatch {
-                status: Some(TaskStatus::Open),
-                sandbox_desired_state: Some(SandboxDesiredState::Stopped),
-                sandbox_stop_reason: Some(Some(SandboxStopReason::User)),
-                ..Default::default()
-            },
-        )
+        .lifecycle
+        .stop(&task_id, SandboxStopReason::User)
         .await?;
 
-    tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Agent stopped");
+    // Signal the user stop. `handle_agent_stopped` owns the task-status flip
+    // (→ Open unless Closed), the "Stopped by user request" message, and the
+    // taskTurn.stopped fan-out. Its idempotency guard dedupes this against the
+    // agent.stopped the sandbox publishes in response to the graceful StopAgent,
+    // so the stop still lands cleanly when the sandbox is already gone.
+    if let Some(ref events) = state.events {
+        events
+            .publish_agent_event(
+                &task_id,
+                moatless_events::AgentSubType::Stopped,
+                None,
+                serde_json::json!({}),
+            )
+            .await;
+    }
+
+    tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Sandbox stop requested");
 
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

@@ -832,11 +832,7 @@ async fn auto_close_task(
     // Remove the sandbox (best-effort; `Closed` already persisted). Lifecycle
     // issues the graceful agent stop and retains S3 archives per config so an
     // auto-closed task stays revivable.
-    let retention = if app_state.config.sandbox.retain_storage_on_close {
-        ArchiveRetention::RetainArchives
-    } else {
-        ArchiveRetention::DeleteArchives
-    };
+    let retention = ArchiveRetention::on_close(app_state.config.sandbox.retain_storage_on_close);
     if let Err(e) = app_state.lifecycle.remove(task_id, retention).await {
         warn!(task_id, error = %e, "auto-close: sandbox remove failed (continuing)");
     }

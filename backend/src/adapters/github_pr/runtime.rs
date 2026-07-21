@@ -13,10 +13,10 @@ use crate::adapters::models::{
 };
 use crate::adapters::AdapterKind;
 use crate::bindings::dao::PgTaskBindingRepository;
+use crate::sandbox::lifecycle::ArchiveRetention;
 use crate::shared_models::AgentType;
 use crate::state::AppState;
 use crate::task::dao::TaskPatch;
-use crate::sandbox::lifecycle::ArchiveRetention;
 use crate::task::models::{SandboxDesiredState, Task, TaskStatus, Visibility};
 use crate::triggers::rule_dao::PgTaskTriggerRouteRepository;
 
@@ -714,11 +714,7 @@ pub async fn close_tasks_for_pr(
         // Remove the sandbox (best-effort, `Closed` already committed so a
         // teardown failure never leaves a non-terminal task). Lifecycle issues
         // the graceful agent stop and retains S3 archives per config.
-        let retention = if state.config.sandbox.retain_storage_on_close {
-            ArchiveRetention::RetainArchives
-        } else {
-            ArchiveRetention::DeleteArchives
-        };
+        let retention = ArchiveRetention::on_close(state.config.sandbox.retain_storage_on_close);
         if let Err(e) = state.lifecycle.remove(task_id, retention).await {
             warn!(task_id = %task_id, error = %e, "Failed to remove sandbox on PR close");
         }

@@ -260,3 +260,132 @@ fn map_runtime_err(e: SandboxError) -> RuntimeError {
         SandboxError::KubeError(e) => RuntimeError::Infrastructure(e.to_string()),
     }
 }
+
+/// Exercises the real plan path against local Postgres: a bad plan surfaces as a
+/// permanent `Rejected`, not a transient. Gated on `db-tests`.
+#[cfg(all(test, feature = "db-tests"))]
+mod db_tests {
+    use super::super::error::ErrorClass;
+    use super::super::runtime::RuntimeOperationContext;
+    use super::super::test_support::seed_task_with;
+    use super::super::types::OperationGeneration;
+    use super::*;
+
+    use axum::response::sse::Event;
+    use futures::stream::BoxStream;
+    use moatless_events::SandboxStatus;
+    use sqlx::PgPool;
+
+    use crate::auth::provider_token_dao::PgProviderTokenRepository;
+    use crate::plugin_repo::dao::PgPluginRepoRepository;
+    use crate::repository::dao::PgRepoRepository;
+    use crate::sandbox::client::SandboxClient;
+    use crate::sandbox::live_status::LiveStatus;
+    use crate::sandbox::models::{ContainerObservedStatus, ServerConfig};
+    use crate::sandbox::schemas::{ProvisionResponse, SandboxStatusFullResponse};
+    use crate::task::dao::PgTaskRepository;
+    use crate::task::models::{SandboxDesiredState, TaskStatus};
+    use crate::workspace::dao::PgWorkspaceRepository;
+
+    /// The plan is never reached past `observed()`, which only needs a canned
+    /// `live_status`; every mutation is unused here.
+    struct NoopProvider;
+
+    #[async_trait]
+    impl SandboxProvider for NoopProvider {
+        async fn provision(
+            &self,
+            _t: &str,
+            _r: &ProvisionRequest,
+        ) -> Result<ProvisionResponse, SandboxError> {
+            unimplemented!()
+        }
+        async fn sandbox_status(
+            &self,
+            _t: &str,
+            _s: &[ServerConfig],
+            _ts: TaskStatus,
+            _d: SandboxDesiredState,
+        ) -> Result<SandboxStatusFullResponse, SandboxError> {
+            unimplemented!()
+        }
+        async fn live_status(
+            &self,
+            _t: &str,
+            _ts: TaskStatus,
+            _d: SandboxDesiredState,
+        ) -> Result<LiveStatus, SandboxError> {
+            Ok(LiveStatus {
+                sandbox_status: SandboxStatus::NotCreated,
+                agent_status: None,
+                sandbox_error: None,
+            })
+        }
+        fn expected_sandbox_image(&self, _r: Option<&str>) -> String {
+            String::new()
+        }
+        async fn stop(&self, _t: &str) -> Result<(), SandboxError> {
+            unimplemented!()
+        }
+        async fn restart(&self, _t: &str) -> Result<(), SandboxError> {
+            unimplemented!()
+        }
+        async fn redeploy(
+            &self,
+            _t: &str,
+            _r: &ProvisionRequest,
+        ) -> Result<ProvisionResponse, SandboxError> {
+            unimplemented!()
+        }
+        async fn cleanup(&self, _t: &str, _r: bool) -> Result<(), SandboxError> {
+            unimplemented!()
+        }
+        async fn container_statuses(
+            &self,
+            _t: &str,
+        ) -> Result<Vec<ContainerObservedStatus>, SandboxError> {
+            unimplemented!()
+        }
+        async fn server_logs(
+            &self,
+            _t: &str,
+            _s: &str,
+            _p: bool,
+        ) -> Result<BoxStream<'static, Result<Event, SandboxError>>, SandboxError> {
+            unimplemented!()
+        }
+        async fn sandbox_client(&self, _t: &str) -> Result<SandboxClient, SandboxError> {
+            unimplemented!()
+        }
+    }
+
+    fn bridge(pool: PgPool) -> RuntimeBridge {
+        RuntimeBridge::new(
+            Arc::new(NoopProvider),
+            ProvisionDeps {
+                tasks: Arc::new(PgTaskRepository(pool.clone())),
+                repos: Arc::new(PgRepoRepository(pool.clone())),
+                provider_tokens: Arc::new(PgProviderTokenRepository(pool.clone())),
+                plugin_repos: Arc::new(PgPluginRepoRepository(pool.clone())),
+                workspaces: Arc::new(PgWorkspaceRepository(pool)),
+            },
+        )
+    }
+
+    #[sqlx::test]
+    async fn bad_plan_start_is_permanent_rejected(pool: PgPool) {
+        // A Closed task's plan is refused by `build_provision_request`, so the
+        // real plan path surfaces a permanent `Rejected` — not a transient — and
+        // the orchestrator therefore keeps intent without a reconciler retry.
+        seed_task_with(&pool, "t1", "closed", "running").await;
+        let bridge = bridge(pool);
+
+        let err = bridge
+            .ensure_running("t1", RuntimeOperationContext::new(OperationGeneration(1)))
+            .await
+            .expect_err("closed task plan is rejected");
+
+        assert!(matches!(err, RuntimeError::Rejected(_)), "got {err:?}");
+        assert_eq!(err.class(), ErrorClass::Permanent);
+    }
+}
