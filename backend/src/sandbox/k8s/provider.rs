@@ -359,10 +359,10 @@ impl SandboxProvider for K8sSandboxProvider {
         // deletes below are best-effort cleanup for resources created before the
         // ownership chain existed — their failures don't fail cleanup.
         //
-        // The Deployment and PVC deletes are load-bearing: if either fails we
-        // return an error (rather than the old swallow-to-`Ok(())`) so the
-        // caller can retry and the reaper's orphan-GC pass is a backstop, not
-        // the only safety net. A leaked PVC bills indefinitely.
+        // Every load-bearing step feeds `first_err`: a failure returns an error
+        // so the caller retries and the `Removed` completion is withheld. Removal
+        // is strict — it reports success only once every resource is observed
+        // absent (pods drained, PVC gone) and every owed S3 archive is deleted.
         let mut first_err: Option<SandboxError> = None;
 
         if let Err(e) = deployment::delete_deployment(&self.k8s, task_id).await {
@@ -377,9 +377,27 @@ impl SandboxProvider for K8sSandboxProvider {
         if let Err(e) = ingress::delete_task_ingress_routes(&self.k8s, task_id).await {
             warn!(task_id = %task_id, error = %e, "Failed to delete IngressRoutes (best-effort; GC cascades)");
         }
+
+        // Await pod termination before deleting the PVC: a still-mounted PVC
+        // won't delete. Skip the wait if the Deployment delete already failed —
+        // the caller will retry the whole cleanup.
+        if first_err.is_none() {
+            if let Err(e) = deployment::wait_for_pods_deleted(&self.k8s, task_id).await {
+                warn!(task_id = %task_id, error = %e, "Pods did not terminate before PVC delete");
+                first_err.get_or_insert(e);
+            }
+        }
         if let Err(e) = pvc::delete_task_pvc(&self.k8s, task_id).await {
             warn!(task_id = %task_id, error = %e, "Failed to delete PVC");
             first_err.get_or_insert(SandboxError::KubeError(e));
+        }
+        // Strict absence: a delete request returns before reclaim completes, so
+        // await the PVC actually vanishing before reporting success.
+        if first_err.is_none() {
+            if let Err(e) = pvc::wait_for_pvc_deleted(&self.k8s, task_id).await {
+                warn!(task_id = %task_id, error = %e, "PVC did not vanish after delete");
+                first_err.get_or_insert(e);
+            }
         }
 
         if retain_storage {
@@ -390,21 +408,24 @@ impl SandboxProvider for K8sSandboxProvider {
             // still gone — only the S3-backed state survives.
             info!(task_id = %task_id, "Retaining S3 archives on close (revivable)");
         } else {
-            // Delete this task's transcript archive from S3 (`<prefix>/<task_id>/...`).
-            // The per-task PVC delete above doesn't cover it — transcripts live in the
-            // uploads bucket, synced there by the sandbox via backend-proxied gRPC.
-            // Best-effort: a leftover object is harmless and the bucket lifecycle rule
-            // eventually expires it. No-op when S3 isn't configured. Run this even on
-            // a K8s delete failure — it's cheap and independent.
-            self.delete_task_transcripts(task_id).await;
-
-            // Delete this task's `s3`-backend workspace archive too (`<prefix>/<task_id>/`).
-            // No-op for `ebs`/`ephemeral` tasks (nothing under the prefix).
-            self.delete_task_sandbox(task_id).await;
+            // Delete this task's transcript and `s3`-backend workspace archives
+            // (`<prefix>/<task_id>/...`). These live in the uploads bucket, not
+            // the PVC, so the per-task PVC delete above doesn't cover them. The
+            // deletes are load-bearing: a "successful" remove must not leave an
+            // archive behind. No-op when S3 isn't configured or the prefix is
+            // empty (`ebs`/`ephemeral` tasks).
+            if let Err(e) = self.delete_task_transcripts(task_id).await {
+                warn!(task_id = %task_id, error = %e, "Failed to delete task transcripts from S3");
+                first_err.get_or_insert(e);
+            }
+            if let Err(e) = self.delete_task_sandbox(task_id).await {
+                warn!(task_id = %task_id, error = %e, "Failed to delete task workspace from S3");
+                first_err.get_or_insert(e);
+            }
         }
 
-        // Surface a K8s delete failure to the caller instead of the old
-        // swallow-to-`Ok(())`. Skip the "Removed" event — resources may linger.
+        // Surface any load-bearing failure to the caller. Skip the "Removed"
+        // event — resources or archives may linger for a retry.
         if let Some(e) = first_err {
             return Err(e);
         }
@@ -665,54 +686,54 @@ impl K8sSandboxProvider {
     /// Best-effort delete of a task's transcript archive from S3.
     ///
     /// Removes every object under `<transcript_prefix>/<task_id>/` in the uploads
-    /// bucket. No-op when S3 or the bucket isn't configured. Errors are logged,
-    /// never propagated — cleanup must not fail on a stray transcript object.
-    async fn delete_task_transcripts(&self, task_id: &str) {
+    /// bucket. No-op when S3 or the bucket isn't configured. On a hard delete the
+    /// removal is load-bearing: a failure propagates so `cleanup` can withhold
+    /// the `Removed` completion and leave the archive obligation for a retry.
+    async fn delete_task_transcripts(&self, task_id: &str) -> Result<(), SandboxError> {
         let (Some(s3), Some(bucket)) = (self.s3.as_ref(), self.config.s3.bucket_name.as_deref())
         else {
-            return;
+            return Ok(());
         };
         let prefix = format!(
             "{}/{}/",
             self.config.s3.transcript_prefix.trim_end_matches('/'),
             task_id
         );
-        match crate::file_storage::s3::delete_objects_by_prefix(s3, bucket, &prefix).await {
-            Ok(0) => {}
-            Ok(n) => {
-                info!(task_id, deleted = n, prefix = %prefix, "Deleted task transcripts from S3");
-            }
-            Err(e) => {
-                warn!(task_id, error = %e, prefix = %prefix, "Failed to delete task transcripts from S3");
-            }
+        let deleted = crate::file_storage::s3::delete_objects_by_prefix(s3, bucket, &prefix)
+            .await
+            .map_err(|e| {
+                SandboxError::Internal(format!("delete transcripts for {task_id}: {e}"))
+            })?;
+        if deleted > 0 {
+            info!(task_id, deleted, prefix = %prefix, "Deleted task transcripts from S3");
         }
+        Ok(())
     }
 
-    /// Best-effort delete of a task's `s3`-backend workspace archive from S3.
+    /// Delete of a task's `s3`-backend workspace archive from S3.
     ///
     /// Removes every object under `<workspace_prefix>/<task_id>/` in the uploads
     /// bucket — the counterpart to the sandbox's presigned uploads. No-op when
     /// S3 or the bucket isn't configured, or for tasks that never used the `s3`
-    /// backend (the prefix is simply empty). Errors are logged, never propagated.
-    async fn delete_task_sandbox(&self, task_id: &str) {
+    /// backend (the prefix is simply empty). Load-bearing like
+    /// [`Self::delete_task_transcripts`]: a failure propagates.
+    async fn delete_task_sandbox(&self, task_id: &str) -> Result<(), SandboxError> {
         let (Some(s3), Some(bucket)) = (self.s3.as_ref(), self.config.s3.bucket_name.as_deref())
         else {
-            return;
+            return Ok(());
         };
         let prefix = format!(
             "{}/{}/",
             self.config.s3.workspace_prefix.trim_end_matches('/'),
             task_id
         );
-        match crate::file_storage::s3::delete_objects_by_prefix(s3, bucket, &prefix).await {
-            Ok(0) => {}
-            Ok(n) => {
-                info!(task_id, deleted = n, prefix = %prefix, "Deleted task workspace from S3");
-            }
-            Err(e) => {
-                warn!(task_id, error = %e, prefix = %prefix, "Failed to delete task workspace from S3");
-            }
+        let deleted = crate::file_storage::s3::delete_objects_by_prefix(s3, bucket, &prefix)
+            .await
+            .map_err(|e| SandboxError::Internal(format!("delete workspace for {task_id}: {e}")))?;
+        if deleted > 0 {
+            info!(task_id, deleted, prefix = %prefix, "Deleted task workspace from S3");
         }
+        Ok(())
     }
 
     /// Check for existing pod — returns richer result for idempotent provisioning.
