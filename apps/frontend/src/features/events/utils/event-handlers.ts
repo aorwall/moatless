@@ -1,7 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query'
 import { refreshNewestMessagesPage } from '@/features/tasks/hooks/use-tasks'
 import { queryKeys } from '@/lib/api/query-keys'
-import { removeMessage, upsertMessageByUuid } from '@/lib/api/task-cache'
+import { applySubagentProgress, removeMessage, upsertMessageByUuid } from '@/lib/api/task-cache'
 import { extractToolNames, hasTools } from '@/lib/types/content-guards'
 import type { Event, MessageEvent } from '@/lib/types/events'
 import type { MoatlessToolName } from '@/lib/types/tools'
@@ -184,7 +184,43 @@ export function applyMessageEvent(event: MessageEvent, queryClient: QueryClient)
     removeMessage(queryClient, event.taskId, event.payload.uuid)
     return
   }
+  if (event.subType === 'subagentProgress') {
+    // Write the absolute summary through onto the cached parent's `Agent`
+    // block (idempotent), then debounce-refetch the transcript so an expanded
+    // card refreshes live without streaming subagent content.
+    applySubagentProgress(queryClient, event.taskId, event.payload)
+    scheduleSubagentTranscriptRefetch(queryClient, event.taskId, event.payload.toolUseId)
+    return
+  }
   upsertMessageByUuid(queryClient, event.taskId, event.payload)
+}
+
+/**
+ * Debounce transcript refetches per `(taskId, toolUseId)`: a burst of
+ * `subagentProgress` ticks coalesces into one refetch of the (expanded)
+ * transcript query. A collapsed card's query is inactive, so it is only marked
+ * stale and reloads the next time the card is expanded.
+ */
+const SUBAGENT_REFETCH_DEBOUNCE_MS = 300
+const subagentRefetchTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+function scheduleSubagentTranscriptRefetch(
+  queryClient: QueryClient,
+  taskId: string,
+  toolUseId: string,
+): void {
+  const key = `${taskId}:${toolUseId}`
+  const existing = subagentRefetchTimers.get(key)
+  if (existing) {
+    clearTimeout(existing)
+  }
+  const timer = setTimeout(() => {
+    subagentRefetchTimers.delete(key)
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.tasks.subagentTranscript(taskId, toolUseId),
+    })
+  }, SUBAGENT_REFETCH_DEBOUNCE_MS)
+  subagentRefetchTimers.set(key, timer)
 }
 
 /**

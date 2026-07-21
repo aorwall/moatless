@@ -529,6 +529,25 @@ export function useTaskToolCall(
   })
 }
 
+/**
+ * Fetch a subagent's assembled transcript on demand, keyed on the spawning
+ * `Agent` tool-use id. Disabled until the caller expands the `Agent` card, so
+ * subagent transcript content never rides the firehose. A `subagentProgress`
+ * tick invalidates this query (debounced) so an expanded card refreshes live.
+ */
+export function useSubagentTranscript(
+  taskId: string,
+  toolUseId: string | null | undefined,
+  enabled: boolean,
+) {
+  const id = toolUseId ?? ''
+  return useQuery({
+    queryKey: queryKeys.tasks.subagentTranscript(taskId, id),
+    queryFn: () => tasksApi.getSubagentTranscript(taskId, id),
+    enabled: enabled && !!taskId && !!id,
+  })
+}
+
 export function useCloseTask(taskId: string, options?: UseMutationOptions<TaskResponse, Error>) {
   const queryClient = useQueryClient()
 

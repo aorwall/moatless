@@ -8,6 +8,7 @@ import type {
   MessageContextInput,
   SendMessageRequestToolResponse,
   SendMessageResponse,
+  SubagentTranscriptResponse,
   TaskResponse,
   ToolCallDetailResponse,
   UiMessage,
@@ -17,6 +18,7 @@ import { customInstance, unwrapResponse } from '@moatless/api-client/custom-inst
 import {
   deleteQueuedMessage as deleteQueuedMessageHandler,
   getMessages as getMessagesHandler,
+  getSubagentTranscript as getSubagentTranscriptHandler,
   getToolCallDetail as getToolCallDetailHandler,
   sendMessage as sendMessageHandler,
 } from '@moatless/api-client/sandbox/messages/messages'
@@ -223,6 +225,13 @@ export const tasksApi = {
 
   async getToolCallDetail(taskId: string, toolUseId: string): Promise<ToolCallDetailResponse> {
     return await unwrapResponse(getToolCallDetailHandler(taskId, toolUseId))
+  },
+
+  async getSubagentTranscript(
+    taskId: string,
+    toolUseId: string,
+  ): Promise<SubagentTranscriptResponse> {
+    return await unwrapResponse(getSubagentTranscriptHandler(taskId, toolUseId))
   },
 
   async closeTask(taskId: string): Promise<TaskResponse> {

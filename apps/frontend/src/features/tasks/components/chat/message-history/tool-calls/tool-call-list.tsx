@@ -1,4 +1,4 @@
-import type { UiContentBlock, UiMessage, UiToolResult } from '@moatless/api-client'
+import type { UiContentBlock, UiToolResult } from '@moatless/api-client'
 import { SubagentToolCall } from './subagent-tool-call.tsx'
 import { ToolCallComponent } from './tool-call.tsx'
 
@@ -12,7 +12,6 @@ export function renderToolCalls(
   expandedToolCalls: Set<string>,
   onToggleToolCall: (toolUseId: string) => void,
   hasPendingUserInput: boolean | null | undefined,
-  subagentsByToolUseId?: Record<string, UiMessage[]>,
   parentMessageUuid?: string,
 ): React.ReactNode {
   if (toolCalls.length === 0) {
@@ -22,14 +21,16 @@ export function renderToolCalls(
   return (
     <div className="space-y-2 w-full max-w-full">
       {toolCalls.map((toolCall) => {
-        // Render Agent tool calls with SubagentToolCall component
+        // Render Agent tool calls with SubagentToolCall component. The collapsed
+        // card reads the server-derived `subagentSummary`; the transcript is
+        // fetched on demand when expanded.
         if (toolCall.toolName === 'Agent' && toolCall.toolUseId) {
           return (
             <SubagentToolCall
               key={toolCall.toolUseId}
+              taskId={taskId}
               content={toolCall}
               toolResult={toolResultMap.get(toolCall.toolUseId)}
-              subagentMessages={subagentsByToolUseId?.[toolCall.toolUseId]}
               expanded={expandedToolCalls.has(toolCall.toolUseId)}
               onToggle={() => onToggleToolCall(toolCall.toolUseId || '')}
             />

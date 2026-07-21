@@ -9,15 +9,58 @@ import {
   XCircle,
 } from 'lucide-react'
 import { useState } from 'react'
+import { useSubagentTranscript } from '@/features/tasks/hooks/use-tasks'
 import { Badge } from '@/lib/components/ui/badge'
 import { cn } from '@/lib/utils'
 
 interface SubagentToolCallProps {
+  taskId: string | undefined
   content: UiContentBlock
   toolResult?: UiToolResult | undefined
-  subagentMessages?: UiMessage[] | undefined
   expanded: boolean
   onToggle: () => void
+}
+
+/** Compact token count: `1234` → `1.2k`. */
+function formatTokens(tokens: number): string {
+  return tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : String(tokens)
+}
+
+type SubagentStatusKind = 'running' | 'completed' | 'error'
+
+interface SubagentDisplay {
+  description: string
+  status: SubagentStatusKind
+  messageCount: number
+  tokens: number
+}
+
+/**
+ * Derive the collapsed card's display from the server summary — a pure read of
+ * `content.subagentSummary`, falling back to the inlined outer tool_result only
+ * when a summary hasn't been injected yet.
+ */
+function deriveSubagentDisplay(
+  content: UiContentBlock,
+  toolResult: UiToolResult | undefined,
+): SubagentDisplay {
+  const input = content.toolInput as { prompt?: string; description?: string } | undefined
+  const description = input?.description || input?.prompt?.slice(0, 60) || 'Subagent task'
+
+  const summary = content.subagentSummary ?? undefined
+  let status: SubagentStatusKind = 'running'
+  if (summary) {
+    status = summary.status
+  } else if (toolResult) {
+    status = toolResult.isError ? 'error' : 'completed'
+  }
+
+  return {
+    description,
+    status,
+    messageCount: summary?.messageCount ?? 0,
+    tokens: summary?.tokens ?? 0,
+  }
 }
 
 interface NestedToolCallItemProps {
@@ -103,25 +146,22 @@ function NestedToolCallItem({ message }: NestedToolCallItemProps) {
 }
 
 export function SubagentToolCall({
+  taskId,
   content,
   toolResult,
-  subagentMessages,
   expanded,
   onToggle,
 }: SubagentToolCallProps) {
-  const input = content.toolInput as { prompt?: string; description?: string } | undefined
-  const description = input?.description || input?.prompt?.slice(0, 60) || 'Subagent task'
+  const { description, status, messageCount, tokens } = deriveSubagentDisplay(content, toolResult)
+  const isComplete = status === 'completed'
+  const isError = status === 'error'
+  const isRunning = status === 'running'
 
-  // Determine status
-  const isComplete = !!toolResult
-  const isError = toolResult?.isError
-  const isRunning = !isComplete && subagentMessages && subagentMessages.length > 0
-
-  // Count tool calls in subagent messages
-  const toolCallCount =
-    subagentMessages?.reduce((count, msg) => {
-      return count + msg.content.filter((c) => c.type === 'tool_use').length
-    }, 0) ?? 0
+  // The full transcript is fetched on demand only while expanded, so subagent
+  // content never rides the firehose. A `subagentProgress` tick debounce-
+  // refetches this query, keeping an expanded card live.
+  const transcript = useSubagentTranscript(taskId ?? '', content.toolUseId, expanded && !!taskId)
+  const subagentMessages: UiMessage[] = transcript.data?.messages ?? []
 
   return (
     <div className="text-xs font-mono w-full max-w-full">
@@ -152,9 +192,14 @@ export function SubagentToolCall({
 
             {/* Status indicators */}
             <div className="flex items-center gap-1.5 ml-auto flex-shrink-0">
-              {toolCallCount > 0 && (
+              {messageCount > 0 && (
                 <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                  {toolCallCount} tool{toolCallCount !== 1 ? 's' : ''}
+                  {messageCount} msg
+                </Badge>
+              )}
+              {tokens > 0 && (
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                  {formatTokens(tokens)} tok
                 </Badge>
               )}
               {isRunning && <Loader2 className="h-3 w-3 text-purple-500 animate-spin" />}
@@ -163,8 +208,14 @@ export function SubagentToolCall({
             </div>
           </button>
 
-          {/* Expanded content - nested tool calls */}
-          {expanded && subagentMessages && subagentMessages.length > 0 && (
+          {/* Expanded content — on-demand subagent transcript */}
+          {expanded && transcript.isLoading && subagentMessages.length === 0 && (
+            <div className="mt-2 ml-2 flex items-center gap-1.5 text-muted-foreground pl-3">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              <span>Loading transcript…</span>
+            </div>
+          )}
+          {expanded && subagentMessages.length > 0 && (
             <div className="mt-2 ml-2 border-l-2 border-purple-500/30 pl-3 space-y-2">
               {subagentMessages.map((msg) => (
                 <NestedToolCallItem key={msg.uuid} message={msg} />

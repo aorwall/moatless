@@ -1,10 +1,6 @@
 import type { SandboxStatus, UiMessage } from '@moatless/api-client'
 import { ArrowDown, Loader2 } from 'lucide-react'
 import { Fragment, type ReactNode, useLayoutEffect, useRef, useState } from 'react'
-import {
-  groupSubagentMessages,
-  type UiMessageWithSubagents,
-} from '@/features/tasks/utils/group-messages.ts'
 import { ErrorBoundary } from '@/lib/components/error-boundary.tsx'
 import { Button } from '@/lib/components/ui/button.tsx'
 import { cn } from '@/lib/utils'
@@ -32,8 +28,8 @@ import { renderToolCalls } from './tool-calls/tool-call-list.tsx'
 import { UserMessageComponent } from './user-message.tsx'
 
 type RenderItem =
-  | { kind: 'message'; message: UiMessageWithSubagents }
-  | { kind: 'cluster'; key: string; messages: UiMessageWithSubagents[] }
+  | { kind: 'message'; message: UiMessage }
+  | { kind: 'cluster'; key: string; messages: UiMessage[] }
 
 const renderMessageFallback = (error: Error) => (
   <div className="text-xs text-destructive border border-destructive/30 bg-destructive/5 rounded px-2 py-1.5">
@@ -44,7 +40,7 @@ const renderMessageFallback = (error: Error) => (
 // "Clusterable" = a normal assistant message we're willing to fold into a
 // command-cluster. Special types (transcript_only, compact_summary, codex
 // reasoning/error cards) keep their own rendering and break the cluster.
-function isClusterableAssistantMessage(message: UiMessageWithSubagents): boolean {
+function isClusterableAssistantMessage(message: UiMessage): boolean {
   if (message.role !== 'assistant') {
     return false
   }
@@ -65,7 +61,7 @@ function isClusterableAssistantMessage(message: UiMessageWithSubagents): boolean
   return true
 }
 
-function messageHasToolCalls(message: UiMessageWithSubagents): boolean {
+function messageHasToolCalls(message: UiMessage): boolean {
   return parseMessageContent(message.content).toolCalls.length > 0
 }
 
@@ -76,7 +72,7 @@ function messageHasToolCalls(message: UiMessageWithSubagents): boolean {
 // agent's final response) stay standalone so the viewer still sees real
 // content. If the run has no tool calls at all, every message renders
 // standalone.
-function emitRun(run: UiMessageWithSubagents[], items: RenderItem[]): void {
+function emitRun(run: UiMessage[], items: RenderItem[]): void {
   let lastToolIdx = -1
   for (let k = 0; k < run.length; k++) {
     const msg = run[k]
@@ -105,12 +101,12 @@ function emitRun(run: UiMessageWithSubagents[], items: RenderItem[]): void {
   }
 }
 
-function buildRenderItems(messages: UiMessageWithSubagents[], cluster: boolean): RenderItem[] {
+function buildRenderItems(messages: UiMessage[], cluster: boolean): RenderItem[] {
   if (!cluster) {
     return messages.map((message) => ({ kind: 'message', message }))
   }
   const items: RenderItem[] = []
-  let run: UiMessageWithSubagents[] = []
+  let run: UiMessage[] = []
   const flushRun = () => {
     if (run.length > 0) {
       emitRun(run, items)
@@ -135,7 +131,7 @@ function itemId(item: RenderItem): string {
 
 interface CommandClusterProps {
   taskId?: string | undefined
-  messages: UiMessageWithSubagents[]
+  messages: UiMessage[]
   expandedToolCalls: Set<string>
   onToggleToolCall: (toolUseId: string) => void
 }
@@ -158,7 +154,6 @@ function CommandCluster({
       expandedToolCalls,
       onToggleToolCall,
       message.hasPendingUserInput,
-      message.subagentsByToolUseId,
       message.uuid,
     )
     if (node) {
@@ -252,22 +247,22 @@ function MessageHistoryComponent({
     })
   }
 
-  // Subagent messages are attached under their parent Agent tool call. We
-  // also drop empty-content rows here — backend pagination keeps them in the
-  // page count so the cursor stays honest, but they shouldn't render as
-  // blank gaps.
   const flattenedMessages = (() => {
     if (!messages) {
       return []
     }
-    const renderable = messages.filter(
+    // Subagent rows are excluded server-side (GET /messages filters
+    // `parent_uuid IS NULL`); the collapsed `Agent` card renders from the
+    // block's `subagentSummary` and fetches its transcript on demand. We only
+    // drop empty-content rows here — backend pagination keeps them in the page
+    // count so the cursor stays honest, but they shouldn't render as blank gaps.
+    return messages.filter(
       (m) =>
         m.content.length > 0 ||
         (m.toolResults && m.toolResults.length > 0) ||
         m.result != null ||
         m.hasPendingUserInput === true,
     )
-    return groupSubagentMessages(renderable)
   })()
 
   // Scroll to the bottom on initial load (and on task switch).

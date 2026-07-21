@@ -1,7 +1,7 @@
+import type { UiMessage } from '@moatless/api-client'
 import { MessageSquare } from 'lucide-react'
 import { useState } from 'react'
 import { useTaskFeedbackIndex } from '@/features/feedback/hooks/use-task-feedback'
-import type { UiMessageWithSubagents } from '@/features/tasks/utils/group-messages'
 import { Response } from '@/lib/components/ai-elements/response'
 import { CodexErrorCard, CodexReasoningCard } from './codex-cards.tsx'
 import { renderCollapsedMessage } from './collapsed-message.tsx'
@@ -11,7 +11,7 @@ import { renderToolCalls } from './tool-calls/tool-call-list.tsx'
 
 interface AssistantMessageProps {
   taskId?: string | undefined
-  message: UiMessageWithSubagents
+  message: UiMessage
   expandedToolCalls: Set<string>
   onToggleToolCall: (toolUseId: string) => void
 }
@@ -91,7 +91,6 @@ export function AssistantMessageComponent({
       onToggleToolCall,
       message.hasPendingUserInput,
       message.externalSource,
-      message.subagentsByToolUseId,
       message.uuid,
     )
   }
@@ -119,7 +118,6 @@ export function AssistantMessageComponent({
         expandedToolCalls,
         onToggleToolCall,
         message.hasPendingUserInput,
-        message.subagentsByToolUseId,
         message.uuid,
       )}
     </div>
