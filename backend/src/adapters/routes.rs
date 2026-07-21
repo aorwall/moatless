@@ -38,7 +38,6 @@ use crate::{bindings, triggers};
         bindings::handlers::add_message_reaction,
         bindings::handlers::remove_message_reaction,
         slack::handlers::slack_webhook,
-        slack::handlers::slack_slash_command,
         telegram::handlers::telegram_webhook,
         github_pr::handlers::github_webhook,
         github_pr::api_routes::create_pr,
@@ -86,7 +85,6 @@ pub fn adapter_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenAp
         .routes(routes!(bindings::handlers::add_message_reaction))
         .routes(routes!(bindings::handlers::remove_message_reaction))
         .routes(routes!(slack::handlers::slack_webhook))
-        .routes(routes!(slack::handlers::slack_slash_command))
         .routes(routes!(telegram::handlers::telegram_webhook))
         .routes(routes!(github_pr::handlers::github_webhook))
         .routes(routes!(github_pr::api_routes::create_pr))

@@ -242,19 +242,3 @@ async fn send_message_success(pool: PgPool) {
     assert_eq!(body["status"], "sent");
     assert!(body["timestamp"].as_str().is_some());
 }
-
-#[sqlx::test]
-async fn send_message_command_not_found(pool: PgPool) {
-    seed_task(&pool, "task-1", "user-1").await;
-
-    let app = build_router(pool);
-    let req = authed_json_request(
-        "POST",
-        "/api/v1/tasks/task-1/messages",
-        "user-1",
-        serde_json::json!({"message": "", "commandName": "nonexistent-cmd"}),
-    );
-    let resp = app.oneshot(req).await.unwrap();
-
-    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
-}

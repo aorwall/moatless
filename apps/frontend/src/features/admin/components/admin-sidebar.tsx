@@ -8,7 +8,6 @@ import {
   Link2,
   Package,
   Plug,
-  Terminal,
   Users,
 } from 'lucide-react'
 import type { ComponentType, SVGProps } from 'react'
@@ -59,7 +58,6 @@ const ADMIN_NAV: AdminNavGroup[] = [
       { label: 'Teams', to: '/admin/teams', icon: Building2 },
       { label: 'Secrets', to: '/admin/secrets', icon: KeyRound },
       { label: 'Marketplaces', to: '/admin/marketplaces', icon: Package },
-      { label: 'Commands', to: '/admin/commands', icon: Terminal },
     ],
   },
 ]

@@ -81,7 +81,6 @@ pub async fn run(
         let req = SendMessageRequest {
             message: text,
             agent_mode: args.mode.map(AgentMode),
-            command_name: None,
             contexts: Vec::new(),
             file_ids: Vec::new(),
             model: None,

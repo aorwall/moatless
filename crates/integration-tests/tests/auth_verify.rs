@@ -32,9 +32,7 @@ fn task_request(repository_id: String, message: &str) -> CreateTaskRequest {
         contexts: vec![],
         file_ids: vec![],
         model: None,
-        command_name: None,
         headless: None,
-        task_template_id: None,
         parent_task_id: None,
     }
 }

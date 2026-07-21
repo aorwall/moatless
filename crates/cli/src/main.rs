@@ -104,12 +104,6 @@ enum SharedCommands {
         #[command(subcommand)]
         action: commands::secrets::SecretAction,
     },
-    /// Command management
-    #[command(name = "commands")]
-    Commands {
-        #[command(subcommand)]
-        action: commands::command_mgmt::CommandAction,
-    },
     /// List tags
     Tags,
     /// Kubernetes installation workflow (preflight, init, secrets, install, status)
@@ -142,11 +136,6 @@ enum SharedCommands {
     Messages {
         #[command(subcommand)]
         action: commands::messages::MessageAction,
-    },
-    /// Task template management
-    Templates {
-        #[command(subcommand)]
-        action: Box<commands::templates::TemplateAction>,
     },
 }
 
@@ -411,9 +400,6 @@ async fn run_shared(
         SharedCommands::Plugins { action } => {
             commands::plugins::run(moat, action, json).await?;
         }
-        SharedCommands::Commands { action } => {
-            commands::command_mgmt::run(moat, action, json).await?;
-        }
         SharedCommands::Tags => {
             let tags = moat.api().list_tags().await?;
             if json {
@@ -433,9 +419,6 @@ async fn run_shared(
         }
         SharedCommands::Bot { action } => {
             commands::bots::run(moat, action, json).await?;
-        }
-        SharedCommands::Templates { action } => {
-            commands::templates::run(moat, *action, json).await?;
         }
         SharedCommands::Send(args) => {
             commands::send::run(moat, *args, cfg, json).await?;

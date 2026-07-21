@@ -1,6 +1,5 @@
 import { Sparkles } from 'lucide-react'
 import { useEffect, useRef } from 'react'
-import { getCommandIcon } from '@/features/tasks/components/chat-view/command-icons'
 import type { Suggestion } from './use-command-autocomplete'
 
 interface CommandAutocompleteProps {
@@ -40,7 +39,7 @@ export function CommandAutocomplete({
         data-testid="command-autocomplete"
         className={`absolute z-50 ${positionClasses} max-h-60 w-full overflow-auto rounded-md bg-background border shadow-lg p-2`}
       >
-        <div className="text-sm text-muted-foreground">No commands found</div>
+        <div className="text-sm text-muted-foreground">No skills found</div>
       </div>
     )
   }
@@ -53,14 +52,11 @@ export function CommandAutocomplete({
     >
       {commands.map((suggestion, index) => {
         const isSelected = index === selectedIndex
-        const Icon =
-          suggestion.kind === 'command' ? getCommandIcon(suggestion.icon ?? undefined) : Sparkles
+        const Icon = Sparkles
         const badge =
-          suggestion.kind === 'skill'
-            ? suggestion.source === 'plugin' && suggestion.pluginRepoName
-              ? suggestion.pluginRepoName
-              : 'skill'
-            : null
+          suggestion.source === 'plugin' && suggestion.pluginRepoName
+            ? suggestion.pluginRepoName
+            : 'skill'
         return (
           <button
             key={suggestionKey(suggestion)}

@@ -305,7 +305,6 @@ mod tests {
             result: None,
             sdk_metadata: None,
             external_source: None,
-            command_name: None,
             parent_uuid: None,
             source_task_id: None,
             sent_by: None,

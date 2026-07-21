@@ -8,7 +8,6 @@
 export * from './sandbox/adapters/adapters'
 export * from './sandbox/api-keys/api-keys'
 export * from './sandbox/auth/auth'
-export * from './sandbox/commands/commands'
 export * from './sandbox/file-storage/file-storage'
 export * from './sandbox/messages/messages'
 export * from './sandbox/model'

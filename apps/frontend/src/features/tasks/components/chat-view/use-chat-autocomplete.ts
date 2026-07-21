@@ -10,16 +10,16 @@ interface UseChatAutocompleteOptions {
   taskId: string
   message: string
   setMessage: (message: string) => void
-  /** Merged command + skill suggestions for the "/" dropdown. */
+  /** Skill suggestions for the "/" dropdown. */
   suggestions: Suggestion[]
-  /** Command autocomplete is disabled while the agent is running. */
+  /** Skill autocomplete is disabled while the agent is running. */
   commandsEnabled: boolean
 }
 
 /**
- * Composes the "@" file autocomplete and the "/" command autocomplete over the
+ * Composes the "@" file autocomplete and the "/" skill autocomplete over the
  * chat textarea: a shared input-change handler that feeds both from the cursor
- * position, and a combined key handler (commands take precedence).
+ * position, and a combined key handler (skills take precedence).
  */
 export function useChatAutocomplete({
   taskId,
@@ -52,16 +52,14 @@ export function useChatAutocomplete({
     error: fileSearchMutation.error,
   })
 
-  // Command autocomplete hook (client-side filtering, no extra API call)
+  // Skill autocomplete hook (client-side filtering, no extra API call)
   const {
     isOpen: isCommandAutocompleteOpen,
     filteredCommands,
     selectedIndex: commandSelectedIndex,
-    selectedCommand,
     handleInputChange: handleCommandInputChange,
     handleKeyDown: handleCommandKeyDown,
     selectCommand,
-    clearSelectedCommand,
   } = useCommandAutocomplete({
     onValueChange: setMessage,
     suggestions,
@@ -79,7 +77,7 @@ export function useChatAutocomplete({
     }
   }
 
-  // Compose key handlers: command autocomplete first, then file autocomplete
+  // Compose key handlers: skill autocomplete first, then file autocomplete
   const handleCombinedKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     handleCommandKeyDown(e)
     if (!e.defaultPrevented) {
@@ -91,8 +89,6 @@ export function useChatAutocomplete({
     textareaRef,
     handleMessageChange,
     handleCombinedKeyDown,
-    selectedCommand,
-    clearSelectedCommand,
     fileAutocomplete: {
       isOpen: isFileAutocompleteOpen,
       results: fileResults,

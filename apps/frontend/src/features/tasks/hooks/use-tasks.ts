@@ -1,5 +1,4 @@
 import type {
-  CommandResponse,
   CreateTaskRequest,
   CreateTaskResponse,
   ListTasksResponse,
@@ -253,10 +252,6 @@ export function useCreateTask(
         })
       }
 
-      // A new task was created — bump template usage counts so featured chips refresh
-      queryClient.invalidateQueries({ queryKey: queryKeys.taskTemplates.featured() })
-      queryClient.invalidateQueries({ queryKey: queryKeys.taskTemplates.list() })
-
       options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
     },
     onError: (error, variables, onMutateResult, mutationContext) => {
@@ -279,7 +274,6 @@ interface SendMessageVariables {
   fileUploads?:
     | Array<{ fileId: string; filename: string; mimeType: string; size: number }>
     | undefined
-  commandName?: string | undefined
   agentMode?: string | undefined
   contexts?: MessageContextInput[] | undefined
   toolUseId?: string | undefined
@@ -366,7 +360,6 @@ export function useSendMessage(
         timestamp: new Date().toISOString(),
         messageType: 'user',
         ...(isQueued ? { isQueued: true } : {}),
-        ...(variables.commandName ? { commandName: variables.commandName } : {}),
         ...(optimisticContexts.length > 0 ? { contexts: optimisticContexts } : {}),
       }
 
@@ -541,18 +534,6 @@ export function useTaskToolCall(
     queryFn: () => tasksApi.getToolCallDetail(taskId, id),
     enabled: enabled && !!taskId && !!id,
     staleTime: Number.POSITIVE_INFINITY,
-    ...options,
-  })
-}
-
-export function useTaskCommands(
-  taskId: string,
-  options?: Omit<UseQueryOptions<CommandResponse[]>, 'queryKey' | 'queryFn'>,
-) {
-  return useQuery({
-    queryKey: queryKeys.tasks.commands(taskId),
-    queryFn: () => tasksApi.getTaskCommands(taskId),
-    enabled: !!taskId,
     ...options,
   })
 }

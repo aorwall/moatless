@@ -1,5 +1,5 @@
 import type { UiMessage } from '@moatless/api-client'
-import { ChevronDown, ChevronRight, Eye, FileText, Terminal } from 'lucide-react'
+import { ChevronDown, ChevronRight, Eye, FileText } from 'lucide-react'
 import { useState } from 'react'
 import { ContextItems } from '@/features/tasks/components/chat/chat-input/context-items'
 import { Message, MessageContent } from '@/lib/components/ai-elements/message'
@@ -82,11 +82,6 @@ export function UserMessageComponent({ message, onPreviewUrlClick }: UserMessage
   return (
     <Message from="user">
       <MessageContent variant="flat">
-        {message.commandName && (
-          <span className="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-0.5 text-xs font-medium text-muted-foreground mb-1">
-            <Terminal className="h-3 w-3" />/{message.commandName}
-          </span>
-        )}
         <div className="max-w-none break-words">{textContent}</div>
         {contexts.length > 0 && (
           <ContextItems contexts={contexts} onPreviewUrlClick={onPreviewUrlClick} />

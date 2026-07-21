@@ -16,10 +16,6 @@ interface TaskPanelControls {
   navigatePreview(path: string): void
   /** Reload the preview iframe (backed by the registered reloader; no-op if none). */
   reloadPreview(): void
-  /** Invoke the command executor registered by the chat panel (no-op if none). */
-  executeCommand(name: string): void
-  /** Register the chat panel's command executor; returns an unregister fn. */
-  registerCommandExecutor(fn: (name: string) => void): () => void
   /** Register the active layout's chat-toggle impl; returns an unregister fn. */
   registerChatToggle(fn: () => void): () => void
   /** Register the preview's imperative navigator; returns an unregister fn. */
@@ -40,7 +36,6 @@ export function TaskPanelControlsProvider({ children }: { children: ReactNode })
   }, [setView])
 
   const chatToggleRef = useRef<(() => void) | null>(null)
-  const commandExecutorRef = useRef<((name: string) => void) | null>(null)
   const previewNavigateRef = useRef<((path: string) => void) | null>(null)
   const previewReloadRef = useRef<(() => void) | null>(null)
 
@@ -55,16 +50,6 @@ export function TaskPanelControlsProvider({ children }: { children: ReactNode })
 
     navigatePreview: (path) => previewNavigateRef.current?.(path),
     reloadPreview: () => previewReloadRef.current?.(),
-    executeCommand: (name) => commandExecutorRef.current?.(name),
-
-    registerCommandExecutor: (fn) => {
-      commandExecutorRef.current = fn
-      return () => {
-        if (commandExecutorRef.current === fn) {
-          commandExecutorRef.current = null
-        }
-      }
-    },
 
     registerChatToggle: (fn) => {
       chatToggleRef.current = fn

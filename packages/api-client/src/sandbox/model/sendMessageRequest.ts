@@ -11,8 +11,6 @@ import type { SendMessageRequestToolResponse } from './sendMessageRequestToolRes
 
 export interface SendMessageRequest {
   agentMode?: null | AgentMode;
-  /** @nullable */
-  commandName?: string | null;
   contexts?: MessageContextInput[];
   fileIds?: string[];
   message: string;

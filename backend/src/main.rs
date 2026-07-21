@@ -22,8 +22,8 @@ use moatless_vibe_backend::sse::routes::sse_router;
 use moatless_vibe_backend::startup;
 use moatless_vibe_backend::state::AppState;
 use moatless_vibe_backend::{
-    adapters, command, feedback, file_storage, message, plugin_repo, provider_settings,
-    repository, secret, skill, tag, task, task_event, task_template, team, triggers, workspace,
+    adapters, feedback, file_storage, message, plugin_repo, provider_settings, repository, secret,
+    skill, tag, task, task_event, team, triggers, workspace,
 };
 
 #[tokio::main]
@@ -298,7 +298,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             task::routes::task_router(app_state.clone()),
             feedback::routes::feedback_router(app_state.clone()),
             message::routes::message_router(app_state.clone()),
-            command::routes::command_router(app_state.clone()),
             file_storage::routes::file_storage_router(app_state.clone()),
             repository::routes::repository_router(app_state.clone()),
             secret::routes::secret_router(app_state.clone()),
@@ -307,7 +306,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             adapters::routes::adapter_router(app_state.clone()),
             team::routes::team_router(app_state.clone()),
             task_event::routes::task_event_router(app_state.clone()),
-            task_template::routes::task_template_router(app_state.clone()),
             plugin_repo::routes::plugin_repo_router(app_state.clone()),
             skill::routes::skill_router(app_state.clone()),
             workspace::routes::workspace_router(app_state.clone()),

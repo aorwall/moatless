@@ -649,7 +649,6 @@ pub async fn resolve_and_process_telegram_update(
                             &connection,
                             &rule,
                             msg,
-                            None,
                             "telegram",
                             destination.subject_kind,
                             &destination.subject_key,

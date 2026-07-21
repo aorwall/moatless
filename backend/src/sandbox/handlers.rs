@@ -767,7 +767,6 @@ mod authz_tests {
             headless: false,
             ttl_minutes: 0,
             inactive_ttl_days: 0,
-            task_template_id: None,
             trigger_id: None,
             workspace_id: None,
             disabled_servers: None,

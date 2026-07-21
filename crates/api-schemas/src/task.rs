@@ -49,10 +49,8 @@ pub struct CreateTaskRequest {
     #[serde(default)]
     pub file_ids: Vec<String>,
     pub parent_task_id: Option<String>,
-    pub command_name: Option<String>,
     #[serde(default)]
     pub headless: Option<bool>,
-    pub task_template_id: Option<String>,
 }
 
 /// Data for an element context (selected UI component).

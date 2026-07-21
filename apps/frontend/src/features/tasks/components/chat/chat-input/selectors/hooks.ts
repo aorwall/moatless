@@ -1,18 +1,7 @@
-import {
-  Bot,
-  Database,
-  GitBranch,
-  Layers,
-  LayoutTemplate,
-  Plus,
-  Sparkles,
-  Wand2,
-} from 'lucide-react'
+import { Bot, Database, GitBranch, Layers, Plus, Sparkles, Wand2 } from 'lucide-react'
 import { useState } from 'react'
 import type { AgentDescriptor, AgentModel } from '@/features/agents/types'
 import { useBranches, useRepositoriesList } from '@/features/repositories/hooks/use-repositories.ts'
-import type { TaskTemplateResponse } from '@/features/task-templates/api/task-templates'
-import { useTaskTemplatesList } from '@/features/task-templates/hooks/use-task-templates'
 import { useWorkspacesList } from '@/features/workspaces/hooks/use-workspaces'
 import {
   CLAUDE_MODEL_DISPLAY_NAMES,
@@ -295,7 +284,6 @@ export type AgentType =
 export const DEFAULT_AGENT_TYPE: AgentType = 'claude-code'
 
 const DISCONNECTED_DESCRIPTION = 'Not connected — open Settings to add a token'
-const EMPTY_TASK_TEMPLATES: TaskTemplateResponse[] = []
 
 // Agent type selector hook - controlled. Picks which agent CLI runs the task.
 // Accepts optional `agents` list from the backend catalog to drive availability.
@@ -338,49 +326,6 @@ export function useAgentTypeSelector(
     icon: Sparkles,
     tooltip: 'Choose which agent runs the task',
     displayValue: selectedType?.label || 'Select agent',
-  }
-}
-
-// Task template selector hook - controlled. Lets the user pick a template from
-// the full visible list (user + team + global) before submitting a task.
-export function useTaskTemplateSelector(
-  value?: string,
-  onChange?: (id: string | undefined) => void,
-  _templates?: TaskTemplateResponse[],
-) {
-  const { data: fetchedTemplates, isLoading } = useTaskTemplatesList()
-  const templates = _templates ?? fetchedTemplates ?? EMPTY_TASK_TEMPLATES
-
-  const [internalValue, setInternalValue] = useState<string | undefined>(undefined)
-  const isControlled = value !== undefined
-  const currentValue = isControlled ? value : internalValue
-
-  const items = templates.map((t) => ({
-    id: t.id,
-    label: t.name,
-    description: t.description ?? undefined,
-  }))
-
-  const handleChange = (newValue: string) => {
-    const nextValue = newValue || undefined
-    if (!isControlled) {
-      setInternalValue(nextValue)
-    }
-    onChange?.(nextValue)
-  }
-
-  const selectedTemplate = templates.find((t) => t.id === currentValue)
-
-  return {
-    value: currentValue ?? '',
-    onChange: handleChange,
-    placeholder: 'Template',
-    items,
-    loading: isLoading,
-    disabled: false,
-    icon: LayoutTemplate,
-    tooltip: 'Choose a task template',
-    displayValue: selectedTemplate?.name ?? 'Template',
   }
 }
 

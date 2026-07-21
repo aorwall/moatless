@@ -917,7 +917,6 @@ async fn create_provider_event_task(
         inactive_ttl_days: rule
             .inactive_ttl_days
             .unwrap_or(crate::task::models::DEFAULT_INACTIVE_TTL_DAYS),
-        task_template_id: None,
         trigger_id: Some(rule.id.clone()),
         workspace_id: None,
         disabled_servers: None,
@@ -1003,7 +1002,6 @@ async fn deliver_to_binding(
         Some(ADAPTER_LABEL),
         Some(&binding.subject_key),
         Some(source_matcher.as_str()),
-        None,
         None,
         false,
         Some(msg.user_id.as_str()),

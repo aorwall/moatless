@@ -14,8 +14,6 @@ export interface CreateTaskRequest {
   agentType?: null | AgentType;
   /** @nullable */
   branch?: string | null;
-  /** @nullable */
-  commandName?: string | null;
   contexts?: MessageContextInput[];
   /** @nullable */
   description?: string | null;
@@ -37,8 +35,6 @@ one of `repository_id` / `workspace_id` is required.
    * @nullable
    */
   repositoryId?: string | null;
-  /** @nullable */
-  taskTemplateId?: string | null;
   /**
    * Explicit workspace to run the task in. When set, its repositories drive
 the task (workspace wins over `repository_id`). When unset, the task

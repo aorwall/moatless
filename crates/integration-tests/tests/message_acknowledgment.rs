@@ -49,9 +49,7 @@ async fn same_session_multi_message() {
         contexts: vec![],
         file_ids: vec![],
         model: None,
-        command_name: None,
         headless: None,
-        task_template_id: None,
         parent_task_id: None,
     };
     let created = client.api().create_task(&task_req).await.unwrap();
@@ -90,7 +88,6 @@ async fn same_session_multi_message() {
         message: "Also create a file called second.txt with the content 'Second Message Created'"
             .into(),
         agent_mode: None,
-        command_name: None,
         contexts: vec![],
         file_ids: vec![],
         model: None,
@@ -115,7 +112,6 @@ async fn same_session_multi_message() {
         message: "Also create a file called third.txt with the content 'Third Message Created'"
             .into(),
         agent_mode: None,
-        command_name: None,
         contexts: vec![],
         file_ids: vec![],
         model: None,

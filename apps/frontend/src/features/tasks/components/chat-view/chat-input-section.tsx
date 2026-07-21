@@ -26,12 +26,11 @@ import { useSandboxStatus } from '@/features/tasks/hooks/use-sandbox-status'
 import { useTaskDraftMessage } from '@/features/tasks/hooks/use-task-draft-message'
 import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
-import { useDeleteMessage, useStopAgent, useTaskCommands } from '@/features/tasks/hooks/use-tasks'
+import { useDeleteMessage, useStopAgent } from '@/features/tasks/hooks/use-tasks'
 import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
 import { type ClaudeModel, DEFAULT_CLAUDE_MODEL } from '@/lib/types/claude-models'
 import { getErrorMessage } from '@/lib/utils/error'
 import { ChatInputToolbar } from './chat-input-toolbar'
-import { CommandButtons } from './command-buttons'
 import { useChatAutocomplete } from './use-chat-autocomplete'
 import { useChatSend } from './use-chat-send'
 import type { PendingUserInput } from './use-pending-user-input'
@@ -69,8 +68,8 @@ function getPlaceholderText(
 }
 
 /**
- * The chat input area: command buttons, pending-input prompts, the textarea
- * with autocomplete, toolbar, and related dialogs.
+ * The chat input area: pending-input prompts, the textarea with autocomplete,
+ * toolbar, and related dialogs.
  *
  * Owns the per-keystroke state (draft message, autocomplete, selectors) so
  * typing re-renders only this subtree — never the message history above it,
@@ -84,7 +83,7 @@ export function ChatInputSection({
   queuedMessages,
 }: ChatInputSectionProps) {
   const taskId = useTaskId()
-  const { navigatePreview, registerCommandExecutor } = usePanelControls()
+  const { navigatePreview } = usePanelControls()
 
   const { data: task } = useTaskDetailQuery(taskId)
   const status = task?.status
@@ -97,13 +96,8 @@ export function ChatInputSection({
   // Agent running state: driven by sandbox status (updated via SSE events + backend gRPC)
   const isTaskRunning = sandboxStatus?.agentState === 'running'
 
-  // Fetch available commands when task is not running
-  const { data: availableCommands = [] } = useTaskCommands(taskId, {
-    enabled: !!taskId && !isTaskRunning && envStatus === 'ready',
-  })
-
   // Fetch repo-scoped skills for the task's repository (workspace +
-  // linked plugin repos). Surfaces in the same "/" autocomplete dropdown.
+  // linked plugin repos). Surfaces in the "/" autocomplete dropdown.
   const { data: repoSkills = [], error: skillsError } = useRepositorySkills(task?.repositoryId, {
     enabled: !!task?.repositoryId && !!taskId && !isTaskRunning && envStatus === 'ready',
   })
@@ -116,12 +110,8 @@ export function ChatInputSection({
     }
   }, [skillsError])
 
-  // Merge commands + skills for the autocomplete dropdown. Command buttons
-  // bar below is still commands-only.
-  const suggestions: Suggestion[] = [
-    ...availableCommands.map((c) => ({ kind: 'command' as const, ...c })),
-    ...repoSkills.map((s) => ({ kind: 'skill' as const, ...s })),
-  ]
+  // Skill suggestions for the "/" autocomplete dropdown.
+  const suggestions: Suggestion[] = repoSkills.map((s) => ({ kind: 'skill' as const, ...s }))
 
   // Local state for chat values. The message draft is persisted per task in
   // localStorage so text survives reloads and switching tasks.
@@ -138,13 +128,11 @@ export function ChatInputSection({
     onContextItemsChange,
   })
 
-  // "@" file + "/" command autocomplete composition over the chat textarea
+  // "@" file + "/" skill autocomplete composition over the chat textarea
   const {
     textareaRef,
     handleMessageChange,
     handleCombinedKeyDown,
-    selectedCommand,
-    clearSelectedCommand,
     fileAutocomplete,
     commandAutocomplete,
   } = useChatAutocomplete({
@@ -189,12 +177,10 @@ export function ChatInputSection({
   // Delete queued message mutation
   const deleteMessage = useDeleteMessage(taskId)
 
-  // Message-send orchestration (free text, commands, pending-tool responses)
+  // Message-send orchestration (free text, pending-tool responses)
   const {
     sendMessage,
     handleChatSubmit,
-    handleCommandClick,
-    executeCommandByName,
     handleQuestionSubmit,
     handlePlanApprove,
     handlePlanReject,
@@ -202,8 +188,6 @@ export function ChatInputSection({
     taskId,
     message,
     setMessage,
-    selectedCommand,
-    clearSelectedCommand,
     taskInputs,
     selectedModel: availableModel,
     selectedAgentMode,
@@ -213,35 +197,17 @@ export function ChatInputSection({
     setStartFresh,
     resumeConversation,
     pendingUserInput,
-    availableCommands,
   })
-
-  // Register command executor with panel controls (invoked e.g. by the preview
-  // troubleshoot button). Cleanup unregisters on unmount / executor change.
-  useEffect(
-    () => registerCommandExecutor(executeCommandByName),
-    [registerCommandExecutor, executeCommandByName],
-  )
 
   // Compute placeholder text using extracted helper
   const placeholderText = getPlaceholderText(envStatus, isTaskRunning, status)
 
   // Determine if we can submit based on conditions
   const canSubmit =
-    !sendMessage.isPending &&
-    (!!message.trim() || taskInputs.contextItems.length > 0 || !!selectedCommand)
+    !sendMessage.isPending && (!!message.trim() || taskInputs.contextItems.length > 0)
 
   return (
     <>
-      {/* Command buttons — horizontal bar above chat input */}
-      {!isTaskRunning && availableCommands.length > 0 && !pendingUserInput && (
-        <CommandButtons
-          commands={availableCommands}
-          onCommandClick={handleCommandClick}
-          disabled={sendMessage.isPending}
-        />
-      )}
-
       {/* Queued messages stack above chat input */}
       <QueuedMessages
         messages={queuedMessages}

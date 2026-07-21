@@ -34,9 +34,7 @@ async fn create_bare_task(client: &MoatClient, repo_id: &str) -> String {
             contexts: vec![],
             file_ids: vec![],
             model: None,
-            command_name: None,
             headless: None,
-            task_template_id: None,
             parent_task_id: None,
         })
         .await

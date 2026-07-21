@@ -20,7 +20,6 @@ export interface ComposeWindowState {
   agentType: AgentType
   agentMode: 'edit' | 'plan'
   model: ClaudeModel
-  templateId?: string | undefined
 }
 
 interface ComposeTaskContextValue {
@@ -53,7 +52,6 @@ export function ComposeTaskProvider({ children }: { children: ReactNode }) {
       agentType,
       agentMode,
       model: DEFAULT_CLAUDE_MODEL,
-      templateId: undefined,
     }
     setWindows((currentWindows) => [...currentWindows, newWindow])
   }

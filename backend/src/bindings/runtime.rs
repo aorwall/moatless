@@ -14,7 +14,7 @@ use crate::bindings::dao::PgTaskBindingRepository;
 use crate::bindings::metrics::record_inbound;
 use crate::state::AppState;
 use crate::task::models::TaskStatus;
-use crate::triggers::inbound::{self, CommandInfo};
+use crate::triggers::inbound;
 use crate::triggers::rule_dao::PgTaskTriggerRouteRepository;
 
 pub use crate::adapters::models::{
@@ -136,7 +136,6 @@ pub async fn route_inbound_message(
     connection: &AdapterConnection,
     rule: &TaskTriggerRoute,
     msg: InboundMessage,
-    command: Option<CommandInfo>,
     provider_label: &str,
     subject_kind: &str,
     subject_key: &str,
@@ -241,8 +240,7 @@ pub async fn route_inbound_message(
             });
         let config = trigger_context(rule, provider_label);
         let task_id =
-            inbound::create_task_for_external_message(state, &config, &msg, command.as_ref())
-                .await?;
+            inbound::create_task_for_external_message(state, &config, &msg).await?;
         if let Some(ref r) = related {
             crate::task::relations::record_related_to(state.task_relations.as_ref(), &task_id, r)
                 .await;
@@ -329,7 +327,6 @@ pub async fn route_inbound_message(
             rule,
             &binding,
             &msg,
-            command.as_ref(),
             provider_label,
             this_is_new,
         )
@@ -449,7 +446,6 @@ async fn deliver_to_binding(
     rule: &TaskTriggerRoute,
     binding: &TaskBinding,
     msg: &InboundMessage,
-    command: Option<&CommandInfo>,
     provider_label: &str,
     is_new_task: bool,
 ) -> Result<(), AdapterError> {
@@ -484,20 +480,7 @@ async fn deliver_to_binding(
         None
     };
 
-    let base_text = match command {
-        Some(cmd) => {
-            let prefix = format!("/{}", cmd.name);
-            msg.text
-                .trim()
-                .strip_prefix(&prefix)
-                .unwrap_or(&msg.text)
-                .trim()
-                .to_string()
-        }
-        None => msg.text.clone(),
-    };
-
-    let mut message_text = base_text;
+    let mut message_text = msg.text.clone();
 
     if let Some(prefix) = state
         .adapters
@@ -528,25 +511,19 @@ async fn deliver_to_binding(
         }
     }
 
-    let (cmd_resume, cmd_agent_mode, cmd_name) = match command {
-        Some(cmd) => (cmd.resume, cmd.agent_mode.as_ref(), Some(cmd.name.as_str())),
-        None => (true, None, None),
-    };
-
     crate::message::send::send_message_flow(
         state,
         &binding.task_id,
         &message_text,
         None,
-        cmd_agent_mode,
+        None,
         &msg.file_ids,
         &[],
-        cmd_resume,
+        true,
         msg.external_event_id.as_deref(),
         Some(provider_label),
         Some(&binding.subject_key),
         config.source_name.as_deref(),
-        cmd_name,
         None,
         false,
         Some(msg.user_id.as_str()),

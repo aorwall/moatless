@@ -1,6 +1,5 @@
 pub mod adapters;
 pub mod bots;
-pub mod command_mgmt;
 pub mod docker;
 pub mod events;
 pub mod feedback;
@@ -17,5 +16,4 @@ pub mod send;
 pub mod settings;
 pub mod tasks;
 pub mod teams;
-pub mod templates;
 pub mod users;

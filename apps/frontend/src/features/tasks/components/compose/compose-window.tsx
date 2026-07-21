@@ -69,8 +69,6 @@ export function ComposeWindow({ window }: ComposeWindowProps) {
             onAgentModeChange={(value) => update(id, { agentMode: value })}
             agentType={window.agentType}
             onAgentTypeChange={(value) => update(id, { agentType: value })}
-            templateId={window.templateId}
-            onTemplateChange={(value) => update(id, { templateId: value })}
           />
         </div>
       )}

@@ -93,9 +93,7 @@ async fn agent_ask_user_question() {
         contexts: vec![],
         file_ids: vec![],
         model: None,
-        command_name: None,
         headless: None,
-        task_template_id: None,
         parent_task_id: None,
     };
     let created = client.api().create_task(&req).await.unwrap();
@@ -142,7 +140,6 @@ async fn agent_ask_user_question() {
                 let answer = SendMessageRequest {
                     message: String::new(),
                     agent_mode: None,
-                    command_name: None,
                     contexts: vec![],
                     file_ids: vec![],
                     model: None,

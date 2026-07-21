@@ -184,7 +184,6 @@ pub async fn create_task(
         headless: req.headless.unwrap_or(false),
         ttl_minutes: state.config.sandbox.idle_timeout_minutes as i32,
         inactive_ttl_days: state.config.sandbox.inactive_task_timeout_days as i32,
-        task_template_id: req.task_template_id.clone(),
         trigger_id: None,
         workspace_id: req.workspace_id.clone(),
         disabled_servers: None,
@@ -204,7 +203,6 @@ pub async fn create_task(
         req.agent_mode.as_ref(),
         &req.file_ids,
         &req.contexts,
-        req.command_name.as_deref(),
         parent.as_ref(),
     )
     .await
@@ -221,7 +219,6 @@ async fn insert_and_provision_task(
     agent_mode: Option<&AgentMode>,
     file_ids: &[String],
     contexts: &[MessageContextInput],
-    command_name: Option<&str>,
     parent: Option<&CreatedByParent>,
 ) -> Result<Json<CreateTaskResponse>, TaskError> {
     let task_id = &row.task_id;
@@ -317,7 +314,6 @@ async fn insert_and_provision_task(
             None,
             None,
             None,
-            command_name,
             None,
             false,
             Some(&auth.user_id),

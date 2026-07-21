@@ -3,34 +3,18 @@
 use tracing::{info, warn};
 
 use crate::adapters::models::TriggerContext;
-use crate::shared_models::{AgentMode, AgentType};
+use crate::shared_models::AgentType;
 use crate::state::AppState;
 use crate::task::models::{SandboxDesiredState, Task, TaskStatus, Visibility};
 
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::InboundMessage;
 
-/// Pre-resolved command information passed from provider-specific event handling
-/// (e.g., Slack slash commands) or detected from message text.
-///
-/// When present, provider event delivery uses this to pass command metadata through
-/// to `send_message_flow` instead of the default `command_name: None`.
-#[derive(Debug, Clone)]
-pub struct CommandInfo {
-    /// System command name (e.g., "commit", "create-pr").
-    pub name: String,
-    /// Whether to resume the agent session (`false` when `will_not_resume` is set).
-    pub resume: bool,
-    /// Agent mode override from the command definition.
-    pub agent_mode: Option<AgentMode>,
-}
-
 /// Create a new task from a external message.
 pub(crate) async fn create_task_for_external_message(
     state: &AppState,
     config: &TriggerContext,
     msg: &InboundMessage,
-    command: Option<&CommandInfo>,
 ) -> Result<String, AdapterError> {
     let task_id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
@@ -51,22 +35,7 @@ pub(crate) async fn create_task_for_external_message(
         template_id: None,
         vibe: None,
         name: config.task_name.clone(),
-        description: Some(match command {
-            Some(cmd) => {
-                let stripped = msg
-                    .text
-                    .trim()
-                    .strip_prefix(&format!("/{}", cmd.name))
-                    .unwrap_or(&msg.text)
-                    .trim();
-                if stripped.is_empty() {
-                    truncate(&format!("/{}", cmd.name), 200)
-                } else {
-                    truncate(stripped, 200)
-                }
-            }
-            None => truncate(&msg.text, 200),
-        }),
+        description: Some(truncate(&msg.text, 200)),
         site_id: None,
         site_provider: None,
         branch: None, // Will use repo default
@@ -108,7 +77,6 @@ pub(crate) async fn create_task_for_external_message(
         inactive_ttl_days: config
             .inactive_ttl_days
             .unwrap_or(crate::task::models::DEFAULT_INACTIVE_TTL_DAYS),
-        task_template_id: None,
         trigger_id: Some(config.id.clone()),
         workspace_id: None,
         disabled_servers: None,

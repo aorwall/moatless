@@ -17,7 +17,6 @@ use crate::auth::github_app_registry::GitHubAppRegistry;
 use crate::auth::provider_token_dao::{PgProviderTokenRepository, ProviderTokenRepository};
 use crate::auth::provider_tokens::{PgProviderTokenAuthRepository, ProviderTokenAuthRepository};
 use crate::auth::users::{PgUserRepository, UserRepository};
-use crate::command::dao::{CommandRepository, PgCommandRepository};
 use crate::config::Config;
 use crate::credentials::{BroadcastContext, CredentialService};
 use crate::db::{self, DbPool};
@@ -245,8 +244,6 @@ pub fn spawn_grpc_server(
 ) {
     let messages: Option<Arc<dyn MessageRepository>> =
         db_pool.map(|pool| Arc::new(PgMessageRepository(pool.clone())) as _);
-    let commands: Option<Arc<dyn CommandRepository>> =
-        db_pool.map(|pool| Arc::new(PgCommandRepository(pool.clone())) as _);
     let files: Option<Arc<dyn FileRepository>> =
         db_pool.map(|pool| Arc::new(PgFileRepository(pool.clone())) as _);
     let provider_tokens: Option<Arc<dyn ProviderTokenRepository>> =
@@ -330,7 +327,6 @@ pub fn spawn_grpc_server(
         let svc = BackendSandboxServiceImpl {
             events: event_publisher,
             messages,
-            commands,
             provider_tokens,
             tasks,
             teams,
@@ -445,7 +441,6 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     use crate::adapters::routes::AdapterApiDoc;
     use crate::agent::routes::AgentApiDoc;
     use crate::auth::routes::AuthApiDoc;
-    use crate::command::routes::CommandApiDoc;
     use crate::feature_flags::{FeatureFlagsResponse, SlackConfig};
     use crate::feedback::routes::FeedbackApiDoc;
     use crate::file_storage::routes::FileStorageApiDoc;
@@ -458,7 +453,6 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     use crate::tag::routes::TagApiDoc;
     use crate::task::routes::TaskApiDoc;
     use crate::task_event::routes::TaskEventApiDoc;
-    use crate::task_template::routes::TaskTemplateApiDoc;
     use crate::team::routes::TeamApiDoc;
     use crate::workspace::routes::WorkspaceApiDoc;
     use utoipa::OpenApi;
@@ -517,7 +511,6 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     merged.merge(AuthApiDoc::openapi());
     merged.merge(TaskApiDoc::openapi());
     merged.merge(MessageApiDoc::openapi());
-    merged.merge(CommandApiDoc::openapi());
     merged.merge(FeedbackApiDoc::openapi());
     merged.merge(FileStorageApiDoc::openapi());
     merged.merge(RepositoryApiDoc::openapi());
@@ -528,7 +521,6 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     merged.merge(TeamApiDoc::openapi());
     merged.merge(EventsApiDoc::openapi());
     merged.merge(TaskEventApiDoc::openapi());
-    merged.merge(TaskTemplateApiDoc::openapi());
     merged.merge(FeatureFlagsApiDoc::openapi());
     merged.merge(SkillApiDoc::openapi());
     merged.merge(WorkspaceApiDoc::openapi());

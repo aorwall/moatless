@@ -322,14 +322,14 @@ impl MessageRepository for PgMessageRepository {
                 tool_use_result, sdk_metadata, attachments, agent_session_id,
                 will_not_resume, run_metrics,
                 agent_mode, model, resume, external_event_id,
-                external_adapter, external_source_name, command_name, source_task_id,
+                external_adapter, external_source_name, source_task_id,
                 start_fresh, sent_by, external_subject_key, assistant_usage
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
                 $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
                 $31, $32, $33, $34, $35, $36, $37, $38, $39, $40,
-                $41, $42
+                $41
             )
             ON CONFLICT (uuid) DO UPDATE SET
                 message_type = EXCLUDED.message_type,
@@ -377,7 +377,6 @@ impl MessageRepository for PgMessageRepository {
         .bind(&msg.external_event_id)
         .bind(&msg.external_adapter)
         .bind(&msg.external_source_name)
-        .bind(&msg.command_name)
         .bind(&msg.source_task_id)
         .bind(msg.start_fresh)
         .bind(&msg.sent_by)

@@ -35,7 +35,6 @@ export const queryKeys = {
       [...queryKeys.tasks.files(taskId), 'tree', '.', mode] as const,
     fileContent: (taskId: string, filePath: string | undefined, changes?: boolean) =>
       [...queryKeys.tasks.files(taskId), 'content', filePath, changes] as const,
-    commands: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'commands'] as const,
     events: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'events'] as const,
     connections: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'connections'] as const,
     statistics: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'statistics'] as const,
@@ -87,10 +86,6 @@ export const queryKeys = {
     all: () => [...queryKeys.all, 'agents'] as const,
     list: () => [...queryKeys.agents.all(), 'list'] as const,
   },
-
-  commands: () => [...queryKeys.all, 'commands'] as const,
-  commandsList: () => [...queryKeys.commands(), 'list'] as const,
-  commandDetail: (commandName: string) => [...queryKeys.commands(), 'detail', commandName] as const,
 
   skills: () => [...queryKeys.all, 'skills'] as const,
   skillsForRepository: (repositoryId: string) =>
@@ -155,12 +150,5 @@ export const queryKeys = {
   feedback: {
     all: ['feedback'] as const,
     byTask: (taskId: string) => ['feedback', 'task', taskId] as const,
-  },
-
-  taskTemplates: {
-    all: () => [...queryKeys.all, 'task-templates'] as const,
-    list: () => [...queryKeys.taskTemplates.all(), 'list'] as const,
-    featured: () => [...queryKeys.taskTemplates.all(), 'featured'] as const,
-    detail: (id: string) => [...queryKeys.taskTemplates.all(), 'detail', id] as const,
   },
 } as const

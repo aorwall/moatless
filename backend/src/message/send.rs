@@ -12,54 +12,6 @@ use super::contexts::message_context_input_to_row;
 use super::enricher;
 use super::error::MessageError;
 
-/// Detect a `/command` prefix in the message text and resolve it.
-///
-/// If `command_name` is already set (from frontend autocomplete), returns it unchanged.
-/// Otherwise parses `/word ...` from the message, looks it up in `CommandRepository`,
-/// and if found returns the command name + remaining user text.
-async fn resolve_command_from_message(
-    message: &str,
-    command_name: Option<&str>,
-    commands: &dyn crate::command::dao::CommandRepository,
-) -> (String, Option<String>) {
-    // Frontend already identified the command — pass through
-    if let Some(name) = command_name {
-        return (message.to_string(), Some(name.to_string()));
-    }
-
-    // Try to detect /command prefix
-    let trimmed = message.trim();
-    if !trimmed.starts_with('/') {
-        return (message.to_string(), None);
-    }
-
-    // Extract candidate command name (first word after `/`)
-    let without_slash = &trimmed[1..];
-    let candidate = match without_slash.split_whitespace().next() {
-        Some(word) => word,
-        None => return (message.to_string(), None),
-    };
-
-    // Look up in DB
-    match commands.find_by_name(candidate).await {
-        Ok(Some(_cmd)) => {
-            // Strip the `/command` prefix, keep the rest as user text
-            let prefix_len = 1 + candidate.len(); // `/` + command name
-            let user_text = trimmed[prefix_len..].trim().to_string();
-            tracing::debug!(command_name = %candidate, "Detected command from message text");
-            (user_text, Some(candidate.to_string()))
-        }
-        Ok(None) => {
-            // Not a known command — treat as regular text
-            (message.to_string(), None)
-        }
-        Err(e) => {
-            tracing::warn!(candidate = %candidate, error = %e, "Failed to look up command, treating as regular text");
-            (message.to_string(), None)
-        }
-    }
-}
-
 /// Whether the task exists and is in `Closed` status. Fail-open on DB
 /// errors: a DB blip must not silently drop a legitimate message.
 async fn task_is_closed(state: &AppState, task_id: &str) -> bool {
@@ -92,7 +44,6 @@ pub async fn send_message_flow(
     external_adapter: Option<&str>,
     external_subject_key: Option<&str>,
     external_source_name: Option<&str>,
-    command_name: Option<&str>,
     source_task_id: Option<&str>,
     start_fresh: bool,
     sent_by: Option<&str>,
@@ -155,9 +106,7 @@ pub async fn send_message_flow(
         }
     }
 
-    // Detect /command prefix in message text if command_name wasn't set by frontend
-    let (effective_message, effective_command_name) =
-        resolve_command_from_message(message, command_name, state.commands.as_ref()).await;
+    let effective_message = message.to_string();
 
     // Bake attribution into message text so the agent sees it via the normal content chain.
     let attributed_message = match source_task_id {
@@ -235,7 +184,6 @@ pub async fn send_message_flow(
         external_adapter: external_adapter.map(std::string::ToString::to_string),
         external_subject_key: external_subject_key.map(std::string::ToString::to_string),
         external_source_name: external_source_name.map(std::string::ToString::to_string),
-        command_name: effective_command_name,
         source_task_id: source_task_id.map(std::string::ToString::to_string),
         start_fresh,
         sent_by: sent_by.map(std::string::ToString::to_string),
@@ -298,7 +246,7 @@ pub async fn send_message_flow(
         .await
         .map_err(|e| MessageError::Internal(format!("Failed to persist message: {e}")))?;
 
-    tracing::info!(task_id = %task_id, command_name = ?msg_row.command_name, "Message persisted");
+    tracing::info!(task_id = %task_id, "Message persisted");
 
     // A new user message is an explicit wake-up path after idle/user stops.
     state
@@ -380,7 +328,6 @@ pub async fn persist_error_result(state: &AppState, task_id: &str, error_text: &
         external_adapter: None,
         external_subject_key: None,
         external_source_name: None,
-        command_name: None,
         source_task_id: None,
         start_fresh: false,
         sent_by: None,
@@ -404,78 +351,6 @@ pub async fn persist_error_result(state: &AppState, task_id: &str, error_text: &
     if let Err(e) = state.messages.append(&msg_row, &[], &blocks).await {
         tracing::error!(task_id = %task_id, error = %e, "Failed to persist error result message");
     }
-}
-
-// =========================================================================
-// Command prompt enrichment (used by gRPC server when serving pending messages)
-// =========================================================================
-
-use crate::command::dao::CommandRepository;
-
-/// Enrich pending messages by resolving `command_name` into the command's prompt.
-///
-/// For each message that carries a `command_name`, looks up the command in the DB,
-/// then rewrites `message_content` so the agent sees a structured message with
-/// the command instruction separated from any user-provided context.
-///
-/// Messages without `command_name` are passed through unchanged.
-pub async fn enrich_pending_with_commands(
-    mut messages: Vec<super::models::TaskMessage>,
-    commands: &dyn CommandRepository,
-) -> Vec<super::models::TaskMessage> {
-    for msg in &mut messages {
-        let Some(ref cmd_name) = msg.command_name else {
-            continue;
-        };
-
-        let prompt = match commands.find_by_name(cmd_name).await {
-            Ok(Some(cmd)) => cmd.prompt,
-            Ok(None) => {
-                tracing::warn!(command_name = %cmd_name, "Command not found, passing message through unchanged");
-                continue;
-            }
-            Err(e) => {
-                tracing::warn!(command_name = %cmd_name, error = %e, "Failed to look up command, passing message through unchanged");
-                continue;
-            }
-        };
-
-        let user_text = extract_text_from_content(&msg.message_content);
-        let enriched = build_command_message(cmd_name, &prompt, user_text.as_deref());
-
-        msg.message_content = serde_json::json!([{ "type": "text", "text": enriched }]);
-    }
-    messages
-}
-
-/// Extract the first text string from a `[{"type":"text","text":"..."}]` JSON array.
-fn extract_text_from_content(content: &serde_json::Value) -> Option<String> {
-    let items = content.as_array()?;
-    for item in items {
-        if item.get("type").and_then(|t| t.as_str()) == Some("text") {
-            if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
-                let trimmed = text.trim();
-                if !trimmed.is_empty() {
-                    return Some(trimmed.to_string());
-                }
-            }
-        }
-    }
-    None
-}
-
-/// Build the structured markdown message combining command prompt and optional user text.
-fn build_command_message(command_name: &str, prompt: &str, user_text: Option<&str>) -> String {
-    let mut out = format!("## Command: /{command_name}\n\n{prompt}");
-
-    if let Some(text) = user_text {
-        if !text.is_empty() {
-            out.push_str("\n\n## Additional context from user\n\n");
-            out.push_str(text);
-        }
-    }
-
-    out
 }
 
 /// Send a tool response (AskUserQuestion / ExitPlanMode).
@@ -550,7 +425,6 @@ pub async fn send_tool_response_flow(
         external_adapter: None,
         external_subject_key: None,
         external_source_name: None,
-        command_name: None,
         source_task_id: None,
         start_fresh: false,
         sent_by: sent_by.map(std::string::ToString::to_string),

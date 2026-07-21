@@ -55,9 +55,7 @@ async fn agent_execution_and_multi_turn() {
         contexts: vec![],
         file_ids: vec![],
         model: None,
-        command_name: None,
         headless: None,
-        task_template_id: None,
         parent_task_id: None,
     };
     let created = client.api().create_task(&req).await.unwrap();
@@ -137,7 +135,6 @@ async fn agent_execution_and_multi_turn() {
              'Multi-Turn Success'"
                 .into(),
         agent_mode: None,
-        command_name: None,
         contexts: vec![],
         file_ids: vec![],
         model: None,

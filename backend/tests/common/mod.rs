@@ -8,7 +8,6 @@ use futures::stream::BoxStream;
 use sqlx::PgPool;
 
 use moatless_vibe_backend::auth::github_app_registry::GitHubAppRegistry;
-use moatless_vibe_backend::command::models::Command;
 use moatless_vibe_backend::config::{
     AuthConfig, CodexOAuthConfig, Config, DatabaseConfig, DockerConfig, GithubPrConfig,
     LinearConfig, ProxyConfig, ReconcileConfig, RedisConfig, S3Config, SandboxConfig,
@@ -428,25 +427,8 @@ pub fn make_message_row(task_id: &str, uuid: &str) -> TaskMessage {
         external_subject_key: None,
         external_source_name: None,
         sent_by: None,
-        command_name: None,
         source_task_id: None,
         start_fresh: false,
-    }
-}
-
-/// Create a minimal Command for tests.
-#[allow(dead_code)]
-pub fn make_command_row(name: &str) -> Command {
-    Command {
-        name: name.to_string(),
-        description: format!("Test command {name}"),
-        prompt: format!("Do {name}"),
-        conditions: None,
-        icon: None,
-        variant: None,
-        active: Some(true),
-        will_not_resume: None,
-        agent_mode: None,
     }
 }
 

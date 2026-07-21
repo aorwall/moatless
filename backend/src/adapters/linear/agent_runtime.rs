@@ -266,7 +266,6 @@ pub async fn handle_session_prompted(
             Some(&binding.subject_key),
             rule.as_ref().map(|r| r.source_matcher.as_str()),
             None,
-            None,
             false,
             None,
         )
@@ -398,7 +397,6 @@ pub async fn handle_comment_created(
             Some(ADAPTER_LABEL),
             Some(&binding.subject_key),
             rule.as_ref().map(|r| r.source_matcher.as_str()),
-            None,
             None,
             false,
             comment.user.as_ref().map(|u| u.id.as_str()),
@@ -737,7 +735,6 @@ async fn provision_issue_task(
         Some(&binding.subject_key),
         Some(rule.source_matcher.as_str()),
         None,
-        None,
         false,
         None,
     )
@@ -981,7 +978,6 @@ async fn notify_bindings_of_state_change(
             Some(&external_event_id),
             Some(ADAPTER_LABEL),
             Some(&binding.subject_key),
-            None,
             None,
             None,
             false,
@@ -1337,7 +1333,6 @@ async fn provision_session_task(
         Some(&binding.subject_key),
         Some(rule.source_matcher.as_str()),
         None,
-        None,
         false,
         session.creator.as_ref().map(|c| c.id.as_str()),
     )
@@ -1505,7 +1500,6 @@ async fn insert_event_task(
         inactive_ttl_days: rule
             .inactive_ttl_days
             .unwrap_or(crate::task::models::DEFAULT_INACTIVE_TTL_DAYS),
-        task_template_id: None,
         trigger_id: Some(rule.id.clone()),
         workspace_id: None,
         disabled_servers: None,

@@ -25,9 +25,7 @@ async fn send_and_list_messages() {
             contexts: vec![],
             file_ids: vec![],
             model: None,
-            command_name: None,
             headless: None,
-            task_template_id: None,
             parent_task_id: None,
         })
         .await
@@ -39,7 +37,6 @@ async fn send_and_list_messages() {
     let msg = SendMessageRequest {
         message: "Follow-up message".into(),
         agent_mode: None,
-        command_name: None,
         contexts: vec![],
         file_ids: vec![],
         model: None,

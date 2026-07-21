@@ -23,8 +23,6 @@ function baseInput(overrides: Partial<CodeTaskSubmitInput> = {}): CodeTaskSubmit
     model: undefined,
     contexts: [],
     branch: undefined,
-    commandName: undefined,
-    templateId: undefined,
     onSubmitted: vi.fn(),
     ...overrides,
   }
@@ -54,14 +52,12 @@ describe('useCodeTaskSubmit', () => {
       baseInput({
         branch: 'main',
         model: 'claude-opus-4-8',
-        commandName: 'fix',
       }),
     )
 
     const payload = createTaskMutate.mock.calls[0]![0]
     expect(payload.branch).toBe('main')
     expect(payload.model).toBe('claude-opus-4-8')
-    expect(payload.commandName).toBe('fix')
   })
 
   it('omits undefined optional fields from the payload', () => {

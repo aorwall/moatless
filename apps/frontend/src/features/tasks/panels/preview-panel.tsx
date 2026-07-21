@@ -79,7 +79,6 @@ export function PreviewPanel({ kiosk = false }: PreviewPanelProps) {
         onToggleElementContext={composer.toggleElementContext}
         onNavigationReady={controls.registerPreviewNavigate}
         onReloadReady={controls.registerPreviewReload}
-        onTroubleshootRequest={() => controls.executeCommand('troubleshoot-preview')}
         onChatToggleRequest={() => controls.toggleChat()}
         servers={servers}
         activeServer={activeServerName}

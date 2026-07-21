@@ -3,7 +3,6 @@ import { useNavigate } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { useAgentAvailability } from '@/features/agents'
-import { useCommandsList } from '@/features/commands/hooks/use-commands'
 import { useRepository } from '@/features/repositories'
 import { useRepositorySkills } from '@/features/skills'
 import {
@@ -12,7 +11,6 @@ import {
   useAgentTypeSelector,
   useBranchSelector,
   useModelSelector,
-  useTaskTemplateSelector,
   useWorkspaceSelector,
 } from '@/features/tasks/components/chat/chat-input/selectors'
 import { useCommandAutocomplete } from '@/features/tasks/components/chat/command-autocomplete'
@@ -39,8 +37,6 @@ export interface UseComposeTaskFormArgs {
   onAgentModeChange: (value: 'edit' | 'plan') => void
   agentType: AgentType
   onAgentTypeChange: (value: AgentType) => void
-  templateId?: string | undefined
-  onTemplateChange?: ((value: string | undefined) => void) | undefined
   /** Navigate to the created task, or stay put with a toast (docked compose). */
   navigateOnSuccess?: boolean | undefined
   /** Fired after a task is successfully created (e.g. to close the window). */
@@ -67,8 +63,6 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
     onAgentModeChange,
     agentType,
     onAgentTypeChange,
-    templateId,
-    onTemplateChange,
     navigateOnSuccess = true,
     onSuccess,
   } = args
@@ -80,8 +74,6 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
 
   const { agents, selectedAgent, agentUnavailable, settingsSection, availableModel } =
     useAgentAvailability({ agentType, model })
-
-  const { data: commands = [] } = useCommandsList()
 
   // Derive primary repo from the selected workspace for branch/skills
   const { data: workspaceDetails } = useWorkspace(workspaceId, { enabled: !!workspaceId })
@@ -97,21 +89,16 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
     }
   }, [skillsError])
 
-  const suggestions = [
-    ...commands.map((c) => ({ kind: 'command' as const, ...c })),
-    ...skills.map((s) => ({ kind: 'skill' as const, ...s })),
-  ]
+  const suggestions = skills.map((s) => ({ kind: 'skill' as const, ...s }))
 
   const {
     inputRef: textareaRef,
     isOpen: isCommandAutocompleteOpen,
     filteredCommands,
     selectedIndex: commandSelectedIndex,
-    selectedCommand,
     handleInputChange: handleCommandInputChange,
     handleKeyDown: handleCommandKeyDown,
     selectCommand,
-    clearSelectedCommand,
   } = useCommandAutocomplete({
     onValueChange: onMessageChange,
     suggestions,
@@ -160,7 +147,6 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
     true,
     repositoryDetails,
   )
-  const templateSelector = useTaskTemplateSelector(templateId, onTemplateChange)
 
   useEffect(() => {
     if (branchSelector.error) {
@@ -207,11 +193,7 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
       return
     }
 
-    const { submitMessage, submitAgentMode } = resolveCommandSubmit(
-      message,
-      agentMode,
-      selectedCommand,
-    )
+    const submitMessage = message.trim() || undefined
 
     const trimmedName = name.trim()
     const modelValue = isModelSelectorEnabled ? modelToApiValue(availableModel) : undefined
@@ -219,19 +201,16 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
       {
         agentType,
         workspaceId,
-        agentMode: submitAgentMode,
+        agentMode,
         fileIds: taskInputs.getFileIds(),
         ...(trimmedName !== '' && { name: trimmedName }),
         ...(submitMessage !== undefined && { message: submitMessage }),
         ...(modelValue !== undefined && { model: modelValue }),
         ...(taskInputs.contextItems.length > 0 && { contexts: taskInputs.contextItems }),
         ...(branchSelector.value !== undefined && { branch: branchSelector.value }),
-        ...(selectedCommand?.name !== undefined && { commandName: selectedCommand.name }),
-        ...(templateId !== undefined && { taskTemplateId: templateId }),
       },
       {
         onSuccess: () => {
-          clearSelectedCommand()
           taskInputs.clearAll()
           onSuccess?.()
         },
@@ -250,7 +229,6 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
     modelSelector,
     agentModeSelector,
     agentTypeSelector,
-    templateSelector,
     isModelSelectorEnabled,
     isTemplate,
     // agent availability
@@ -293,22 +271,4 @@ function notifyTaskCreated(
   toast.success('Task created', {
     action: { label: 'View task', onClick: go },
   })
-}
-
-// When a `/command` is selected, the backend populates the prompt — we only
-// submit the user's trailing text and optionally switch agent mode.
-function resolveCommandSubmit(
-  message: string,
-  agentMode: 'edit' | 'plan',
-  selectedCommand: { name: string; agentMode?: string | null } | null,
-): { submitMessage: string | undefined; submitAgentMode: 'edit' | 'plan' } {
-  if (!selectedCommand) {
-    return { submitMessage: message.trim() || undefined, submitAgentMode: agentMode }
-  }
-  const prefix = `/${selectedCommand.name} `
-  const userText = message.startsWith(prefix) ? message.slice(prefix.length).trim() : ''
-  return {
-    submitMessage: userText || undefined,
-    submitAgentMode: (selectedCommand.agentMode as 'edit' | 'plan') ?? agentMode,
-  }
 }

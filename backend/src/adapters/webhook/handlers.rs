@@ -69,7 +69,6 @@ pub async fn webhook_inbound(
             &connection,
             &rule,
             msg,
-            None,
             "webhook",
             "webhook_thread",
             &subject_key,

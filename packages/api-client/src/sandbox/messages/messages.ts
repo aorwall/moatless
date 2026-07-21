@@ -197,7 +197,6 @@ export const prefetchGetMessagesQuery = async <TData = Awaited<ReturnType<typeof
 
 
 /**
- * If `command_name` is set, the command's prompt is used instead of `message`.
  * @summary Send a message to the agent for a task.
  */
 export type sendMessageResponse200 = {

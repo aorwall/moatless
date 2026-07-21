@@ -1,8 +1,5 @@
 import type { TaskResponse } from '@moatless/api-client'
 import { useState } from 'react'
-import type { TaskTemplateResponse } from '@/features/task-templates'
-import { TemplateChipsRow } from '@/features/task-templates'
-import type { AgentType } from '@/features/tasks/components/chat/chat-input/selectors'
 import { CreateCodeTask } from '@/features/tasks/components/create-task/create-code-task'
 import {
   type DashboardSearchParams,
@@ -34,28 +31,11 @@ function TaskDashboardSkeleton() {
 function EmptyTaskState() {
   const preferences = useTaskPreferences()
   const [model, setModel] = useState<ClaudeModel>(DEFAULT_CLAUDE_MODEL)
-  const [templateId, setTemplateId] = useState<string | undefined>(undefined)
-
-  const { setAgentType, setAgentMode } = preferences
-
-  const handleTemplatePick = (template: TaskTemplateResponse) => {
-    setTemplateId(template.id)
-    if (template.agentType) {
-      setAgentType(template.agentType as AgentType)
-    }
-    if (template.agentMode) {
-      setAgentMode(template.agentMode as 'edit' | 'plan')
-    }
-    if (template.defaultModel) {
-      setModel(template.defaultModel as ClaudeModel)
-    }
-  }
 
   return (
     <div className="container mx-auto max-w-7xl p-6">
       {/* Create Task Section */}
       <div className="w-full max-w-3xl mx-auto mt-12 mb-12">
-        <TemplateChipsRow onPick={handleTemplatePick} />
         <CreateCodeTask
           showTitle={true}
           title="What should we build today?"
@@ -70,8 +50,6 @@ function EmptyTaskState() {
           onAgentTypeChange={preferences.setAgentType}
           workspaceId={preferences.workspaceId}
           onWorkspaceChange={preferences.setWorkspaceId}
-          templateId={templateId}
-          onTemplateChange={setTemplateId}
         />
       </div>
 
@@ -106,22 +84,6 @@ export function TaskDashboard({
 }: TaskDashboardProps) {
   const preferences = useTaskPreferences()
   const [model, setModel] = useState<ClaudeModel>(DEFAULT_CLAUDE_MODEL)
-  const [templateId, setTemplateId] = useState<string | undefined>(undefined)
-
-  const { setAgentType: prefSetAgentType, setAgentMode: prefSetAgentMode } = preferences
-
-  const handleTemplatePick = (template: TaskTemplateResponse) => {
-    setTemplateId(template.id)
-    if (template.agentType) {
-      prefSetAgentType(template.agentType as AgentType)
-    }
-    if (template.agentMode) {
-      prefSetAgentMode(template.agentMode as 'edit' | 'plan')
-    }
-    if (template.defaultModel) {
-      setModel(template.defaultModel as ClaudeModel)
-    }
-  }
 
   const offset = (page - 1) * PAGE_SIZE
 
@@ -191,7 +153,6 @@ export function TaskDashboard({
     <div className="container mx-auto max-w-7xl p-6">
       {/* Create Task Section */}
       <div className="w-full max-w-3xl mx-auto mt-26 mb-26">
-        <TemplateChipsRow onPick={handleTemplatePick} />
         <CreateCodeTask
           showTitle={true}
           title="What should we build today?"
@@ -206,8 +167,6 @@ export function TaskDashboard({
           onAgentTypeChange={preferences.setAgentType}
           workspaceId={preferences.workspaceId}
           onWorkspaceChange={preferences.setWorkspaceId}
-          templateId={templateId}
-          onTemplateChange={setTemplateId}
         />
       </div>
 

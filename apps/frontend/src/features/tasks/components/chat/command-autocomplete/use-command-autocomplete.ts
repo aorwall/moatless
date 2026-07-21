@@ -1,16 +1,13 @@
-import type { CommandResponse, SkillResponse } from '@moatless/api-client'
+import type { SkillResponse } from '@moatless/api-client'
 import type React from 'react'
 import { useRef, useState } from 'react'
 
 /**
- * Entry in the "/" autocomplete dropdown. Commands come from the global DB
- * commands table and drive server-side prompt resolution via `commandName`.
- * Skills come from `.claude/skills/` in workspace + plugin repos and are
- * passed through verbatim to the sandbox's Claude Code CLI.
+ * Entry in the "/" autocomplete dropdown. Skills come from `.claude/skills/` in
+ * workspace + plugin repos and are passed through verbatim to the sandbox's
+ * Claude Code CLI (invoked by typing `/skill` in the message).
  */
-export type Suggestion =
-  | ({ kind: 'command' } & CommandResponse)
-  | ({ kind: 'skill' } & SkillResponse)
+export type Suggestion = { kind: 'skill' } & SkillResponse
 
 interface UseCommandAutocompleteOptions {
   onValueChange: (value: string) => void
@@ -19,7 +16,7 @@ interface UseCommandAutocompleteOptions {
 }
 
 interface SelectionKey {
-  kind: 'command' | 'skill'
+  kind: 'skill'
   name: string
 }
 
@@ -186,28 +183,14 @@ export function useCommandAutocomplete({
     return suggestions.find((s) => suggestionKey(s) === key) ?? null
   })()
 
-  /**
-   * Convenience getter that's `null` when a skill was selected. Preserves the
-   * old API shape for callers that only branch on "is this an invocable
-   * command?".
-   */
-  const selectedCommand = selectedItem && selectedItem.kind === 'command' ? selectedItem : null
-
-  /** Clear the selection (call on successful submit). */
-  const clearSelectedCommand = () => {
-    setState((prev) => ({ ...prev, selection: null }))
-  }
-
   return {
     inputRef,
     isOpen: state.isOpen,
     filteredCommands: filteredSuggestions,
     selectedIndex: state.selectedIndex,
     selectedItem,
-    selectedCommand,
     handleInputChange,
     handleKeyDown,
     selectCommand: selectSuggestion,
-    clearSelectedCommand,
   }
 }

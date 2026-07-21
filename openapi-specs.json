@@ -887,29 +887,6 @@
         }
       }
     },
-    "/api/v1/adapters/slack/slash": {
-      "post": {
-        "tags": [
-          "adapters"
-        ],
-        "operationId": "slack_slash_command",
-        "requestBody": {
-          "content": {
-            "text/plain": {
-              "schema": {
-                "type": "string"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Command acknowledged"
-          }
-        }
-      }
-    },
     "/api/v1/adapters/slack/webhook": {
       "post": {
         "tags": [
@@ -1865,194 +1842,6 @@
           },
           "403": {
             "description": "Access denied",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/commands": {
-      "get": {
-        "tags": [
-          "commands"
-        ],
-        "summary": "List all commands.",
-        "operationId": "list_commands",
-        "responses": {
-          "200": {
-            "description": "List of commands",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/CommandResponse"
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "commands"
-        ],
-        "summary": "Create a new command.",
-        "operationId": "create_command",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateCommandRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Command created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CommandResponse"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Command already exists",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/commands/{name}": {
-      "get": {
-        "tags": [
-          "commands"
-        ],
-        "summary": "Get a command by name.",
-        "operationId": "get_command",
-        "parameters": [
-          {
-            "name": "name",
-            "in": "path",
-            "description": "Command name",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Command details",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CommandResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Command not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "commands"
-        ],
-        "summary": "Delete a command by name.",
-        "operationId": "delete_command",
-        "parameters": [
-          {
-            "name": "name",
-            "in": "path",
-            "description": "Command name",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Command deleted"
-          },
-          "404": {
-            "description": "Command not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      },
-      "patch": {
-        "tags": [
-          "commands"
-        ],
-        "summary": "Update a command by name.",
-        "operationId": "update_command",
-        "parameters": [
-          {
-            "name": "name",
-            "in": "path",
-            "description": "Command name",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateCommandRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Command updated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CommandResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Command not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -4223,250 +4012,6 @@
         }
       }
     },
-    "/api/v1/task-templates": {
-      "get": {
-        "tags": [
-          "task-templates"
-        ],
-        "summary": "List task templates visible to the current user.",
-        "operationId": "list_task_templates",
-        "responses": {
-          "200": {
-            "description": "List of task templates",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/TaskTemplateResponse"
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "task-templates"
-        ],
-        "summary": "Create a new task template.",
-        "operationId": "create_task_template",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateTaskTemplateRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Task template created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TaskTemplateResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Access denied",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/task-templates/featured": {
-      "get": {
-        "tags": [
-          "task-templates"
-        ],
-        "summary": "Get featured templates for the chip strip (recent-used first, then featured).",
-        "operationId": "list_featured_task_templates",
-        "parameters": [
-          {
-            "name": "limit",
-            "in": "query",
-            "description": "Maximum number of templates (default 6)",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "format": "int64"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Featured templates for chip strip",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/TaskTemplateResponse"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/task-templates/{template_id}": {
-      "get": {
-        "tags": [
-          "task-templates"
-        ],
-        "summary": "Get a task template by ID.",
-        "operationId": "get_task_template",
-        "parameters": [
-          {
-            "name": "template_id",
-            "in": "path",
-            "description": "Template identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Task template details",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TaskTemplateResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Template not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "task-templates"
-        ],
-        "summary": "Delete a task template by ID.",
-        "operationId": "delete_task_template",
-        "parameters": [
-          {
-            "name": "template_id",
-            "in": "path",
-            "description": "Template identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Task template deleted"
-          },
-          "403": {
-            "description": "Access denied",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Template not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      },
-      "patch": {
-        "tags": [
-          "task-templates"
-        ],
-        "summary": "Update a task template by ID.",
-        "operationId": "update_task_template",
-        "parameters": [
-          {
-            "name": "template_id",
-            "in": "path",
-            "description": "Template identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateTaskTemplateRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Task template updated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TaskTemplateResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Access denied",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Template not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/tasks": {
       "get": {
         "tags": [
@@ -4882,41 +4427,6 @@
         }
       }
     },
-    "/api/v1/tasks/{task_id}/commands": {
-      "get": {
-        "tags": [
-          "commands"
-        ],
-        "summary": "Get commands available for a task (active commands only).",
-        "operationId": "get_available_commands",
-        "parameters": [
-          {
-            "name": "task_id",
-            "in": "path",
-            "description": "Task identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Available commands",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/CommandResponse"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/tasks/{task_id}/connections": {
       "get": {
         "tags": [
@@ -5255,7 +4765,6 @@
           "messages"
         ],
         "summary": "Send a message to the agent for a task.",
-        "description": "If `command_name` is set, the command's prompt is used instead of `message`.",
         "operationId": "send_message",
         "parameters": [
           {
@@ -8657,65 +8166,6 @@
           }
         }
       },
-      "CommandResponse": {
-        "type": "object",
-        "required": [
-          "name",
-          "description",
-          "prompt"
-        ],
-        "properties": {
-          "active": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "agentMode": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/AgentMode"
-              }
-            ]
-          },
-          "conditions": {
-            "type": [
-              "object",
-              "null"
-            ]
-          },
-          "description": {
-            "type": "string"
-          },
-          "icon": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "name": {
-            "type": "string"
-          },
-          "prompt": {
-            "type": "string"
-          },
-          "variant": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "willNotResume": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          }
-        }
-      },
       "Connection": {
         "type": "object",
         "description": "A single external connection (one task binding) with its decoded label,\nexternal status, and message tally.",
@@ -9222,65 +8672,6 @@
           }
         }
       },
-      "CreateCommandRequest": {
-        "type": "object",
-        "required": [
-          "name",
-          "description",
-          "prompt"
-        ],
-        "properties": {
-          "active": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "agentMode": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/AgentMode"
-              }
-            ]
-          },
-          "conditions": {
-            "type": [
-              "object",
-              "null"
-            ]
-          },
-          "description": {
-            "type": "string"
-          },
-          "icon": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "name": {
-            "type": "string"
-          },
-          "prompt": {
-            "type": "string"
-          },
-          "variant": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "willNotResume": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          }
-        }
-      },
       "CreateFeedbackRequest": {
         "type": "object",
         "description": "Request body for `POST /api/v1/feedback`.",
@@ -9471,12 +8862,6 @@
               "null"
             ]
           },
-          "commandName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "contexts": {
             "type": "array",
             "items": {
@@ -9532,12 +8917,6 @@
             ],
             "description": "The repository to run the task against. Optional when `workspace_id` is\nsupplied — the workspace's primary repository is used instead. At least\none of `repository_id` / `workspace_id` is required."
           },
-          "taskTemplateId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "workspaceId": {
             "type": [
               "string",
@@ -9563,100 +8942,6 @@
           },
           "taskId": {
             "type": "string"
-          }
-        }
-      },
-      "CreateTaskTemplateRequest": {
-        "type": "object",
-        "description": "Request to create a task template.",
-        "required": [
-          "name",
-          "repositoryId",
-          "agentType"
-        ],
-        "properties": {
-          "agentMode": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "agentType": {
-            "type": "string"
-          },
-          "color": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "defaultModel": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "description": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "displayOrder": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32"
-          },
-          "featured": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "icon": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "initialPrompt": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "name": {
-            "type": "string"
-          },
-          "repositoryId": {
-            "type": "string"
-          },
-          "scope": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/Scope"
-              }
-            ]
-          },
-          "skills": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
-          "teamId": {
-            "type": [
-              "string",
-              "null"
-            ]
           }
         }
       },
@@ -12782,12 +12067,6 @@
               }
             ]
           },
-          "commandName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "contexts": {
             "type": "array",
             "items": {
@@ -14125,114 +13404,6 @@
           "metadata.updated"
         ]
       },
-      "TaskTemplateResponse": {
-        "type": "object",
-        "description": "Task template response DTO.",
-        "required": [
-          "id",
-          "name",
-          "repositoryId",
-          "agentType",
-          "scope",
-          "featured",
-          "displayOrder",
-          "createdAt",
-          "updatedAt"
-        ],
-        "properties": {
-          "agentMode": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "agentType": {
-            "type": "string"
-          },
-          "color": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "createdAt": {
-            "type": "string"
-          },
-          "createdBy": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "defaultModel": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "description": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "displayOrder": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "featured": {
-            "type": "boolean"
-          },
-          "icon": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "id": {
-            "type": "string"
-          },
-          "initialPrompt": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "name": {
-            "type": "string"
-          },
-          "ownerUserId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "repositoryId": {
-            "type": "string"
-          },
-          "scope": {
-            "$ref": "#/components/schemas/Scope"
-          },
-          "skills": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
-          "teamId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "updatedAt": {
-            "type": "string"
-          }
-        }
-      },
       "TaskTokenTotals": {
         "type": "object",
         "description": "Aggregate token counts for a task conversation.",
@@ -14704,13 +13875,6 @@
               }
             ]
           },
-          "commandName": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Command name if this message was sent via a slash command."
-          },
           "content": {
             "type": "array",
             "items": {
@@ -15031,63 +14195,6 @@
         },
         "additionalProperties": false
       },
-      "UpdateCommandRequest": {
-        "type": "object",
-        "properties": {
-          "active": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "agentMode": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/AgentMode"
-              }
-            ]
-          },
-          "conditions": {
-            "type": [
-              "object",
-              "null"
-            ]
-          },
-          "description": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "icon": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "prompt": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "variant": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "willNotResume": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          }
-        }
-      },
       "UpdateRepositoryRequest": {
         "type": "object",
         "properties": {
@@ -15169,104 +14276,6 @@
             ]
           },
           "name": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
-      "UpdateTaskTemplateRequest": {
-        "type": "object",
-        "description": "Request to update a task template (all fields optional).",
-        "properties": {
-          "agentMode": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "agentType": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "color": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "defaultModel": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "description": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "displayOrder": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32"
-          },
-          "featured": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "icon": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "initialPrompt": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "name": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "repositoryId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "scope": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/Scope"
-              }
-            ]
-          },
-          "skills": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
-          "teamId": {
             "type": [
               "string",
               "null"
@@ -16239,10 +15248,6 @@
       "description": "Message sending, retrieval, and management"
     },
     {
-      "name": "commands",
-      "description": "Command management"
-    },
-    {
       "name": "feedback",
       "description": "Qualitative feedback on agent runs"
     },
@@ -16297,10 +15302,6 @@
     {
       "name": "task-events",
       "description": "Task event history"
-    },
-    {
-      "name": "task-templates",
-      "description": "Task template CRUD operations"
     },
     {
       "name": "skills",

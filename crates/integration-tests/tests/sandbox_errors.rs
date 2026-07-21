@@ -55,9 +55,7 @@ async fn sandbox_provision_failure_invalid_image() {
         contexts: vec![],
         file_ids: vec![],
         model: None,
-        command_name: None,
         headless: None,
-        task_template_id: None,
         parent_task_id: None,
     };
     let created = client.api().create_task(&task_req).await.unwrap();

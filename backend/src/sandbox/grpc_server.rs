@@ -34,14 +34,12 @@ use crate::auth::models::UserRole;
 use crate::auth::provider_token_dao::ProviderTokenRepository;
 use crate::auth::provider_tokens::ProviderTokenAuthRepository;
 use crate::auth::users::UserRepository;
-use crate::command::dao::CommandRepository;
 use crate::config::Config;
 use crate::credentials::{CredentialService, WriteSource};
 use crate::events::EventPublisher;
 use crate::file_storage::dao::FileRepository;
 use crate::file_storage::s3 as file_s3;
 use crate::message::dao::MessageRepository;
-use crate::message::send::enrich_pending_with_commands;
 use crate::repository::dao::RepoRepository;
 use crate::workspace::dao::WorkspaceRepository;
 use crate::sandbox::jwt;
@@ -122,7 +120,6 @@ pub struct BackendSandboxServiceImpl {
     /// payload even when the live tail carries a truncated stub.
     pub task_events: Option<Arc<dyn TaskEventRepository>>,
     pub task_relations: Option<Arc<dyn TaskRelationRepository>>,
-    pub commands: Option<Arc<dyn CommandRepository>>,
     /// JWT signing key for verifying sandbox auth tokens.
     pub task_token_secret: Option<String>,
     /// GitHub App service for refreshing expired user access tokens
@@ -703,15 +700,10 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         );
 
         // Fetch pending user messages from DB
-        let mut pending = messages.get_pending_user(&req.task_id).await.map_err(|e| {
+        let pending = messages.get_pending_user(&req.task_id).await.map_err(|e| {
             warn!(error = %e, task_id = %req.task_id, "Failed to fetch pending messages");
             Status::internal("Failed to fetch pending messages")
         })?;
-
-        // Enrich messages that carry a command_name with the command's prompt
-        if let Some(ref commands) = self.commands {
-            pending = enrich_pending_with_commands(pending, commands.as_ref()).await;
-        }
 
         // Look up latest agent_session_id for --resume <id>
         let task_resume_session_id = messages
@@ -719,8 +711,8 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             .await
             .unwrap_or(None);
 
-        // Check will_not_resume on the last result — if explicitly set (e.g.
-        // by a command like "compact"), don't pass a resume session ID. Also
+        // Check will_not_resume on the last result — if explicitly set,
+        // don't pass a resume session ID. Also
         // auto-skip resume when the last result row was an error: the prior
         // turn blew up (e.g. codex `--resume` against a missing rollout) and
         // resuming again would just loop the same failure.
@@ -2492,7 +2484,6 @@ mod tests {
             headless: false,
             ttl_minutes: 0,
             inactive_ttl_days: 0,
-            task_template_id: None,
             trigger_id: None,
             workspace_id: None,
             disabled_servers: None,
@@ -2542,7 +2533,6 @@ mod tests {
             task_turns: None,
             task_events: None,
             task_relations: None,
-            commands: None,
             task_token_secret: None,
             github_app_service: None,
             github_apps: Arc::new(GitHubAppRegistry::default()),

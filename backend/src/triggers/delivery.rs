@@ -1,7 +1,6 @@
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, InboundMessage, TaskTriggerRoute};
 use crate::state::AppState;
-use crate::triggers::inbound::CommandInfo;
 
 pub struct AdapterEventDeliveryService<'a> {
     state: &'a AppState,
@@ -18,7 +17,6 @@ impl<'a> AdapterEventDeliveryService<'a> {
         connection: &AdapterConnection,
         trigger: &TaskTriggerRoute,
         message: InboundMessage,
-        command: Option<CommandInfo>,
         provider_label: &str,
         subject_kind: &str,
         subject_key: &str,
@@ -29,7 +27,6 @@ impl<'a> AdapterEventDeliveryService<'a> {
             connection,
             trigger,
             message,
-            command,
             provider_label,
             subject_kind,
             subject_key,

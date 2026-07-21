@@ -1,6 +1,5 @@
 import type {
   SendMessageRequest as ApiSendMessageRequest,
-  CommandResponse,
   Connection,
   CreateTaskRequest,
   CreateTaskResponse,
@@ -15,7 +14,6 @@ import type {
   UpdateTaskTtlRequest,
 } from '@moatless/api-client'
 import { customInstance, unwrapResponse } from '@moatless/api-client/custom-instance'
-import { getAvailableCommands as getAvailableCommandsHandler } from '@moatless/api-client/sandbox/commands/commands'
 import {
   deleteQueuedMessage as deleteQueuedMessageHandler,
   getMessages as getMessagesHandler,
@@ -154,7 +152,6 @@ export const tasksApi = {
       fileUploads?:
         | Array<{ fileId: string; filename: string; mimeType: string; size: number }>
         | undefined
-      commandName?: string | undefined
       agentMode?: string | undefined
       contexts?: MessageContextInput[] | undefined
       toolUseId?: string | undefined
@@ -172,7 +169,6 @@ export const tasksApi = {
       ...(variables.resume !== undefined && { resume: variables.resume }),
       ...(variables.model !== undefined && { model: variables.model }),
       ...(variables.fileIds !== undefined && { fileIds: variables.fileIds }),
-      ...(variables.commandName !== undefined && { commandName: variables.commandName }),
       ...(variables.agentMode !== undefined && { agentMode: variables.agentMode }),
       ...(variables.contexts !== undefined && { contexts: variables.contexts }),
       ...(variables.toolUseId !== undefined && { toolUseId: variables.toolUseId }),
@@ -227,10 +223,6 @@ export const tasksApi = {
 
   async getToolCallDetail(taskId: string, toolUseId: string): Promise<ToolCallDetailResponse> {
     return await unwrapResponse(getToolCallDetailHandler(taskId, toolUseId))
-  },
-
-  async getTaskCommands(taskId: string): Promise<CommandResponse[]> {
-    return await unwrapResponse(getAvailableCommandsHandler(taskId))
   },
 
   async closeTask(taskId: string): Promise<TaskResponse> {

@@ -177,9 +177,7 @@ async fn task_scope_inheritance() {
             contexts: vec![],
             file_ids: vec![],
             model: None,
-            command_name: None,
             headless: None,
-            task_template_id: None,
             parent_task_id: None,
         })
         .await
@@ -397,9 +395,7 @@ async fn listing_tasks_filters_by_scope() {
             contexts: vec![],
             file_ids: vec![],
             model: None,
-            command_name: None,
             headless: None,
-            task_template_id: None,
             parent_task_id: None,
         })
         .await

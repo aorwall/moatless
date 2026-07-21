@@ -21,11 +21,6 @@ import type { UiUsage } from './uiUsage';
  */
 export interface UiMessage {
   agentMode?: null | AgentMode;
-  /**
-   * Command name if this message was sent via a slash command.
-   * @nullable
-   */
-  commandName?: string | null;
   /** Content blocks for this message. */
   content: UiContentBlock[];
   /** Contexts attached to this user message (file uploads, preview URLs,

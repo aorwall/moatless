@@ -278,7 +278,6 @@ async fn execute_job(
         None,
         Some(&job.id),
         None,
-        None,
         false,
         None,
     )
@@ -297,8 +296,7 @@ async fn create_scheduled_task(
     msg: &InboundMessage,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     let task_id =
-        crate::triggers::inbound::create_task_for_external_message(state, config, msg, None)
-            .await?;
+        crate::triggers::inbound::create_task_for_external_message(state, config, msg).await?;
 
     match crate::sandbox::auto_provision::build_provision_request(
         state.tasks.as_ref(),

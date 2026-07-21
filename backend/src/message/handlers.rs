@@ -14,8 +14,6 @@ use super::send;
 use super::transform;
 
 /// Send a message to the agent for a task.
-///
-/// If `command_name` is set, the command's prompt is used instead of `message`.
 #[utoipa::path(
     post,
     path = "/api/v1/tasks/{task_id}/messages",
@@ -70,8 +68,7 @@ pub async fn send_message(
         .await?;
         None
     } else {
-        // Regular message or command — frontend sends the prompt text directly.
-        // command_name is stored on the message for display purposes only.
+        // Regular message — frontend sends the prompt text directly.
         send::send_message_flow(
             &state,
             &task_id,
@@ -85,7 +82,6 @@ pub async fn send_message(
             None,
             None,
             None,
-            req.command_name.as_deref(),
             req.source_task_id.as_deref(),
             req.start_fresh.unwrap_or(false),
             Some(&auth.user_id),
@@ -416,7 +412,6 @@ mod strip_heavy_fields_tests {
             result: None,
             sdk_metadata: None,
             external_source: None,
-            command_name: None,
             parent_uuid: None,
             source_task_id: None,
             sent_by: None,

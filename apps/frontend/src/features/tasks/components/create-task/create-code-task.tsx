@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { useAgentAvailability } from '@/features/agents'
-import { useCommandsList } from '@/features/commands/hooks/use-commands'
 import { useRepository } from '@/features/repositories'
 import { SettingsDialog } from '@/features/settings'
 import { useRepositorySkills } from '@/features/skills'
@@ -24,7 +23,6 @@ import {
   useAgentTypeSelector,
   useBranchSelector,
   useModelSelector,
-  useTaskTemplateSelector,
   useWorkspaceSelector,
 } from '@/features/tasks/components/chat/chat-input/selectors'
 import {
@@ -53,8 +51,6 @@ interface CreateCodeTaskProps {
   onAgentTypeChange?: ((type: AgentType) => void) | undefined
   workspaceId: string
   onWorkspaceChange: (workspaceId: string) => void
-  templateId?: string | undefined
-  onTemplateChange?: ((id: string | undefined) => void) | undefined
   onSuccess?: (() => void) | undefined
 }
 
@@ -73,8 +69,6 @@ export function CreateCodeTask({
   onAgentTypeChange,
   workspaceId,
   onWorkspaceChange,
-  templateId,
-  onTemplateChange,
   onSuccess,
 }: CreateCodeTaskProps) {
   const { submit, isSubmitting } = useCodeTaskSubmit()
@@ -85,14 +79,13 @@ export function CreateCodeTask({
   const { agents, selectedAgent, agentUnavailable, settingsSection, availableModel } =
     useAgentAvailability({ agentType, model })
 
-  const { data: commands = [] } = useCommandsList()
-
   // Derive primary repo from workspace for branch/skills
   const { data: workspaceDetails } = useWorkspace(workspaceId, { enabled: !!workspaceId })
   const primaryRepoId = workspaceDetails?.repos.find((r) => r.isPrimary)?.repositoryId ?? undefined
 
   const { data: skills = [], error: skillsError } = useRepositorySkills(primaryRepoId)
 
+  // Surface skill-fetch failures via a toast.
   useEffect(() => {
     if (skillsError) {
       toast.error('Failed to load repository skills', {
@@ -101,21 +94,18 @@ export function CreateCodeTask({
     }
   }, [skillsError])
 
-  const suggestions = [
-    ...commands.map((c) => ({ kind: 'command' as const, ...c })),
-    ...skills.map((s) => ({ kind: 'skill' as const, ...s })),
-  ]
+  // Skill suggestions for the "/" dropdown.
+  const suggestions = skills.map((s) => ({ kind: 'skill' as const, ...s }))
 
+  // Skill autocomplete hook
   const {
     inputRef: textareaRef,
     isOpen: isCommandAutocompleteOpen,
     filteredCommands,
     selectedIndex: commandSelectedIndex,
-    selectedCommand,
     handleInputChange: handleCommandInputChange,
     handleKeyDown: handleCommandKeyDown,
     selectCommand,
-    clearSelectedCommand,
   } = useCommandAutocomplete({
     onValueChange: setMessage,
     suggestions,
@@ -154,7 +144,6 @@ export function CreateCodeTask({
     true,
     repositoryDetails,
   )
-  const templateSelector = useTaskTemplateSelector(templateId, onTemplateChange)
 
   useEffect(() => {
     if (branchSelector.error) {
@@ -174,6 +163,7 @@ export function CreateCodeTask({
     }
   }, [workspaceId, workspaces, onWorkspaceChange])
 
+  // Handle message changes with skill autocomplete
   const handleMessageChange = (newMessage: string) => {
     setMessage(newMessage)
     if (textareaRef.current) {
@@ -187,26 +177,17 @@ export function CreateCodeTask({
       return
     }
 
-    const { submitMessage, submitAgentMode } = resolveCommandSubmit(
-      message,
-      agentMode,
-      selectedCommand,
-    )
-
     submit({
       agentType,
       workspaceId,
       fileIds: taskInputs.getFileIds(),
-      agentMode: submitAgentMode,
-      message: submitMessage,
+      agentMode,
+      message: message.trim() || undefined,
       model: isModelSelectorEnabled ? modelToApiValue(availableModel) : undefined,
       contexts: taskInputs.contextItems,
       branch: branchSelector.value,
-      commandName: selectedCommand?.name,
-      templateId,
       onSubmitted: () => {
         setMessage('')
-        clearSelectedCommand()
         taskInputs.clearAll()
         setBranch('')
         onSuccess?.()
@@ -279,23 +260,6 @@ export function CreateCodeTask({
 
           <div className="flex items-center justify-between gap-2">
             <Selectors>
-              {templateSelector.items.length > 0 && (
-                <PopoverSelector
-                  icon={templateSelector.icon}
-                  value={templateSelector.value}
-                  displayValue={templateSelector.displayValue}
-                  tooltip={templateSelector.tooltip}
-                  loading={templateSelector.loading}
-                  disabled={templateSelector.disabled}
-                >
-                  <SimpleListPopoverContent
-                    items={templateSelector.items}
-                    value={templateSelector.value}
-                    onChange={templateSelector.onChange}
-                  />
-                </PopoverSelector>
-              )}
-
               <PopoverSelector
                 icon={workspaceSelector.icon}
                 value={workspaceSelector.value}
@@ -419,20 +383,4 @@ function getSubmitButtonText(isPending: boolean, message: string): string {
     return message.trim() ? 'Starting...' : 'Creating...'
   }
   return message.trim() ? 'Start Task' : 'Create Task'
-}
-
-function resolveCommandSubmit(
-  message: string,
-  agentMode: 'edit' | 'plan',
-  selectedCommand: { name: string; agentMode?: string | null } | null,
-): { submitMessage: string | undefined; submitAgentMode: 'edit' | 'plan' } {
-  if (!selectedCommand) {
-    return { submitMessage: message.trim() || undefined, submitAgentMode: agentMode }
-  }
-  const prefix = `/${selectedCommand.name} `
-  const userText = message.startsWith(prefix) ? message.slice(prefix.length).trim() : ''
-  return {
-    submitMessage: userText || undefined,
-    submitAgentMode: (selectedCommand.agentMode as 'edit' | 'plan') ?? agentMode,
-  }
 }

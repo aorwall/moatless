@@ -17,8 +17,6 @@ export interface CodeTaskSubmitInput {
   model: string | undefined
   contexts: MessageContextInput[]
   branch: string | undefined
-  commandName: string | undefined
-  templateId: string | undefined
   /** Called after the task-create mutation succeeds (clear the composer). */
   onSubmitted: () => void
 }
@@ -60,7 +58,5 @@ function buildTaskInput(input: CodeTaskSubmitInput): CreateTaskRequest {
     ...(input.model !== undefined && { model: input.model }),
     ...(input.contexts.length > 0 && { contexts: input.contexts }),
     ...(input.branch !== undefined && { branch: input.branch }),
-    ...(input.commandName !== undefined && { commandName: input.commandName }),
-    ...(input.templateId !== undefined && { taskTemplateId: input.templateId }),
   }
 }

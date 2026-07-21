@@ -13,7 +13,6 @@ use crate::auth::provider_token_dao::{PgProviderTokenRepository, ProviderTokenRe
 use crate::auth::provider_tokens::{PgProviderTokenAuthRepository, ProviderTokenAuthRepository};
 use crate::auth::users::{PgUserRepository, UserRepository};
 use crate::bindings::recently_sent::RecentlySent;
-use crate::command::dao::{CommandRepository, PgCommandRepository};
 use crate::config::Config;
 use crate::credentials::{BroadcastContext, CredentialService};
 use crate::db::DbPool;
@@ -34,11 +33,10 @@ use crate::task::dao::{PgTaskRepository, TaskRepository};
 use crate::workspace::dao::{PgWorkspaceRepository, WorkspaceRepository};
 use crate::task::relations::{PgTaskRelationRepository, TaskRelationRepository};
 use crate::task_event::dao::{PgTaskEventRepository, TaskEventRepository};
-use crate::task_template::dao::{PgTaskTemplateRepository, TaskTemplateRepository};
 use crate::task_turn::dao::{PgTaskTurnRepository, TaskTurnRepository};
 use crate::team::dao::{PgTeamRepository, TeamRepository};
 
-/// Shared application state for task/message/agent/command/file routes.
+/// Shared application state for task/message/agent/file routes.
 ///
 /// All fields are cheap to clone (Arc-wrapped or internally Arc'd).
 /// Repository trait objects enable handler unit tests without Postgres.
@@ -94,7 +92,6 @@ pub struct AppState {
     pub messages: Arc<dyn MessageRepository>,
     pub feedback: Arc<dyn FeedbackRepository>,
     pub repositories: Arc<dyn RepoRepository>,
-    pub commands: Arc<dyn CommandRepository>,
     pub tags: Arc<dyn TagRepository>,
     pub files: Arc<dyn FileRepository>,
     pub users: Arc<dyn UserRepository>,
@@ -108,7 +105,6 @@ pub struct AppState {
     /// Authoritative per-turn lifecycle state (`task_turns`). Written
     /// transactionally at the gRPC ingress; the reaper reads it as the backstop.
     pub task_turns: Arc<dyn TaskTurnRepository>,
-    pub task_templates: Arc<dyn TaskTemplateRepository>,
     pub plugin_repos: Arc<dyn PluginRepoRepository>,
     /// Workspace composition + run-config (`workspaces` / `workspace_repos`).
     /// Provisioning resolves a task's repository composition through this.
@@ -210,7 +206,6 @@ impl AppState {
             messages: Arc::new(PgMessageRepository(pool.clone())),
             feedback: Arc::new(PgFeedbackRepository(pool.clone())),
             repositories,
-            commands: Arc::new(PgCommandRepository(pool.clone())),
             tags: Arc::new(PgTagRepository(pool.clone())),
             files: Arc::new(PgFileRepository(pool.clone())),
             users: Arc::new(PgUserRepository(pool.clone())),
@@ -222,7 +217,6 @@ impl AppState {
             teams: Arc::new(PgTeamRepository(pool.clone())),
             task_events: Arc::new(PgTaskEventRepository(pool.clone())),
             task_turns: Arc::new(PgTaskTurnRepository(pool.clone())),
-            task_templates: Arc::new(PgTaskTemplateRepository(pool.clone())),
             plugin_repos,
             workspaces: Arc::new(PgWorkspaceRepository(pool.clone())),
             skills,

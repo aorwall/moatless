@@ -42,9 +42,7 @@ async fn task_send_message_to_closed_task() {
         contexts: vec![],
         file_ids: vec![],
         model: None,
-        command_name: None,
         headless: None,
-        task_template_id: None,
         parent_task_id: None,
     };
     let created = client.api().create_task(&req).await.unwrap();

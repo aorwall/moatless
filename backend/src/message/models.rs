@@ -129,7 +129,6 @@ pub struct TaskMessage {
     /// `None` for non-binding-sourced rows (user sends, schedulers, replies).
     pub external_subject_key: Option<String>,
     pub external_source_name: Option<String>,
-    pub command_name: Option<String>,
     pub source_task_id: Option<String>,
     /// User declared the next agent run should NOT resume the prior session.
     /// Distinct from `will_not_resume`, which lives on the result row.
@@ -189,7 +188,6 @@ impl TaskMessage {
             external_adapter: None,
             external_subject_key: None,
             external_source_name: None,
-            command_name: None,
             source_task_id: None,
             start_fresh: false,
             sent_by: None,
