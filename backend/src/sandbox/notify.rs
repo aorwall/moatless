@@ -1,8 +1,8 @@
 //! Sandbox notification and wake-up helpers.
 
 use super::client::SandboxClient;
-use super::models::SandboxStatus;
 use crate::config::SandboxProviderType;
+use crate::sandbox::lifecycle::ObservedStatus;
 use crate::state::AppState;
 
 /// Convenience helper: notify the sandbox for a given task_id.
@@ -91,30 +91,16 @@ pub async fn ensure_sandbox_and_notify(state: &AppState, task_id: &str) -> Resul
         }
     }
 
-    let request = super::auto_provision::build_provision_request(
-        state.tasks.as_ref(),
-        state.repositories.as_ref(),
-        state.provider_tokens.as_ref(),
-        state.plugin_repos.as_ref(),
-        state.workspaces.as_ref(),
-        task_id,
-    )
-    .await
-    .map_err(|e| {
-        tracing::warn!(task_id = %task_id, error = %e, "Failed to build provision request for message delivery");
-        format!("Failed to build provision request: {e}")
-    })?;
-
-    match state.sandbox.provision(task_id, &request).await {
-        Ok(resp) if resp.status == SandboxStatus::Ready => {
+    match state.lifecycle.start(task_id).await {
+        Ok(outcome) if outcome.observed == ObservedStatus::Ready => {
             notify_sandbox_for_task(state, task_id).await;
         }
         Ok(_) => {
             tracing::info!(task_id = %task_id, "Sandbox starting, skipping notification");
         }
         Err(e) => {
-            tracing::warn!(task_id = %task_id, error = %e, "Failed to provision sandbox for message delivery");
-            return Err(format!("Failed to provision sandbox: {e}"));
+            tracing::warn!(task_id = %task_id, error = %e, "Failed to start sandbox for message delivery");
+            return Err(e.to_string());
         }
     }
 
