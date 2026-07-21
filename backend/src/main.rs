@@ -596,7 +596,6 @@ fn spawn_task_reaper(
         k8s,
         app_state.messages.clone(),
         app_state.tasks.clone(),
-        Arc::clone(&app_state.sandbox),
         app_state.events.clone(),
         Arc::clone(&app_state.config),
         cancel,
