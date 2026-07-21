@@ -2,7 +2,6 @@
 
 use axum::extract::{Path, Query, State};
 use axum::Json;
-use moatless_events::{EventType, MessageSubType};
 use serde::Deserialize;
 
 use crate::extractors::AuthUser;
@@ -592,55 +591,6 @@ pub async fn get_pending_messages(
     Ok(Json(GetPendingMessagesResponse {
         messages,
         total_count,
-    }))
-}
-
-/// Delete a queued message.
-#[utoipa::path(
-    delete,
-    path = "/api/v1/tasks/{task_id}/messages/{message_id}",
-    tag = "messages",
-    params(
-        ("task_id" = String, Path, description = "Task identifier"),
-        ("message_id" = String, Path, description = "Message identifier")
-    ),
-    responses(
-        (status = 200, description = "Message deleted", body = DeleteMessageResponse),
-        (status = 404, description = "Message not found", body = crate::error::ErrorBody)
-    )
-)]
-pub async fn delete_queued_message(
-    State(state): State<AppState>,
-    auth: AuthUser,
-    Path((task_id, message_id)): Path<(String, String)>,
-) -> Result<Json<DeleteMessageResponse>, MessageError> {
-    ensure_task_read_access(&state, &auth, &task_id).await?;
-
-    let deleted = state.messages.delete_queued(&task_id, &message_id).await?;
-    if !deleted {
-        return Err(MessageError::NotFound(message_id));
-    }
-
-    tracing::info!(task_id = %task_id, message_id = %message_id, "Queued message deleted");
-
-    // Derived, UI-only `message.deleted` so the live Chat drops the row by uuid.
-    // The row is hard-deleted, so the payload carries identity only (task_id is
-    // on the stream envelope). Never persisted to `task_events`.
-    if let Some(ref events) = state.events {
-        events
-            .publish_raw_event(
-                &task_id,
-                EventType::Message.as_str(),
-                MessageSubType::Deleted.as_str(),
-                None,
-                None,
-                serde_json::json!({ "uuid": message_id }),
-            )
-            .await;
-    }
-
-    Ok(Json(DeleteMessageResponse {
-        status: "deleted".to_string(),
     }))
 }
 

@@ -354,16 +354,16 @@ impl TryFrom<&str> for TaskTurnSubType {
     }
 }
 
-/// Message sub-types — derived, UI-only events carrying an assembled `UiMessage`.
+/// Message sub-types — derived, UI-only events for the live Chat.
 ///
-/// `upsert` replaces-or-inserts a Message by `uuid` in the live Chat; `deleted`
-/// removes one (a queued Message the user cancelled). Neither is an error.
+/// `upsert` replaces-or-inserts an assembled Message by `uuid`;
+/// `subagentProgress` carries a subagent's absolute activity summary. Neither
+/// is an error.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum MessageSubType {
     Upsert,
-    Deleted,
     /// A subagent step advanced: carries the absolute `{ toolUseId,
     /// messageCount, tokens, status }` summary for one `Agent` tool call. UI-only
     /// — keeps the collapsed `Agent` card live without streaming transcript
@@ -376,7 +376,6 @@ impl MessageSubType {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Upsert => "upsert",
-            Self::Deleted => "deleted",
             Self::SubagentProgress => "subagentProgress",
         }
     }
@@ -397,7 +396,6 @@ impl TryFrom<&str> for MessageSubType {
     fn try_from(s: &str) -> Result<Self, String> {
         match s {
             "upsert" => Ok(Self::Upsert),
-            "deleted" => Ok(Self::Deleted),
             "subagentProgress" => Ok(Self::SubagentProgress),
             other => Err(format!("unknown MessageSubType: {other}")),
         }

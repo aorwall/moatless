@@ -415,52 +415,6 @@ export function useStopAgent(
   })
 }
 
-export function useDeleteMessage(
-  taskId: string,
-  options?: UseMutationOptions<
-    { status: 'deleted' },
-    Error,
-    string,
-    { previousMessages: MessagesInfiniteData | undefined }
-  >,
-) {
-  const queryClient = useQueryClient()
-
-  return useMutation<
-    { status: 'deleted' },
-    Error,
-    string,
-    { previousMessages: MessagesInfiniteData | undefined }
-  >({
-    ...options,
-    mutationKey: ['tasks', taskId, 'deleteMessage'],
-    mutationFn: (messageId: string) => tasksApi.deleteMessage(taskId, messageId),
-    onMutate: async (messageId) => {
-      await queryClient.cancelQueries({
-        queryKey: queryKeys.tasks.messages(taskId),
-      })
-
-      const previousMessages = queryClient.getQueryData<MessagesInfiniteData>(
-        queryKeys.tasks.messages(taskId),
-      )
-
-      // Optimistically remove the message from whichever page contains it.
-      queryClient.setQueryData<MessagesInfiniteData>(queryKeys.tasks.messages(taskId), (data) =>
-        mutateMessagePages(data, (messages) => messages.filter((m) => m.uuid !== messageId)),
-      )
-
-      return { previousMessages }
-    },
-    onError: (error, _messageId, context, mutation) => {
-      // Rollback on error
-      if (context?.previousMessages !== undefined) {
-        queryClient.setQueryData(queryKeys.tasks.messages(taskId), context.previousMessages)
-      }
-      options?.onError?.(error, _messageId, context, mutation)
-    },
-  })
-}
-
 export function useTaskMessages(taskId: string, options?: { enabled?: boolean }) {
   return useInfiniteQuery({
     queryKey: queryKeys.tasks.messages(taskId),

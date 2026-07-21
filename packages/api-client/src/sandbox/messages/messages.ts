@@ -25,7 +25,6 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
-  DeleteMessageResponse,
   ErrorBody,
   GetMessagesParams,
   GetMessagesResponse,
@@ -424,96 +423,6 @@ export const prefetchGetPendingMessagesQuery = async <TData = Awaited<ReturnType
 
 
 /**
- * @summary Delete a queued message.
- */
-export type deleteQueuedMessageResponse200 = {
-  data: DeleteMessageResponse
-  status: 200
-}
-
-export type deleteQueuedMessageResponse404 = {
-  data: ErrorBody
-  status: 404
-}
-    
-export type deleteQueuedMessageResponseSuccess = (deleteQueuedMessageResponse200) & {
-  headers: Headers;
-};
-export type deleteQueuedMessageResponseError = (deleteQueuedMessageResponse404) & {
-  headers: Headers;
-};
-
-export type deleteQueuedMessageResponse = (deleteQueuedMessageResponseSuccess | deleteQueuedMessageResponseError)
-
-export const getDeleteQueuedMessageUrl = (taskId: string,
-    messageId: string,) => {
-
-
-  
-
-  return `/api/v1/tasks/${taskId}/messages/${messageId}`
-}
-
-export const deleteQueuedMessage = async (taskId: string,
-    messageId: string, options?: RequestInit): Promise<deleteQueuedMessageResponse> => {
-  
-  return customInstance<deleteQueuedMessageResponse>(getDeleteQueuedMessageUrl(taskId,messageId),
-  {      
-    ...options,
-    method: 'DELETE'
-    
-    
-  }
-);}
-
-
-
-
-export const getDeleteQueuedMessageMutationOptions = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteQueuedMessage>>, TError,{taskId: string;messageId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
-): UseMutationOptions<Awaited<ReturnType<typeof deleteQueuedMessage>>, TError,{taskId: string;messageId: string}, TContext> => {
-
-const mutationKey = ['deleteQueuedMessage'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-      
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteQueuedMessage>>, {taskId: string;messageId: string}> = (props) => {
-          const {taskId,messageId} = props ?? {};
-
-          return  deleteQueuedMessage(taskId,messageId,requestOptions)
-        }
-
-
-
-        
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type DeleteQueuedMessageMutationResult = NonNullable<Awaited<ReturnType<typeof deleteQueuedMessage>>>
-    
-    export type DeleteQueuedMessageMutationError = ErrorType<ErrorBody>
-
-    /**
- * @summary Delete a queued message.
- */
-export const useDeleteQueuedMessage = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteQueuedMessage>>, TError,{taskId: string;messageId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof deleteQueuedMessage>>,
-        TError,
-        {taskId: string;messageId: string},
-        TContext
-      > => {
-      return useMutation(getDeleteQueuedMessageMutationOptions(options), queryClient);
-    }
-    /**
  * @summary Get the full input + result for a single tool call within a task.
  */
 export type getToolCallDetailResponse200 = {

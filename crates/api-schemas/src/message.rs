@@ -224,13 +224,6 @@ pub struct GetPendingMessagesResponse {
     pub total_count: usize,
 }
 
-/// Response for DELETE /messages/{id}.
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct DeleteMessageResponse {
-    pub status: String,
-}
-
 /// Full tool-call detail returned on demand (when a tool call is expanded).
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]

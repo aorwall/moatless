@@ -172,41 +172,6 @@ async fn get_pending_messages_with_data(pool: PgPool) {
 }
 
 // =========================================================================
-// DELETE /api/v1/tasks/{task_id}/messages/{message_id}
-// =========================================================================
-
-#[sqlx::test]
-async fn delete_queued_message_success(pool: PgPool) {
-    seed_task(&pool, "task-1", "user-1").await;
-
-    let msg = make_message_row("task-1", "del-msg");
-    message_dao::append(&pool, &msg, &[], &[]).await.unwrap();
-
-    let app = build_router(pool);
-    let req = authed_request("DELETE", "/api/v1/tasks/task-1/messages/del-msg", "user-1");
-    let resp = app.oneshot(req).await.unwrap();
-
-    assert_eq!(resp.status(), StatusCode::OK);
-    let body = body_json(resp).await;
-    assert_eq!(body["status"], "deleted");
-}
-
-#[sqlx::test]
-async fn delete_queued_message_not_found(pool: PgPool) {
-    seed_task(&pool, "task-1", "user-1").await;
-
-    let app = build_router(pool);
-    let req = authed_request(
-        "DELETE",
-        "/api/v1/tasks/task-1/messages/nonexistent",
-        "user-1",
-    );
-    let resp = app.oneshot(req).await.unwrap();
-
-    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
-}
-
-// =========================================================================
 // POST /api/v1/tasks/{task_id}/messages
 // =========================================================================
 

@@ -1,9 +1,8 @@
 import type { UiMessage } from '@moatless/api-client'
-import { Clock, X } from 'lucide-react'
+import { Clock } from 'lucide-react'
 
 interface QueuedMessagesProps {
   messages: UiMessage[]
-  onRemove: (messageId: string) => void
 }
 
 // Extract text content from UiMessage content blocks
@@ -11,7 +10,12 @@ function getTextContent(message: UiMessage): string {
   return message.content.flatMap((c) => (c.type === 'text' ? [c.text ?? ''] : [])).join('\n')
 }
 
-export function QueuedMessages({ messages, onRemove }: QueuedMessagesProps) {
+/**
+ * View-only list of messages queued behind a running turn. The cancel
+ * affordance was removed with the `DELETE /messages` route — the pending list
+ * is informational only.
+ */
+export function QueuedMessages({ messages }: QueuedMessagesProps) {
   if (messages.length === 0) {
     return null
   }
@@ -28,14 +32,6 @@ export function QueuedMessages({ messages, onRemove }: QueuedMessagesProps) {
           <span className="truncate text-foreground/80 flex-1 min-w-0">
             {getTextContent(message)}
           </span>
-          <button
-            type="button"
-            onClick={() => onRemove(message.uuid)}
-            className="shrink-0 p-0.5 rounded hover:bg-muted-foreground/20 text-muted-foreground hover:text-foreground transition-colors"
-            aria-label="Remove queued message"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
         </div>
       ))}
     </div>

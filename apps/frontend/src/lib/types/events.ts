@@ -15,7 +15,7 @@ import type {
 } from '@moatless/api-client/sandbox/model'
 
 /** Derived, UI-only message-event subtypes (not in the generated model). */
-export type MessageSubType = 'upsert' | 'deleted' | 'subagentProgress'
+export type MessageSubType = 'upsert' | 'subagentProgress'
 
 export interface TaskEvent extends StreamEvent {
   type: 'task'
@@ -58,12 +58,6 @@ export interface MessageUpsertEvent extends StreamEvent {
   payload: UiMessage
 }
 
-export interface MessageDeletedEvent extends StreamEvent {
-  type: 'message'
-  subType: 'deleted'
-  payload: { uuid: string }
-}
-
 /**
  * Derived, UI-only event carrying one subagent's absolute activity summary
  * (ADR-0003 lazy subagents). Written through onto the cached parent Message's
@@ -80,7 +74,7 @@ export interface MessageSubagentProgressEvent extends StreamEvent {
   }
 }
 
-export type MessageEvent = MessageUpsertEvent | MessageDeletedEvent | MessageSubagentProgressEvent
+export type MessageEvent = MessageUpsertEvent | MessageSubagentProgressEvent
 
 export interface NavigationEvent extends Omit<StreamEvent, 'type'> {
   type: 'navigation'
@@ -102,7 +96,6 @@ export type Event =
   | ResourcesEvent
   | AgentEvent
   | MessageUpsertEvent
-  | MessageDeletedEvent
   | MessageSubagentProgressEvent
   | NavigationEvent
   | PreviewEvent

@@ -586,29 +586,6 @@ async fn find_tool_call_returns_parent_message_uuid(pool: PgPool) {
     assert_eq!(found.result_content.as_deref(), Some("hi"));
 }
 
-#[sqlx::test]
-async fn delete_queued(pool: PgPool) {
-    seed_task(&pool, "task-1", "user-1").await;
-
-    let msg = make_message_row("task-1", "queued-msg");
-    message_dao::append(&pool, &msg, &[], &[]).await.unwrap();
-
-    let deleted = message_dao::delete_queued(&pool, "task-1", "queued-msg")
-        .await
-        .unwrap();
-    assert!(deleted);
-
-    let pending = message_dao::get_pending_user(&pool, "task-1")
-        .await
-        .unwrap();
-    assert!(pending.is_empty());
-
-    // Delete again should return false
-    let deleted_again = message_dao::delete_queued(&pool, "task-1", "queued-msg")
-        .await
-        .unwrap();
-    assert!(!deleted_again);
-}
 
 async fn seed_acknowledged_turn(pool: &PgPool, task_id: &str, uuid: &str, turn_number: i32) {
     let mut msg = make_message_row(task_id, uuid);

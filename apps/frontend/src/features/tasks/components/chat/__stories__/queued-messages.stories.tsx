@@ -1,6 +1,5 @@
 import type { UiMessage } from '@moatless/api-client'
 import type { Meta, StoryObj } from '@storybook/react-vite'
-import { fn } from 'storybook/test'
 import { QueuedMessages } from '../queued-messages'
 
 const meta = {
@@ -32,7 +31,6 @@ const createQueuedMessage = (content: string, id: string): UiMessage => ({
 export const SingleMessage: Story = {
   args: {
     messages: [createQueuedMessage('Fix the login button styling', 'q-1')],
-    onRemove: fn(),
   },
 }
 
@@ -43,7 +41,6 @@ export const MultipleMessages: Story = {
       createQueuedMessage('Also update the color scheme to match the new design', 'q-2'),
       createQueuedMessage('And add a loading spinner to the submit button', 'q-3'),
     ],
-    onRemove: fn(),
   },
 }
 
@@ -56,14 +53,12 @@ export const LongMessageText: Story = {
       ),
       createQueuedMessage('Also run the tests', 'q-2'),
     ],
-    onRemove: fn(),
   },
 }
 
 export const Empty: Story = {
   args: {
     messages: [],
-    onRemove: fn(),
   },
 }
 
@@ -76,6 +71,5 @@ export const ManyMessages: Story = {
       createQueuedMessage('Fourth change request', 'q-4'),
       createQueuedMessage('Fifth change request', 'q-5'),
     ],
-    onRemove: fn(),
   },
 }

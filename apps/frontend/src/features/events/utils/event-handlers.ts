@@ -1,7 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query'
 import { refreshNewestMessagesPage } from '@/features/tasks/hooks/use-tasks'
 import { queryKeys } from '@/lib/api/query-keys'
-import { applySubagentProgress, removeMessage, upsertMessageByUuid } from '@/lib/api/task-cache'
+import { applySubagentProgress, upsertMessageByUuid } from '@/lib/api/task-cache'
 import { extractToolNames, hasTools } from '@/lib/types/content-guards'
 import type { Event, MessageEvent } from '@/lib/types/events'
 import type { MoatlessToolName } from '@/lib/types/tools'
@@ -170,18 +170,15 @@ const MESSAGE_REFRESH_EVENT_TRIGGERS: ReadonlyArray<{ type: Event['type']; subTy
 ]
 
 /**
- * Apply a derived `message.upsert` / `message.deleted` event to the messages
- * cache by uuid (ADR-0002 — the frontend renders, it does not assemble). The
- * server assembles the `UiMessage`; we replace-or-insert (or remove) it in the
- * task's existing cache. No-op when the task has no cache entry — the read path
- * hydrates it on open, so we never fabricate a partial history from one event.
+ * Apply a derived `message.*` event to the messages cache (ADR-0002/0003 — the
+ * frontend renders, it does not assemble). `upsert` replaces-or-inserts the
+ * server-assembled `UiMessage` by uuid; `subagentProgress` writes an absolute
+ * subagent summary through onto the cached parent's `Agent` block. No-op when
+ * the task has no cache entry — the read path hydrates it on open, so we never
+ * fabricate a partial history from one event.
  */
 export function applyMessageEvent(event: MessageEvent, queryClient: QueryClient): void {
   if (!event.taskId) {
-    return
-  }
-  if (event.subType === 'deleted') {
-    removeMessage(queryClient, event.taskId, event.payload.uuid)
     return
   }
   if (event.subType === 'subagentProgress') {
@@ -256,6 +253,27 @@ export function invalidateMessagesForEvent(event: Event, queryClient: QueryClien
 }
 
 /**
+ * Extract the tool names an `agent.message` source event carries.
+ *
+ * Prefers the skeleton's `toolNames` field (ADR-0003 — the source event's
+ * persisted/relayed form is a metadata skeleton, and tool-invalidation reads a
+ * field, not content). Falls back to parsing `message.content` for the
+ * transitional window before the relay is slimmed / rows are backfilled; that
+ * fallback drops out once one shape remains.
+ */
+function toolNamesFromAgentMessage(payload: unknown): string[] {
+  const shaped = payload as { toolNames?: unknown; message?: { content?: unknown } }
+  if (Array.isArray(shaped?.toolNames)) {
+    return shaped.toolNames.filter((name): name is string => typeof name === 'string')
+  }
+  const content = shaped?.message?.content
+  if (content && Array.isArray(content) && hasTools(content)) {
+    return extractToolNames(content)
+  }
+  return []
+}
+
+/**
  * Invalidate queries based on tools used in an agent message event
  * Extracts tools from event and dispatches to appropriate invalidation actions
  */
@@ -265,23 +283,7 @@ export function invalidateByTool(event: Event, queryClient: QueryClient): void {
     return
   }
 
-  // Extract message content from event payload
-  const payload = event.payload as { message?: { content?: unknown } }
-  const message = payload?.message
-
-  if (!(message?.content && Array.isArray(message.content))) {
-    return
-  }
-
-  // Check if event has any tools
-  if (!hasTools(message.content)) {
-    return
-  }
-
-  // Extract tool names and trigger invalidations
-  const toolNames = extractToolNames(message.content)
-
-  for (const toolName of toolNames) {
+  for (const toolName of toolNamesFromAgentMessage(event.payload)) {
     const action = TOOL_INVALIDATION_REGISTRY[toolName]
     if (action) {
       action(event.taskId, queryClient)

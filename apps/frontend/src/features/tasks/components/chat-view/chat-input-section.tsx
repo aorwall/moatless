@@ -26,7 +26,7 @@ import { useSandboxStatus } from '@/features/tasks/hooks/use-sandbox-status'
 import { useTaskDraftMessage } from '@/features/tasks/hooks/use-task-draft-message'
 import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
-import { useDeleteMessage, useStopAgent } from '@/features/tasks/hooks/use-tasks'
+import { useStopAgent } from '@/features/tasks/hooks/use-tasks'
 import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
 import { type ClaudeModel, DEFAULT_CLAUDE_MODEL } from '@/lib/types/claude-models'
 import { getErrorMessage } from '@/lib/utils/error'
@@ -175,7 +175,6 @@ export function ChatInputSection({
   const stopAgent = useStopAgent(taskId)
 
   // Delete queued message mutation
-  const deleteMessage = useDeleteMessage(taskId)
 
   // Message-send orchestration (free text, pending-tool responses)
   const {
@@ -208,11 +207,8 @@ export function ChatInputSection({
 
   return (
     <>
-      {/* Queued messages stack above chat input */}
-      <QueuedMessages
-        messages={queuedMessages}
-        onRemove={(messageId) => deleteMessage.mutate(messageId)}
-      />
+      {/* Queued messages stack above chat input (view-only) */}
+      <QueuedMessages messages={queuedMessages} />
 
       {/* Conditionally render input based on pending user input */}
       {pendingUserInput?.type === 'AskUserQuestion' ? (

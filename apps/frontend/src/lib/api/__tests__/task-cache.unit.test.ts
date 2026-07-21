@@ -3,8 +3,8 @@ import { QueryClient } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { queryKeys } from '@/lib/api/query-keys'
 import {
+  applySubagentProgress,
   type MessagesInfiniteData,
-  removeMessage,
   swapMessageUuid,
   upsertMessageByUuid,
 } from '@/lib/api/task-cache'
@@ -70,17 +70,47 @@ describe('task-cache', () => {
     })
   })
 
-  describe('removeMessage', () => {
-    it('removes a Message by uuid', () => {
-      seed(qc, [msg('a'), msg('b')])
-      removeMessage(qc, TASK, 'a')
-      expect(messagesIn(qc).map((m) => m.uuid)).toEqual(['b'])
+  describe('applySubagentProgress', () => {
+    const agentMsg = (uuid: string, toolUseId: string): UiMessage =>
+      msg(uuid, {
+        content: [{ type: 'tool_use', toolName: 'Agent', toolUseId, text: null }],
+      })
+
+    it('writes the absolute summary through onto the matching Agent block', () => {
+      seed(qc, [agentMsg('a', 'toolu_1')])
+      applySubagentProgress(qc, TASK, {
+        toolUseId: 'toolu_1',
+        messageCount: 5,
+        tokens: 1234,
+        status: 'running',
+      })
+      const block = messagesIn(qc)[0]?.content[0]
+      expect(block?.subagentSummary).toEqual({
+        messageCount: 5,
+        tokens: 1234,
+        status: 'running',
+      })
     })
 
-    it('is a no-op when the uuid is absent', () => {
-      seed(qc, [msg('a')])
-      removeMessage(qc, TASK, 'zzz')
-      expect(messagesIn(qc).map((m) => m.uuid)).toEqual(['a'])
+    it('is a no-op when the task has no messages cache entry', () => {
+      applySubagentProgress(qc, TASK, {
+        toolUseId: 'toolu_1',
+        messageCount: 1,
+        tokens: 1,
+        status: 'running',
+      })
+      expect(qc.getQueryData(queryKeys.tasks.messages(TASK))).toBeUndefined()
+    })
+
+    it('is a no-op when no Agent block matches the tool-use id', () => {
+      seed(qc, [agentMsg('a', 'toolu_1')])
+      applySubagentProgress(qc, TASK, {
+        toolUseId: 'other',
+        messageCount: 9,
+        tokens: 9,
+        status: 'completed',
+      })
+      expect(messagesIn(qc)[0]?.content[0]?.subagentSummary).toBeUndefined()
     })
   })
 

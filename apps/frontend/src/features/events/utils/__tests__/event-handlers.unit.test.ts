@@ -10,6 +10,7 @@ import type {
 import {
   EVENT_INVALIDATION_MAP,
   getInvalidationKeys,
+  invalidateByTool,
   invalidateMessagesForEvent,
   isStatusAffectingEvent,
   shouldInvalidateTaskList,
@@ -292,6 +293,67 @@ describe('event-handlers', () => {
 
       expect(refreshNewestMessagesPageMock).not.toHaveBeenCalled()
       expect(invalidateQueriesMock).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('invalidateByTool', () => {
+    function makeQueryClient() {
+      const invalidateQueries = vi.fn()
+      return {
+        client: { invalidateQueries } as unknown as QueryClient,
+        invalidateQueries,
+      }
+    }
+
+    it('reads toolNames from the agent.message skeleton (no content needed)', () => {
+      const { client, invalidateQueries } = makeQueryClient()
+      // Skeleton shape: { message: { role }, uuid, blockCount, toolNames }.
+      const event = {
+        eventId: 'e',
+        type: 'agent',
+        subType: 'message',
+        taskId: 'task-1',
+        agentType: 'test',
+        isError: false,
+        payload: { message: { role: 'assistant' }, uuid: 'u1', blockCount: 2, toolNames: ['Edit'] },
+      } as unknown as AgentEvent
+
+      invalidateByTool(event, client)
+      expect(invalidateQueries).toHaveBeenCalled()
+    })
+
+    it('falls back to parsing message.content when toolNames is absent (transitional)', () => {
+      const { client, invalidateQueries } = makeQueryClient()
+      const event = {
+        eventId: 'e',
+        type: 'agent',
+        subType: 'message',
+        taskId: 'task-1',
+        agentType: 'test',
+        isError: false,
+        payload: {
+          message: { content: [{ type: 'tool_use', id: 't1', name: 'Write', input: {} }] },
+        },
+      } as unknown as AgentEvent
+
+      invalidateByTool(event, client)
+      expect(invalidateQueries).toHaveBeenCalled()
+    })
+
+    it('does nothing for a skeleton whose toolNames triggers no invalidation', () => {
+      const { client, invalidateQueries } = makeQueryClient()
+      const event = {
+        eventId: 'e',
+        type: 'agent',
+        subType: 'message',
+        taskId: 'task-1',
+        agentType: 'test',
+        isError: false,
+        payload: { message: { role: 'assistant' }, uuid: 'u1', blockCount: 1, toolNames: ['Read'] },
+      } as unknown as AgentEvent
+
+      invalidateByTool(event, client)
+      expect(invalidateQueries).not.toHaveBeenCalled()
     })
   })
 })

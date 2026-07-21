@@ -80,7 +80,6 @@ export * from './createUserResponse';
 export * from './createVibeTaskRequest';
 export * from './createWorkspaceRequest';
 export * from './createWorkspaceRequestEnvVars';
-export * from './deleteMessageResponse';
 export * from './elementContextData';
 export * from './errorBody';
 export * from './eventType';

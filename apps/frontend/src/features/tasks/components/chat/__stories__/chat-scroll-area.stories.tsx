@@ -292,7 +292,6 @@ export const WithQueuedMessages = {
           createUserMessage('Also add rate limiting to the login endpoint', 'msg-3', true),
           createUserMessage('And please use bcrypt for password hashing', 'msg-4', true),
         ]}
-        onRemove={noop}
       />
       <ChatInput
         message=""
@@ -341,7 +340,6 @@ export const WithSingleQueuedMessage = {
             true,
           ),
         ]}
-        onRemove={noop}
       />
       <ChatInput
         message=""

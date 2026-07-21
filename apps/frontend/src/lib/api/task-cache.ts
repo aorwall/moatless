@@ -71,20 +71,6 @@ export function upsertMessageByUuid(
   queryClient.setQueryData<MessagesInfiniteData>(key, { ...data, pages: nextPages })
 }
 
-/** Remove a Message by uuid from an existing messages cache (no-op if absent). */
-export function removeMessage(queryClient: QueryClient, taskId: string, uuid: string): void {
-  const key = queryKeys.tasks.messages(taskId)
-  const data = queryClient.getQueryData<MessagesInfiniteData>(key)
-  if (!data) {
-    return
-  }
-  const pages = data.pages.map((page) => ({
-    ...page,
-    messages: page.messages.filter((m) => m.uuid !== uuid),
-  }))
-  queryClient.setQueryData<MessagesInfiniteData>(key, { ...data, pages })
-}
-
 /**
  * Write through an absolute subagent summary onto the cached parent Message's
  * `Agent` content block (the block whose `toolUseId` spawned the subagent).

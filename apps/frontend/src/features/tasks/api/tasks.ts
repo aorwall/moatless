@@ -16,7 +16,6 @@ import type {
 } from '@moatless/api-client'
 import { customInstance, unwrapResponse } from '@moatless/api-client/custom-instance'
 import {
-  deleteQueuedMessage as deleteQueuedMessageHandler,
   getMessages as getMessagesHandler,
   getSubagentTranscript as getSubagentTranscriptHandler,
   getToolCallDetail as getToolCallDetailHandler,
@@ -196,11 +195,6 @@ export const tasksApi = {
   async stopAgent(taskId: string): Promise<{ status: string; taskId: string }> {
     await unwrapResponse<void>(stopAgentHandler(taskId))
     return { status: 'stopped', taskId }
-  },
-
-  async deleteMessage(taskId: string, messageId: string): Promise<{ status: 'deleted' }> {
-    await unwrapResponse<void>(deleteQueuedMessageHandler(taskId, messageId))
-    return { status: 'deleted' }
   },
 
   async getTaskMessages(

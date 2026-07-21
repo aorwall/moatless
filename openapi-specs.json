@@ -4905,57 +4905,6 @@
         }
       }
     },
-    "/api/v1/tasks/{task_id}/messages/{message_id}": {
-      "delete": {
-        "tags": [
-          "messages"
-        ],
-        "summary": "Delete a queued message.",
-        "operationId": "delete_queued_message",
-        "parameters": [
-          {
-            "name": "task_id",
-            "in": "path",
-            "description": "Task identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "message_id",
-            "in": "path",
-            "description": "Message identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Message deleted",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeleteMessageResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Message not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/tasks/{task_id}/read": {
       "post": {
         "tags": [
@@ -9376,18 +9325,6 @@
               "string",
               "null"
             ]
-          }
-        }
-      },
-      "DeleteMessageResponse": {
-        "type": "object",
-        "description": "Response for DELETE /messages/{id}.",
-        "required": [
-          "status"
-        ],
-        "properties": {
-          "status": {
-            "type": "string"
           }
         }
       },
