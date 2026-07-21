@@ -269,6 +269,7 @@ mod tests {
             tool_name: None,
             tool_input: None,
             show_in_ui: None,
+            subagent_summary: None,
         }
     }
 
@@ -280,6 +281,7 @@ mod tests {
             tool_name: Some(name.to_string()),
             tool_input: None,
             show_in_ui: None,
+            subagent_summary: None,
         }
     }
 

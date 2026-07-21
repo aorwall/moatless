@@ -962,9 +962,21 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
                 &content,
             )
             .await;
-            // Server-owned assembly (ADR-0002): re-assemble the affected Message
-            // and publish a derived `message.upsert` for the live Chat.
-            crate::message::hooks::emit_message_upsert(state, &event.task_id, uuid).await;
+            // Server-owned assembly (ADR-0002/0003). A subagent row (carrying a
+            // `parent_uuid` = the spawning `Agent` tool-use id) rides a
+            // lightweight `subagentProgress` event and never streams transcript
+            // content; a top-level row re-assembles the affected parent Message
+            // and publishes a derived `message.upsert` for the live Chat.
+            if let Some(parent_tool_use_id) = msg_row.parent_uuid.as_deref() {
+                crate::message::hooks::emit_subagent_progress(
+                    state,
+                    &event.task_id,
+                    parent_tool_use_id,
+                )
+                .await;
+            } else {
+                crate::message::hooks::emit_message_upsert(state, &event.task_id, uuid).await;
+            }
         }
         Err(e) => {
             tracing::warn!(

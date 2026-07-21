@@ -17,6 +17,7 @@ use crate::state::AppState;
         handlers::get_pending_messages,
         handlers::delete_queued_message,
         handlers::get_tool_call_detail,
+        handlers::get_subagent_transcript,
     )
 )]
 pub struct MessageApiDoc;
@@ -28,6 +29,7 @@ pub fn message_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenAp
         .routes(routes!(handlers::get_pending_messages))
         .routes(routes!(handlers::delete_queued_message))
         .routes(routes!(handlers::get_tool_call_detail))
+        .routes(routes!(handlers::get_subagent_transcript))
         .with_state(state)
         .split_for_parts();
 

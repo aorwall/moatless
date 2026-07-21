@@ -364,6 +364,12 @@ impl TryFrom<&str> for TaskTurnSubType {
 pub enum MessageSubType {
     Upsert,
     Deleted,
+    /// A subagent step advanced: carries the absolute `{ toolUseId,
+    /// messageCount, tokens, status }` summary for one `Agent` tool call. UI-only
+    /// — keeps the collapsed `Agent` card live without streaming transcript
+    /// content. Wire value is camelCase to match the frontend event contract.
+    #[serde(rename = "subagentProgress")]
+    SubagentProgress,
 }
 
 impl MessageSubType {
@@ -371,6 +377,7 @@ impl MessageSubType {
         match self {
             Self::Upsert => "upsert",
             Self::Deleted => "deleted",
+            Self::SubagentProgress => "subagentProgress",
         }
     }
 
@@ -391,6 +398,7 @@ impl TryFrom<&str> for MessageSubType {
         match s {
             "upsert" => Ok(Self::Upsert),
             "deleted" => Ok(Self::Deleted),
+            "subagentProgress" => Ok(Self::SubagentProgress),
             other => Err(format!("unknown MessageSubType: {other}")),
         }
     }

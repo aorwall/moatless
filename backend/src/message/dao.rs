@@ -46,6 +46,19 @@ pub struct ConnectionMessageCount {
     pub outgoing: i64,
 }
 
+/// Per-`Agent`-call subagent aggregate: message count + summed assistant
+/// tokens, keyed by the spawning `Agent` tool-use id (`parent_uuid`). Feeds the
+/// `subagentSummary` injected onto the top-level read path and live emit.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct SubagentAggregate {
+    /// The spawning `Agent` tool-use id (`task_messages.parent_uuid`).
+    pub parent_uuid: String,
+    /// `COUNT(*)` of the subagent's rows.
+    pub message_count: i64,
+    /// `SUM(input_tokens + output_tokens)` across the subagent's assistant rows.
+    pub tokens: i64,
+}
+
 /// A user-turn that was acknowledged by the sandbox but never reached a
 /// terminal `agent.completed/error/stopped` event — i.e. the sandbox
 /// crashed/restarted mid-run. Used by the recovery RPC to drive a
@@ -227,6 +240,43 @@ pub trait MessageRepository: Send + Sync {
         task_id: &str,
         before_id: Option<i32>,
         limit: i32,
+    ) -> Result<MessagePage, sqlx::Error>;
+
+    /// Load exactly the rows needed to re-assemble the top-level Message
+    /// affected by a change to `message_uuid`, together with the `uuid` of the
+    /// Message the derived upsert should target (the seam's **affected-parent
+    /// resolution** and its **dedicated affected-Message loader**).
+    ///
+    /// When `message_uuid` names a folded row (a `tool_result`/system row
+    /// inlined into the assistant Message that called it), the target is that
+    /// parent assistant Message, loaded together with all of its `tool_result`
+    /// siblings so the transform inlines them. A standalone Message targets
+    /// itself. Returns `None` for subagent rows (`parent_uuid` set — those ride
+    /// the progress path), when the parent is not resolvable yet, or when the
+    /// uuid is unknown.
+    async fn get_message_for_assembly(
+        &self,
+        task_id: &str,
+        message_uuid: &str,
+    ) -> Result<Option<(MessagePage, String)>, sqlx::Error>;
+
+    /// Aggregate subagent activity for a set of `Agent` tool-use ids: the
+    /// per-id message count and summed assistant token usage, computed in one
+    /// `GROUP BY parent_uuid`. Used to inject `subagentSummary` onto `Agent`
+    /// content blocks for both the read path and the live top-level emit.
+    async fn get_subagent_aggregates(
+        &self,
+        task_id: &str,
+        tool_use_ids: &[String],
+    ) -> Result<Vec<SubagentAggregate>, sqlx::Error>;
+
+    /// Load a single subagent's rows (those whose `parent_uuid` equals
+    /// `tool_use_id`) with their contexts and content blocks, for on-demand
+    /// transcript assembly. Returns empty pages when the subagent has no rows.
+    async fn get_subagent_messages(
+        &self,
+        task_id: &str,
+        tool_use_id: &str,
     ) -> Result<MessagePage, sqlx::Error>;
 
     /// Look up a single tool call by its `tool_use_id` within a task. Returns
@@ -909,6 +959,7 @@ impl MessageRepository for PgMessageRepository {
         let mut messages = sqlx::query_as::<_, TaskMessage>(
             r#"SELECT * FROM task_messages
                WHERE task_id = $1
+                 AND parent_uuid IS NULL
                  AND ($2::int IS NULL OR id < $2)
                ORDER BY id DESC
                LIMIT $3"#,
@@ -928,6 +979,183 @@ impl MessageRepository for PgMessageRepository {
 
         let message_ids: Vec<i32> = messages.iter().map(|m| m.id).collect();
 
+        let (contexts, blocks) = tokio::try_join!(
+            sqlx::query_as::<_, TaskMessageContext>(
+                r#"SELECT id, task_message_id, type, reference_id, data, created_at
+                   FROM task_message_contexts
+                   WHERE task_id = $1 AND task_message_id = ANY($2)
+                   ORDER BY id"#,
+            )
+            .bind(task_id)
+            .bind(&message_ids)
+            .fetch_all(&self.0),
+            sqlx::query_as::<_, TaskMessageContentBlock>(
+                r#"SELECT id, task_message_id, sort_order, block_type,
+                       show_in_ui, text_content, tool_use_id,
+                       tool_result_content, tool_result_is_error,
+                       image_media_type, image_data, created_at
+                   FROM task_message_content_blocks
+                   WHERE task_id = $1 AND task_message_id = ANY($2)
+                   ORDER BY task_message_id, sort_order"#,
+            )
+            .bind(task_id)
+            .bind(&message_ids)
+            .fetch_all(&self.0),
+        )?;
+
+        Ok((messages, contexts, blocks))
+    }
+
+    async fn get_message_for_assembly(
+        &self,
+        task_id: &str,
+        message_uuid: &str,
+    ) -> Result<Option<(MessagePage, String)>, sqlx::Error> {
+        // 1. Load the changed row. Subagent rows (parent_uuid set) never upsert
+        //    a top-level Message — their activity rides `subagentProgress`.
+        let Some(changed) = self.find_by_uuid(message_uuid).await? else {
+            return Ok(None);
+        };
+        if changed.task_id != task_id || changed.parent_uuid.is_some() {
+            return Ok(None);
+        }
+
+        // 2. Resolve the anchor Message uuid via the shared pure rule: the
+        //    parent assistant when the changed row folds (carries tool_result
+        //    blocks), else the row itself. Load the candidate parent(s) that
+        //    declare a folded tool_use id, then let the seam pick.
+        let folded = super::transform::tool_result_ids(&changed.message_content);
+        let anchor_uuid = if let Some(tool_use_id) = folded.first() {
+            let mut candidates = vec![changed.clone()];
+            let parents = sqlx::query_as::<_, TaskMessage>(
+                r#"SELECT * FROM task_messages
+                   WHERE task_id = $1
+                     AND parent_uuid IS NULL
+                     AND message_content @> jsonb_build_array(
+                           jsonb_build_object('id', $2::text, 'type', 'tool_use')
+                         )
+                   ORDER BY id DESC
+                   LIMIT 1"#,
+            )
+            .bind(task_id)
+            .bind(tool_use_id)
+            .fetch_all(&self.0)
+            .await?;
+            candidates.extend(parents);
+            match super::transform::resolve_affected_parent_uuid(&candidates, &changed.uuid) {
+                Some(uuid) => uuid,
+                // Parent not present yet (or the folded row belongs to a
+                // subagent Agent call): the read path hydrates on next open.
+                None => return Ok(None),
+            }
+        } else {
+            changed.uuid.clone()
+        };
+
+        // 3. Load the anchor row and its declared tool_use ids.
+        let Some(anchor) = self.find_by_uuid(&anchor_uuid).await? else {
+            return Ok(None);
+        };
+        let anchor_tool_ids = super::transform::tool_use_ids(&anchor.message_content);
+
+        // 4. Fetch the anchor's folded tool_result siblings (top-level only)
+        //    alongside it, so the transform inlines every result present so far.
+        let mut messages = vec![anchor];
+        if !anchor_tool_ids.is_empty() {
+            let siblings = sqlx::query_as::<_, TaskMessage>(
+                r#"SELECT m.* FROM task_messages m
+                   WHERE m.task_id = $1
+                     AND m.parent_uuid IS NULL
+                     AND m.uuid <> $2
+                     AND EXISTS (
+                       SELECT 1 FROM task_message_content_blocks b
+                       WHERE b.task_message_id = m.id
+                         AND b.tool_use_id = ANY($3)
+                     )
+                   ORDER BY m.timestamp, m.id"#,
+            )
+            .bind(task_id)
+            .bind(&anchor_uuid)
+            .bind(&anchor_tool_ids)
+            .fetch_all(&self.0)
+            .await?;
+            messages.extend(siblings);
+        }
+        messages.sort_by(|a, b| a.timestamp.cmp(&b.timestamp).then(a.id.cmp(&b.id)));
+
+        let message_ids: Vec<i32> = messages.iter().map(|m| m.id).collect();
+        let (contexts, blocks) = tokio::try_join!(
+            sqlx::query_as::<_, TaskMessageContext>(
+                r#"SELECT id, task_message_id, type, reference_id, data, created_at
+                   FROM task_message_contexts
+                   WHERE task_id = $1 AND task_message_id = ANY($2)
+                   ORDER BY id"#,
+            )
+            .bind(task_id)
+            .bind(&message_ids)
+            .fetch_all(&self.0),
+            sqlx::query_as::<_, TaskMessageContentBlock>(
+                r#"SELECT id, task_message_id, sort_order, block_type,
+                       show_in_ui, text_content, tool_use_id,
+                       tool_result_content, tool_result_is_error,
+                       image_media_type, image_data, created_at
+                   FROM task_message_content_blocks
+                   WHERE task_id = $1 AND task_message_id = ANY($2)
+                   ORDER BY task_message_id, sort_order"#,
+            )
+            .bind(task_id)
+            .bind(&message_ids)
+            .fetch_all(&self.0),
+        )?;
+
+        Ok(Some(((messages, contexts, blocks), anchor_uuid)))
+    }
+
+    async fn get_subagent_aggregates(
+        &self,
+        task_id: &str,
+        tool_use_ids: &[String],
+    ) -> Result<Vec<SubagentAggregate>, sqlx::Error> {
+        if tool_use_ids.is_empty() {
+            return Ok(vec![]);
+        }
+        sqlx::query_as::<_, SubagentAggregate>(
+            r#"SELECT parent_uuid,
+                      COUNT(*) AS message_count,
+                      COALESCE(SUM(
+                        COALESCE(assistant_usage_input_tokens, 0)
+                        + COALESCE(assistant_usage_output_tokens, 0)
+                      ), 0) AS tokens
+               FROM task_messages
+               WHERE task_id = $1 AND parent_uuid = ANY($2)
+               GROUP BY parent_uuid"#,
+        )
+        .bind(task_id)
+        .bind(tool_use_ids)
+        .fetch_all(&self.0)
+        .await
+    }
+
+    async fn get_subagent_messages(
+        &self,
+        task_id: &str,
+        tool_use_id: &str,
+    ) -> Result<MessagePage, sqlx::Error> {
+        let messages = sqlx::query_as::<_, TaskMessage>(
+            r#"SELECT * FROM task_messages
+               WHERE task_id = $1 AND parent_uuid = $2
+               ORDER BY timestamp, id"#,
+        )
+        .bind(task_id)
+        .bind(tool_use_id)
+        .fetch_all(&self.0)
+        .await?;
+
+        if messages.is_empty() {
+            return Ok((Vec::new(), Vec::new(), Vec::new()));
+        }
+
+        let message_ids: Vec<i32> = messages.iter().map(|m| m.id).collect();
         let (contexts, blocks) = tokio::try_join!(
             sqlx::query_as::<_, TaskMessageContext>(
                 r#"SELECT id, task_message_id, type, reference_id, data, created_at

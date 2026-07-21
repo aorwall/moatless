@@ -16,7 +16,30 @@ use crate::task::schemas::{FileContextData, MessageContextInput};
 
 use super::schemas::*;
 
-/// Transform raw DB rows into UI-facing messages.
+/// Which slice of rows a transform pass renders.
+///
+/// `TopLevel` renders the task's own conversation and drops subagent rows
+/// (those carrying a `parent_uuid` — the spawning `Agent` tool-use id).
+/// `Subagent` renders exactly one subagent's transcript: the rows whose
+/// `parent_uuid` equals the given tool-use id.
+#[derive(Clone, Copy)]
+enum RenderScope<'a> {
+    TopLevel,
+    Subagent(&'a str),
+}
+
+impl RenderScope<'_> {
+    fn includes(&self, msg: &TaskMessage) -> bool {
+        match self {
+            RenderScope::TopLevel => msg.parent_uuid.is_none(),
+            RenderScope::Subagent(tool_use_id) => {
+                msg.parent_uuid.as_deref() == Some(*tool_use_id)
+            }
+        }
+    }
+}
+
+/// Transform raw DB rows into UI-facing (top-level) messages.
 pub fn transform_to_ui(
     messages: &[TaskMessage],
     contexts: &[TaskMessageContext],
@@ -29,12 +52,53 @@ pub fn transform_to_ui(
 /// synthesise File contexts for legacy messages persisted before the
 /// `task_message_contexts` write path was wired up. Such messages still have
 /// `attachments.file_ids` populated by the previous PR.
+///
+/// Top-level only: subagent rows (those carrying a `parent_uuid`) are excluded.
+/// Their transcripts are assembled on demand via [`transform_subagent_transcript`].
 pub fn transform_to_ui_with_files(
     messages: &[TaskMessage],
     contexts: &[TaskMessageContext],
     content_blocks: &[TaskMessageContentBlock],
     file_metadata: &HashMap<String, FileMetadata>,
 ) -> Vec<UiMessage> {
+    transform_scoped(
+        messages,
+        contexts,
+        content_blocks,
+        file_metadata,
+        RenderScope::TopLevel,
+    )
+}
+
+/// Assemble a single subagent's transcript: run the same fold-resolving
+/// row-transform over the rows whose `parent_uuid` equals `tool_use_id`.
+/// Returns the subagent's UI-facing Messages (with its tool results inlined).
+pub fn transform_subagent_transcript(
+    messages: &[TaskMessage],
+    contexts: &[TaskMessageContext],
+    content_blocks: &[TaskMessageContentBlock],
+    tool_use_id: &str,
+) -> Vec<UiMessage> {
+    transform_scoped(
+        messages,
+        contexts,
+        content_blocks,
+        &HashMap::new(),
+        RenderScope::Subagent(tool_use_id),
+    )
+}
+
+fn transform_scoped(
+    messages: &[TaskMessage],
+    contexts: &[TaskMessageContext],
+    content_blocks: &[TaskMessageContentBlock],
+    file_metadata: &HashMap<String, FileMetadata>,
+    scope: RenderScope<'_>,
+) -> Vec<UiMessage> {
+    // Restrict to the rows this scope renders before building any maps, so
+    // is_last / pending detection is computed over the scoped slice only.
+    let scoped: Vec<&TaskMessage> = messages.iter().filter(|m| scope.includes(m)).collect();
+
     // Group content blocks by message ID
     let blocks_by_msg: HashMap<i32, Vec<&TaskMessageContentBlock>> = {
         let mut map: HashMap<i32, Vec<&TaskMessageContentBlock>> = HashMap::new();
@@ -54,7 +118,7 @@ pub fn transform_to_ui_with_files(
     };
 
     // Build tool_use_result_map: tool_use_id from parent → tool_use_result JSON
-    let tool_use_result_map: HashMap<String, &serde_json::Value> = messages
+    let tool_use_result_map: HashMap<String, &serde_json::Value> = scoped
         .iter()
         .filter(|m| m.message_type == MessageType::System && m.tool_use_result.is_some())
         .filter_map(|m| {
@@ -76,7 +140,7 @@ pub fn transform_to_ui_with_files(
         .collect();
 
     // Build tool_results_map: tool_use_id → tool_result message
-    let tool_results_map: HashMap<String, &TaskMessage> = messages
+    let tool_results_map: HashMap<String, &TaskMessage> = scoped
         .iter()
         .filter(|m| {
             m.message_type == MessageType::Result
@@ -89,7 +153,7 @@ pub fn transform_to_ui_with_files(
                     if block.get("type").and_then(|v| v.as_str()) == Some("tool_result") {
                         if let Some(tool_use_id) = block.get("tool_use_id").and_then(|v| v.as_str())
                         {
-                            return Some((tool_use_id.to_string(), m));
+                            return Some((tool_use_id.to_string(), *m));
                         }
                     }
                 }
@@ -99,9 +163,9 @@ pub fn transform_to_ui_with_files(
         .collect();
 
     let mut ui_messages = Vec::new();
-    let total = messages.len();
+    let total = scoped.len();
 
-    for (idx, msg) in messages.iter().enumerate() {
+    for (idx, &msg) in scoped.iter().enumerate() {
         let is_last = idx == total - 1;
         let msg_blocks = blocks_by_msg.get(&msg.id).cloned().unwrap_or_default();
         let msg_context_rows = contexts_by_msg.get(&msg.id).cloned().unwrap_or_default();
@@ -114,7 +178,7 @@ pub fn transform_to_ui_with_files(
                     &tool_results_map,
                     &tool_use_result_map,
                     is_last,
-                    messages,
+                    &scoped,
                 );
                 ui_messages.push(ui_msg);
             }
@@ -144,6 +208,130 @@ pub fn transform_to_ui_with_files(
     }
 
     ui_messages
+}
+
+/// tool_use ids declared by an assistant message's content array.
+pub(crate) fn tool_use_ids(content: &serde_json::Value) -> Vec<String> {
+    content
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter(|b| b.get("type").and_then(|v| v.as_str()) == Some("tool_use"))
+                .filter_map(|b| {
+                    b.get("id")
+                        .and_then(|v| v.as_str())
+                        .map(std::string::ToString::to_string)
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// tool_use ids referenced by a row's `tool_result` blocks (i.e. the ids of the
+/// calls this row is the result for).
+pub(crate) fn tool_result_ids(content: &serde_json::Value) -> Vec<String> {
+    content
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter(|b| b.get("type").and_then(|v| v.as_str()) == Some("tool_result"))
+                .filter_map(|b| {
+                    b.get("tool_use_id")
+                        .and_then(|v| v.as_str())
+                        .map(std::string::ToString::to_string)
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Collect the `Agent` tool-use ids referenced by these top-level Messages —
+/// the keys for the batched subagent-summary aggregate.
+pub(crate) fn agent_tool_use_ids(messages: &[UiMessage]) -> Vec<String> {
+    let mut ids = Vec::new();
+    for m in messages {
+        for b in &m.content {
+            if b.tool_name.as_deref() == Some("Agent") {
+                if let Some(id) = &b.tool_use_id {
+                    ids.push(id.clone());
+                }
+            }
+        }
+    }
+    ids
+}
+
+/// Inject `subagentSummary` onto each `Agent` tool-use block from the batched
+/// `(message_count, tokens)` aggregate keyed by tool-use id. `status` is derived
+/// from the outer `Agent` tool_result inlined on the owning Message: present +
+/// `is_error` → `Error`; present → `Completed`; absent → `Running`. A missing
+/// aggregate entry yields a zeroed count (a just-spawned subagent).
+pub(crate) fn inject_subagent_summaries(
+    messages: &mut [UiMessage],
+    aggregates: &HashMap<String, (u32, u32)>,
+) {
+    for m in messages.iter_mut() {
+        // Snapshot each inlined tool_result's error state by tool_use_id before
+        // the mutable walk over content blocks.
+        let result_status: HashMap<String, bool> = m
+            .tool_results
+            .iter()
+            .map(|r| (r.tool_use_id.clone(), r.is_error.unwrap_or(false)))
+            .collect();
+        for b in &mut m.content {
+            if b.tool_name.as_deref() != Some("Agent") {
+                continue;
+            }
+            let Some(id) = b.tool_use_id.clone() else {
+                continue;
+            };
+            let (message_count, tokens) = aggregates.get(&id).copied().unwrap_or((0, 0));
+            let status = match result_status.get(&id) {
+                Some(true) => SubagentStatus::Error,
+                Some(false) => SubagentStatus::Completed,
+                None => SubagentStatus::Running,
+            };
+            b.subagent_summary = Some(SubagentSummary {
+                message_count,
+                tokens,
+                status,
+            });
+        }
+    }
+}
+
+/// Resolve the uuid of the top-level Message a change to `changed_uuid`
+/// affects — the seam's **affected-parent resolution**.
+///
+/// - A folded row (a `tool_result`/system row inlined into the assistant
+///   Message that called it) resolves to that **parent** assistant Message's
+///   uuid, so a top-level tool result renders live under its call.
+/// - A standalone Message resolves to its own uuid.
+/// - A subagent row (carrying `parent_uuid`) resolves to `None` — those never
+///   upsert a top-level Message (their activity rides `subagentProgress`).
+/// - `None` when the row is unknown or its parent is not present in `rows`.
+pub(crate) fn resolve_affected_parent_uuid(
+    rows: &[TaskMessage],
+    changed_uuid: &str,
+) -> Option<String> {
+    let changed = rows.iter().find(|m| m.uuid == changed_uuid)?;
+    if changed.parent_uuid.is_some() {
+        return None;
+    }
+
+    let folded = tool_result_ids(&changed.message_content);
+    if folded.is_empty() {
+        return Some(changed.uuid.clone());
+    }
+
+    for tool_use_id in &folded {
+        if let Some(parent) = rows.iter().find(|m| {
+            m.parent_uuid.is_none() && tool_use_ids(&m.message_content).iter().any(|id| id == tool_use_id)
+        }) {
+            return Some(parent.uuid.clone());
+        }
+    }
+    None
 }
 
 /// Build the `UiMessage.contexts` list for a user message.
@@ -195,7 +383,7 @@ fn transform_assistant(
     tool_results_map: &HashMap<String, &TaskMessage>,
     tool_use_result_map: &HashMap<String, &serde_json::Value>,
     is_last: bool,
-    all_messages: &[TaskMessage],
+    all_messages: &[&TaskMessage],
 ) -> UiMessage {
     let content = build_content_from_message(msg, blocks);
 
@@ -319,6 +507,7 @@ fn transform_user(
                 tool_name: None,
                 tool_input: None,
                 show_in_ui: Some(true),
+                subagent_summary: None,
             })
             .collect()
     };
@@ -377,6 +566,7 @@ fn transform_result(msg: &TaskMessage, blocks: &[&TaskMessageContentBlock]) -> U
                 tool_name: None,
                 tool_input: None,
                 show_in_ui: Some(true),
+                subagent_summary: None,
             })
             .collect()
     };
@@ -442,6 +632,7 @@ fn build_content_from_message(
                         .map(std::string::ToString::to_string),
                     tool_input: block.get("input").filter(|v| !v.is_null()).cloned(),
                     show_in_ui: None,
+                    subagent_summary: None,
                 }
             })
             .collect()
@@ -465,6 +656,7 @@ fn extract_text_from_content(content: &serde_json::Value) -> Vec<UiContentBlock>
                 tool_name: None,
                 tool_input: None,
                 show_in_ui: Some(true),
+                subagent_summary: None,
             })
             .collect()
     } else {
@@ -557,7 +749,7 @@ fn format_github_label(kind: &str, rest: &[&str], raw: &str) -> String {
 
 /// Check if the last assistant message has a pending interactive tool call
 /// (AskUserQuestion or ExitPlanMode) without a corresponding tool result.
-fn check_pending_user_input(msg: &TaskMessage, all_messages: &[TaskMessage]) -> bool {
+fn check_pending_user_input(msg: &TaskMessage, all_messages: &[&TaskMessage]) -> bool {
     if let Some(arr) = msg.message_content.as_array() {
         for block in arr {
             if block.get("type").and_then(|v| v.as_str()) == Some("tool_use") {
@@ -1083,5 +1275,187 @@ mod tests {
                 MessageType::Error,
             ]
         );
+    }
+
+    // ── Seam 2: affected-parent resolution + lazy subagents ─────────────
+
+    fn assistant_with_content(id: i32, uuid: &str, content: serde_json::Value) -> TaskMessage {
+        let mut m = make_msg(
+            id,
+            uuid,
+            MessageType::Assistant,
+            MessageRole::Assistant,
+            Some(1),
+            "",
+        );
+        m.message_content = content;
+        m
+    }
+
+    fn tool_result_row(id: i32, uuid: &str, content: serde_json::Value) -> TaskMessage {
+        let mut m = make_msg(id, uuid, MessageType::System, MessageRole::User, Some(1), "");
+        m.message_content = content;
+        m
+    }
+
+    #[test]
+    fn resolve_affected_parent_folds_tool_result_into_parent() {
+        let assistant = assistant_with_content(
+            1,
+            "a1",
+            json!([{"type": "tool_use", "id": "toolu_1", "name": "Bash", "input": {}}]),
+        );
+        let result = tool_result_row(
+            2,
+            "sys1",
+            json!([{"type": "tool_result", "tool_use_id": "toolu_1", "content": "ok"}]),
+        );
+        let rows = vec![assistant, result];
+
+        // A folded tool_result resolves to its parent assistant Message.
+        assert_eq!(
+            resolve_affected_parent_uuid(&rows, "sys1"),
+            Some("a1".to_string())
+        );
+        // A standalone Message resolves to itself.
+        assert_eq!(
+            resolve_affected_parent_uuid(&rows, "a1"),
+            Some("a1".to_string())
+        );
+        // An unknown uuid resolves to None.
+        assert_eq!(resolve_affected_parent_uuid(&rows, "nope"), None);
+    }
+
+    #[test]
+    fn resolve_affected_parent_skips_subagent_rows() {
+        let mut sub = make_msg(
+            1,
+            "sub1",
+            MessageType::Assistant,
+            MessageRole::Assistant,
+            Some(1),
+            "hi",
+        );
+        sub.parent_uuid = Some("toolu_agent".to_string());
+        assert_eq!(resolve_affected_parent_uuid(&[sub], "sub1"), None);
+    }
+
+    #[test]
+    fn top_level_transform_excludes_subagent_rows() {
+        let top = make_msg(
+            1,
+            "a1",
+            MessageType::Assistant,
+            MessageRole::Assistant,
+            Some(1),
+            "top",
+        );
+        let mut sub = make_msg(
+            2,
+            "s1",
+            MessageType::Assistant,
+            MessageRole::Assistant,
+            Some(1),
+            "subagent step",
+        );
+        sub.parent_uuid = Some("toolu_1".to_string());
+
+        let ui = transform_to_ui(&[top, sub], &[], &[]);
+        assert_eq!(ui.len(), 1);
+        assert_eq!(ui[0].uuid, "a1");
+    }
+
+    #[test]
+    fn subagent_transcript_assembles_folded_messages() {
+        let mut sub_asst = assistant_with_content(
+            1,
+            "s1",
+            json!([
+                {"type": "text", "text": "working"},
+                {"type": "tool_use", "id": "toolu_inner", "name": "Read", "input": {}}
+            ]),
+        );
+        sub_asst.parent_uuid = Some("toolu_1".to_string());
+        let mut sub_res = tool_result_row(
+            2,
+            "s2",
+            json!([{"type": "tool_result", "tool_use_id": "toolu_inner", "content": "file"}]),
+        );
+        sub_res.parent_uuid = Some("toolu_1".to_string());
+        // A top-level row that the transcript must ignore.
+        let top = make_msg(
+            3,
+            "a1",
+            MessageType::Assistant,
+            MessageRole::Assistant,
+            Some(1),
+            "top",
+        );
+
+        let ui = transform_subagent_transcript(&[sub_asst, sub_res, top], &[], &[], "toolu_1");
+        assert_eq!(ui.len(), 1);
+        assert_eq!(ui[0].uuid, "s1");
+        assert_eq!(ui[0].tool_results.len(), 1);
+        assert_eq!(ui[0].tool_results[0].tool_use_id, "toolu_inner");
+    }
+
+    #[test]
+    fn inject_subagent_summary_derives_count_tokens_and_status() {
+        let agent_block =
+            json!([{"type": "tool_use", "id": "toolu_agent", "name": "Agent", "input": {"description": "do work"}}]);
+
+        // Running: no outer Agent tool_result present.
+        let mut ui = transform_to_ui(&[assistant_with_content(1, "a1", agent_block.clone())], &[], &[]);
+        let mut agg = HashMap::new();
+        agg.insert("toolu_agent".to_string(), (5u32, 1234u32));
+        inject_subagent_summaries(&mut ui, &agg);
+        let summary = ui[0]
+            .content
+            .iter()
+            .find(|b| b.tool_name.as_deref() == Some("Agent"))
+            .and_then(|b| b.subagent_summary.as_ref())
+            .expect("summary injected");
+        assert_eq!(summary.message_count, 5);
+        assert_eq!(summary.tokens, 1234);
+        assert_eq!(summary.status, SubagentStatus::Running);
+
+        // Completed: outer Agent tool_result present, not an error.
+        let result = tool_result_row(
+            2,
+            "sys1",
+            json!([{"type": "tool_result", "tool_use_id": "toolu_agent", "content": "done"}]),
+        );
+        let mut ui2 = transform_to_ui(
+            &[assistant_with_content(1, "a1", agent_block.clone()), result],
+            &[],
+            &[],
+        );
+        inject_subagent_summaries(&mut ui2, &agg);
+        let status2 = ui2[0]
+            .content
+            .iter()
+            .find(|b| b.tool_name.as_deref() == Some("Agent"))
+            .and_then(|b| b.subagent_summary.as_ref())
+            .map(|s| s.status)
+            .unwrap();
+        assert_eq!(status2, SubagentStatus::Completed);
+
+        // Error: outer Agent tool_result carries is_error.
+        let err = tool_result_row(
+            2,
+            "sys1",
+            json!([{"type": "tool_result", "tool_use_id": "toolu_agent", "content": "boom", "is_error": true}]),
+        );
+        let mut ui3 = transform_to_ui(&[assistant_with_content(1, "a1", agent_block), err], &[], &[]);
+        // Missing aggregate entry → zeroed count.
+        inject_subagent_summaries(&mut ui3, &HashMap::new());
+        let s3 = ui3[0]
+            .content
+            .iter()
+            .find(|b| b.tool_name.as_deref() == Some("Agent"))
+            .and_then(|b| b.subagent_summary.as_ref())
+            .expect("summary injected");
+        assert_eq!(s3.status, SubagentStatus::Error);
+        assert_eq!(s3.message_count, 0);
     }
 }

@@ -201,7 +201,7 @@ pub async fn get_messages(
             })
     };
 
-    let ui_messages: Vec<UiMessage> =
+    let mut ui_messages: Vec<UiMessage> =
         transform::transform_to_ui_with_files(&messages, &contexts, &blocks, &file_metadata)
             .into_iter()
             .map(|m| {
@@ -212,6 +212,11 @@ pub async fn get_messages(
                 }
             })
             .collect();
+
+    // Inject `subagentSummary` onto `Agent` blocks via the shared helper — one
+    // batched aggregate over the page's `Agent` tool ids. Same source of truth
+    // as the live top-level emit.
+    super::hooks::hydrate_subagent_summaries(&state, &task_id, &mut ui_messages).await;
 
     let total_count = ui_messages.len();
     Ok(Json(GetMessagesResponse {
@@ -333,6 +338,48 @@ pub async fn get_tool_call_detail(
     }))
 }
 
+/// Get the assembled subagent transcript for a single `Agent` tool call.
+///
+/// Runs the fold-resolving row-transform over the rows whose `parent_uuid`
+/// equals `tool_use_id`. Returned whole (no pagination) — bounded per call and
+/// fetched on demand when the collapsed `Agent` card is expanded.
+#[utoipa::path(
+    get,
+    path = "/api/v1/tasks/{task_id}/tool-calls/{tool_use_id}/messages",
+    tag = "messages",
+    params(
+        ("task_id" = String, Path, description = "Task identifier"),
+        ("tool_use_id" = String, Path, description = "Spawning Agent tool-use id")
+    ),
+    responses(
+        (status = 200, description = "Subagent transcript", body = SubagentTranscriptResponse),
+        (status = 404, description = "Task not found", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn get_subagent_transcript(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path((task_id, tool_use_id)): Path<(String, String)>,
+) -> Result<Json<SubagentTranscriptResponse>, MessageError> {
+    ensure_task_read_access(&state, &auth, &task_id).await?;
+
+    let (messages, contexts, blocks) = state
+        .messages
+        .get_subagent_messages(&task_id, &tool_use_id)
+        .await?;
+
+    let ui_messages = transform::transform_subagent_transcript(
+        &messages,
+        &contexts,
+        &blocks,
+        &tool_use_id,
+    );
+
+    Ok(Json(SubagentTranscriptResponse {
+        messages: ui_messages,
+    }))
+}
+
 #[cfg(test)]
 mod preview_tests {
     use super::tool_input_preview;
@@ -401,6 +448,7 @@ mod strip_heavy_fields_tests {
                 tool_name: Some(tool_name.to_string()),
                 tool_input: Some(tool_input),
                 show_in_ui: None,
+                subagent_summary: None,
             }],
             contexts: vec![],
             tool_results: vec![],

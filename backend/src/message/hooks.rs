@@ -12,6 +12,7 @@
 //!   as a sync notification.
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::fmt::Write;
 
 use moatless_events::{EventType, MessageSubType};
@@ -19,6 +20,7 @@ use serde_json::json;
 use tracing::{debug, info, warn};
 
 use super::models::MessageType;
+use super::schemas::UiMessage;
 use crate::adapters::github_pr::api::GithubPrApi;
 use crate::auth::credentials::resolve_state_github_token;
 use crate::bindings::dao::PgTaskBindingRepository;
@@ -129,35 +131,73 @@ pub async fn on_agent_message_persisted(
 }
 
 // =============================================================================
-// message.upsert — derived, UI-only assembled Message events (ADR-0002)
+// message.upsert — derived, UI-only assembled Message events (ADR-0002/0003)
 // =============================================================================
 
-/// Assembly window for a derived `message.upsert`. The affected Message is the
-/// newest row, so its just-arrived tool_result siblings are on the newest page;
-/// re-assembling that page via the same path as `GET /messages` keeps the
-/// streamed `UiMessage` byte-identical to the read path.
-const MESSAGE_UPSERT_ASSEMBLY_LIMIT: i32 = 100;
+/// Inject `subagentSummary` onto every `Agent` tool-use block in `messages`
+/// from one batched `GROUP BY parent_uuid` aggregate. Shared by the read path
+/// (`GET /messages`) and the live top-level emit so the collapsed `Agent` card
+/// has a single source of truth. Fire-and-forget: an aggregate failure leaves
+/// the summaries absent (the card falls back to whatever it last had).
+pub(crate) async fn hydrate_subagent_summaries(
+    state: &AppState,
+    task_id: &str,
+    messages: &mut [UiMessage],
+) {
+    let ids = super::transform::agent_tool_use_ids(messages);
+    if ids.is_empty() {
+        return;
+    }
+    let aggregates = match state.messages.get_subagent_aggregates(task_id, &ids).await {
+        Ok(rows) => rows,
+        Err(e) => {
+            warn!(task_id = %task_id, error = %e, "Failed to load subagent aggregates");
+            return;
+        }
+    };
+    let map: HashMap<String, (u32, u32)> = aggregates
+        .into_iter()
+        .map(|a| {
+            (
+                a.parent_uuid,
+                (
+                    u32::try_from(a.message_count).unwrap_or(0),
+                    u32::try_from(a.tokens).unwrap_or(0),
+                ),
+            )
+        })
+        .collect();
+    super::transform::inject_subagent_summaries(messages, &map);
+}
 
-/// Re-assemble the Message identified by `message_uuid` and publish a derived
-/// `message.upsert` carrying the assembled `UiMessage`. UI-only — the
-/// event-handler consumer gates `message.*` out of `task_events`, and the SSE
-/// consumer relays it to clients. Fire-and-forget: assembly failures are logged
-/// and the read path hydrates on next open.
+/// Re-assemble the top-level Message **affected** by a change to `message_uuid`
+/// — resolving a folded `tool_result`/system row to its parent assistant
+/// Message — and publish a derived `message.upsert` carrying the assembled
+/// `UiMessage`. UI-only — the event-handler consumer gates `message.*` out of
+/// `task_events`, and the SSE consumer relays it to clients. Fire-and-forget:
+/// assembly failures are logged and the read path hydrates on next open.
 pub async fn emit_message_upsert(state: &AppState, task_id: &str, message_uuid: &str) {
     let Some(events) = state.events.as_ref() else {
         return;
     };
 
-    let (messages, contexts, blocks) = match state
+    let loaded = match state
         .messages
-        .get_paginated(task_id, None, MESSAGE_UPSERT_ASSEMBLY_LIMIT)
+        .get_message_for_assembly(task_id, message_uuid)
         .await
     {
-        Ok(page) => page,
+        Ok(v) => v,
         Err(e) => {
-            warn!(task_id = %task_id, error = %e, "Failed to load page for message.upsert assembly");
+            warn!(task_id = %task_id, error = %e, "Failed to load rows for message.upsert assembly");
             return;
         }
+    };
+    let Some(((messages, contexts, blocks), target_uuid)) = loaded else {
+        // The changed row folds into a parent not yet resolvable, is a subagent
+        // row (handled by `subagentProgress`), or is unknown. All are covered by
+        // the read-path hydration.
+        debug!(task_id = %task_id, uuid = %message_uuid, "no affected Message resolved; skipping upsert");
+        return;
     };
 
     // Legacy file-context fallback, mirroring the read path.
@@ -166,7 +206,7 @@ pub async fn emit_message_upsert(state: &AppState, task_id: &str, message_uuid: 
         .flat_map(super::models::TaskMessage::file_ids)
         .collect();
     let file_metadata = if legacy_file_ids.is_empty() {
-        std::collections::HashMap::new()
+        HashMap::new()
     } else {
         state
             .files
@@ -174,25 +214,21 @@ pub async fn emit_message_upsert(state: &AppState, task_id: &str, message_uuid: 
             .await
             .unwrap_or_else(|e| {
                 warn!(task_id = %task_id, error = %e, "Failed to batch-load file metadata for message.upsert");
-                std::collections::HashMap::new()
+                HashMap::new()
             })
     };
 
-    let assembled = super::transform::transform_to_ui_with_files(
+    let mut assembled = super::transform::transform_to_ui_with_files(
         &messages,
         &contexts,
         &blocks,
         &file_metadata,
-    )
-    .into_iter()
-    .find(|m| m.uuid == message_uuid);
+    );
+    // Inject subagent summaries onto `Agent` blocks via the shared helper.
+    hydrate_subagent_summaries(state, task_id, &mut assembled).await;
 
-    let Some(message) = assembled else {
-        // No standalone assembled Message for this uuid: either a tool_result /
-        // System row (inlined into its parent assistant Message — surfaces on
-        // the parent's next upsert or the turn-final reconcile), or a row past
-        // the assembly window. Both are covered by the read-path hydration.
-        debug!(task_id = %task_id, uuid = %message_uuid, "no standalone Message for uuid; skipping upsert");
+    let Some(message) = assembled.into_iter().find(|m| m.uuid == target_uuid) else {
+        debug!(task_id = %task_id, uuid = %target_uuid, "affected Message not found in assembly; skipping upsert");
         return;
     };
 
@@ -211,6 +247,66 @@ pub async fn emit_message_upsert(state: &AppState, task_id: &str, message_uuid: 
             task_id,
             EventType::Message.as_str(),
             MessageSubType::Upsert.as_str(),
+            None,
+            None,
+            payload,
+        )
+        .await;
+}
+
+/// Publish a derived `message`/`subagentProgress` event carrying the **absolute**
+/// summary for one subagent (`{ toolUseId, messageCount, tokens, status }`).
+/// Emitted instead of a parent `message.upsert` when a subagent row is
+/// persisted, so the collapsed `Agent` card's count/tokens stay live without
+/// ever streaming subagent transcript content. Fire-and-forget.
+pub async fn emit_subagent_progress(state: &AppState, task_id: &str, tool_use_id: &str) {
+    let Some(events) = state.events.as_ref() else {
+        return;
+    };
+
+    let aggregates = match state
+        .messages
+        .get_subagent_aggregates(task_id, std::slice::from_ref(&tool_use_id.to_string()))
+        .await
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            warn!(task_id = %task_id, tool_use_id, error = %e, "Failed to load subagent aggregate for progress");
+            return;
+        }
+    };
+    let (message_count, tokens) = aggregates.first().map_or((0, 0), |a| {
+        (
+            u32::try_from(a.message_count).unwrap_or(0),
+            u32::try_from(a.tokens).unwrap_or(0),
+        )
+    });
+
+    // Status: derived from the outer `Agent` tool_result. Present + is_error →
+    // error; present → completed; absent → running.
+    let status = match state.messages.find_tool_call(task_id, tool_use_id).await {
+        Ok(Some(call)) if call.result_content.is_some() || call.is_error.is_some() => {
+            if call.is_error == Some(true) {
+                "error"
+            } else {
+                "completed"
+            }
+        }
+        _ => "running",
+    };
+
+    let payload = json!({
+        "toolUseId": tool_use_id,
+        "messageCount": message_count,
+        "tokens": tokens,
+        "status": status,
+    });
+
+    events
+        .publish_raw_event(
+            task_id,
+            EventType::Message.as_str(),
+            MessageSubType::SubagentProgress.as_str(),
             None,
             None,
             payload,

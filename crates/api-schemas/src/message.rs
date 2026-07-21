@@ -91,6 +91,33 @@ pub struct UiMessageExternalSource {
     pub external_label: Option<String>,
 }
 
+/// Status of a spawned subagent, derived from the outer `Agent` tool_result:
+/// present + `is_error` → `Error`; present → `Completed`; absent → `Running`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum SubagentStatus {
+    Running,
+    Completed,
+    Error,
+}
+
+/// Derived aggregate metadata for a spawned subagent, carried on the `Agent`
+/// tool-use content block. Not content — the collapsed `Agent` card renders as
+/// a pure read of this. Shared shape between the read path and the live
+/// `subagentProgress` event (absolute values).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct SubagentSummary {
+    /// `COUNT(*)` of the subagent's rows (rows whose `parent_uuid` equals the
+    /// `Agent` tool-use id).
+    pub message_count: u32,
+    /// `SUM(input_tokens + output_tokens)` across the subagent's assistant rows.
+    pub tokens: u32,
+    pub status: SubagentStatus,
+}
+
 /// Content block within a message.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -109,6 +136,11 @@ pub struct UiContentBlock {
     pub tool_input: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub show_in_ui: Option<bool>,
+    /// For `Agent` tool-use blocks only: a derived summary of the spawned
+    /// subagent's activity. Injected post-transform from a batched aggregate;
+    /// absent on non-`Agent` blocks and on the live `subagentProgress` path.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subagent_summary: Option<SubagentSummary>,
 }
 
 /// Tool result inlined into an assistant message.
@@ -215,6 +247,16 @@ pub struct ToolCallDetailResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
     pub typed_result: Option<serde_json::Value>,
+}
+
+/// Response for GET /tasks/{task_id}/tool-calls/{tool_use_id}/messages — the
+/// on-demand subagent transcript. The assembled, fold-resolved Messages of the
+/// subagent spawned by the given `Agent` tool call.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct SubagentTranscriptResponse {
+    pub messages: Vec<UiMessage>,
 }
 
 // =========================================================================
