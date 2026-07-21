@@ -57,8 +57,14 @@ pub(crate) mod types;
 
 // Infrastructure adapters implementing the ports. Public so `AppState`/`main`
 // construct them and integration tests exercise them against a live Postgres.
+pub mod agent_stop;
 pub mod dao;
+pub mod event_sink;
 pub mod lock;
+
+// The lifecycle contract against local Postgres (Lifecycle over the Pg adapters).
+#[cfg(all(test, feature = "db-tests"))]
+mod contract_tests;
 
 // ---- Curated public surface ----
 
@@ -75,5 +81,7 @@ pub use orchestrator::{
     LockGuard, StoreError, SystemWallClock, TaskIntent, WallClock,
 };
 
+pub use agent_stop::ProviderAgentStop;
 pub use dao::PgLifecycleStore;
+pub use event_sink::OutboxEventSink;
 pub use lock::PgLifecycleLock;

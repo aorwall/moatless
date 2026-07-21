@@ -14,7 +14,7 @@ use chrono::{DateTime, Utc};
 use crate::db::DbPool;
 use crate::task::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
 
-use super::events::{EventFact, LifecycleEvent};
+use super::events::LifecycleEvent;
 use super::orchestrator::{IntentWrite, LifecycleStore, StoreError, TaskIntent};
 use super::types::{
     ArchiveRetention, CorrelationMarker, IntentEffect, OperationGeneration, OperationKind,
@@ -170,7 +170,7 @@ impl LifecycleStore for PgLifecycleStore {
         task_id: &str,
         event: &LifecycleEvent,
     ) -> Result<(), StoreError> {
-        let payload = serde_json::to_value(completion_payload(event))
+        let payload = serde_json::to_value(event.payload())
             .map_err(|e| StoreError::with_source("serialize completion payload", e))?;
 
         let mut tx = self
@@ -190,8 +190,8 @@ impl LifecycleStore for PgLifecycleStore {
         )
         .bind(&event.event_id)
         .bind(task_id)
-        .bind(event.status.as_str())
-        .bind(matches!(event.fact, EventFact::Error))
+        .bind(event.sub_type())
+        .bind(event.is_error())
         .bind(&payload)
         .bind(Utc::now().to_rfc3339())
         .execute(&mut *tx)
@@ -235,60 +235,13 @@ impl LifecycleStore for PgLifecycleStore {
     }
 }
 
-/// The typed payload persisted (and later published) for a completion event. A
-/// `Stopped` completion carries its reason tag so the UI attributes the stop.
-fn completion_payload(event: &LifecycleEvent) -> moatless_events::SandboxEventPayload {
-    let mut payload = moatless_events::SandboxEventPayload {
-        message: completion_message(event).to_string(),
-        ..Default::default()
-    };
-    if let Some(reason) = event.stop_reason {
-        let (lifecycle_event, initiator) = stop_reason_tags(reason);
-        payload.lifecycle_event = lifecycle_event.map(str::to_string);
-        payload.initiator = Some(initiator.to_string());
-    }
-    payload
-}
-
-fn completion_message(event: &LifecycleEvent) -> &'static str {
-    match event.fact {
-        EventFact::Removing => "Removing sandbox",
-        EventFact::Stopped => "Sandbox stopped",
-        EventFact::Removed => "Sandbox removed",
-        EventFact::Initializing => "Sandbox initializing",
-        EventFact::Error => "Sandbox operation failed",
-    }
-}
-
-/// `(lifecycle_event, initiator)` tags mirroring what the reaper and pod watcher
-/// stamp today, so an idle stop still reads as `idle_reaped`/`reaper`.
-fn stop_reason_tags(reason: SandboxStopReason) -> (Option<&'static str>, &'static str) {
-    match reason {
-        SandboxStopReason::User => (None, "user"),
-        SandboxStopReason::IdleReaper => (Some("idle_reaped"), "reaper"),
-        SandboxStopReason::Cleanup => (None, "close"),
-        SandboxStopReason::System => (None, "system"),
-        SandboxStopReason::Error => (Some("crash_autostop"), "crash_autostop"),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use chrono::TimeZone;
-    use moatless_events::SandboxStatus;
 
     fn ts() -> DateTime<Utc> {
         Utc.timestamp_opt(1_700_000_000, 0).single().expect("valid ts")
-    }
-
-    fn event(fact: EventFact, status: SandboxStatus, reason: Option<SandboxStopReason>) -> LifecycleEvent {
-        LifecycleEvent {
-            event_id: "sandbox:t:1:x".to_string(),
-            fact,
-            status,
-            stop_reason: reason,
-        }
     }
 
     #[test]
@@ -305,33 +258,6 @@ mod tests {
         // An unknown kind slug is not a valid marker.
         assert!(marker_from_columns(Some("bogus".to_string()), Some(7), Some(ts())).is_none());
     }
-
-    #[test]
-    fn stopped_completion_payload_carries_reason_tags() {
-        let idle = completion_payload(&event(
-            EventFact::Stopped,
-            SandboxStatus::Stopped,
-            Some(SandboxStopReason::IdleReaper),
-        ));
-        assert_eq!(idle.lifecycle_event.as_deref(), Some("idle_reaped"));
-        assert_eq!(idle.initiator.as_deref(), Some("reaper"));
-
-        let user = completion_payload(&event(
-            EventFact::Stopped,
-            SandboxStatus::Stopped,
-            Some(SandboxStopReason::User),
-        ));
-        assert_eq!(user.lifecycle_event, None);
-        assert_eq!(user.initiator.as_deref(), Some("user"));
-    }
-
-    #[test]
-    fn removed_completion_payload_has_no_reason_tags() {
-        let removed = completion_payload(&event(EventFact::Removed, SandboxStatus::Removed, None));
-        assert_eq!(removed.lifecycle_event, None);
-        assert_eq!(removed.initiator, None);
-        assert_eq!(removed.message, "Sandbox removed");
-    }
 }
 
 /// Postgres-backed store tests. Gated on `db-tests` and run in isolation
@@ -340,6 +266,7 @@ mod tests {
 /// applies `backend/migrations` (including 0089).
 #[cfg(all(test, feature = "db-tests"))]
 mod db_tests {
+    use super::super::events::EventFact;
     use super::*;
     use crate::scope::Scope;
     use crate::shared_models::AgentType;

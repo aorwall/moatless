@@ -11,7 +11,7 @@
 //! (`ON CONFLICT (event_id) DO NOTHING`), so at-least-once retries of one
 //! generation persist exactly once.
 
-use moatless_events::SandboxStatus;
+use moatless_events::{SandboxEventPayload, SandboxStatus};
 
 use crate::task::models::SandboxStopReason;
 
@@ -76,6 +76,63 @@ impl LifecycleEvent {
             status: fact.sandbox_status(),
             stop_reason,
         }
+    }
+
+    /// The `task_events.sub_type` value — the `SandboxStatus` snake_case slug.
+    pub fn sub_type(&self) -> &'static str {
+        self.status.as_str()
+    }
+
+    /// Whether this is a failure fact (persisted `is_error`).
+    pub fn is_error(&self) -> bool {
+        matches!(self.fact, EventFact::Error)
+    }
+
+    /// Whether the store's completion transaction persists this fact. Completion
+    /// facts (`Stopped`/`Removed`) are committed to `task_events` before
+    /// publication, so publication carries `payload_persisted = true`; other
+    /// facts are persisted by the event consumer.
+    pub fn persisted_as_completion(&self) -> bool {
+        matches!(self.fact, EventFact::Stopped | EventFact::Removed)
+    }
+
+    /// The typed payload published and persisted for this event. A `Stopped`
+    /// completion carries its reason tag so the UI attributes the stop.
+    pub fn payload(&self) -> SandboxEventPayload {
+        let mut payload = SandboxEventPayload {
+            message: self.message().to_string(),
+            ..Default::default()
+        };
+        if let Some(reason) = self.stop_reason {
+            let (lifecycle_event, initiator) = stop_reason_tags(reason);
+            payload.lifecycle_event = lifecycle_event.map(str::to_string);
+            payload.initiator = Some(initiator.to_string());
+        }
+        payload
+    }
+
+    fn message(&self) -> &'static str {
+        match self.fact {
+            EventFact::Removing => "Removing sandbox",
+            EventFact::Stopped => "Sandbox stopped",
+            EventFact::Removed => "Sandbox removed",
+            EventFact::Initializing => "Sandbox initializing",
+            EventFact::Error => "Sandbox operation failed",
+        }
+    }
+}
+
+/// `(lifecycle_event, initiator)` tags carried on a `Stopped` completion so the
+/// UI attributes an intentional stop — mirroring the tags the reaper and pod
+/// watcher stamp today (idle stop → `idle_reaped`/`reaper`, crash →
+/// `crash_autostop`).
+fn stop_reason_tags(reason: SandboxStopReason) -> (Option<&'static str>, &'static str) {
+    match reason {
+        SandboxStopReason::User => (None, "user"),
+        SandboxStopReason::IdleReaper => (Some("idle_reaped"), "reaper"),
+        SandboxStopReason::Cleanup => (None, "close"),
+        SandboxStopReason::System => (None, "system"),
+        SandboxStopReason::Error => (Some("crash_autostop"), "crash_autostop"),
     }
 }
 
@@ -350,6 +407,36 @@ mod tests {
         assert_eq!(out[0].fact, EventFact::Removed);
         // Distinct ids — both persist.
         assert_ne!(acc[0].event_id, out[0].event_id);
+    }
+
+    // ---- Publish/persist translation ----
+
+    fn built(fact: EventFact, reason: Option<SandboxStopReason>) -> LifecycleEvent {
+        LifecycleEvent::new("t", gen(1), fact, reason)
+    }
+
+    #[test]
+    fn stopped_payload_carries_reason_tags() {
+        let idle = built(EventFact::Stopped, Some(SandboxStopReason::IdleReaper)).payload();
+        assert_eq!(idle.lifecycle_event.as_deref(), Some("idle_reaped"));
+        assert_eq!(idle.initiator.as_deref(), Some("reaper"));
+
+        let user = built(EventFact::Stopped, Some(SandboxStopReason::User)).payload();
+        assert_eq!(user.lifecycle_event, None);
+        assert_eq!(user.initiator.as_deref(), Some("user"));
+    }
+
+    #[test]
+    fn completion_facts_are_marked_persisted_others_are_not() {
+        assert!(built(EventFact::Stopped, None).persisted_as_completion());
+        assert!(built(EventFact::Removed, None).persisted_as_completion());
+        assert!(!built(EventFact::Removing, None).persisted_as_completion());
+        assert!(!built(EventFact::Initializing, None).persisted_as_completion());
+        assert!(!built(EventFact::Error, None).persisted_as_completion());
+        // sub_type mirrors the SandboxStatus slug; Error is the only is_error fact.
+        assert_eq!(built(EventFact::Removed, None).sub_type(), "removed");
+        assert!(built(EventFact::Error, None).is_error());
+        assert!(!built(EventFact::Stopped, None).is_error());
     }
 
     #[test]

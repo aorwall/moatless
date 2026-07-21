@@ -14,6 +14,21 @@ pub async fn create_pool(database_url: &str, max_connections: u32) -> Result<DbP
         .await
 }
 
+/// Create the dedicated lock-only pool for `pg_try_advisory_lock`. A held
+/// session lock pins its connection for the operation's duration, so this pool
+/// is separate from the main pool — a blocking or long-held lock here can never
+/// starve application queries.
+pub async fn create_lock_pool(
+    database_url: &str,
+    max_connections: u32,
+) -> Result<DbPool, sqlx::Error> {
+    PgPoolOptions::new()
+        .max_connections(max_connections)
+        .acquire_timeout(std::time::Duration::from_secs(5))
+        .connect(database_url)
+        .await
+}
+
 /// Run pending SQL migrations from `./migrations/`.
 /// Uses PostgreSQL advisory locks — safe for concurrent replicas.
 pub async fn run_migrations(pool: &DbPool) -> Result<(), sqlx::migrate::MigrateError> {
