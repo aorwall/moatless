@@ -167,7 +167,10 @@ universal, because close flows persist `Closed` before removing the sandbox:
   - **edge operations** (restart/redeploy) clear only when the **replacement
     generation** is observed Ready — desired==observed alone would acknowledge
     the edge before the adapter did anything, since desired is already Running
-    and the superseded pod may still be Ready.
+    and the superseded pod may still be Ready;
+  - an operation completing `Unchanged` + `NoOp` against an already-converged
+    target clears its marker synchronously — no completion fact will ever
+    exist for its generation, so waiting for one would strand the marker.
   Suppression proves an event belongs to a superseded generation (observed
   generation < marker generation). Operation and convergence event IDs are
   deterministic (`sandbox:{task_id}:{operation_generation}:{fact}`) and use the
@@ -187,8 +190,9 @@ universal, because close flows persist `Closed` before removing the sandbox:
     `lifecycle.stop`;
   - desired Removed, **live resources or an incomplete remove marker** →
     `lifecycle.remove` with the persisted retention, once
-    `sandbox_desired_state_updated_at` exceeds the grace window (the
-    replacement for the current `decide_orphan` pass). The marker branch is
+    `sandbox_desired_state_updated_at` exceeds the grace window (replacing
+    `decide_orphan`'s Removed-intent and Closed-retention concerns; its
+    taskless branch survives as the orphan resource sweep). The marker branch is
     load-bearing when runtime resources are absent but archive deletion has not
     completed.
   The reconciler absorbs today's mid-turn reconcile pass (the original naming
@@ -289,8 +293,10 @@ universal, because close flows persist `Closed` before removing the sandbox:
   Causal precedence is explicit: only Open/Error Tasks participate; a pending
   message older than `sandbox_desired_state_updated_at` cannot supersede a
   later stop/remove; a newer message may supersede Stopped, and may supersede
-  Removed only for an Open/Error Task (it is the durable explicit wake after a
-  soft removal); Closed is never resurrected. The reconciler compares DB-owned
+  Removed only for an Open/Error Task whose removal retention is
+  `RetainArchives` (the durable explicit wake after a soft removal) — an
+  in-progress `DeleteArchives` removal is never superseded, deletion wins;
+  Closed is never resurrected. The reconciler compares DB-owned
   Message `id`/`created_at` with the DB-owned intent timestamp, avoiding process
   clocks and user-supplied timestamps. An eligible Task is converged to Running
   and, while Ready, re-notified until the pending rows are acknowledged.
