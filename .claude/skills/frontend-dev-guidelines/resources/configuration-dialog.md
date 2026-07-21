@@ -352,14 +352,14 @@ The `SidebarDialog` component automatically adapts to screen size:
 - **MUST** use local state (`useState`) to track active section
 - **SHOULD** lift state to parent only when section selection needs to be controlled externally
 - **SHOULD** use React Query hooks in section components for server state
-- See [Derived State Pattern](./derived-state.md) for form state management in sections
+- Derive form state during render — no effects (see `.claude/rules/frontend-conventions.md`)
 
 ### Section Components
 
 - **MUST** make each section self-contained with its own data fetching and state
 - **SHOULD** handle save/discard actions within each section component
 - **SHOULD** use configuration field components for consistent styling
-- See [React Query Patterns](./react-query.md) for data fetching in sections
+- See [Data Fetching](./data-fetching.md) for data fetching in sections
 
 ### Performance
 
@@ -369,6 +369,5 @@ The `SidebarDialog` component automatically adapts to screen size:
 
 ## Related Patterns
 
-- **[React Query Patterns](./react-query.md)** - For data fetching in configuration sections
-- **[Derived State Pattern](./derived-state.md)** - For form state management without effects
+- **[Data Fetching](./data-fetching.md)** - For data fetching in configuration sections
 - **[Error Handling Pattern](./error-handling.md)** - For section error states and boundaries

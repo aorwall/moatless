@@ -46,7 +46,4 @@ impl XxxRepository for PgXxxRepository {
 - **Filter**: `#[derive(Default)]` struct with `Option<T>` fields for optional filters
 - **Patch**: `{Name}Patch` struct with `Option<T>` fields for partial updates
 
-## Registration
-Add `pub xxx: Arc<dyn XxxRepository>` to `AppState` in `state.rs`, wire `PgXxxRepository(pool.clone())` in `AppState::new()`.
-
 **Reference**: `backend/src/task/dao.rs`

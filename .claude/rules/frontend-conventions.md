@@ -47,5 +47,3 @@ context), never through ref callbacks threaded via a parent or global emitters.
 `features/tasks` is the app's composition feature — it may import other features;
 other features should not import `features/tasks`.
 
-## Verification
-After changes: `bun run type:check && bun run biome:check`

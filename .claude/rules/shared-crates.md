@@ -19,8 +19,5 @@ paths:
 - Bounded `mpsc` channels (256 capacity) for backpressure
 - Custom deserialization via `SdkMessage::from_value()` — not `#[serde(tag)]`
 
-## General Library Crate Rules
-- No `unwrap()` — always return `Result` or `Option`. Panics only in `#[cfg(test)]`
-- Typed error enums via `thiserror`, not `Box<dyn Error>`
-- Feature flags: `#[cfg(feature = "openapi")]` for utoipa derives needed only by backend
-- Keep public API surface minimal — prefer `pub(crate)` for internal items
+## Feature Flags
+- `#[cfg(feature = "openapi")]` for utoipa derives needed only by backend

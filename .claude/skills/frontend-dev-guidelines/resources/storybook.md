@@ -27,7 +27,7 @@ apps/frontend/src/
 
 ## Meta Configuration Pattern
 ```typescript
-import type { Meta, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react-vite'
 import { SelectorButton } from '../selector-button'
 
 const meta = {
@@ -50,7 +50,7 @@ export default meta
 type Story = StoryObj<typeof meta>
 ```
 **Rules:**
-- Import `Meta` and `StoryObj` from `@storybook/react` (Vite builder).
+- Import `Meta` and `StoryObj` from `@storybook/react-vite`.
 - Use `satisfies Meta<typeof Component>` to keep type checking strict.
 - Always choose an explicit `layout` so previews behave consistently.
 - Keep decorators minimal and memo-friendly; wrap in a div rather than creating new providers unless required.

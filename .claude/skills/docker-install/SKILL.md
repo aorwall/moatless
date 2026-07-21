@@ -1,5 +1,5 @@
 ---
-name: Moatless Vibe Docker Installer
+name: docker-install
 description: "This skill should be used when the user asks to 'install moatless locally', 'run moatless in docker', 'set up docker compose for moatless', 'bootstrap moatless dev env', 'start moatless on my laptop', or mentions first-time docker-compose setup. Drives `moat docker` subcommands (preflight → init → install → status) and hands off to the docker-testing skill once healthy."
 ---
 

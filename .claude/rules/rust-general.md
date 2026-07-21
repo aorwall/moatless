@@ -42,5 +42,3 @@ Order: `std` → external crates → `crate::` → `super::`. Group with blank l
 - Impl `Default` when a struct has `pub fn new() -> Self` with no arguments (clippy `new_without_default`).
 - Prefer `pub(crate)` over `pub` for items not used outside the crate.
 
-## Verification
-After changes: `cargo clippy -p <crate> -- -D warnings && cargo test -p <crate>`

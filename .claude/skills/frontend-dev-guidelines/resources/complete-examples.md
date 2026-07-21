@@ -4,7 +4,6 @@ This document provides full, working examples of common frontend patterns in the
 
 ## Table of Contents
 - [Simple CRUD Feature](#simple-crud-feature)
-- [Complex Form with Validation](#complex-form-with-validation)
 - [Real-time Data with SSE](#real-time-data-with-sse)
 - [Modal Dialog with Form](#modal-dialog-with-form)
 - [List with Filters and Sorting](#list-with-filters-and-sorting)
@@ -18,38 +17,29 @@ Complete implementation of a simple CRUD feature for managing tasks.
 ```tsx
 // src/features/tasks/api/use-tasks-query.ts
 import { useQuery } from '@tanstack/react-query'
-import { buildPath, routes } from '@moatless/api-contract'
+import { listTasks } from '@moatless/api-client/sandbox/tasks/tasks'
+import { unwrapResponse } from '@moatless/api-client/custom-instance'
 import { queryKeys } from '@/lib/api/query-keys'
-import { apiClient } from '@/lib/api/client'
-import type { Task } from '@moatless/types'
 
 export function useTasksQuery() {
   return useQuery({
     queryKey: queryKeys.tasks.list(),
-    queryFn: async () => {
-      const url = buildPath(routes.tasks.list)
-      const response = await apiClient.get<Task[]>(url)
-      return response.data
-    }
+    queryFn: () => unwrapResponse(listTasks())
   })
 }
 
 // src/features/tasks/api/use-create-task-mutation.ts
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { buildPath, routes } from '@moatless/api-contract'
+import { createTask } from '@moatless/api-client/sandbox/tasks/tasks'
+import { unwrapResponse } from '@moatless/api-client/custom-instance'
 import { queryKeys } from '@/lib/api/query-keys'
-import { apiClient } from '@/lib/api/client'
-import type { Task, CreateTaskRequest } from '@moatless/types'
+import type { CreateTaskRequest } from '@moatless/api-client'
 
 export function useCreateTaskMutation() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async (data: CreateTaskRequest) => {
-      const url = buildPath(routes.tasks.create)
-      const response = await apiClient.post<Task>(url, data)
-      return response.data
-    },
+    mutationFn: (data: CreateTaskRequest) => unwrapResponse(createTask(data)),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.tasks.list()
@@ -112,8 +102,8 @@ export function TaskList() {
 
 // src/features/tasks/components/task-card.tsx
 import { Link } from '@tanstack/react-router'
-import { clsx } from 'clsx'
-import type { Task } from '@moatless/types'
+import { cn } from '@/lib/utils'
+import type { TaskResponse as Task } from '@moatless/api-client'
 
 interface TaskCardProps {
   task: Task
@@ -130,15 +120,15 @@ export function TaskCard({ task }: TaskCardProps) {
         <div>
           <h3 className="text-lg font-semibold">{task.title}</h3>
           {task.description && (
-            <p className="text-gray-600 mt-1">{task.description}</p>
+            <p className="text-muted-foreground mt-1">{task.description}</p>
           )}
         </div>
         <span
-          className={clsx(
+          className={cn(
             'px-2 py-1 text-xs rounded-full',
-            task.status === 'completed' && 'bg-green-100 text-green-700',
-            task.status === 'running' && 'bg-blue-100 text-blue-700',
-            task.status === 'pending' && 'bg-gray-100 text-gray-700'
+            task.status === 'completed' && 'bg-muted text-status-success',
+            task.status === 'running' && 'bg-muted text-status-info',
+            task.status === 'pending' && 'bg-muted text-muted-foreground'
           )}
         >
           {task.status}
@@ -153,7 +143,7 @@ import { useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useCreateTaskMutation } from '../api/use-create-task-mutation'
 import { useApiError } from '@/lib/hooks/use-api-error'
-import { toast } from '@/lib/utils/toast'
+import { toast } from 'sonner'
 
 export function CreateTaskForm() {
   const [title, setTitle] = useState('')
@@ -199,7 +189,7 @@ export function CreateTaskForm() {
           type="text"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
           placeholder="Enter task title"
           disabled={createTask.isPending}
         />
@@ -213,7 +203,7 @@ export function CreateTaskForm() {
           id="description"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
           rows={4}
           placeholder="Enter task description (optional)"
           disabled={createTask.isPending}
@@ -224,14 +214,14 @@ export function CreateTaskForm() {
         <button
           type="submit"
           disabled={createTask.isPending}
-          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+          className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50"
         >
           {createTask.isPending ? 'Creating...' : 'Create Task'}
         </button>
         <button
           type="button"
           onClick={() => navigate({ to: '/tasks' })}
-          className="px-4 py-2 border rounded-md hover:bg-gray-50"
+          className="px-4 py-2 border rounded-md hover:bg-muted"
         >
           Cancel
         </button>
@@ -261,139 +251,6 @@ function NewTaskPage() {
 }
 ```
 
-## Complex Form with Validation
-
-Form with multiple fields, validation, and error handling.
-
-```tsx
-// src/features/tasks/components/task-form.tsx
-import { useState } from 'react'
-import { z } from 'zod'
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
-import type { Task } from '@moatless/types'
-
-const taskSchema = z.object({
-  title: z.string().min(3, 'Title must be at least 3 characters'),
-  description: z.string().optional(),
-  priority: z.enum(['low', 'medium', 'high']),
-  dueDate: z.string().optional(),
-  tags: z.array(z.string()).optional()
-})
-
-type TaskFormData = z.infer<typeof taskSchema>
-
-interface TaskFormProps {
-  task?: Task
-  onSubmit: (data: TaskFormData) => Promise<void>
-  onCancel: () => void
-}
-
-export function TaskForm({ task, onSubmit, onCancel }: TaskFormProps) {
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting }
-  } = useForm<TaskFormData>({
-    resolver: zodResolver(taskSchema),
-    defaultValues: task ? {
-      title: task.title,
-      description: task.description,
-      priority: task.priority,
-      dueDate: task.dueDate,
-      tags: task.tags
-    } : {
-      priority: 'medium'
-    }
-  })
-
-  return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-      <div>
-        <label htmlFor="title" className="block text-sm font-medium mb-1">
-          Title *
-        </label>
-        <input
-          {...register('title')}
-          id="title"
-          type="text"
-          className="w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500"
-        />
-        {errors.title && (
-          <p className="text-sm text-red-600 mt-1">{errors.title.message}</p>
-        )}
-      </div>
-
-      <div>
-        <label htmlFor="description" className="block text-sm font-medium mb-1">
-          Description
-        </label>
-        <textarea
-          {...register('description')}
-          id="description"
-          rows={4}
-          className="w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500"
-        />
-        {errors.description && (
-          <p className="text-sm text-red-600 mt-1">{errors.description.message}</p>
-        )}
-      </div>
-
-      <div>
-        <label htmlFor="priority" className="block text-sm font-medium mb-1">
-          Priority
-        </label>
-        <select
-          {...register('priority')}
-          id="priority"
-          className="w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="low">Low</option>
-          <option value="medium">Medium</option>
-          <option value="high">High</option>
-        </select>
-        {errors.priority && (
-          <p className="text-sm text-red-600 mt-1">{errors.priority.message}</p>
-        )}
-      </div>
-
-      <div>
-        <label htmlFor="dueDate" className="block text-sm font-medium mb-1">
-          Due Date
-        </label>
-        <input
-          {...register('dueDate')}
-          id="dueDate"
-          type="date"
-          className="w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500"
-        />
-        {errors.dueDate && (
-          <p className="text-sm text-red-600 mt-1">{errors.dueDate.message}</p>
-        )}
-      </div>
-
-      <div className="flex gap-2 pt-4">
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
-        >
-          {isSubmitting ? 'Saving...' : 'Save'}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={isSubmitting}
-          className="px-4 py-2 border rounded-md hover:bg-gray-50"
-        >
-          Cancel
-        </button>
-      </div>
-    </form>
-  )
-}
-```
-
 ## Modal Dialog with Form
 
 Complete modal dialog implementation using shadcn/ui.
@@ -412,8 +269,8 @@ import { Button } from '@/lib/components/ui/button'
 import { TaskForm } from './task-form'
 import { useUpdateTaskMutation } from '../api/use-update-task-mutation'
 import { useApiError } from '@/lib/hooks/use-api-error'
-import { toast } from '@/lib/utils/toast'
-import type { Task } from '@moatless/types'
+import { toast } from 'sonner'
+import type { TaskResponse as Task } from '@moatless/api-client'
 
 interface EditTaskDialogProps {
   task: Task
@@ -463,7 +320,7 @@ Complete list with filtering and sorting functionality.
 import { useState, useMemo } from 'react'
 import { useTasksQuery } from '../api/use-tasks-query'
 import { TaskCard } from './task-card'
-import type { Task, TaskStatus } from '@moatless/types'
+import type { TaskResponse as Task, TaskStatus } from '@moatless/api-client'
 
 type SortOption = 'date' | 'title' | 'priority'
 
@@ -549,7 +406,7 @@ export function TaskListWithFilters() {
       </div>
 
       {/* Results */}
-      <div className="text-sm text-gray-600">
+      <div className="text-sm text-muted-foreground">
         Showing {filteredTasks.length} of {tasks.length} tasks
       </div>
 
@@ -615,26 +472,26 @@ export class ErrorBoundary extends Component<Props, State> {
 
       return (
         <div className="flex items-center justify-center min-h-[400px] p-4">
-          <div className="max-w-md w-full bg-red-50 border border-red-200 rounded-lg p-6">
+          <div className="max-w-md w-full bg-destructive/10 border border-destructive rounded-lg p-6">
             <div className="flex items-start gap-3">
-              <AlertTriangle className="w-6 h-6 text-red-600 mt-0.5" />
+              <AlertTriangle className="w-6 h-6 text-destructive mt-0.5" />
               <div className="flex-1">
-                <h2 className="text-lg font-semibold text-red-900 mb-2">
+                <h2 className="text-lg font-semibold text-destructive mb-2">
                   Something went wrong
                 </h2>
-                <p className="text-sm text-red-700 mb-4">
+                <p className="text-sm text-destructive mb-4">
                   {this.state.error.message || 'An unexpected error occurred'}
                 </p>
                 <div className="flex gap-2">
                   <button
                     onClick={this.handleReset}
-                    className="px-4 py-2 bg-red-600 text-white text-sm rounded hover:bg-red-700"
+                    className="px-4 py-2 bg-destructive text-destructive-foreground text-sm rounded hover:bg-destructive/90"
                   >
                     Try Again
                   </button>
                   <button
                     onClick={() => window.location.href = '/'}
-                    className="px-4 py-2 border border-red-600 text-red-600 text-sm rounded hover:bg-red-50"
+                    className="px-4 py-2 border border-destructive text-destructive text-sm rounded hover:bg-destructive/10"
                   >
                     Go Home
                   </button>

@@ -20,13 +20,13 @@
 - Use TanStack Query for all server state
 - Never duplicate server state in React state
 - Use centralized query keys from `src/lib/api/query-keys.ts`
-- Always use `buildPath` for constructing API URLs
+- Always call the API through the generated `@moatless/api-client` fetchers
 - Handle loading, error, and empty states
 
 ### Technology Stack
 - `@tanstack/react-query` - Server state management
-- `@moatless/api-contract` - API route definitions
-- Custom HTTP client in `src/lib/api/client.ts`
+- `@moatless/api-client` - Orval-generated types and typed fetchers (regenerate with `bun run generate:api`)
+- `unwrapResponse` from `@moatless/api-client/custom-instance` - unwraps the response body, throws on error status
 
 ## Query Setup
 
@@ -74,19 +74,14 @@ Create query hooks in feature's `api/` directory:
 ```tsx
 // src/features/tasks/api/use-tasks-query.ts
 import { useQuery } from '@tanstack/react-query'
-import { buildPath, routes } from '@moatless/api-contract'
+import { listTasks } from '@moatless/api-client/sandbox/tasks/tasks'
+import { unwrapResponse } from '@moatless/api-client/custom-instance'
 import { queryKeys } from '@/lib/api/query-keys'
-import { apiClient } from '@/lib/api/client'
-import type { Task } from '@moatless/types'
 
 export function useTasksQuery() {
   return useQuery({
     queryKey: queryKeys.tasks.list(),
-    queryFn: async () => {
-      const url = buildPath(routes.tasks.list)
-      const response = await apiClient.get<Task[]>(url)
-      return response.data
-    }
+    queryFn: () => unwrapResponse(listTasks())
   })
 }
 ```
@@ -95,19 +90,14 @@ export function useTasksQuery() {
 ```tsx
 // src/features/tasks/api/use-task-query.ts
 import { useQuery } from '@tanstack/react-query'
-import { buildPath, routes } from '@moatless/api-contract'
+import { getTask } from '@moatless/api-client/sandbox/tasks/tasks'
+import { unwrapResponse } from '@moatless/api-client/custom-instance'
 import { queryKeys } from '@/lib/api/query-keys'
-import { apiClient } from '@/lib/api/client'
-import type { Task } from '@moatless/types'
 
 export function useTaskQuery(taskId: string) {
   return useQuery({
     queryKey: queryKeys.tasks.detail(taskId),
-    queryFn: async () => {
-      const url = buildPath(routes.tasks.detail, { taskId })
-      const response = await apiClient.get<Task>(url)
-      return response.data
-    },
+    queryFn: () => unwrapResponse(getTask(taskId)),
     enabled: !!taskId  // Only run if taskId exists
   })
 }
@@ -148,20 +138,16 @@ export function TaskList() {
 ```tsx
 // src/features/tasks/api/use-create-task-mutation.ts
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { buildPath, routes } from '@moatless/api-contract'
+import { createTask } from '@moatless/api-client/sandbox/tasks/tasks'
+import { unwrapResponse } from '@moatless/api-client/custom-instance'
 import { queryKeys } from '@/lib/api/query-keys'
-import { apiClient } from '@/lib/api/client'
-import type { Task, CreateTaskRequest } from '@moatless/types'
+import type { CreateTaskRequest } from '@moatless/api-client'
 
 export function useCreateTaskMutation() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async (data: CreateTaskRequest) => {
-      const url = buildPath(routes.tasks.create)
-      const response = await apiClient.post<Task>(url, data)
-      return response.data
-    },
+    mutationFn: (data: CreateTaskRequest) => unwrapResponse(createTask(data)),
     onSuccess: () => {
       // Invalidate tasks list to refetch
       queryClient.invalidateQueries({
@@ -216,20 +202,16 @@ export function CreateTaskForm() {
 ```tsx
 // src/features/tasks/api/use-update-task-mutation.ts
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { buildPath, routes } from '@moatless/api-contract'
+import { updateTaskMetadata } from '@moatless/api-client/sandbox/tasks/tasks'
+import { unwrapResponse } from '@moatless/api-client/custom-instance'
 import { queryKeys } from '@/lib/api/query-keys'
-import { apiClient } from '@/lib/api/client'
-import type { Task, UpdateTaskRequest } from '@moatless/types'
+import type { UpdateTaskMetadataRequest } from '@moatless/api-client'
 
 export function useUpdateTaskMutation(taskId: string) {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async (data: UpdateTaskRequest) => {
-      const url = buildPath(routes.tasks.update, { taskId })
-      const response = await apiClient.patch<Task>(url, data)
-      return response.data
-    },
+    mutationFn: (data: UpdateTaskMetadataRequest) => unwrapResponse(updateTaskMetadata(taskId, data)),
     onSuccess: (updatedTask) => {
       // Update the specific task in cache
       queryClient.setQueryData(
@@ -253,10 +235,7 @@ export function useDeleteTaskMutation() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async (taskId: string) => {
-      const url = buildPath(routes.tasks.delete, { taskId })
-      await apiClient.delete(url)
-    },
+    mutationFn: (taskId: string) => unwrapResponse(deleteTask(taskId)),
     onSuccess: (_, taskId) => {
       // Remove from cache
       queryClient.removeQueries({
@@ -399,10 +378,10 @@ export function ErrorDisplay({ error, retry }: ErrorDisplayProps) {
     : 'An unexpected error occurred'
 
   return (
-    <div className="border border-red-500 bg-red-50 p-4 rounded">
-      <p className="text-red-700">{message}</p>
+    <div className="border border-destructive bg-destructive/10 p-4 rounded">
+      <p className="text-destructive">{message}</p>
       {retry && (
-        <button onClick={retry} className="mt-2 text-red-600">
+        <button onClick={retry} className="mt-2 text-destructive">
           Try Again
         </button>
       )}
@@ -440,11 +419,7 @@ export function useCreateTaskMutation() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async (data: CreateTaskRequest) => {
-      const url = buildPath(routes.tasks.create)
-      const response = await apiClient.post<Task>(url, data)
-      return response.data
-    },
+    mutationFn: (data: CreateTaskRequest) => unwrapResponse(createTask(data)),
     onMutate: async (newTask) => {
       // Cancel outgoing refetches
       await queryClient.cancelQueries({
@@ -459,7 +434,7 @@ export function useCreateTaskMutation() {
       // Optimistically update cache
       queryClient.setQueryData(
         queryKeys.tasks.list(),
-        (old: Task[] = []) => [...old, { ...newTask, id: 'temp-id' }]
+        (old: TaskResponse[] = []) => [...old, { ...newTask, id: 'temp-id' }]
       )
 
       return { previousTasks }
@@ -489,11 +464,7 @@ export function useUpdateTaskMutation(taskId: string) {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async (data: UpdateTaskRequest) => {
-      const url = buildPath(routes.tasks.update, { taskId })
-      const response = await apiClient.patch<Task>(url, data)
-      return response.data
-    },
+    mutationFn: (data: UpdateTaskMetadataRequest) => unwrapResponse(updateTaskMetadata(taskId, data)),
     onMutate: async (updates) => {
       await queryClient.cancelQueries({
         queryKey: queryKeys.tasks.detail(taskId)
@@ -506,7 +477,7 @@ export function useUpdateTaskMutation(taskId: string) {
       // Optimistically update
       queryClient.setQueryData(
         queryKeys.tasks.detail(taskId),
-        (old: Task) => ({ ...old, ...updates })
+        (old: TaskResponse) => ({ ...old, ...updates })
       )
 
       return { previousTask }
@@ -568,11 +539,7 @@ function Dashboard() {
 export function usePaginatedTasksQuery(page: number) {
   return useQuery({
     queryKey: queryKeys.tasks.list({ page }),
-    queryFn: async () => {
-      const url = buildPath(routes.tasks.list, { page })
-      const response = await apiClient.get(url)
-      return response.data
-    },
+    queryFn: () => unwrapResponse(listTasks({ page })),
     keepPreviousData: true  // Keep old data while fetching new
   })
 }
@@ -585,11 +552,7 @@ import { useInfiniteQuery } from '@tanstack/react-query'
 export function useInfiniteTasksQuery() {
   return useInfiniteQuery({
     queryKey: queryKeys.tasks.lists(),
-    queryFn: async ({ pageParam = 1 }) => {
-      const url = buildPath(routes.tasks.list, { page: pageParam })
-      const response = await apiClient.get(url)
-      return response.data
-    },
+    queryFn: ({ pageParam = 1 }) => unwrapResponse(listTasks({ page: pageParam })),
     getNextPageParam: (lastPage, pages) => {
       return lastPage.hasMore ? pages.length + 1 : undefined
     }
@@ -616,15 +579,15 @@ function TaskList() {
 }
 ```
 
-### ❌ Hardcoding API Paths
+### ❌ Hand-Rolling Fetch Calls
 ```tsx
 // WRONG
 const response = await fetch('/api/v1/tasks')
 
-// CORRECT
-import { buildPath, routes } from '@moatless/api-contract'
-const url = buildPath(routes.tasks.list)
-const response = await fetch(url)
+// CORRECT — use the generated client
+import { listTasks } from '@moatless/api-client/sandbox/tasks/tasks'
+import { unwrapResponse } from '@moatless/api-client/custom-instance'
+const tasks = await unwrapResponse(listTasks())
 ```
 
 ### ❌ Not Handling Loading/Error States

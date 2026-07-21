@@ -52,14 +52,14 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return this.props.fallback || (
-        <div className="p-4 border border-red-500 rounded bg-red-50">
-          <h2 className="text-lg font-bold text-red-700">Something went wrong</h2>
-          <p className="text-red-600 mt-2">
+        <div className="p-4 border border-destructive rounded bg-destructive/10">
+          <h2 className="text-lg font-bold text-destructive">Something went wrong</h2>
+          <p className="text-destructive mt-2">
             {this.state.error?.message || 'An unexpected error occurred'}
           </p>
           <button
             onClick={() => this.setState({ hasError: false })}
-            className="mt-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+            className="mt-4 px-4 py-2 bg-destructive text-destructive-foreground rounded hover:bg-destructive/90"
           >
             Try Again
           </button>
@@ -99,7 +99,7 @@ function TasksPage() {
 function TasksErrorFallback() {
   return (
     <div className="text-center py-8">
-      <p className="text-gray-600">Failed to load tasks</p>
+      <p className="text-muted-foreground">Failed to load tasks</p>
       <button onClick={() => window.location.reload()}>
         Reload Page
       </button>
@@ -145,7 +145,7 @@ export class ApiError extends Error {
 ```tsx
 // src/lib/hooks/use-api-error.ts
 import { ApiError } from '@/lib/api/client'
-import { toast } from '@/lib/utils/toast'
+import { toast } from 'sonner'
 
 export function useApiError() {
   const showError = (error: unknown) => {
@@ -248,19 +248,19 @@ export function ErrorDisplay({ error, retry, message }: ErrorDisplayProps) {
     : message || 'An unexpected error occurred'
 
   return (
-    <div className="border border-red-500 bg-red-50 rounded-lg p-4">
+    <div className="border border-destructive bg-destructive/10 rounded-lg p-4">
       <div className="flex items-start gap-3">
-        <AlertCircle className="w-5 h-5 text-red-600 mt-0.5" />
+        <AlertCircle className="w-5 h-5 text-destructive mt-0.5" />
         <div className="flex-1">
-          <h3 className="font-medium text-red-900">Error</h3>
-          <p className="text-sm text-red-700 mt-1">{errorMessage}</p>
+          <h3 className="font-medium text-destructive">Error</h3>
+          <p className="text-sm text-destructive mt-1">{errorMessage}</p>
         </div>
       </div>
 
       {retry && (
         <button
           onClick={retry}
-          className="mt-3 px-4 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700"
+          className="mt-3 px-4 py-2 text-sm bg-destructive text-destructive-foreground rounded hover:bg-destructive/90"
         >
           Try Again
         </button>
@@ -283,14 +283,14 @@ interface EmptyStateProps {
 export function EmptyState({ message, action }: EmptyStateProps) {
   return (
     <div className="flex flex-col items-center justify-center py-12 text-center">
-      <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-        <Inbox className="w-8 h-8 text-gray-400" />
+      <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mb-4">
+        <Inbox className="w-8 h-8 text-muted-foreground" />
       </div>
-      <p className="text-gray-600 mb-4">{message}</p>
+      <p className="text-muted-foreground mb-4">{message}</p>
       {action && (
         <button
           onClick={action.onClick}
-          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+          className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90"
         >
           {action.label}
         </button>
@@ -327,7 +327,7 @@ export function getUserFriendlyMessage(error: unknown): string {
 
 ### Toast Notifications
 ```tsx
-import { toast } from '@/lib/utils/toast'
+import { toast } from 'sonner'
 
 // Success
 toast.success('Task created successfully!')
@@ -356,7 +356,7 @@ function TaskList() {
         <button
           onClick={() => refetch()}
           disabled={isRefetching}
-          className="mt-4 px-4 py-2 bg-blue-600 text-white rounded"
+          className="mt-4 px-4 py-2 bg-primary text-white rounded"
         >
           {isRefetching ? 'Retrying...' : 'Retry'}
         </button>
@@ -464,7 +464,7 @@ export function TaskForm() {
       <div>
         <input name="title" />
         {errors.title && (
-          <p className="text-sm text-red-600 mt-1">{errors.title}</p>
+          <p className="text-sm text-destructive mt-1">{errors.title}</p>
         )}
       </div>
     </form>
@@ -492,8 +492,8 @@ export function NetworkStatus() {
 
   if (!isOnline) {
     return (
-      <div className="bg-yellow-100 border-b border-yellow-300 px-4 py-2 text-center">
-        <p className="text-sm text-yellow-800">
+      <div className="bg-warning/10 border-b border-warning px-4 py-2 text-center">
+        <p className="text-sm text-warning">
           You are offline. Some features may not work.
         </p>
       </div>

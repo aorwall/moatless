@@ -109,9 +109,10 @@ curl -s -X POST \
 
 ## Create Vibe Task Workflow (K8s Mode)
 
-In K8s mode, vibe tasks fork templates to GitHub:
+A vibe task references a template repo by its remote git URL; the worker pod
+clones it. No local repos, no per-run GitHub forking:
 ```
-Template → Create GitHub repo → Push code → Remote repo → K8s clones ✓
+Template repo (git URL) → K8s worker clones ✓
 ```
 
 ### Step 1: List Templates

@@ -1,20 +1,28 @@
 ---
 name: e2e-testing
-description: Run and write E2E tests for Moatless Vibe. Covers Rust integration tests (crates/integration-tests/ — API/CLI, tiered by db/sandbox/agent) and Playwright UI tests (tests/ui/ — browser-based smoke, navigation, task creation). Use when running tests, writing new tests, setting up the test environment, or debugging test failures.
+description: Run and write E2E tests for Moatless Vibe. Covers Rust integration tests (crates/integration-tests/ — API/CLI, tiered by db/sandbox/agent), Playwright api/ui tests (tests/ — browser + API against Docker Compose), and the env-agnostic cluster suite (tests/cluster/ — runs against a local or remote k8s deployment via MOATLESS_BASE_URL + API_KEY). Use when running tests, writing new tests, running e2e against a cluster, setting up the test environment, or debugging test failures.
 ---
 
 # E2E Testing
 
 ## Overview
 
-Two test suites cover E2E testing:
+Three suites cover E2E testing, split by **target**:
 
-| Suite | Location | Runner | What it tests |
-|-------|----------|--------|---------------|
-| **Rust integration tests** | `crates/integration-tests/` | `cargo test` | Backend API via HTTP (MoatClient/reqwest) |
-| **Playwright UI tests** | `tests/ui/` | `bun run test:e2e` | Browser-based UI workflows (Chromium) |
+| Suite | Location | Runner | Target | What it tests |
+|-------|----------|--------|--------|---------------|
+| **Rust integration tests** | `crates/integration-tests/` | `cargo test` | Docker Compose | Backend API via HTTP (MoatClient/reqwest) |
+| **Playwright api/ui tests** | `tests/api/`, `tests/ui/` | `bun run test:e2e` | Docker Compose | API chains + browser UI workflows |
+| **Playwright cluster tests** | `tests/cluster/` | `bun run test:e2e:cluster` | local-k8s **or** remote | Live deployment as a black-box HTTP client |
 
-Both suites require the backend running at `http://localhost:8080` (Docker Compose).
+The first two run against the backend at `http://localhost:8080` (Docker Compose,
+the per-PR gate). The **cluster** suite runs against a live k8s deployment — see
+[Cluster target](#cluster-target-env-agnostic-suite).
+
+| Target | Auth |
+|--------|------|
+| Docker Compose | admin cookie / seeded users |
+| local-k8s / remote | `test-api-user` Bearer key |
 
 ---
 
@@ -195,13 +203,13 @@ test("my test", async ({ page, api, testRepoId }) => {
     message: "Do something",
   });
 
-  await page.goto(`/tasks/${task.id}`);
+  await page.goto(`/tasks/${task.taskId}`);
   await page.waitForLoadState("networkidle");
   await expect(page.locator("#root")).toBeVisible();
 
   // Cleanup
-  await api.stopTask(task.id);
-  await api.deleteTask(task.id);
+  await api.stopTask(task.taskId);
+  await api.deleteTask(task.taskId);
 });
 ```
 
@@ -210,17 +218,11 @@ test("my test", async ({ page, api, testRepoId }) => {
 Requires the backend to be running (via Docker Compose or `dev-docker.sh`).
 
 ```bash
-# Run all UI E2E tests
+# API suite (chains) — note: test:e2e targets tests/api, not the UI
 bun run test:e2e
 
-# Interactive UI mode
+# UI suite (browser)
 bun run test:e2e:ui
-
-# Headed (visible browser)
-bun run test:e2e:headed
-
-# Debug mode (step-through)
-bun run test:e2e:debug
 
 # Via Taskfile
 task test:ui
@@ -243,6 +245,45 @@ test.describe("Feature Name", () => {
   });
 });
 ```
+
+---
+
+## Cluster target (env-agnostic suite)
+
+`tests/cluster/` runs against a **live deployment** — local-k8s or remote — as a
+black-box HTTP client. The same suite runs everywhere; only two env vars change.
+
+| Var | local-k8s | remote |
+|-----|-----------|--------|
+| `MOATLESS_BASE_URL` | `http://moatless.localhost` | `https://moatless.dev` |
+| `API_KEY` | the cluster's `TEST_API_KEY` (`mvk_…`) | same |
+
+```bash
+MOATLESS_BASE_URL=… API_KEY=mvk_… bun run test:e2e:cluster              # smoke + lifecycle
+MOATLESS_BASE_URL=… API_KEY=mvk_… E2E_DEPTH=full bun run test:e2e:cluster   # + agent tier
+```
+
+**Auth** is one `test-api-user` (admin) Bearer key. The backend mints it from
+`TEST_API_KEY`; add that key to the cluster's Secret (local: `k8s/local/README.md`
+step 3 — the chart wires it as an optional env). No login form, no ForwardAuth.
+
+**Depth** (`E2E_DEPTH`):
+- unset / `lifecycle` — smoke + lifecycle: auth, task CRUD, sandbox reaches
+  ready, preview serves, events over SSE. Deterministic, free.
+- `full` — also the agent tier: the agent edits the page to a unique per-run
+  marker and the test asserts the **preview renders it**. Needs Claude creds in
+  the cluster; the agent spec self-skips when unset.
+
+**Isolation**: no DB reset. Tasks are named `e2e-<runId>-<slug>`; each test
+deletes its own, and teardown sweeps this run's prefix. Assert only on resources
+you created — never global counts.
+
+**Where it runs**: developers point it at their local-k8s; CI runs it against
+remote post-deploy (smoke + lifecycle) and nightly (full), via
+`.github/workflows/cluster-e2e.yml`. Compose stays the per-PR gate.
+
+Debugging a red cluster run (pods, logs, metrics, event-delivery mode) → the
+`kubernetes-testing` skill.
 
 ---
 
@@ -314,7 +355,6 @@ docker compose -f docker-compose/docker-compose.yml -f docker-compose/docker-com
 **Playwright tests:**
 - HTML report: `test-results/ui/`
 - Screenshots captured on failure
-- Use `bun run test:e2e:debug` for step-through debugging
 
 **Common issues:**
 - Backend not healthy: check `docker compose logs backend`

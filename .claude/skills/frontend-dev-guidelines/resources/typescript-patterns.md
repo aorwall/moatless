@@ -142,16 +142,16 @@ export { TaskService }
 
 **Why**: Named exports provide better refactoring, IDE support, and prevent naming inconsistencies.
 
-### Never Use `import type`
+### Use `import type` for Type-Only Imports
 ```tsx
 // ❌ WRONG
-import type { Task } from '@moatless/types'
+import { TaskResponse } from '@moatless/api-client'
 
 // ✅ CORRECT
-import { Task } from '@moatless/types'
+import type { TaskResponse } from '@moatless/api-client'
 ```
 
-**Why**: The TypeScript compiler strips types automatically. `import type` is unnecessary and creates confusion.
+**Why**: Biome enforces this (`useImportType`), and it keeps type-only imports out of the runtime module graph.
 
 ### Import Organization
 Organize imports in this order:
@@ -162,8 +162,8 @@ import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
 // 2. Shared packages
-import { Task } from '@moatless/types'
-import { routes, buildPath } from '@moatless/api-contract'
+import type { TaskResponse } from '@moatless/api-client'
+import { listTasks } from '@moatless/api-client/sandbox/tasks/tasks'
 
 // 3. Internal absolute imports
 import { apiClient } from '@/lib/api/client'
@@ -455,10 +455,10 @@ function process(data: any) { }
 export default function Component() { }
 ```
 
-### ❌ import type
+### ❌ Plain Imports for Type-Only Usage
 ```tsx
 // WRONG
-import type { Task } from '@moatless/types'
+import { TaskResponse } from '@moatless/api-client'  // only used as a type
 ```
 
 ### ❌ Non-descriptive Generic Names
@@ -481,7 +481,7 @@ function process(data: TaskData) { }
 **Naming**: UpperCamelCase for types, camelCase for values
 **Type Safety**: Never use `any`, use `unknown` if needed
 **Exports**: Named exports only, no default exports
-**Imports**: No `import type`, organize by source
+**Imports**: `import type` for type-only imports, organize by source
 **Generics**: Use descriptive names
 **Unions**: Prefer union types over enums
 **Coercion**: Be explicit, use ?? for nullish coalescing

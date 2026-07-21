@@ -209,46 +209,16 @@ describe('TaskForm', () => {
 ```
 
 ### Testing with React Query
+Use the custom render from `@/test-utils/render` — it wraps the tree in a fresh `QueryClient` and mock providers automatically:
+
 ```tsx
-import { QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
-import { createTestQueryClient } from '@/test-utils/query-client'
+import { render, screen } from '@/test-utils/render'
 
 describe('TaskList', () => {
   test('displays loading state', () => {
-    const queryClient = createTestQueryClient()
-
-    useTasksQuery.mockReturnValue({
-      data: undefined,
-      isLoading: true,
-      error: null
-    })
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <TaskList />
-      </QueryClientProvider>
-    )
-
+    useTasksQuery.mockReturnValue({ data: undefined, isLoading: true, error: null })
+    render(<TaskList />)
     expect(screen.getByText('Loading...')).toBeInTheDocument()
-  })
-
-  test('displays error state', () => {
-    const queryClient = createTestQueryClient()
-
-    useTasksQuery.mockReturnValue({
-      data: undefined,
-      isLoading: false,
-      error: new Error('Failed to load')
-    })
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <TaskList />
-      </QueryClientProvider>
-    )
-
-    expect(screen.getByText(/Failed to load/)).toBeInTheDocument()
   })
 })
 ```
@@ -286,7 +256,7 @@ describe('useTaskStateMachine', () => {
 ```tsx
 import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClientProvider } from '@tanstack/react-query'
-import { createTestQueryClient } from '@/test-utils/query-client'
+import { createTestQueryClient } from '@/test-utils/render'
 import { useTasksQuery } from './use-tasks-query'
 
 describe('useTasksQuery', () => {
@@ -370,30 +340,7 @@ describe('Navigation', () => {
 ## Common Patterns
 
 ### Test Setup Helper
-```tsx
-// test-utils/setup.tsx
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render } from '@testing-library/react'
-
-export function createTestQueryClient() {
-  return new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-      mutations: { retry: false }
-    }
-  })
-}
-
-export function renderWithProviders(ui: React.ReactElement) {
-  const queryClient = createTestQueryClient()
-
-  return render(
-    <QueryClientProvider client={queryClient}>
-      {ui}
-    </QueryClientProvider>
-  )
-}
-```
+The repo-wide helper lives in `src/test-utils/render.tsx`: it exports `createTestQueryClient()` and a custom `render` (re-exporting everything from `@testing-library/react`) that wraps components in `QueryClientProvider` + mock providers. Use it instead of hand-rolling wrappers.
 
 ### Custom Matchers
 ```tsx

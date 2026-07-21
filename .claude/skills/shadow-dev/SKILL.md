@@ -1,6 +1,6 @@
 ---
 name: shadow-dev
-description: "Run the moatless-vibe backend + frontend from INSIDE a moatless sandbox and preview the full app. The backend runs as a managed server on :8080 (scripts/shadow/up.sh), the frontend dev server proxies /api to it, all against shared dev Postgres/Redis/S3. Use when asked to: run the shadow backend, develop moatless-vibe from a sandbox, run backend + frontend in the sandbox, preview/rebuild backend changes live, shadow dev, scripts/shadow."
+description: "Run the moatless-vibe backend + frontend from INSIDE a moatless sandbox and preview the full app. The backend runs as a managed server on :8080 (scripts/shadow/up.sh), the frontend dev server proxies /api to it, all against shared dev Postgres/Redis/S3. Use when asked to run the shadow backend, develop moatless-vibe from inside a sandbox, or preview/rebuild backend changes live (scripts/shadow)."
 ---
 
 # Shadow Dev — run moatless-vibe from inside a sandbox

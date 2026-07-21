@@ -1,65 +1,49 @@
-# Kubernetes Integration Tests
+# Cluster integration tests
 
-Integration tests for `KubernetesEnvironmentDriver` that run against real worker pods.
+The automated way to test against a real cluster is the **env-agnostic cluster
+suite** in `tests/cluster/` — a black-box Playwright suite that drives a live
+deployment over HTTP. It replaces the old per-driver integration tests.
+
+Full reference: the `e2e-testing` skill, **Cluster target** section.
 
 ## Prerequisites
 
-- Kubernetes cluster access (kubectl configured)
-- RBAC permissions to create/delete pods in `vibe` namespace
-- Worker image available in registry
+- `kubectl` access to the target cluster (only for debugging — the suite itself
+  is pure HTTP and needs no kubeconfig).
+- `TEST_API_KEY` (`mvk_…`) in the cluster's Secret. The backend mints a
+  `test-api-user` (admin) and attaches the key. The chart wires `TEST_API_KEY`
+  as an optional env (`backend-deployment.yaml`).
+- For the agent rung: Claude creds provisioned in the cluster.
 
-## Running Tests
-
-### Option 1: Run as K8s Job (Recommended)
-
-```bash
-# With full worker (~1.7GB)
-kubectl apply -f apps/backend/src/features/workspace/drivers/__tests__/k8s-integration-test-job.yaml
-
-# With slim JS worker (~530MB, faster)
-kubectl apply -f apps/backend/src/features/workspace/drivers/__tests__/k8s-integration-test-job-slim.yaml
-```
-
-**Monitor:**
-```bash
-kubectl logs -n vibe -l job-name=k8s-driver-integration-test -f
-```
-
-**Cleanup:**
-```bash
-kubectl delete job k8s-driver-integration-test -n vibe
-kubectl delete job k8s-driver-integration-test-slim -n vibe
-```
-
-### Option 2: Run Locally
-
-Requires direct pod IP access (VPN/port-forward/in-cluster):
+## Running
 
 ```bash
-K8S_ENABLED=true \
-K8S_NAMESPACE=vibe \
-K8S_SANDBOX_IMAGE=aorwall/moatless-vibe-sandbox:latest \
-NODE_TLS_REJECT_UNAUTHORIZED=0 \
-bun test apps/backend/src/features/workspace/drivers/__tests__/kubernetes-environment-driver.integration.test.ts
+# Read the key from the cluster (local example).
+API_KEY=$(kubectl -n moatless get secret moatless-vibe-secrets \
+  -o jsonpath='{.data.TEST_API_KEY}' | base64 -d)
+
+# Smoke + lifecycle (deterministic, free).
+MOATLESS_BASE_URL=http://moatless.localhost API_KEY="$API_KEY" \
+  bun run test:e2e:cluster
+
+# Full run incl. the agent building a page (needs Claude creds in the cluster).
+MOATLESS_BASE_URL=https://moatless.dev API_KEY="$API_KEY" E2E_DEPTH=full \
+  bun run test:e2e:cluster
 ```
 
-## Rebuilding Test Runner
+Point `MOATLESS_BASE_URL` at any cluster's ingress — the suite is identical for
+local-k8s and remote.
 
-```bash
-./docker/build-test-runner.sh
-```
+## Coverage
 
-## Test Coverage
+| Rung | `E2E_DEPTH` | Checks |
+|------|-------------|--------|
+| smoke | (default) | health, API-key auth, task CRUD |
+| lifecycle | (default) | sandbox ready, preview serves, events over SSE, status |
+| agent | `full` | agent edits the page to a unique marker; preview renders it |
 
-| Category | Tests |
-|----------|-------|
-| File Operations | readFile, writeFile, listFiles |
-| Command Execution | run commands, exit codes |
-| Git Operations | status, changes |
-| Search | file search by query |
+## CI
 
-## Timeouts
-
-- Pod creation: Up to 5 minutes
-- Test execution: ~30 seconds
-- Total: ~1-2 minutes with cached images
+`.github/workflows/cluster-e2e.yml` runs it against the remote cluster:
+post-deploy (smoke + lifecycle) and nightly (full). local-k8s is not a CI
+target — run it by hand.

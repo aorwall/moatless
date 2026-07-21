@@ -5,7 +5,7 @@ paths:
 
 # Backend Module Structure
 
-Every domain module in `backend/src/` follows this layout:
+Most domain modules in `backend/src/` follow this layout (exceptions exist — e.g. `skill/` has no `dao.rs`):
 
 ```
 {module}/

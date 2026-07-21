@@ -42,29 +42,7 @@ DOCKER_BACKEND_HOSTNAME=moatless-backend     # Backend container name (for sandb
 
 ## Vibe Task Creation
 
-### Create and Start Task
-
-```bash
-# Get template ID
-curl -s http://localhost:8080/api/v1/repositories | jq '.[0].id'
-
-# Create task (replace TEMPLATE_ID)
-curl -s -X POST http://localhost:8080/api/v1/tasks/vibe \
-  -H "Content-Type: application/json" \
-  -d '{"agentType":"claude-code","templateId":"TEMPLATE_ID","message":"Create hello world","start":true}'
-```
-
-### Monitor Task
-
-```bash
-TASK_ID="your-task-id"
-
-# Task status
-curl -s "http://localhost:8080/api/v1/tasks/$TASK_ID" | jq '{status, numTurns}'
-
-# Workspace status
-curl -s "http://localhost:8080/api/v1/tasks/$TASK_ID/workspace-status"
-```
+Canonical create/monitor/cleanup recipe: `.claude/skills/kubernetes-testing/references/api_reference.md`. Against local Docker Compose use `http://localhost:8080` and no auth header; get a template id via `curl -s http://localhost:8080/api/v1/repositories | jq '.[0].id'`.
 
 ## Container Management
 

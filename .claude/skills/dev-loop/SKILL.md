@@ -31,10 +31,10 @@ Use plan mode for non-trivial changes. Identify which codebase area is affected:
 
 | Area | Directory | Language | Skill Reference |
 |------|-----------|----------|-----------------|
-| Backend API | `backend/src/` | Rust (Axum + Tonic) | `backend-dev-guidelines` |
-| Sandbox runtime | `sandbox/src/` | Rust (Agent SDK) | `backend-dev-guidelines` |
-| Frontend UI | `apps/frontend/src/` | React 19 + TypeScript | `frontend-dev-guidelines` |
-| Shared crates | `crates/` | Rust | `backend-dev-guidelines` |
+| Backend API | `backend/src/` | Rust (Axum + Tonic) | `.claude/rules/backend-*.md` (auto-attached) |
+| Sandbox runtime | `sandbox/src/` | Rust (Agent SDK) | `.claude/rules/sandbox-crate.md` (auto-attached) |
+| Frontend UI | `apps/frontend/src/` | React 19 + TypeScript | `frontend-dev-guidelines` skill |
+| Shared crates | `crates/` | Rust | `.claude/rules/shared-crates.md` (auto-attached) |
 
 ### Sandbox Environment Prerequisites
 
@@ -58,22 +58,7 @@ directly and note in the PR that image builds were not run.
 
 ### Mandatory Checks After Implementation
 
-Run before proceeding to the next phase:
-
-**Rust (backend/sandbox):**
-```bash
-cargo clippy -p moatless-vibe-backend -- -D warnings
-cargo test -p moatless-vibe-backend
-# or for sandbox:
-cargo clippy -p moatless-sandbox -- -D warnings
-cargo test -p moatless-sandbox
-```
-
-**Frontend:**
-```bash
-bun run type:check
-bun run biome:check    # or biome:fix to auto-fix
-```
+Run the verification block from CLAUDE.md before proceeding: `cargo clippy -p <crate> -- -D warnings` + `cargo test -p <crate>` (Rust), `bun run type:check` + `bun run biome:check` (frontend).
 
 ## Phase 2: Write/Update Specs & Tests
 
@@ -99,14 +84,7 @@ Location: `tests/api/chains/` — Playwright API tests implementing spec scenari
 
 ### Mapping Convention
 
-| Spec File | Test File(s) |
-|-----------|-------------|
-| `specs/task-crud.md` | `tests/api/chains/task-crud.spec.ts` |
-| `specs/sandbox-operations.md` | `tests/api/chains/sandbox-lifecycle.spec.ts` |
-| `specs/agent-execution.md` | `tests/api/chains/agent-*.spec.ts` |
-| `specs/file-operations.md` | `tests/api/chains/file-operations.spec.ts` |
-| `specs/repository.md` | `tests/api/chains/repository.spec.ts` |
-| `specs/channels.md` | `tests/api/chains/channel-*.spec.ts` |
+Specs live per domain as `specs/<domain>/NN-*.md` (e.g. `specs/tasks/01-task-scenarios.md`, `specs/sandbox/02-file-scenarios.md`; `00-design.md` holds the domain design). A scenario's home domain names its test chain: `tests/api/chains/<domain>-*.spec.ts`. Rust API/CLI integration tests live in `crates/integration-tests/` (the per-PR gate — see the e2e-testing skill).
 
 When adding a new scenario: add the spec entry first, then implement the step function, then add the test.
 
@@ -192,19 +170,8 @@ curl -s -D - -o /dev/null -H "Authorization: Bearer $API_TOKEN" \
 # List repositories
 curl -s -H "Authorization: Bearer $API_TOKEN" "$BASE_URL/api/v1/repositories" | jq '.[] | {id, name}'
 
-# Create a test task
-TEMPLATE_ID="<id>"
-TASK_ID=$(curl -s -X POST \
-  -H "Authorization: Bearer $API_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d "{\"agentType\":\"claude-code\",\"templateId\":\"$TEMPLATE_ID\",\"message\":\"Test message\",\"start\":true}" \
-  "$BASE_URL/api/v1/tasks/vibe" | jq -r '.taskId')
-
-# Monitor task
-curl -s -H "Authorization: Bearer $API_TOKEN" "$BASE_URL/api/v1/tasks/$TASK_ID" | jq '{status, numTurns}'
-
-# Cleanup
-curl -s -X DELETE -H "Authorization: Bearer $API_TOKEN" "$BASE_URL/api/v1/tasks/$TASK_ID"
+# Create/monitor/clean up a test vibe task: use the canonical recipe in
+# .claude/skills/kubernetes-testing/references/api_reference.md
 ```
 
 ### Browser Verification with playwright-cli
@@ -303,6 +270,6 @@ Key patterns:
 | `kubernetes-testing` | K8s pod management, metrics, integration tests on moatless.dev |
 | `e2e-testing` | UI E2E testing patterns with MCP tools |
 | `frontend-dev-guidelines` | React component patterns, TanStack Query/Router, Tailwind |
-| `backend-dev-guidelines` | Axum routes, handlers, dao, gRPC, sqlx |
+| `.claude/rules/backend-*.md` | Axum routes, handlers, dao, error patterns (auto-attached) |
 | `testing-guidelines` | Test strategy, mocking, tier classification |
 | `playwright-cli` | Browser automation for frontend verification |

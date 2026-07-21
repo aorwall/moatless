@@ -6,7 +6,7 @@
       "type": "domain",
       "enforcement": "suggest",
       "priority": "high",
-      "description": "React 19 + TanStack Query/Router development patterns with Tailwind v4 and shadcn/ui components",
+      "description": "Moatless Vibe frontend conventions: React 19 + TanStack Query/Router, Tailwind v4 + shadcn/ui, generated @moatless/api-client",
       "promptTriggers": {
         "keywords": [
           "component",
@@ -57,67 +57,11 @@
         "sessionSkillUsed": true
       }
     },
-    "backend-dev-guidelines": {
-      "type": "domain",
-      "enforcement": "suggest",
-      "priority": "high",
-      "description": "Hono + InversifyJS + Drizzle backend patterns with OpenAPI-first contract design",
-      "promptTriggers": {
-        "keywords": [
-          "backend",
-          "API",
-          "endpoint",
-          "route",
-          "service",
-          "hono",
-          "inversify",
-          "drizzle",
-          "repository",
-          "schema",
-          "validation",
-          "zod",
-          "database",
-          "OpenAPI",
-          "contract",
-          "buildPath",
-          "createRoute",
-          "dependency injection"
-        ],
-        "intentPatterns": [
-          "(create|add).*?(route|endpoint|API|service)",
-          "(implement|add).*?(validation|middleware)",
-          "(database|data).*?(access|query|operation)",
-          "(define|create).*?(schema|contract)"
-        ]
-      },
-      "fileTriggers": {
-        "pathPatterns": [
-          "apps/backend/src/**/*.ts",
-          "packages/types/src/**/*.ts",
-          "packages/api-contract/src/**/*.ts"
-        ],
-        "pathExclusions": [
-          "**/*.test.*",
-          "**/__tests__/**"
-        ],
-        "contentPatterns": [
-          "OpenAPIHono",
-          "@injectable|@inject",
-          "createRoute",
-          "z\\.(object|string|number|array)",
-          "from 'inversify'",
-          "from '@moatless/api-contract'"
-        ]
-      },
-      "skipConditions": {
-        "sessionSkillUsed": true
-      }
-    },
     "testing-guidelines": {
       "type": "domain",
       "enforcement": "suggest",
       "priority": "high",
-      "description": "Vitest testing patterns with tier classification and strategic mocking",
+      "description": "Vitest testing conventions: tier classification, strategic mocking, naming, coverage",
       "promptTriggers": {
         "keywords": [
           "test",
@@ -180,7 +124,7 @@
       "type": "domain",
       "enforcement": "suggest",
       "priority": "medium",
-      "description": "Develop moatless-vibe backend + frontend from inside a sandbox — native mirrord-style dev loop (build, rebuild, preview) via scripts/shadow",
+      "description": "Develop moatless-vibe backend + frontend from inside a sandbox \u2014 native mirrord-style dev loop (build, rebuild, preview) via scripts/shadow",
       "promptTriggers": {
         "keywords": [
           "shadow",
