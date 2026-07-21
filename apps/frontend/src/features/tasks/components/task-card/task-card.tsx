@@ -116,7 +116,14 @@ function isTodoWriteInput(value: unknown): value is TodoWriteInput {
 }
 
 function extractLatestTodos(events: Event[]): Todo[] | null {
-  // Search through all events for TodoWrite tool calls
+  // Search through all events for TodoWrite tool calls.
+  //
+  // NOTE (ADR-0003): once the `agent.message` source event is slimmed to its
+  // skeleton, the raw TodoWrite `tool_input.todos` no longer rides the event
+  // stream, so this yields `null` and the badge is omitted. The todos still live
+  // in the assembled Message store (task_messages); surfacing them on the task
+  // card would require a dedicated read of the latest TodoWrite from the message
+  // cache — a follow-up, tracked as the one accepted consumer-migration gap.
   let latestTodos: Todo[] | null = null
 
   for (const event of events) {

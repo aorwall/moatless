@@ -176,47 +176,69 @@ function extractToolContent(event: Event): ToolUseContent | null {
   return null
 }
 
+/** Text of the first text block in a raw SDK content value, if any. */
+function agentMessageText(payload: AgentEvent['payload']): string | null {
+  if (payload?.type !== 'assistant' || !payload.message?.['content']) {
+    return null
+  }
+  const content = payload.message['content']
+  if (typeof content === 'string') {
+    return content
+  }
+  if (Array.isArray(content)) {
+    const textContent = content.find((c) => c.type === 'text')
+    if (textContent && 'text' in textContent) {
+      return textContent.text
+    }
+  }
+  return null
+}
+
+/**
+ * Render a non-tool `agent.message`: its assistant text when the source event
+ * still carries content, else the skeleton's `toolNames` (ADR-0003) so the
+ * debug timeline still shows tool activity. Returns null for anything else.
+ */
+function NonToolAgentMessage({ event }: { event: Event }): React.ReactNode {
+  if (event.type !== 'agent' || event.subType !== 'message') {
+    return null
+  }
+
+  const text = agentMessageText((event as AgentEvent).payload)
+  if (text) {
+    return (
+      <div className="flex items-start gap-2 text-xs text-muted-foreground">
+        <Bot className="h-3 w-3 mt-0.5 flex-shrink-0" />
+        <span className="break-words">{truncateText(text)}</span>
+      </div>
+    )
+  }
+
+  const toolNames = (event.payload as { toolNames?: unknown }).toolNames
+  if (Array.isArray(toolNames) && toolNames.length > 0) {
+    const names = toolNames.map(String)
+    return (
+      <div className="flex items-start gap-2 text-xs">
+        <div className="mt-0.5 flex-shrink-0 text-muted-foreground">
+          {getToolIcon(names[0] ?? '')}
+        </div>
+        <div className="flex-1 min-w-0">
+          <span className="font-medium">{names.join(', ')}</span>
+        </div>
+      </div>
+    )
+  }
+  return null
+}
+
 export function MinifiedEventItem({ event }: MinifiedEventItemProps) {
   // Check if it's a tool call
   const toolContent = extractToolContent(event)
 
-  // For non-tool message events, check if it's a text message
-  if (event.type === 'agent' && event.subType === 'message' && !toolContent) {
-    const agentEvent = event as AgentEvent
-    const payload = agentEvent.payload
-
-    // Handle text messages
-    if (payload?.type === 'assistant' && payload.message?.['content']) {
-      const content = payload.message['content']
-
-      // If content is a string, show it
-      if (typeof content === 'string') {
-        return (
-          <div className="flex items-start gap-2 text-xs text-muted-foreground">
-            <Bot className="h-3 w-3 mt-0.5 flex-shrink-0" />
-            <span className="break-words">{truncateText(content)}</span>
-          </div>
-        )
-      }
-
-      // If content is an array with text content
-      if (Array.isArray(content)) {
-        const textContent = content.find((c) => c.type === 'text')
-        if (textContent && 'text' in textContent) {
-          return (
-            <div className="flex items-start gap-2 text-xs text-muted-foreground">
-              <Bot className="h-3 w-3 mt-0.5 flex-shrink-0" />
-              <span className="break-words">{truncateText(textContent.text)}</span>
-            </div>
-          )
-        }
-      }
-    }
-  }
-
-  // If no tool content found, return null
+  // Non-tool agent messages (text, or the skeleton's tool names) render via the
+  // dedicated helper.
   if (!toolContent) {
-    return null
+    return <NonToolAgentMessage event={event} />
   }
 
   const toolName = toolContent.name

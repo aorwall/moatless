@@ -66,30 +66,10 @@ export function activityToState(activity: TaskActivity | undefined): TaskActivit
  * of typed blocks (`text`, `tool_use`, …). Returns `null` when there is nothing
  * worth showing so the previous preview is preserved.
  */
-export function extractMessagePreview(event: Event): string | null {
-  if (event.type !== 'agent' || event.subType !== 'message') {
-    return null
-  }
-
-  const message = event.payload?.message
-  if (!message || typeof message !== 'object') {
-    return null
-  }
-
-  const content = (message as { content?: unknown }).content
-
-  if (typeof content === 'string') {
-    const preview = formatPreview(content)
-    return preview.length > 0 ? preview : null
-  }
-
-  if (!Array.isArray(content)) {
-    return null
-  }
-
+/** Derive a preview from a raw SDK content array: prose first, else the tool. */
+function previewFromContentArray(content: unknown[]): string | null {
   const texts: string[] = []
   let toolName: string | null = null
-
   for (const block of content) {
     if (isTextContent(block)) {
       texts.push(block.text)
@@ -97,14 +77,42 @@ export function extractMessagePreview(event: Event): string | null {
       toolName = block.name
     }
   }
-
   const joined = texts.join(' ').trim()
   if (joined.length > 0) {
     return formatPreview(joined)
   }
-
-  // No prose in this message — surface the tool the agent reached for instead.
   return toolName ? `Using ${toolName}…` : null
+}
+
+export function extractMessagePreview(event: Event): string | null {
+  if (event.type !== 'agent' || event.subType !== 'message') {
+    return null
+  }
+
+  const message = event.payload?.message
+  const content =
+    message && typeof message === 'object' ? (message as { content?: unknown }).content : undefined
+
+  // Full source event (transitional): derive from the raw content when present.
+  if (typeof content === 'string') {
+    const preview = formatPreview(content)
+    if (preview.length > 0) {
+      return preview
+    }
+  } else if (Array.isArray(content)) {
+    const preview = previewFromContentArray(content)
+    if (preview) {
+      return preview
+    }
+  }
+
+  // Skeleton (ADR-0003): the source event carries no content — surface the
+  // first tool the agent reached for from the skeleton's `toolNames`.
+  const toolNames = (event.payload as { toolNames?: unknown })?.toolNames
+  if (Array.isArray(toolNames) && typeof toolNames[0] === 'string') {
+    return `Using ${toolNames[0]}…`
+  }
+  return null
 }
 
 /** Whether an event marks the agent as having started working on a task. */
