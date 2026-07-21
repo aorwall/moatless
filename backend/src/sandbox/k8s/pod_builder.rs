@@ -223,7 +223,7 @@ pub fn build_pod(
     // hardened (no privileged init container, no hostPath).
     let mut init_containers: Vec<Container> = Vec::new();
     if storage_backend == super::storage::StorageBackend::Node {
-        init_containers.push(build_node_sandbox_setup_container(config));
+        init_containers.push(build_node_sandbox_setup_container(config, plan));
     }
     if !config.sandbox.cache_volumes.is_empty() {
         volumes.push(Volume {
@@ -417,10 +417,13 @@ fn resolve_dind_storage_backend(plan: &ProvisionPlan) -> DockerStorageBackend {
         .unwrap_or(DockerStorageBackend::Node)
 }
 
-fn build_node_sandbox_setup_container(config: &Config) -> Container {
+fn build_node_sandbox_setup_container(config: &Config, plan: &ProvisionPlan) -> Container {
+    // Reuse the sandbox image (already pulled for the sandbox container) rather
+    // than the privileged dind `cache_init_image`: this is only a mkdir/chown, and
+    // reusing it keeps `node` mode pullable on any cluster with no extra pull.
     Container {
         name: "node-sandbox-setup".to_string(),
-        image: Some(config.sandbox.cache_init_image.clone()),
+        image: Some(resolve_sandbox_image(config, plan)),
         image_pull_policy: Some(config.sandbox.image_pull_policy.clone()),
         command: Some(vec!["/bin/sh".to_string(), "-c".to_string()]),
         args: Some(vec![
@@ -1849,6 +1852,9 @@ mod tests {
             .and_then(|s| s.init_containers.as_ref())
             .and_then(|containers| containers.iter().find(|c| c.name == "node-sandbox-setup"))
             .expect("node tier must prepare hostPath ownership");
+        // Reuses the sandbox image (already pulled), not the private dind
+        // `cache_init_image` — so `node` mode is pullable on any cluster.
+        assert_eq!(init.image.as_deref(), Some("sandbox:latest"));
         let security = init
             .security_context
             .as_ref()
