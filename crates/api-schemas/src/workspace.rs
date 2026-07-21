@@ -160,6 +160,18 @@ pub struct WorkspaceResponse {
     pub servers: Option<Vec<ServerConfig>>,
     pub plugins: Option<Vec<String>>,
     pub resources: Option<ResourceConfig>,
+    #[serde(default)]
+    pub network_profile: Option<String>,
+    /// `manual` or `git`. Git-synced workspaces are read-only in the UI and
+    /// write API — only a re-sync from git changes them.
+    #[serde(default)]
+    pub source: String,
+    /// Convenience flag derived from `source == "git"`.
+    #[serde(default)]
+    pub synced_from_git: bool,
+    /// The repository whose git tree declared this workspace (`source == "git"`).
+    #[serde(default)]
+    pub source_repository_id: Option<String>,
     pub scope: Scope,
     pub team_id: Option<String>,
     pub owner_user_id: Option<String>,

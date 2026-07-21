@@ -30,14 +30,20 @@ export interface CreateTaskRequest {
   name?: string | null;
   /** @nullable */
   parentTaskId?: string | null;
-  repositoryId: string;
+  /**
+   * The repository to run the task against. Optional when `workspace_id` is
+supplied — the workspace's primary repository is used instead. At least
+one of `repository_id` / `workspace_id` is required.
+   * @nullable
+   */
+  repositoryId?: string | null;
   /** @nullable */
   taskTemplateId?: string | null;
   /**
-   * Optional explicit workspace to run the task in (multi-repo flows). When
-unset, the task derives the repository's deterministic shadow workspace,
-keeping the single-repo path unchanged. When set, `repository_id` must be
-the workspace's primary repository.
+   * Explicit workspace to run the task in. When set, its repositories drive
+the task (workspace wins over `repository_id`). When unset, the task
+derives the repository's deterministic shadow workspace, keeping the
+single-repo path unchanged.
    * @nullable
    */
   workspaceId?: string | null;

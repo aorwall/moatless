@@ -20,6 +20,7 @@ use super::dao::RepositoryPatch;
 use super::error::RepositoryError;
 use super::models::{Repository, RepositoryKind, RepositoryProvider};
 use super::schemas::*;
+use super::workspace_sync::sync_repo_workspaces;
 
 /// Convert a serializable value to JSON Value, mapping errors to `RepositoryError`.
 fn to_json<T: serde::Serialize>(val: T) -> Result<serde_json::Value, RepositoryError> {
@@ -27,7 +28,7 @@ fn to_json<T: serde::Serialize>(val: T) -> Result<serde_json::Value, RepositoryE
         .map_err(|e| RepositoryError::BadRequest(format!("Serialization error: {e}")))
 }
 
-fn validate_non_secret_env_vars(
+pub(crate) fn validate_non_secret_env_vars(
     env_vars: Option<&std::collections::HashMap<String, String>>,
 ) -> Result<(), RepositoryError> {
     let Some(env_vars) = env_vars else {
@@ -109,6 +110,9 @@ pub async fn create_repository(
         team_id: Some(resolved_scope.team_id),
         owner_user_id: resolved_scope.owner_user_id,
         created_by: Some(user_id.clone()),
+        access_status: "unchecked".to_string(),
+        access_checked_at: None,
+        access_error: None,
         deleted: Some(false),
         created_at: Some(now),
         updated_at: Some(now),
@@ -199,10 +203,39 @@ pub async fn create_repository(
                 warn!(repository_id = %id, error = %e, "Failed to sync repo loops on create");
             }
         }
+
+        // Sync git-declared workspaces (`.moatless/workspaces.json` or the legacy
+        // `.moatless/config.json`). Best-effort and non-fatal, like loop sync.
+        log_workspace_sync(&state, &final_row, &auth, "create").await;
     }
 
     let resp: RepositoryResponse = final_row.into();
     Ok((StatusCode::CREATED, Json(resp)))
+}
+
+/// Run `sync_repo_workspaces` and log the outcome (`Ok=>info!`, `Err=>warn!`),
+/// never blocking the caller.
+async fn log_workspace_sync(state: &AppState, repo: &Repository, auth: &AuthUser, phase: &str) {
+    match sync_repo_workspaces(state, repo, auth).await {
+        Ok(summary) => {
+            if summary.created + summary.updated + summary.removed > 0
+                || !summary.skipped.is_empty()
+            {
+                info!(
+                    repository_id = %repo.id,
+                    created = summary.created,
+                    updated = summary.updated,
+                    removed = summary.removed,
+                    skipped = summary.skipped.len(),
+                    phase,
+                    "Synced git workspaces"
+                );
+            }
+        }
+        Err(e) => {
+            warn!(repository_id = %repo.id, error = %e, phase, "Failed to sync git workspaces");
+        }
+    }
 }
 
 /// List all repositories for the current user.
@@ -389,6 +422,20 @@ pub async fn delete_repository(
     .await?;
 
     state.repositories.soft_delete(&repository_id).await?;
+
+    // Soft-delete workspaces this repo declared in git — once the source repo is
+    // gone no future sync will prune them. Best-effort; the repo is already deleted.
+    if let Err(e) = sqlx::query(
+        "UPDATE workspaces SET deleted = true, updated_at = now() \
+         WHERE source_repository_id = $1 AND source = 'git' \
+           AND (deleted IS NULL OR deleted = false)",
+    )
+    .bind(&repository_id)
+    .execute(&state.db)
+    .await
+    {
+        warn!(repository_id = %repository_id, error = %e, "Failed to soft-delete git workspaces for deleted repo");
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -614,6 +661,18 @@ async fn resolve_optional_github_token(
 struct BranchFetchResult {
     branches: Vec<String>,
     default_branch: Option<String>,
+}
+
+/// Normalize a remote URL into a stable matching key: strip trailing `/` and a
+/// trailing `.git`, then lowercase. For **matching** only — never persisted, so
+/// the stored `remote_url` keeps its original casing.
+pub(crate) fn normalize_remote_url(remote_url: &str) -> String {
+    remote_url
+        .trim()
+        .trim_end_matches('/')
+        .trim_end_matches(".git")
+        .trim_end_matches('/')
+        .to_ascii_lowercase()
 }
 
 /// Parse a GitHub remote URL into owner/repo.
@@ -1087,6 +1146,11 @@ pub(crate) async fn sync_repo_config(
         }
     };
 
+    // Reconcile git-declared workspaces. This also covers task start, since
+    // `maybe_sync_repo_config_on_start` calls `sync_repo_config` behind the
+    // `.moatless/` existence gate. Best-effort and non-fatal.
+    log_workspace_sync(state, &updated, auth, "sync-config").await;
+
     Ok((updated, loops))
 }
 
@@ -1120,6 +1184,27 @@ mod tests {
         // A single segment after splitting by '/' won't have 2 parts
         let result = parse_github_owner_repo("x");
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn normalize_remote_url_strips_and_lowercases() {
+        assert_eq!(
+            normalize_remote_url("https://github.com/Owner/Repo.git"),
+            "https://github.com/owner/repo"
+        );
+        assert_eq!(
+            normalize_remote_url("https://github.com/Owner/Repo/"),
+            "https://github.com/owner/repo"
+        );
+        assert_eq!(
+            normalize_remote_url("  https://GitHub.com/o/r.git/  "),
+            "https://github.com/o/r"
+        );
+        // Two URLs differing only by trailing `.git`/slash/case normalize equal.
+        assert_eq!(
+            normalize_remote_url("https://github.com/a/b"),
+            normalize_remote_url("https://github.com/A/B.git/")
+        );
     }
 
     #[test]

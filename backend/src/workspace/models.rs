@@ -29,6 +29,19 @@ pub struct Workspace {
     pub servers: Option<serde_json::Value>,
     pub plugins: Option<serde_json::Value>,
     pub resources: Option<serde_json::Value>,
+    /// Per-workspace network profile (parity with `repositories`). Selects a
+    /// static NetworkPolicy via the pod label; grants nothing on its own.
+    pub network_profile: Option<String>,
+    // --- Provenance ---
+    /// `manual` (created via the API) or `git` (reconciled from a repo's
+    /// `.moatless/workspaces.json` / `.moatless/config.json`). Git-synced
+    /// workspaces are read-only in the UI and write API.
+    pub source: String,
+    /// The repository whose git tree declared this workspace (`source = 'git'`).
+    pub source_repository_id: Option<String>,
+    /// Stable natural key within the source repo — the workspace entry `key`
+    /// (or slugified name), or `__config_json__` for the legacy config.json form.
+    pub source_key: Option<String>,
     // --- Access control (mirrors repositories) ---
     pub scope: Scope,
     pub team_id: Option<String>,

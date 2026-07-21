@@ -25,6 +25,18 @@ fn to_json<T: Serialize>(value: Option<T>) -> Option<serde_json::Value> {
     value.and_then(|v| serde_json::to_value(v).ok())
 }
 
+/// Reject mutation of a git-synced workspace — only a re-sync from git changes
+/// it. The sync service writes through the DAO directly, so it bypasses this
+/// guard by design.
+fn ensure_workspace_mutable(ws: &Workspace) -> Result<(), WorkspaceError> {
+    if ws.source == "git" {
+        return Err(WorkspaceError::Conflict(
+            "Workspace is synced from Git and is read-only; edit .moatless/workspaces.json to change it".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// `blank` / `single` / `multi` from a placement count.
 fn kind_for(count: usize) -> String {
     match count {
@@ -127,6 +139,10 @@ pub async fn create_workspace(
         servers: to_json(req.servers),
         plugins: to_json(req.plugins),
         resources: to_json(req.resources),
+        network_profile: None,
+        source: "manual".to_string(),
+        source_repository_id: None,
+        source_key: None,
         scope: resolved.scope,
         team_id: Some(resolved.team_id),
         owner_user_id: resolved.owner_user_id,
@@ -242,6 +258,7 @@ pub async fn update_workspace(
         .find_by_id_scoped(&workspace_id, &auth.scope_context())
         .await?
         .ok_or_else(|| WorkspaceError::NotFound(workspace_id.clone()))?;
+    ensure_workspace_mutable(&existing)?;
     ensure_can_write_resource(
         &state,
         &auth,
@@ -288,6 +305,11 @@ pub async fn update_workspace(
         plugins: req.plugins.map(|v| to_json(Some(v))),
         resources: req.resources.map(|v| to_json(Some(v))),
         kind: None,
+        // Provenance is not editable via the write API; only re-sync sets these.
+        network_profile: None,
+        source: None,
+        source_repository_id: None,
+        source_key: None,
     };
     state.workspaces.update(&workspace_id, &patch).await?;
 
@@ -316,6 +338,7 @@ pub async fn delete_workspace(
         .find_by_id_scoped(&workspace_id, &auth.scope_context())
         .await?
         .ok_or_else(|| WorkspaceError::NotFound(workspace_id.clone()))?;
+    ensure_workspace_mutable(&existing)?;
     ensure_can_write_resource(
         &state,
         &auth,
@@ -346,6 +369,7 @@ async fn ensure_writable(
         .find_by_id_scoped(workspace_id, &auth.scope_context())
         .await?
         .ok_or_else(|| WorkspaceError::NotFound(workspace_id.to_string()))?;
+    ensure_workspace_mutable(&existing)?;
     ensure_can_write_resource(
         state,
         auth,
@@ -532,6 +556,46 @@ mod tests {
         assert_eq!(kind_for(1), "single");
         assert_eq!(kind_for(2), "multi");
         assert_eq!(kind_for(9), "multi");
+    }
+
+    fn workspace_with_source(source: &str) -> Workspace {
+        Workspace {
+            id: "ws_1".to_string(),
+            name: "w".to_string(),
+            description: None,
+            kind: "single".to_string(),
+            docker_image: None,
+            docker_access: None,
+            sandbox_service_account: None,
+            system_prompt: None,
+            setup_commands: None,
+            env_vars: None,
+            servers: None,
+            plugins: None,
+            resources: None,
+            network_profile: None,
+            source: source.to_string(),
+            source_repository_id: None,
+            source_key: None,
+            scope: moatless_backend_core::scope::Scope::User,
+            team_id: None,
+            owner_user_id: None,
+            created_by: None,
+            deleted: Some(false),
+            created_at: None,
+            updated_at: None,
+        }
+    }
+
+    #[test]
+    fn git_workspace_is_read_only() {
+        let err = ensure_workspace_mutable(&workspace_with_source("git")).unwrap_err();
+        assert!(matches!(err, WorkspaceError::Conflict(_)));
+    }
+
+    #[test]
+    fn manual_workspace_is_mutable() {
+        assert!(ensure_workspace_mutable(&workspace_with_source("manual")).is_ok());
     }
 
     #[test]

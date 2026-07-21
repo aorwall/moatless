@@ -83,7 +83,7 @@ async fn plugin_repos_e2e_chain() {
 
     // TASK-01: Create task with message
     let task_req = CreateTaskRequest {
-        repository_id: repo_id.clone(),
+        repository_id: Some(repo_id.clone()),
         workspace_id: None,
         message: Some("What skills do you have available? List them briefly.".into()),
         name: Some("Plugin E2E Test".into()),

@@ -14,6 +14,14 @@ import type { ServerConfig } from './serverConfig';
 
 export interface RepositoryResponse {
   /** @nullable */
+  accessCheckedAt?: string | null;
+  /** @nullable */
+  accessError?: string | null;
+  /** Provider reachability of `remote_url`: `unchecked` | `ok` | `not_found`
+| `forbidden` | `error`. Stamped when the repo is auto-created by a
+git-synced workspace. */
+  accessStatus?: string;
+  /** @nullable */
   autoReload?: boolean | null;
   /** @nullable */
   buildCommand?: string | null;

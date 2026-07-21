@@ -1,8 +1,10 @@
+import type { RepositoryResponse } from '@moatless/api-client'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { useAgentAvailability } from '@/features/agents'
 import { useCommandsList } from '@/features/commands/hooks/use-commands'
 import { CreateRepositoryDialog, useRepositoriesList, useRepository } from '@/features/repositories'
+import { accessFailureLabel, isAccessFailure } from '@/features/repositories/utils/access-status'
 import { SettingsDialog } from '@/features/settings'
 import { useRepositorySkills } from '@/features/skills'
 import {
@@ -308,6 +310,8 @@ export function CreateCodeTask({
             </div>
           )}
 
+          <RepoAccessWarning repository={repositoryDetails} />
+
           <div className="flex items-center justify-between gap-2">
             <Selectors>
               {templateSelector.items.length > 0 && (
@@ -458,6 +462,21 @@ export function CreateCodeTask({
         onOpenChange={setSettingsDialogOpen}
         defaultSection={settingsSection}
       />
+    </div>
+  )
+}
+
+// Warn when the selected repository has a provider-reachability failure — its
+// tasks would fail to clone. Renders nothing for healthy/unloaded repos.
+function RepoAccessWarning({ repository }: { repository: RepositoryResponse | undefined }) {
+  if (!(repository && isAccessFailure(repository.accessStatus))) {
+    return null
+  }
+  return (
+    <div className="text-xs text-destructive px-1">
+      {accessFailureLabel(repository.accessStatus)}: this repository may not be reachable with your
+      current credentials.
+      {repository.accessError ? ` ${repository.accessError}` : ''}
     </div>
   )
 }

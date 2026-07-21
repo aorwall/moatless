@@ -14,6 +14,7 @@ use crate::sandbox::error::SandboxError;
 use crate::sandbox::models::{ProvisionPlan, ProvisionRequest, RepoConfig, ServerConfig};
 use crate::task::dao::TaskRepository;
 use crate::task::models::Task;
+use crate::workspace::models::Workspace;
 
 /// Build a `ProvisionRequest` from database state.
 ///
@@ -184,6 +185,87 @@ pub fn build_repo_config(repo: &Repository) -> RepoConfig {
         sandbox_service_account: repo.sandbox_service_account.clone(),
         network_profile: repo.network_profile.clone(),
     }
+}
+
+/// Build a `RepoConfig` from a workspace row — the runtime config source once a
+/// task references a workspace. Mirrors [`build_repo_config`] but reads the
+/// workspace's JSONB run-config columns (which carry the same shapes) plus
+/// `network_profile`. The workspace has no flattened preview columns, so
+/// `preview_config` is `None`; server entries come from the workspace's
+/// `servers` JSONB (data-driven), and the caller falls back to repo-derived
+/// servers when that is empty.
+pub fn build_repo_config_from_workspace(ws: &Workspace) -> RepoConfig {
+    let mut servers: Vec<ServerConfig> = ws
+        .servers
+        .as_ref()
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default();
+
+    // Ensure at least one default among any present servers, then assign ports.
+    if !servers.iter().any(|s| s.default) {
+        if let Some(s) = servers.iter_mut().last() {
+            s.default = true;
+        }
+    }
+    assign_missing_ports(&mut servers);
+
+    let plugin_ids = parse_json_string_array(&ws.plugins);
+    let resources: Option<ResourceConfig> = ws
+        .resources
+        .as_ref()
+        .and_then(|v| serde_json::from_value(v.clone()).ok());
+    let code_execution = build_code_execution_from_workspace(ws);
+
+    RepoConfig {
+        name: ws.name.clone(),
+        docker_image: ws.docker_image.clone(),
+        servers: if servers.is_empty() {
+            None
+        } else {
+            Some(servers)
+        },
+        plugin_ids,
+        system_prompt: ws.system_prompt.clone(),
+        code_execution,
+        preview_config: None,
+        resources,
+        plugin_repos: None,
+        docker_access: ws.docker_access,
+        docker_networks: None,
+        sandbox_service_account: ws.sandbox_service_account.clone(),
+        network_profile: ws.network_profile.clone(),
+    }
+}
+
+/// Parse a workspace's `env_vars` JSONB column into a HashMap.
+pub fn parse_env_vars_from_workspace(ws: &Workspace) -> Option<HashMap<String, String>> {
+    ws.env_vars
+        .as_ref()
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+}
+
+/// Build code_execution JSON pass-through from a workspace's run-config columns.
+fn build_code_execution_from_workspace(ws: &Workspace) -> Option<serde_json::Value> {
+    let has_any =
+        ws.setup_commands.is_some() || ws.docker_image.is_some() || ws.env_vars.is_some();
+    if !has_any {
+        return None;
+    }
+
+    let mut config = serde_json::Map::new();
+    if let Some(ref cmds) = ws.setup_commands {
+        config.insert("setupCommands".to_string(), cmds.clone());
+    }
+    if let Some(ref image) = ws.docker_image {
+        config.insert(
+            "dockerImage".to_string(),
+            serde_json::Value::String(image.clone()),
+        );
+    }
+    if let Some(ref vars) = ws.env_vars {
+        config.insert("envVars".to_string(), vars.clone());
+    }
+    Some(serde_json::Value::Object(config))
 }
 
 /// Public accessor for building server configs from a repository row.

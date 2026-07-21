@@ -50,12 +50,47 @@ pub async fn create_task(
 ) -> Result<Json<CreateTaskResponse>, TaskError> {
     let scope_ctx = auth.scope_context();
 
+    // A task accepts `repository_id` and/or `workspace_id`. When a workspace is
+    // supplied it drives the task's repositories (workspace wins): the effective
+    // repository is the workspace's primary placement. When only `repository_id`
+    // is given, the single-repo path is unchanged and the shadow workspace is
+    // derived downstream. At least one of the two is required.
+    let workspace = match req.workspace_id.as_deref() {
+        Some(workspace_id) => Some(
+            state
+                .workspaces
+                .find_by_id_scoped(workspace_id, &scope_ctx)
+                .await?
+                .ok_or_else(|| TaskError::NotFound(format!("workspace {workspace_id}")))?,
+        ),
+        None => None,
+    };
+
+    let repository_id = match &workspace {
+        Some(ws) => {
+            state
+                .workspaces
+                .find_primary_repo(&ws.id)
+                .await?
+                .ok_or_else(|| {
+                    TaskError::BadRequest(format!(
+                        "Workspace {} has no primary repository",
+                        ws.id
+                    ))
+                })?
+                .repository_id
+        }
+        None => req.repository_id.clone().ok_or_else(|| {
+            TaskError::BadRequest("repositoryId or workspaceId is required".to_string())
+        })?,
+    };
+
     // Validate repository exists and is usable by this caller.
     let repo = state
         .repositories
-        .find_by_id(&req.repository_id, &scope_ctx)
+        .find_by_id(&repository_id, &scope_ctx)
         .await?
-        .ok_or_else(|| TaskError::RepoNotFound(req.repository_id.clone()))?;
+        .ok_or_else(|| TaskError::RepoNotFound(repository_id.clone()))?;
     ensure_can_use_repository(
         &scope_ctx,
         &ScopedResource::borrowed(
@@ -64,33 +99,6 @@ pub async fn create_task(
             repo.owner_user_id.as_deref().or(repo.created_by.as_deref()),
         ),
     )?;
-
-    // If the caller pins an explicit workspace (multi-repo flows), validate it
-    // is usable and that the task's repository_id is its primary repo — the
-    // task's repository_id owns the diff/PR, so it must match the workspace's
-    // primary placement. When unset, insert_task derives the repo's shadow
-    // workspace, so the single-repo path stays unchanged.
-    if let Some(ref workspace_id) = req.workspace_id {
-        state
-            .workspaces
-            .find_by_id_scoped(workspace_id, &scope_ctx)
-            .await?
-            .ok_or_else(|| TaskError::NotFound(format!("workspace {workspace_id}")))?;
-        let primary = state
-            .workspaces
-            .find_primary_repo(workspace_id)
-            .await?
-            .ok_or_else(|| {
-                TaskError::BadRequest(format!(
-                    "Workspace {workspace_id} has no primary repository"
-                ))
-            })?;
-        if primary.repository_id != req.repository_id {
-            return Err(TaskError::BadRequest(
-                "repositoryId must be the workspace's primary repository".to_string(),
-            ));
-        }
-    }
 
     // Verify GitHub repository access for non-template repos
     if repo.provider == Some(RepositoryProvider::Github) && repo.kind != RepositoryKind::Template {
@@ -203,12 +211,12 @@ pub async fn create_task(
         created_at: now.clone(),
         last_message_at: now,
         agent_type,
-        repository_id: req.repository_id.clone(),
+        repository_id: repository_id.clone(),
         status: TaskStatus::Open,
         total_cost_usd: 0.0,
         site_url: None,
         template_id: if is_template {
-            Some(req.repository_id.clone())
+            Some(repository_id.clone())
         } else {
             None
         },

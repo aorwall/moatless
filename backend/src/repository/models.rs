@@ -52,6 +52,14 @@ pub struct Repository {
     pub owner_user_id: Option<String>,
     pub created_by: Option<String>,
     pub resources: Option<serde_json::Value>,
+    /// Provider reachability of `remote_url`, stamped when the repo is
+    /// auto-created by a git-synced workspace: `unchecked` | `ok` | `not_found`
+    /// | `forbidden` | `error`. Defaults to `unchecked`.
+    pub access_status: String,
+    /// When `access_status` was last stamped.
+    pub access_checked_at: Option<DateTime<Utc>>,
+    /// Human-readable detail for a non-`ok` `access_status`.
+    pub access_error: Option<String>,
     pub deleted: Option<bool>,
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,

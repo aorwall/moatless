@@ -8,9 +8,14 @@ import type { RunConfigFormValues, UpdateRunConfigField } from '../types'
 interface AgentConfigurationGroupProps {
   formData: RunConfigFormValues
   onUpdateField: UpdateRunConfigField
+  disabled?: boolean
 }
 
-export function AgentConfigurationGroup({ formData, onUpdateField }: AgentConfigurationGroupProps) {
+export function AgentConfigurationGroup({
+  formData,
+  onUpdateField,
+  disabled = false,
+}: AgentConfigurationGroupProps) {
   const updateField = onUpdateField
 
   return (
@@ -25,6 +30,7 @@ export function AgentConfigurationGroup({ formData, onUpdateField }: AgentConfig
           onChange={(e) => updateField('systemPrompt', e.target.value || undefined)}
           placeholder="e.g., Always use TypeScript strict mode. Prefer functional components."
           rows={6}
+          disabled={disabled}
         />
       </ConfigurationItem>
     </ConfigurationGroup>

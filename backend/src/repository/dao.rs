@@ -35,6 +35,9 @@ pub struct RepositoryPatch {
     pub enable_inspector: Option<Option<bool>>,
     pub auto_reload: Option<Option<bool>>,
     pub resources: Option<Option<serde_json::Value>>,
+    pub access_status: Option<String>,
+    pub access_checked_at: Option<Option<chrono::DateTime<chrono::Utc>>>,
+    pub access_error: Option<Option<String>>,
 }
 
 /// Repository trait for repository persistence.
@@ -57,6 +60,17 @@ pub trait RepoRepository: Send + Sync {
         &self,
         name: &str,
         user_id: &str,
+    ) -> Result<Option<Repository>, sqlx::Error>;
+    /// Find a non-deleted repository whose `remote_url` normalizes to `url_key`
+    /// (trailing `/`/`.git` stripped, lowercased), scoped to the given
+    /// scope/team/owner so resolution never crosses tenants. `url_key` must be
+    /// pre-normalized by [`super::handlers::normalize_remote_url`].
+    async fn find_by_normalized_remote_url(
+        &self,
+        url_key: &str,
+        scope: Scope,
+        team_id: Option<String>,
+        owner_user_id: Option<String>,
     ) -> Result<Option<Repository>, sqlx::Error>;
     async fn find_names_by_ids(&self, ids: &[String])
         -> Result<Vec<(String, String)>, sqlx::Error>;
@@ -133,7 +147,8 @@ impl RepoRepository for PgRepoRepository {
                 description, provider, scope, team_id, owner_user_id, created_by,
                 resources,
                 deleted, created_at, updated_at,
-                docker_access, sandbox_service_account, network_profile
+                docker_access, sandbox_service_account, network_profile,
+                access_status, access_checked_at, access_error
             ) VALUES (
                 $1, $2, $3, $4, $5,
                 $6, $7, $8, $9,
@@ -144,7 +159,8 @@ impl RepoRepository for PgRepoRepository {
                 $18, $19, $20, $21, $22, $23,
                 $24,
                 $25, $26, $27,
-                $28, $29, $30
+                $28, $29, $30,
+                $31, $32, $33
             )"#,
         )
         .bind(&row.id)
@@ -177,6 +193,9 @@ impl RepoRepository for PgRepoRepository {
         .bind(row.docker_access)
         .bind(&row.sandbox_service_account)
         .bind(&row.network_profile)
+        .bind(&row.access_status)
+        .bind(row.access_checked_at)
+        .bind(&row.access_error)
         .execute(&self.0)
         .await?;
         Ok(())
@@ -220,6 +239,9 @@ impl RepoRepository for PgRepoRepository {
         push_set!(enable_inspector);
         push_set!(auto_reload);
         push_set!(resources);
+        push_set!(access_status);
+        push_set!(access_checked_at);
+        push_set!(access_error);
 
         if sets.is_empty() {
             return Ok(false);
@@ -268,6 +290,9 @@ impl RepoRepository for PgRepoRepository {
         bind_opt!(enable_inspector);
         bind_opt!(auto_reload);
         bind_opt!(resources);
+        bind_opt!(access_status);
+        bind_opt!(access_checked_at);
+        bind_opt!(access_error);
 
         // Bind updated_at
         q = q.bind(now);
@@ -299,6 +324,42 @@ impl RepoRepository for PgRepoRepository {
         )
         .bind(name)
         .bind(user_id)
+        .fetch_optional(&self.0)
+        .await
+    }
+
+    async fn find_by_normalized_remote_url(
+        &self,
+        url_key: &str,
+        scope: Scope,
+        team_id: Option<String>,
+        owner_user_id: Option<String>,
+    ) -> Result<Option<Repository>, sqlx::Error> {
+        // Normalize the stored URL the same way `normalize_remote_url` does:
+        // strip trailing slashes, drop a trailing `.git`, strip trailing slashes
+        // again, then lowercase — so the comparison matches the pre-normalized
+        // `url_key`. Scoped to (scope, team, owner) to keep resolution within a
+        // single tenant.
+        sqlx::query_as::<_, Repository>(
+            r#"SELECT * FROM repositories
+               WHERE (deleted IS NULL OR deleted = false)
+                 AND lower(
+                       regexp_replace(
+                         regexp_replace(
+                           regexp_replace(coalesce(remote_url, ''), '/+$', ''),
+                           '\.git$', ''),
+                         '/+$', '')
+                     ) = $1
+                 AND scope = $2
+                 AND team_id IS NOT DISTINCT FROM $3
+                 AND owner_user_id IS NOT DISTINCT FROM $4
+               ORDER BY created_at ASC NULLS LAST
+               LIMIT 1"#,
+        )
+        .bind(url_key)
+        .bind(scope)
+        .bind(team_id)
+        .bind(owner_user_id)
         .fetch_optional(&self.0)
         .await
     }

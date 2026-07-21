@@ -15,6 +15,9 @@ pub enum WorkspaceError {
     #[error("Invalid request: {0}")]
     BadRequest(String),
 
+    #[error("{0}")]
+    Conflict(String),
+
     #[error("Database error: {0}")]
     Db(#[from] sqlx::Error),
 
@@ -37,6 +40,7 @@ impl IntoResponse for WorkspaceError {
         let (status, message) = match &self {
             WorkspaceError::NotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
             WorkspaceError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            WorkspaceError::Conflict(_) => (StatusCode::CONFLICT, self.to_string()),
             WorkspaceError::Db(e) => {
                 error!(error = %e, "Workspace database error");
                 (

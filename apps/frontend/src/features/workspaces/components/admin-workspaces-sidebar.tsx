@@ -1,5 +1,5 @@
 import type { WorkspaceResponse } from '@moatless/api-client'
-import { Boxes, FileStack, FolderGit2, Layers } from 'lucide-react'
+import { Boxes, FileStack, FolderGit2, GitBranch, Layers } from 'lucide-react'
 import { useState } from 'react'
 import { useWorkspacesList } from '@/features/workspaces/hooks/use-workspaces'
 import { ListDetailSidebar } from '@/lib/components/ui/list-detail-sidebar'
@@ -23,6 +23,14 @@ function getWorkspaceIcon(ws: WorkspaceResponse) {
 function getSecondary(ws: WorkspaceResponse): string {
   const count = ws.repos.length
   return count === 1 ? '1 repository' : `${count} repositories`
+}
+
+// Git-synced workspaces get a trailing branch icon to flag they're read-only.
+function getWorkspaceTrailing(ws: WorkspaceResponse) {
+  if (ws.source === 'git' || ws.syncedFromGit) {
+    return <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
+  }
+  return
 }
 
 export function AdminWorkspacesSidebar() {
@@ -51,6 +59,7 @@ export function AdminWorkspacesSidebar() {
           leading={getWorkspaceIcon(ws)}
           primary={ws.name}
           secondary={getSecondary(ws)}
+          trailing={getWorkspaceTrailing(ws)}
         />
       ))}
     </ListDetailSidebar>

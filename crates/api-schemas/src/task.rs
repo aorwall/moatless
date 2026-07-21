@@ -27,11 +27,15 @@ pub struct TaskRelationDto {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct CreateTaskRequest {
-    pub repository_id: String,
-    /// Optional explicit workspace to run the task in (multi-repo flows). When
-    /// unset, the task derives the repository's deterministic shadow workspace,
-    /// keeping the single-repo path unchanged. When set, `repository_id` must be
-    /// the workspace's primary repository.
+    /// The repository to run the task against. Optional when `workspace_id` is
+    /// supplied — the workspace's primary repository is used instead. At least
+    /// one of `repository_id` / `workspace_id` is required.
+    #[serde(default)]
+    pub repository_id: Option<String>,
+    /// Explicit workspace to run the task in. When set, its repositories drive
+    /// the task (workspace wins over `repository_id`). When unset, the task
+    /// derives the repository's deterministic shadow workspace, keeping the
+    /// single-repo path unchanged.
     pub workspace_id: Option<String>,
     pub agent_type: Option<AgentType>,
     pub name: Option<String>,

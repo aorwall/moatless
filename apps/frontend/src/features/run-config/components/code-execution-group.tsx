@@ -10,9 +10,14 @@ import { EnvironmentVariablesList } from './environment-variables-list'
 interface CodeExecutionGroupProps {
   formData: RunConfigFormValues
   onUpdateField: UpdateRunConfigField
+  disabled?: boolean
 }
 
-export function CodeExecutionGroup({ formData, onUpdateField }: CodeExecutionGroupProps) {
+export function CodeExecutionGroup({
+  formData,
+  onUpdateField,
+  disabled = false,
+}: CodeExecutionGroupProps) {
   const updateField = onUpdateField
 
   const envVars = formData.envVars ?? {}
@@ -29,6 +34,7 @@ export function CodeExecutionGroup({ formData, onUpdateField }: CodeExecutionGro
           value={formData.dockerImage || ''}
           onChange={(e) => updateField('dockerImage', e.target.value || null)}
           placeholder="aorwall/moatless-vibe-sandbox-js:latest"
+          disabled={disabled}
         />
       </ConfigurationItem>
 
@@ -38,6 +44,7 @@ export function CodeExecutionGroup({ formData, onUpdateField }: CodeExecutionGro
           onChange={(e) => updateField('setupCommands', e.target.value.split('\n'))}
           placeholder="npm install&#10;npm run build"
           rows={4}
+          disabled={disabled}
         />
       </ConfigurationItem>
 
@@ -48,6 +55,7 @@ export function CodeExecutionGroup({ formData, onUpdateField }: CodeExecutionGro
         <EnvironmentVariablesList
           variables={envVars}
           onChange={(vars) => updateField('envVars', vars)}
+          disabled={disabled}
         />
       </ConfigurationItem>
     </ConfigurationGroup>

@@ -11,9 +11,10 @@ import { PluginPickerDialog } from './plugin-picker-dialog'
 interface PluginsGroupProps {
   formData: RunConfigFormValues
   onUpdateField: UpdateRunConfigField
+  disabled?: boolean
 }
 
-export function PluginsGroup({ formData, onUpdateField }: PluginsGroupProps) {
+export function PluginsGroup({ formData, onUpdateField, disabled = false }: PluginsGroupProps) {
   const { data, isLoading } = usePlugins()
   const plugins = data?.plugins ?? []
   const selectedPluginIds = formData.plugins ?? []
@@ -73,6 +74,7 @@ export function PluginsGroup({ formData, onUpdateField }: PluginsGroupProps) {
                   key={plugin.id}
                   plugin={plugin}
                   onRemove={() => handleRemovePlugin(plugin.id)}
+                  disabled={disabled}
                 />
               ))}
             </div>
@@ -82,19 +84,23 @@ export function PluginsGroup({ formData, onUpdateField }: PluginsGroupProps) {
             </div>
           )}
 
-          <Button variant="outline" size="sm" onClick={() => setIsPickerOpen(true)}>
-            <Plus className="h-4 w-4" />
-            Add Plugins
-          </Button>
+          {!disabled && (
+            <Button variant="outline" size="sm" onClick={() => setIsPickerOpen(true)}>
+              <Plus className="h-4 w-4" />
+              Add Plugins
+            </Button>
+          )}
         </div>
 
-        <PluginPickerDialog
-          open={isPickerOpen}
-          onOpenChange={setIsPickerOpen}
-          plugins={plugins}
-          selectedPluginIds={selectedPluginIds}
-          onConfirm={handleConfirmSelection}
-        />
+        {!disabled && (
+          <PluginPickerDialog
+            open={isPickerOpen}
+            onOpenChange={setIsPickerOpen}
+            plugins={plugins}
+            selectedPluginIds={selectedPluginIds}
+            onConfirm={handleConfirmSelection}
+          />
+        )}
       </ConfigurationItem>
     </ConfigurationGroup>
   )
@@ -103,19 +109,22 @@ export function PluginsGroup({ formData, onUpdateField }: PluginsGroupProps) {
 interface SelectedPluginItemProps {
   plugin: PluginInfo
   onRemove: () => void
+  disabled?: boolean
 }
 
-function SelectedPluginItem({ plugin, onRemove }: SelectedPluginItemProps) {
+function SelectedPluginItem({ plugin, onRemove, disabled = false }: SelectedPluginItemProps) {
   return (
     <div className="flex items-center gap-2 p-2 rounded-md border bg-muted/30">
-      <button
-        type="button"
-        onClick={onRemove}
-        className="flex-shrink-0 p-0.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-        aria-label={`Remove ${plugin.name}`}
-      >
-        <X className="h-3.5 w-3.5" />
-      </button>
+      {!disabled && (
+        <button
+          type="button"
+          onClick={onRemove}
+          className="flex-shrink-0 p-0.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+          aria-label={`Remove ${plugin.name}`}
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      )}
       <div className="flex-1 min-w-0 flex items-center gap-2">
         <span className="font-medium text-sm truncate">{plugin.name}</span>
         {plugin.version && (

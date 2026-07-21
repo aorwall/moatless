@@ -29,7 +29,7 @@ async fn test_subagent_messages_have_parent_uuid() {
 
     // Create task with prompt that should trigger Agent tool usage
     let req = CreateTaskRequest {
-        repository_id: repo_id.clone(),
+        repository_id: Some(repo_id.clone()),
         workspace_id: None,
         message: Some(
             "Use the Agent tool to list the files in the current directory and tell me what you found."

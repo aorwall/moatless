@@ -42,7 +42,7 @@ async fn sandbox_provision_failure_invalid_image() {
 
     // Create task (no message — just provision)
     let task_req = CreateTaskRequest {
-        repository_id: repo_id.clone(),
+        repository_id: Some(repo_id.clone()),
         workspace_id: None,
         message: None,
         name: Some("Invalid Image Error E2E".into()),

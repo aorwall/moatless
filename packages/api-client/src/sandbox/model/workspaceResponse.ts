@@ -29,6 +29,8 @@ export interface WorkspaceResponse {
   kind: string;
   name: string;
   /** @nullable */
+  networkProfile?: string | null;
+  /** @nullable */
   ownerUserId?: string | null;
   /** @nullable */
   plugins?: string[] | null;
@@ -41,6 +43,16 @@ export interface WorkspaceResponse {
   servers?: ServerConfig[] | null;
   /** @nullable */
   setupCommands?: string[] | null;
+  /** `manual` or `git`. Git-synced workspaces are read-only in the UI and
+write API — only a re-sync from git changes them. */
+  source?: string;
+  /**
+   * The repository whose git tree declared this workspace (`source == "git"`).
+   * @nullable
+   */
+  sourceRepositoryId?: string | null;
+  /** Convenience flag derived from `source == "git"`. */
+  syncedFromGit?: boolean;
   /** @nullable */
   systemPrompt?: string | null;
   /** @nullable */

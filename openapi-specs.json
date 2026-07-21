@@ -9423,9 +9423,6 @@
       },
       "CreateTaskRequest": {
         "type": "object",
-        "required": [
-          "repositoryId"
-        ],
         "properties": {
           "agentMode": {
             "oneOf": [
@@ -9508,7 +9505,11 @@
             ]
           },
           "repositoryId": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The repository to run the task against. Optional when `workspace_id` is\nsupplied — the workspace's primary repository is used instead. At least\none of `repository_id` / `workspace_id` is required."
           },
           "taskTemplateId": {
             "type": [
@@ -9521,7 +9522,7 @@
               "string",
               "null"
             ],
-            "description": "Optional explicit workspace to run the task in (multi-repo flows). When\nunset, the task derives the repository's deterministic shadow workspace,\nkeeping the single-repo path unchanged. When set, `repository_id` must be\nthe workspace's primary repository."
+            "description": "Explicit workspace to run the task in. When set, its repositories drive\nthe task (workspace wins over `repository_id`). When unset, the task\nderives the repository's deterministic shadow workspace, keeping the\nsingle-repo path unchanged."
           }
         }
       },
@@ -11759,6 +11760,22 @@
           "scope"
         ],
         "properties": {
+          "accessCheckedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "accessError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "accessStatus": {
+            "type": "string",
+            "description": "Provider reachability of `remote_url`: `unchecked` | `ok` | `not_found`\n| `forbidden` | `error`. Stamped when the repo is auto-created by a\ngit-synced workspace."
+          },
           "autoReload": {
             "type": [
               "boolean",
@@ -16179,6 +16196,12 @@
           "name": {
             "type": "string"
           },
+          "networkProfile": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "ownerUserId": {
             "type": [
               "string",
@@ -16236,6 +16259,21 @@
             "items": {
               "type": "string"
             }
+          },
+          "source": {
+            "type": "string",
+            "description": "`manual` or `git`. Git-synced workspaces are read-only in the UI and\nwrite API — only a re-sync from git changes them."
+          },
+          "sourceRepositoryId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The repository whose git tree declared this workspace (`source == \"git\"`)."
+          },
+          "syncedFromGit": {
+            "type": "boolean",
+            "description": "Convenience flag derived from `source == \"git\"`."
           },
           "systemPrompt": {
             "type": [

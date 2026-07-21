@@ -1,5 +1,5 @@
 import type { UpdateWorkspaceRequest } from '@moatless/api-client'
-import { Loader2, Save, Trash2 } from 'lucide-react'
+import { GitBranch, Loader2, Save, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import {
@@ -20,6 +20,7 @@ import {
   ConfigurationSectionWrapper as ConfigurationSection,
   ConfigurationTextarea,
 } from '@/lib/components/configuration'
+import { Alert, AlertDescription, AlertTitle } from '@/lib/components/ui/alert'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -148,8 +149,22 @@ export function WorkspaceConfigEditSection({
     )
   }
 
+  // Git-synced workspaces are defined in git and read-only; the write API 409s.
+  const isGitSynced = workspace.syncedFromGit ?? false
+
   return (
     <ConfigurationSection>
+      {isGitSynced && (
+        <Alert>
+          <GitBranch className="h-4 w-4" />
+          <AlertTitle>Synced from Git</AlertTitle>
+          <AlertDescription>
+            This workspace is defined in .moatless/workspaces.json and is read-only. Edit the file
+            in Git to change it.
+          </AlertDescription>
+        </Alert>
+      )}
+
       <ConfigurationGroup title="General Settings">
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="capitalize">
@@ -164,6 +179,7 @@ export function WorkspaceConfigEditSection({
           <ConfigurationInput
             value={formData.name || ''}
             onChange={(e) => updateField('name', e.target.value)}
+            disabled={isGitSynced}
           />
         </ConfigurationItem>
 
@@ -172,62 +188,73 @@ export function WorkspaceConfigEditSection({
             value={formData.description || ''}
             onChange={(e) => updateField('description', e.target.value)}
             rows={3}
+            disabled={isGitSynced}
           />
         </ConfigurationItem>
       </ConfigurationGroup>
 
-      <WorkspaceReposPanel workspaceId={workspaceId} placements={workspace.repos} />
+      <WorkspaceReposPanel
+        workspaceId={workspaceId}
+        placements={workspace.repos}
+        readOnly={isGitSynced}
+      />
 
-      <CodeExecutionGroup formData={formData} onUpdateField={updateField} />
+      <CodeExecutionGroup formData={formData} onUpdateField={updateField} disabled={isGitSynced} />
 
-      <ServersGroup formData={formData} onUpdateField={updateField} />
+      <ServersGroup formData={formData} onUpdateField={updateField} disabled={isGitSynced} />
 
-      <AgentConfigurationGroup formData={formData} onUpdateField={updateField} />
+      <AgentConfigurationGroup
+        formData={formData}
+        onUpdateField={updateField}
+        disabled={isGitSynced}
+      />
 
-      <PluginsGroup formData={formData} onUpdateField={updateField} />
+      <PluginsGroup formData={formData} onUpdateField={updateField} disabled={isGitSynced} />
 
-      <div className="flex justify-between gap-3 border-t pt-6">
-        <Button
-          type="button"
-          variant="destructive"
-          onClick={() => setShowDeleteDialog(true)}
-          disabled={deleteWorkspace.isPending}
-        >
-          {deleteWorkspace.isPending ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Deleting...
-            </>
-          ) : (
-            <>
-              <Trash2 className="mr-2 h-4 w-4" />
-              Delete Workspace
-            </>
-          )}
-        </Button>
-        <div className="flex gap-3">
-          <Button type="button" variant="outline" onClick={handleDiscard} disabled={!hasChanges}>
-            Discard Changes
-          </Button>
+      {!isGitSynced && (
+        <div className="flex justify-between gap-3 border-t pt-6">
           <Button
             type="button"
-            onClick={handleSave}
-            disabled={!hasChanges || updateWorkspace.isPending}
+            variant="destructive"
+            onClick={() => setShowDeleteDialog(true)}
+            disabled={deleteWorkspace.isPending}
           >
-            {updateWorkspace.isPending ? (
+            {deleteWorkspace.isPending ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Saving...
+                Deleting...
               </>
             ) : (
               <>
-                <Save className="mr-2 h-4 w-4" />
-                Save Changes
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete Workspace
               </>
             )}
           </Button>
+          <div className="flex gap-3">
+            <Button type="button" variant="outline" onClick={handleDiscard} disabled={!hasChanges}>
+              Discard Changes
+            </Button>
+            <Button
+              type="button"
+              onClick={handleSave}
+              disabled={!hasChanges || updateWorkspace.isPending}
+            >
+              {updateWorkspace.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="mr-2 h-4 w-4" />
+                  Save Changes
+                </>
+              )}
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
 
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <AlertDialogContent>

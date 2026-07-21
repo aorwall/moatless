@@ -19,8 +19,8 @@ use crate::workspace::dao::WorkspaceRepository;
 // Re-export the repo-config builders from k8s/auto_provision so existing
 // callers can use the same path.
 pub use crate::sandbox::k8s::auto_provision::{
-    build_repo_config, build_server_configs, filter_disabled_servers, get_server_configs,
-    parse_disabled_servers,
+    build_repo_config, build_repo_config_from_workspace, build_server_configs,
+    filter_disabled_servers, get_server_configs, parse_disabled_servers,
 };
 
 /// Build a `ProvisionRequest` from database state.
@@ -90,8 +90,36 @@ pub async fn build_provision_request(
     let git_branch = task.branch.clone().or(repo.default_branch.clone());
     let user_id = task.created_by.as_deref().unwrap_or("system").to_string();
 
-    let mut repo_config = build_repo_config(&repo);
-    let mut env_vars = crate::sandbox::k8s::auto_provision::parse_env_vars(&repo);
+    // Run-config source: the workspace when the task references one, else the
+    // repository row (legacy single-repo path). The repo row is still read above
+    // for git_clone_url/branch/provider (primary-repo checkout only this
+    // iteration).
+    let workspace = match task.workspace_id.as_deref() {
+        Some(ws_id) => workspaces.find_by_id(ws_id).await.map_err(|e| {
+            SandboxError::Internal(format!("DB error reading workspace: {e}"))
+        })?,
+        None => None,
+    };
+
+    let (mut repo_config, mut env_vars) = match &workspace {
+        Some(ws) => {
+            let mut rc = build_repo_config_from_workspace(ws);
+            // Fall back to repo-derived servers when the workspace declares none
+            // (preserves the injected preview server for old shadow workspaces).
+            if rc.servers.is_none() {
+                let repo_servers = build_server_configs(&repo);
+                if !repo_servers.is_empty() {
+                    rc.servers = Some(repo_servers);
+                }
+            }
+            let env = crate::sandbox::k8s::auto_provision::parse_env_vars_from_workspace(ws);
+            (rc, env)
+        }
+        None => (
+            build_repo_config(&repo),
+            crate::sandbox::k8s::auto_provision::parse_env_vars(&repo),
+        ),
+    };
 
     // Select the tmux Claude transport per the catalog when the task's agent
     // requests it. Each task is its own pod, so the pod-level flag is exactly

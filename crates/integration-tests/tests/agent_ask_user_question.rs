@@ -77,7 +77,7 @@ async fn agent_ask_user_question() {
     // Create task with a prompt that should trigger AskUserQuestion.
     // The agent needs to ask the user something before proceeding.
     let req = CreateTaskRequest {
-        repository_id: repo_id.clone(),
+        repository_id: Some(repo_id.clone()),
         workspace_id: None,
         message: Some(
             "Before making any changes, use the AskUserQuestion tool to ask me \

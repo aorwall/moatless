@@ -114,54 +114,50 @@ export function EnvironmentVariablesList({
             className="flex-1"
             disabled={disabled}
           />
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => handleRemove(key)}
-            disabled={disabled}
-          >
-            Remove
-          </Button>
+          {!disabled && (
+            <Button type="button" variant="outline" size="sm" onClick={() => handleRemove(key)}>
+              Remove
+            </Button>
+          )}
         </div>
       ))}
-      <div className="space-y-1">
-        <div className="flex items-center gap-2">
-          <Input
-            placeholder="New variable name"
-            value={newKey}
-            onChange={(e) => setNewKey(e.target.value)}
-            onPaste={handlePaste}
-            onBlur={commitNew}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                commitNew()
-              }
-            }}
-            className={`flex-1 ${showKeyError ? 'border-destructive' : ''}`}
-            disabled={disabled}
-          />
-          <Input
-            placeholder="Value"
-            value={newValue}
-            onChange={(e) => setNewValue(e.target.value)}
-            onBlur={commitNew}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                commitNew()
-              }
-            }}
-            className={`flex-1 ${showValueError ? 'border-destructive' : ''}`}
-            disabled={disabled}
-          />
-          <div className="w-[73px]" />
+      {!disabled && (
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <Input
+              placeholder="New variable name"
+              value={newKey}
+              onChange={(e) => setNewKey(e.target.value)}
+              onPaste={handlePaste}
+              onBlur={commitNew}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  commitNew()
+                }
+              }}
+              className={`flex-1 ${showKeyError ? 'border-destructive' : ''}`}
+            />
+            <Input
+              placeholder="Value"
+              value={newValue}
+              onChange={(e) => setNewValue(e.target.value)}
+              onBlur={commitNew}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  commitNew()
+                }
+              }}
+              className={`flex-1 ${showValueError ? 'border-destructive' : ''}`}
+            />
+            <div className="w-[73px]" />
+          </div>
+          {touched && hasPartialInput && (
+            <p className="text-xs text-destructive">Both name and value are required</p>
+          )}
         </div>
-        {touched && hasPartialInput && (
-          <p className="text-xs text-destructive">Both name and value are required</p>
-        )}
-      </div>
+      )}
     </div>
   )
 }

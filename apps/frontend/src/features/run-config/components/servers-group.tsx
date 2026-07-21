@@ -20,6 +20,7 @@ import { EnvironmentVariablesList } from './environment-variables-list'
 interface ServersGroupProps {
   formData: RunConfigFormValues
   onUpdateField: UpdateRunConfigField
+  disabled?: boolean
 }
 
 function ServerCard({
@@ -27,11 +28,13 @@ function ServerCard({
   onUpdate,
   onRemove,
   onSetDefault,
+  disabled = false,
 }: {
   server: ServerConfig
   onUpdate: (updated: ServerConfig) => void
   onRemove: () => void
   onSetDefault: () => void
+  disabled?: boolean
 }) {
   const [isOpen, setIsOpen] = useState(false)
 
@@ -48,7 +51,7 @@ function ServerCard({
             )}
           </div>
           <div className="flex items-center gap-2">
-            {!server.default && (
+            {!(disabled || server.default) && (
               <Button
                 variant="ghost"
                 size="icon"
@@ -62,18 +65,20 @@ function ServerCard({
                 <Star className="h-3.5 w-3.5 text-muted-foreground hover:text-amber-400" />
               </Button>
             )}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              aria-label="Remove server"
-              onClick={(e) => {
-                e.stopPropagation()
-                onRemove()
-              }}
-            >
-              <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
-            </Button>
+            {!disabled && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                aria-label="Remove server"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onRemove()
+                }}
+              >
+                <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
+              </Button>
+            )}
             <ChevronDown
               className={`h-4 w-4 text-muted-foreground transition-transform ${isOpen ? 'rotate-180' : ''}`}
             />
@@ -81,7 +86,7 @@ function ServerCard({
         </CollapsibleTrigger>
         <CollapsibleContent>
           <div className="space-y-4 border-t p-3">
-            <ServerFields server={server} onUpdate={onUpdate} />
+            <ServerFields server={server} onUpdate={onUpdate} disabled={disabled} />
           </div>
         </CollapsibleContent>
       </Collapsible>
@@ -92,9 +97,11 @@ function ServerCard({
 function ServerFields({
   server,
   onUpdate,
+  disabled = false,
 }: {
   server: ServerConfig
   onUpdate: (updated: ServerConfig) => void
+  disabled?: boolean
 }) {
   return (
     <>
@@ -103,6 +110,7 @@ function ServerFields({
           value={server.name}
           onChange={(e) => onUpdate({ ...server, name: e.target.value })}
           placeholder="e.g., preview, storybook"
+          disabled={disabled}
         />
       </ConfigurationItem>
 
@@ -111,6 +119,7 @@ function ServerFields({
           value={server.label ?? ''}
           onChange={(e) => onUpdate({ ...server, label: e.target.value })}
           placeholder="e.g., Preview, Storybook"
+          disabled={disabled}
         />
       </ConfigurationItem>
 
@@ -130,6 +139,7 @@ function ServerFields({
             })
           }
           placeholder="Auto (assigned at start)"
+          disabled={disabled}
         />
       </ConfigurationItem>
 
@@ -145,6 +155,7 @@ function ServerFields({
           }}
           placeholder="npm install&#10;npm run dev"
           rows={3}
+          disabled={disabled}
         />
       </ConfigurationItem>
 
@@ -163,6 +174,7 @@ function ServerFields({
             })
           }
           placeholder="30"
+          disabled={disabled}
         />
       </ConfigurationItem>
 
@@ -173,6 +185,7 @@ function ServerFields({
         <ConfigurationSwitch
           checked={server.autoReload ?? false}
           onCheckedChange={(checked) => onUpdate({ ...server, autoReload: checked })}
+          disabled={disabled}
         />
       </ConfigurationItem>
 
@@ -183,6 +196,7 @@ function ServerFields({
         <ConfigurationSwitch
           checked={server.enableInspector ?? false}
           onCheckedChange={(checked) => onUpdate({ ...server, enableInspector: checked })}
+          disabled={disabled}
         />
       </ConfigurationItem>
 
@@ -198,6 +212,7 @@ function ServerFields({
               ...(Object.keys(newVars).length > 0 ? { envVars: newVars } : {}),
             })
           }
+          disabled={disabled}
         />
       </ConfigurationItem>
     </>
@@ -254,7 +269,7 @@ function AddServerForm({
   )
 }
 
-export function ServersGroup({ formData, onUpdateField }: ServersGroupProps) {
+export function ServersGroup({ formData, onUpdateField, disabled = false }: ServersGroupProps) {
   const [showAddForm, setShowAddForm] = useState(false)
   const servers = formData.servers ?? []
 
@@ -310,18 +325,25 @@ export function ServersGroup({ formData, onUpdateField }: ServersGroupProps) {
             onUpdate={(updated) => handleUpdateServer(index, updated)}
             onRemove={() => handleRemoveServer(index)}
             onSetDefault={() => handleSetDefault(index)}
+            disabled={disabled}
           />
         ))}
       </div>
 
-      {showAddForm ? (
-        <AddServerForm onAdd={handleAddServer} onCancel={() => setShowAddForm(false)} />
-      ) : (
-        <Button variant="outline" size="sm" onClick={() => setShowAddForm(true)} className="w-full">
-          <Plus className="mr-2 h-4 w-4" />
-          Add Server
-        </Button>
-      )}
+      {!disabled &&
+        (showAddForm ? (
+          <AddServerForm onAdd={handleAddServer} onCancel={() => setShowAddForm(false)} />
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowAddForm(true)}
+            className="w-full"
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            Add Server
+          </Button>
+        ))}
     </ConfigurationGroup>
   )
 }

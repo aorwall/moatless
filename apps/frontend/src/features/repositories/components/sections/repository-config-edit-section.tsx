@@ -1,5 +1,5 @@
 import type { UpdateRepositoryRequest } from '@moatless/api-client'
-import { ArrowRight, FileCode, Loader2, Save, Trash2 } from 'lucide-react'
+import { AlertTriangle, ArrowRight, FileCode, Loader2, Save, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import {
@@ -8,7 +8,9 @@ import {
   useRepository,
   useUpdateRepository,
 } from '@/features/repositories/hooks/use-repositories'
+import { accessFailureLabel, isAccessFailure } from '@/features/repositories/utils/access-status'
 import { ConfigurationSectionWrapper as ConfigurationSection } from '@/lib/components/configuration'
+import { Alert, AlertDescription, AlertTitle } from '@/lib/components/ui/alert'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -174,6 +176,17 @@ export function RepositoryConfigEditSection({
 
   return (
     <ConfigurationSection>
+      {isAccessFailure(repository.accessStatus) && (
+        <Alert variant="destructive">
+          <AlertTriangle />
+          <AlertTitle>{accessFailureLabel(repository.accessStatus)}</AlertTitle>
+          <AlertDescription>
+            {repository.accessError ??
+              'This repository could not be reached with the current credentials. Check the remote URL and access.'}
+          </AlertDescription>
+        </Alert>
+      )}
+
       <GeneralSettingsGroup
         repositoryKind={repository.kind}
         provider={repository.provider}

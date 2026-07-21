@@ -38,6 +38,74 @@ pub struct CodeExecution {
     pub setup_commands: Option<Vec<String>>,
 }
 
+/// Top-level `.moatless/workspaces.json` schema — the default (non-legacy) form,
+/// a list of workspaces the repo declares, each with its own run-config and
+/// explicit repository URL(s).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MoatlessWorkspacesFile {
+    #[allow(dead_code)] // reserved for forward-compat; not yet branched on
+    pub version: Option<u32>,
+    pub workspaces: Vec<MoatlessWorkspaceEntry>,
+}
+
+/// One workspace entry in `.moatless/workspaces.json`.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MoatlessWorkspaceEntry {
+    /// Stable natural key within the repo. When present, renaming `name` keeps
+    /// the workspace identity; when absent, the slugified `name` is the key.
+    pub key: Option<String>,
+    pub name: String,
+    pub description: Option<String>,
+    pub repos: Vec<MoatlessWorkspaceRepoRef>,
+    // --- Run configuration (mirrors `.moatless/config.json`) ---
+    pub docker_image: Option<String>,
+    pub docker_access: Option<bool>,
+    pub code_execution: Option<CodeExecution>,
+    pub servers: Option<Vec<ServerConfig>>,
+    pub system_prompt: Option<String>,
+    pub resources: Option<ResourceConfig>,
+    pub env_vars: Option<std::collections::HashMap<String, String>>,
+    pub plugins: Option<Vec<String>>,
+    pub sandbox_service_account: Option<String>,
+    pub network_profile: Option<String>,
+}
+
+/// A repository reference inside a `workspaces.json` entry.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MoatlessWorkspaceRepoRef {
+    pub url: String,
+    pub branch: Option<String>,
+    pub mount_name: Option<String>,
+    #[serde(default)]
+    pub primary: bool,
+}
+
+/// Provider reachability of a repository URL. Stored on the `repositories` row
+/// as `access_status`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AccessStatus {
+    Unchecked,
+    Ok,
+    NotFound,
+    Forbidden,
+    Error,
+}
+
+impl AccessStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AccessStatus::Unchecked => "unchecked",
+            AccessStatus::Ok => "ok",
+            AccessStatus::NotFound => "not_found",
+            AccessStatus::Forbidden => "forbidden",
+            AccessStatus::Error => "error",
+        }
+    }
+}
+
 /// Fetch `.moatless/config.json` from a remote repository.
 ///
 /// Returns `Ok(None)` when the file does not exist (HTTP 404).
@@ -48,15 +116,60 @@ pub async fn fetch_moatless_config(
     token: Option<&str>,
     provider: RepositoryProvider,
 ) -> Result<Option<MoatlessRepoConfig>, RepositoryError> {
+    let Some(body) =
+        fetch_provider_file(remote_url, ".moatless/config.json", branch, token, provider).await?
+    else {
+        return Ok(None);
+    };
+    let config = serde_json::from_str(&body).map_err(|e| {
+        RepositoryError::ProviderError(format!("Failed to parse .moatless/config.json: {e}"))
+    })?;
+    Ok(Some(config))
+}
+
+/// Fetch and parse `.moatless/workspaces.json` from a remote repository.
+///
+/// Returns `Ok(None)` when the file does not exist. This is the default
+/// (non-legacy) workspace declaration form; `.moatless/config.json` remains the
+/// legacy single-workspace form.
+pub async fn fetch_moatless_workspaces(
+    remote_url: &str,
+    branch: Option<&str>,
+    token: Option<&str>,
+    provider: RepositoryProvider,
+) -> Result<Option<MoatlessWorkspacesFile>, RepositoryError> {
+    let Some(body) =
+        fetch_provider_file(remote_url, ".moatless/workspaces.json", branch, token, provider)
+            .await?
+    else {
+        return Ok(None);
+    };
+    let file = serde_json::from_str(&body).map_err(|e| {
+        RepositoryError::ProviderError(format!("Failed to parse .moatless/workspaces.json: {e}"))
+    })?;
+    Ok(Some(file))
+}
+
+/// Fetch a repository file's raw contents via the provider API.
+///
+/// Returns `Ok(None)` on a 404 (file absent). `path` is a repo-relative path
+/// such as `.moatless/config.json`. Gitness is not wired (needs a base_url).
+async fn fetch_provider_file(
+    remote_url: &str,
+    path: &str,
+    branch: Option<&str>,
+    token: Option<&str>,
+    provider: RepositoryProvider,
+) -> Result<Option<String>, RepositoryError> {
     match provider {
-        RepositoryProvider::Github => fetch_github_config(remote_url, branch, token).await,
+        RepositoryProvider::Github => fetch_github_file(remote_url, path, branch, token).await,
         RepositoryProvider::Gitlab => {
             let token = token.ok_or_else(|| {
                 RepositoryError::BadRequest(
                     "GitLab requires an access token to fetch config".to_string(),
                 )
             })?;
-            fetch_gitlab_config(remote_url, branch, token).await
+            fetch_gitlab_file(remote_url, path, branch, token).await
         }
         RepositoryProvider::Gitness => {
             // Gitness needs a base_url; skip for now – callers can pass it later.
@@ -121,18 +234,19 @@ async fn github_moatless_dir_exists(
     }
 }
 
-/// Fetch from GitHub: `GET /repos/{owner}/{repo}/contents/.moatless/config.json?ref={branch}`
-async fn fetch_github_config(
+/// Fetch a file from GitHub: `GET /repos/{owner}/{repo}/contents/{path}?ref={branch}`.
+/// Returns the raw file body, or `Ok(None)` on 404.
+async fn fetch_github_file(
     remote_url: &str,
+    path: &str,
     branch: Option<&str>,
     token: Option<&str>,
-) -> Result<Option<MoatlessRepoConfig>, RepositoryError> {
+) -> Result<Option<String>, RepositoryError> {
     let (owner, repo) = parse_github_owner_repo(remote_url).ok_or_else(|| {
         RepositoryError::BadRequest(format!("Cannot parse GitHub URL: {remote_url}"))
     })?;
 
-    let mut url =
-        format!("https://api.github.com/repos/{owner}/{repo}/contents/.moatless/config.json");
+    let mut url = format!("https://api.github.com/repos/{owner}/{repo}/contents/{path}");
     if let Some(r) = branch {
         use std::fmt::Write;
         let _ = write!(url, "?ref={r}");
@@ -152,7 +266,7 @@ async fn fetch_github_config(
         .map_err(|e| RepositoryError::ProviderError(format!("GitHub API request failed: {e}")))?;
 
     if resp.status() == reqwest::StatusCode::NOT_FOUND {
-        debug!("No .moatless/config.json found in {owner}/{repo}");
+        debug!("No {path} found in {owner}/{repo}");
         return Ok(None);
     }
 
@@ -160,37 +274,33 @@ async fn fetch_github_config(
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
         return Err(RepositoryError::ProviderError(format!(
-            "GitHub API returned {status} fetching config: {body}"
+            "GitHub API returned {status} fetching {path}: {body}"
         )));
     }
 
-    let config: MoatlessRepoConfig = resp.json().await.map_err(|e| {
-        RepositoryError::ProviderError(format!("Failed to parse .moatless/config.json: {e}"))
+    let body = resp.text().await.map_err(|e| {
+        RepositoryError::ProviderError(format!("Failed to read {path} body: {e}"))
     })?;
-
-    Ok(Some(config))
+    Ok(Some(body))
 }
 
-/// Fetch from GitLab: `GET /api/v4/projects/{id}/repository/files/.moatless%2Fconfig.json/raw?ref={branch}`
-async fn fetch_gitlab_config(
+/// Fetch a file from GitLab:
+/// `GET /api/v4/projects/{id}/repository/files/{encoded_path}/raw?ref={branch}`.
+/// Returns the raw file body, or `Ok(None)` on 404.
+async fn fetch_gitlab_file(
     remote_url: &str,
+    path: &str,
     branch: Option<&str>,
     token: &str,
-) -> Result<Option<MoatlessRepoConfig>, RepositoryError> {
-    let url_trimmed = remote_url.trim_end_matches('/').trim_end_matches(".git");
+) -> Result<Option<String>, RepositoryError> {
+    let project_path = gitlab_project_path(remote_url)?;
 
-    let project_path = url_trimmed
-        .strip_prefix("https://gitlab.com/")
-        .or_else(|| url_trimmed.strip_prefix("http://gitlab.com/"))
-        .ok_or_else(|| {
-            RepositoryError::BadRequest(format!("Cannot parse GitLab URL: {remote_url}"))
-        })?;
-
-    let encoded_path = urlencoding::encode(project_path);
+    let encoded_path = urlencoding::encode(&project_path);
+    let encoded_file = urlencoding::encode(path);
     let ref_param = branch.unwrap_or("HEAD");
 
     let api_url = format!(
-        "https://gitlab.com/api/v4/projects/{encoded_path}/repository/files/.moatless%2Fconfig.json/raw?ref={ref_param}"
+        "https://gitlab.com/api/v4/projects/{encoded_path}/repository/files/{encoded_file}/raw?ref={ref_param}"
     );
 
     let client = reqwest::Client::new();
@@ -202,7 +312,7 @@ async fn fetch_gitlab_config(
         .map_err(|e| RepositoryError::ProviderError(format!("GitLab API request failed: {e}")))?;
 
     if resp.status() == reqwest::StatusCode::NOT_FOUND {
-        debug!("No .moatless/config.json found in {project_path}");
+        debug!("No {path} found in {project_path}");
         return Ok(None);
     }
 
@@ -210,15 +320,92 @@ async fn fetch_gitlab_config(
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
         return Err(RepositoryError::ProviderError(format!(
-            "GitLab API returned {status} fetching config: {body}"
+            "GitLab API returned {status} fetching {path}: {body}"
         )));
     }
 
-    let config: MoatlessRepoConfig = resp.json().await.map_err(|e| {
-        RepositoryError::ProviderError(format!("Failed to parse .moatless/config.json: {e}"))
+    let body = resp.text().await.map_err(|e| {
+        RepositoryError::ProviderError(format!("Failed to read {path} body: {e}"))
     })?;
+    Ok(Some(body))
+}
 
-    Ok(Some(config))
+/// Parse the `owner/group/project` path out of a gitlab.com URL.
+fn gitlab_project_path(remote_url: &str) -> Result<String, RepositoryError> {
+    let url_trimmed = remote_url.trim_end_matches('/').trim_end_matches(".git");
+    url_trimmed
+        .strip_prefix("https://gitlab.com/")
+        .or_else(|| url_trimmed.strip_prefix("http://gitlab.com/"))
+        .map(str::to_string)
+        .ok_or_else(|| RepositoryError::BadRequest(format!("Cannot parse GitLab URL: {remote_url}")))
+}
+
+/// Verify a repository URL is reachable via the provider API, mapping the
+/// response to an [`AccessStatus`]: 200→`ok`, 404→`not_found`,
+/// 401/403→`forbidden`, anything else (incl. transport errors)→`error`.
+///
+/// Providers without a wired check (Gitness) and unparseable URLs return
+/// `Unchecked`, leaving the repo's default `unchecked` state untouched.
+pub async fn verify_repository_access(
+    remote_url: &str,
+    token: Option<&str>,
+    provider: RepositoryProvider,
+) -> AccessStatus {
+    let url = match provider {
+        RepositoryProvider::Github => {
+            let Some((owner, repo)) = parse_github_owner_repo(remote_url) else {
+                return AccessStatus::Unchecked;
+            };
+            format!("https://api.github.com/repos/{owner}/{repo}")
+        }
+        RepositoryProvider::Gitlab => match gitlab_project_path(remote_url) {
+            Ok(path) => format!(
+                "https://gitlab.com/api/v4/projects/{}",
+                urlencoding::encode(&path)
+            ),
+            Err(_) => return AccessStatus::Unchecked,
+        },
+        RepositoryProvider::Gitness => return AccessStatus::Unchecked,
+    };
+
+    let client = reqwest::Client::new();
+    let mut req = client.get(&url).header("User-Agent", "moatless-vibe-backend");
+    req = match provider {
+        RepositoryProvider::Github => {
+            let mut r = req.header("Accept", "application/vnd.github+json");
+            if let Some(token) = token {
+                r = r.header("Authorization", format!("Bearer {token}"));
+            }
+            r
+        }
+        RepositoryProvider::Gitlab => match token {
+            Some(token) => req.header("PRIVATE-TOKEN", token),
+            None => req,
+        },
+        RepositoryProvider::Gitness => req,
+    };
+
+    match req.send().await {
+        Ok(resp) => map_status_to_access(resp.status()),
+        Err(e) => {
+            warn!(error = %e, %url, "verify_repository_access request failed");
+            AccessStatus::Error
+        }
+    }
+}
+
+/// Map an HTTP status to an [`AccessStatus`].
+fn map_status_to_access(status: reqwest::StatusCode) -> AccessStatus {
+    use reqwest::StatusCode;
+    if status.is_success() {
+        AccessStatus::Ok
+    } else if status == StatusCode::NOT_FOUND {
+        AccessStatus::NotFound
+    } else if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
+        AccessStatus::Forbidden
+    } else {
+        AccessStatus::Error
+    }
 }
 
 /// Convert a [`MoatlessRepoConfig`] into a [`RepositoryPatch`].
@@ -486,6 +673,90 @@ mod tests {
             value.get("dockerStorageMode"),
             Some(&serde_json::json!("node"))
         );
+    }
+
+    #[test]
+    fn parse_workspaces_json() {
+        let json = r#"{
+            "version": 1,
+            "workspaces": [
+                {
+                    "key": "api",
+                    "name": "API",
+                    "description": "backend",
+                    "repos": [
+                        { "url": "https://github.com/acme/api", "primary": true },
+                        { "url": "https://github.com/acme/shared", "mountName": "shared" }
+                    ],
+                    "dockerImage": "acme/sandbox:latest",
+                    "codeExecution": { "setupCommands": ["bun install"] },
+                    "servers": [{ "name": "dev", "port": 3000, "default": true }],
+                    "envVars": { "LOG_LEVEL": "debug" },
+                    "networkProfile": "sealed"
+                },
+                { "name": "Web Only", "repos": [{ "url": "https://github.com/acme/web" }] }
+            ]
+        }"#;
+
+        let file: MoatlessWorkspacesFile = serde_json::from_str(json).unwrap();
+        assert_eq!(file.version, Some(1));
+        assert_eq!(file.workspaces.len(), 2);
+
+        let api = &file.workspaces[0];
+        assert_eq!(api.key.as_deref(), Some("api"));
+        assert_eq!(api.name, "API");
+        assert_eq!(api.repos.len(), 2);
+        assert!(api.repos[0].primary);
+        assert_eq!(api.repos[0].url, "https://github.com/acme/api");
+        assert_eq!(api.repos[1].mount_name.as_deref(), Some("shared"));
+        assert!(!api.repos[1].primary);
+        assert_eq!(api.docker_image.as_deref(), Some("acme/sandbox:latest"));
+        assert_eq!(
+            api.code_execution.as_ref().unwrap().setup_commands.as_ref().unwrap(),
+            &vec!["bun install".to_string()]
+        );
+        assert_eq!(api.network_profile.as_deref(), Some("sealed"));
+
+        // Missing key → resolved later from the name; primary defaults to false.
+        let web = &file.workspaces[1];
+        assert!(web.key.is_none());
+        assert_eq!(web.name, "Web Only");
+        assert!(!web.repos[0].primary);
+    }
+
+    #[test]
+    fn verify_status_mapping() {
+        use reqwest::StatusCode;
+        assert_eq!(map_status_to_access(StatusCode::OK), AccessStatus::Ok);
+        assert_eq!(
+            map_status_to_access(StatusCode::NOT_FOUND),
+            AccessStatus::NotFound
+        );
+        assert_eq!(
+            map_status_to_access(StatusCode::UNAUTHORIZED),
+            AccessStatus::Forbidden
+        );
+        assert_eq!(
+            map_status_to_access(StatusCode::FORBIDDEN),
+            AccessStatus::Forbidden
+        );
+        assert_eq!(
+            map_status_to_access(StatusCode::INTERNAL_SERVER_ERROR),
+            AccessStatus::Error
+        );
+        assert_eq!(
+            map_status_to_access(StatusCode::TOO_MANY_REQUESTS),
+            AccessStatus::Error
+        );
+    }
+
+    #[test]
+    fn access_status_as_str_values() {
+        assert_eq!(AccessStatus::Unchecked.as_str(), "unchecked");
+        assert_eq!(AccessStatus::Ok.as_str(), "ok");
+        assert_eq!(AccessStatus::NotFound.as_str(), "not_found");
+        assert_eq!(AccessStatus::Forbidden.as_str(), "forbidden");
+        assert_eq!(AccessStatus::Error.as_str(), "error");
     }
 
     #[test]

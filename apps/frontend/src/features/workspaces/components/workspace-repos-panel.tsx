@@ -33,6 +33,7 @@ import { getErrorMessage } from '@/lib/utils/error'
 interface WorkspaceReposPanelProps {
   workspaceId: string
   placements: WorkspaceRepoResponse[]
+  readOnly?: boolean
 }
 
 /**
@@ -44,7 +45,11 @@ interface WorkspaceReposPanelProps {
  * changing them means removing and re-adding the placement. (Same rationale as
  * dropping reorder: we don't fake operations the backend can't do.)
  */
-export function WorkspaceReposPanel({ workspaceId, placements }: WorkspaceReposPanelProps) {
+export function WorkspaceReposPanel({
+  workspaceId,
+  placements,
+  readOnly = false,
+}: WorkspaceReposPanelProps) {
   const { data: repositories } = useRepositoriesList()
   const addRepo = useAddWorkspaceRepo()
   const removeRepo = useRemoveWorkspaceRepo()
@@ -122,58 +127,64 @@ export function WorkspaceReposPanel({ workspaceId, placements }: WorkspaceReposP
                   </span>
                 )}
               </div>
-              <div className="flex shrink-0 items-center gap-1">
-                {!placement.isPrimary && (
+              {!readOnly && (
+                <div className="flex shrink-0 items-center gap-1">
+                  {!placement.isPrimary && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      title="Set as primary"
+                      disabled={setPrimary.isPending}
+                      onClick={() => handleSetPrimary(placement)}
+                    >
+                      <Star className="h-3.5 w-3.5 text-muted-foreground hover:text-amber-400" />
+                    </Button>
+                  )}
                   <Button
                     variant="ghost"
                     size="icon"
                     className="h-7 w-7"
-                    title="Set as primary"
-                    disabled={setPrimary.isPending}
-                    onClick={() => handleSetPrimary(placement)}
+                    aria-label={`Remove ${repoName(placement.repositoryId)}`}
+                    disabled={removeRepo.isPending}
+                    onClick={() => handleRemove(placement)}
                   >
-                    <Star className="h-3.5 w-3.5 text-muted-foreground hover:text-amber-400" />
+                    <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
                   </Button>
-                )}
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  aria-label={`Remove ${repoName(placement.repositoryId)}`}
-                  disabled={removeRepo.isPending}
-                  onClick={() => handleRemove(placement)}
-                >
-                  <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
-                </Button>
-              </div>
+                </div>
+              )}
             </div>
           ))
         )}
 
-        <Button variant="outline" size="sm" onClick={() => setIsAddOpen(true)}>
-          <Plus className="h-4 w-4" />
-          Add Repository
-        </Button>
+        {!readOnly && (
+          <Button variant="outline" size="sm" onClick={() => setIsAddOpen(true)}>
+            <Plus className="h-4 w-4" />
+            Add Repository
+          </Button>
+        )}
       </div>
 
-      <AddRepoDialog
-        open={isAddOpen}
-        onOpenChange={setIsAddOpen}
-        repositories={(repositories ?? []).filter((r) => r.kind !== 'template')}
-        placedRepositoryIds={placements.map((p) => p.repositoryId)}
-        hasPrimary={placements.some((p) => p.isPrimary)}
-        isSaving={addRepo.isPending}
-        onAdd={(request) =>
-          addRepo.mutate(
-            { workspaceId, request },
-            {
-              onSuccess: () => setIsAddOpen(false),
-              onError: (error) =>
-                toast.error('Failed to add repository', { description: getErrorMessage(error) }),
-            },
-          )
-        }
-      />
+      {!readOnly && (
+        <AddRepoDialog
+          open={isAddOpen}
+          onOpenChange={setIsAddOpen}
+          repositories={(repositories ?? []).filter((r) => r.kind !== 'template')}
+          placedRepositoryIds={placements.map((p) => p.repositoryId)}
+          hasPrimary={placements.some((p) => p.isPrimary)}
+          isSaving={addRepo.isPending}
+          onAdd={(request) =>
+            addRepo.mutate(
+              { workspaceId, request },
+              {
+                onSuccess: () => setIsAddOpen(false),
+                onError: (error) =>
+                  toast.error('Failed to add repository', { description: getErrorMessage(error) }),
+              },
+            )
+          }
+        />
+      )}
     </ConfigurationGroup>
   )
 }

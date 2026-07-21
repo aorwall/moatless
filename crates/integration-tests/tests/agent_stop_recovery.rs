@@ -33,7 +33,7 @@ async fn agent_stop_and_recovery() {
 
     // AGENT-04: Create task with a long-running message
     let req = CreateTaskRequest {
-        repository_id: repo_id.clone(),
+        repository_id: Some(repo_id.clone()),
         workspace_id: None,
         message: Some(
             "Create 5 files named step1.txt through step5.txt, each with the content \

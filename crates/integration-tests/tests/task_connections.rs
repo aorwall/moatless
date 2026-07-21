@@ -25,7 +25,7 @@ fn timestamp_suffix() -> String {
 
 fn task_request(repository_id: String, message: &str) -> CreateTaskRequest {
     CreateTaskRequest {
-        repository_id,
+        repository_id: Some(repository_id),
         workspace_id: None,
         message: Some(message.into()),
         name: None,

@@ -26,6 +26,10 @@ pub struct WorkspacePatch {
     pub servers: Option<Option<serde_json::Value>>,
     pub plugins: Option<Option<serde_json::Value>>,
     pub resources: Option<Option<serde_json::Value>>,
+    pub network_profile: Option<Option<String>>,
+    pub source: Option<String>,
+    pub source_repository_id: Option<Option<String>>,
+    pub source_key: Option<Option<String>>,
 }
 
 /// Repository trait for workspace persistence.
@@ -140,9 +144,11 @@ impl WorkspaceRepository for PgWorkspaceRepository {
                    id, name, description, kind,
                    docker_image, docker_access, sandbox_service_account,
                    system_prompt, setup_commands, env_vars, servers, plugins, resources,
+                   network_profile, source, source_repository_id, source_key,
                    scope, team_id, owner_user_id, created_by, deleted
                ) VALUES (
-                   $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
+                   $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                   $14, $15, $16, $17, $18, $19, $20, $21, $22
                )"#,
         )
         .bind(&row.id)
@@ -158,6 +164,10 @@ impl WorkspaceRepository for PgWorkspaceRepository {
         .bind(&row.servers)
         .bind(&row.plugins)
         .bind(&row.resources)
+        .bind(&row.network_profile)
+        .bind(&row.source)
+        .bind(&row.source_repository_id)
+        .bind(&row.source_key)
         .bind(row.scope)
         .bind(&row.team_id)
         .bind(&row.owner_user_id)
@@ -249,6 +259,10 @@ impl WorkspaceRepository for PgWorkspaceRepository {
         push_set!(servers);
         push_set!(plugins);
         push_set!(resources);
+        push_set!(network_profile);
+        push_set!(source);
+        push_set!(source_repository_id);
+        push_set!(source_key);
 
         if sets.is_empty() {
             return Ok(false);
@@ -287,6 +301,10 @@ impl WorkspaceRepository for PgWorkspaceRepository {
         bind_opt!(servers);
         bind_opt!(plugins);
         bind_opt!(resources);
+        bind_opt!(network_profile);
+        bind_opt!(source);
+        bind_opt!(source_repository_id);
+        bind_opt!(source_key);
 
         q = q.bind(now);
 

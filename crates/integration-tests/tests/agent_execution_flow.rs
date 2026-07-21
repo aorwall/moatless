@@ -35,7 +35,7 @@ async fn agent_execution_and_multi_turn() {
 
     // AGENT-01: Create task WITH message to trigger agent execution
     let req = CreateTaskRequest {
-        repository_id: repo_id.clone(),
+        repository_id: Some(repo_id.clone()),
         workspace_id: None,
         // The location is pinned to the working directory because that is the
         // root the file API resolves against. Left unpinned, the agent
