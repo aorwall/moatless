@@ -1,7 +1,8 @@
 # Sandbox Lifecycle Architecture
 
-**Status:** Accepted 2026-07-21 · implementation pending. An ADR for the
-ordering/serialization choices ships with the implementation PR.
+**Status:** Accepted 2026-07-21 · implementation in progress. Order-of-work
+step 1 — the lifecycle module foundation — is on PR #154; steps 2–4 remain. An
+ADR for the ordering/serialization choices ships with the implementation PR.
 
 A deep `sandbox::lifecycle` module owns durable lifecycle intent and
 orchestration for a Task's Sandbox. Kubernetes and Docker are infrastructure
@@ -136,6 +137,11 @@ universal, because close flows persist `Closed` before removing the sandbox:
 | Error       | ✓ (resumable)| ✓         | ✓          | ✓              | ✓        |
 | Closed      | rejected     | rejected  | rejected   | ✓ (idempotent) | ✓        |
 
+Intent precedence inside eligibility: `stop` against a Task whose persisted
+intent is already `Removed` is an idempotent no-op — it never rewrites intent
+to `Stopped`, which would discard the archive-deletion obligation the `Removed`
+intent and its retention carry.
+
 - **Intent before effect, for all five operations.** If the runtime effect fails,
   intent remains the requested target and the caller receives the typed error.
   Asynchronous visibility and retry are per operation (matrix below).
@@ -171,6 +177,10 @@ universal, because close flows persist `Closed` before removing the sandbox:
   - an operation completing `Unchanged` + `NoOp` against an already-converged
     target clears its marker synchronously — no completion fact will ever
     exist for its generation, so waiting for one would strand the marker.
+  Completion facts are persisted and the marker cleared in **one DB transaction
+  before publication**; a failed completion commit is a typed error — the
+  operation does not report success and nothing is published, so a
+  deterministic event ID is never live without its persisted fact.
   Suppression proves an event belongs to a superseded generation (observed
   generation < marker generation). Operation and convergence event IDs are
   deterministic (`sandbox:{task_id}:{operation_generation}:{fact}`) and use the
@@ -180,7 +190,7 @@ universal, because close flows persist `Closed` before removing the sandbox:
   current DAO issues one UPDATE per patched field; the lifecycle implementation
   must not.)
 - **The Sandbox reconciler — the single async recovery owner, for level
-  states only.** A provider-neutral, durable level-based controller
+  states only.** A runtime-neutral, durable level-based controller
   (lease-elected on Kubernetes, lease-free single-replica in Docker) compares
   persisted intent against observed status and converges through lifecycle
   operations, never directly:
@@ -308,7 +318,8 @@ universal, because close flows persist `Closed` before removing the sandbox:
   neither path is the durability owner.
 - **Cancellation safety:** multi-step transitions run detached from caller
   futures, so an HTTP client disconnect cannot leave a sandbox
-  half-transitioned.
+  half-transitioned. A severed caller surfaces `LifecycleError::Interrupted`
+  while the operation itself runs to completion and reports through events.
 - **Events — operation-driven vs. observed, desired state as arbiter:**
   - Lifecycle publishes two event classes with distinct sources.
     **Acceptance events** derive from `IntentEffect::Changed`: `Removing` when
@@ -410,7 +421,7 @@ Notes that bound the migration:
   latency path. The direct `SandboxDesiredState::Running` patch in
   `message/send.rs` is deleted: lifecycle remains the only intent writer, while
   the durable pending row is the reconciler's recovery input.
-- The Message repository gains a provider-neutral query for Tasks with
+- The Message repository gains a runtime-neutral query for Tasks with
   unacknowledged user Messages and a supporting partial index on pending rows;
   reconciliation must not scan Task Messages one Task at a time.
 - The failure event `insert_and_provision_task` publishes today moves into
@@ -424,8 +435,15 @@ Notes that bound the migration:
 
 Order of work:
 
-1. **Introduce lifecycle** against the existing trait names; add recording
-   adapter tests.
+1. **Lifecycle foundation** (`backend/src/sandbox/lifecycle/` — landed, PR
+   #154): the typed surface, the `SandboxRuntime` seam trait with recording
+   adapters, the orchestrator over ports (`LifecycleStore`, `LifecycleLock`,
+   `LifecycleEventSink`, `AgentStopPort`, `WallClock`), and the pure decision
+   modules (`convergence`, `classify`, `marker`, `wake`, `events`, `attempt`),
+   unit-tested through the interface and unwired in production. The seam trait
+   exists from this step because `SandboxProvider` cannot express
+   `RuntimeOutcome` or `RuntimeOperationContext`; step 3 is adapter
+   implementation and retirement, not a rename.
 2. **Move all mutations** — migrate start, stop, restart, redeploy, and remove
    callers (including watcher healing and the six `stop_agent_for_task` call
    sites, which lifecycle's graceful-stop rule replaces); add the persisted
@@ -436,11 +454,24 @@ Order of work:
    row deletion; add the pending-Message query/index; stand up the
    desired-state reconciler (subsuming the `decide_orphan`
    `Removed`-intent rule) in both providers — lease-elected on K8s, lease-free
-   in Docker.
-3. **Rename the runtime seam** — `SandboxProvider` → `SandboxRuntime`,
-   `provision` → `ensure_running`; split the access trait out.
+   in Docker. The Postgres `LifecycleStore` adapter owns the single-statement
+   atomic intent write and the completion-fact + marker-clear transaction; the
+   `LifecycleLock` adapter owns the dedicated advisory-lock pool. This step
+   activates the Postgres-dependent test cases: the lifecycle contract's
+   Postgres half, the race matrix's genuinely concurrent serialization and
+   lock-retry exhaustion, the eligibility matrix's Error-resumable row, and
+   the start matrix's bad-plan case (plan construction moves behind the
+   interface here).
+3. **Implement the runtime seam** — the K8s and Docker adapters implement
+   `SandboxRuntime` (provision logic becomes `ensure_running`); retire
+   `SandboxProvider`; split out `SandboxAccess`.
 4. **Delete shallow paths** — plan orchestration and intent helpers in callers
    (`record_sandbox_*`, adapter `provision_task` clones, watcher side door).
+
+Each step lands only its own machinery — no unwired abstractions ahead of
+their step beyond the foundation above. Corners discovered during
+implementation are PR findings or issues, not spec growth; this document
+changes only by deliberate decision.
 
 ## Tests
 
