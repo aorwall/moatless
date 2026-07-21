@@ -3,6 +3,7 @@ import { queryOptions, type UseQueryOptions, useQuery } from '@tanstack/react-qu
 import { tasksApi } from '@/features/tasks/api/tasks'
 import { queryKeys } from '@/lib/api/query-keys'
 
+export { useTaskLiveStatusQuery } from '@/lib/api/task-live-status-queries'
 // Re-exported from the shared api layer so `features/files` can consume the
 // sandbox-status query without importing `features/tasks`.
 export { useTaskSandboxStatusQuery } from '@/lib/api/task-sandbox-queries'

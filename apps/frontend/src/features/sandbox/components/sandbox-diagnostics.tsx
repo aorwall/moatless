@@ -1,7 +1,9 @@
 import type {
+  AgentStatus,
   ContainerDiagnostics,
   ResourceMetrics,
   RuntimeEvent,
+  SandboxStatus,
   ServerEntry,
 } from '@moatless/api-client'
 import { Link } from '@tanstack/react-router'
@@ -19,6 +21,11 @@ import {
 } from 'lucide-react'
 import { useSandboxStatus } from '@/features/tasks/hooks/use-sandbox-status'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
+import {
+  canExecuteInSandbox,
+  isSandboxReady,
+  sandboxPresence,
+} from '@/features/tasks/utils/live-status'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/lib/components/ui/card'
@@ -93,20 +100,18 @@ function containerStateIcon(state: string) {
 // ── Overview Tab ──────────────────────────────────────────
 
 function OverviewSection({
-  environmentStatus,
-  environmentError,
-  agentState,
-  sandboxState,
-  sandboxReady,
-  canExecute,
+  sandboxStatus,
+  sandboxError,
+  agentStatus,
 }: {
-  environmentStatus: string
-  environmentError?: string | null | undefined
-  agentState: string
-  sandboxState: string
-  sandboxReady: boolean
-  canExecute: boolean
+  sandboxStatus: SandboxStatus
+  sandboxError?: string | null | undefined
+  agentStatus?: AgentStatus | null | undefined
 }) {
+  const sandboxState = sandboxPresence(sandboxStatus)
+  const sandboxReady = isSandboxReady({ sandboxStatus })
+  const canExecute = canExecuteInSandbox({ sandboxStatus, agentStatus, sandboxError })
+
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
       <Card>
@@ -114,12 +119,12 @@ function OverviewSection({
           <CardTitle className="text-sm font-medium">Environment Status</CardTitle>
         </CardHeader>
         <CardContent>
-          <Badge variant={statusBadgeVariant(environmentStatus)} className="text-sm">
-            {environmentStatus}
+          <Badge variant={statusBadgeVariant(sandboxStatus)} className="text-sm">
+            {sandboxStatus}
           </Badge>
-          {environmentError && (
+          {sandboxError && (
             <p className="mt-2 text-sm text-red-600 bg-red-50 dark:bg-red-950/30 p-2 rounded">
-              {environmentError}
+              {sandboxError}
             </p>
           )}
         </CardContent>
@@ -130,8 +135,8 @@ function OverviewSection({
           <CardTitle className="text-sm font-medium">Agent State</CardTitle>
         </CardHeader>
         <CardContent>
-          <Badge variant={statusBadgeVariant(agentState)} className="text-sm">
-            {agentState}
+          <Badge variant={statusBadgeVariant(agentStatus ?? undefined)} className="text-sm">
+            {agentStatus ?? 'n/a'}
           </Badge>
         </CardContent>
       </Card>
@@ -495,7 +500,7 @@ export function SandboxDiagnostics({ taskId }: SandboxDiagnosticsProps) {
             <p className="text-sm text-muted-foreground font-mono">{taskId}</p>
           </div>
         </div>
-        <SandboxActionButtons taskId={taskId} environmentStatus={status?.environmentStatus} />
+        <SandboxActionButtons taskId={taskId} sandboxStatus={status?.sandboxStatus} />
       </div>
 
       {sandboxQuery.isLoading ? (
@@ -537,12 +542,9 @@ export function SandboxDiagnostics({ taskId }: SandboxDiagnosticsProps) {
 
           <TabsContent value="overview" className="mt-4">
             <OverviewSection
-              environmentStatus={status.environmentStatus}
-              environmentError={status.environmentError}
-              agentState={status.agentState}
-              sandboxState={status.sandboxState}
-              sandboxReady={status.sandboxReady}
-              canExecute={status.canExecute}
+              sandboxStatus={status.sandboxStatus}
+              sandboxError={status.sandboxError}
+              agentStatus={status.agentStatus}
             />
           </TabsContent>
 

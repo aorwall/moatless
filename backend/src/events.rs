@@ -12,8 +12,8 @@
 
 use async_trait::async_trait;
 use moatless_events::{
-    AgentSubType, EventType, SandboxEventPayload, SandboxSubType, ServerEventPayload,
-    ServerSubType, StreamEvent, SubType, TaskSubType, TaskTurnSubType,
+    AgentSubType, EventType, SandboxEventPayload, SandboxStatus, ServerEventPayload, ServerSubType,
+    StreamEvent, SubType, TaskSubType, TaskTurnSubType,
 };
 use redis::aio::{ConnectionManager, ConnectionManagerConfig};
 use tracing::{debug, info, warn};
@@ -161,13 +161,13 @@ pub fn describe_event_metrics() {
 #[async_trait]
 pub trait EventPublisher: Send + Sync {
     /// Publish a sandbox lifecycle event with a message.
-    async fn publish_sandbox_event(&self, task_id: &str, sub_type: SandboxSubType, message: &str);
+    async fn publish_sandbox_event(&self, task_id: &str, sub_type: SandboxStatus, message: &str);
 
     /// Publish a sandbox lifecycle event with a typed payload.
     async fn publish_sandbox_event_with_payload(
         &self,
         task_id: &str,
-        sub_type: SandboxSubType,
+        sub_type: SandboxStatus,
         payload: &SandboxEventPayload,
     );
 
@@ -485,7 +485,7 @@ impl RedisEventPublisher {
 
 #[async_trait]
 impl EventPublisher for RedisEventPublisher {
-    async fn publish_sandbox_event(&self, task_id: &str, sub_type: SandboxSubType, message: &str) {
+    async fn publish_sandbox_event(&self, task_id: &str, sub_type: SandboxStatus, message: &str) {
         let payload = SandboxEventPayload {
             message: message.to_string(),
             ..Default::default()
@@ -497,7 +497,7 @@ impl EventPublisher for RedisEventPublisher {
     async fn publish_sandbox_event_with_payload(
         &self,
         task_id: &str,
-        sub_type: SandboxSubType,
+        sub_type: SandboxStatus,
         payload: &SandboxEventPayload,
     ) {
         let payload_value = serde_json::to_value(payload).unwrap_or_default();

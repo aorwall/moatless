@@ -55,6 +55,7 @@ pub struct SandboxApiState {
     ),
     paths(
         handlers::provision_handler,
+        handlers::live_status_handler,
         handlers::sandbox_status_handler,
         handlers::stop_handler,
         handlers::restart_handler,
@@ -75,6 +76,7 @@ pub struct SandboxApiDoc;
 pub fn api_router(state: SandboxApiState) -> (axum::Router, utoipa::openapi::OpenApi) {
     let (router, api) = OpenApiRouter::with_openapi(SandboxApiDoc::openapi())
         .routes(routes!(handlers::provision_handler))
+        .routes(routes!(handlers::live_status_handler))
         .routes(routes!(handlers::sandbox_status_handler))
         .routes(routes!(handlers::stop_handler))
         .routes(routes!(handlers::restart_handler))

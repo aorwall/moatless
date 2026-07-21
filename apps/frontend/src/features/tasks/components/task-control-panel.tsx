@@ -131,7 +131,7 @@ interface TaskControlPanelProps {
 export function TaskControlPanel({ className }: TaskControlPanelProps) {
   const taskId = useTaskId()
   const taskQuery = useTaskDetailQuery(taskId)
-  const { data: sandboxStatus } = useSandboxStatus(taskId, taskQuery.data)
+  const { data: status } = useSandboxStatus(taskId, taskQuery.data)
   const updateTtl = useUpdateTaskTtl(taskId)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const updateMetadata = useUpdateTaskMetadata(taskId, {
@@ -143,18 +143,18 @@ export function TaskControlPanel({ className }: TaskControlPanelProps) {
     return null
   }
 
-  const environmentStatus = sandboxStatus?.environmentStatus
-  const statusMeta = (environmentStatus && SANDBOX_STATUS_META[environmentStatus]) ?? {
+  const sandboxStatus = status?.sandboxStatus
+  const statusMeta = (sandboxStatus && SANDBOX_STATUS_META[sandboxStatus]) ?? {
     label: 'Unknown',
     description: 'Sandbox status is unavailable.',
     dot: 'bg-muted-foreground/40',
   }
-  const environmentError = sandboxStatus?.environmentError
+  const sandboxError = status?.sandboxError
 
   // Preview server to link out to: prefer the one literally named "preview",
   // then the default server, then the first. Only linkable once the backend has
   // assigned a `url` (server is running) and it may be opened externally.
-  const servers = sandboxStatus?.servers
+  const servers = status?.servers
   const previewServer =
     servers?.find((s) => s.name === 'preview') ?? servers?.find((s) => s.default) ?? servers?.[0]
   const previewUrl =
@@ -189,15 +189,13 @@ export function TaskControlPanel({ className }: TaskControlPanelProps) {
               <span className="text-sm font-medium">Sandbox</span>
               <span className="text-xs text-muted-foreground">{statusMeta.label}</span>
             </div>
-            <SandboxActionButtons taskId={taskId} environmentStatus={environmentStatus} />
+            <SandboxActionButtons taskId={taskId} sandboxStatus={sandboxStatus} />
           </div>
           <div className="space-y-3 px-3 py-3">
             <p className="text-sm text-muted-foreground">
-              {environmentStatus === 'error' && environmentError
-                ? environmentError
-                : statusMeta.description}
+              {sandboxStatus === 'error' && sandboxError ? sandboxError : statusMeta.description}
             </p>
-            <SandboxImageInfo status={sandboxStatus} />
+            <SandboxImageInfo status={status} />
             {previewUrl && (
               <a
                 href={previewUrl}
@@ -240,8 +238,8 @@ export function TaskControlPanel({ className }: TaskControlPanelProps) {
         </section>
 
         <BackgroundProcessesSection
-          processes={sandboxStatus?.backgroundProcesses ?? []}
-          scheduledJobs={sandboxStatus?.scheduledJobs}
+          processes={status?.backgroundProcesses ?? []}
+          scheduledJobs={status?.scheduledJobs}
         />
 
         <section className="rounded-md border">

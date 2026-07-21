@@ -11,21 +11,23 @@ use super::naming::{generate_container_name, generate_server_container_name};
 use crate::config::Config;
 use crate::sandbox::client::SandboxClient;
 use crate::sandbox::k8s::pod_status::DEFAULT_SERVER_READINESS_TIMEOUT_SECS;
+use crate::sandbox::live_status::{derive_live_status, AgentStatus, LiveStatus};
 use crate::sandbox::models::*;
 use crate::sandbox::schemas::*;
+use crate::task::models::{SandboxDesiredState, TaskStatus};
 
 /// Snapshot of the agent's gRPC status response — state, scheduled jobs, and
 /// live background processes.
 struct AgentStatusSnapshot {
-    state: AgentState,
+    status: Option<AgentStatus>,
     scheduled_jobs: Vec<ScheduledJobInfo>,
     background_processes: Vec<BackgroundProcess>,
 }
 
 impl AgentStatusSnapshot {
-    fn empty() -> Self {
+    fn unreachable() -> Self {
         Self {
-            state: AgentState::None,
+            status: None,
             scheduled_jobs: Vec::new(),
             background_processes: Vec::new(),
         }
@@ -51,29 +53,34 @@ impl DockerStatusResolver {
         &self,
         task_id: &str,
         server_configs: &[ServerConfig],
+        task_status: TaskStatus,
+        desired_state: SandboxDesiredState,
     ) -> SandboxStatusFullResponse {
         let container_name = generate_container_name(task_id);
-        let (env_status, environment_error) =
-            self.inspect_environment_status(&container_name).await;
+        let (sandbox_status, resolver_error) = self.inspect_sandbox_status(&container_name).await;
         let current_sandbox_image = self.inspect_current_image(&container_name).await;
-        let is_running = env_status == SandboxStatus::Ready;
+        let is_running = sandbox_status == SandboxStatus::Ready;
 
         if is_running {
             let AgentStatusSnapshot {
-                state: agent_state,
+                status: agent_status,
                 scheduled_jobs,
                 background_processes,
-            } = self.fetch_agent_state(task_id).await;
+            } = self.fetch_agent_status(task_id).await;
             let servers = self.resolve_server_entries(task_id, server_configs).await;
+            let live_status = derive_live_status(
+                task_status,
+                desired_state,
+                sandbox_status,
+                resolver_error,
+                agent_status,
+            );
 
             return SandboxStatusFullResponse {
-                sandbox_state: SandboxState::Exists,
-                environment_status: env_status,
-                environment_error,
-                agent_state,
+                sandbox_status: live_status.sandbox_status,
+                sandbox_error: live_status.sandbox_error,
+                agent_status: live_status.agent_status,
                 servers,
-                sandbox_ready: true,
-                can_execute: true,
                 resources: None,
                 container_diagnostics: None,
                 runtime_events: None,
@@ -86,22 +93,19 @@ impl DockerStatusResolver {
             };
         }
 
-        // Container is not running
-        let sandbox_state = match env_status {
-            SandboxStatus::NotCreated => SandboxState::Missing,
-            _ => SandboxState::Exists,
-        };
-
-        let can_execute = env_status == SandboxStatus::Stopped;
+        let live_status = derive_live_status(
+            task_status,
+            desired_state,
+            sandbox_status,
+            resolver_error,
+            None,
+        );
 
         SandboxStatusFullResponse {
-            sandbox_state,
-            environment_status: env_status,
-            environment_error,
-            agent_state: AgentState::None,
+            sandbox_status: live_status.sandbox_status,
+            sandbox_error: live_status.sandbox_error,
+            agent_status: live_status.agent_status,
             servers: vec![],
-            sandbox_ready: false,
-            can_execute,
             resources: None,
             container_diagnostics: None,
             runtime_events: None,
@@ -112,6 +116,30 @@ impl DockerStatusResolver {
             latest_sandbox_image: None,
             image_up_to_date: None,
         }
+    }
+
+    /// Resolve only the Task's live status, omitting servers and diagnostics.
+    pub async fn resolve_live_status(
+        &self,
+        task_id: &str,
+        task_status: TaskStatus,
+        desired_state: SandboxDesiredState,
+    ) -> LiveStatus {
+        let container_name = generate_container_name(task_id);
+        let (sandbox_status, resolver_error) = self.inspect_sandbox_status(&container_name).await;
+        let agent_status = if sandbox_status == SandboxStatus::Ready {
+            self.fetch_agent_status(task_id).await.status
+        } else {
+            None
+        };
+
+        derive_live_status(
+            task_status,
+            desired_state,
+            sandbox_status,
+            resolver_error,
+            agent_status,
+        )
     }
 
     /// Inspect the sandbox container and return the image it is running.
@@ -139,7 +167,7 @@ impl DockerStatusResolver {
 
     /// Inspect a Docker container and map its state to `SandboxStatus`,
     /// along with an optional error message for crash loops or OOM.
-    async fn inspect_environment_status(
+    async fn inspect_sandbox_status(
         &self,
         container_name: &str,
     ) -> (SandboxStatus, Option<String>) {
@@ -172,7 +200,7 @@ impl DockerStatusResolver {
                     .map(std::string::ToString::to_string)
                     .unwrap_or_default();
 
-                let env_status = match status_str.as_str() {
+                let sandbox_status = match status_str.as_str() {
                     "running" => SandboxStatus::Ready,
                     "created" | "restarting" => SandboxStatus::Initializing,
                     "paused" | "exited" => SandboxStatus::Stopped,
@@ -181,7 +209,7 @@ impl DockerStatusResolver {
                     _ => SandboxStatus::Error,
                 };
 
-                (env_status, None)
+                (sandbox_status, None)
             }
             Err(bollard::errors::Error::DockerResponseServerError {
                 status_code: 404, ..
@@ -194,7 +222,7 @@ impl DockerStatusResolver {
     }
 
     /// Query the sandbox container for current agent status via gRPC.
-    async fn fetch_agent_state(&self, task_id: &str) -> AgentStatusSnapshot {
+    async fn fetch_agent_status(&self, task_id: &str) -> AgentStatusSnapshot {
         let container_name = generate_container_name(task_id);
         let url = format!(
             "http://{}:{}",
@@ -204,13 +232,13 @@ impl DockerStatusResolver {
             Ok(c) => c,
             Err(e) => {
                 debug!(task_id = %task_id, error = %e, "Failed to create gRPC client for agent status");
-                return AgentStatusSnapshot::empty();
+                return AgentStatusSnapshot::unreachable();
             }
         };
 
         match client.get_agent_status().await {
             Ok(resp) => AgentStatusSnapshot {
-                state: AgentState::from(resp.status.as_str()),
+                status: Some(AgentStatus::from(resp.status.as_str())),
                 scheduled_jobs: resp
                     .scheduled_jobs
                     .into_iter()
@@ -224,7 +252,7 @@ impl DockerStatusResolver {
             },
             Err(e) => {
                 debug!(task_id = %task_id, error = %e, "Failed to fetch agent status via gRPC");
-                AgentStatusSnapshot::empty()
+                AgentStatusSnapshot::unreachable()
             }
         }
     }

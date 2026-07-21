@@ -6,49 +6,78 @@ use serde::{Deserialize, Serialize};
 // Sandbox model types (shared between schemas and backend)
 // =============================================================================
 
-/// Matches TS SandboxStateSchema: 'exists' | 'missing'
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Observed Sandbox lifecycle status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "lowercase")]
-pub enum SandboxState {
-    Exists,
-    Missing,
+#[serde(rename_all = "snake_case")]
+pub enum SandboxStatus {
+    NotCreated,
+    Initializing,
+    Ready,
+    Stopped,
+    Removing,
+    Removed,
+    Error,
 }
 
-/// Matches TS AgentStateSchema: 'idle' | 'running' | 'none' | 'unknown'
-///
-/// `Unknown` means the sandbox is running/ready but the agent could not be
-/// reached over gRPC — distinct from `None` (idle / never started).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+impl SandboxStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::NotCreated => "not_created",
+            Self::Initializing => "initializing",
+            Self::Ready => "ready",
+            Self::Stopped => "stopped",
+            Self::Removing => "removing",
+            Self::Removed => "removed",
+            Self::Error => "error",
+        }
+    }
+}
+
+impl std::fmt::Display for SandboxStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Observed Agent lifecycle status for a ready Sandbox.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "lowercase")]
-pub enum AgentState {
-    Idle,
+pub enum AgentStatus {
     Running,
-    None,
+    Idle,
     Unknown,
 }
 
-impl std::fmt::Display for AgentState {
+impl std::fmt::Display for AgentStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AgentState::Idle => write!(f, "idle"),
-            AgentState::Running => write!(f, "running"),
-            AgentState::None => write!(f, "none"),
-            AgentState::Unknown => write!(f, "unknown"),
+            AgentStatus::Running => write!(f, "running"),
+            AgentStatus::Idle => write!(f, "idle"),
+            AgentStatus::Unknown => write!(f, "unknown"),
         }
     }
 }
 
-impl From<&str> for AgentState {
+impl From<&str> for AgentStatus {
     fn from(s: &str) -> Self {
         match s {
-            "running" => AgentState::Running,
-            "idle" => AgentState::Idle,
-            "unknown" => AgentState::Unknown,
-            _ => AgentState::None,
+            "running" => AgentStatus::Running,
+            "idle" | "stopped" => AgentStatus::Idle,
+            _ => AgentStatus::Unknown,
         }
     }
+}
+
+/// Small live-status resource shared by list, sidebar, and dashboard views.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct LiveStatus {
+    pub sandbox_status: SandboxStatus,
+    pub agent_status: Option<AgentStatus>,
+    pub sandbox_error: Option<String>,
 }
 
 /// Matches TS ServerStatusEnumSchema: 'stopped' | 'installing' | 'starting' | 'started' | 'failed'
@@ -202,15 +231,10 @@ pub struct ContainerDiagnostics {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct SandboxStatusFullResponse {
-    pub sandbox_state: SandboxState,
-    /// Uses `String` here — the concrete `SandboxStatus` enum lives in the events crate.
-    /// The backend populates this from `moatless_events::SandboxStatus`.
-    pub environment_status: String,
-    pub environment_error: Option<String>,
-    pub agent_state: AgentState,
+    pub sandbox_status: SandboxStatus,
+    pub sandbox_error: Option<String>,
+    pub agent_status: Option<AgentStatus>,
     pub servers: Vec<ServerEntry>,
-    pub sandbox_ready: bool,
-    pub can_execute: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resources: Option<ResourceMetrics>,
     #[serde(skip_serializing_if = "Option::is_none")]

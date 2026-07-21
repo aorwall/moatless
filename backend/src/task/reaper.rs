@@ -34,7 +34,7 @@ use crate::sandbox::k8s::leader_election::LeaderElection;
 use crate::sandbox::provider::SandboxProvider;
 use crate::state::AppState;
 use crate::task_turn::models::{TurnStatus, TurnTransition, UnclosedTurn};
-use moatless_events::{EventType, SandboxEventPayload, SandboxSubType};
+use moatless_events::{EventType, SandboxEventPayload, SandboxStatus};
 
 /// Minimum age of a stuck `active` turn before the reaper reconciles it.
 ///
@@ -448,7 +448,7 @@ async fn run_reap_cycle(
                             events
                                 .publish_sandbox_event_with_payload(
                                     task_id,
-                                    SandboxSubType::Stopped,
+                                    SandboxStatus::Stopped,
                                     &SandboxEventPayload {
                                         message: format!(
                                             "Sandbox stopped after {ttl_minutes} min idle"
@@ -1461,7 +1461,7 @@ async fn record_reprovision_failure(
             events
                 .publish_sandbox_event_with_payload(
                     task_id,
-                    SandboxSubType::Error,
+                    SandboxStatus::Error,
                     &SandboxEventPayload {
                         message: format!(
                             "Failed to re-provision the sandbox after {attempts} attempts"
@@ -1521,7 +1521,7 @@ async fn scale_stuck_pending_pod(
                 events
                     .publish_sandbox_event_with_payload(
                         &pod.task_id,
-                        SandboxSubType::Error,
+                        SandboxStatus::Error,
                         &SandboxEventPayload {
                             message,
                             lifecycle_event: Some("environment_error".to_string()),

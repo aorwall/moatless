@@ -92,10 +92,10 @@ export function ChatInputSection({
   // Poll sandbox status only while the task remains open (hook handles gating)
   const sandboxStatusQuery = useSandboxStatus(taskId, task)
   const sandboxStatus = sandboxStatusQuery.data
-  const envStatus = sandboxStatus?.environmentStatus
+  const envStatus = sandboxStatus?.sandboxStatus
 
   // Agent running state: driven by sandbox status (updated via SSE events + backend gRPC)
-  const isTaskRunning = sandboxStatus?.agentState === 'running'
+  const isTaskRunning = sandboxStatus?.agentStatus === 'running'
 
   // Fetch available commands when task is not running
   const { data: availableCommands = [] } = useTaskCommands(taskId, {

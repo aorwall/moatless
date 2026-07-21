@@ -56,9 +56,13 @@ pub async fn provision_handler(
         &state.plugin_repos,
         &state.workspaces,
     ) {
-        (Some(t), Some(r), Some(pt), Some(pr), Some(ws)) => {
-            (t.as_ref(), r.as_ref(), pt.as_ref(), pr.as_ref(), ws.as_ref())
-        }
+        (Some(t), Some(r), Some(pt), Some(pr), Some(ws)) => (
+            t.as_ref(),
+            r.as_ref(),
+            pt.as_ref(),
+            pr.as_ref(),
+            ws.as_ref(),
+        ),
         _ => {
             return Err(SandboxError::Internal(
                 "Database not available for provisioning".into(),
@@ -89,7 +93,40 @@ pub async fn provision_handler(
     }
 }
 
-/// Get full sandbox status including servers and agent state.
+/// Get the canonical live status for a Task's Sandbox and Agent.
+#[utoipa::path(
+    get,
+    path = "/api/sandbox/v1/tasks/{task_id}/live-status",
+    tag = "sandbox",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    responses(
+        (status = 200, description = "Task live status", body = crate::sandbox::live_status::LiveStatus),
+        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn live_status_handler(
+    State(state): State<SandboxApiState>,
+    OptionalScope(scope): OptionalScope,
+    Path(task_id): Path<String>,
+) -> impl IntoResponse {
+    let task = match authorize_task_read(&state, &scope, &task_id).await {
+        Ok(task) => task,
+        Err(e) => return e.into_response(),
+    };
+
+    match state
+        .provider
+        .live_status(&task_id, task.status, task.sandbox_desired_state)
+        .await
+    {
+        Ok(status) => Json(status).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+/// Get full sandbox status including servers and Agent status.
 #[utoipa::path(
     get,
     path = "/api/sandbox/v1/tasks/{task_id}/status",
@@ -118,55 +155,30 @@ pub async fn sandbox_status_handler(
 
     match state
         .provider
-        .sandbox_status(&task_id, &server_configs)
+        .sandbox_status(
+            &task_id,
+            &server_configs,
+            task.status,
+            task.sandbox_desired_state,
+        )
         .await
     {
         Ok(mut resp) => {
-            // If sandbox doesn't exist and the task is closed, report as Removed.
-            // The task was already resolved (and authorized) above, so reuse it
-            // instead of an unscoped lookup.
-            if resp.environment_status == SandboxStatus::NotCreated
-                && task.status == crate::task::models::TaskStatus::Closed
-            {
-                resp.environment_status = SandboxStatus::Removed;
-            }
-
             // Surface the recorded lifecycle intent and image freshness so the
             // UI can tell whether a redeploy would move the sandbox to a newer
             // image. The "latest" image is what a fresh (re)deploy would use:
             // the per-repo `docker_image` override, else the configured default.
             resp.sandbox_desired_state = Some(task.sandbox_desired_state);
 
-            // Surface a desired-vs-actual divergence: the task wants a running
-            // sandbox but the live environment is stopped / never created. This
-            // is a reconcile miss (or an in-flight transition) that would
-            // otherwise be indistinguishable from an intentional stop, since
-            // both report `stopped` with no error. Only annotate when the
-            // resolver did not already report a concrete environment error.
-            if resp.environment_error.is_none()
-                && task.sandbox_desired_state == crate::task::models::SandboxDesiredState::Running
-                && matches!(
-                    resp.environment_status,
-                    SandboxStatus::Stopped | SandboxStatus::NotCreated
-                )
-            {
-                resp.environment_error = Some(
-                    "Sandbox is not running but its desired state is 'running' \
-                     (reconcile pending or failed)"
-                        .to_string(),
-                );
-            }
-
-            let docker_image_override =
-                match (&state.workspaces, task.workspace_id.as_deref()) {
-                    (Some(workspaces), Some(ws_id)) => workspaces
-                        .find_by_id(ws_id)
-                        .await
-                        .ok()
-                        .flatten()
-                        .and_then(|ws| ws.docker_image),
-                    _ => None,
-                };
+            let docker_image_override = match (&state.workspaces, task.workspace_id.as_deref()) {
+                (Some(workspaces), Some(ws_id)) => workspaces
+                    .find_by_id(ws_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|ws| ws.docker_image),
+                _ => None,
+            };
             let latest = state
                 .provider
                 .expected_sandbox_image(docker_image_override.as_deref());
@@ -298,9 +310,13 @@ pub async fn redeploy_handler(
         &state.plugin_repos,
         &state.workspaces,
     ) {
-        (Some(t), Some(r), Some(pt), Some(pr), Some(ws)) => {
-            (t.as_ref(), r.as_ref(), pt.as_ref(), pr.as_ref(), ws.as_ref())
-        }
+        (Some(t), Some(r), Some(pt), Some(pr), Some(ws)) => (
+            t.as_ref(),
+            r.as_ref(),
+            pt.as_ref(),
+            pr.as_ref(),
+            ws.as_ref(),
+        ),
         _ => {
             return Err(SandboxError::Internal(
                 "Database not available for redeployment".into(),
@@ -482,8 +498,13 @@ pub(super) async fn authorize_task_control(
     scope: &Option<ScopeContext>,
     task_id: &str,
 ) -> Result<Task, SandboxError> {
-    authorize_task_control_inner(state.tasks.as_deref(), state.teams.as_deref(), scope, task_id)
-        .await
+    authorize_task_control_inner(
+        state.tasks.as_deref(),
+        state.teams.as_deref(),
+        scope,
+        task_id,
+    )
+    .await
 }
 
 /// Core of [`authorize_task_read`] against explicit dependencies (so it can be

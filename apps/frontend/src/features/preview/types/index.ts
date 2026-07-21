@@ -35,7 +35,7 @@ export interface PreviewPublish {
 
 export interface PreviewProps {
   taskId: string
-  environmentStatus?:
+  sandboxStatus?:
     | 'not_created'
     | 'initializing'
     | 'ready'
@@ -45,7 +45,7 @@ export interface PreviewProps {
     | 'error'
     | undefined
   /** Error message when environment is in error state */
-  environmentError?: string | undefined
+  sandboxError?: string | undefined
   /** K8s startup events to display during initializing state */
   startupEvents?: StartupEvent[] | undefined
   onElementSelected?: ((element: ElementInfo | null) => void) | undefined

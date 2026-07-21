@@ -1,3 +1,4 @@
+import type { LiveStatus } from '@moatless/api-client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, waitFor } from '@testing-library/react'
 import type React from 'react'
@@ -265,6 +266,28 @@ describe('GlobalEventStreamProvider — query invalidation (unit)', () => {
     expect(queryClient.invalidateQueries).not.toHaveBeenCalledWith(
       expect.objectContaining({ queryKey: queryKeys.tasks.lists() }),
     )
+  })
+
+  it('overlays Agent and Sandbox events onto the per-Task live-status cache', async () => {
+    queryClient.setQueryData<LiveStatus>(queryKeys.tasks.liveStatus('task-live'), {
+      sandboxStatus: 'ready',
+      agentStatus: 'idle',
+      sandboxError: null,
+    })
+    global.fetch = createEventStreamFetch([
+      makeEvent({ type: 'agent', subType: 'started', taskId: 'task-live' }),
+      makeEvent({ type: 'sandbox', subType: 'stopped', taskId: 'task-live' }),
+    ]) as any
+
+    renderWithProviders(<div />, queryClient)
+
+    await waitFor(() => {
+      expect(queryClient.getQueryData(queryKeys.tasks.liveStatus('task-live'))).toEqual({
+        sandboxStatus: 'stopped',
+        agentStatus: null,
+        sandboxError: null,
+      })
+    })
   })
 })
 

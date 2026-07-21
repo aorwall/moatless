@@ -8,10 +8,10 @@ import { useTaskEventSubscription } from '@/features/events/contexts/global-even
 import { type Todo, TodoList } from '@/features/tasks/components/chat/message-history/tool-calls'
 import { MinifiedEventItem } from '@/features/tasks/components/minified-event-viewer/minified-event-item'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
-import { useSandboxStatus } from '@/features/tasks/hooks/use-sandbox-status'
+import { useTaskLiveStatusQuery } from '@/features/tasks/hooks/use-task-queries'
 import { useCloseTask, useDeleteTask } from '@/features/tasks/hooks/use-tasks'
 import { formatRunningDuration } from '@/features/tasks/utils/format-duration'
-import { isTaskRunning } from '@/features/tasks/utils/task-status'
+import { liveStatusToActivityState } from '@/features/tasks/utils/live-status'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/lib/components/ui/card'
@@ -251,13 +251,15 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
   const taskTitle = task.name || task.description?.split('\n')[0] || 'Untitled'
 
   // Fetch sandbox status for environment indicator
-  const { data: sandboxStatus } = useSandboxStatus(task.taskId, task)
+  const { data: liveStatus } = useTaskLiveStatusQuery(task.taskId, {
+    enabled: task.status === 'open',
+  })
 
   // Error formatting hook
   const { formatErrorForDisplay } = useApiError()
 
   const isClosed = task.status === 'closed'
-  const taskRunning = isTaskRunning(task)
+  const taskRunning = liveStatus?.agentStatus === 'running'
 
   // Close task mutation with error handling
   const closeTaskMutation = useCloseTask(task.taskId, {
@@ -356,7 +358,12 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
         <CardHeader className="pb-3">
           <div className="flex items-start gap-2 min-w-0">
             <div className="flex-shrink-0">
-              <TaskStatusIcon task={task} sandbox={sandboxStatus} showText={false} />
+              <TaskStatusIcon
+                task={task}
+                liveStatus={liveStatus}
+                activityState={liveStatusToActivityState(liveStatus)}
+                showText={false}
+              />
             </div>
             <div className="flex flex-col min-w-0 flex-1 gap-1">
               <h3 className="font-medium text-sm leading-tight line-clamp-2 pr-6">{taskTitle}</h3>
@@ -380,7 +387,7 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
                   )}
                 </div>
                 <span className="shrink-0">
-                  {isTaskRunning(task) && runningDuration
+                  {taskRunning && runningDuration
                     ? runningDuration
                     : getRelativeTime(task.lastMessageAt || task.createdAt)}
                 </span>
@@ -404,7 +411,7 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
         </CardHeader>
 
         <CardContent className="pt-0">
-          {isTaskRunning(task) ? (
+          {taskRunning ? (
             renderRunningTaskContent(latestTodos, displayedEvents)
           ) : (
             <div className="min-h-[80px]">{renderCompletedTaskContent(task, latestTodos)}</div>

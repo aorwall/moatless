@@ -26,8 +26,8 @@ use sandbox_proto::{
 
 use moatless_backend_core::scope::ScopeContext;
 
-use crate::agent::prompt;
 use crate::access_control;
+use crate::agent::prompt;
 use crate::auth::github_app_registry::GitHubAppRegistry;
 use crate::auth::github_app_service::GitHubAppService;
 use crate::auth::models::UserRole;
@@ -43,7 +43,6 @@ use crate::file_storage::s3 as file_s3;
 use crate::message::dao::MessageRepository;
 use crate::message::send::enrich_pending_with_commands;
 use crate::repository::dao::RepoRepository;
-use crate::workspace::dao::WorkspaceRepository;
 use crate::sandbox::jwt;
 use crate::sandbox::secrets::{
     resolve_server_env, resolve_task_credentials, resolve_task_repo_owner, resolve_task_ssh_keys,
@@ -52,11 +51,12 @@ use crate::sandbox::secrets::{
 use crate::secret::service::SecretService;
 use crate::shared_models::AgentType;
 use crate::task::dao::TaskRepository;
-use crate::team::dao::TeamRepository;
 use crate::task::relations::TaskRelationRepository;
 use crate::task_event::dao::{InsertTaskEvent, TaskEventRepository};
 use crate::task_turn::dao::{TaskTurnRepository, TurnStateEvent};
 use crate::task_turn::models::classify_turn_transition;
+use crate::team::dao::TeamRepository;
+use crate::workspace::dao::WorkspaceRepository;
 
 /// Known credential env var names.
 ///
@@ -867,10 +867,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         // run's `taskTurn.active` reaches the backend first allocates it, the
         // other joins. Messages injected into a run in flight ack with that
         // run's id and so share its turn.
-        let Some(turn_number) = self
-            .resolve_turn_for_event(&req.task_id, &req.run_id)
-            .await
-        else {
+        let Some(turn_number) = self.resolve_turn_for_event(&req.task_id, &req.run_id).await else {
             warn!(
                 task_id = %req.task_id,
                 run_id = %req.run_id,
@@ -1979,7 +1976,7 @@ mod tests {
     use async_trait::async_trait;
     use chrono::{DateTime, Utc};
     use moatless_events::{
-        SandboxEventPayload, SandboxSubType, ServerEventPayload, ServerSubType, TaskSubType,
+        SandboxEventPayload, SandboxStatus, ServerEventPayload, ServerSubType, TaskSubType,
         TaskTurnSubType,
     };
 
@@ -2069,11 +2066,11 @@ mod tests {
 
     #[async_trait]
     impl EventPublisher for RecordingPublisher {
-        async fn publish_sandbox_event(&self, _: &str, _: SandboxSubType, _: &str) {}
+        async fn publish_sandbox_event(&self, _: &str, _: SandboxStatus, _: &str) {}
         async fn publish_sandbox_event_with_payload(
             &self,
             _: &str,
-            _: SandboxSubType,
+            _: SandboxStatus,
             _: &SandboxEventPayload,
         ) {
         }
@@ -2125,11 +2122,11 @@ mod tests {
 
     #[async_trait]
     impl EventPublisher for FlagCapturingPublisher {
-        async fn publish_sandbox_event(&self, _: &str, _: SandboxSubType, _: &str) {}
+        async fn publish_sandbox_event(&self, _: &str, _: SandboxStatus, _: &str) {}
         async fn publish_sandbox_event_with_payload(
             &self,
             _: &str,
-            _: SandboxSubType,
+            _: SandboxStatus,
             _: &SandboxEventPayload,
         ) {
         }
@@ -2384,10 +2381,7 @@ mod tests {
                 })
                 .collect())
         }
-        async fn find_team_ids_for_user(
-            &self,
-            user_id: &str,
-        ) -> Result<Vec<String>, sqlx::Error> {
+        async fn find_team_ids_for_user(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
             Ok(self
                 .members
                 .iter()
@@ -2733,7 +2727,11 @@ mod tests {
         // Covers both a nonexistent task and one the scoped read filtered out —
         // an invisible task is indistinguishable from a missing one, like the
         // HTTP 404.
-        let svc = service_with(tasks_returning(None), StubTeamRepo::empty(), users_regular());
+        let svc = service_with(
+            tasks_returning(None),
+            StubTeamRepo::empty(),
+            users_regular(),
+        );
         let err = svc
             .assert_task_access(&claims_for("anyone"), "ghost")
             .await

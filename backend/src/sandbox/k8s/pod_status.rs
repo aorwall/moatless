@@ -8,13 +8,11 @@
 //! * container waiting-reason extraction
 //! * multi-pod ranking ("pick best pod")
 //! * container observed-status extraction (for server monitoring)
-//! * `EnvironmentStatus` ↔ `PodPhase` conversion
+//! * `SandboxStatus` ↔ `PodPhase` conversion
 
 use k8s_openapi::api::core::v1::Pod;
 
-use crate::sandbox::models::{
-    ContainerObservedStatus, ContainerState, EnvironmentStatus, PodPhase,
-};
+use crate::sandbox::models::{ContainerObservedStatus, ContainerState, PodPhase, SandboxStatus};
 
 // =============================================================================
 // Shared failure-reason constants
@@ -251,16 +249,16 @@ fn extract_container_statuses_filtered(
         .collect()
 }
 
-/// Convert `EnvironmentStatus` back to an approximate `PodPhase` for L1 cache compat.
-pub fn env_status_to_pod_phase(status: &EnvironmentStatus) -> PodPhase {
+/// Convert `SandboxStatus` back to an approximate `PodPhase` for L1 cache compatibility.
+pub fn sandbox_status_to_pod_phase(status: &SandboxStatus) -> PodPhase {
     match status {
-        EnvironmentStatus::NotCreated => PodPhase::NotFound,
-        EnvironmentStatus::Initializing => PodPhase::Pending,
-        EnvironmentStatus::Ready => PodPhase::Running,
-        EnvironmentStatus::Stopped => PodPhase::Stopped,
-        EnvironmentStatus::Removing => PodPhase::Terminating,
-        EnvironmentStatus::Removed => PodPhase::NotFound,
-        EnvironmentStatus::Error => PodPhase::Failed,
+        SandboxStatus::NotCreated => PodPhase::NotFound,
+        SandboxStatus::Initializing => PodPhase::Pending,
+        SandboxStatus::Ready => PodPhase::Running,
+        SandboxStatus::Stopped => PodPhase::Stopped,
+        SandboxStatus::Removing => PodPhase::Terminating,
+        SandboxStatus::Removed => PodPhase::NotFound,
+        SandboxStatus::Error => PodPhase::Failed,
     }
 }
 
@@ -703,33 +701,33 @@ mod tests {
     }
 
     // =========================================================================
-    // env_status_to_pod_phase()
+    // sandbox_status_to_pod_phase()
     // =========================================================================
 
     #[test]
     fn env_status_roundtrip() {
         assert_eq!(
-            env_status_to_pod_phase(&EnvironmentStatus::Ready),
+            sandbox_status_to_pod_phase(&SandboxStatus::Ready),
             PodPhase::Running
         );
         assert_eq!(
-            env_status_to_pod_phase(&EnvironmentStatus::Initializing),
+            sandbox_status_to_pod_phase(&SandboxStatus::Initializing),
             PodPhase::Pending
         );
         assert_eq!(
-            env_status_to_pod_phase(&EnvironmentStatus::Stopped),
+            sandbox_status_to_pod_phase(&SandboxStatus::Stopped),
             PodPhase::Stopped
         );
         assert_eq!(
-            env_status_to_pod_phase(&EnvironmentStatus::Error),
+            sandbox_status_to_pod_phase(&SandboxStatus::Error),
             PodPhase::Failed
         );
         assert_eq!(
-            env_status_to_pod_phase(&EnvironmentStatus::NotCreated),
+            sandbox_status_to_pod_phase(&SandboxStatus::NotCreated),
             PodPhase::NotFound
         );
         assert_eq!(
-            env_status_to_pod_phase(&EnvironmentStatus::Removing),
+            sandbox_status_to_pod_phase(&SandboxStatus::Removing),
             PodPhase::Terminating
         );
     }

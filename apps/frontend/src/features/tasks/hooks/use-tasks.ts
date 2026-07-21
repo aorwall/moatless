@@ -3,8 +3,8 @@ import type {
   CreateTaskRequest,
   CreateTaskResponse,
   ListTasksResponse,
+  LiveStatus,
   MessageContextInput,
-  SandboxStatusFullResponse,
   SendMessageResponse,
   TaskResponse,
   ToolCallDetailResponse,
@@ -12,7 +12,7 @@ import type {
   UpdateTaskTtlRequest,
 } from '@moatless/api-client'
 import { unwrapResponse } from '@moatless/api-client/custom-instance'
-import { sandboxStatusHandler } from '@moatless/api-client/sandbox/sandbox/sandbox'
+import { liveStatusHandler } from '@moatless/api-client/sandbox/sandbox/sandbox'
 import type {
   InfiniteData,
   QueryClient,
@@ -225,24 +225,17 @@ export function useCreateTask(
           )
         }
 
-        // Seed sandbox status cache with initializing state for instant feedback
-        queryClient.setQueryData<SandboxStatusFullResponse>(
-          queryKeys.tasks.sandboxStatus(response.taskId),
-          {
-            sandboxState: 'missing',
-            environmentStatus: 'initializing',
-            agentState: 'none',
-            servers: [],
-            sandboxReady: false,
-            canExecute: false,
-          },
-        )
+        // Seed live status cache with initializing state for instant feedback.
+        queryClient.setQueryData<LiveStatus>(queryKeys.tasks.liveStatus(response.taskId), {
+          sandboxStatus: 'initializing',
+          agentStatus: null,
+          sandboxError: null,
+        })
 
-        // Prefetch actual sandbox status in background (staleTime: 0 forces fetch)
+        // Prefetch actual live status in background (staleTime: 0 forces fetch).
         queryClient.prefetchQuery({
-          queryKey: queryKeys.tasks.sandboxStatus(response.taskId),
-          queryFn: () =>
-            unwrapResponse<SandboxStatusFullResponse>(sandboxStatusHandler(response.taskId)),
+          queryKey: queryKeys.tasks.liveStatus(response.taskId),
+          queryFn: () => unwrapResponse<LiveStatus>(liveStatusHandler(response.taskId)),
           staleTime: 0,
         })
       } else {
@@ -334,10 +327,8 @@ export function useSendMessage(
 
       // Create optimistic message — mark as queued when the agent is already running,
       // since the backend will save it with agentSessionId = NULL
-      const sandboxStatus = queryClient.getQueryData<SandboxStatusFullResponse>(
-        queryKeys.tasks.sandboxStatus(taskId),
-      )
-      const isQueued = sandboxStatus?.agentState === 'running'
+      const liveStatus = queryClient.getQueryData<LiveStatus>(queryKeys.tasks.liveStatus(taskId))
+      const isQueued = liveStatus?.agentStatus === 'running'
 
       // Build optimistic contexts: caller-supplied (preview/element) +
       // synthesised File contexts from locally-known uploads. The server

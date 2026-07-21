@@ -31,6 +31,7 @@ import type {
   FileTreeResponse,
   ListFilesHandlerParams,
   ListFilesResponse,
+  LiveStatus,
   ProvisionResponse,
   ReadFileHandlerParams,
   SandboxStatusFullResponse,
@@ -803,6 +804,137 @@ export const useWriteFileHandler = <TError = ErrorType<ErrorBody>,
       return useMutation(getWriteFileHandlerMutationOptions(options), queryClient);
     }
     /**
+ * @summary Get the canonical live status for a Task's Sandbox and Agent.
+ */
+export type liveStatusHandlerResponse200 = {
+  data: LiveStatus
+  status: 200
+}
+
+export type liveStatusHandlerResponse500 = {
+  data: ErrorBody
+  status: 500
+}
+
+export type liveStatusHandlerResponseSuccess = (liveStatusHandlerResponse200) & {
+  headers: Headers;
+};
+export type liveStatusHandlerResponseError = (liveStatusHandlerResponse500) & {
+  headers: Headers;
+};
+
+export type liveStatusHandlerResponse = (liveStatusHandlerResponseSuccess | liveStatusHandlerResponseError)
+
+export const getLiveStatusHandlerUrl = (taskId: string,) => {
+
+
+
+
+  return `/api/sandbox/v1/tasks/${taskId}/live-status`
+}
+
+export const liveStatusHandler = async (taskId: string, options?: RequestInit): Promise<liveStatusHandlerResponse> => {
+
+  return customInstance<liveStatusHandlerResponse>(getLiveStatusHandlerUrl(taskId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getLiveStatusHandlerQueryKey = (taskId: string,) => {
+    return [
+    `/api/sandbox/v1/tasks/${taskId}/live-status`
+    ] as const;
+    }
+
+
+export const getLiveStatusHandlerQueryOptions = <TData = Awaited<ReturnType<typeof liveStatusHandler>>, TError = ErrorType<ErrorBody>>(taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof liveStatusHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getLiveStatusHandlerQueryKey(taskId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof liveStatusHandler>>> = ({ signal }) => liveStatusHandler(taskId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(taskId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof liveStatusHandler>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type LiveStatusHandlerQueryResult = NonNullable<Awaited<ReturnType<typeof liveStatusHandler>>>
+export type LiveStatusHandlerQueryError = ErrorType<ErrorBody>
+
+
+export function useLiveStatusHandler<TData = Awaited<ReturnType<typeof liveStatusHandler>>, TError = ErrorType<ErrorBody>>(
+ taskId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof liveStatusHandler>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof liveStatusHandler>>,
+          TError,
+          Awaited<ReturnType<typeof liveStatusHandler>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useLiveStatusHandler<TData = Awaited<ReturnType<typeof liveStatusHandler>>, TError = ErrorType<ErrorBody>>(
+ taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof liveStatusHandler>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof liveStatusHandler>>,
+          TError,
+          Awaited<ReturnType<typeof liveStatusHandler>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useLiveStatusHandler<TData = Awaited<ReturnType<typeof liveStatusHandler>>, TError = ErrorType<ErrorBody>>(
+ taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof liveStatusHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+/**
+ * @summary Get the canonical live status for a Task's Sandbox and Agent.
+ */
+
+export function useLiveStatusHandler<TData = Awaited<ReturnType<typeof liveStatusHandler>>, TError = ErrorType<ErrorBody>>(
+ taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof liveStatusHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getLiveStatusHandlerQueryOptions(taskId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get the canonical live status for a Task's Sandbox and Agent.
+ */
+export const prefetchLiveStatusHandlerQuery = async <TData = Awaited<ReturnType<typeof liveStatusHandler>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof liveStatusHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getLiveStatusHandlerQueryOptions(taskId,options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+/**
  * Builds the provision request internally from DB state (task, repository,
 credentials). No request body required.
  * @summary Provision a new sandbox for a task.
@@ -1360,7 +1492,7 @@ export const prefetchServerLogsHandlerQuery = async <TData = Awaited<ReturnType<
 
 
 /**
- * @summary Get full sandbox status including servers and agent state.
+ * @summary Get full sandbox status including servers and Agent status.
  */
 export type sandboxStatusHandlerResponse200 = {
   data: SandboxStatusFullResponse
@@ -1463,7 +1595,7 @@ export function useSandboxStatusHandler<TData = Awaited<ReturnType<typeof sandbo
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 /**
- * @summary Get full sandbox status including servers and agent state.
+ * @summary Get full sandbox status including servers and Agent status.
  */
 
 export function useSandboxStatusHandler<TData = Awaited<ReturnType<typeof sandboxStatusHandler>>, TError = ErrorType<ErrorBody>>(
@@ -1479,7 +1611,7 @@ export function useSandboxStatusHandler<TData = Awaited<ReturnType<typeof sandbo
 }
 
 /**
- * @summary Get full sandbox status including servers and agent state.
+ * @summary Get full sandbox status including servers and Agent status.
  */
 export const prefetchSandboxStatusHandlerQuery = async <TData = Awaited<ReturnType<typeof sandboxStatusHandler>>, TError = ErrorType<ErrorBody>>(
  queryClient: QueryClient, taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof sandboxStatusHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
@@ -1583,4 +1715,3 @@ export const useStopHandler = <TError = ErrorType<ErrorBody>,
       > => {
       return useMutation(getStopHandlerMutationOptions(options), queryClient);
     }
-    

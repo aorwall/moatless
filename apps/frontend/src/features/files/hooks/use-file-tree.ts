@@ -13,7 +13,7 @@ interface UseFileTreeResult {
 
 export function useFileTree(taskId: string): UseFileTreeResult {
   const { data: sandboxStatus } = useTaskSandboxStatusQuery(taskId)
-  const isSandboxReady = sandboxStatus?.environmentStatus === 'ready'
+  const isSandboxReady = sandboxStatus?.sandboxStatus === 'ready'
 
   const [shallow, recursive] = useQueries({
     queries: [

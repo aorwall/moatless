@@ -10,13 +10,13 @@ import { Button } from '@/lib/components/ui/button'
 
 interface SandboxActionButtonsProps {
   taskId: string
-  environmentStatus?: string | undefined
+  sandboxStatus?: string | undefined
   compact?: boolean | undefined
 }
 
 export function SandboxActionButtons({
   taskId,
-  environmentStatus,
+  sandboxStatus,
   compact = false,
 }: SandboxActionButtonsProps) {
   const provision = useSandboxRetry(taskId)
@@ -37,7 +37,7 @@ export function SandboxActionButtons({
 
   return (
     <div className="flex items-center gap-1">
-      {(environmentStatus === 'not_created' || environmentStatus === 'stopped') && (
+      {(sandboxStatus === 'not_created' || sandboxStatus === 'stopped') && (
         <Button
           variant="outline"
           size={size}
@@ -50,7 +50,7 @@ export function SandboxActionButtons({
         </Button>
       )}
 
-      {environmentStatus === 'ready' && (
+      {sandboxStatus === 'ready' && (
         <Button
           variant="outline"
           size={size}
@@ -63,7 +63,7 @@ export function SandboxActionButtons({
         </Button>
       )}
 
-      {(environmentStatus === 'ready' || environmentStatus === 'initializing') && (
+      {(sandboxStatus === 'ready' || sandboxStatus === 'initializing') && (
         <Button
           variant="outline"
           size={size}
@@ -76,7 +76,7 @@ export function SandboxActionButtons({
         </Button>
       )}
 
-      {(environmentStatus === 'ready' || environmentStatus === 'initializing') && (
+      {(sandboxStatus === 'ready' || sandboxStatus === 'initializing') && (
         <Button
           variant="outline"
           size={size}
@@ -89,7 +89,7 @@ export function SandboxActionButtons({
         </Button>
       )}
 
-      {environmentStatus === 'error' && (
+      {sandboxStatus === 'error' && (
         <>
           <Button
             variant="outline"

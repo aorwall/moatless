@@ -27,7 +27,7 @@ export function FilesPanel() {
   const retryMutation = useSandboxRetry(taskId)
   const isMobile = useIsMobile()
 
-  const isSandboxReady = sandboxStatus?.environmentStatus === 'ready'
+  const isSandboxReady = sandboxStatus?.sandboxStatus === 'ready'
 
   useEffect(() => {
     if (search.path === undefined && search.device === undefined) {
@@ -61,10 +61,10 @@ export function FilesPanel() {
           {isSandboxReady ? (
             <LazyFileExplorer taskId={taskId} />
           ) : (
-            sandboxStatus?.environmentStatus && (
+            sandboxStatus?.sandboxStatus && (
               <SandboxStatusOverlay
-                environmentStatus={sandboxStatus.environmentStatus}
-                environmentError={sandboxStatus.environmentError ?? undefined}
+                sandboxStatus={sandboxStatus.sandboxStatus}
+                sandboxError={sandboxStatus.sandboxError ?? undefined}
                 onRetry={() => retryMutation.mutate()}
                 isRetrying={retryMutation.isPending}
                 retryError={retryMutation.error}

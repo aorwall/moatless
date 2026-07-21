@@ -9,7 +9,7 @@
 /**
  * Sandbox status — valid status values for sandbox lifecycle events.
 
-These match the frontend `EnvironmentStatusSchema` values.
+These match the frontend `SandboxStatus` values.
  */
 export type SandboxStatus = typeof SandboxStatus[keyof typeof SandboxStatus];
 

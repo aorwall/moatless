@@ -529,11 +529,14 @@ fn format_task_detail(t: &TaskResponse) {
 }
 
 fn format_sandbox_status(status: &SandboxStatusFullResponse) {
-    println!("Environment: {}", status.environment_status);
-    if let Some(ref err) = status.environment_error {
+    println!("Sandbox:    {}", status.sandbox_status);
+    if let Some(ref err) = status.sandbox_error {
         println!("Error:       {err}");
     }
-    println!("Agent:       {}", status.agent_state);
+    let agent_status = status
+        .agent_status
+        .map_or_else(|| "n/a".to_string(), |value| value.to_string());
+    println!("Agent:       {agent_status}");
 
     if !status.servers.is_empty() {
         println!("\nServers:");
@@ -645,20 +648,20 @@ async fn run_diagnose(
 
     // Status section
     println!("Status:");
-    let env_status = status
-        .get("environmentStatus")
+    let sandbox_status = status
+        .get("sandboxStatus")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("unknown");
-    println!("  Environment:  {env_status}");
+    println!("  Sandbox:      {sandbox_status}");
 
-    let agent_state = status
-        .get("agentState")
+    let agent_status = status
+        .get("agentStatus")
         .and_then(serde_json::Value::as_str)
-        .unwrap_or("unknown");
-    println!("  Agent:        {agent_state}");
+        .unwrap_or("n/a");
+    println!("  Agent:        {agent_status}");
 
     if let Some(err) = status
-        .get("environmentError")
+        .get("sandboxError")
         .and_then(serde_json::Value::as_str)
     {
         println!("  Error:        {err}");

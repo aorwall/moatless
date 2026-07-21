@@ -79,9 +79,11 @@ async fn agent_stop_and_recovery() {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
         if let Ok(status) = client.api().sandbox_status(task_id).await {
-            let agent_state_str = format!("{}", status.agent_state);
-            if agent_state_str == "idle" || agent_state_str == "none" {
-                println!("AGENT-04.2: Agent stopped, state={}", status.agent_state);
+            if status.agent_status == Some(moatless_api_schemas::sandbox::AgentStatus::Idle) {
+                println!(
+                    "AGENT-04.2: Agent stopped, status={:?}",
+                    status.agent_status
+                );
                 break;
             }
         }

@@ -104,8 +104,7 @@ pub fn parse_env_vars_from_workspace(ws: &Workspace) -> Option<HashMap<String, S
 
 /// Build code_execution JSON pass-through from a workspace's run-config columns.
 fn build_code_execution_from_workspace(ws: &Workspace) -> Option<serde_json::Value> {
-    let has_any =
-        ws.setup_commands.is_some() || ws.docker_image.is_some() || ws.env_vars.is_some();
+    let has_any = ws.setup_commands.is_some() || ws.docker_image.is_some() || ws.env_vars.is_some();
     if !has_any {
         return None;
     }
