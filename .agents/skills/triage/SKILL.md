@@ -2,6 +2,7 @@
 name: triage
 description: Move issues and external PRs through a state machine of triage roles — categorise, verify, grill if needed, and write agent-ready briefs.
 disable-model-invocation: true
+# Forked from https://github.com/mattpocock/skills — maintained locally, not tracked in skills-lock.json
 ---
 
 # Triage

@@ -1,6 +1,7 @@
 ---
 name: code-review
 description: Two-axis review of changes since a fixed point — Standards (repo standards + smell baseline) and Spec (does the diff match the originating issue/PRD) — in parallel sub-agents. Use to review a branch, PR, or work-in-progress, or on "review since X".
+# Forked from https://github.com/mattpocock/skills — maintained locally, not tracked in skills-lock.json
 ---
 
 Two-axis review of the diff between `HEAD` and a fixed point the user supplies:
