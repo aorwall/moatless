@@ -84,14 +84,18 @@ curl -s -X POST \
 # Get worker pod
 WORKER_POD=$(kubectl get pods -n $NAMESPACE -l moatless.io/task-id=$TASK_ID -o jsonpath='{.items[0].metadata.name}')
 
-# Check preview server status
-kubectl exec -n $NAMESPACE $WORKER_POD -- curl -s localhost:8001/server/status
+# Check preview server status (backend-proxied; the container itself only
+# serves /health and /livez)
+curl -s -H "Authorization: Bearer $API_KEY" \
+  "$BASE_URL/api/sandbox/v1/tasks/$TASK_ID/server/status" | jq '.servers'
 
-# Test preview directly
-kubectl exec -n $NAMESPACE $WORKER_POD -- curl -s localhost:3000 | head -20
+# Test the dev server directly inside the sandbox container
+kubectl exec -n $NAMESPACE $WORKER_POD -c sandbox -- curl -s localhost:3000 | head -20
 
-# Via hostname routing
-curl -sk "https://${TASK_ID}.proxy.moatless.dev/" -H "Authorization: Bearer $API_KEY"
+# Via the preview URL reported in server status
+PREVIEW_URL=$(curl -s -H "Authorization: Bearer $API_KEY" \
+  "$BASE_URL/api/sandbox/v1/tasks/$TASK_ID/server/status" | jq -r '.servers[] | select(.default) | .url')
+curl -sk "$PREVIEW_URL" -H "Authorization: Bearer $API_KEY"
 ```
 
 ## Troubleshooting Checklist

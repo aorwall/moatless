@@ -1,5 +1,10 @@
 # Preview Server Troubleshooting
 
+Server logs/status are served by the **backend proxy** (`localhost:8080` in
+Docker mode), not the sandbox container — the container's own HTTP server only
+exposes `/health` and `/livez`. Server start config (commands, timeout) lives on
+the task's **workspace** (`moat workspaces …`), not on the repository.
+
 ## Common Issues
 
 ### Server Process Started But Not HTTP-Responsive
@@ -20,12 +25,10 @@
 
 **Diagnosis**:
 ```bash
-# Get sandbox container
 CONTAINER=$(docker ps --format "{{.Names}}" | grep moatless-sandbox | head -1)
-PORT=$(docker port $CONTAINER 8001 | cut -d: -f2)
 
-# Check server logs - look for IPv6 address
-curl -s "http://localhost:$PORT/server/logs" | jq -r '.logs'
+# Preview server logs (SSE stream) — look for the bound address
+moat tasks logs <task_id> --server preview
 # Look for: "Local: http://localhost:3000/" vs "http://[::1]:3000/"
 
 # Test IPv4 (will fail)
@@ -35,51 +38,48 @@ docker exec $CONTAINER bun -e "fetch('http://localhost:3000').then(r => console.
 docker exec $CONTAINER bun -e "fetch('http://[::1]:3000').then(r => console.log(r.status)).catch(e => console.log('IPv6 failed:', e.message))"
 ```
 
-**Fix**: Add `--host` flag to dev server command:
+**Fix**: Add `--host` to the dev server command. Start commands live on the
+workspace's server config, so override the workspace (not the repo):
 ```bash
-# Update repository config
-curl -X PATCH "http://localhost:8080/api/v1/repositories/{repoId}" \
-  -H "Content-Type: application/json" \
-  -d '{"previewConfig": {"serverStartCommands": ["bun run dev -- --host"]}}'
+moat workspaces override <workspace_id> \
+  --servers-json '[{"name":"preview","port":3000,"default":true,"startCommands":["bun run dev -- --host"]}]'
 ```
 
 ### Timeout Issues
 
-**Default timeout**: 90 seconds (configurable per repository)
+**Default timeout**: 90 seconds (per-server `startupTimeoutSeconds`).
 
 **Diagnosis**:
 ```bash
-# Check current timeout
-curl -s "http://localhost:8080/api/v1/repositories/{repoId}" | jq '.previewConfig.startupTimeoutSeconds'
+# Current server config, including startupTimeoutSeconds
+moat workspaces get <workspace_id> | jq '.servers'
 ```
 
-**Fix**: Increase timeout if `bun install` takes too long:
+**Fix**: Increase the timeout if `bun install` takes too long (set it alongside
+the other server fields so the override is complete):
 ```bash
-curl -X PATCH "http://localhost:8080/api/v1/repositories/{repoId}" \
-  -H "Content-Type: application/json" \
-  -d '{"previewConfig": {"startupTimeoutSeconds": 120}}'
+moat workspaces override <workspace_id> \
+  --servers-json '[{"name":"preview","port":3000,"default":true,"startCommands":["bun run dev -- --host"],"startupTimeoutSeconds":120}]'
 ```
 
 ## Debugging Commands
 
-### Get Preview Server Logs
+### Get Preview Server Logs and Status
 ```bash
-CONTAINER=$(docker ps --format "{{.Names}}" | grep moatless-sandbox | head -1)
-PORT=$(docker port $CONTAINER 8001 | cut -d: -f2)
+# Logs (SSE stream; add --previous for a crashed container)
+moat tasks logs <task_id> --server preview
 
-# Full logs (shows bun install output, server startup)
-curl -s "http://localhost:$PORT/server/logs" | jq -r '.logs'
-
-# Server status
-curl -s "http://localhost:$PORT/server/status" | jq .
+# Per-server status
+moat tasks status <task_id>
+# raw proxy equivalent:
+curl -s "http://localhost:8080/api/sandbox/v1/tasks/<task_id>/server/status" | jq '.servers'
 ```
 
 ### Test Health Check Manually
 ```bash
-# From host (through port mapping)
-curl -s "http://localhost:$PORT/health"
+CONTAINER=$(docker ps --format "{{.Names}}" | grep moatless-sandbox | head -1)
 
-# Inside container
+# The sandbox container's own health endpoint
 docker exec $CONTAINER curl -s http://localhost:3000/
 ```
 
@@ -92,9 +92,9 @@ docker exec $CONTAINER bun -e "fetch('http://localhost:3000').then(r => console.
 
 ## Health Check Flow
 
-1. Sandbox container starts dev server with `serverStartCommands`
+1. Sandbox container starts the dev server with the workspace's `startCommands`
 2. Sandbox polls `http://localhost:{port}/` every second
-3. After successful response, marks server as healthy
-4. Backend polls sandbox at `http://{SANDBOX_HOST}:{hostPort}/health`
+3. After a successful response, marks the server as healthy
+4. Backend polls the sandbox at `http://{SANDBOX_HOST}:{hostPort}/health`
 
 If step 2 fails (IPv6 issue), step 4 will timeout.

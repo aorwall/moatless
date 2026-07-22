@@ -42,7 +42,7 @@ DOCKER_BACKEND_HOSTNAME=moatless-backend     # Backend container name (for sandb
 
 ## Vibe Task Creation
 
-Canonical create/monitor/cleanup recipe: `.claude/skills/kubernetes-testing/references/api_reference.md`. Against local Docker Compose use `http://localhost:8080` and no auth header; get a template id via `curl -s http://localhost:8080/api/v1/repositories | jq '.[0].id'`.
+Canonical create/monitor/cleanup recipe: `.agents/skills/kubernetes-testing/references/api_reference.md`. Against local Docker Compose use `http://localhost:8080` and no auth header; get a template id via `curl -s http://localhost:8080/api/v1/repositories | jq '.[0].id'`.
 
 ## Container Management
 
@@ -85,16 +85,19 @@ The preview server runs inside sandbox containers. When troubleshooting preview 
 
 ### Get Preview Server Logs
 
+Server logs/status are served by the **backend proxy**, not the sandbox
+container (the container's own HTTP server only exposes `/health` and `/livez`).
+In Docker mode the backend is at `localhost:8080`.
+
 ```bash
-# Find sandbox container port
-CONTAINER=$(docker ps --format "{{.Names}}" | grep moatless-sandbox | head -1)
-PORT=$(docker port $CONTAINER 8001 | cut -d: -f2)
+# Preview server logs (SSE stream — shows bun install, bun run dev output).
+# Add --previous to read a crashed/restarted container's logs.
+moat tasks logs <task_id> --server preview
 
-# Get preview server logs (shows bun install, bun run dev output)
-curl -s "http://localhost:$PORT/server/logs" | jq -r '.logs'
-
-# Get preview server status
-curl -s "http://localhost:$PORT/server/status" | jq .
+# Per-server status
+moat tasks status <task_id>
+# raw proxy equivalent:
+curl -s "http://localhost:8080/api/sandbox/v1/tasks/<task_id>/server/status" | jq '.servers'
 ```
 
 ### Test Preview Server Connectivity

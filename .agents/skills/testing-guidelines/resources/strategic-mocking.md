@@ -119,36 +119,10 @@ test('creates task on form submit', async () => {
 })
 ```
 
-### Mock Backend Dependencies
-```tsx
-// Service test - mock repository
-describe('TaskService', () => {
-  let mockTaskRepo: ITaskRepository
-
-  beforeEach(() => {
-    mockTaskRepo = {
-      findAll: vi.fn(),
-      findById: vi.fn(),
-      create: vi.fn()
-    }
-  })
-
-  test('getAllTasks returns tasks', async () => {
-    mockTaskRepo.findAll.mockResolvedValue([{ id: '1', title: 'Task' }])
-
-    const service = new TaskService(mockTaskRepo)
-    const tasks = await service.getAllTasks()
-
-    expect(tasks).toHaveLength(1)
-    expect(mockTaskRepo.findAll).toHaveBeenCalled()
-  })
-})
-```
-
 ## When to Mock Your Own Code
 
 ### Exception: External API Wrappers
-If your code directly wraps an external service:
+If your code directly wraps an external service, mocking the wrapper is mocking that external boundary:
 
 ```tsx
 // ✅ OK to mock this wrapper
@@ -157,14 +131,6 @@ export function useAuth() {
 }
 
 vi.mock('@/lib/hooks/use-auth')
-```
-
-### Exception: Performance
-For very slow operations in non-critical tests:
-
-```tsx
-// If parsing takes >1s and isn't being tested
-vi.mock('./heavy-parser')
 ```
 
 ## Anti-Patterns

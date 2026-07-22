@@ -71,7 +71,7 @@ redis:
   url: "redis://your-redis:6379"
 ```
 
-For production, keep both bundled data stores off and supply `DATABASE_URL` via `moat k8s secret bootstrap` and an external `redis.url`. The bundled first-party Postgres (`postgres.enabled: true`) and Redis (`redis.enabled: true`, the default) are single-node and meant for local/demo installs, not production.
+For production, keep both bundled data stores off and supply `DATABASE_URL` via `moat k8s secrets bootstrap` and an external `redis.url`. The bundled first-party Postgres (`postgres.enabled: true`) and Redis (`redis.enabled: true`, the default) are single-node and meant for local/demo installs, not production.
 
 ## Storage
 
@@ -86,7 +86,7 @@ kubernetes:
 
 ```yaml
 secrets:
-  create: false        # moat k8s secret bootstrap owns this
+  create: false        # moat k8s secrets bootstrap owns this
 externalSecrets:
   enabled: true        # tells chart the Secret exists out-of-band
 ```
@@ -100,7 +100,7 @@ imagePullSecrets:
   - name: ghcr-secret
 ```
 
-Created by `moat k8s secret pull-token` when pulling from GHCR.
+Created by `moat k8s secrets pull-token` when pulling from GHCR.
 
 ## Resource sizing
 
@@ -116,7 +116,13 @@ Safe defaults. Tune up for heavy users or add an HPA via `autoscaling.enabled`.
 
 ```yaml
 monitoring:
-  enabled: false   # requires prometheus-operator CRDs
+  prometheus:
+    enabled: false          # PodMonitor scraping; requires prometheus-operator CRDs
+    scrapeInterval: "30s"
+    apiVersion: "monitoring.coreos.com/v1"
+  grafana:
+    enabled: false          # bundled dashboards as a ConfigMap; no CRD needed
+    dashboardLabels: {}
 ```
 
-Leave off unless the cluster has prometheus-operator installed.
+`prometheus.enabled` needs prometheus-operator installed; `grafana.enabled` is an independent switch that just ships a dashboard ConfigMap. Leave both off unless you use them.
