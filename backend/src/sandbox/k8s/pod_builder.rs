@@ -2361,6 +2361,28 @@ mod tests {
             .unwrap()
     }
 
+    /// The Task's fixed Agent-harness selection reaches the sandbox container as
+    /// the `AGENT_TYPE` env at construction (ADR-0004), so the sandbox resolves
+    /// its harness once instead of switching per Message. `auto_provision` stamps
+    /// this into `plan.env_vars`; here we prove the builder delivers it verbatim.
+    #[test]
+    fn agent_type_env_reaches_the_sandbox_container() {
+        let config = test_config();
+        let mut plan = test_plan();
+        plan.env_vars = Some(std::collections::HashMap::from([(
+            "AGENT_TYPE".to_string(),
+            "codex".to_string(),
+        )]));
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        assert_eq!(
+            sandbox_env(&pod)
+                .iter()
+                .find(|e| e.name == "AGENT_TYPE")
+                .and_then(|e| e.value.as_deref()),
+            Some("codex"),
+        );
+    }
+
     /// Per-repo `sandboxServiceAccount` overrides the global default SA, and
     /// falls back to the global default (here `None`) when unset.
     #[test]

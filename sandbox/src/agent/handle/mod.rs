@@ -53,6 +53,39 @@ const AGENT_TYPE_CLAUDE_CODE_CLI: &str = "claude-code-cli";
 const AGENT_TYPE_CLAUDE_CODE_FABLE: &str = "claude-code-fable";
 const AGENT_TYPE_CODEX: &str = "codex";
 
+/// Resolve a raw agent-type string into the canonical harness identifier the
+/// actor branches on, rejecting values this Sandbox has no harness for.
+///
+/// Used to validate the Task's fixed selection at Sandbox construction (ADR-0004):
+/// an unsupported harness is an invalid-configuration failure surfaced at
+/// startup rather than a silent fall-through to Claude. The Claude transport,
+/// model, and mode variants all resolve to the one Claude harness — they are
+/// configuration of that harness, not separate harnesses.
+pub(crate) fn resolve_agent_harness(raw: &str) -> Result<&'static str, String> {
+    match raw {
+        AGENT_TYPE_CODEX => Ok(AGENT_TYPE_CODEX),
+        AGENT_TYPE_CLAUDE_CODE | AGENT_TYPE_CLAUDE_CODE_TUI | AGENT_TYPE_CLAUDE_CODE_CLI
+        | AGENT_TYPE_CLAUDE_CODE_FABLE => Ok(AGENT_TYPE_CLAUDE_CODE),
+        other => Err(format!(
+            "unsupported Agent harness '{other}' (expected one of: \
+             {AGENT_TYPE_CLAUDE_CODE}, {AGENT_TYPE_CLAUDE_CODE_TUI}, \
+             {AGENT_TYPE_CLAUDE_CODE_CLI}, {AGENT_TYPE_CLAUDE_CODE_FABLE}, {AGENT_TYPE_CODEX})"
+        )),
+    }
+}
+
+/// Fix the harness selection on first resolution and keep it for the actor's
+/// lifetime. `current` is the selection already resolved — from the Sandbox's
+/// construction-time config, or (legacy migration) the first Message that
+/// carried an agent type. A later Message's agent type is tolerated as input but
+/// can never switch the harness, so it is adopted only when nothing is fixed yet.
+fn adopt_agent_type(current: &Option<String>, incoming: Option<String>) -> Option<String> {
+    match current {
+        Some(_) => current.clone(),
+        None => incoming,
+    }
+}
+
 enum ActiveHandle {
     Claude(ClaudeQueryHandle),
     Codex(CodexCliSession),
@@ -273,5 +306,54 @@ fn truncate(s: &str, max: usize) -> &str {
     match s.char_indices().nth(max) {
         Some((idx, _)) => &s[..idx],
         None => s,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{adopt_agent_type, resolve_agent_harness, AGENT_TYPE_CLAUDE_CODE, AGENT_TYPE_CODEX};
+
+    #[test]
+    fn resolve_agent_harness_collapses_claude_variants() {
+        for raw in [
+            "claude-code",
+            "claude-code-tui",
+            "claude-code-cli",
+            "claude-code-fable",
+        ] {
+            assert_eq!(resolve_agent_harness(raw).unwrap(), AGENT_TYPE_CLAUDE_CODE);
+        }
+    }
+
+    #[test]
+    fn resolve_agent_harness_accepts_codex() {
+        assert_eq!(resolve_agent_harness("codex").unwrap(), AGENT_TYPE_CODEX);
+    }
+
+    #[test]
+    fn resolve_agent_harness_rejects_unknown_instead_of_defaulting() {
+        // An unsupported value is a classified configuration failure, never a
+        // silent fall-through to Claude.
+        let err = resolve_agent_harness("gpt-9000").unwrap_err();
+        assert!(err.contains("gpt-9000"));
+        assert!(err.contains("unsupported Agent harness"));
+    }
+
+    #[test]
+    fn adopt_agent_type_freezes_the_first_resolved_selection() {
+        // A construction-time (or first legacy) selection is authoritative and a
+        // later Message cannot switch it.
+        let fixed = Some("codex".to_string());
+        assert_eq!(
+            adopt_agent_type(&fixed, Some("claude-code".to_string())),
+            fixed
+        );
+        // No fixed selection yet (legacy pod): adopt the first Message's type.
+        assert_eq!(
+            adopt_agent_type(&None, Some("codex".to_string())),
+            Some("codex".to_string())
+        );
+        // Still nothing to adopt when the Message carries none.
+        assert_eq!(adopt_agent_type(&None, None), None);
     }
 }

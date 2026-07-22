@@ -266,6 +266,7 @@ mod tests {
             port: 0,
             grpc_port: 0,
             task_id: "task-test".to_string(),
+            agent_type: None,
             workspace_dir: "/tmp/workspace".to_string(),
             repo_dir: "/tmp/workspace".to_string(),
             data_dir: "/tmp/data".to_string(),

@@ -128,6 +128,15 @@ pub async fn build_provision_request(
             .insert("SANDBOX_USE_TMUX".to_string(), "true".to_string());
     }
 
+    // The Task's selected Agent harness is fixed for the Sandbox lifetime
+    // (ADR-0004): pass it at construction so the sandbox resolves its harness
+    // once and pending Messages can no longer switch it. Inserted after the
+    // workspace env so the authoritative Task selection overrides any stray
+    // workspace-level `AGENT_TYPE`.
+    env_vars
+        .get_or_insert_with(std::collections::HashMap::new)
+        .insert("AGENT_TYPE".to_string(), task.agent_type.0.clone());
+
     // Resolve plugin git repos from the join table
     match plugin_repos.find_by_repository_id(&repository_id).await {
         Ok(plugins) if !plugins.is_empty() => {

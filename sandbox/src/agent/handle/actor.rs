@@ -35,7 +35,7 @@ use super::retry::{
 use super::session::{
     fetch_system_prompt, normalize_agent_type, publish_turn_start, start_session, TmuxSessionInfo,
 };
-use super::{drain_pending_acks, ActiveHandle, AgentCommand, QueuedSend, RunAck};
+use super::{adopt_agent_type, drain_pending_acks, ActiveHandle, AgentCommand, QueuedSend, RunAck};
 
 #[allow(clippy::large_enum_variant)] // Claude SDK messages are much larger than Codex JSON events.
 enum ActiveMessage {
@@ -144,7 +144,13 @@ pub(super) async fn agent_loop(
     let mut queued_sends: VecDeque<QueuedSend> = VecDeque::new();
     let mut codex_turn_output = String::new();
     let mut last_model: Option<String> = None;
-    let mut last_agent_type: Option<String> = None;
+    // The Agent harness is fixed for the Sandbox lifetime (ADR-0004). Seed it
+    // from the construction-time config so it is resolved once, before any
+    // pending input is dispatched; a `None` here means a legacy pod with no
+    // construction-time selection, which adopts (and then freezes) the first
+    // Message's agent type as a migration fallback. Later Messages never switch
+    // it — see `adopt_agent_type`.
+    let mut last_agent_type: Option<String> = config.agent_type.clone();
     let mut last_agent_mode: Option<String> = None;
     let mut retry_state: Option<RetryState> = None;
     let mut last_prompt: Option<String> = None;
@@ -873,9 +879,9 @@ pub(super) async fn agent_loop(
                         if model.is_some() {
                             last_model = model.clone();
                         }
-                        if agent_type.is_some() {
-                            last_agent_type = agent_type.clone();
-                        }
+                        // Tolerated as migration input only: adopt the harness
+                        // when none is fixed yet, never switch a resolved one.
+                        last_agent_type = adopt_agent_type(&last_agent_type, agent_type);
                         if agent_mode.is_some() {
                             last_agent_mode = agent_mode.clone();
                         }
@@ -957,9 +963,8 @@ pub(super) async fn agent_loop(
                         }
                         credential_recovery_attempts = 0;
 
-                        if agent_type.is_some() {
-                            last_agent_type = agent_type.clone();
-                        }
+                        // Recovery input cannot switch the fixed harness either.
+                        last_agent_type = adopt_agent_type(&last_agent_type, agent_type);
                         if agent_mode.is_some() {
                             last_agent_mode = agent_mode.clone();
                         }

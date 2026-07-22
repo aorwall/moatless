@@ -192,6 +192,7 @@ fn test_config() -> Config {
         port: 0,
         grpc_port: 0,
         task_id: "test-task-1".to_string(),
+        agent_type: None,
         workspace_dir: "/tmp/test-workspace".to_string(),
         repo_dir: "/tmp/test-workspace".to_string(),
         data_dir: "/tmp/test-data".to_string(),

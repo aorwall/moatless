@@ -111,6 +111,13 @@ pub struct Config {
     pub grpc_port: u16,
     /// Task ID (required)
     pub task_id: String,
+    /// The Task's selected Agent harness, fixed for the Sandbox lifetime and
+    /// delivered at construction via the `AGENT_TYPE` env (ADR-0004). `None` on
+    /// a legacy pod provisioned before this env existed — the actor then falls
+    /// back to the first Message's agent type as migration input. When set it is
+    /// validated at load, so an unsupported value fails startup instead of
+    /// silently running Claude.
+    pub agent_type: Option<String>,
     /// Workspace directory — the persisted *container* dir (e.g.
     /// `/opt/moatless/workspace`). This is the agent's cwd and the root of the
     /// S3 workspace snapshot: **every git repo under this dir** is snapshotted
@@ -243,6 +250,27 @@ fn parse_permission_mode(raw: &str) -> Option<PermissionMode> {
     }
 }
 
+/// Read and validate the Task's fixed Agent-harness selection from `AGENT_TYPE`.
+///
+/// Returns `None` when the env is absent or empty (a legacy pod). When present,
+/// the value is validated once here so an unsupported harness fails fast at
+/// startup — a classified invalid-configuration failure rather than a silent
+/// Claude fall-through. The original (validated) string is preserved so Claude
+/// transport/model variants keep flowing through the same normalization path.
+fn resolve_agent_type_env() -> Option<String> {
+    let raw = env::var("AGENT_TYPE").ok()?;
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    // Validate once at load: an unsupported harness is a configuration error we
+    // fail fast on at startup, never a silent Claude fall-through.
+    if let Err(e) = crate::agent::handle::resolve_agent_harness(raw) {
+        panic!("AGENT_TYPE is an invalid Agent-harness configuration: {e}");
+    }
+    Some(raw.to_string())
+}
+
 impl Config {
     /// Load configuration from environment variables.
     pub fn from_env() -> Self {
@@ -287,6 +315,8 @@ impl Config {
 
             #[allow(clippy::expect_used)] // required env var, crash at startup if missing
             task_id: env::var("TASK_ID").expect("TASK_ID is required"),
+
+            agent_type: resolve_agent_type_env(),
 
             workspace_dir,
             repo_dir,
@@ -447,6 +477,7 @@ pub(crate) mod test_support {
             port: 8001,
             grpc_port: 50052,
             task_id: "test-task".to_string(),
+            agent_type: None,
             workspace_dir: "/tmp/workspace".to_string(),
             repo_dir: "/tmp/workspace/repo".to_string(),
             data_dir: "/tmp/data".to_string(),

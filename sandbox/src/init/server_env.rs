@@ -75,6 +75,7 @@ mod tests {
             port: 8001,
             grpc_port: 50052,
             task_id: "task-1".to_string(),
+            agent_type: None,
             workspace_dir: tmp.path().join("workspace").display().to_string(),
             repo_dir: tmp.path().join("workspace").display().to_string(),
             data_dir: tmp.path().display().to_string(),

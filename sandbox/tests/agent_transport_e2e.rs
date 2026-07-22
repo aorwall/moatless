@@ -202,6 +202,7 @@ fn test_config(tmp: &TempDir, use_tmux: bool) -> Config {
         port: 0,
         grpc_port: 0,
         task_id: "agent-transport-e2e".to_string(),
+        agent_type: None,
         workspace_dir: tmp.path().join("workspace").display().to_string(),
         repo_dir: tmp.path().join("workspace").display().to_string(),
         data_dir: tmp.path().join("data").display().to_string(),
