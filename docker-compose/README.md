@@ -92,7 +92,7 @@ This guide covers deploying Moatless Vibe using Docker Compose with PostgreSQL, 
 ### Services
 
 #### Frontend
-- **Image**: `aorwall/moatless-vibe-frontend:latest` (nginx serving React SPA)
+- **Image**: `aorwall/moatless-frontend:latest` (nginx serving React SPA)
 - **Purpose**: Serves the React application and proxies `/api/` requests to the backend
 - **Port**: 3000 (configurable via `FRONTEND_PORT`)
 - **Config**: Custom `nginx.conf` mounted to handle SPA routing + API proxy

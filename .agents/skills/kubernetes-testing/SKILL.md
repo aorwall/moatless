@@ -231,7 +231,7 @@ See `references/metrics.md` for complete metrics reference with all labels and t
 
 **Fix**: Rebuild with correct platform:
 ```bash
-docker buildx build --platform linux/amd64 -t aorwall/moatless-vibe:latest -f docker/Dockerfile.app --push .
+docker buildx build --platform linux/amd64 -t aorwall/moatless-frontend:latest -f docker/Dockerfile.app --push .
 ```
 
 ## Automated tests

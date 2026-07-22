@@ -31,4 +31,4 @@ services:
       - ${DATA_DIR}:/data
 
   frontend:
-    image: ${FRONTEND_IMAGE:-aorwall/moatless-vibe:latest}
+    image: ${FRONTEND_IMAGE:-aorwall/moatless-frontend:latest}

@@ -6,7 +6,7 @@ This directory contains Docker configurations for building the application and s
 
 | Image | Base | Size | Purpose |
 |-------|------|------|---------|
-| `moatless-vibe` | `bun:alpine` | ~150MB | Main web application (self-contained) |
+| `moatless-frontend` | `nginx:alpine` | ~150MB | Main web application (static frontend) |
 | `moatless-sandbox` | Ubuntu 24.04 | ~500MB | Minimal base for sandboxes |
 | `moatless-sandbox-js` | sandbox | ~2GB | JS/TS environment with Playwright + Rust toolchain |
 | `moatless-sandbox-full` | sandbox | ~5-8GB | Full dev environment (Python, Go, Java; Rust from base) |
@@ -53,7 +53,7 @@ The app image is self-contained (no separate base image needed):
 ./docker/build-app.sh --push
 
 # Build directly with Docker
-docker build -f docker/Dockerfile.app -t moatless-vibe:latest .
+docker build -f docker/Dockerfile.app -t moatless-frontend:latest .
 ```
 
 ### Sandbox Images
@@ -101,7 +101,7 @@ All sandbox images run as the `moatless` user:
     └── skills -> /usr/share/moatless-skills  # Symlinked at container startup
 ```
 
-## moatless-vibe (App Image)
+## moatless-frontend (App Image)
 
 Lightweight image for running the main web application server.
 
@@ -116,7 +116,7 @@ Lightweight image for running the main web application server.
 ```bash
 ./docker/build-app.sh
 # or
-docker build -f docker/Dockerfile.app -t moatless-vibe:latest .
+docker build -f docker/Dockerfile.app -t moatless-frontend:latest .
 ```
 
 ## moatless-sandbox-base (Stable Base)
@@ -225,7 +225,7 @@ docker build -f docker/Dockerfile.sandbox-full \
 
 In Kubernetes, the Helm chart deploys:
 
-- **Main deployment**: Uses `moatless-vibe` for the API/web app
+- **Main deployment**: Uses `moatless-frontend` for the web app
 - **Worker pods**: Uses `moatless-sandbox-js` (or configured alternative) for task execution
 
 ### Permissions

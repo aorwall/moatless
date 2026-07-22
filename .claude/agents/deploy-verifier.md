@@ -135,7 +135,7 @@ If pod crashes with migration errors, inform the user and suggest:
 
 If this occurs:
 ```bash
-docker buildx build --platform linux/amd64 -t aorwall/moatless-vibe:latest -f docker/Dockerfile.app --push .
+docker buildx build --platform linux/amd64 -t aorwall/moatless-frontend:latest -f docker/Dockerfile.app --push .
 ```
 
 ### Pod Not Starting

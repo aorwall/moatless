@@ -19,7 +19,7 @@ bun run dev                     # optional: frontend with hot-reload
 ```
 
 ## Key Services
-- **frontend**: `aorwall/moatless-vibe-frontend` (nginx serving React SPA + API proxy)
+- **frontend**: `aorwall/moatless-frontend` (nginx serving React SPA + API proxy)
 - **backend**: `aorwall/moatless-vibe-backend` (Rust/Axum on port 8080)
 - **postgres**: PostgreSQL 17 on port 5432
 - **redis**: Redis 7 on port 6379

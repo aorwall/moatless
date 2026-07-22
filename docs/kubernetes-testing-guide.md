@@ -272,7 +272,7 @@ kubectl describe pod <pod-name> -n $NAMESPACE | grep -A 10 "Events:"
 **Resolution**:
 ```bash
 # For platform issues, rebuild with correct architecture
-docker buildx build --platform linux/amd64 -t aorwall/moatless-vibe:latest -f docker/Dockerfile.app --push .
+docker buildx build --platform linux/amd64 -t aorwall/moatless-frontend:latest -f docker/Dockerfile.app --push .
 ```
 
 ### "Pod stuck in Pending"

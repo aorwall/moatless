@@ -142,7 +142,7 @@ services:
     networks:
       - moatless
   frontend:
-    image: aorwall/moatless-vibe:${APP_VERSION:-latest}
+    image: aorwall/moatless-frontend:${APP_VERSION:-latest}
     container_name: moatless-frontend
     restart: unless-stopped
     labels:
