@@ -1,154 +1,84 @@
 # Metrics Reference
 
-Complete reference for Prometheus metrics available at `/metrics` endpoint (requires `METRICS_ENABLED=true`).
+Prometheus metrics are exposed on the `/metrics` endpoint of the backend's
+metrics port (`METRICS_PORT`, default **9090**). They are always registered —
+there is no `METRICS_ENABLED` flag.
+
+Metric names below are the ones actually registered in the backend
+(`backend/src/**/metrics.rs`, `backend/src/events.rs`). Verify against source if
+in doubt — an older metric set (`moatless_event_delivery_total`,
+`moatless_active_agents`, `moatless_kubernetes_pod_total`, …) is **legacy and no
+longer emitted**.
 
 ## Quick Access
 
 ```bash
-# Port-forward to access metrics
+# Port-forward to the metrics port
 kubectl port-forward deployment/moatless-vibe-backend -n $NAMESPACE 9090:9090
 
-# Get all moatless metrics
+# All moatless metrics
 curl -s localhost:9090/metrics | grep moatless_
 
-# Filter specific category
-curl -s localhost:9090/metrics | grep moatless_event
-curl -s localhost:9090/metrics | grep moatless_agent
-curl -s localhost:9090/metrics | grep moatless_kubernetes
+# By area
+curl -s localhost:9090/metrics | grep moatless_agent_
+curl -s localhost:9090/metrics | grep moatless_workspace_
+curl -s localhost:9090/metrics | grep -E 'events_.*_total'
 ```
 
-## Metrics by Category
-
-### Event Processing
+## Agent execution (`event_handler/metrics.rs`)
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `moatless_event_emitted_total` | Counter | type, storage_mode | Events emitted (agent, task, etc.) |
-| `moatless_event_delivery_total` | Counter | mode, status | Delivery attempts (notify/poll, success/error) |
-| `moatless_event_delivery_latency_seconds` | Histogram | mode | Delivery latency (NOTIFY vs poll) |
-| `moatless_event_poll_batch_size` | Histogram | - | Events per poll cycle |
-| `moatless_event_undelivered_count` | Gauge | - | Pending undelivered events |
+| `moatless_agent_tool_calls_total` | Counter | tool, agent_type, status | Completed tool calls (status `ok`\|`error`); `tool` is bucketed to a known set |
+| `moatless_agent_runs_total` | Counter | agent_type | Terminal run outcomes (`completed`\|`error`\|`stopped`) |
+| `moatless_agent_cost_usd` | Histogram | agent_type | Cost in USD per run (sum = total spend) |
+| `moatless_agent_turn_duration_seconds` | Histogram | agent_type, outcome | Turn wall-clock duration |
+| `moatless_agent_turn_api_duration_seconds` | Histogram | agent_type | Turn API time |
+| `moatless_agent_turns` | Histogram | agent_type | Internal turns per run |
+| `moatless_agent_permission_denials_total` | Counter | tool | Tool-permission denials |
 
-**Key checks:**
-- NOTIFY latency should be <100ms
-- Poll should only activate if NOTIFY fails
-- Undelivered count should stay low
-
-### Agent Execution
+## Sandbox & workspace (`sandbox/metrics.rs`)
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `moatless_active_agents` | Gauge | - | Currently running agents |
-| `moatless_agent_execution_total` | Counter | status, agent_type | Executions (success/error/stopped) |
-| `moatless_agent_execution_duration_seconds` | Histogram | agent_type | Execution duration |
-| `moatless_agent_message_total` | Counter | agent_type, message_type | Messages by type |
-| `moatless_tool_invocation_total` | Counter | tool_name, status | Tool calls (success/error) |
-| `moatless_agent_cost_usd_total` | Counter | agent_type | Total cost in USD |
-| `moatless_agent_input_tokens_total` | Counter | agent_type | Input tokens consumed |
-| `moatless_agent_output_tokens_total` | Counter | agent_type | Output tokens generated |
+| `moatless_sandbox_provision_duration_seconds` | Histogram | storage_backend, outcome | Sandbox provision call duration |
+| `moatless_sandbox_restart_duration_seconds` | Histogram | storage_backend | Sandbox restart call duration |
+| `moatless_workspace_sync_duration_seconds` | Histogram | direction | One workspace S3 sync duration (`upload`\|`download`) |
+| `moatless_workspace_sync_bytes` | Histogram | direction | Sync tar size in bytes |
+| `moatless_workspace_sync_total` | Counter | direction, outcome | Sync outcomes (`ok`\|`error`) |
 
-**Key checks:**
-- Active agents should match running worker pods
-- Tool errors indicate potential issues
-- Cost tracking for budget monitoring
+## Event publishing (`events.rs`) — note: no `moatless_` prefix
 
-### Task Lifecycle
+| Metric | Type | Description |
+|--------|------|-------------|
+| `events_published_total` | Counter | Events successfully published to Redis |
+| `events_publish_failures_total` | Counter | Events that failed to publish after all retries |
+| `events_publish_retries_total` | Counter | Retry attempts preceding a successful publish |
+| `events_payload_truncated_total` | Counter | Events published with a truncated payload stub |
 
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `moatless_task_created_total` | Counter | agent_type | Tasks created |
-| `moatless_task_status_transitions_total` | Counter | status, agent_type | Status changes (open→running→completed) |
-| `moatless_task_iteration_total` | Counter | status, agent_type | Iterations (created/completed/failed) |
-| `moatless_task_iteration_duration_seconds` | Histogram | agent_type | Iteration duration |
-
-**Key checks:**
-- Failed iterations indicate problems
-- Duration helps identify slow tasks
-
-### Kubernetes & Workspace
+## Integrations (`adapters/`, `triggers/`, `bindings/`)
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `moatless_active_workspaces` | Gauge | mode | Active workspaces by mode |
-| `moatless_workspace_provision_total` | Counter | mode, status | Provisioning attempts |
-| `moatless_workspace_provision_duration_seconds` | Histogram | mode | Provisioning time |
-| `moatless_kubernetes_pod_total` | Counter | status | Pod lifecycle (created/running/ready/failed) |
-| `moatless_kubernetes_pod_readiness_duration_seconds` | Histogram | - | Time to pod ready |
-| `moatless_provisioner_health_check_total` | Counter | mode, result | Health checks (healthy/unhealthy/error) |
-| `moatless_driver_cache_hit_total` | Counter | result | Cache hits (hit_healthy/hit_stale/miss) |
-
-**Key checks:**
-- Pod readiness should be <60s
-- Failed pods indicate infrastructure issues
-- Cache hits improve performance
-
-### Database Operations
-
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `moatless_database_operation_total` | Counter | operation, table, status | DB operations (select/insert/update/delete) |
-| `moatless_database_operation_duration_seconds` | Histogram | operation, table | Query latency |
-
-**Key checks:**
-- Error rate should be 0
-- High latency may indicate DB issues
-
-### Errors
-
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `moatless_error_total` | Counter | error_type, service, severity | All tracked errors |
-
-**Error types:** event_handler_error, message_persistence_error, provisioner_error, database_error, delivery_error
-**Severities:** warning, error, critical
-
-### HTTP
-
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `moatless_http_request_total` | Counter | method, path, status_code | HTTP requests |
-| `moatless_http_request_duration_seconds` | Histogram | method, path | Request latency |
+| `moatless_adapter_webhook_total` | Counter | adapter, trigger, connection, reason, event_type | Inbound adapter webhook outcomes (`success`\|`ignored`\|`error`) |
+| `moatless_adapter_api_total` | Counter | adapter, outcome | Outbound adapter API outcomes (`success`\|`auth_error`\|`error`) |
+| `moatless_trigger_job_total` | Counter | trigger, reason | Scheduled trigger job outcomes (`success`\|`ignored`\|`error`) |
+| `moatless_binding_inbound_total` | Counter | provider, trigger, connection, reason | Inbound binding routing outcomes |
+| `moatless_binding_outbound_total` | Counter | provider, trigger, connection, reason | Outbound binding send outcomes |
 
 ## Testing Scenarios
 
-### Verify Task Execution
-
 ```bash
-# Before creating task
-curl -s localhost:9090/metrics | grep -E "(active_agents|active_workspaces)"
+# Agent activity while a task runs
+curl -s localhost:9090/metrics | grep moatless_agent_runs_total
+curl -s localhost:9090/metrics | grep moatless_agent_tool_calls_total
 
-# Create task, then check
-curl -s localhost:9090/metrics | grep moatless_task_created_total
-curl -s localhost:9090/metrics | grep moatless_kubernetes_pod_total
-```
+# Sandbox provisioning health
+curl -s localhost:9090/metrics | grep moatless_sandbox_provision_duration_seconds
 
-### Debug Event Delivery
+# Event delivery to Redis
+curl -s localhost:9090/metrics | grep -E 'events_publish_(failures|retries)_total'
 
-```bash
-# Check delivery modes
-curl -s localhost:9090/metrics | grep event_delivery_total
-# Expected: notify success >> poll success
-
-# Check latency
-curl -s localhost:9090/metrics | grep event_delivery_latency_seconds
-```
-
-### Monitor Errors
-
-```bash
-# Any errors during test
-curl -s localhost:9090/metrics | grep error_total
-
-# Database issues
-curl -s localhost:9090/metrics | grep 'database_operation_total.*error'
-```
-
-### Performance Check
-
-```bash
-# Pod startup time
-curl -s localhost:9090/metrics | grep kubernetes_pod_readiness
-
-# Agent execution time
-curl -s localhost:9090/metrics | grep agent_execution_duration
+# Integration webhook/adapter errors
+curl -s localhost:9090/metrics | grep -E 'moatless_(adapter|binding|trigger).*error'
 ```
