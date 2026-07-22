@@ -27,7 +27,7 @@ mod workspace;
 mod workspace_bridge;
 pub(crate) mod workspace_sync;
 
-use moatless_events::SandboxSubType;
+use moatless_events::SandboxStatus;
 use sandbox_proto::PublishEventRequest;
 use tracing::{error, info, warn};
 
@@ -69,7 +69,7 @@ pub enum InitPhase {
 /// Publish a sandbox init event via gRPC.
 ///
 /// These events appear in the frontend's StartupTimeline alongside K8s events.
-/// Uses `EventType::Sandbox` with `SandboxSubType::Initializing` — the sandbox
+/// Uses `EventType::Sandbox` with `SandboxStatus::Initializing` — the sandbox
 /// IS initializing while these events fire. Detailed info goes in the payload.
 async fn publish_sandbox_event(
     state: &SandboxState,
@@ -96,7 +96,7 @@ async fn publish_sandbox_event(
     let req = PublishEventRequest {
         task_id: state.config.task_id.clone(),
         event_type: proto_event_type as i32,
-        sub_type: SandboxSubType::Initializing.as_str().to_string(),
+        sub_type: SandboxStatus::Initializing.as_str().to_string(),
         payload_json,
         event_id: String::new(),
         sequence: 0,

@@ -94,7 +94,7 @@ async fn run_agent_inner(state: SandboxState) {
                 .events
                 .publish_sandbox_event(
                     &task_id,
-                    SandboxSubType::Error,
+                    SandboxStatus::Error,
                     serde_json::json!({
                         "error": format!(
                             "Agent failed {consecutive} consecutive times. Last error: {}",

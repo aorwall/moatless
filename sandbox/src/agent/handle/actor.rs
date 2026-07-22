@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use claude_agent_sdk::types::messages::ResultMessage;
 use claude_agent_sdk::{SdkError, SdkMessage};
-use moatless_events::{AgentSubType, SandboxSubType};
+use moatless_events::{AgentSubType, SandboxStatus};
 use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
@@ -889,7 +889,7 @@ pub(super) async fn agent_loop(
                             drop(ack);
                             events.publish_sandbox_event(
                                 &task_id,
-                                SandboxSubType::Error,
+                                SandboxStatus::Error,
                                 serde_json::json!({
                                     "error": format!(
                                         "Agent failed {consecutive_errors} consecutive times. Last error: {}",

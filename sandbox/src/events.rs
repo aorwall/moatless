@@ -89,7 +89,7 @@ impl GrpcEventPublisher {
     pub async fn publish_sandbox_event(
         &self,
         task_id: &str,
-        sub_type: moatless_events::SandboxSubType,
+        sub_type: moatless_events::SandboxStatus,
         payload: serde_json::Value,
     ) {
         self.publish_event(task_id, EventType::Sandbox, sub_type.as_str(), payload)
