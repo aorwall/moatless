@@ -25,6 +25,28 @@ impl CodexCliSession {
     pub fn cancel(&self) {
         self.cancel_token.cancel();
     }
+
+    /// Build a session backed by an in-memory channel instead of a real CLI
+    /// process, for deterministic harness lifecycle tests. The returned sender
+    /// feeds `messages`; dropping it closes the stream (EOF).
+    #[cfg(test)]
+    pub(crate) fn scripted() -> (mpsc::UnboundedSender<Result<CodexExecEvent, String>>, Self) {
+        let (tx, rx) = mpsc::unbounded_channel();
+        (
+            tx,
+            Self {
+                messages: rx,
+                cancel_token: CancellationToken::new(),
+            },
+        )
+    }
+
+    /// Whether cancellation has been requested — the scripted analog of the real
+    /// process tree being torn down.
+    #[cfg(test)]
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.cancel_token.is_cancelled()
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -91,6 +113,10 @@ pub struct ThreadErrorEvent {
 pub struct ThreadItem {
     pub id: String,
     pub details: ThreadItemDetails,
+    /// The complete native item object (including `id` and `type`), retained so
+    /// the Agent harness can forward one faithful canonical block per item
+    /// without re-deriving native JSON from the typed `details`.
+    pub raw: serde_json::Value,
 }
 
 impl<'de> Deserialize<'de> for ThreadItem {
@@ -106,23 +132,22 @@ impl<'de> Deserialize<'de> for ThreadItem {
 
             fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
                 let mut id = None;
-                let mut details = serde_json::Map::new();
+                let mut full = serde_json::Map::new();
 
                 while let Some(key) = map.next_key::<String>()? {
                     let value = map.next_value::<serde_json::Value>()?;
-                    if key == "id" {
-                        if id.is_none() {
-                            id = value.as_str().map(ToString::to_string);
-                        }
-                    } else {
-                        details.insert(key, value);
+                    if key == "id" && id.is_none() {
+                        id = value.as_str().map(ToString::to_string);
                     }
+                    full.insert(key, value);
                 }
 
                 let id = id.ok_or_else(|| DeError::missing_field("id"))?;
-                let details = serde_json::from_value(serde_json::Value::Object(details))
-                    .map_err(DeError::custom)?;
-                Ok(ThreadItem { id, details })
+                let raw = serde_json::Value::Object(full);
+                // The typed detail structs ignore unknown fields, so deserializing
+                // from the full object (which still carries `id`/`type`) is safe.
+                let details = serde_json::from_value(raw.clone()).map_err(DeError::custom)?;
+                Ok(ThreadItem { id, details, raw })
             }
         }
 

@@ -26,6 +26,7 @@ pub mod signal;
 pub mod source;
 
 mod claude;
+mod codex;
 mod driver;
 mod process;
 
@@ -44,6 +45,7 @@ mod persistent_tests;
 use tokio::sync::mpsc;
 
 pub use claude::ClaudeConfig;
+pub use codex::CodexConfig;
 pub use error::{ErrorClass, FailureStage, HarnessError, SessionImpact};
 #[cfg(test)]
 pub(crate) use scripted::{Script, Step};
@@ -127,6 +129,26 @@ impl Harness {
         let (signal_tx, signal_rx) = mpsc::channel(SIGNAL_CAPACITY);
 
         let factory = move || claude::ClaudeProcess::new(config.clone());
+        tokio::spawn(driver::run(factory, submit_rx, cancel_rx, signal_tx));
+
+        Self {
+            submit_tx,
+            cancel_tx,
+            signal_rx,
+        }
+    }
+
+    /// Construct the production Codex harness. Codex is one-process-per-Turn, so
+    /// each execution launches a fresh `codex exec --json` subprocess through the
+    /// shared one-shot [`driver::run`]; a later Turn resumes the known thread by
+    /// replacing the process. The Turn-independent `config` is cloned per
+    /// execution.
+    pub fn codex(config: CodexConfig) -> Self {
+        let (submit_tx, submit_rx) = mpsc::channel(SUBMIT_CAPACITY);
+        let (cancel_tx, cancel_rx) = mpsc::channel(1);
+        let (signal_tx, signal_rx) = mpsc::channel(SIGNAL_CAPACITY);
+
+        let factory = move || codex::CodexProcess::new(config.clone());
         tokio::spawn(driver::run(factory, submit_rx, cancel_rx, signal_tx));
 
         Self {
