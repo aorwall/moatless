@@ -20,7 +20,8 @@ mod common;
 
 use moatless_vibe_backend::event_handler::agent_handlers::handle_agent_message;
 use moatless_vibe_backend::event_handler::models::AgentEvent;
-use moatless_vibe_backend::message::transform::transform_to_ui;
+use moatless_vibe_backend::message::dao::{MessageRepository, PgMessageRepository};
+use moatless_vibe_backend::message::transform::{transform_subagent_transcript, transform_to_ui};
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::task::dao as task_dao;
 use sqlx::PgPool;
@@ -286,4 +287,123 @@ async fn coalesced_events_remain_compatible(pool: PgPool) {
     let ui = transform_to_ui(&rows, &contexts, &blocks);
     let assembled = ui.iter().find(|m| m.uuid == "asst-coalesced").unwrap();
     assert_eq!(assembled.content.len(), 2);
+}
+
+/// A per-block assistant source event belonging to a subagent: it carries the
+/// spawning `Agent` tool-use id as `parent_tool_use_id`, so its assembled row is
+/// a subagent row (excluded from the top-level conversation).
+fn subagent_per_block_event(
+    event_id: &str,
+    task_id: &str,
+    uuid: &str,
+    parent_tool_use_id: &str,
+    block_index: usize,
+    block: serde_json::Value,
+) -> AgentEvent {
+    let payload = serde_json::json!({
+        "uuid": uuid,
+        "session_id": "session-1",
+        "parent_tool_use_id": parent_tool_use_id,
+        "blockIndex": block_index,
+        "message": {
+            "role": "assistant",
+            "usage": { "input_tokens": 10, "output_tokens": 50 },
+            "content": [block],
+        },
+    });
+    event_from_payload(event_id, task_id, payload)
+}
+
+#[sqlx::test]
+async fn subagent_per_block_rows_are_excluded_from_top_level(pool: PgPool) {
+    let task_id = "task-per-block-subagent";
+    let state = seed(&pool, task_id).await;
+    let parent = "agent-tool-1";
+
+    // A subagent assembles its own Message per-block, exactly like the top level.
+    handle_agent_message(
+        &state,
+        &subagent_per_block_event("s0", task_id, "sub-asst", parent, 0, text("sub-first")),
+    )
+    .await;
+    handle_agent_message(
+        &state,
+        &subagent_per_block_event(
+            "s1",
+            task_id,
+            "sub-asst",
+            parent,
+            1,
+            tool_use("sub-tu", "Bash"),
+        ),
+    )
+    .await;
+
+    let (rows, contexts, blocks) = moatless_vibe_backend::message::dao::get_all(&pool, task_id)
+        .await
+        .unwrap();
+
+    // The subagent row is persisted and assembled per-block, carrying its parent.
+    let row = rows.iter().find(|m| m.uuid == "sub-asst").unwrap();
+    assert_eq!(row.parent_uuid.as_deref(), Some(parent));
+    assert_eq!(row.message_content.as_array().unwrap().len(), 2);
+
+    // Top-level read excludes it — a subagent never appears in the task's own
+    // conversation.
+    let top = transform_to_ui(&rows, &contexts, &blocks);
+    assert!(
+        top.iter().all(|m| m.uuid != "sub-asst"),
+        "subagent row must not appear at the top level"
+    );
+
+    // The subagent's own transcript, scoped by its tool-use id, includes it with
+    // its blocks in native order.
+    let transcript = transform_subagent_transcript(&rows, &contexts, &blocks, parent);
+    let assembled = transcript
+        .iter()
+        .find(|m| m.uuid == "sub-asst")
+        .expect("subagent transcript includes the row");
+    assert_eq!(assembled.content.len(), 2);
+}
+
+#[sqlx::test]
+async fn paginated_read_folds_per_block_rows_into_one_message(pool: PgPool) {
+    let task_id = "task-per-block-paginated";
+    let state = seed(&pool, task_id).await;
+    let uuid = "asst-paged";
+
+    // Three native blocks arrive as separate per-block source events.
+    for (i, block) in [text("one"), tool_use("tu-p", "Bash"), text("three")]
+        .into_iter()
+        .enumerate()
+    {
+        handle_agent_message(
+            &state,
+            &per_block_event(&format!("p{i}"), task_id, uuid, i, block),
+        )
+        .await;
+    }
+
+    // The keyset-paginated read returns the same assembled Message and its full
+    // derived block set — per-block rows fold within the page, not across it.
+    let (rows, _contexts, blocks) = PgMessageRepository(pool.clone())
+        .get_paginated(task_id, None, 50)
+        .await
+        .unwrap();
+
+    let row = rows.iter().find(|m| m.uuid == uuid).unwrap();
+    assert_eq!(
+        row.message_content.as_array().unwrap().len(),
+        3,
+        "paginated read returns the fully assembled per-block content"
+    );
+    let block_rows: Vec<_> = blocks
+        .iter()
+        .filter(|b| b.task_message_id == row.id)
+        .collect();
+    assert_eq!(
+        block_rows.len(),
+        3,
+        "all derived content-block rows come back on the page, none duplicated"
+    );
 }
