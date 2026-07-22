@@ -66,6 +66,7 @@ pub(crate) mod agent_stop;
 pub(crate) mod dao;
 pub(crate) mod event_sink;
 pub(crate) mod lock;
+pub(crate) mod observe;
 pub(crate) mod runtime_bridge;
 
 // The lifecycle contract against local Postgres (Lifecycle over the Pg adapters).
@@ -97,3 +98,8 @@ pub(crate) use dao::PgLifecycleStore;
 pub(crate) use event_sink::OutboxEventSink;
 pub(crate) use lock::PgLifecycleLock;
 pub(crate) use runtime_bridge::{ProvisionDeps, RuntimeBridge};
+
+// The desired-state reconciler and its production fleet-observer adapters,
+// assembled by `state::build_reconciler` and spawned by `main`.
+pub use observe::{DockerFleetObserver, K8sFleetObserver};
+pub use reconciler::{FleetObserver, Reconciler, ReconcilerConfig};

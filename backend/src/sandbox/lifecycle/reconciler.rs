@@ -23,7 +23,7 @@ use chrono::{DateTime, Utc};
 use tracing::{debug, info, warn};
 
 use crate::message::dao::MessageRepository;
-use crate::task::models::SandboxStopReason;
+use crate::task::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
 
 use super::attempt::AttemptBudget;
 use super::convergence::{ReconcileAction, SandboxObservedStatus};
@@ -47,8 +47,14 @@ pub trait FleetObserver: Send + Sync {
         -> Result<HashMap<String, SandboxObservedStatus>, ObserveError>;
 
     /// Authoritative per-Task status, read to confirm a divergence before acting
-    /// so the reconciler never drives an operation off stale coarse data.
-    async fn observe(&self, task_id: &str) -> Result<SandboxObservedStatus, ObserveError>;
+    /// so the reconciler never drives an operation off stale coarse data. The
+    /// intent fields are the ones the provider's live-status projection needs.
+    async fn observe(
+        &self,
+        task_id: &str,
+        task_status: TaskStatus,
+        desired_state: SandboxDesiredState,
+    ) -> Result<SandboxObservedStatus, ObserveError>;
 }
 
 /// Reconciler tuning.
@@ -208,7 +214,11 @@ impl Reconciler {
         }
 
         // Confirm the divergence authoritatively before acting.
-        let observed = match self.observer.observe(task_id).await {
+        let observed = match self
+            .observer
+            .observe(task_id, intent.status, intent.desired_state)
+            .await
+        {
             Ok(o) => o,
             Err(e) => {
                 debug!(task_id, error = %e, "reconciler: confirm observation failed; skipping");
@@ -415,7 +425,12 @@ mod db_tests {
         async fn observe_fleet(&self) -> Result<HashMap<String, SandboxObservedStatus>, ObserveError> {
             Ok(self.fleet.clone())
         }
-        async fn observe(&self, _task_id: &str) -> Result<SandboxObservedStatus, ObserveError> {
+        async fn observe(
+            &self,
+            _task_id: &str,
+            _task_status: TaskStatus,
+            _desired_state: SandboxDesiredState,
+        ) -> Result<SandboxObservedStatus, ObserveError> {
             Ok(self.confirm)
         }
     }

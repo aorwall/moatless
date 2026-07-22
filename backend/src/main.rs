@@ -97,6 +97,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Build sandbox provider based on configured provider type
     let sandbox_provider: Arc<dyn sandbox::provider::SandboxProvider>;
     let reaper_k8s: Option<sandbox::k8s::client::K8sClient>;
+    // The reconciler's per-tick fleet observation, built per provider.
+    let sandbox_fleet_observer: Arc<dyn sandbox::lifecycle::FleetObserver>;
 
     match config.sandbox_provider {
         SandboxProviderType::Kubernetes => {
@@ -111,6 +113,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 event_publisher.clone(),
                 s3_client.clone().map(std::sync::Arc::new),
             );
+            sandbox_fleet_observer = Arc::new(sandbox::lifecycle::K8sFleetObserver::new(
+                k8s.clone(),
+                sandbox_provider.clone(),
+            ));
 
             // The K8s pod lifecycle watcher is spawned after the DB repos are
             // built (it needs them to auto-disable crash-looping servers).
@@ -129,6 +135,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 docker_client.clone(),
                 event_publisher.clone(),
             );
+            sandbox_fleet_observer = Arc::new(sandbox::lifecycle::DockerFleetObserver::new(
+                docker_client.clone(),
+                sandbox_provider.clone(),
+            ));
 
             // Spawn container lifecycle watcher
             if let Some(ref publisher) = event_publisher {
@@ -437,6 +447,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Arc::new(K8sLeaderGuard(election)) as Arc<dyn LeaderGuard>
         });
 
+        // The desired-state reconciler runs in both modes: lease-elected on K8s,
+        // lease-free single-replica on Docker (a `None` guard always reconciles).
+        let reconciler_leader: Option<Arc<dyn LeaderGuard>> = reaper_k8s.as_ref().map(|k8s| {
+            let identity = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
+            let election = sandbox::k8s::leader_election::LeaderElection::new_with_name(
+                k8s,
+                identity,
+                "moatless-sandbox-reconciler".to_string(),
+            )
+            .with_lease_duration(120);
+            Arc::new(K8sLeaderGuard(election)) as Arc<dyn LeaderGuard>
+        });
+        let reconciler = moatless_vibe_backend::state::build_reconciler(
+            app_state.db.clone(),
+            app_state.lifecycle.clone(),
+            sandbox_fleet_observer,
+            sandbox::lifecycle::ReconcilerConfig::default(),
+        );
+        spawn_sandbox_reconciler(reconciler, reconciler_leader, cancel.clone());
+
         if let Some(k8s) = reaper_k8s {
             spawn_task_reaper(&app_state, k8s.clone(), cancel.clone());
             spawn_codex_refresher(&app_state, k8s, cancel.clone());
@@ -594,6 +624,40 @@ async fn spawn_event_handler(config: &Config, app_state: &AppState, cancel: Canc
     let state = app_state.clone();
     tokio::spawn(event_handler::spawn_event_handler(conn, state, cancel));
     info!("Event handler consumer spawned");
+}
+
+/// Spawn the desired-state reconciler loop. On Kubernetes `leader` gates each
+/// tick to the elected replica; on Docker `leader` is `None` and the loop runs
+/// unconditionally (single replica).
+fn spawn_sandbox_reconciler(
+    reconciler: sandbox::lifecycle::Reconciler,
+    leader: Option<Arc<dyn LeaderGuard>>,
+    cancel: CancellationToken,
+) {
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(30));
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tokio::select! {
+                () = cancel.cancelled() => break,
+                _ = ticker.tick() => {
+                    if let Some(l) = &leader {
+                        match l.try_acquire_or_renew().await {
+                            Ok(true) => {}
+                            Ok(false) => continue,
+                            Err(e) => {
+                                tracing::warn!(error = %e, "reconciler: leader check failed; skipping tick");
+                                continue;
+                            }
+                        }
+                    }
+                    reconciler.reconcile_once().await;
+                }
+            }
+        }
+        info!("Sandbox reconciler stopped");
+    });
+    info!("Sandbox reconciler spawned");
 }
 
 /// Spawn the unified task reaper (idle-sandbox stop + inactive-task close) if enabled.

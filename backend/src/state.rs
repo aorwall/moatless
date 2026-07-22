@@ -23,8 +23,8 @@ use crate::message::dao::{MessageRepository, PgMessageRepository};
 use crate::plugin_repo::dao::{PgPluginRepoRepository, PluginRepoRepository};
 use crate::repository::dao::{PgRepoRepository, RepoRepository};
 use crate::sandbox::lifecycle::{
-    GrpcAgentStop, Lifecycle, OutboxEventSink, PgLifecycleLock, PgLifecycleStore, ProvisionDeps,
-    RuntimeBridge, SystemWallClock,
+    FleetObserver, GrpcAgentStop, Lifecycle, OutboxEventSink, PgLifecycleLock, PgLifecycleStore,
+    ProvisionDeps, Reconciler, ReconcilerConfig, RuntimeBridge, SystemWallClock,
 };
 use crate::sandbox::provider::SandboxProvider;
 use crate::secret::audit::{PgSecretAuditRepository, SecretAuditRepository};
@@ -164,6 +164,25 @@ pub fn build_lifecycle(
             Arc::new(SystemWallClock),
         )
         .with_lock_attempts(LIFECYCLE_LOCK_ATTEMPTS),
+    )
+}
+
+/// Assemble the desired-state reconciler over the shared pool, the lifecycle
+/// handle it drives operations through, and a provider fleet observer. Keeps the
+/// concrete `Pg*` adapters private to this constructor.
+pub fn build_reconciler(
+    pool: DbPool,
+    lifecycle: Arc<Lifecycle>,
+    observer: Arc<dyn FleetObserver>,
+    config: ReconcilerConfig,
+) -> Reconciler {
+    Reconciler::new(
+        (*lifecycle).clone(),
+        Arc::new(PgLifecycleStore::new(pool.clone())),
+        Arc::new(PgMessageRepository(pool)),
+        observer,
+        Arc::new(SystemWallClock),
+        config,
     )
 }
 
