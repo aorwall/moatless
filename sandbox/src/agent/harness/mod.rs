@@ -25,6 +25,7 @@ pub mod error;
 pub mod signal;
 pub mod source;
 
+mod claude;
 mod driver;
 mod process;
 mod scripted;
@@ -34,11 +35,10 @@ mod contract_tests;
 
 use tokio::sync::mpsc;
 
+pub use claude::ClaudeConfig;
 pub use error::{ErrorClass, FailureStage, HarnessError, SessionImpact};
 pub use scripted::{Script, Step};
-pub use signal::{
-    Activity, Cause, Input, InputId, Outcome, Rejection, SessionId, Signal,
-};
+pub use signal::{Activity, Cause, Input, InputId, Outcome, Rejection, SessionId, Signal};
 pub use source::{NativeMessageId, Role, SourceEvent};
 
 /// Bounded capacity for submitted inputs awaiting an execution slot. Full means
@@ -76,9 +76,25 @@ impl Harness {
         let (signal_tx, signal_rx) = mpsc::channel(signal_capacity.max(1));
 
         let mut first = Some(script);
-        let factory = move || {
-            scripted::ScriptedProcess::new(first.take().unwrap_or_default())
-        };
+        let factory = move || scripted::ScriptedProcess::new(first.take().unwrap_or_default());
+        tokio::spawn(driver::run(factory, submit_rx, cancel_rx, signal_tx));
+
+        Self {
+            submit_tx,
+            cancel_tx,
+            signal_rx,
+        }
+    }
+
+    /// Construct the production Claude subprocess harness. Each execution launches
+    /// a fresh one-shot CLI subprocess (the persistent tmux transport is a later
+    /// ticket); the Turn-independent `config` is cloned per execution.
+    pub fn claude(config: ClaudeConfig) -> Self {
+        let (submit_tx, submit_rx) = mpsc::channel(SUBMIT_CAPACITY);
+        let (cancel_tx, cancel_rx) = mpsc::channel(1);
+        let (signal_tx, signal_rx) = mpsc::channel(SIGNAL_CAPACITY);
+
+        let factory = move || claude::ClaudeProcess::new(config.clone());
         tokio::spawn(driver::run(factory, submit_rx, cancel_rx, signal_tx));
 
         Self {
