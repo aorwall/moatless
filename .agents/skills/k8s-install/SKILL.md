@@ -88,7 +88,7 @@ Pair flags:
 - `moat k8s secrets pull-token` — creates `ghcr-secret` (dockerconfigjson) from a prompted GitHub PAT
 - `--env-file <path>` — use a `.env` file outside the repo root
 
-After bootstrap, confirm required keys are present with `moat k8s secrets list --json` and verify both `DATABASE_URL` and `SECRETS_ENCRYPTION_KEY` appear as `source: cluster`. The backend refuses to start without `SECRETS_ENCRYPTION_KEY`. `ANTHROPIC_API_KEY` is **not** an install-time secret — users provide their own Claude credentials per task at runtime.
+After bootstrap, confirm required keys are present with `moat k8s secrets list --json` — it returns `{"keys":[...]}`, the names currently stored in the cluster Secret. Check that both `DATABASE_URL` and `SECRETS_ENCRYPTION_KEY` are in the list. The backend refuses to start without `SECRETS_ENCRYPTION_KEY`. `ANTHROPIC_API_KEY` is **not** an install-time secret — users provide their own Claude credentials per task at runtime.
 
 ### Step 4 — Install
 
@@ -127,7 +127,7 @@ Every `moat k8s` command supports `--json` and emits a machine-readable report. 
 Key fields by command:
 
 - `preflight`: `checks[]` (`.ok`, `.hint`), `cluster_type`, `ingress_controllers[]`, `storage_classes[]`
-- `secrets list`: `keys[]` (`.name`, `.source`: cluster|env|missing)
+- `secrets list`: `keys[]` — plain string names currently stored in the cluster Secret
 - `install`: `success`, `stderr` (on failure)
 - `status`: `all_healthy`, `deployments[]`, `pending_pods[]`, `ingresses[]`
 

@@ -69,7 +69,7 @@ Set `REDIS_URL` in the Secret: `redis://:<password>@host:6379/0` (use `rediss://
 
 ## Prometheus (optional)
 
-Only if `monitoring.enabled=true` in values. Install kube-prometheus-stack:
+Only if `monitoring.prometheus.enabled=true` in values (PodMonitor scraping). Install kube-prometheus-stack:
 
 ```bash
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts

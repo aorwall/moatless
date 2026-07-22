@@ -1,6 +1,6 @@
 # Secrets Catalog
 
-Keys the chart consumes from `Secret/vibe-secrets`. `moat k8s secrets list --json` reports which of these are set, missing, or sourced from `.env`.
+Keys the chart consumes from `Secret/vibe-secrets`. `moat k8s secrets list --json` reports which of these are currently stored in the cluster Secret (a `{"keys":[...]}` array of names). `moat k8s secrets bootstrap` is what discovers values from `.env`/prompts and reports missing keys.
 
 ## Where to put secret values
 

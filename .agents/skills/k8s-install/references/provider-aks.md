@@ -50,7 +50,7 @@ The installer leaves `tls: []` by default; come back and edit after verifying th
 
 ## Monitoring
 
-If the cluster has Azure Monitor for Containers enabled, `monitoring.enabled=false` is fine — Azure scrapes logs/metrics automatically. Only turn on bundled prometheus dashboards if you also install prometheus-operator yourself.
+If the cluster has Azure Monitor for Containers enabled, `monitoring.prometheus.enabled=false` is fine — Azure scrapes logs/metrics automatically. Only turn on `monitoring.prometheus.enabled=true` (PodMonitor scraping) if you also install prometheus-operator yourself. Grafana dashboards (`monitoring.grafana.enabled`) are a separate, independent switch.
 
 ## Sysctls
 

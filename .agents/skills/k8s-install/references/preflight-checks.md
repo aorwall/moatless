@@ -50,7 +50,7 @@ Can be worked around by setting `kubernetes.sandboxStorage.storageClass` explici
 |---|---|
 | `traefikroutes CRD` | If using Traefik for per-sandbox proxy routes. Moatless uses `IngressRoute` CRDs to carve out preview URLs under the proxy domain. |
 | `cert-manager CRD` | If terminating TLS inside the cluster. Skip if upstream (AKS web app routing, ALB) handles certs. |
-| `prometheus-operator CRD` | Only if enabling bundled dashboards (`monitoring.enabled=true` in values). |
+| `prometheus-operator CRD` | Only if enabling PodMonitor scraping (`monitoring.prometheus.enabled=true` in values). Bundled Grafana dashboards (`monitoring.grafana.enabled=true`) are a plain ConfigMap and don't need this CRD. |
 | `cilium CRD` | Only if you want Cilium network policies; skip otherwise. |
 
 CRDs are soft requirements — install them only when the matching feature is turned on.

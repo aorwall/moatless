@@ -116,7 +116,13 @@ Safe defaults. Tune up for heavy users or add an HPA via `autoscaling.enabled`.
 
 ```yaml
 monitoring:
-  enabled: false   # requires prometheus-operator CRDs
+  prometheus:
+    enabled: false          # PodMonitor scraping; requires prometheus-operator CRDs
+    scrapeInterval: "30s"
+    apiVersion: "monitoring.coreos.com/v1"
+  grafana:
+    enabled: false          # bundled dashboards as a ConfigMap; no CRD needed
+    dashboardLabels: {}
 ```
 
-Leave off unless the cluster has prometheus-operator installed.
+`prometheus.enabled` needs prometheus-operator installed; `grafana.enabled` is an independent switch that just ships a dashboard ConfigMap. Leave both off unless you use them.
