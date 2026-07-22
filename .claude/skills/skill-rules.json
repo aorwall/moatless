@@ -155,6 +155,36 @@
         ]
       }
     },
+    "orchestrate": {
+      "type": "domain",
+      "enforcement": "suggest",
+      "priority": "high",
+      "description": "End-to-end feature orchestration: grill → spec → HTML review → tickets → parallel child tasks → code review",
+      "promptTriggers": {
+        "keywords": [
+          "orchestrate",
+          "plan a feature",
+          "full feature",
+          "spawn tasks",
+          "parallel tasks",
+          "feature workflow",
+          "end-to-end feature",
+          "feature planning",
+          "write a spec",
+          "create tickets",
+          "orchestrator"
+        ],
+        "intentPatterns": [
+          "(plan|orchestrate|coordinate).*?(feature|work|implementation)",
+          "(spawn|create).*?(parallel|multiple).*?tasks",
+          "(write|create).*?spec.*?(tickets|tasks)",
+          "(feature|spec).*?(tickets|plan|implement)"
+        ]
+      },
+      "skipConditions": {
+        "sessionSkillUsed": true
+      }
+    },
     "moat-cli": {
       "type": "domain",
       "enforcement": "suggest",
