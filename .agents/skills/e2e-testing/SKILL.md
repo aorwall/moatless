@@ -60,11 +60,11 @@ GITHUB_CHANNEL_TOKEN=mock-token \
 
 **`lib.rs`** — Core helpers:
 - `test_client()` — Unauthenticated `MoatClient` (reads `MOATLESS_API_URL`, defaults to `http://localhost:8080`)
-- `client_as_user(user_id, login, role)` — Client with ForwardAuth headers
-- `client_as_user_with_teams(user_id, login, role, team_ids)` — Client with team membership
-- `seed_test_users()` — Seeds alice, bob, carol via ForwardAuth
+- `client_as_user(login, role)` — Client authenticated via password-login session cookie (server assigns the id, returned on `TestUser.id`)
+- `client_as_user_with_teams(login, role, team_ids)` — Same, with team membership
+- `seed_test_users()` — Seeds alice, bob, carol via password login
 - `ensure_template_repo(client)` — Creates/finds template repo (`hello-world-ui.git`)
-- `reset_database()` — Truncates all 13 application tables via `docker exec moatless-postgres psql`
+- `reset_database()` — Truncates all application tables via `docker exec moatless-postgres psql`
 
 **`sandbox_helpers.rs`** — Polling helpers (2s intervals):
 - `wait_for_sandbox_ready(client, task_id, timeout)` — Polls until `environment_status == "ready"` with stability re-check

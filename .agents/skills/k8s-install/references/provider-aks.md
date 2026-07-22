@@ -61,5 +61,5 @@ Sandbox pods set no unusual sysctls. No DaemonSet required on AKS.
 | Symptom | Cause | Fix |
 |---|---|---|
 | Ingress address stays `<pending>` | Web app routing not enabled | `az aks approuting enable …` |
-| `ImagePullBackOff` on backend | ghcr-secret missing in namespace | `moat k8s secret pull-token` |
+| `ImagePullBackOff` on backend | ghcr-secret missing in namespace | `moat k8s secrets pull-token` |
 | PVC stuck `Pending` | Zone mismatch — AKS PVs are zonal | Pin deployment to a single zone or use `managed-csi` (zone-agnostic) |

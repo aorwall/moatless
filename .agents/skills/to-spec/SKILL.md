@@ -5,7 +5,7 @@ disable-model-invocation: true
 # Forked from https://github.com/mattpocock/skills — maintained locally
 ---
 
-This skill takes the current conversation context and codebase understanding and produces a spec (you may know this document as a PRD). Do NOT interview the user — just synthesize what you already know.
+This skill takes the current conversation context and codebase understanding and produces a spec. Do NOT interview the user — just synthesize what you already know.
 
 Issue tracker + triage labels: `docs/agents/issue-tracker.md`.
 

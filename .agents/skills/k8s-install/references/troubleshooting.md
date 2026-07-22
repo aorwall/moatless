@@ -24,7 +24,7 @@ Failure modes grouped by step. Diagnose with `kubectl -n <ns> …`; most can be 
 
 ## Image pulls
 
-- **`ImagePullBackOff`** → `ghcr-secret` missing in the namespace. `moat k8s secret pull-token` and then `kubectl -n <ns> rollout restart deploy`.
+- **`ImagePullBackOff`** → `ghcr-secret` missing in the namespace. `moat k8s secrets pull-token` and then `kubectl -n <ns> rollout restart deploy`.
 - **`403 Forbidden` on GHCR** → PAT lacks `read:packages` scope. Recreate the token.
 
 ## Storage

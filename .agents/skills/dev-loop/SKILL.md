@@ -223,7 +223,7 @@ playwright-cli screenshot
 playwright-cli snapshot
 
 # Verify a preview URL directly (requires cookie from Step 3)
-playwright-cli goto https://${TASK_ID}--5173.moatless.dev/
+playwright-cli goto https://${TASK_ID}--3000.moatless.dev/
 ```
 
 #### Step 5: Save Session for Reuse (Optional)

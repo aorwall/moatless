@@ -107,5 +107,5 @@ serviceAccount:
 |---|---|---|
 | Ingress stays `<pending>` | ALB controller not installed, or SG rules block | `kubectl -n kube-system logs deploy/aws-load-balancer-controller` |
 | PVC `Pending` + no events | EBS CSI driver not installed | `eksctl create addon --name aws-ebs-csi-driver --force` |
-| `ImagePullBackOff` | ghcr-secret missing | `moat k8s secret pull-token` |
+| `ImagePullBackOff` | ghcr-secret missing | `moat k8s secrets pull-token` |
 | 502 after install | Target group health check on `/` — backend health is at `/health` | Add `alb.ingress.kubernetes.io/healthcheck-path: /health` to ingress annotations |

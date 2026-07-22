@@ -1,10 +1,10 @@
 # Secrets Catalog
 
-Keys the chart consumes from `Secret/vibe-secrets`. `moat k8s secret list --json` reports which of these are set, missing, or sourced from `.env`.
+Keys the chart consumes from `Secret/vibe-secrets`. `moat k8s secrets list --json` reports which of these are set, missing, or sourced from `.env`.
 
 ## Where to put secret values
 
-**Preferred: a `.env.local` file at the repo root.** `moat k8s secret bootstrap` will discover it, show you which keys it found, and ask before reading each one. The file stays on your disk — it never enters the chat transcript.
+**Preferred: a `.env.local` file at the repo root.** `moat k8s secrets bootstrap` will discover it, show you which keys it found, and ask before reading each one. The file stays on your disk — it never enters the chat transcript.
 
 **Avoid pasting secrets directly into chat.** Chat history is persisted, rendered, and sometimes synced to remote transcripts; anything you paste there can leak. The bootstrap command does accept masked terminal prompts as a fallback, but those run in the CLI — Claude should not ask you to type a key into the chat window.
 
@@ -63,7 +63,7 @@ Allowed callback URL: `https://<app-domain>/api/auth/auth0/callback`
 
 ## `.env` file template
 
-Place in repo root as `.env.local` and `moat k8s secret bootstrap` will offer to read it:
+Place in repo root as `.env.local` and `moat k8s secrets bootstrap` will offer to read it:
 
 ```ini
 DATABASE_URL=postgres://user:pass@host:5432/db
@@ -78,4 +78,4 @@ GITHUB_TOKEN=ghp_xxxxxxxx
 
 ## Why process env is off-limits
 
-`moat k8s secret bootstrap` deliberately does not scan `std::env`. Shell environments are shared across projects, export every child process, and often contain unrelated credentials — auto-consuming them risks pushing the wrong secret into the cluster Secret. Read explicitly from `.env` files or interactive prompts.
+`moat k8s secrets bootstrap` deliberately does not scan `std::env`. Shell environments are shared across projects, export every child process, and often contain unrelated credentials — auto-consuming them risks pushing the wrong secret into the cluster Secret. Read explicitly from `.env` files or interactive prompts.

@@ -76,7 +76,7 @@ curl -s -X POST \
 ```
 
 If the template repo is private, the backend needs a GitHub token to clone it —
-the `GITHUB_PAT` env on the backend, or a user provider token via
+the `GITHUB_TOKEN` env on the backend, or a user provider token via
 `/api/v1/auth/provider-tokens`. A public template (the suite's default) needs none.
 
 ### Monitor Task

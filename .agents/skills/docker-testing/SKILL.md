@@ -42,7 +42,7 @@ DOCKER_BACKEND_HOSTNAME=moatless-backend     # Backend container name (for sandb
 
 ## Vibe Task Creation
 
-Canonical create/monitor/cleanup recipe: `.claude/skills/kubernetes-testing/references/api_reference.md`. Against local Docker Compose use `http://localhost:8080` and no auth header; get a template id via `curl -s http://localhost:8080/api/v1/repositories | jq '.[0].id'`.
+Canonical create/monitor/cleanup recipe: `.agents/skills/kubernetes-testing/references/api_reference.md`. Against local Docker Compose use `http://localhost:8080` and no auth header; get a template id via `curl -s http://localhost:8080/api/v1/repositories | jq '.[0].id'`.
 
 ## Container Management
 
