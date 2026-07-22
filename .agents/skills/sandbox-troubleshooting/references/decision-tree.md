@@ -36,10 +36,11 @@ symptom→cause→fix lookup table and all knobs are in
 - Cross-check what was running: read the task transcript
   (`moat messages list <task_id> --full`) — parallel subagents + build children
   are the usual cause.
-- Fix: raise the memory **limit** (not the request):
-  `moat repos update <repo_id> --resource-memory-limit 24Gi`, then
-  `moat tasks restart <task_id>`. Cluster default lives in
-  `backend/src/config.rs` + Helm `values.yaml`.
+- Fix: raise the memory **limit** (not the request) on the task's workspace:
+  `moat workspaces override <workspace_id> --resources-json '{"limits":{"memory":"24Gi"}}'`,
+  then `moat tasks restart <task_id>`. (`--resources-json` is the real knob;
+  there is no per-repo `--resource-memory-limit` flag.) Cluster-wide default:
+  `K8S_RESOURCE_LIMIT_MEMORY` in `backend/src/config.rs` + Helm `values.yaml`.
 
 ## Evicted (volume overflow — the most common self-inflicted restart)
 - An emptyDir (`build-cache`, `shared-data`, workspace when Ephemeral/S3) exceeds
@@ -55,7 +56,8 @@ symptom→cause→fix lookup table and all knobs are in
 - `moat tasks status <task_id>` → per-server status/error/detail.
 - `moat tasks logs <task_id> --server preview --previous` (server names:
   `sandbox`, `preview`, `files`, or the configured `*-server` suffix).
-- Config problems: `moat repos get <repo_id>` → fix `--servers-json` → restart.
+- Config problems: `moat workspaces get <workspace_id>` → fix via
+  `moat workspaces override <workspace_id> --servers-json '...'` → restart.
 
 ## Agent stuck / not responding / errored
 - `moat tasks status <task_id>` → agent state. `none` while the pod is Running

@@ -383,10 +383,13 @@ async fn prompt_response_acknowledges_consumed_message() {
         make_text_message("normal follow-up", Some("follow-up-1")),
     ]]));
     let state = test_state(Arc::clone(&backend) as _);
+    // A pending prompt only exists mid-run, so a run_id is always set alongside
+    // the session id — the ack attributes the response to that run's turn.
     state
         .agent
         .set_session_id("session-active".to_string())
         .await;
+    state.agent.set_run_id("run-active".to_string()).await;
 
     let (tx, rx) = tokio::sync::oneshot::channel();
     state

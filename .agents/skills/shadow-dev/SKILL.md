@@ -21,23 +21,36 @@ add it to the shared/global `moatless-vibe` repo (that repo is global, so every
 task, agents included, would then compile Rust on start and run under the
 elevated `moatless-dev` SA).
 
+The repo record holds only the git source; the sandbox run-config (service
+account, docker access, servers, storage) lives on a **workspace**. Create the
+repo, then a workspace bound to it — note the repo id the first command prints.
+
 ```bash
+# 1. Repo record (git source only)
 moat repos create \
   --name "moatless-vibe (shadow)" \
-  --git-url https://github.com/soaplabs/moatless-vibe --branch main \
+  --git-url https://github.com/soaplabs/moatless-vibe --branch main
+# -> note the returned repo id
+
+# 2. Workspace carrying the shadow run-config, bound to that repo
+moat workspaces create \
+  --name "moatless-vibe (shadow)" \
   --sandbox-service-account moatless-dev \
-  --docker-access true --enable-inspector true \
-  --storage 40Gi --storage-mode s3 \
-  --setup-command 'curl -fsSL https://bun.sh/install | BUN_INSTALL=/opt/moatless/data/.bun bash' \
-  --setup-command '/opt/moatless/data/.bun/bin/bun install' \
+  --docker-access true \
+  --resources-json '{"storage":"40Gi","mode":"s3"}' \
+  --setup-commands-json '["curl -fsSL https://bun.sh/install | BUN_INSTALL=/opt/moatless/data/.bun bash","/opt/moatless/data/.bun/bin/bun install"]' \
   --servers-json '[
     {"name":"dev","label":"Dev Server","port":3000,"default":true,
      "startCommands":["/opt/moatless/data/.bun/bin/bun run dev -- --host 0.0.0.0"],
      "startupTimeoutSeconds":120,"autoReload":true,"enableInspector":true},
     {"name":"backend","label":"Shadow Backend","port":8080,
      "startCommands":["bash scripts/shadow/up.sh"],"startupTimeoutSeconds":600}
-  ]'
+  ]' \
+  --repos-json '[{"repositoryId":"<repo_id>"}]'
 ```
+
+(Per-server `enableInspector` and storage `mode: s3`/`storage: 40Gi` are the
+real knobs — there are no top-level `--enable-inspector`/`--storage` flags.)
 
 `--sandbox-service-account moatless-dev` lets the shadow backend provision
 sandboxes; it needs the Helm `shadowDev.enabled=true` RBAC deployed (see

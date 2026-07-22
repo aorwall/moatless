@@ -137,8 +137,6 @@ Is it just displaying props or static content?
 
 ## Real-World Examples
 
-### Frontend Classification
-
 ```tsx
 // Tier 1: Complex form with validation
 function TaskForm() {
@@ -170,40 +168,6 @@ function TaskList() {
 // Tier 3: Presentational component
 function TaskBadge({ status }: { status: string }) {
   return <span className="badge">{status}</span>
-}
-```
-
-### Backend Classification
-
-```tsx
-// Tier 1: Business logic service
-@injectable()
-class TaskService {
-  async assignTask(taskId: string, userId: string) {
-    // Complex validation
-    // Multi-repository coordination
-    // Business rule enforcement
-  }
-}
-
-// Tier 2: Basic CRUD service
-@injectable()
-class UserService {
-  async getUsers() {
-    return this.userRepo.findAll()
-  }
-
-  async getUserById(id: string) {
-    return this.userRepo.findById(id)
-  }
-}
-
-// Tier 3: Simple repository methods
-@injectable()
-class TaskRepository {
-  async findAll() {
-    return this.db.select().from(tasks)
-  }
 }
 ```
 

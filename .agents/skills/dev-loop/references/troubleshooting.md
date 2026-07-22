@@ -113,7 +113,7 @@ Run frontend locally with hot-reload, pointing to Docker Compose backend:
 
 ```bash
 task dev
-# Frontend at http://localhost:5173 (Vite dev server)
+# Frontend at http://localhost:3000 (Vite dev server)
 # API proxied to http://localhost:8080 (Docker Compose backend)
 ```
 
@@ -122,7 +122,7 @@ task dev
 Use the `playwright-cli` skill for browser-based debugging:
 
 **Against local dev server:**
-- Navigate to `http://localhost:5173`
+- Navigate to `http://localhost:3000`
 - Inspect components, take screenshots, check accessibility
 
 **Against moatless.dev:**

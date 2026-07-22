@@ -36,7 +36,7 @@ Execute these in order. Each step has a single `moat k8s …` command; read its 
 moat k8s preflight --namespace <ns> --json
 ```
 
-Reads the cluster and reports `checks[]` plus a derived `provider` (`aks`, `eks`, or `generic`). Interpret:
+Reads the cluster and reports `checks[]` plus a derived `cluster_type` (`aks`, `eks`, or `generic`). Interpret:
 
 - Every `check.ok == true` → green light, continue.
 - `check.ok == false` → surface the `check.hint` verbatim and ask the user to fix or let the skill help. Never proceed past a failed tooling check (kubectl/helm missing).
@@ -72,7 +72,7 @@ After the file is written, skim `values.local.yaml` and call out anything the us
 When posting secrets in chat is the only option (user insists, no shell access, etc.), call it out explicitly before proceeding: "Pasting secrets in chat works but is less secure than `.env.local`. Keys may show up in logs or transcripts. Proceed anyway?"
 
 ```bash
-moat k8s secret bootstrap --namespace <ns>
+moat k8s secrets bootstrap --namespace <ns>
 ```
 
 Collection priority (highest wins, no silent overwrites):
@@ -83,12 +83,12 @@ Collection priority (highest wins, no silent overwrites):
 The CLI **never** reads `std::env` — process environment is noisy and unsafe to auto-consume. The only two safe paths are a `.env` file on disk or a masked terminal prompt.
 
 Pair flags:
-- `moat k8s secret list` — show which keys are set vs missing (values masked)
-- `moat k8s secret set <KEY>` — one-off change, masked prompt
-- `moat k8s secret pull-token` — creates `ghcr-secret` (dockerconfigjson) from a prompted GitHub PAT
+- `moat k8s secrets list` — show which keys are set vs missing (values masked)
+- `moat k8s secrets set <KEY>` — one-off change, masked prompt
+- `moat k8s secrets pull-token` — creates `ghcr-secret` (dockerconfigjson) from a prompted GitHub PAT
 - `--env-file <path>` — use a `.env` file outside the repo root
 
-After bootstrap, confirm required keys are present with `moat k8s secret list --json` and verify both `DATABASE_URL` and `SECRETS_ENCRYPTION_KEY` appear as `source: cluster`. The backend refuses to start without `SECRETS_ENCRYPTION_KEY`. `ANTHROPIC_API_KEY` is **not** an install-time secret — users provide their own Claude credentials per task at runtime.
+After bootstrap, confirm required keys are present with `moat k8s secrets list --json` — it returns `{"keys":[...]}`, the names currently stored in the cluster Secret. Check that both `DATABASE_URL` and `SECRETS_ENCRYPTION_KEY` are in the list. The backend refuses to start without `SECRETS_ENCRYPTION_KEY`. `ANTHROPIC_API_KEY` is **not** an install-time secret — users provide their own Claude credentials per task at runtime.
 
 ### Step 4 — Install
 
@@ -100,7 +100,7 @@ Runs `helm dependency update` then `helm upgrade --install`. For cautious users,
 
 If `helm upgrade --install` fails, the JSON report contains `stderr`. Common failures:
 - `rendered manifests contain a resource that already exists` → a previous broken install; ask user to `helm uninstall` first or pass a new release name.
-- `ImagePullBackOff` once pods start → `ghcr-secret` missing or wrong; run `moat k8s secret pull-token`.
+- `ImagePullBackOff` once pods start → `ghcr-secret` missing or wrong; run `moat k8s secrets pull-token`.
 - `PVC pending` → StorageClass mismatch; edit `values.local.yaml` `kubernetes.sandboxStorage.storageClass` and re-run install.
 
 ### Step 5 — Verify
@@ -126,8 +126,8 @@ Every `moat k8s` command supports `--json` and emits a machine-readable report. 
 
 Key fields by command:
 
-- `preflight`: `checks[]` (`.ok`, `.hint`), `provider`, `ingress_controllers[]`, `storage_classes[]`
-- `secret list`: `keys[]` (`.name`, `.source`: cluster|env|missing)
+- `preflight`: `checks[]` (`.ok`, `.hint`), `cluster_type`, `ingress_controllers[]`, `storage_classes[]`
+- `secrets list`: `keys[]` — plain string names currently stored in the cluster Secret
 - `install`: `success`, `stderr` (on failure)
 - `status`: `all_healthy`, `deployments[]`, `pending_pods[]`, `ingresses[]`
 

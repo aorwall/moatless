@@ -179,7 +179,7 @@ moat tasks children --json
 
 3. If review passes (or after fixes are applied), mark the ticket complete and check whether any blocked tickets are now fully unblocked. Spawn those tickets immediately.
 
-**When a child reports "Blocked: <description>":**
+**When a child reports "Blocked on: <description>":**
 
 Send a clarification or resolve the blocker, then let the child continue or close and re-spawn as needed.
 
@@ -193,4 +193,4 @@ Report to the user:
 
 - All tickets: title, PR URL, review outcome
 - Any open items or follow-up work
-- Suggested next steps (merging, deployment, closing the spec issue)
+- Suggested next steps (merging, deployment, archiving the spec and plan files)

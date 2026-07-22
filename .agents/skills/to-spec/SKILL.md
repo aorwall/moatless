@@ -5,7 +5,7 @@ disable-model-invocation: true
 # Forked from https://github.com/mattpocock/skills — maintained locally
 ---
 
-This skill takes the current conversation context and codebase understanding and produces a spec (you may know this document as a PRD). Do NOT interview the user — just synthesize what you already know.
+This skill takes the current conversation context and codebase understanding and produces a spec. Do NOT interview the user — just synthesize what you already know.
 
 Issue tracker + triage labels: `docs/agents/issue-tracker.md`.
 
@@ -38,8 +38,6 @@ A LONG, numbered list of user stories. Each user story should be in the format o
 <user-story-example>
 1. As a mobile bank customer, I want to see balance on my accounts, so that I can make better informed decisions about my spending
 </user-story-example>
-
-This list of user stories should be extremely extensive and cover all aspects of the feature.
 
 ## Implementation Decisions
 

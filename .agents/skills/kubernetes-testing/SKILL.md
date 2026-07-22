@@ -1,14 +1,13 @@
 ---
 name: kubernetes-testing
-description: Operate and debug a running Moatless Vibe Kubernetes cluster — pods, logs, metrics, event delivery. Use when monitoring worker pods, debugging worker/sandbox issues, checking logs or metrics, or creating test tasks by hand against a cluster. For the automated cluster test suite, see the e2e-testing skill. Triggers on: K8s testing, kubernetes mode, worker pods, vibe task in kubernetes, pod logs, debug k8s, metrics, event delivery
+description: Operate and debug a running Moatless Vibe Kubernetes cluster — pods, logs, metrics, event delivery. Use when monitoring worker pods, debugging worker/sandbox issues, checking logs or metrics, or creating test tasks by hand against a cluster. Triggers on: K8s testing, kubernetes mode, worker pods, vibe task in kubernetes, pod logs, debug k8s, metrics, event delivery
 ---
 
 # Kubernetes Testing
 
-Operating and debugging a running Moatless Vibe cluster — pods, logs, metrics,
-event delivery. The automated black-box suite that runs against a cluster lives
-in the `e2e-testing` skill (**Cluster target**); come here when a run goes red or
-you need to poke the cluster by hand.
+Operating and debugging a running Moatless Vibe cluster by hand — pods, logs,
+metrics, event delivery. Come here to create a task manually and watch the
+pipeline, or when something in the cluster needs poking.
 
 ## Targets
 
@@ -46,76 +45,84 @@ curl -s -D - -o /dev/null -H "Authorization: Bearer $API_KEY" \
 
 ### Architecture
 
-| Component | Description |
-|-----------|-------------|
-| Main App | `vibe-moatless-vibe-*` - API, orchestration |
-| Workers | `moatless-moatless-vibe-{taskId}-*` - Claude Code execution |
-| Database | PostgreSQL for persistent state |
+| Component | Pods | Description |
+|-----------|------|-------------|
+| Main App | `moatless-vibe-backend-*` | API, orchestration |
+| Workers | `moatless-ws-{taskId}-*` | per-task Deployment/Service running Claude Code |
+| Database | PostgreSQL | persistent state |
+
+Worker resources are named deterministically `moatless-ws-{task_id}` and carry
+the label `moatless.io/task-id={task_id}` (see `sandbox/k8s/naming.rs`).
 
 ## Vibe Task Creation (K8s Mode)
 
-K8s clones a repo by its **remote git URL** — a vibe task references a template
-repo (git URL), which the worker pod clones. No local repos, no per-run GitHub
-forking. The env-agnostic suite uses the public `hello-world-ui` repo for this.
+K8s clones a repo by its **remote git URL** — a task references a template repo
+(by its repository id), which the worker pod clones. No local repos, no per-run
+GitHub forking. Use the public `hello-world-ui` template for smoke tests.
 
-For automated creation, run the cluster suite (`e2e-testing` skill). To create
-one by hand:
+Task creation is `POST /api/v1/tasks` with a `repositoryId` (there is no
+`/tasks/vibe` route and no `templateId` field). Creating does not auto-run —
+start it with `POST /api/v1/tasks/{id}/start`.
 
 ```bash
-# List templates
+# List template repos (the endpoint returns a bare array)
 curl -s -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/repositories" | \
-  jq '.repositories[] | select(.kind == "template") | {id, name}'
+  jq '.[] | select(.kind == "template") | {id, name}'
 
-# Create a vibe task from a template repo
+# Create a task against a template repo, then start it
 TEMPLATE_ID="your-template-uuid"
-curl -s -X POST \
+TASK_ID=$(curl -s -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
-  -d "{\"agentType\":\"claude-code\",\"templateId\":\"$TEMPLATE_ID\",\"message\":\"Create hello world\",\"start\":true}" \
-  "$BASE_URL/api/v1/tasks/vibe"
+  -d "{\"agentType\":\"claude-code\",\"repositoryId\":\"$TEMPLATE_ID\",\"message\":\"Create hello world\"}" \
+  "$BASE_URL/api/v1/tasks" | jq -r '.taskId')
+
+curl -s -X POST -H "Authorization: Bearer $API_KEY" \
+  "$BASE_URL/api/v1/tasks/$TASK_ID/start" >/dev/null
+echo "Task: $TASK_ID"
 ```
 
 If the template repo is private, the backend needs a GitHub token to clone it —
-the `GITHUB_PAT` env on the backend, or a user provider token via
-`/api/v1/auth/provider-tokens`. A public template (the suite's default) needs none.
+the `GITHUB_TOKEN` env on the backend, or a user-provided GitHub provider token.
+A public template needs none.
 
 ### Monitor Task
 
 ```bash
-# Task status
+# Task status (open | closed | error)
 curl -s -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/tasks/$TASK_ID" | \
-  jq '{status, numTurns}'
+  jq '{status, title}'
 
-# Workspace status
-curl -s -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/tasks/$TASK_ID/workspace-status"
+# Sandbox / workspace status (backend-proxied sandbox API)
+curl -s -H "Authorization: Bearer $API_KEY" \
+  "$BASE_URL/api/sandbox/v1/tasks/$TASK_ID/status"
 ```
 
 ## Quick Smoke Test
 
 A standard workflow to verify the full K8s pipeline is working:
 
-### Step 1: Create Task
+### Step 1: Create + start Task
 ```bash
-# Get template ID
 TEMPLATE_ID=$(curl -s -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/repositories" | \
-  jq -r '.repositories[] | select(.kind == "template") | .id' | head -1)
+  jq -r '.[] | select(.kind == "template") | .id' | head -1)
 
-# Create task with specific request
 TASK_ID=$(curl -s -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
-  -d "{\"agentType\":\"claude-code\",\"templateId\":\"$TEMPLATE_ID\",\"message\":\"Create a hello world page with a purple heading\",\"start\":true}" \
-  "$BASE_URL/api/v1/tasks/vibe" | jq -r '.taskId')
+  -d "{\"agentType\":\"claude-code\",\"repositoryId\":\"$TEMPLATE_ID\",\"message\":\"Create a hello world page with a purple heading\"}" \
+  "$BASE_URL/api/v1/tasks" | jq -r '.taskId')
+curl -s -X POST -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/tasks/$TASK_ID/start" >/dev/null
 echo "Task: $TASK_ID"
 ```
 
 ### Step 2: Wait for Completion
 ```bash
-# Poll until numTurns > 0
+# Poll until the task leaves 'open'
 while true; do
-  STATUS=$(curl -s -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/tasks/$TASK_ID" | jq -r '.numTurns')
-  echo "Turns: $STATUS"
-  [ "$STATUS" != "0" ] && break
+  STATUS=$(curl -s -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/tasks/$TASK_ID" | jq -r '.status')
+  echo "Status: $STATUS"
+  [ "$STATUS" != "open" ] && break
   sleep 10
 done
 ```
@@ -131,9 +138,10 @@ curl -s -X POST \
 
 ### Step 4: Verify Preview Server
 ```bash
-# Get preview URL
+# Preview URL comes from the default server in the sandbox server status
 PREVIEW_URL=$(curl -s -H "Authorization: Bearer $API_KEY" \
-  "$BASE_URL/api/v1/tasks/$TASK_ID/server/status" | jq -r '.url')
+  "$BASE_URL/api/sandbox/v1/tasks/$TASK_ID/server/status" | \
+  jq -r '.servers[] | select(.default) | .url')
 echo "Preview: $PREVIEW_URL"
 
 # Verify it responds (401 expected without auth, 200 with auth)
@@ -144,7 +152,7 @@ curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $API_KEY" "$PRE
 ```bash
 # Verify no "Agent Error" in messages
 curl -s -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/tasks/$TASK_ID/messages" | \
-  grep -o "Agent Error" || echo "✓ No Agent Errors found"
+  grep -o "Agent Error" || echo "No Agent Errors found"
 ```
 
 ## Pod Management
@@ -155,7 +163,7 @@ curl -s -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/tasks/$TASK_ID/mes
 # All pods
 kubectl get pods -n $NAMESPACE
 
-# Worker for specific task
+# Worker for a specific task
 kubectl get pods -n $NAMESPACE -l moatless.io/task-id=$TASK_ID
 ```
 
@@ -175,7 +183,8 @@ kubectl logs deployment/moatless-vibe-backend -n $NAMESPACE --tail=200 | grep -i
 
 ## Metrics Monitoring
 
-Access Prometheus metrics at `/metrics` (requires `METRICS_ENABLED=true`).
+Prometheus metrics are on `/metrics` at the backend metrics port (`METRICS_PORT`,
+default 9090). Always registered — there is no `METRICS_ENABLED` flag.
 
 ```bash
 kubectl port-forward deployment/moatless-vibe-backend -n $NAMESPACE 9090:9090
@@ -184,32 +193,18 @@ curl -s localhost:9090/metrics | grep moatless_
 
 ### Key Metrics for Testing
 
-| Category | Key Metrics | What to Check |
-|----------|-------------|---------------|
-| **Events** | `event_delivery_total{mode,status}` | NOTIFY vs poll success rates |
-| **Agents** | `active_agents`, `agent_execution_total` | Running agents, success/error |
-| **Tasks** | `task_status_transitions_total` | Task lifecycle progression |
-| **K8s** | `kubernetes_pod_total`, `pod_readiness_duration` | Pod startup <60s, no failures |
-| **Database** | `database_operation_total{status}` | Error rate should be 0 |
-| **Errors** | `error_total{service,severity}` | Any errors during testing |
+| Area | Key Metrics | What to Check |
+|------|-------------|---------------|
+| **Agents** | `moatless_agent_runs_total`, `moatless_agent_tool_calls_total` | Run outcomes (completed/error/stopped), tool errors |
+| **Cost** | `moatless_agent_cost_usd` | Per-run spend |
+| **Sandbox** | `moatless_sandbox_provision_duration_seconds` | Provision time by storage_backend |
+| **Workspace sync** | `moatless_workspace_sync_total` | Sync outcomes (ok/error) |
+| **Events** | `events_publish_failures_total`, `events_publish_retries_total` | Redis publish health |
+| **Integrations** | `moatless_adapter_*`, `moatless_binding_*`, `moatless_trigger_job_total` | Webhook/routing errors |
 
-### Quick Health Check
-
-```bash
-# Active resources
-curl -s localhost:9090/metrics | grep -E "active_(agents|workspaces)"
-
-# Event delivery (NOTIFY should dominate)
-curl -s localhost:9090/metrics | grep event_delivery_total
-
-# Any errors
-curl -s localhost:9090/metrics | grep error_total
-
-# Database health
-curl -s localhost:9090/metrics | grep 'database_operation_total.*error'
-```
-
-See `references/metrics.md` for complete metrics reference with all labels and testing scenarios.
+See `references/metrics.md` for the full list with labels. (An older metric set
+like `moatless_event_delivery_total` / `moatless_active_agents` is legacy and no
+longer emitted.)
 
 ## Common Issues
 
@@ -217,7 +212,7 @@ See `references/metrics.md` for complete metrics reference with all labels and t
 
 **Cause**: Task references a local repo. K8s clones by remote git URL only.
 
-**Fix**: Point the task at a repo with a remote git URL (the suite uses the public `hello-world-ui`).
+**Fix**: Point the task at a repo with a remote git URL (e.g. the public `hello-world-ui`).
 
 ### "No execution target registered"
 
@@ -234,12 +229,6 @@ See `references/metrics.md` for complete metrics reference with all labels and t
 docker buildx build --platform linux/amd64 -t aorwall/moatless-frontend:latest -f docker/Dockerfile.app --push .
 ```
 
-## Automated tests
-
-The env-agnostic cluster suite (`tests/cluster`) is the automated path — smoke,
-lifecycle, and agent rungs against a live cluster. See the `e2e-testing` skill's
-**Cluster target** section, or `references/integration-tests.md`.
-
 ## Deployment
 
 ```bash
@@ -252,7 +241,7 @@ kubectl delete pod $WORKER_POD -n $NAMESPACE
 
 ## Resources
 
-- `references/api_reference.md` - Complete API workflows for task creation and verification
-- `references/integration-tests.md` - Running the env-agnostic cluster suite against k8s
+- `references/api_reference.md` - API workflows for task creation and verification
 - `references/debugging.md` - Detailed debugging commands
-- `references/metrics.md` - Complete Prometheus metrics reference with labels and testing scenarios
+- `references/metrics.md` - Prometheus metrics reference with labels
+```

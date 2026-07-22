@@ -23,7 +23,7 @@ Extract the orchestrator task ID from your message:
 
 ## Step 1 — Read and plan
 
-Read the ticket carefully. Understand:
+Read the ticket. Understand:
 - What behaviour to build (end-to-end, all layers)
 - The acceptance criteria
 - Any mentions of the spec for additional context

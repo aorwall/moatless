@@ -1,6 +1,9 @@
 # Kubernetes Testing Workflows
 
-Complete workflows for creating tasks and verifying agent/preview execution in K8s mode.
+Workflows for creating tasks and verifying agent/preview execution in K8s mode.
+Routes below are the real backend surface — task/repository APIs live under
+`/api/v1/…`; sandbox (workspace/server) APIs are backend-proxied under
+`/api/sandbox/v1/tasks/{task_id}/…`.
 
 ## Environment Setup
 
@@ -16,16 +19,22 @@ export NAMESPACE="vibe"
 
 ---
 
-## Create Regular Task Workflow
+## Create + Start a Task
 
-### Step 1: Get Repository ID
+There is one creation path: `POST /api/v1/tasks` with a `repositoryId` (point it
+at a `remote` repo or a `template` repo — same call). Creation does not run the
+agent; start it with `POST /api/v1/tasks/{id}/start`. There is no `/tasks/vibe`
+route, no `templateId` field, and no `start` body field.
+
+### Step 1: Get a Repository ID
 
 ```bash
+# The endpoint returns a bare array of repositories
 curl -s -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/repositories" | \
-  jq '.repositories[] | select(.kind == "remote") | {id, name}'
+  jq '.[] | select(.kind == "template") | {id, name}'   # or .kind == "remote"
 ```
 
-### Step 2: Create Task
+### Step 2: Create the Task
 
 ```bash
 REPO_ID="your-repository-uuid"
@@ -36,239 +45,133 @@ RESPONSE=$(curl -s -X POST \
   -d "{
     \"agentType\": \"claude-code\",
     \"repositoryId\": \"$REPO_ID\",
-    \"message\": \"Create a hello.txt file\",
-    \"start\": true
+    \"message\": \"Create a hello world page\"
   }" \
   "$BASE_URL/api/v1/tasks")
 
-TASK_ID=$(echo $RESPONSE | jq -r '.taskId')
+TASK_ID=$(echo "$RESPONSE" | jq -r '.taskId')
 echo "Task ID: $TASK_ID"
 ```
 
-**Request Body:**
+**Request body (`CreateTaskRequest`):**
 | Field | Required | Description |
 |-------|----------|-------------|
-| agentType | Yes | Agent type (e.g., `claude-code`) |
-| repositoryId | Yes | UUID of the repository |
+| repositoryId | one of repositoryId / workspaceId | UUID of the repository (template or remote) |
+| workspaceId | one of repositoryId / workspaceId | Explicit workspace (wins over repositoryId) |
+| agentType | No | Agent type (e.g. `claude-code`) |
 | message | No | Initial task message |
-| start | No | Auto-start the agent (default: false) |
 | model | No | Model override |
 | contexts | No | Additional context items |
 
-### Step 3: Verify Worker Pod (K8s)
+Response (`CreateTaskResponse`): `{ taskId, status, task }`.
+
+### Step 3: Start the Agent
 
 ```bash
-# Wait for pod creation
+curl -s -X POST -H "Authorization: Bearer $API_KEY" \
+  "$BASE_URL/api/v1/tasks/$TASK_ID/start"
+```
+
+### Step 4: Verify the Worker Pod (K8s)
+
+```bash
 sleep 10
-
-# Check worker pod exists
 kubectl get pods -n $NAMESPACE -l moatless.io/task-id=$TASK_ID
-
-# Get worker pod name
-WORKER_POD=$(kubectl get pods -n $NAMESPACE -l moatless.io/task-id=$TASK_ID | awk '{print $1}')
+WORKER_POD=$(kubectl get pods -n $NAMESPACE -l moatless.io/task-id=$TASK_ID -o jsonpath='{.items[0].metadata.name}')
 ```
 
-### Step 4: Monitor Task Status
+Worker Deployment/Service/pods are named `moatless-ws-{task_id}`.
+
+### Step 5: Monitor Task Status
 
 ```bash
+# Task-level status: open | closed | error
 curl -s -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/tasks/$TASK_ID" | \
-  jq '{status, iterationStatus: .iterations[-1].status, numTurns}'
+  jq '{status, title}'
+
+# Sandbox / workspace status (backend-proxied sandbox API)
+curl -s -H "Authorization: Bearer $API_KEY" \
+  "$BASE_URL/api/sandbox/v1/tasks/$TASK_ID/status"
+
+# Live status (lighter-weight poll)
+curl -s -H "Authorization: Bearer $API_KEY" \
+  "$BASE_URL/api/sandbox/v1/tasks/$TASK_ID/live-status"
 ```
 
-**Iteration Status Values:**
-- `created` - Iteration created, not started
-- `active` - Agent running
-- `completed` - Successfully finished
-- `failed` - Error occurred
-
-### Step 5: Verify Agent Execution
-
-```bash
-curl -s -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/tasks/$TASK_ID/workspace-status" | \
-  jq '{agentState, environmentStatus, environmentError}'
-```
-
-**Response Fields:**
-| Field | Values | Description |
-|-------|--------|-------------|
-| agentState | `idle`, `running`, `none` | Current agent state |
-| environmentStatus | `ready`, `initializing`, `error` | Environment state |
-| environmentError | string | Error message if failed |
-
-### Step 6: Send Follow-up Message
+### Step 6: Send a Follow-up Message
 
 ```bash
 curl -s -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"message": "Now update hello.txt to say Goodbye"}' \
+  -d '{"message": "Now update the heading color to orange"}' \
   "$BASE_URL/api/v1/tasks/$TASK_ID/messages"
 ```
 
 ---
 
-## Create Vibe Task Workflow (K8s Mode)
-
-A vibe task references a template repo by its remote git URL; the worker pod
-clones it. No local repos, no per-run GitHub forking:
-```
-Template repo (git URL) → K8s worker clones ✓
-```
-
-### Step 1: List Templates
-
-```bash
-curl -s -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/repositories" | \
-  jq '.repositories[] | select(.kind == "template") | {id, name}'
-```
-
-### Step 2: Create Vibe Task
-
-```bash
-TEMPLATE_ID="your-template-uuid"
-
-RESPONSE=$(curl -s -X POST \
-  -H "Authorization: Bearer $API_KEY" \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"agentType\": \"claude-code\",
-    \"templateId\": \"$TEMPLATE_ID\",
-    \"message\": \"Create a simple hello world page\",
-    \"start\": true
-  }" \
-  "$BASE_URL/api/v1/tasks/vibe")
-
-TASK_ID=$(echo $RESPONSE | jq -r '.taskId')
-echo "Task ID: $TASK_ID"
-```
-
-**Request Body:**
-| Field | Required | Description |
-|-------|----------|-------------|
-| agentType | Yes | Agent type (e.g., `claude-code`) |
-| templateId | Yes | UUID of the template repository |
-| message | No* | Initial task message |
-| contexts | No* | Context items (*one of message/contexts required) |
-| start | No | Auto-start (default: true for vibe) |
-
-### Step 3: Verify GitHub Repository Created
-
-```bash
-# Check repository is remote (not local)
-curl -s -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/tasks/$TASK_ID" | \
-  jq '.repositoryName'
-
-# Verify via repositories endpoint
-curl -s -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/repositories" | \
-  jq ".repositories[] | select(.name | contains(\"$TASK_ID\")) | {kind, url: .remote.url}"
-```
-
-**Expected:** `kind: "remote"` with GitHub URL
-
-### Step 4-6: Same as Regular Task
-
-Follow steps 3-6 from the regular task workflow above.
-
----
-
 ## Verify Agent Execution
-
-### Via API
-
-```bash
-# Full workspace status
-curl -s -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/tasks/$TASK_ID/workspace-status" | jq .
-
-# Key fields to check
-curl -s -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/tasks/$TASK_ID/workspace-status" | \
-  jq '{
-    agentState,
-    environmentStatus,
-    environmentType,
-    capabilities,
-    isRunning,
-    canExecute
-  }'
-```
 
 ### Via kubectl (K8s)
 
 ```bash
-# Get worker pod
-WORKER_POD=$(kubectl get pods -n $NAMESPACE -l moatless.io/task-id=$TASK_ID | awk '{print $1}')
+WORKER_POD=$(kubectl get pods -n $NAMESPACE -l moatless.io/task-id=$TASK_ID -o jsonpath='{.items[0].metadata.name}')
 
-# Check pod status
 kubectl get pod $WORKER_POD -n $NAMESPACE
-
-# View worker logs
-kubectl logs $WORKER_POD -n $NAMESPACE --tail=100
-
-# Check agent status on worker
-kubectl exec $WORKER_POD -n $NAMESPACE -- curl -s localhost:8001/agent-status
+kubectl logs $WORKER_POD -n $NAMESPACE -c sandbox --tail=100
 
 # Main app logs for this task
 kubectl logs deployment/moatless-vibe-backend -n $NAMESPACE --tail=200 | grep $TASK_ID
 ```
 
+The sandbox container's own HTTP server only exposes `/health` and `/livez` —
+agent/server state comes from the backend-proxied sandbox API above, not from
+container-local endpoints.
+
 ---
 
 ## Verify Preview Server
 
-### Check Status via API
+### Server status via API
 
 ```bash
-curl -s -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/tasks/$TASK_ID/server/status" | jq .
+curl -s -H "Authorization: Bearer $API_KEY" \
+  "$BASE_URL/api/sandbox/v1/tasks/$TASK_ID/server/status" | jq '.servers'
 ```
 
-**Response Fields:**
-| Field | Description |
-|-------|-------------|
-| status | `stopped`, `starting`, `started`, `failed` |
-| url | External proxy URL (user-facing) |
-| pid | Process ID |
-| uptimeSeconds | Server uptime |
-| error | Error message if failed |
-| dirtyContext | Code changed since last restart |
-
-### Start/Stop/Restart
+Response is `{ servers: [ ... ] }`; each server snapshot includes `name`,
+`status`, `url` (external proxy URL), `error`, `detail`, `default`, and
+`capabilities`. The preview URL is the default server's `url`:
 
 ```bash
-# Start server
-curl -s -X POST -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/tasks/$TASK_ID/server/start"
-
-# Stop server
-curl -s -X POST -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/tasks/$TASK_ID/server/stop"
-
-# Restart server
-curl -s -X POST -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/tasks/$TASK_ID/server/restart"
+PREVIEW_URL=$(curl -s -H "Authorization: Bearer $API_KEY" \
+  "$BASE_URL/api/sandbox/v1/tasks/$TASK_ID/server/status" | \
+  jq -r '.servers[] | select(.default) | .url')
+curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $API_KEY" "$PREVIEW_URL"
 ```
 
-### Test via kubectl (K8s)
+### Restart / stop / redeploy the sandbox
 
 ```bash
-WORKER_POD=$(kubectl get pods -n $NAMESPACE -l moatless.io/task-id=$TASK_ID | awk '{print $1}')
-
-# Check worker's preview status
-kubectl exec $WORKER_POD -n $NAMESPACE -- curl -s localhost:8001/server/status
-
-# Test preview server directly (port 3000)
-kubectl exec $WORKER_POD -n $NAMESPACE -- curl -s localhost:3000 | head -20
-
-# Get server logs
-kubectl exec $WORKER_POD -n $NAMESPACE -- curl -s "localhost:8001/server/logs?lines=50"
+curl -s -X POST -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/sandbox/v1/tasks/$TASK_ID/restart"
+curl -s -X POST -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/sandbox/v1/tasks/$TASK_ID/stop"
+curl -s -X POST -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/sandbox/v1/tasks/$TASK_ID/redeploy"
 ```
 
-### Access via Hostname Proxy
+### Stream server logs (SSE)
 
 ```bash
-# Preview accessible at: https://{TASK_ID}.proxy.moatless.dev/
-curl -sk "https://${TASK_ID}.proxy.moatless.dev/" -H "Authorization: Bearer $API_KEY" | head -20
+curl -N -H "Authorization: Bearer $API_KEY" \
+  "$BASE_URL/api/sandbox/v1/tasks/$TASK_ID/servers/preview/logs"
+# add ?previous=true for a crashed/restarted container
+# or: moat tasks logs $TASK_ID --server preview
 ```
 
-### Stream Server Logs (SSE)
+### Direct preview check via kubectl
 
 ```bash
-curl -N -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/tasks/$TASK_ID/server/logs"
+WORKER_POD=$(kubectl get pods -n $NAMESPACE -l moatless.io/task-id=$TASK_ID -o jsonpath='{.items[0].metadata.name}')
+kubectl exec $WORKER_POD -n $NAMESPACE -c sandbox -- curl -s localhost:3000 | head -20
 ```
 
 ---
@@ -282,39 +185,33 @@ set -e
 API_KEY="${API_KEY:-mvk_your_api_key}"
 BASE_URL="${BASE_URL:-https://moatless.dev}"
 NAMESPACE="${NAMESPACE:-vibe}"
-TEMPLATE_ID="${TEMPLATE_ID:-your-template-uuid}"
 
-echo "=== 1. Create Vibe Task ==="
-RESPONSE=$(curl -s -X POST \
+echo "=== 1. Create + start task ==="
+TEMPLATE_ID=$(curl -s -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/repositories" | \
+  jq -r '.[] | select(.kind == "template") | .id' | head -1)
+TASK_ID=$(curl -s -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
-  -d "{\"agentType\":\"claude-code\",\"templateId\":\"$TEMPLATE_ID\",\"message\":\"Create hello world\",\"start\":true}" \
-  "$BASE_URL/api/v1/tasks/vibe")
-TASK_ID=$(echo $RESPONSE | jq -r '.taskId')
+  -d "{\"agentType\":\"claude-code\",\"repositoryId\":\"$TEMPLATE_ID\",\"message\":\"Create hello world\"}" \
+  "$BASE_URL/api/v1/tasks" | jq -r '.taskId')
+curl -s -X POST -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/tasks/$TASK_ID/start" >/dev/null
 echo "Task: $TASK_ID"
 
-echo "=== 2. Wait for Worker Pod ==="
+echo "=== 2. Wait for worker pod ==="
 sleep 15
 kubectl get pods -n $NAMESPACE -l moatless.io/task-id=$TASK_ID
-WORKER_POD=$(kubectl get pods -n $NAMESPACE -l moatless.io/task-id=$TASK_ID | awk '{print $1}')
 
-echo "=== 3. Check Agent Status ==="
-curl -s -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/tasks/$TASK_ID/workspace-status" | \
-  jq '{agentState, environmentStatus}'
-
-echo "=== 4. Wait for Completion ==="
+echo "=== 3. Wait for completion (status leaves 'open') ==="
 for i in {1..30}; do
-  STATUS=$(curl -s -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/tasks/$TASK_ID" | jq -r '.iterations[-1].status')
+  STATUS=$(curl -s -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/tasks/$TASK_ID" | jq -r '.status')
   echo "[$i] Status: $STATUS"
-  [[ "$STATUS" == "completed" ]] && break
+  [[ "$STATUS" != "open" ]] && break
   sleep 5
 done
 
-echo "=== 5. Check Preview Server ==="
-curl -s -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/tasks/$TASK_ID/server/status" | jq .
-
-echo "=== 6. Test Preview ==="
-kubectl exec $WORKER_POD -n $NAMESPACE -- curl -s localhost:3000 | head -10
+echo "=== 4. Check preview server ==="
+curl -s -H "Authorization: Bearer $API_KEY" \
+  "$BASE_URL/api/sandbox/v1/tasks/$TASK_ID/server/status" | jq '.servers'
 
 echo "=== Done ==="
 ```

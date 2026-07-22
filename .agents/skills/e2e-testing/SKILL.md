@@ -1,28 +1,24 @@
 ---
 name: e2e-testing
-description: Run and write E2E tests for Moatless Vibe. Covers Rust integration tests (crates/integration-tests/ — API/CLI, tiered by db/sandbox/agent), Playwright api/ui tests (tests/ — browser + API against Docker Compose), and the env-agnostic cluster suite (tests/cluster/ — runs against a local or remote k8s deployment via MOATLESS_BASE_URL + API_KEY). Use when running tests, writing new tests, running e2e against a cluster, setting up the test environment, or debugging test failures.
+description: Run and write E2E tests for Moatless Vibe. Covers Rust integration tests (crates/integration-tests/ — API/CLI, tiered by db/sandbox/agent) and Playwright api/ui tests (tests/ — browser + API against Docker Compose). Use when running tests, writing new tests, setting up the test environment, or debugging test failures.
 ---
 
 # E2E Testing
 
 ## Overview
 
-Three suites cover E2E testing, split by **target**:
+Two suites cover E2E testing, both against Docker Compose (the per-PR gate) at
+`http://localhost:8080`:
 
-| Suite | Location | Runner | Target | What it tests |
-|-------|----------|--------|--------|---------------|
-| **Rust integration tests** | `crates/integration-tests/` | `cargo test` | Docker Compose | Backend API via HTTP (MoatClient/reqwest) |
-| **Playwright api/ui tests** | `tests/api/`, `tests/ui/` | `bun run test:e2e` | Docker Compose | API chains + browser UI workflows |
-| **Playwright cluster tests** | `tests/cluster/` | `bun run test:e2e:cluster` | local-k8s **or** remote | Live deployment as a black-box HTTP client |
+| Suite | Location | Runner | What it tests |
+|-------|----------|--------|---------------|
+| **Rust integration tests** | `crates/integration-tests/` | `cargo test` | Backend API via HTTP (MoatClient/reqwest) |
+| **Playwright api/ui tests** | `tests/api/`, `tests/ui/` | `bun run test:e2e` | API chains + browser UI workflows |
 
-The first two run against the backend at `http://localhost:8080` (Docker Compose,
-the per-PR gate). The **cluster** suite runs against a live k8s deployment — see
-[Cluster target](#cluster-target-env-agnostic-suite).
+Auth against Docker Compose is an admin cookie / seeded users.
 
-| Target | Auth |
-|--------|------|
-| Docker Compose | admin cookie / seeded users |
-| local-k8s / remote | `test-api-user` Bearer key |
+For operating or debugging a live k8s cluster by hand, see the
+`kubernetes-testing` skill.
 
 ---
 
@@ -32,20 +28,25 @@ the per-PR gate). The **cluster** suite runs against a live k8s deployment — s
 
 Tests are organized into three tiers with environment variable gates:
 
-| Tier | Env Gate | `cargo test` flags | Tests |
-|------|----------|-------------------|-------|
-| **db** | None | `-- --nocapture` | task_crud, task_errors, repo_crud, messages, channel_config, channel_errors, channel_routing, channel_cross_channel, channel_webhook_callback, auth_verify, auth_teams, auth_access |
-| **sandbox** | `SANDBOX_E2E=1` | `-- --ignored --nocapture` | sandbox_lifecycle, sandbox_errors, file_operations |
-| **agent** | `CLAUDE_SDK_E2E=1` | `-- --ignored --nocapture` | agent_execution_flow, agent_plan_mode, agent_stop_recovery, message_acknowledgment, plugin_repos_e2e |
+The tier of a test = its gate. Files with **no `#[ignore]`** are the **db** tier
+(run by default). Gated tests carry `#[ignore]` and self-skip when their env gate
+is missing; they only run with `-- --ignored`. To derive the current membership,
+grep the test files for the gate env var — the lists below are representative,
+not exhaustive.
 
-The sandbox and agent tier tests use `#[ignore]` and only run with `-- --ignored`.
+| Tier | Env Gate | `cargo test` flags | Representative tests |
+|------|----------|-------------------|----------------------|
+| **db** | None | `-- --nocapture` | task_crud, task_errors, repo_crud, messages, auth_verify, auth_teams, auth_access, integrations_config, integrations_errors, integrations_github_pr_reply, trigger_routing, trigger_recent_tasks, task_connections, shadow_workspace_primary, feedback |
+| **sandbox** | `SANDBOX_E2E=1` | `-- --ignored --nocapture` | sandbox_lifecycle, sandbox_errors, file_operations |
+| **agent** | `CLAUDE_SDK_E2E=1` | `-- --ignored --nocapture` | agent_execution_flow, agent_plan_mode, agent_stop_recovery, agent_ask_user_question, message_acknowledgment, subagent_tool_tracking, plugin_repos_e2e |
+
 Single-test mode (`--test <name>`) passes `--include-ignored` automatically — every gated test self-skips when its env gate is missing.
 
 **Special gated tests** (also `#[ignore]` + self-skip):
 
 | Test | Env Gate | Extra backend env | What it covers |
 |------|----------|-------------------|----------------|
-| `github_proxy` | `GITHUB_PROXY_E2E=1` | `GITHUB_API_BASE_URL=http://host.docker.internal:18092`, `GITHUB_CHANNEL_TOKEN=<any>` | `moat gh` typed proxy: PR create + comments against an in-process mock GitHub (`src/mock_github.rs`) — verifies task binding, `Moatless task:` footer, default-branch fallback |
+| `github_proxy`, `provider_settings`, `setup_requirements` | `GITHUB_PROXY_E2E=1` | `GITHUB_API_BASE_URL=http://host.docker.internal:18092`, `GITHUB_CHANNEL_TOKEN=<any>` | `moat gh` typed proxy against an in-process mock GitHub (`src/mock_github.rs`) — PR create + comments, task binding, `Moatless task:` footer, default-branch fallback; provider-token + setup flows |
 | `webhook_callback` | `CHANNEL_CALLBACK_E2E=1` | `CALLBACK_HOST=host.docker.internal` (test-side) | Outbound webhook callbacks to an in-process server |
 
 ```bash
@@ -60,11 +61,11 @@ GITHUB_CHANNEL_TOKEN=mock-token \
 
 **`lib.rs`** — Core helpers:
 - `test_client()` — Unauthenticated `MoatClient` (reads `MOATLESS_API_URL`, defaults to `http://localhost:8080`)
-- `client_as_user(user_id, login, role)` — Client with ForwardAuth headers
-- `client_as_user_with_teams(user_id, login, role, team_ids)` — Client with team membership
-- `seed_test_users()` — Seeds alice, bob, carol via ForwardAuth
+- `client_as_user(login, role)` — Client authenticated via password-login session cookie (server assigns the id, returned on `TestUser.id`)
+- `client_as_user_with_teams(login, role, team_ids)` — Same, with team membership
+- `seed_test_users()` — Seeds alice, bob, carol via password login
 - `ensure_template_repo(client)` — Creates/finds template repo (`hello-world-ui.git`)
-- `reset_database()` — Truncates all 13 application tables via `docker exec moatless-postgres psql`
+- `reset_database()` — Truncates all application tables via `docker exec moatless-postgres psql`
 
 **`sandbox_helpers.rs`** — Polling helpers (2s intervals):
 - `wait_for_sandbox_ready(client, task_id, timeout)` — Polls until `environment_status == "ready"` with stability re-check
@@ -245,45 +246,6 @@ test.describe("Feature Name", () => {
   });
 });
 ```
-
----
-
-## Cluster target (env-agnostic suite)
-
-`tests/cluster/` runs against a **live deployment** — local-k8s or remote — as a
-black-box HTTP client. The same suite runs everywhere; only two env vars change.
-
-| Var | local-k8s | remote |
-|-----|-----------|--------|
-| `MOATLESS_BASE_URL` | `http://moatless.localhost` | `https://moatless.dev` |
-| `API_KEY` | the cluster's `TEST_API_KEY` (`mvk_…`) | same |
-
-```bash
-MOATLESS_BASE_URL=… API_KEY=mvk_… bun run test:e2e:cluster              # smoke + lifecycle
-MOATLESS_BASE_URL=… API_KEY=mvk_… E2E_DEPTH=full bun run test:e2e:cluster   # + agent tier
-```
-
-**Auth** is one `test-api-user` (admin) Bearer key. The backend mints it from
-`TEST_API_KEY`; add that key to the cluster's Secret (local: `k8s/local/README.md`
-step 3 — the chart wires it as an optional env). No login form, no ForwardAuth.
-
-**Depth** (`E2E_DEPTH`):
-- unset / `lifecycle` — smoke + lifecycle: auth, task CRUD, sandbox reaches
-  ready, preview serves, events over SSE. Deterministic, free.
-- `full` — also the agent tier: the agent edits the page to a unique per-run
-  marker and the test asserts the **preview renders it**. Needs Claude creds in
-  the cluster; the agent spec self-skips when unset.
-
-**Isolation**: no DB reset. Tasks are named `e2e-<runId>-<slug>`; each test
-deletes its own, and teardown sweeps this run's prefix. Assert only on resources
-you created — never global counts.
-
-**Where it runs**: developers point it at their local-k8s; CI runs it against
-remote post-deploy (smoke + lifecycle) and nightly (full), via
-`.github/workflows/cluster-e2e.yml`. Compose stays the per-PR gate.
-
-Debugging a red cluster run (pods, logs, metrics, event-delivery mode) → the
-`kubernetes-testing` skill.
 
 ---
 
