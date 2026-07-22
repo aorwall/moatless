@@ -142,7 +142,13 @@ async fn run_execution<P: AgentProcess>(
     }
 
     let mut started = false;
+    let mut accepted = false;
     let mut cancel_requested = false;
+    // Input acceptance seen before `ExecutionStarted` — held so the terminal
+    // order stays `ExecutionStarted → InputAccepted → Source*`.
+    let mut pending_accept: Option<InputId> = None;
+    // Source events held until both the execution has started and its input has
+    // been accepted, so no `Source` is ever emitted before `InputAccepted`.
     let mut early: Vec<super::source::SourceEvent> = Vec::new();
 
     loop {
@@ -178,16 +184,28 @@ async fn run_execution<P: AgentProcess>(
                                 },
                             )
                             .await?;
-                            for block in early.drain(..) {
-                                emit(signal_tx, Signal::Source(block)).await?;
+                            // Release acceptance (then buffered sources) that
+                            // arrived before the start, in contract order.
+                            if let Some(input) = pending_accept.take() {
+                                accepted = true;
+                                emit(signal_tx, Signal::InputAccepted { input }).await?;
                             }
+                            flush_early(signal_tx, started, accepted, &mut early).await?;
                         }
                     }
                     Some(ProcessEvent::InputAccepted { input }) => {
-                        emit(signal_tx, Signal::InputAccepted { input }).await?;
+                        if started {
+                            accepted = true;
+                            emit(signal_tx, Signal::InputAccepted { input }).await?;
+                            flush_early(signal_tx, started, accepted, &mut early).await?;
+                        } else {
+                            // Acceptance before start: hold it until the start is
+                            // emitted so it never precedes `ExecutionStarted`.
+                            pending_accept = Some(input);
+                        }
                     }
                     Some(ProcessEvent::Block(block)) => {
-                        if started {
+                        if started && accepted {
                             emit(signal_tx, Signal::Source(block)).await?;
                         } else {
                             early.push(block);
@@ -197,6 +215,7 @@ async fn run_execution<P: AgentProcess>(
                         emit(signal_tx, Signal::Activity(activity)).await?;
                     }
                     Some(ProcessEvent::Terminated { termination }) => {
+                        flush_early(signal_tx, started, true, &mut early).await?;
                         return finalize(
                             signal_tx,
                             started,
@@ -208,6 +227,7 @@ async fn run_execution<P: AgentProcess>(
                     }
                     None => {
                         // EOF with no prior Terminated: an unexpected exit.
+                        flush_early(signal_tx, started, true, &mut early).await?;
                         return finalize(signal_tx, started, cancel_requested, None, &input_id)
                             .await;
                     }
@@ -215,6 +235,25 @@ async fn run_execution<P: AgentProcess>(
             }
         }
     }
+}
+
+/// Release buffered source events once the execution has both started and had
+/// its input accepted. A no-op until then, so `Source` never precedes
+/// `InputAccepted`. On termination the caller forces the gate open so buffered
+/// output is not lost even if acceptance never arrived.
+async fn flush_early(
+    signal_tx: &mpsc::Sender<Signal>,
+    started: bool,
+    accepted: bool,
+    early: &mut Vec<super::source::SourceEvent>,
+) -> Result<(), SignalClosed> {
+    if !(started && accepted) {
+        return Ok(());
+    }
+    for block in early.drain(..) {
+        emit(signal_tx, Signal::Source(block)).await?;
+    }
+    Ok(())
 }
 
 /// Emit the single terminal for an execution. `termination = None` means the

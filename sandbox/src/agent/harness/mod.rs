@@ -28,6 +28,11 @@ pub mod source;
 mod claude;
 mod driver;
 mod process;
+
+// The scripted mock and its `Harness::scripted` constructor exist only to drive
+// the lifecycle/contract tests, so they stay behind `cfg(test)` — never part of
+// the crate's runtime surface.
+#[cfg(test)]
 mod scripted;
 
 #[cfg(test)]
@@ -37,7 +42,8 @@ use tokio::sync::mpsc;
 
 pub use claude::ClaudeConfig;
 pub use error::{ErrorClass, FailureStage, HarnessError, SessionImpact};
-pub use scripted::{Script, Step};
+#[cfg(test)]
+pub(crate) use scripted::{Script, Step};
 pub use signal::{Activity, Cause, Input, InputId, Outcome, Rejection, SessionId, Signal};
 pub use source::{NativeMessageId, Role, SourceEvent};
 
@@ -64,13 +70,15 @@ pub struct Harness {
 impl Harness {
     /// Construct a harness driven by a scripted mock process. The first
     /// execution runs `script`; any later execution ends immediately at EOF.
-    pub fn scripted(script: Script) -> Self {
+    #[cfg(test)]
+    pub(crate) fn scripted(script: Script) -> Self {
         Self::scripted_with_signal_capacity(script, SIGNAL_CAPACITY)
     }
 
     /// Like [`Harness::scripted`] but with an explicit signal-channel capacity,
     /// for exercising backpressure.
-    pub fn scripted_with_signal_capacity(script: Script, signal_capacity: usize) -> Self {
+    #[cfg(test)]
+    pub(crate) fn scripted_with_signal_capacity(script: Script, signal_capacity: usize) -> Self {
         let (submit_tx, submit_rx) = mpsc::channel(SUBMIT_CAPACITY);
         let (cancel_tx, cancel_rx) = mpsc::channel(1);
         let (signal_tx, signal_rx) = mpsc::channel(signal_capacity.max(1));

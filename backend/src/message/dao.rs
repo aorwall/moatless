@@ -466,19 +466,24 @@ impl MessageRepository for PgMessageRepository {
 
         let message_id = row.0;
 
-        // Child rows are fully re-derived from the assembled content on every
-        // write, so replace them rather than append. On a fresh INSERT this is a
-        // no-op; on upsert it lets a per-block source event re-insert the whole
-        // assembled block set and keeps duplicate delivery idempotent (no
-        // accumulating duplicate context/content-block rows).
-        sqlx::query("DELETE FROM task_message_contexts WHERE task_message_id = $1")
-            .bind(message_id)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("DELETE FROM task_message_content_blocks WHERE task_message_id = $1")
-            .bind(message_id)
-            .execute(&mut *tx)
-            .await?;
+        // Child rows are re-derived from the assembled content, so replace them
+        // rather than append. Replacement is scoped to the child set the caller
+        // actually supplies: per-block assembly always passes the full assembled
+        // set (so redelivery stays idempotent — no accumulating duplicate rows),
+        // while callers that manage no children pass an empty slice and must not
+        // have existing rows deleted out from under them on an upsert.
+        if !contexts.is_empty() {
+            sqlx::query("DELETE FROM task_message_contexts WHERE task_message_id = $1")
+                .bind(message_id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        if !content_blocks.is_empty() {
+            sqlx::query("DELETE FROM task_message_content_blocks WHERE task_message_id = $1")
+                .bind(message_id)
+                .execute(&mut *tx)
+                .await?;
+        }
 
         for ctx in contexts {
             sqlx::query(

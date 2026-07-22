@@ -814,13 +814,21 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
     // keeping the migration backward compatible.
     let persisted_content = match event.payload.get("blockIndex").and_then(as_block_index) {
         Some(block_index) => {
-            let existing = state
-                .messages
-                .find_by_uuid(uuid)
-                .await
-                .ok()
-                .flatten()
-                .map(|m| m.message_content);
+            // A failed read must not be treated as "no existing blocks": that
+            // would overwrite the assembled Message with only the incoming
+            // block. Abort this event instead and let redelivery reassemble.
+            let existing = match state.messages.find_by_uuid(uuid).await {
+                Ok(existing) => existing.map(|m| m.message_content),
+                Err(e) => {
+                    tracing::error!(
+                        error = %e,
+                        uuid = %uuid,
+                        task_id = %event.task_id,
+                        "failed to read existing message for per-block assembly; skipping to avoid overwriting assembled content"
+                    );
+                    return;
+                }
+            };
             merge_block_at_index(existing.as_ref(), block_index, &content)
         }
         None => content.clone(),

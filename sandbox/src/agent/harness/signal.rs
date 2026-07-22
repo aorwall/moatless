@@ -23,9 +23,10 @@
 //!   → ExecutionFinished(outcome)
 //! ```
 
+use crate::agent::types::ResumeSession;
+
 use super::error::HarnessError;
 use super::source::SourceEvent;
-use crate::agent::types::ResumeSession;
 
 /// Correlation identity for a submitted input (a pending-Message batch). The
 /// coordinator uses it to acknowledge the batch once it is accepted or rejected.

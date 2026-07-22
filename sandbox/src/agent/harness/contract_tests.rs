@@ -106,11 +106,13 @@ async fn no_source_event_before_execution_start() {
 
     let signals = drain_to_terminal(&mut harness).await;
 
-    // First signal is the start; no Source precedes it.
+    // Contract order holds even though the process emitted blocks first:
+    // ExecutionStarted, then InputAccepted, then the buffered sources — no
+    // Source precedes the start or the acceptance.
     assert!(matches!(signals[0], Signal::ExecutionStarted { .. }));
-    assert!(matches!(signals[1], Signal::Source(ref e) if e.source_id.0 == "s1"));
-    assert!(matches!(signals[2], Signal::Source(ref e) if e.source_id.0 == "s2"));
-    assert!(matches!(signals[3], Signal::InputAccepted { .. }));
+    assert!(matches!(signals[1], Signal::InputAccepted { .. }));
+    assert!(matches!(signals[2], Signal::Source(ref e) if e.source_id.0 == "s1"));
+    assert!(matches!(signals[3], Signal::Source(ref e) if e.source_id.0 == "s2"));
     assert!(matches!(
         signals[4],
         Signal::ExecutionFinished {
