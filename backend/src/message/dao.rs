@@ -59,6 +59,21 @@ pub struct SubagentAggregate {
     pub tokens: i64,
 }
 
+/// One Task carrying unacknowledged user messages, the desired-state
+/// reconciler's message-wake input.
+///
+/// A pending user message is `agent_session_id IS NULL AND message_type = 'user'`
+/// — the `task_messages_pending_user_idx` predicate. `newest_created_at` is the
+/// DB-owned timestamp of the most recent pending row; the reconciler compares it
+/// against `sandbox_desired_state_updated_at` to decide whether a wake supersedes
+/// a later stop/remove.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct PendingUserMessages {
+    pub task_id: String,
+    pub newest_created_at: DateTime<Utc>,
+    pub pending_count: i64,
+}
+
 /// A user-turn that was acknowledged by the sandbox but never reached a
 /// terminal `agent.completed/error/stopped` event — i.e. the sandbox
 /// crashed/restarted mid-run. Used by the recovery RPC to drive a
@@ -97,6 +112,14 @@ pub trait MessageRepository: Send + Sync {
     async fn find_by_uuid(&self, uuid: &str) -> Result<Option<TaskMessage>, sqlx::Error>;
 
     async fn get_pending_user(&self, task_id: &str) -> Result<Vec<TaskMessage>, sqlx::Error>;
+
+    /// Every Task with at least one unacknowledged user message, one row per
+    /// Task — the cross-Task scan the reconciler needs (never one Task at a
+    /// time), backed by the `task_messages_pending_user_idx` partial index.
+    async fn tasks_with_pending_user_messages(
+        &self,
+    ) -> Result<Vec<PendingUserMessages>, sqlx::Error>;
+
     async fn get_last_result(&self, task_id: &str) -> Result<Option<TaskMessage>, sqlx::Error>;
     /// Most recent `assistant` row for the task — the agent's final reply when
     /// called from a terminal hook. Used to source the body of the Linear
@@ -493,6 +516,21 @@ impl MessageRepository for PgMessageRepository {
             ORDER BY timestamp, id"#,
         )
         .bind(task_id)
+        .fetch_all(&self.0)
+        .await
+    }
+
+    async fn tasks_with_pending_user_messages(
+        &self,
+    ) -> Result<Vec<PendingUserMessages>, sqlx::Error> {
+        sqlx::query_as::<_, PendingUserMessages>(
+            r#"SELECT task_id,
+                      MAX(created_at) AS newest_created_at,
+                      COUNT(*)        AS pending_count
+               FROM task_messages
+               WHERE agent_session_id IS NULL AND message_type = 'user'
+               GROUP BY task_id"#,
+        )
         .fetch_all(&self.0)
         .await
     }
@@ -1493,6 +1531,15 @@ pub async fn get_pending_user(
         .await
 }
 
+/// Tasks with unacknowledged user messages (convenience wrapper).
+pub async fn tasks_with_pending_user_messages(
+    pool: &DbPool,
+) -> Result<Vec<PendingUserMessages>, sqlx::Error> {
+    PgMessageRepository(pool.clone())
+        .tasks_with_pending_user_messages()
+        .await
+}
+
 /// Set session_id for all pending messages (convenience wrapper).
 pub async fn set_session_id_for_task(
     pool: &DbPool,
@@ -1559,3 +1606,75 @@ pub async fn acknowledge_messages(
         .await
 }
 
+/// Delete a queued message (convenience wrapper).
+pub async fn delete_queued(
+    pool: &DbPool,
+    task_id: &str,
+    message_uuid: &str,
+) -> Result<bool, sqlx::Error> {
+    PgMessageRepository(pool.clone())
+        .delete_queued(task_id, message_uuid)
+        .await
+}
+
+#[cfg(all(test, feature = "db-tests"))]
+mod db_tests {
+    use super::*;
+    use sqlx::PgPool;
+
+    /// Insert one `task_messages` row with explicit pending state and timestamp.
+    async fn seed_message(
+        pool: &PgPool,
+        task_id: &str,
+        uuid: &str,
+        message_type: &str,
+        agent_session_id: Option<&str>,
+        created_at: DateTime<Utc>,
+    ) {
+        sqlx::query(
+            r#"INSERT INTO task_messages
+                   (task_id, uuid, message_type, user_type, timestamp, message_role,
+                    message_content, agent_session_id, created_at)
+               VALUES ($1, $2, $3, 'human', $4, 'user', '{}'::jsonb, $5, $6)"#,
+        )
+        .bind(task_id)
+        .bind(uuid)
+        .bind(message_type)
+        .bind(created_at.to_rfc3339())
+        .bind(agent_session_id)
+        .bind(created_at)
+        .execute(pool)
+        .await
+        .expect("seed message");
+    }
+
+    fn at(secs: i64) -> DateTime<Utc> {
+        DateTime::from_timestamp(secs, 0).expect("valid ts")
+    }
+
+    #[sqlx::test]
+    async fn pending_scan_returns_one_row_per_task_with_newest_and_count(pool: PgPool) {
+        // Task A: two pending user messages — newest wins, count is 2.
+        seed_message(&pool, "a", "a1", "user", None, at(1_000)).await;
+        seed_message(&pool, "a", "a2", "user", None, at(2_000)).await;
+        // Task A also has an acknowledged user message and an assistant message —
+        // neither is pending, so neither inflates the count nor the timestamp.
+        seed_message(&pool, "a", "a3", "user", Some("sess-1"), at(3_000)).await;
+        seed_message(&pool, "a", "a4", "assistant", None, at(4_000)).await;
+        // Task B: one pending user message.
+        seed_message(&pool, "b", "b1", "user", None, at(500)).await;
+        // Task C: only an acknowledged message — never appears.
+        seed_message(&pool, "c", "c1", "user", Some("sess-2"), at(9_000)).await;
+
+        let mut rows = tasks_with_pending_user_messages(&pool).await.unwrap();
+        rows.sort_by(|l, r| l.task_id.cmp(&r.task_id));
+
+        assert_eq!(rows.len(), 2, "only tasks with a pending user message appear");
+        assert_eq!(rows[0].task_id, "a");
+        assert_eq!(rows[0].newest_created_at, at(2_000), "newest pending, not the acked one");
+        assert_eq!(rows[0].pending_count, 2);
+        assert_eq!(rows[1].task_id, "b");
+        assert_eq!(rows[1].newest_created_at, at(500));
+        assert_eq!(rows[1].pending_count, 1);
+    }
+}
