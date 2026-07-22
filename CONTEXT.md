@@ -76,6 +76,7 @@ Task has one-or-more Sessions; a Session spans many Turns. A new Session begins
 only on `start_fresh`. Not a per-Turn unit — that is the Run. Claude identifies a
 Session with a `session_id`; Codex calls the same thing a **thread** (`thread_id`,
 resumed via `codex exec resume`) — a legitimate Codex-scoped synonym.
+The Session can span Agent process replacement and Sandbox recreation.
 _Avoid_: bare "session" for the user login session — always qualify that as
 "auth session". Do not confuse the Codex thread with an external Slack "thread"
 (that is a Binding).
@@ -167,13 +168,17 @@ _Avoid_: bare "route" / `TaskRoute` for the loop's config
 ### Agents
 
 **Agent**:
-The coding-agent CLI process that runs a Task inside a Sandbox — the thing doing
-the work (owns the CLI Session).
+The coding-agent CLI process controlled by the Agent harness inside a Sandbox.
+At most one Agent process is active in a Sandbox at a time; a Session can outlive
+and be resumed by a replacement Agent process.
 _Avoid_: agent run; "agent" as a synonym for a running Task
 
-**Agent type**:
-Which agent implementation runs a Task: the `claude-code` family (`claude-code`,
-`-tui`, `-cli`, `-fable`) or `codex`. Always qualified — never bare "agent".
+**Agent harness**:
+The execution implementation that controls the Agent process, such as
+`claude-code` or `codex`. It is selected when the Task is created, fixed for that
+Task's lifetime, and instantiated inside its Sandbox; transport, model, and mode
+variants are configuration, not distinct harnesses.
+_Avoid_: Agent type, treating `claude-code-tui` / `-cli` / `-fable` as harnesses
 
 **Agent mode**:
 How the Agent runs a Turn: `plan` or `edit`.
