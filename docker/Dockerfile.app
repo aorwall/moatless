@@ -26,6 +26,12 @@ COPY apps/frontend/dist /usr/share/nginx/html
 # entrypoint only substitutes names present in the environment).
 COPY docker/nginx.conf /etc/nginx/templates/default.conf.template
 
+# Remove the base image's stock server config. The rendered template is the only
+# config; if the entrypoint cannot write it (conf.d not writable under a non-root
+# read-only rootfs), nginx must fail its probe loudly rather than silently serve
+# this stock block, which returns 200 for `/` but 404s every SPA deep link.
+RUN rm -f /etc/nginx/conf.d/default.conf
+
 # CSP frame-src value. Defaults to the external https preview URLs; local http
 # clusters override it (e.g. to add http://*.preview.moatless.localhost).
 ENV CSP_FRAME_SRC="https:"
