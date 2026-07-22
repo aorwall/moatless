@@ -15,6 +15,9 @@ synonyms to avoid — not how anything is implemented.
 The per-task, on-demand isolated container (a Kubernetes pod or Docker container)
 that runs the coding agent and its servers. Exactly one per Task; ephemeral.
 A Sandbox materializes a Workspace on disk under its workspace directory.
+Its durable lifecycle record (desired state, stop reason, archive retention,
+operation marker) belongs to the Task and outlives the ephemeral container;
+absence of the record means no Sandbox was ever requested.
 _Avoid_: worker, environment, workspace pod
 
 ### Workspace & repositories

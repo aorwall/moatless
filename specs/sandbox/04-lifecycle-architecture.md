@@ -23,7 +23,7 @@ operation-level event, and returns a typed outcome. Callers never supply a
 
 ## Seams
 
-Two traits, both implemented by the K8s and Docker adapters:
+Three traits, all implemented by the K8s and Docker adapters:
 
 - **`SandboxRuntime`** (mutations): `ensure_running`, `stop`, `restart`,
   `redeploy`, `remove` — every mutation returns a typed `RuntimeOutcome` so
@@ -33,16 +33,27 @@ Two traits, both implemented by the K8s and Docker adapters:
   exception is the **orphan resource sweep** — label-based deletion of
   resources whose Task row no longer exists, which lifecycle cannot express. A
   recording test adapter implements this trait for lifecycle module tests.
-- **`SandboxAccess`** (interior access + observation): `sandbox_status`, `live_status`, `container_statuses`,
-  `expected_sandbox_image`, `server_logs`, `sandbox_client`. Lives in `AppState`
-  for status handlers, file operations, notify, and the reaper's eligibility
-  reads. Not read-only: `sandbox_client` grants a gRPC client that mutates the
-  sandbox's interior (agent, files). The seam line is infrastructure state
-  transitions (lifecycle only) vs. interior access and observation — consistent
-  with Agent/Turn lifecycle sitting outside the module. These callers are
-  unaffected by the lifecycle migration. `SandboxAccess` is deliberate
-  interface segregation — a capability restriction, not a deep module; the
-  depth claim in this document applies to `sandbox::lifecycle`.
+- **`SandboxObserver`** (observation): `sandbox_status`, `live_status`,
+  `container_statuses`, `server_logs` — the status and diagnostics projections,
+  reading persisted desired state from the Sandbox row. Route-local: lives in
+  `SandboxApiState` for the status handlers only.
+- **`SandboxConnector`** (interior connection): `sandbox_client` — the **only**
+  way to construct a `SandboxClient` (the notify service-name and credentials
+  raw-URL constructors are absorbed by it). Not read-only: it grants a gRPC
+  client that mutates the sandbox's interior (agent, files). Route-local in
+  `SandboxApiState` for the file handlers; the reaper's single interior read
+  (agent idle status) goes through a consumer-owned one-method
+  `AgentStatusPort` whose implementation wraps the connector.
+
+The seam line is unchanged: infrastructure state transitions (lifecycle only)
+vs. interior access and observation — consistent with Agent/Turn lifecycle
+sitting outside the module. `expected_sandbox_image` is plan knowledge and
+belongs to lifecycle, not observation: the status handler's image-freshness
+hint obtains it through the lifecycle handle. Observer and Connector are
+deliberate interface segregation — capability restrictions, not deep modules;
+the depth claim in this document applies to `sandbox::lifecycle`. `AppState`
+carries exactly one sandbox value — the lifecycle handle, named `sandbox`, so
+callers read `state.sandbox.stop(..)`.
 
 Repository seams stay internal to the lifecycle implementation.
 
@@ -268,11 +279,11 @@ intent and its retention carry.
 
 - **Permanent deletion requires successful removal.** Task deletion is
   `lifecycle.remove` with `ArchiveRetention::DeleteArchives`, followed by row
-  deletion only on success. On failure the typed error surfaces, the row
+  deletion only on success. On failure the typed error surfaces, the Sandbox row
   survives with `Removed` intent and its persisted policy, the reconciler keeps
-  retrying, and the delete is idempotent to re-attempt. The Task row is the
-  durable retry record — it is never deleted ahead of the infrastructure and
-  archives it tracks. **Removal is strict:** every
+  retrying, and the delete is idempotent to re-attempt. The Task row and its
+  Sandbox row are the durable retry record — never deleted ahead of the
+  infrastructure and archives they track. **Removal is strict:** every
   deletion is load-bearing — Deployment and PVC (already strict today), S3
   archive deletion (today logged-and-swallowed in
   `delete_task_transcripts`), and Docker force-removal — so a "successful"
@@ -368,6 +379,35 @@ intent and its retention carry.
     republished by lifecycle, so Docker's per-server failure visibility
     survives. Adapters publish nothing themselves.
 
+## Persistence
+
+Durable Sandbox state lives in the **`sandboxes` table**, not on `tasks`:
+
+- **At most one row per Task** (PK `task_id`, FK → `tasks`): desired state, stop
+  reason, the intent timestamp, `started_at`, archive retention, the
+  correlation marker (`operation_kind`, `operation_generation`,
+  `operation_started_at`), and the per-Task generation counter. Column names
+  drop the `sandbox_` prefix; references to `sandbox_desired_state_updated_at`
+  in this document denote `sandboxes.desired_state_updated_at`.
+- **The row is born lazily, and only through lifecycle.** The atomic intent
+  write is an `INSERT … ON CONFLICT DO UPDATE` — still one statement — so the
+  row cannot exist except through a lifecycle operation. Lifecycle is the sole
+  intent writer **by construction**: Task creation writes no sandbox state, and
+  auto-start paths call `lifecycle.start` explicitly. Intent-before-effect
+  therefore implies **row-before-runtime** — no runtime resource can exist for
+  a Task without a Sandbox row.
+- **Absence is meaningful.** No row means no Sandbox was ever requested —
+  converged with observed absence by definition. Candidate queries and wake
+  precedence treat no-row as desired Stopped with no intent timestamp: a
+  pending Message always supersedes it, because no later stop or remove can
+  exist without a row.
+- **The row survives `remove`** — it is the durable retry record, carrying the
+  incomplete marker and the persisted retention. It is deleted only with its
+  Task row (`ON DELETE CASCADE`), which is safe because Task deletion is gated
+  on strict removal success.
+- The reconciler's candidate indexes (desired-Running, incomplete-marker) live
+  on `sandboxes`.
+
 ## Ownership
 
 | Lifecycle owns                                | Lifecycle excludes                          |
@@ -429,7 +469,11 @@ Notes that bound the migration:
 - The plan-construction repositories (`repos`, `provider_tokens`,
   `plugin_repos`) move behind lifecycle. `SandboxApiState` keeps `tasks` and
   `teams` (authorization), `workspaces` (status/server-config reads), and
-  `secrets`, alongside the lifecycle handle and the access trait.
+  `secrets`, alongside the lifecycle handle and the observer/connector traits.
+  `AppState` carries exactly one sandbox value — the lifecycle handle as
+  `state.sandbox`; the provider handle leaves `AppState` (its only non-route
+  consumer, the reaper's idle-eligibility read, goes through the
+  consumer-owned one-method `AgentStatusPort`).
 - The public `/cleanup` HTTP route path is stable; internals rename to
   `remove`.
 
@@ -461,10 +505,21 @@ Order of work:
    Postgres half, the race matrix's genuinely concurrent serialization and
    lock-retry exhaustion, the eligibility matrix's Error-resumable row, and
    the start matrix's bad-plan case (plan construction moves behind the
-   interface here).
+   interface here). Durable Sandbox state moves to the `sandboxes` table in
+   this step: the branch-local marker/index migrations are reworked in place
+   to target it, one released-column migration moves `sandbox_desired_state`,
+   `sandbox_stop_reason`, `sandbox_desired_state_updated_at`, and
+   `sandbox_started_at` off `tasks` (create, backfill, drop), the store and
+   candidate/wake queries repoint, the insert-time `Running` intent writes are
+   deleted, `AppState` collapses to the single `state.sandbox` lifecycle
+   handle, and the reaper gains `AgentStatusPort`.
 3. **Implement the runtime seam** — the K8s and Docker adapters implement
-   `SandboxRuntime` (provision logic becomes `ensure_running`); retire
-   `SandboxProvider`; split out `SandboxAccess`.
+   `SandboxRuntime` (provision logic becomes `ensure_running`) plus
+   `SandboxObserver` and `SandboxConnector` natively; retire `SandboxProvider`.
+   The connector becomes the only `SandboxClient` construction path (absorbing
+   the notify service-name and credentials raw-URL constructors), and
+   `expected_sandbox_image` moves behind lifecycle with the rest of plan
+   knowledge.
 4. **Delete shallow paths** — plan orchestration and intent helpers in callers
    (`record_sandbox_*`, adapter `provision_task` clones, watcher side door).
 
@@ -484,6 +539,11 @@ The interface is the test surface:
   idempotent stop and remove.
 - **Intent matrix:** every operation persists target and reason in the specified
   order.
+- **Persistence matrix:** the intent upsert creates the Sandbox row on first
+  operation; a no-row Task is converged-Stopped for the reconciler and always
+  wakeable by a pending Message; the Sandbox row survives strict remove and
+  cascades with Task deletion; the released-column migration backfills the
+  four legacy `tasks` columns faithfully.
 - **Race matrix:** concurrent start/stop and stop/remove serialize per Task;
   a contender exhausting the bounded lock retry gets
   `OperationInProgress { kind }`.
