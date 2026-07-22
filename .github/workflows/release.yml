@@ -48,7 +48,7 @@ jobs:
     needs: version
     # Fork (soaplabs/moatless-vibe) publishes to ECR via cd-ecr.yml on
     # fp-v* tags, not Docker Hub. Gate keeps this job upstream-only.
-    if: github.repository == 'aorwall/moatless-vibe'
+    if: github.repository_owner == 'aorwall'
     runs-on: ubuntu-latest
     steps:
       - name: Login to Docker Hub
@@ -91,7 +91,7 @@ jobs:
   publish-helm:
     needs: [version, retag-images]
     # Fork-side: publish-helm runs in cd-ecr.yml against ECR.
-    if: github.repository == 'aorwall/moatless-vibe'
+    if: github.repository_owner == 'aorwall'
     runs-on: ubuntu-latest
     permissions:
       contents: write

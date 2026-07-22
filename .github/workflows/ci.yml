@@ -156,7 +156,7 @@ jobs:
     # build-binaries job.
     if: >-
       always() &&
-      github.repository == 'aorwall/moatless-vibe' &&
+      github.repository_owner == 'aorwall' &&
       (
         needs.detect-changes.outputs.rust == 'true' ||
         needs.detect-changes.outputs.docker-backend == 'true' ||
@@ -198,7 +198,7 @@ jobs:
     # Upstream-only (cascades from build-backend gate).
     if: >-
       always() &&
-      github.repository == 'aorwall/moatless-vibe' &&
+      github.repository_owner == 'aorwall' &&
       needs.build-backend.result == 'success'
     runs-on: ubuntu-latest
     steps:
@@ -226,7 +226,7 @@ jobs:
     # Upstream-only (cascades from generate-spec gate).
     if: >-
       always() &&
-      github.repository == 'aorwall/moatless-vibe' &&
+      github.repository_owner == 'aorwall' &&
       needs.generate-spec.result == 'success'
     runs-on: ubuntu-latest
     steps:
@@ -264,7 +264,7 @@ jobs:
     # Upstream-only. On the fork, cd-ecr.yml runs lint-frontend.
     if: >-
       always() &&
-      github.repository == 'aorwall/moatless-vibe' &&
+      github.repository_owner == 'aorwall' &&
       (
         needs.detect-changes.outputs.frontend == 'true' ||
         needs.detect-changes.outputs.docker-frontend == 'true' ||
@@ -299,7 +299,7 @@ jobs:
     # Upstream-only. On the fork, cd-ecr.yml runs build-frontend.
     if: >-
       always() &&
-      github.repository == 'aorwall/moatless-vibe' &&
+      github.repository_owner == 'aorwall' &&
       needs.generate-ts-client.result != 'failure' &&
       (
         needs.detect-changes.outputs.frontend == 'true' ||
@@ -347,7 +347,7 @@ jobs:
     # not Docker Hub. Gate keeps this job upstream-only.
     if: >-
       always() &&
-      github.repository == 'aorwall/moatless-vibe' &&
+      github.repository_owner == 'aorwall' &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') &&
       (needs.detect-changes.outputs.docker-frontend == 'true' || github.event_name == 'workflow_dispatch') &&
       (needs.lint-frontend.result == 'success' || needs.lint-frontend.result == 'skipped') &&
@@ -394,7 +394,7 @@ jobs:
     # Fork-side: published via cd-ecr.yml to ECR, see note on build-frontend-image.
     if: >-
       always() &&
-      github.repository == 'aorwall/moatless-vibe' &&
+      github.repository_owner == 'aorwall' &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') &&
       (needs.detect-changes.outputs.docker-backend == 'true' || github.event_name == 'workflow_dispatch') &&
       needs.build-backend.result == 'success'
@@ -446,7 +446,7 @@ jobs:
     # Fork-side: published via cd-ecr.yml (publish-helm job) on fp-v* tags.
     if: >-
       always() &&
-      github.repository == 'aorwall/moatless-vibe' &&
+      github.repository_owner == 'aorwall' &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') &&
       !contains(needs.*.result, 'failure') &&
       (

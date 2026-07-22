@@ -1,8 +1,9 @@
 # Fork-only CD: publish images + helm chart to platform ECR (eu-north-1,
 # account 111111111111) via the audited reusable workflows in
-# soaplabs/soap-platform-ci. Replaces the upstream Docker Hub publish
-# jobs in ci.yml/release.yml/build-sandbox-images.yml — those are gated
-# off on the fork via `if: github.repository == 'aorwall/moatless-vibe'`.
+# soaplabs/soap-platform-ci. Gated to soaplabs/moatless-vibe via the `setup`
+# job's `if`. The upstream aorwall/moatless repo publishes to Docker Hub
+# instead (ci.yml/release.yml/build-sandbox-images.yml, gated on
+# `github.repository_owner == 'aorwall'`).
 #
 # Triggered on:
 #   - push to main → changed images + Helm chart, tagged with next semver
@@ -59,6 +60,11 @@ permissions:
 jobs:
   # ── Compute tag + which images this run touches ──
   setup:
+    # Fork-only pipeline. On aorwall/moatless the Docker Hub publish jobs
+    # (ci.yml, build-sandbox-images.yml, release.yml) own image publishing.
+    # Every job here depends on setup, so gating it disables the workflow
+    # off-fork.
+    if: github.repository == 'soaplabs/moatless-vibe'
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.compute.outputs.tag }}

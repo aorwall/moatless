@@ -42,6 +42,8 @@ concurrency:
 
 jobs:
   publish-sandbox-dev:
+    # Fork-only: targets soaplabs ECR. Off on aorwall/moatless.
+    if: github.repository == 'soaplabs/moatless-vibe'
     uses: soaplabs/soap-platform-ci/.github/workflows/build-push-ecr.yml@main
     with:
       service-name: moatless
