@@ -378,3 +378,91 @@ async fn e2e_claude_subprocess_turn_through_the_harness() {
         "expected Completed, got {outcome:?}"
     );
 }
+
+/// Focused real-CLI E2E for the persistent tmux transport: launch the actual
+/// TUI through the production [`super::super::Harness::claude_persistent`] seam,
+/// run one Turn, then submit a second Turn to prove the same live Session hosts
+/// it (no replacement). Gated behind `CLAUDE_TMUX_E2E=1` (and needs `tmux` on
+/// PATH); the full E2E matrix runs at ticket 10.
+#[tokio::test]
+#[ignore = "requires the real claude CLI + tmux + credentials (CLAUDE_TMUX_E2E=1)"]
+async fn e2e_persistent_claude_two_turns_share_a_session() {
+    if std::env::var("CLAUDE_TMUX_E2E").as_deref() != Ok("1") {
+        eprintln!("skipping: set CLAUDE_TMUX_E2E=1 to run");
+        return;
+    }
+    use super::super::signal::{Cause, Outcome, SessionId, Signal};
+    use super::super::Harness;
+
+    let mut config = crate::config::test_support::minimal_config();
+    let workspace = std::env::temp_dir().join("harness-claude-persistent-e2e");
+    std::fs::create_dir_all(&workspace).expect("create workspace dir");
+    config.workspace_dir = workspace.to_string_lossy().into_owned();
+    config.repo_dir = config.workspace_dir.clone();
+    config.use_tmux = true;
+    if let Ok(path) = std::env::var("SANDBOX_CLAUDE_EXECUTABLE_PATH") {
+        config.claude_cli_path = path;
+    }
+    config.default_model = Some("claude-haiku-4-5-20251001".to_string());
+
+    let mut env = HashMap::new();
+    if let Ok(token) = std::env::var("CLAUDE_CODE_OAUTH_TOKEN") {
+        env.insert("CLAUDE_CODE_OAUTH_TOKEN".to_string(), token);
+    }
+    if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
+        env.insert("ANTHROPIC_API_KEY".to_string(), key);
+    }
+
+    let cfg = ClaudeConfig {
+        config: Arc::new(config),
+        agent_state: Arc::new(AgentState::new()),
+        env: (!env.is_empty()).then_some(env),
+        system_prompt: None,
+        agent_type: Some("claude-code".to_string()),
+    };
+
+    let mut harness = Harness::claude_persistent(cfg);
+
+    // Runs one Turn and returns (session, outcome) for it.
+    async fn run_turn(harness: &mut Harness, id: &str, text: &str) -> (Option<SessionId>, Option<Outcome>) {
+        harness
+            .submit(Input::text(id, text))
+            .await
+            .expect("submit input");
+        let (mut session, mut outcome) = (None, None);
+        while let Some(signal) = harness.next_signal().await {
+            match signal {
+                Signal::ExecutionStarted { session: s, cause } => {
+                    assert!(matches!(cause, Cause::Input(_)), "user Turn is input-caused");
+                    session = Some(s);
+                }
+                Signal::ExecutionFinished { outcome: finished } => {
+                    outcome = Some(finished);
+                    break;
+                }
+                _ => {}
+            }
+        }
+        (session, outcome)
+    }
+
+    let (first_session, first_outcome) =
+        run_turn(&mut harness, "in-1", "What is 2+2? Reply with only the number.").await;
+    assert!(
+        matches!(first_outcome, Some(Outcome::Completed)),
+        "first Turn should complete, got {first_outcome:?}"
+    );
+    let first_session = first_session.expect("first Turn reports a Session");
+
+    let (second_session, second_outcome) =
+        run_turn(&mut harness, "in-2", "And what is that number times 3?").await;
+    assert!(
+        matches!(second_outcome, Some(Outcome::Completed)),
+        "second Turn should complete, got {second_outcome:?}"
+    );
+    assert_eq!(
+        second_session.expect("second Turn reports a Session"),
+        first_session,
+        "the second Turn must run on the same persistent Session"
+    );
+}

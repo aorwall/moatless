@@ -28,14 +28,25 @@ pub(crate) enum ProcessTermination {
 /// exactly-one-terminal guarantee).
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ProcessEvent {
-    /// The process is ready and its real Session identity is known.
+    /// The process is ready and its real Session identity is known. Reports an
+    /// execution opened by the most recently submitted input.
     SessionReady { session: SessionId },
-    /// The process accepted a unit of input.
+    /// A harness-internal execution began (a CLI wakeup or Monitor): a known
+    /// Session with no pending input behind it, so no `InputAccepted` follows.
+    /// Persistent transports only.
+    InternalStart { session: SessionId },
+    /// The process accepted a unit of input. When it follows a `SessionReady`
+    /// with no intervening acceptance it opens that execution; when it arrives
+    /// while an execution is already active it is injected into that execution.
     InputAccepted { input: InputId },
     /// One native content block.
     Block(SourceEvent),
     /// Liveness / tool progress.
     Activity(Activity),
+    /// The current execution reached its single terminal while the process stays
+    /// alive to host later executions. Persistent transports only; a one-shot
+    /// process reports `Terminated` at the end of its single execution instead.
+    ExecutionEnded { termination: ProcessTermination },
     /// The process ended on its own.
     Terminated { termination: ProcessTermination },
 }

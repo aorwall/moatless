@@ -76,6 +76,246 @@ pub(crate) async fn run<P, F>(
     }
 }
 
+/// Run the persistent-process driver loop until the command side closes and the
+/// process ends, or the signal receiver is dropped.
+///
+/// Unlike [`run`], the process is long-lived: it hosts many executions
+/// (`ExecutionEnded` is a Turn boundary, not process death), accepts input
+/// injected into an active execution, and may open harness-internal executions
+/// on its own. The same ordering invariants hold — no `Source` before its
+/// `ExecutionStarted`/`InputAccepted`, and exactly one terminal per execution —
+/// enforced through the shared [`emit`]/[`flush_early`]/[`finalize`] helpers.
+///
+/// All persistent-transport policy (fingerprint compatibility, injection vs.
+/// replacement, tmux teardown) lives inside the [`AgentProcess`]; this loop is
+/// harness-neutral and only sequences the external contract.
+pub(crate) async fn run_persistent<P: AgentProcess>(
+    mut process: P,
+    mut submit_rx: mpsc::Receiver<Input>,
+    mut cancel_rx: mpsc::Receiver<()>,
+    signal_tx: mpsc::Sender<Signal>,
+) {
+    let mut state = PersistentState::default();
+    let mut commands_open = true;
+    let mut cancel_open = true;
+
+    loop {
+        // Both command channels closed means the coordinator is gone: nothing
+        // left to serve. Return and let the process drop (a persistent transport
+        // tears down its Agent process on drop), rather than manufacturing a
+        // terminal no one will read.
+        if !commands_open && !cancel_open {
+            return;
+        }
+
+        let woke = tokio::select! {
+            biased;
+            cancelled = cancel_rx.recv(), if cancel_open => match cancelled {
+                Some(()) => Woke::Cancel,
+                None => Woke::CancelClosed,
+            },
+            submitted = submit_rx.recv(), if commands_open => match submitted {
+                Some(input) => Woke::Submit(input),
+                None => Woke::SubmitClosed,
+            },
+            event = process.next() => Woke::Event(event),
+        };
+
+        match woke {
+            Woke::Cancel => {
+                // Cancel only bites during an active execution; while idle it is
+                // a no-op. The process persists after cancelling the Turn.
+                if state.active && !state.cancel_requested {
+                    state.cancel_requested = true;
+                    process.cancel().await;
+                }
+            }
+            Woke::CancelClosed => cancel_open = false,
+            Woke::Submit(input) => {
+                let input_id = input.id.clone();
+                match process.submit(input).await {
+                    // Delivered: its acceptance (injection or a fresh start) will
+                    // arrive as an event. Remember it so a fresh start can name
+                    // its cause and each acceptance resolves in submit order.
+                    Ok(()) => state.pending.push_back(input_id),
+                    Err(error) => {
+                        if emit(
+                            &signal_tx,
+                            Signal::InputRejected {
+                                input: input_id,
+                                reason: Rejection::Failed(error),
+                            },
+                        )
+                        .await
+                        .is_err()
+                        {
+                            return;
+                        }
+                    }
+                }
+            }
+            Woke::SubmitClosed => commands_open = false,
+            Woke::Event(event) => {
+                match drive_persistent_event(event, &mut state, &signal_tx).await {
+                    Ok(true) => {}
+                    // Process ended (Terminated / EOF) or the signal consumer is
+                    // gone: the persistent driver is done.
+                    Ok(false) | Err(SignalClosed) => return,
+                }
+            }
+        }
+    }
+}
+
+/// What woke the persistent loop. The channel receives are resolved inside the
+/// `select!`; process interactions (`submit`, `cancel`) then run in the match arm
+/// so the `process.next()` branch never overlaps another `&mut process` borrow.
+enum Woke {
+    Cancel,
+    CancelClosed,
+    Submit(Input),
+    SubmitClosed,
+    Event(Option<ProcessEvent>),
+}
+
+/// Per-execution ordering state for the persistent driver.
+#[derive(Default)]
+struct PersistentState {
+    /// An execution has started and not yet reached its terminal.
+    active: bool,
+    /// The active execution's opening input has been accepted (or it is a
+    /// harness-internal execution) — the gate that releases buffered `Source`s.
+    accepted: bool,
+    /// A `SessionReady` opened the active execution and its `InputAccepted` has
+    /// not arrived yet, so the next acceptance opens rather than injects.
+    awaiting_open_accept: bool,
+    /// Cancellation was requested for the active execution.
+    cancel_requested: bool,
+    /// Inputs delivered to the process whose acceptance has not been seen, in
+    /// submit order. The front names the input that a fresh start opens.
+    pending: VecDeque<InputId>,
+    /// Source events held until the active execution has started and accepted.
+    early: Vec<super::source::SourceEvent>,
+}
+
+/// Apply one raw persistent-process event to the external contract. Returns
+/// `Ok(true)` to keep driving, `Ok(false)` when the process itself has ended.
+async fn drive_persistent_event(
+    event: Option<ProcessEvent>,
+    state: &mut PersistentState,
+    signal_tx: &mpsc::Sender<Signal>,
+) -> Result<bool, SignalClosed> {
+    match event {
+        Some(ProcessEvent::SessionReady { session }) => {
+            state.active = true;
+            state.accepted = false;
+            state.awaiting_open_accept = true;
+            state.cancel_requested = false;
+            let cause = Cause::Input(
+                state
+                    .pending
+                    .front()
+                    .cloned()
+                    .unwrap_or_else(|| InputId(String::new())),
+            );
+            emit(signal_tx, Signal::ExecutionStarted { session, cause }).await?;
+            Ok(true)
+        }
+        Some(ProcessEvent::InternalStart { session }) => {
+            // No pending input behind an internal execution: sources release as
+            // soon as it starts, and no `InputAccepted` follows.
+            state.active = true;
+            state.accepted = true;
+            state.awaiting_open_accept = false;
+            state.cancel_requested = false;
+            emit(
+                signal_tx,
+                Signal::ExecutionStarted {
+                    session,
+                    cause: Cause::Internal,
+                },
+            )
+            .await?;
+            flush_early(signal_tx, state.active, state.accepted, &mut state.early).await?;
+            Ok(true)
+        }
+        Some(ProcessEvent::InputAccepted { input }) => {
+            // Consume this input from the pending set in submit order.
+            if let Some(pos) = state.pending.iter().position(|id| id == &input) {
+                state.pending.remove(pos);
+            }
+            if state.awaiting_open_accept {
+                // Acceptance that opens the current execution.
+                state.awaiting_open_accept = false;
+                state.accepted = true;
+                emit(signal_tx, Signal::InputAccepted { input }).await?;
+                flush_early(signal_tx, state.active, state.accepted, &mut state.early).await?;
+            } else {
+                // Injection into an already-open execution: no new start.
+                emit(signal_tx, Signal::InputAccepted { input }).await?;
+            }
+            Ok(true)
+        }
+        Some(ProcessEvent::Block(block)) => {
+            if state.active && state.accepted {
+                emit(signal_tx, Signal::Source(block)).await?;
+            } else {
+                state.early.push(block);
+            }
+            Ok(true)
+        }
+        Some(ProcessEvent::Activity(activity)) => {
+            emit(signal_tx, Signal::Activity(activity)).await?;
+            Ok(true)
+        }
+        Some(ProcessEvent::ExecutionEnded { termination }) => {
+            // Terminal for the current execution; the process persists.
+            flush_early(signal_tx, state.active, true, &mut state.early).await?;
+            emit_terminal(signal_tx, state.cancel_requested, Some(termination)).await?;
+            state.active = false;
+            state.accepted = false;
+            state.awaiting_open_accept = false;
+            state.cancel_requested = false;
+            Ok(true)
+        }
+        Some(ProcessEvent::Terminated { termination }) => {
+            flush_early(signal_tx, state.active, true, &mut state.early).await?;
+            if state.active {
+                emit_terminal(signal_tx, state.cancel_requested, Some(termination)).await?;
+            }
+            Ok(false)
+        }
+        None => {
+            flush_early(signal_tx, state.active, true, &mut state.early).await?;
+            if state.active {
+                // EOF mid-execution: an unexpected exit.
+                emit_terminal(signal_tx, state.cancel_requested, None).await?;
+            }
+            // EOF while idle is a clean shutdown of a persistent process.
+            Ok(false)
+        }
+    }
+}
+
+/// Emit the single `ExecutionFinished` for a persistent execution that has
+/// started. A requested cancel maps any termination to `Cancelled`.
+async fn emit_terminal(
+    signal_tx: &mpsc::Sender<Signal>,
+    cancel_requested: bool,
+    termination: Option<ProcessTermination>,
+) -> Result<(), SignalClosed> {
+    let outcome = if cancel_requested {
+        Outcome::Cancelled
+    } else {
+        match termination {
+            Some(ProcessTermination::Completed) => Outcome::Completed,
+            Some(ProcessTermination::Failed(error)) => Outcome::Failed(error),
+            None => Outcome::Failed(unexpected_eof(FailureStage::Execution)),
+        }
+    };
+    emit(signal_tx, Signal::ExecutionFinished { outcome }).await
+}
+
 /// Obtain the next input that should open an execution: a queued input first,
 /// otherwise the next submitted command. Cancellation while idle is a no-op.
 /// Returns `None` when the command side is closed and nothing is queued.
@@ -214,7 +454,12 @@ async fn run_execution<P: AgentProcess>(
                     Some(ProcessEvent::Activity(activity)) => {
                         emit(signal_tx, Signal::Activity(activity)).await?;
                     }
-                    Some(ProcessEvent::Terminated { termination }) => {
+                    // A one-shot execution ends by the process ending. An
+                    // `ExecutionEnded` (persistent Turn boundary) or `InternalStart`
+                    // are not part of the one-shot lifecycle; the former is treated
+                    // as the terminal, the latter is ignored.
+                    Some(ProcessEvent::ExecutionEnded { termination })
+                    | Some(ProcessEvent::Terminated { termination }) => {
                         flush_early(signal_tx, started, true, &mut early).await?;
                         return finalize(
                             signal_tx,
@@ -225,6 +470,7 @@ async fn run_execution<P: AgentProcess>(
                         )
                         .await;
                     }
+                    Some(ProcessEvent::InternalStart { .. }) => {}
                     None => {
                         // EOF with no prior Terminated: an unexpected exit.
                         flush_early(signal_tx, started, true, &mut early).await?;

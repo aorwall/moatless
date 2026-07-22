@@ -38,6 +38,9 @@ mod scripted;
 #[cfg(test)]
 mod contract_tests;
 
+#[cfg(test)]
+mod persistent_tests;
+
 use tokio::sync::mpsc;
 
 pub use claude::ClaudeConfig;
@@ -94,6 +97,27 @@ impl Harness {
         }
     }
 
+    /// Construct a harness driven by a single scripted *persistent* process: one
+    /// long-lived process that hosts many executions, so the script can model
+    /// injection, harness-internal executions, and Turn boundaries.
+    #[cfg(test)]
+    pub(crate) fn scripted_persistent(script: Script) -> Self {
+        let (submit_tx, submit_rx) = mpsc::channel(SUBMIT_CAPACITY);
+        let (cancel_tx, cancel_rx) = mpsc::channel(1);
+        let (signal_tx, signal_rx) = mpsc::channel(SIGNAL_CAPACITY);
+
+        let process = scripted::ScriptedProcess::new(script);
+        tokio::spawn(driver::run_persistent(
+            process, submit_rx, cancel_rx, signal_tx,
+        ));
+
+        Self {
+            submit_tx,
+            cancel_tx,
+            signal_rx,
+        }
+    }
+
     /// Construct the production Claude subprocess harness. Each execution launches
     /// a fresh one-shot CLI subprocess (the persistent tmux transport is a later
     /// ticket); the Turn-independent `config` is cloned per execution.
@@ -104,6 +128,28 @@ impl Harness {
 
         let factory = move || claude::ClaudeProcess::new(config.clone());
         tokio::spawn(driver::run(factory, submit_rx, cancel_rx, signal_tx));
+
+        Self {
+            submit_tx,
+            cancel_tx,
+            signal_rx,
+        }
+    }
+
+    /// Construct the production persistent Claude harness. One long-lived tmux
+    /// TUI session hosts every Turn: compatible input is pasted into the live
+    /// session (injected into an active Turn or opening a fresh one), and an
+    /// incompatible model / mode / Session / fresh-start replaces the process
+    /// while resuming the intended Session.
+    pub fn claude_persistent(config: ClaudeConfig) -> Self {
+        let (submit_tx, submit_rx) = mpsc::channel(SUBMIT_CAPACITY);
+        let (cancel_tx, cancel_rx) = mpsc::channel(1);
+        let (signal_tx, signal_rx) = mpsc::channel(SIGNAL_CAPACITY);
+
+        let process = claude::ClaudePersistentProcess::new(config);
+        tokio::spawn(driver::run_persistent(
+            process, submit_rx, cancel_rx, signal_tx,
+        ));
 
         Self {
             submit_tx,

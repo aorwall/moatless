@@ -26,7 +26,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
-use claude_agent_sdk::{query, QueryHandle};
+use claude_agent_sdk::{query, QueryHandle, SdkMessage};
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
@@ -39,8 +39,13 @@ use super::error::HarnessError;
 use super::process::{AgentProcess, ProcessEvent, ProcessTermination};
 use super::signal::{Input, InputId, SessionId};
 
+use self::normalize::Normalizer;
+
 mod classify;
 mod normalize;
+mod persistent;
+
+pub(crate) use persistent::ClaudePersistentProcess;
 
 #[cfg(test)]
 mod tests;
@@ -67,17 +72,13 @@ pub(crate) struct ClaudeProcess {
     /// `InputAccepted`) waiting to be drained one at a time by [`Self::next`].
     pending: VecDeque<ProcessEvent>,
     input_id: Option<InputId>,
-    session: Option<SessionId>,
     session_ready: bool,
     input_accepted: bool,
     /// Whether this launch requested a resume — decides whether a startup
     /// failure is a lost Session or a plain process/config failure.
     resuming: bool,
-    /// Monotonic block counter: keeps every emitted `source_id` unique within
-    /// this process even when the CLI reuses a native `message.id`.
-    block_seq: u64,
-    /// Per-process collision-avoidance element for blocks with no native id.
-    nonce: String,
+    /// Shared native-block normalizer (collision-safe ids + Session tracking).
+    normalizer: Normalizer,
 }
 
 impl ClaudeProcess {
@@ -88,12 +89,60 @@ impl ClaudeProcess {
             handle: None,
             pending: VecDeque::new(),
             input_id: None,
-            session: None,
             session_ready: false,
             input_accepted: false,
             resuming: false,
-            block_seq: 0,
-            nonce: uuid::Uuid::new_v4().simple().to_string(),
+            normalizer: Normalizer::new(),
+        }
+    }
+
+    /// Turn one `SdkMessage` into zero or more `ProcessEvent`s, appended to the
+    /// pending queue in native order. The one-shot lifecycle: the first `System`
+    /// init proves the process is up (Session known + input accepted at spawn),
+    /// and the terminal `Result` ends the single execution by ending the process.
+    fn absorb(&mut self, msg: SdkMessage) {
+        match msg {
+            SdkMessage::System(init) => {
+                let session = SessionId(init.session_id.clone());
+                self.normalizer.set_session(session.clone());
+                if !self.session_ready {
+                    self.session_ready = true;
+                    self.pending
+                        .push_back(ProcessEvent::SessionReady { session });
+                }
+                // The one-shot CLI accepted the prompt at spawn; the init proves
+                // the process is up, so acceptance is known now.
+                if !self.input_accepted {
+                    self.input_accepted = true;
+                    if let Some(input) = self.input_id.clone() {
+                        self.pending
+                            .push_back(ProcessEvent::InputAccepted { input });
+                    }
+                }
+            }
+            SdkMessage::Assistant(assistant) => {
+                for event in self.normalizer.assistant_blocks(&assistant) {
+                    self.pending.push_back(ProcessEvent::Block(event));
+                }
+            }
+            SdkMessage::User(user) => {
+                for event in self.normalizer.user_blocks(&user) {
+                    self.pending.push_back(ProcessEvent::Block(event));
+                }
+            }
+            SdkMessage::ToolProgress(progress) => {
+                self.pending.push_back(ProcessEvent::Activity(
+                    self.normalizer.progress_activity(&progress),
+                ));
+            }
+            SdkMessage::Result(result) => {
+                self.pending.push_back(ProcessEvent::Terminated {
+                    termination: classify::classify_result(&result),
+                });
+            }
+            // Partial streaming frames, replays, and system subtypes carry no
+            // committed content block for this path.
+            _ => {}
         }
     }
 

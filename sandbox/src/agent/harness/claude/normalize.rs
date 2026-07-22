@@ -1,18 +1,16 @@
-//! Native `SdkMessage` → canonical `ProcessEvent` normalization.
+//! Native `SdkMessage` content → canonical `SourceEvent` normalization.
 //!
 //! One `SourceEvent` per native content block, in native order, with repeated
 //! usage forwarded verbatim (never coalesced). This is the only place that maps
 //! Claude-native payloads; the shared harness/driver never sees an `SdkMessage`.
+//! Both the one-shot subprocess adapter and the persistent tmux adapter share
+//! this normalizer, so neither owns a second copy of the native mapping.
 
 use claude_agent_sdk::types::content::ContentBlock;
 use claude_agent_sdk::types::messages::{AssistantMessage, ToolProgressMessage, UserMessage};
-use claude_agent_sdk::SdkMessage;
 
-use super::super::process::ProcessEvent;
 use super::super::signal::{Activity, SessionId};
 use super::super::source::{NativeMessageId, Role, SourceEvent, SourceId};
-use super::classify::classify_result;
-use super::ClaudeProcess;
 
 /// The per-message metadata shared by every content block of one native
 /// `SdkMessage`, so a whole assistant/user envelope's blocks are normalized with
@@ -26,7 +24,46 @@ struct BlockMeta {
     model: Option<String>,
 }
 
-impl ClaudeProcess {
+/// Collision-safe native-block normalizer. Holds the last-known Session and a
+/// monotonic block counter so every emitted `source_id` stays unique even when
+/// the CLI reuses a native `message.id` (or omits it) — across a whole process
+/// lifetime, including the many Turns of a persistent session.
+pub(super) struct Normalizer {
+    /// The Session as currently known from the native stream.
+    session: Option<SessionId>,
+    /// Monotonic block counter: keeps every `source_id` unique within this
+    /// process even when the CLI reuses a native `message.id`.
+    block_seq: u64,
+    /// Per-process collision-avoidance element for blocks with no native id.
+    nonce: String,
+}
+
+impl Normalizer {
+    pub(super) fn new() -> Self {
+        Self {
+            session: None,
+            block_seq: 0,
+            nonce: uuid::Uuid::new_v4().simple().to_string(),
+        }
+    }
+
+    pub(super) fn session(&self) -> Option<SessionId> {
+        self.session.clone()
+    }
+
+    pub(super) fn set_session(&mut self, session: SessionId) {
+        self.session = Some(session);
+    }
+
+    /// The Session as currently known, falling back to a native id when a block
+    /// is normalized before its `System` init (defensive; the driver buffers
+    /// early blocks regardless).
+    fn session_or(&self, native: &str) -> SessionId {
+        self.session
+            .clone()
+            .unwrap_or_else(|| SessionId(native.to_string()))
+    }
+
     /// Build the canonical source event for one native content block, assigning a
     /// collision-safe id and preserving native grouping/usage/model.
     fn make_source(&mut self, meta: &BlockMeta, block: &ContentBlock) -> SourceEvent {
@@ -49,52 +86,9 @@ impl ClaudeProcess {
         }
     }
 
-    /// The Session as currently known, falling back to a native id when the
-    /// process reports a block before its `System` init (defensive; the driver
-    /// buffers early blocks regardless).
-    fn session_or(&self, native: &str) -> SessionId {
-        self.session
-            .clone()
-            .unwrap_or_else(|| SessionId(native.to_string()))
-    }
-
-    /// Turn one `SdkMessage` into zero or more `ProcessEvent`s, appended to the
-    /// pending queue in native order.
-    pub(super) fn absorb(&mut self, msg: SdkMessage) {
-        match msg {
-            SdkMessage::System(init) => {
-                let session = SessionId(init.session_id.clone());
-                self.session = Some(session.clone());
-                if !self.session_ready {
-                    self.session_ready = true;
-                    self.pending
-                        .push_back(ProcessEvent::SessionReady { session });
-                }
-                // The one-shot CLI accepted the prompt at spawn; the init proves
-                // the process is up, so acceptance is known now.
-                if !self.input_accepted {
-                    self.input_accepted = true;
-                    if let Some(input) = self.input_id.clone() {
-                        self.pending
-                            .push_back(ProcessEvent::InputAccepted { input });
-                    }
-                }
-            }
-            SdkMessage::Assistant(assistant) => self.absorb_assistant(assistant),
-            SdkMessage::User(user) => self.absorb_user(user),
-            SdkMessage::ToolProgress(progress) => self.absorb_progress(progress),
-            SdkMessage::Result(result) => {
-                self.pending.push_back(ProcessEvent::Terminated {
-                    termination: classify_result(&result),
-                });
-            }
-            // Partial streaming frames, replays, and system subtypes carry no
-            // committed content block for this path.
-            _ => {}
-        }
-    }
-
-    fn absorb_assistant(&mut self, assistant: AssistantMessage) {
+    /// Canonical per-block source events for one assistant envelope, in native
+    /// order.
+    pub(super) fn assistant_blocks(&mut self, assistant: &AssistantMessage) -> Vec<SourceEvent> {
         let meta = BlockMeta {
             session: self.session_or(&assistant.session_id),
             message_id: assistant.message.id.clone(),
@@ -107,13 +101,16 @@ impl ClaudeProcess {
                 .and_then(|u| serde_json::to_value(u).ok()),
             model: assistant.message.model.clone(),
         };
-        for block in &assistant.message.content {
-            let event = self.make_source(&meta, block);
-            self.pending.push_back(ProcessEvent::Block(event));
-        }
+        assistant
+            .message
+            .content
+            .iter()
+            .map(|block| self.make_source(&meta, block))
+            .collect()
     }
 
-    fn absorb_user(&mut self, user: UserMessage) {
+    /// Canonical per-block source events for one user envelope, in native order.
+    pub(super) fn user_blocks(&mut self, user: &UserMessage) -> Vec<SourceEvent> {
         let meta = BlockMeta {
             session: self.session_or(&user.session_id),
             message_id: user.uuid.clone(),
@@ -122,16 +119,18 @@ impl ClaudeProcess {
             usage: None,
             model: None,
         };
-        for block in &user.message.content {
-            let event = self.make_source(&meta, block);
-            self.pending.push_back(ProcessEvent::Block(event));
-        }
+        user.message
+            .content
+            .iter()
+            .map(|block| self.make_source(&meta, block))
+            .collect()
     }
 
-    fn absorb_progress(&mut self, progress: ToolProgressMessage) {
-        self.pending.push_back(ProcessEvent::Activity(Activity {
+    /// Liveness activity for a tool-progress envelope.
+    pub(super) fn progress_activity(&self, progress: &ToolProgressMessage) -> Activity {
+        Activity {
             session: self.session_or(&progress.session_id),
-            detail: progress.tool_name,
-        }));
+            detail: progress.tool_name.clone(),
+        }
     }
 }

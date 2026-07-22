@@ -6,6 +6,10 @@
 //! The interface under test is the external command/signal seam, not this type —
 //! tests construct a [`Script`] and pass it to [`super::Harness::scripted`].
 
+use std::collections::VecDeque;
+
+use tokio::sync::Notify;
+
 use super::error::HarnessError;
 use super::process::{AgentProcess, ProcessEvent, ProcessTermination};
 use super::signal::{Activity, Input, InputId, SessionId};
@@ -14,10 +18,21 @@ use super::source::SourceEvent;
 /// One scripted step the process yields, in order, from [`AgentProcess::next`].
 #[derive(Debug, Clone)]
 pub enum Step {
-    /// Report the process ready with a known Session identity.
+    /// Report the process ready with a known Session identity (an execution
+    /// opened by the most recently submitted input).
     SessionReady(SessionId),
+    /// Report a harness-internal execution starting with a known Session
+    /// (persistent transports only).
+    InternalStart(SessionId),
     /// Report acceptance of a unit of input.
     InputAccepted(InputId),
+    /// Report acceptance of the oldest submitted-but-unaccepted input. Lets a
+    /// persistent script accept whichever input the driver delivered without the
+    /// script naming its id.
+    AcceptInput,
+    /// Block until another input is submitted, then continue. Models a
+    /// persistent process idling between executions or mid-Turn injection.
+    AwaitInput,
     /// Emit one native content block.
     Block(SourceEvent),
     /// Emit liveness / tool-progress activity.
@@ -26,11 +41,17 @@ pub enum Step {
     Completed,
     /// Terminate with a classified failure.
     Failed(HarnessError),
+    /// End the current execution while the process persists (persistent
+    /// transports only) — a Turn boundary, not process death.
+    ExecutionEnded,
     /// Close the process stream with no self-reported terminal (unexpected EOF).
     Eof,
     /// Block until the driver requests cancellation, then terminate. Models a
     /// long-running Turn interrupted by a cancel.
     WaitForCancel,
+    /// Block until the driver requests cancellation, then end the execution while
+    /// the process persists (the persistent counterpart of [`Step::WaitForCancel`]).
+    WaitForCancelThenEnd,
 }
 
 /// A scripted process definition: an optional submit failure plus an ordered
@@ -62,9 +83,12 @@ impl Script {
 
 pub(crate) struct ScriptedProcess {
     submit_error: Option<HarnessError>,
-    steps: std::collections::VecDeque<Step>,
+    steps: VecDeque<Step>,
     cancelled: bool,
-    cancel_notify: tokio::sync::Notify,
+    cancel_notify: Notify,
+    /// Submitted inputs not yet consumed by an `AcceptInput`, in submit order.
+    inputs: VecDeque<InputId>,
+    submit_notify: Notify,
 }
 
 impl ScriptedProcess {
@@ -73,17 +97,23 @@ impl ScriptedProcess {
             submit_error: script.submit_error,
             steps: script.steps.into(),
             cancelled: false,
-            cancel_notify: tokio::sync::Notify::new(),
+            cancel_notify: Notify::new(),
+            inputs: VecDeque::new(),
+            submit_notify: Notify::new(),
         }
     }
 }
 
 #[async_trait::async_trait]
 impl AgentProcess for ScriptedProcess {
-    async fn submit(&mut self, _input: Input) -> Result<(), HarnessError> {
+    async fn submit(&mut self, input: Input) -> Result<(), HarnessError> {
         match self.submit_error.take() {
             Some(error) => Err(error),
-            None => Ok(()),
+            None => {
+                self.inputs.push_back(input.id);
+                self.submit_notify.notify_one();
+                Ok(())
+            }
         }
     }
 
@@ -93,33 +123,70 @@ impl AgentProcess for ScriptedProcess {
     }
 
     async fn next(&mut self) -> Option<ProcessEvent> {
-        // Peek so a `WaitForCancel` step is not lost if this future is dropped by
-        // a concurrent `select!` branch and re-created — keeping `next` safe to
-        // poll inside the driver's `select!`.
-        if matches!(self.steps.front(), Some(Step::WaitForCancel)) {
-            if !self.cancelled {
-                self.cancel_notify.notified().await;
+        loop {
+            // Peek so a blocking step is not lost if this future is dropped by a
+            // concurrent `select!` branch and re-created — keeping `next` safe to
+            // poll inside the driver's `select!`.
+            match self.steps.front() {
+                Some(Step::WaitForCancel) => {
+                    if !self.cancelled {
+                        self.cancel_notify.notified().await;
+                    }
+                    self.steps.pop_front();
+                    return Some(ProcessEvent::Terminated {
+                        termination: ProcessTermination::Completed,
+                    });
+                }
+                Some(Step::WaitForCancelThenEnd) => {
+                    if !self.cancelled {
+                        self.cancel_notify.notified().await;
+                    }
+                    self.steps.pop_front();
+                    return Some(ProcessEvent::ExecutionEnded {
+                        termination: ProcessTermination::Completed,
+                    });
+                }
+                Some(Step::AwaitInput) => {
+                    // Wait until an input is queued that no `AcceptInput` has yet
+                    // consumed. The queue is authoritative; `Notify` only wakes the
+                    // poll (and stores one permit, so a submit that arrives before
+                    // we await is not lost).
+                    while self.inputs.is_empty() {
+                        self.submit_notify.notified().await;
+                    }
+                    self.steps.pop_front();
+                    // The gate produces no event of its own; fall through to the
+                    // next step.
+                    continue;
+                }
+                _ => {}
             }
-            self.steps.pop_front();
-            return Some(ProcessEvent::Terminated {
-                termination: ProcessTermination::Completed,
-            });
-        }
 
-        match self.steps.pop_front()? {
-            Step::SessionReady(session) => Some(ProcessEvent::SessionReady { session }),
-            Step::InputAccepted(input) => Some(ProcessEvent::InputAccepted { input }),
-            Step::Block(block) => Some(ProcessEvent::Block(block)),
-            Step::Activity(activity) => Some(ProcessEvent::Activity(activity)),
-            Step::Completed => Some(ProcessEvent::Terminated {
-                termination: ProcessTermination::Completed,
-            }),
-            Step::Failed(error) => Some(ProcessEvent::Terminated {
-                termination: ProcessTermination::Failed(error),
-            }),
-            Step::Eof => None,
-            // Handled by the peek above; unreachable via pop.
-            Step::WaitForCancel => None,
+            return match self.steps.pop_front()? {
+                Step::SessionReady(session) => Some(ProcessEvent::SessionReady { session }),
+                Step::InternalStart(session) => Some(ProcessEvent::InternalStart { session }),
+                Step::InputAccepted(input) => Some(ProcessEvent::InputAccepted { input }),
+                Step::AcceptInput => {
+                    let input = self.inputs.pop_front().unwrap_or_else(|| {
+                        InputId("scripted-accept-without-submit".to_string())
+                    });
+                    Some(ProcessEvent::InputAccepted { input })
+                }
+                Step::Block(block) => Some(ProcessEvent::Block(block)),
+                Step::Activity(activity) => Some(ProcessEvent::Activity(activity)),
+                Step::Completed => Some(ProcessEvent::Terminated {
+                    termination: ProcessTermination::Completed,
+                }),
+                Step::Failed(error) => Some(ProcessEvent::Terminated {
+                    termination: ProcessTermination::Failed(error),
+                }),
+                Step::ExecutionEnded => Some(ProcessEvent::ExecutionEnded {
+                    termination: ProcessTermination::Completed,
+                }),
+                Step::Eof => None,
+                // Handled by the peek above; unreachable via pop.
+                Step::WaitForCancel | Step::WaitForCancelThenEnd | Step::AwaitInput => None,
+            };
         }
     }
 }
