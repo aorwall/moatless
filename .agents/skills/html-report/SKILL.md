@@ -1,7 +1,7 @@
 ---
 name: html-report
 description: Render an analysis or review as a single self-contained, editorial HTML page — Tailwind + Mermaid via CDN — written to the OS temp dir and opened in the browser. Use when the user asks for an HTML or visual report, or another skill needs the report format.
-# Forked from https://github.com/mattpocock/skills — maintained locally, not tracked in skills-lock.json
+# Forked from https://github.com/mattpocock/skills — maintained locally
 ---
 
 # HTML Report

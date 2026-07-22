@@ -2,6 +2,7 @@
 name: implement
 description: "Implement a piece of work based on a spec or set of tickets."
 disable-model-invocation: true
+# Forked from https://github.com/mattpocock/skills — maintained locally
 ---
 
 Implement the work described by the user in the spec or tickets.
