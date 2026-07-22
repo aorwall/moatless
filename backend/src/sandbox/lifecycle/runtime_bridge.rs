@@ -251,6 +251,7 @@ fn map_runtime_err(e: SandboxError) -> RuntimeError {
         SandboxError::BadRequest(m)
         | SandboxError::ConfigMissing(m)
         | SandboxError::PodBuildError(m)
+        | SandboxError::Conflict(m)
         | SandboxError::Forbidden(m) => RuntimeError::Rejected(m),
         SandboxError::JwtError(m)
         | SandboxError::DockerError(m)
@@ -374,16 +375,18 @@ mod db_tests {
 
     #[sqlx::test]
     async fn bad_plan_start_is_permanent_rejected(pool: PgPool) {
-        // A Closed task's plan is refused by `build_provision_request`, so the
-        // real plan path surfaces a permanent `Rejected` — not a transient — and
-        // the orchestrator therefore keeps intent without a reconciler retry.
-        seed_task_with(&pool, "t1", "closed", "running").await;
+        // An eligible (Open) task whose plan can't be built — here it references
+        // repository `repo-x`, which the fixture never inserts — surfaces a
+        // permanent `Rejected`, not a transient. The orchestrator therefore keeps
+        // intent without a reconciler retry. A Closed task never reaches this path
+        // (the eligibility guard rejects it before any plan is built).
+        seed_task_with(&pool, "t1", "open", "running").await;
         let bridge = bridge(pool);
 
         let err = bridge
             .ensure_running("t1", RuntimeOperationContext::new(OperationGeneration(1)))
             .await
-            .expect_err("closed task plan is rejected");
+            .expect_err("unbuildable plan is rejected");
 
         assert!(matches!(err, RuntimeError::Rejected(_)), "got {err:?}");
         assert_eq!(err.class(), ErrorClass::Permanent);

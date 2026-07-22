@@ -159,6 +159,7 @@ impl LifecycleStore for PgLifecycleStore {
                    sandbox_operation_kind = $5,
                    sandbox_operation_generation = $6,
                    sandbox_operation_started_at = $7,
+                   sandbox_started_at = CASE WHEN $8 THEN NOW() ELSE t.sandbox_started_at END,
                    sandbox_desired_state_updated_at = NOW(),
                    updated_at = NOW()
                FROM prev
@@ -176,6 +177,9 @@ impl LifecycleStore for PgLifecycleStore {
         .bind(write.marker.kind.as_str())
         .bind(write.marker.generation.value())
         .bind(write.marker.started_at)
+        // Lifecycle owns the start timestamp: bump it whenever intent moves
+        // toward Running (start/restart/redeploy), regardless of caller path.
+        .bind(write.desired_state == SandboxDesiredState::Running)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| StoreError::with_source("persist lifecycle intent", e))?;
@@ -379,5 +383,49 @@ mod db_tests {
         assert!(after.marker.is_none());
         // Desired state is untouched by a marker clear.
         assert_eq!(after.desired_state, SandboxDesiredState::Running);
+    }
+
+    #[sqlx::test]
+    async fn toward_running_persist_stamps_started_at_and_non_running_preserves_it(pool: PgPool) {
+        seed(&pool, "t1").await;
+        let store = PgLifecycleStore::new(pool.clone());
+        let started_at = |pool: PgPool| async move {
+            sqlx::query_scalar::<_, Option<chrono::DateTime<Utc>>>(
+                "SELECT sandbox_started_at FROM tasks WHERE task_id = 't1'",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+        };
+        assert!(started_at(pool.clone()).await.is_none(), "seed leaves it unset");
+
+        store
+            .persist_intent(
+                "t1",
+                &IntentWrite {
+                    desired_state: SandboxDesiredState::Running,
+                    stop_reason: None,
+                    retention: None,
+                    marker: marker(OperationKind::Start, 1),
+                },
+            )
+            .await
+            .unwrap();
+        let stamped = started_at(pool.clone()).await.expect("toward-running stamps started_at");
+
+        // A later stop keeps the original start timestamp — only toward-running writes it.
+        store
+            .persist_intent(
+                "t1",
+                &IntentWrite {
+                    desired_state: SandboxDesiredState::Stopped,
+                    stop_reason: Some(SandboxStopReason::User),
+                    retention: None,
+                    marker: marker(OperationKind::Stop, 2),
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(started_at(pool).await, Some(stamped), "non-running persist preserves started_at");
     }
 }

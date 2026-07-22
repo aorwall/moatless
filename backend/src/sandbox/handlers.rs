@@ -12,8 +12,6 @@ use futures::stream::Stream;
 use serde::Deserialize;
 use tracing::{error, info, warn};
 
-use chrono::Utc;
-
 use super::error::SandboxError;
 use super::lifecycle::{ArchiveRetention, Lifecycle, ObservedStatus};
 use super::models::*;
@@ -21,7 +19,7 @@ use super::routes::SandboxApiState;
 use super::schemas::*;
 use crate::access_control;
 use crate::extractors::OptionalScope;
-use crate::task::dao::{TaskPatch, TaskRepository};
+use crate::task::dao::TaskRepository;
 use crate::task::models::{SandboxStopReason, Task};
 use crate::team::dao::TeamRepository;
 use moatless_backend_core::scope::ScopeContext;
@@ -39,6 +37,8 @@ use moatless_backend_core::scope::ScopeContext;
     ),
     responses(
         (status = 200, description = "Sandbox provisioned successfully", body = ProvisionResponse),
+        (status = 400, description = "Task is Closed — start not allowed", body = crate::error::ErrorBody),
+        (status = 409, description = "Another lifecycle operation is in progress", body = crate::error::ErrorBody),
         (status = 500, description = "Provisioning failed", body = crate::error::ErrorBody)
     )
 )]
@@ -50,10 +50,9 @@ pub async fn provision_handler(
     info!(task_id = %task_id, "POST /provision");
     authorize_task_control(&state, &scope, &task_id).await?;
 
-    // Lifecycle owns plan construction and the Running intent; the bridge builds
-    // the provision request from DB state internally.
+    // Lifecycle owns plan construction, the Running intent, and the start
+    // timestamp; the bridge builds the provision request from DB state internally.
     let outcome = require_lifecycle(&state)?.start(&task_id).await?;
-    mark_sandbox_started(&state, &task_id).await;
     info!(task_id = %task_id, "Provision (start) succeeded");
     Ok(Json(ProvisionResponse {
         status: observed_to_sandbox_status(outcome.observed),
@@ -174,6 +173,7 @@ pub async fn sandbox_status_handler(
     ),
     responses(
         (status = 204, description = "Sandbox stopped"),
+        (status = 409, description = "Another lifecycle operation is in progress", body = crate::error::ErrorBody),
         (status = 500, description = "Stop failed", body = crate::error::ErrorBody)
     )
 )]
@@ -201,6 +201,8 @@ pub async fn stop_handler(
     ),
     responses(
         (status = 204, description = "Sandbox restarted"),
+        (status = 400, description = "Task is Closed — restart not allowed", body = crate::error::ErrorBody),
+        (status = 409, description = "Another lifecycle operation is in progress", body = crate::error::ErrorBody),
         (status = 500, description = "Restart failed", body = crate::error::ErrorBody)
     )
 )]
@@ -214,7 +216,6 @@ pub async fn restart_handler(
     // lifecycle.restart detaches internally, so it runs to completion even if the
     // HTTP client disconnects.
     require_lifecycle(&state)?.restart(&task_id).await?;
-    mark_sandbox_started(&state, &task_id).await;
     info!(task_id = %task_id, "Restart succeeded");
     Ok(StatusCode::NO_CONTENT)
 }
@@ -231,6 +232,8 @@ pub async fn restart_handler(
     ),
     responses(
         (status = 200, description = "Sandbox redeployed successfully", body = ProvisionResponse),
+        (status = 400, description = "Task is Closed — redeploy not allowed", body = crate::error::ErrorBody),
+        (status = 409, description = "Another lifecycle operation is in progress", body = crate::error::ErrorBody),
         (status = 500, description = "Redeploy failed", body = crate::error::ErrorBody)
     )
 )]
@@ -245,7 +248,6 @@ pub async fn redeploy_handler(
     // Lifecycle owns plan construction and detaches internally; the bridge
     // rebuilds the provision request from fresh DB state.
     let outcome = require_lifecycle(&state)?.redeploy(&task_id).await?;
-    mark_sandbox_started(&state, &task_id).await;
     info!(task_id = %task_id, "Redeploy succeeded");
     Ok(Json(ProvisionResponse {
         status: observed_to_sandbox_status(outcome.observed),
@@ -262,6 +264,7 @@ pub async fn redeploy_handler(
     ),
     responses(
         (status = 204, description = "Sandbox cleaned up"),
+        (status = 409, description = "Another lifecycle operation is in progress", body = crate::error::ErrorBody),
         (status = 500, description = "Cleanup failed", body = crate::error::ErrorBody)
     )
 )]
@@ -472,21 +475,6 @@ fn observed_to_sandbox_status(observed: ObservedStatus) -> moatless_events::Sand
         ObservedStatus::Starting => SandboxStatus::Initializing,
         ObservedStatus::Stopped => SandboxStatus::Stopped,
         ObservedStatus::Removed => SandboxStatus::Removed,
-    }
-}
-
-/// Bump `sandbox_started_at` so the idle reaper doesn't reap a just-(re)started
-/// sandbox whose task carries only stale message timestamps. Best-effort;
-/// Sandbox intent itself is owned by the lifecycle.
-async fn mark_sandbox_started(state: &SandboxApiState, task_id: &str) {
-    if let Some(ref tasks) = state.tasks {
-        let patch = TaskPatch {
-            sandbox_started_at: Some(Utc::now()),
-            ..Default::default()
-        };
-        if let Err(e) = tasks.update_task(task_id, &patch).await {
-            warn!(task_id = %task_id, error = %e, "Failed to update sandbox_started_at");
-        }
     }
 }
 
