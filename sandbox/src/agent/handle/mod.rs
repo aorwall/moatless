@@ -37,6 +37,9 @@ use crate::events::GrpcEventPublisher;
 
 use super::agent_state::AgentState;
 use super::codex_exec::CodexCliSession;
+use super::harness::{
+    ClaudeConfig, CodexConfig, ErrorClass, FailureStage, Harness, HarnessError, SessionImpact,
+};
 use super::scheduled_job::ScheduledJobRegistry;
 
 const AGENT_TYPE_CLAUDE_CODE: &str = "claude-code";
@@ -72,6 +75,55 @@ pub(crate) fn resolve_agent_harness(raw: &str) -> Result<&'static str, String> {
              {AGENT_TYPE_CLAUDE_CODE_CLI}, {AGENT_TYPE_CLAUDE_CODE_FABLE}, {AGENT_TYPE_CODEX})"
         )),
     }
+}
+
+/// Construct the single Agent harness fixed for this Sandbox (ADR-0004),
+/// selected by the resolved agent type: Codex, or Claude over the persistent
+/// (tmux) or one-shot (subprocess) transport per `config.use_tmux`. An
+/// unsupported type is an invalid-configuration failure surfaced at startup,
+/// never a silent default.
+///
+/// Turn-independent `env` and `system_prompt` are resolved by the caller and
+/// cloned into each execution; all per-Turn configuration rides on the
+/// submitted `Input`, so the harness itself stays fixed.
+pub fn build_harness(
+    config: &Arc<Config>,
+    agent_state: &Arc<AgentState>,
+    credential_failures: &CredentialFailureDetector,
+    agent_type: &str,
+    env: Option<HashMap<String, String>>,
+    system_prompt: Option<String>,
+) -> Result<Harness, HarnessError> {
+    let harness = resolve_agent_harness(agent_type).map_err(|diagnostic| {
+        HarnessError::new(
+            FailureStage::Startup,
+            ErrorClass::InvalidConfiguration,
+            SessionImpact::Intact,
+            diagnostic,
+        )
+    })?;
+
+    if harness == AGENT_TYPE_CODEX {
+        return Ok(Harness::codex(CodexConfig {
+            config: Arc::clone(config),
+            env,
+            system_prompt,
+            credential_failures: credential_failures.clone(),
+        }));
+    }
+
+    let claude = ClaudeConfig {
+        config: Arc::clone(config),
+        agent_state: Arc::clone(agent_state),
+        env,
+        system_prompt,
+        agent_type: Some(agent_type.to_string()),
+    };
+    Ok(if config.use_tmux {
+        Harness::claude_persistent(claude)
+    } else {
+        Harness::claude(claude)
+    })
 }
 
 /// Fix the harness selection on first resolution and keep it for the actor's
@@ -311,7 +363,55 @@ fn truncate(s: &str, max: usize) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::{adopt_agent_type, resolve_agent_harness, AGENT_TYPE_CLAUDE_CODE, AGENT_TYPE_CODEX};
+    use std::sync::Arc;
+
+    use super::{
+        adopt_agent_type, build_harness, resolve_agent_harness, AGENT_TYPE_CLAUDE_CODE,
+        AGENT_TYPE_CODEX,
+    };
+    use crate::agent::agent_state::AgentState;
+    use crate::agent::harness::ErrorClass;
+    use crate::config::{test_support::minimal_config, Config};
+    use crate::credentials::recovery::CredentialFailureDetector;
+
+    fn harness_inputs(use_tmux: bool) -> (Arc<Config>, Arc<AgentState>, CredentialFailureDetector) {
+        let mut config = minimal_config();
+        config.use_tmux = use_tmux;
+        (
+            Arc::new(config),
+            Arc::new(AgentState::new()),
+            CredentialFailureDetector::default(),
+        )
+    }
+
+    #[tokio::test]
+    async fn build_harness_rejects_unsupported_type_as_invalid_configuration() {
+        let (config, agent_state, failures) = harness_inputs(false);
+        // `Harness` has no `Debug`, so match rather than `expect_err`.
+        let err = match build_harness(&config, &agent_state, &failures, "gpt-9000", None, None) {
+            Ok(_) => panic!("unsupported harness must fail"),
+            Err(err) => err,
+        };
+        assert_eq!(err.class, ErrorClass::InvalidConfiguration);
+        assert!(err.diagnostic.contains("gpt-9000"));
+    }
+
+    #[tokio::test]
+    async fn build_harness_constructs_each_supported_selection() {
+        // Each supported selection constructs its fixed harness without error;
+        // the variant is private (no public trait), so this proves construction,
+        // not the branch taken — `resolve_agent_harness` covers the mapping.
+        for (agent_type, use_tmux) in [
+            ("codex", false),
+            ("claude-code", false),
+            ("claude-code", true),
+            ("claude-code-cli", false),
+        ] {
+            let (config, agent_state, failures) = harness_inputs(use_tmux);
+            build_harness(&config, &agent_state, &failures, agent_type, None, None)
+                .unwrap_or_else(|_| panic!("{agent_type} (tmux={use_tmux}) should construct"));
+        }
+    }
 
     #[test]
     fn resolve_agent_harness_collapses_claude_variants() {
