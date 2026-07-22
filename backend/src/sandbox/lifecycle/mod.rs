@@ -29,7 +29,8 @@
 //!
 //! The decision logic lives in [`convergence`] (reconciler desired/observed
 //! map), [`classify`] (watcher four-case classification), [`marker`] (per-class
-//! acknowledgement), [`wake`] (message-wake causal precedence), [`events`]
+//! acknowledgement), [`wake`] (message-wake causal precedence), [`reconcile`]
+//! (per-Task reconcile decision combining wake and convergence), [`events`]
 //! (event derivation), and [`attempt`] (attempt cap + backoff).
 
 // The pure decision core. Its in-crate consumers — the desired-state
@@ -45,6 +46,8 @@ pub(crate) mod classify;
 pub(crate) mod convergence;
 #[allow(dead_code)]
 pub(crate) mod marker;
+#[allow(dead_code)]
+pub(crate) mod reconcile;
 #[allow(dead_code)]
 pub(crate) mod wake;
 
