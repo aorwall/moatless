@@ -800,7 +800,31 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
     // Emit tool-call metrics: cache tool_use_id→tool on the assistant message,
     // and count the completed call (by tool + status) on the matching user
     // tool_result message. Fire-and-forget — never blocks persistence.
+    //
+    // Metrics observe the *incoming* block(s), not the assembled Message, so a
+    // per-block source event records its own `tool_use`/`tool_result` exactly
+    // once as it arrives rather than re-counting the whole Message every block.
     record_tool_call_metrics(state, event, &content, msg_role == "user").await;
+
+    // Per-block source events (ADR-0002): a native block carries `blockIndex`
+    // plus the single-block content array. Assemble by merging the incoming
+    // block into the current row's content at its native index — in-order
+    // arrival appends, redelivery replaces in place (idempotent). Coalesced
+    // events (no `blockIndex`) carry the full content array and persist as-is,
+    // keeping the migration backward compatible.
+    let persisted_content = match event.payload.get("blockIndex").and_then(as_block_index) {
+        Some(block_index) => {
+            let existing = state
+                .messages
+                .find_by_uuid(uuid)
+                .await
+                .ok()
+                .flatten()
+                .map(|m| m.message_content);
+            merge_block_at_index(existing.as_ref(), block_index, &content)
+        }
+        None => content.clone(),
+    };
 
     let usage = event.payload.get("message").and_then(|m| m.get("usage"));
 
@@ -895,7 +919,7 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
         request_id: None,
         timestamp: event.timestamp.clone(),
         message_role,
-        message_content: content.clone(),
+        message_content: persisted_content.clone(),
         assistant_message_id,
         assistant_message_type: None,
         assistant_message_model,
@@ -941,8 +965,8 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
         sent_by: None,
     };
 
-    // 7. Build content blocks from the content array
-    let blocks = build_content_blocks_from_payload(&content);
+    // 7. Build content blocks from the assembled content array
+    let blocks = build_content_blocks_from_payload(&persisted_content);
     let contexts: Vec<TaskMessageContext> = vec![];
 
     // 8. Persist message
@@ -959,7 +983,7 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
                 &event.task_id,
                 uuid,
                 message_type,
-                &content,
+                &persisted_content,
             )
             .await;
             // Server-owned assembly (ADR-0002/0003). A subagent row (carrying a
@@ -1059,6 +1083,41 @@ const UNRENDERED_BLOCK_TYPES: &[&str] = &[
     "server_tool_use",
     "web_search_tool_result",
 ];
+
+/// Parse a `blockIndex` payload field into a native block position. Accepts an
+/// integer; anything else (absent, negative, non-numeric) yields `None`, which
+/// routes the event down the coalesced full-content path.
+fn as_block_index(value: &serde_json::Value) -> Option<usize> {
+    value.as_u64().and_then(|v| usize::try_from(v).ok())
+}
+
+/// Merge a per-block source event into the current assembled content array.
+///
+/// `existing` is the row's stored content (if the Message already has blocks);
+/// `incoming` is this event's single-block content array. The incoming block(s)
+/// are placed starting at `block_index`: an index within the current array
+/// replaces in place (idempotent redelivery), and an index at or past the end
+/// appends (in-order arrival), preserving native block order.
+fn merge_block_at_index(
+    existing: Option<&serde_json::Value>,
+    block_index: usize,
+    incoming: &serde_json::Value,
+) -> serde_json::Value {
+    let mut arr = existing
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let incoming_blocks = incoming.as_array().cloned().unwrap_or_default();
+    for (offset, block) in incoming_blocks.into_iter().enumerate() {
+        let idx = block_index + offset;
+        if idx < arr.len() {
+            arr[idx] = block;
+        } else {
+            arr.push(block);
+        }
+    }
+    serde_json::Value::Array(arr)
+}
 
 /// Build content block rows from a JSON content array.
 ///
@@ -1519,5 +1578,57 @@ mod tests {
             { "type": "redacted_thinking", "data": "opaque" },
         ]);
         assert!(build_content_blocks_from_payload(&content).is_empty());
+    }
+
+    // ── per-block assembly (ticket 02) ───────────────────────────────
+
+    #[test]
+    fn as_block_index_parses_only_non_negative_integers() {
+        assert_eq!(as_block_index(&json!(0)), Some(0));
+        assert_eq!(as_block_index(&json!(3)), Some(3));
+        // A coalesced event has no blockIndex; non-integers route to the
+        // full-content path.
+        assert_eq!(as_block_index(&json!(-1)), None);
+        assert_eq!(as_block_index(&json!("2")), None);
+        assert_eq!(as_block_index(&json!(null)), None);
+    }
+
+    #[test]
+    fn merge_blocks_append_in_native_order() {
+        // Three per-block events arriving in native order assemble left to right.
+        let mut acc = merge_block_at_index(None, 0, &json!([{ "type": "text", "text": "a" }]));
+        acc = merge_block_at_index(Some(&acc), 1, &json!([{ "type": "text", "text": "b" }]));
+        acc = merge_block_at_index(Some(&acc), 2, &json!([{ "type": "text", "text": "c" }]));
+
+        let arr = acc.as_array().unwrap();
+        assert_eq!(arr.len(), 3);
+        assert_eq!(arr[0]["text"], "a");
+        assert_eq!(arr[1]["text"], "b");
+        assert_eq!(arr[2]["text"], "c");
+    }
+
+    #[test]
+    fn merge_block_redelivery_replaces_in_place() {
+        // Duplicate delivery of an index already present is idempotent: it
+        // replaces the block rather than appending a second one.
+        let existing = json!([
+            { "type": "text", "text": "a" },
+            { "type": "text", "text": "b" },
+        ]);
+        let merged = merge_block_at_index(Some(&existing), 0, &json!([{ "type": "text", "text": "a" }]));
+
+        let arr = merged.as_array().unwrap();
+        assert_eq!(arr.len(), 2, "redelivery must not grow the message");
+        assert_eq!(arr[0]["text"], "a");
+        assert_eq!(arr[1]["text"], "b");
+    }
+
+    #[test]
+    fn merge_block_into_empty_existing_seeds_the_message() {
+        let merged =
+            merge_block_at_index(None, 0, &json!([{ "type": "tool_use", "id": "tu-1" }]));
+        let arr = merged.as_array().unwrap();
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["id"], "tu-1");
     }
 }

@@ -409,7 +409,15 @@ impl MessageRepository for PgMessageRepository {
                 will_not_resume = COALESCE(EXCLUDED.will_not_resume, task_messages.will_not_resume),
                 run_metrics = COALESCE(EXCLUDED.run_metrics, task_messages.run_metrics),
                 sdk_metadata = COALESCE(EXCLUDED.sdk_metadata, task_messages.sdk_metadata),
-                external_subject_key = COALESCE(EXCLUDED.external_subject_key, task_messages.external_subject_key)
+                external_subject_key = COALESCE(EXCLUDED.external_subject_key, task_messages.external_subject_key),
+                -- Usage is admitted exactly once per assembled Message: a CLI that
+                -- repeats usage on every per-block source event keeps the first
+                -- non-null value, so re-upserting blocks never double-counts cost.
+                assistant_usage_input_tokens = COALESCE(task_messages.assistant_usage_input_tokens, EXCLUDED.assistant_usage_input_tokens),
+                assistant_usage_output_tokens = COALESCE(task_messages.assistant_usage_output_tokens, EXCLUDED.assistant_usage_output_tokens),
+                assistant_usage_cache_creation_input_tokens = COALESCE(task_messages.assistant_usage_cache_creation_input_tokens, EXCLUDED.assistant_usage_cache_creation_input_tokens),
+                assistant_usage_cache_read_input_tokens = COALESCE(task_messages.assistant_usage_cache_read_input_tokens, EXCLUDED.assistant_usage_cache_read_input_tokens),
+                assistant_usage = COALESCE(task_messages.assistant_usage, EXCLUDED.assistant_usage)
             RETURNING id"#,
         )
         .bind(&msg.task_id)
@@ -457,6 +465,20 @@ impl MessageRepository for PgMessageRepository {
         .await?;
 
         let message_id = row.0;
+
+        // Child rows are fully re-derived from the assembled content on every
+        // write, so replace them rather than append. On a fresh INSERT this is a
+        // no-op; on upsert it lets a per-block source event re-insert the whole
+        // assembled block set and keeps duplicate delivery idempotent (no
+        // accumulating duplicate context/content-block rows).
+        sqlx::query("DELETE FROM task_message_contexts WHERE task_message_id = $1")
+            .bind(message_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM task_message_content_blocks WHERE task_message_id = $1")
+            .bind(message_id)
+            .execute(&mut *tx)
+            .await?;
 
         for ctx in contexts {
             sqlx::query(
