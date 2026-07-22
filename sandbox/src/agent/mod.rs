@@ -3,6 +3,7 @@ pub mod background_watch_job;
 pub mod codex_exec;
 pub mod dispatcher;
 pub mod handle;
+pub mod harness;
 pub mod heartbeat;
 pub mod options;
 pub mod permission_handler;

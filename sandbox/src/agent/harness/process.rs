@@ -1,0 +1,58 @@
+//! Private Agent-process port.
+//!
+//! This is an internal seam, not a public harness trait: production Claude and
+//! Codex adapters (tickets 05/07) and the scripted mock (this ticket) implement
+//! it, and the shared ordering driver consumes it. Keeping it `pub(crate)`
+//! prevents a public universal harness trait from forming — callers receive the
+//! concrete [`super::Harness`], never a process handle.
+
+use super::error::HarnessError;
+use super::signal::{Activity, Input, InputId, SessionId};
+use super::source::SourceEvent;
+
+/// How an Agent process ended on its own.
+///
+/// Cancellation is not represented here: the driver requests cancellation via
+/// [`AgentProcess::cancel`] and owns mapping the resulting termination to a
+/// cancelled outcome, so a process never reports "cancelled" itself.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum ProcessTermination {
+    /// The process finished its work normally.
+    Completed,
+    /// The process failed with a classified error.
+    Failed(HarnessError),
+}
+
+/// A raw event from an Agent process, before the ordering driver applies the
+/// external contract (execution-start gating, early-output buffering, and the
+/// exactly-one-terminal guarantee).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum ProcessEvent {
+    /// The process is ready and its real Session identity is known.
+    SessionReady { session: SessionId },
+    /// The process accepted a unit of input.
+    InputAccepted { input: InputId },
+    /// One native content block.
+    Block(SourceEvent),
+    /// Liveness / tool progress.
+    Activity(Activity),
+    /// The process ended on its own.
+    Terminated { termination: ProcessTermination },
+}
+
+/// One Agent process implementation.
+#[async_trait::async_trait]
+pub(crate) trait AgentProcess: Send {
+    /// Deliver input to the process. An error is a pre-start / input failure the
+    /// driver surfaces as `InputRejected` (before execution start) or a failed
+    /// terminal (after execution start).
+    async fn submit(&mut self, input: Input) -> Result<(), HarnessError>;
+
+    /// Request cancellation of the process tree. Idempotent; the process is
+    /// expected to terminate afterwards.
+    async fn cancel(&mut self);
+
+    /// Await the next raw event, or `None` when the process stream is closed
+    /// (EOF) — an EOF with no prior `Terminated` is an unexpected exit.
+    async fn next(&mut self) -> Option<ProcessEvent>;
+}
