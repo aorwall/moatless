@@ -90,6 +90,12 @@ pub fn decide(input: &ReconcileInput) -> ReconcileDecision {
         action = ReconcileAction::Stop;
     }
 
+    // Stale edge markers (Restart/Redeploy) are deliberately not handled here.
+    // The spec's rule — disable event suppression, then clear only once the
+    // replacement generation is observed Ready or the edge is durably classified
+    // abandoned with its `Error` fact — needs generation identity, so it lands
+    // with generation-label threading (see the PR's remaining-work list).
+
     ReconcileDecision { action, woken }
 }
 

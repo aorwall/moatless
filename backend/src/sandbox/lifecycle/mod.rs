@@ -97,5 +97,5 @@ pub(crate) use runtime_bridge::{ProvisionDeps, RuntimeBridge};
 
 // The desired-state reconciler and its production fleet-observer adapters,
 // assembled by `state::build_reconciler` and spawned by `main`.
-pub use observe::{DockerFleetObserver, K8sFleetObserver};
-pub use reconciler::{FleetObserver, Reconciler, ReconcilerConfig};
+pub use observe::{DockerFleetObserver, GrpcNotify, K8sFleetObserver};
+pub use reconciler::{FleetObserver, NotifyPort, Reconciler, ReconcilerConfig};

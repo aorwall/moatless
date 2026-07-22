@@ -32,10 +32,34 @@ use super::reconcile::{decide, ReconcileInput};
 use super::types::ArchiveRetention;
 
 /// A runtime-status read failed. The reconciler logs and skips the Task this
-/// tick rather than acting on missing observation.
+/// tick rather than acting on missing observation. Keeps the underlying source
+/// (a K8s/Docker/provider error) so fleet-LIST debugging retains the chain.
 #[derive(Debug, thiserror::Error)]
-#[error("observe: {0}")]
-pub struct ObserveError(pub String);
+#[error("{context}")]
+pub struct ObserveError {
+    pub context: String,
+    #[source]
+    pub source: Option<Box<dyn std::error::Error + Send + Sync + 'static>>,
+}
+
+impl ObserveError {
+    pub fn new(context: impl Into<String>) -> Self {
+        Self {
+            context: context.into(),
+            source: None,
+        }
+    }
+
+    pub fn with_source(
+        context: impl Into<String>,
+        source: impl std::error::Error + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            context: context.into(),
+            source: Some(Box::new(source)),
+        }
+    }
+}
 
 /// The reconciler's runtime-status source, batch-first.
 #[async_trait]
@@ -55,6 +79,17 @@ pub trait FleetObserver: Send + Sync {
         task_status: TaskStatus,
         desired_state: SandboxDesiredState,
     ) -> Result<SandboxObservedStatus, ObserveError>;
+}
+
+/// Delivers a pending-message wake to an already-Ready sandbox over gRPC.
+///
+/// A wake whose gRPC notification is lost while the sandbox is already Ready is
+/// not rescued by a start (the sandbox never restarts), so the reconciler
+/// re-notifies a woken Ready Task until its pending rows are acknowledged.
+/// Idempotent and fire-and-forget.
+#[async_trait]
+pub trait NotifyPort: Send + Sync {
+    async fn notify(&self, task_id: &str);
 }
 
 /// Reconciler tuning.
@@ -91,6 +126,10 @@ struct TaskRetry {
     /// A wake resets the cap only when a *newer* message arrives — the same
     /// pending row (still undelivered every tick until Ready) must not.
     last_wake_at: Option<DateTime<Utc>>,
+    /// Ready re-notification backoff, keyed off the same wake advance as the
+    /// operation cap.
+    next_notify: Option<DateTime<Utc>>,
+    notify_attempts: u32,
 }
 
 impl TaskRetry {
@@ -99,6 +138,8 @@ impl TaskRetry {
             budget: AttemptBudget::new(cap),
             next_eligible: None,
             last_wake_at: None,
+            next_notify: None,
+            notify_attempts: 0,
         }
     }
 }
@@ -109,6 +150,7 @@ pub struct Reconciler {
     store: Arc<dyn LifecycleStore>,
     messages: Arc<dyn MessageRepository>,
     observer: Arc<dyn FleetObserver>,
+    notify: Arc<dyn NotifyPort>,
     clock: Arc<dyn WallClock>,
     retries: Mutex<HashMap<String, TaskRetry>>,
     config: ReconcilerConfig,
@@ -120,6 +162,7 @@ impl Reconciler {
         store: Arc<dyn LifecycleStore>,
         messages: Arc<dyn MessageRepository>,
         observer: Arc<dyn FleetObserver>,
+        notify: Arc<dyn NotifyPort>,
         clock: Arc<dyn WallClock>,
         config: ReconcilerConfig,
     ) -> Self {
@@ -128,6 +171,7 @@ impl Reconciler {
             store,
             messages,
             observer,
+            notify,
             clock,
             retries: Mutex::new(HashMap::new()),
             config,
@@ -203,9 +247,11 @@ impl Reconciler {
         };
 
         // Give a freshly-changed intent its grace window — a caller's own
-        // detached operation is likely still converging.
+        // detached operation is likely still converging. An oversized configured
+        // grace saturates to MAX (fail closed: keep waiting) rather than
+        // collapsing to no window.
         if now.signed_duration_since(intent.desired_state_updated_at)
-            < chrono::Duration::from_std(self.config.grace).unwrap_or_else(|_| chrono::Duration::zero())
+            < chrono::Duration::from_std(self.config.grace).unwrap_or(chrono::Duration::MAX)
         {
             return;
         }
@@ -219,7 +265,9 @@ impl Reconciler {
             observed: observed_coarse,
             newest_pending_message_at: pending_at,
         });
-        if !coarse_decision.action.is_operation() {
+        // A woken Task always confirms — even when coarse shows no operation it may
+        // be an already-Ready sandbox owed a re-notification.
+        if !coarse_decision.woken && !coarse_decision.action.is_operation() {
             return;
         }
 
@@ -240,46 +288,90 @@ impl Reconciler {
             observed,
             newest_pending_message_at: pending_at,
         });
-        if !decision.action.is_operation() {
-            return;
+
+        // A newly observed wake resets the operation cap and the notify backoff
+        // (never the same pending row that stays undelivered every tick).
+        if decision.woken {
+            self.note_wake(task_id, pending_at);
         }
 
-        // A wake carries its message timestamp so the budget resets only for a
-        // *newly observed* message, not every tick the same row stays pending.
-        let wake_at = decision.woken.then_some(pending_at).flatten();
-        if !self.retry_gate(task_id, intent.marker.map(|m| m.generation.value()), wake_at, now) {
-            return;
+        if decision.action.is_operation() {
+            if !self.retry_gate(task_id, intent.marker.map(|m| m.generation.value()), now) {
+                return;
+            }
+            let result = match decision.action {
+                ReconcileAction::Start => self.lifecycle.start(task_id).await,
+                ReconcileAction::Stop => {
+                    let reason = intent.stop_reason.unwrap_or(SandboxStopReason::System);
+                    self.lifecycle.stop(task_id, reason).await
+                }
+                ReconcileAction::Remove => {
+                    let retention = intent.retention.unwrap_or(ArchiveRetention::RetainArchives);
+                    self.lifecycle.remove(task_id, retention).await
+                }
+                ReconcileAction::None | ReconcileAction::Wait => return,
+            };
+            self.record_outcome(task_id, decision.action, result, now);
+        } else if decision.woken && observed == SandboxObservedStatus::Ready {
+            // The wake landed on an already-Ready sandbox: re-notify under the
+            // per-Task backoff until the pending rows are acknowledged (which
+            // drops the Task from the pending set and ends the wake).
+            self.maybe_notify(task_id, now).await;
         }
+    }
 
-        let result = match decision.action {
-            ReconcileAction::Start => self.lifecycle.start(task_id).await,
-            ReconcileAction::Stop => {
-                let reason = intent.stop_reason.unwrap_or(SandboxStopReason::System);
-                self.lifecycle.stop(task_id, reason).await
+    /// Reset the operation cap and notify backoff when a genuinely new message
+    /// arrives — the same undelivered pending row (present every tick until
+    /// Ready) must not.
+    fn note_wake(&self, task_id: &str, wake_at: Option<DateTime<Utc>>) {
+        let Some(wake_at) = wake_at else { return };
+        let mut guard = self.retries.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let retry = guard
+            .entry(task_id.to_string())
+            .or_insert_with(|| TaskRetry::new(self.config.attempt_cap));
+        if retry.last_wake_at.is_none_or(|prev| wake_at > prev) {
+            retry.budget.reset_for_wake();
+            retry.next_eligible = None;
+            retry.next_notify = None;
+            retry.notify_attempts = 0;
+            retry.last_wake_at = Some(wake_at);
+        }
+    }
+
+    /// Re-notify a Ready sandbox of its pending wake, spaced by leader-local
+    /// exponential backoff keyed by Task.
+    async fn maybe_notify(&self, task_id: &str, now: DateTime<Utc>) {
+        let due = {
+            let mut guard = self.retries.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let retry = guard
+                .entry(task_id.to_string())
+                .or_insert_with(|| TaskRetry::new(self.config.attempt_cap));
+            if retry.next_notify.is_some_and(|t| now < t) {
+                false
+            } else {
+                retry.notify_attempts = retry.notify_attempts.saturating_add(1);
+                let delay = super::attempt::backoff(
+                    retry.notify_attempts,
+                    self.config.backoff_base,
+                    self.config.backoff_max,
+                );
+                retry.next_notify = Some(
+                    now + chrono::Duration::from_std(delay)
+                        .unwrap_or_else(|_| chrono::Duration::seconds(60)),
+                );
+                true
             }
-            ReconcileAction::Remove => {
-                let retention = intent.retention.unwrap_or(ArchiveRetention::RetainArchives);
-                self.lifecycle.remove(task_id, retention).await
-            }
-            ReconcileAction::None | ReconcileAction::Wait => return,
         };
-
-        self.record_outcome(task_id, decision.action, result, now);
+        if due {
+            debug!(task_id, "reconciler: re-notifying Ready sandbox of pending wake");
+            self.notify.notify(task_id).await;
+        }
     }
 
     /// Decide whether to drive an operation this tick under the attempt cap +
-    /// backoff. Mutates the Task's budget (begin/reset) before gating.
-    ///
-    /// `wake_at` is `Some(newest_pending_message_at)` when a message superseded
-    /// the intent this tick. The budget resets only when it advances past the
-    /// last wake — a genuinely new causal wake — never for the same pending row.
-    fn retry_gate(
-        &self,
-        task_id: &str,
-        generation: Option<i64>,
-        wake_at: Option<DateTime<Utc>>,
-        now: DateTime<Utc>,
-    ) -> bool {
+    /// backoff. Mutates the Task's budget (`begin`) before gating. Wake resets
+    /// are handled by [`note_wake`](Self::note_wake) before this runs.
+    fn retry_gate(&self, task_id: &str, generation: Option<i64>, now: DateTime<Utc>) -> bool {
         let mut guard = self.retries.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let retry = guard
             .entry(task_id.to_string())
@@ -287,14 +379,6 @@ impl Reconciler {
 
         if let Some(g) = generation {
             retry.budget.begin(super::types::OperationGeneration(g));
-        }
-        if let Some(wake_at) = wake_at {
-            let advanced = retry.last_wake_at.is_none_or(|prev| wake_at > prev);
-            if advanced {
-                retry.budget.reset_for_wake();
-                retry.next_eligible = None;
-                retry.last_wake_at = Some(wake_at);
-            }
         }
 
         // Backing off between transient retries.
@@ -448,6 +532,17 @@ mod db_tests {
         async fn stop_agent(&self, _t: &str) {}
     }
 
+    #[derive(Default)]
+    struct RecordingNotify {
+        count: Mutex<u32>,
+    }
+    #[async_trait]
+    impl NotifyPort for RecordingNotify {
+        async fn notify(&self, _t: &str) {
+            *self.count.lock().unwrap() += 1;
+        }
+    }
+
     /// A fixed fleet + confirm status the whole tick sees.
     struct FixedObserver {
         fleet: HashMap<String, SandboxObservedStatus>,
@@ -496,6 +591,7 @@ mod db_tests {
             lock_pool,
             runtime,
             observer,
+            Arc::new(RecordingNotify::default()),
             Arc::new(SystemWallClock),
             ReconcilerConfig {
                 grace,
@@ -509,6 +605,7 @@ mod db_tests {
         lock_pool: PgPool,
         runtime: Arc<RecordingRuntime>,
         observer: Arc<dyn FleetObserver>,
+        notify: Arc<dyn NotifyPort>,
         clock: Arc<dyn WallClock>,
         config: ReconcilerConfig,
     ) -> (Reconciler, Arc<CollectSink>) {
@@ -527,6 +624,7 @@ mod db_tests {
             store,
             Arc::new(PgMessageRepository(pool)),
             observer,
+            notify,
             clock,
             config,
         );
@@ -622,6 +720,7 @@ mod db_tests {
             pool,
             runtime.clone(),
             observer(&[], SandboxObservedStatus::Absent),
+            Arc::new(RecordingNotify::default()),
             clock,
             ReconcilerConfig {
                 grace: Duration::ZERO,
@@ -639,6 +738,40 @@ mod db_tests {
         let ensure = runtime.calls().0;
         assert!(ensure <= 5, "ensure driven {ensure} times; the cap should bound it");
         assert!(ensure >= 3, "ensure should retry up to the cap, got {ensure}");
+    }
+
+    #[sqlx::test]
+    async fn re_notifies_a_woken_ready_sandbox_bounded_by_backoff(pool: PgPool) {
+        // Desired Running, observed Ready → converged, so no lifecycle operation.
+        // A pending user message keeps the Task woken: the wake's gRPC notify may
+        // have been lost while the sandbox was already Ready, so the reconciler
+        // re-notifies. Backoff bounds it — a second immediate tick is spaced out.
+        seed(&pool, "t1", "open", "running").await;
+        seed_pending_user_message(&pool, "t1", Utc::now()).await;
+        let runtime = Arc::new(RecordingRuntime::new());
+        let notify = Arc::new(RecordingNotify::default());
+        let (rec, _sink) = build_with(
+            pool.clone(),
+            pool,
+            runtime.clone(),
+            observer(&[("t1", SandboxObservedStatus::Ready)], SandboxObservedStatus::Ready),
+            notify.clone(),
+            Arc::new(SystemWallClock),
+            ReconcilerConfig {
+                grace: Duration::ZERO,
+                ..Default::default()
+            },
+        );
+
+        rec.reconcile_once().await;
+        rec.reconcile_once().await;
+
+        assert_eq!(runtime.calls(), (0, 0, 0), "converged — no lifecycle operation driven");
+        assert_eq!(
+            *notify.count.lock().unwrap(),
+            1,
+            "notify fired once; the second immediate tick is backoff-suppressed",
+        );
     }
 
     #[sqlx::test]

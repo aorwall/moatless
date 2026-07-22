@@ -71,7 +71,6 @@ pub struct SubagentAggregate {
 pub struct PendingUserMessages {
     pub task_id: String,
     pub newest_created_at: DateTime<Utc>,
-    pub pending_count: i64,
 }
 
 /// A user-turn that was acknowledged by the sandbox but never reached a
@@ -524,9 +523,7 @@ impl MessageRepository for PgMessageRepository {
         &self,
     ) -> Result<Vec<PendingUserMessages>, sqlx::Error> {
         sqlx::query_as::<_, PendingUserMessages>(
-            r#"SELECT task_id,
-                      MAX(created_at) AS newest_created_at,
-                      COUNT(*)        AS pending_count
+            r#"SELECT task_id, MAX(created_at) AS newest_created_at
                FROM task_messages
                WHERE agent_session_id IS NULL AND message_type = 'user'
                GROUP BY task_id"#,
@@ -1653,12 +1650,12 @@ mod db_tests {
     }
 
     #[sqlx::test]
-    async fn pending_scan_returns_one_row_per_task_with_newest_and_count(pool: PgPool) {
-        // Task A: two pending user messages — newest wins, count is 2.
+    async fn pending_scan_returns_one_row_per_task_with_newest_pending(pool: PgPool) {
+        // Task A: two pending user messages — newest wins.
         seed_message(&pool, "a", "a1", "user", None, at(1_000)).await;
         seed_message(&pool, "a", "a2", "user", None, at(2_000)).await;
         // Task A also has an acknowledged user message and an assistant message —
-        // neither is pending, so neither inflates the count nor the timestamp.
+        // neither is pending, so neither moves the newest-pending timestamp.
         seed_message(&pool, "a", "a3", "user", Some("sess-1"), at(3_000)).await;
         seed_message(&pool, "a", "a4", "assistant", None, at(4_000)).await;
         // Task B: one pending user message.
@@ -1672,9 +1669,7 @@ mod db_tests {
         assert_eq!(rows.len(), 2, "only tasks with a pending user message appear");
         assert_eq!(rows[0].task_id, "a");
         assert_eq!(rows[0].newest_created_at, at(2_000), "newest pending, not the acked one");
-        assert_eq!(rows[0].pending_count, 2);
         assert_eq!(rows[1].task_id, "b");
         assert_eq!(rows[1].newest_created_at, at(500));
-        assert_eq!(rows[1].pending_count, 1);
     }
 }

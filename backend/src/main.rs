@@ -459,10 +459,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .with_lease_duration(120);
             Arc::new(K8sLeaderGuard(election)) as Arc<dyn LeaderGuard>
         });
+        let reconciler_notify = Arc::new(sandbox::lifecycle::GrpcNotify::new(
+            config.sandbox_provider,
+            config.sandbox.namespace.clone(),
+            config.sandbox.grpc_port,
+        ));
         let reconciler = moatless_vibe_backend::state::build_reconciler(
             app_state.db.clone(),
             app_state.lifecycle.clone(),
             sandbox_fleet_observer,
+            reconciler_notify,
             sandbox::lifecycle::ReconcilerConfig::default(),
         );
         spawn_sandbox_reconciler(reconciler, reconciler_leader, cancel.clone());

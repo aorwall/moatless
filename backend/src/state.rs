@@ -23,8 +23,8 @@ use crate::message::dao::{MessageRepository, PgMessageRepository};
 use crate::plugin_repo::dao::{PgPluginRepoRepository, PluginRepoRepository};
 use crate::repository::dao::{PgRepoRepository, RepoRepository};
 use crate::sandbox::lifecycle::{
-    FleetObserver, GrpcAgentStop, Lifecycle, OutboxEventSink, PgLifecycleLock, PgLifecycleStore,
-    ProvisionDeps, Reconciler, ReconcilerConfig, RuntimeBridge, SystemWallClock,
+    FleetObserver, GrpcAgentStop, Lifecycle, NotifyPort, OutboxEventSink, PgLifecycleLock,
+    PgLifecycleStore, ProvisionDeps, Reconciler, ReconcilerConfig, RuntimeBridge, SystemWallClock,
 };
 use crate::sandbox::provider::SandboxProvider;
 use crate::secret::audit::{PgSecretAuditRepository, SecretAuditRepository};
@@ -174,6 +174,7 @@ pub fn build_reconciler(
     pool: DbPool,
     lifecycle: Arc<Lifecycle>,
     observer: Arc<dyn FleetObserver>,
+    notify: Arc<dyn NotifyPort>,
     config: ReconcilerConfig,
 ) -> Reconciler {
     Reconciler::new(
@@ -181,6 +182,7 @@ pub fn build_reconciler(
         Arc::new(PgLifecycleStore::new(pool.clone())),
         Arc::new(PgMessageRepository(pool)),
         observer,
+        notify,
         Arc::new(SystemWallClock),
         config,
     )

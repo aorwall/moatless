@@ -11,12 +11,27 @@ use crate::state::AppState;
 /// - **Kubernetes**: Uses K8s service DNS (`{svc}.{ns}.svc.cluster.local:{port}`)
 /// - **Docker**: Uses Docker network DNS (`{container_name}:{port}`)
 pub async fn notify_sandbox_for_task(state: &AppState, task_id: &str) {
-    let grpc_port = state.config.sandbox.grpc_port;
+    notify_task_over_grpc(
+        state.config.sandbox_provider,
+        &state.config.sandbox.namespace,
+        state.config.sandbox.grpc_port,
+        task_id,
+    )
+    .await;
+}
 
-    let url = match state.config.sandbox_provider {
+/// Ping a Task's sandbox over gRPC to fetch its pending messages, from raw config
+/// (no `AppState`) so background owners like the reconciler can re-notify a Ready
+/// sandbox. Fire-and-forget: logs on failure, never propagates.
+pub async fn notify_task_over_grpc(
+    provider: SandboxProviderType,
+    namespace: &str,
+    grpc_port: u16,
+    task_id: &str,
+) {
+    let url = match provider {
         SandboxProviderType::Kubernetes => {
             let svc_name = super::k8s::naming::generate_service_name(task_id);
-            let namespace = &state.config.sandbox.namespace;
             format!("http://{svc_name}.{namespace}.svc.cluster.local:{grpc_port}")
         }
         SandboxProviderType::Docker => {

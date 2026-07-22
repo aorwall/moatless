@@ -10,13 +10,14 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
+use crate::config::SandboxProviderType;
 use crate::sandbox::docker::client::DockerClient;
 use crate::sandbox::k8s::client::K8sClient;
 use crate::sandbox::provider::SandboxProvider;
 use crate::task::models::{SandboxDesiredState, TaskStatus};
 
 use super::convergence::SandboxObservedStatus;
-use super::reconciler::{FleetObserver, ObserveError};
+use super::reconciler::{FleetObserver, NotifyPort, ObserveError};
 
 /// Confirm a Task's status authoritatively via the provider's live-status read.
 async fn confirm(
@@ -28,7 +29,7 @@ async fn confirm(
     let live = provider
         .live_status(task_id, task_status, desired_state)
         .await
-        .map_err(|e| ObserveError(e.to_string()))?;
+        .map_err(|e| ObserveError::with_source("confirm live status", e))?;
     Ok(SandboxObservedStatus::from_display(live.sandbox_status))
 }
 
@@ -49,7 +50,7 @@ impl FleetObserver for K8sFleetObserver {
     async fn observe_fleet(&self) -> Result<HashMap<String, SandboxObservedStatus>, ObserveError> {
         let states = crate::sandbox::k8s::deployment::list_sandbox_deployment_states(&self.k8s)
             .await
-            .map_err(|e| ObserveError(e.to_string()))?;
+            .map_err(|e| ObserveError::with_source("list sandbox deployments", e))?;
         Ok(states
             .into_iter()
             .map(|(task_id, desired, ready)| {
@@ -111,7 +112,7 @@ impl FleetObserver for DockerFleetObserver {
                     .build(),
             ))
             .await
-            .map_err(|e| ObserveError(e.to_string()))?;
+            .map_err(|e| ObserveError::with_source("list sandbox containers", e))?;
 
         let mut out = HashMap::new();
         for c in containers {
@@ -143,5 +144,36 @@ impl FleetObserver for DockerFleetObserver {
         desired_state: SandboxDesiredState,
     ) -> Result<SandboxObservedStatus, ObserveError> {
         confirm(&self.provider, task_id, task_status, desired_state).await
+    }
+}
+
+/// gRPC notifier: pings a Ready sandbox to fetch its pending messages, over the
+/// provider's service/container DNS.
+pub struct GrpcNotify {
+    provider: SandboxProviderType,
+    namespace: String,
+    grpc_port: u16,
+}
+
+impl GrpcNotify {
+    pub fn new(provider: SandboxProviderType, namespace: String, grpc_port: u16) -> Self {
+        Self {
+            provider,
+            namespace,
+            grpc_port,
+        }
+    }
+}
+
+#[async_trait]
+impl NotifyPort for GrpcNotify {
+    async fn notify(&self, task_id: &str) {
+        crate::sandbox::notify::notify_task_over_grpc(
+            self.provider,
+            &self.namespace,
+            self.grpc_port,
+            task_id,
+        )
+        .await;
     }
 }

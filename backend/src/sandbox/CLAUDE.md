@@ -29,12 +29,16 @@ Postgres adapters, the `RuntimeBridge` over `SandboxProvider`, `GrpcAgentStop`, 
 the `OutboxEventSink`. `delete_task` requires a successful `lifecycle.remove` before
 row deletion. Marker/retention columns and the transactional outbox are in place.
 
-Remaining step-2 work: thread `RuntimeOperationContext` generation into the
-provider mutations so pods/containers carry generation labels (and restrict Docker
-observation to the sandbox container); add the pending-Message query/index and the
-desired-state reconciler (lease-elected on K8s, lease-free in Docker, subsuming the
-`Removed`-intent orphan rule). Steps 3–4 (rename `SandboxProvider` →
-`SandboxRuntime`, delete shallow paths) remain pending.
+The pending-Message query/index and the desired-state reconciler are in place:
+the reconciler is lease-elected on K8s / lease-free single-replica on Docker,
+re-notifies a woken Ready sandbox of its undelivered pending messages, and
+subsumes the `Removed`-intent orphan rule. Remaining step-2 work: thread
+`RuntimeOperationContext` generation into the provider mutations so pods/containers
+carry generation labels (and restrict Docker observation to the sandbox
+container); the stale edge-marker (restart/redeploy) handling (both need
+generation identity); and deleting the reaper's retired `run_reconcile_pass` (no
+later than step 4). Steps 3–4 (rename `SandboxProvider` → `SandboxRuntime`, delete
+shallow paths) remain pending.
 
 ### Provider abstraction
 `SandboxProvider` trait (`provider.rs`) is the provider-agnostic interface for lifecycle operations (provision, start, stop, restart, cleanup, status, server logs, file search, `sandbox_client()`). Implementations: `K8sSandboxProvider` (`k8s/provider.rs`) and `DockerSandboxProvider` (`docker/provider.rs`). Migration step 3 renames this to `SandboxRuntime` (`provision` → `ensure_running`) and splits out the read-side `SandboxAccess` seam.
@@ -83,9 +87,10 @@ The unified reaper lives in **`task/reaper.rs`, not this module**. Leader-electe
 - `app.kubernetes.io/component` — `sandbox`, `storage`, `sandbox-service`
 
 ## Leader election
-Two independent leader-elected subsystems use K8s Leases, both keyed on the `HOSTNAME` env var:
+Three independent leader-elected subsystems use K8s Leases, all keyed on the `HOSTNAME` env var:
 - `moatless-pod-watcher` — pod lifecycle watcher (15s default lease)
 - `moatless-task-reaper` — unified reaper (impl in `task/reaper.rs`), 2× check-interval lease
+- `moatless-sandbox-reconciler` — desired-state reconciler (impl in `sandbox/lifecycle/reconciler.rs`), 120s lease; Docker runs it lease-free (single replica)
 
 ## Design patterns
 - **Data-driven servers**: no hardcoded server names; `ServerConfig` carries all per-server fields. Image resolution: `server.docker_image` → `sandbox_image`.
