@@ -10,7 +10,7 @@ Design **deep modules**: a lot of behaviour behind a small interface, placed at 
 
 ## Glossary
 
-Use these terms exactly — don't substitute "component," "service," "API," or "boundary." Consistent language is the whole point.
+Use these terms exactly — don't substitute "component," "service," "API," or "boundary."
 
 **Module** — anything with an interface and an implementation. Deliberately scale-agnostic: a function, class, package, or tier-spanning slice. _Avoid_: unit, component, service.
 
@@ -30,27 +30,7 @@ Use these terms exactly — don't substitute "component," "service," "API," or "
 
 ## Deep vs shallow
 
-**Deep module** = small interface + lots of implementation:
-
-```
-┌─────────────────────┐
-│   Small Interface   │  ← Few methods, simple params
-├─────────────────────┤
-│                     │
-│  Deep Implementation│  ← Complex logic hidden
-│                     │
-└─────────────────────┘
-```
-
-**Shallow module** = large interface + little implementation (avoid):
-
-```
-┌─────────────────────────────────┐
-│       Large Interface           │  ← Many methods, complex params
-├─────────────────────────────────┤
-│  Thin Implementation            │  ← Just passes through
-└─────────────────────────────────┘
-```
+**Deep module** = small interface + lots of implementation. **Shallow module** = large interface + little implementation (avoid).
 
 When designing an interface, ask:
 

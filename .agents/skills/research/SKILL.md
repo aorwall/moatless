@@ -4,7 +4,7 @@ description: Investigate a question against high-trust primary sources and captu
 # Forked from https://github.com/mattpocock/skills — maintained locally
 ---
 
-Spin up a **background agent** to do the research, so you keep working while it reads.
+Spin up a **background agent** to do the research.
 
 Its job:
 
