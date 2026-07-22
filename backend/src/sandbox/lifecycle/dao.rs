@@ -120,6 +120,20 @@ impl LifecycleStore for PgLifecycleStore {
         ))
     }
 
+    async fn reconcile_candidates(&self) -> Result<Vec<String>, StoreError> {
+        // Desired-Running participants (fleet observation may find them down)
+        // ∪ incomplete-marker Tasks (a crashed operation). Backed by
+        // `tasks_desired_running_idx` and `tasks_incomplete_operation_idx`.
+        sqlx::query_scalar(
+            r#"SELECT task_id FROM tasks
+               WHERE (sandbox_desired_state = 'running' AND status IN ('open', 'error'))
+                  OR sandbox_operation_generation IS NOT NULL"#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| StoreError::with_source("load reconcile candidates", e))
+    }
+
     async fn allocate_generation(&self, task_id: &str) -> Result<OperationGeneration, StoreError> {
         let seq: Option<i64> = sqlx::query_scalar(
             r#"UPDATE tasks
@@ -383,6 +397,39 @@ mod db_tests {
         assert!(after.marker.is_none());
         // Desired state is untouched by a marker clear.
         assert_eq!(after.desired_state, SandboxDesiredState::Running);
+    }
+
+    #[sqlx::test]
+    async fn reconcile_candidates_covers_desired_running_participants_and_incomplete_markers(
+        pool: PgPool,
+    ) {
+        use super::super::test_support::seed_task_with;
+        // Desired Running + Open → candidate.
+        seed_task_with(&pool, "run-open", "open", "running").await;
+        // Desired Running + Error → candidate (Error participates).
+        seed_task_with(&pool, "run-error", "error", "running").await;
+        // Desired Running + Closed → not a candidate (does not participate).
+        seed_task_with(&pool, "run-closed", "closed", "running").await;
+        // Desired Stopped + Open → not a candidate on the desired-Running branch…
+        seed_task_with(&pool, "stopped-open", "open", "stopped").await;
+        // …until it carries an incomplete operation marker (a crashed stop/remove).
+        let store = PgLifecycleStore::new(pool.clone());
+        store
+            .persist_intent(
+                "stopped-open",
+                &IntentWrite {
+                    desired_state: SandboxDesiredState::Stopped,
+                    stop_reason: Some(SandboxStopReason::User),
+                    retention: None,
+                    marker: marker(OperationKind::Stop, 1),
+                },
+            )
+            .await
+            .unwrap();
+
+        let mut got = store.reconcile_candidates().await.unwrap();
+        got.sort();
+        assert_eq!(got, vec!["run-error", "run-open", "stopped-open"]);
     }
 
     #[sqlx::test]

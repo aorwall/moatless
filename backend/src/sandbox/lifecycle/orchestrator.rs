@@ -106,6 +106,12 @@ impl StoreError {
 pub trait LifecycleStore: Send + Sync {
     async fn load(&self, task_id: &str) -> Result<Option<TaskIntent>, StoreError>;
 
+    /// DB-derived reconciler candidates: participating Tasks (Open/Error) that
+    /// desire Running, plus any Task carrying an incomplete operation marker.
+    /// The reconciler unions these with pending-message Tasks, then observes the
+    /// fleet to decide which have actually diverged.
+    async fn reconcile_candidates(&self) -> Result<Vec<String>, StoreError>;
+
     /// Allocate the next durable operation generation for the Task.
     async fn allocate_generation(&self, task_id: &str) -> Result<OperationGeneration, StoreError>;
 
@@ -746,6 +752,9 @@ mod tests {
         async fn load(&self, _task_id: &str) -> Result<Option<TaskIntent>, StoreError> {
             Ok(self.intent.lock().expect("lock").clone())
         }
+        async fn reconcile_candidates(&self) -> Result<Vec<String>, StoreError> {
+            Ok(vec![])
+        }
         async fn allocate_generation(&self, _task_id: &str) -> Result<OperationGeneration, StoreError> {
             let mut g = self.next_gen.lock().expect("lock");
             let out = OperationGeneration(*g);
@@ -1152,6 +1161,9 @@ mod tests {
         impl LifecycleStore for FailingLoad {
             async fn load(&self, _t: &str) -> Result<Option<TaskIntent>, StoreError> {
                 Err(StoreError::new("conn reset"))
+            }
+            async fn reconcile_candidates(&self) -> Result<Vec<String>, StoreError> {
+                Ok(vec![])
             }
             async fn allocate_generation(&self, _t: &str) -> Result<OperationGeneration, StoreError> {
                 Ok(OperationGeneration(1))
