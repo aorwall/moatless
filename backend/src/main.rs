@@ -325,7 +325,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             pool,
             lifecycle,
             Arc::new(config.clone()),
-            sandbox_provider,
+            Arc::new(crate::task::reaper::ProviderAgentStatus::new(sandbox_provider)),
             event_publisher,
             s3_client,
             adapter_registry.map(Arc::new),
@@ -466,7 +466,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ));
         let reconciler = moatless_vibe_backend::state::build_reconciler(
             app_state.db.clone(),
-            app_state.lifecycle.clone(),
+            app_state.sandbox.clone(),
             sandbox_fleet_observer,
             reconciler_notify,
             sandbox::lifecycle::ReconcilerConfig::default(),

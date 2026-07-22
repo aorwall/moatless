@@ -34,6 +34,7 @@ use crate::skill::fetcher::{GitHubSkillFetcher, SkillFetcher};
 use crate::skill::service::SkillService;
 use crate::tag::dao::{PgTagRepository, TagRepository};
 use crate::task::dao::{PgTaskRepository, TaskRepository};
+use crate::task::reaper::AgentStatusPort;
 use crate::workspace::dao::{PgWorkspaceRepository, WorkspaceRepository};
 use crate::task::relations::{PgTaskRelationRepository, TaskRelationRepository};
 use crate::task_event::dao::{PgTaskEventRepository, TaskEventRepository};
@@ -51,13 +52,13 @@ pub struct AppState {
     pub db: DbPool,
     /// Immutable configuration shared across handlers.
     pub config: Arc<Config>,
-    /// Sandbox workspace provider (trait object for K8s or future backends).
-    pub sandbox: Arc<dyn SandboxProvider>,
-    /// Durable Sandbox lifecycle handle — owns Sandbox lifecycle intent and
-    /// operations. Callers request transitions
-    /// (`start`/`stop`/`restart`/`redeploy`/`remove`) through it rather than
-    /// driving the provider directly.
-    pub lifecycle: Arc<Lifecycle>,
+    /// The one Sandbox value on `AppState`: the durable lifecycle handle. Callers
+    /// request transitions (`start`/`stop`/`restart`/`redeploy`/`remove`) and read
+    /// desired state through it rather than driving a provider directly.
+    pub sandbox: Arc<Lifecycle>,
+    /// The reaper's idle-eligibility read of live agent status, behind a
+    /// consumer-owned one-method port. The provider handle is not on `AppState`.
+    pub agent_status: Arc<dyn AgentStatusPort>,
     /// Optional event publisher for real-time event streaming (trait object).
     pub events: Option<Arc<dyn EventPublisher>>,
     /// Optional S3 client for file uploads/downloads.
@@ -203,7 +204,7 @@ impl AppState {
         pool: DbPool,
         lifecycle: Arc<Lifecycle>,
         config: Arc<Config>,
-        sandbox: Arc<dyn SandboxProvider>,
+        agent_status: Arc<dyn AgentStatusPort>,
         events: Option<Arc<dyn EventPublisher>>,
         s3: Option<aws_sdk_s3::Client>,
         adapters: Option<Arc<Adapters>>,
@@ -309,8 +310,8 @@ impl AppState {
             skills,
             db: pool,
             config,
-            sandbox,
-            lifecycle,
+            sandbox: lifecycle,
+            agent_status,
             events,
             s3,
             adapters,

@@ -243,7 +243,7 @@ async fn insert_and_provision_task(
     // Provision the sandbox. Best-effort: a failure leaves the Task in its
     // Running intent for the reconciler and lifecycle publishes its own Error
     // fact, so task creation still proceeds to the initial message.
-    if let Err(e) = state.lifecycle.start(task_id).await {
+    if let Err(e) = state.sandbox.start(task_id).await {
         tracing::warn!(task_id = %task_id, error = %e, "Sandbox start failed during task creation");
     }
 
@@ -643,7 +643,7 @@ pub async fn delete_task(
     // and awaits observed absence; on failure the typed error surfaces, the row
     // survives with `Removed` intent, and the reconciler keeps retrying.
     state
-        .lifecycle
+        .sandbox
         .remove(&task_id, ArchiveRetention::DeleteArchives)
         .await?;
 
@@ -865,7 +865,7 @@ async fn close_single_task(state: &AppState, task_id: &str) -> Result<(), TaskEr
     // configured so the task can later be revived via reopen; a failure leaves
     // the `Removed` intent for the reconciler.
     let retention = ArchiveRetention::on_close(state.config.sandbox.retain_storage_on_close);
-    if let Err(e) = state.lifecycle.remove(task_id, retention).await {
+    if let Err(e) = state.sandbox.remove(task_id, retention).await {
         tracing::warn!(task_id, error = %e, "Failed to remove sandbox on close");
     }
 
@@ -1052,7 +1052,7 @@ pub async fn start_task(
     // tables pick up the latest committed settings. Never fails the start.
     maybe_sync_repo_config_on_start(&state, &auth, &repo).await;
 
-    state.lifecycle.start(&task_id).await?;
+    state.sandbox.start(&task_id).await?;
 
     tracing::info!(task_id = %task_id, "Sandbox start initiated (initializing)");
     Ok(axum::http::StatusCode::NO_CONTENT)
@@ -1156,7 +1156,7 @@ pub async fn stop_task(
     // lifecycle owns the Stopped intent + user reason, stops compute, and issues
     // the graceful StopAgent. Task status is not lifecycle's to write.
     state
-        .lifecycle
+        .sandbox
         .stop(&task_id, SandboxStopReason::User)
         .await?;
 

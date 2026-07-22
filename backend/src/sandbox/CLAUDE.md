@@ -22,7 +22,9 @@ strict-removal are load-bearing.
 
 The `Lifecycle` handle is wired in production (`state::build_lifecycle`, shared by
 `AppState`, the sandbox API, and the pod watcher) and is the sole writer of
-Sandbox intent: every start/stop/restart/redeploy/remove caller — task and
+Sandbox intent. `AppState` carries exactly one sandbox value — this handle, as
+`state.sandbox`; the provider handle is not on `AppState`. Every
+start/stop/restart/redeploy/remove caller — task and
 sandbox handlers, adapters, the reaper, message-send/notify, and the pod watcher's
 crash remediation — routes through it, over the `PgLifecycleStore`/`PgLifecycleLock`
 Postgres adapters, the `RuntimeBridge` over `SandboxProvider`, `GrpcAgentStop`, and
@@ -76,7 +78,7 @@ Provisioning creates (all labeled `moatless.io/task-id={task_id}`): a **Deployme
 `pod_watcher.rs` — leader-elected (K8s Lease) task that watches all sandbox pods, detects lifecycle transitions (OOM, crash loop, eviction, restart, ready, failed, deleted), and publishes events to Redis Streams for SSE/event-handler consumption. Tracks pods **by pod_name, not task_id**, so rolling updates don't confuse old/new pods.
 
 ### Task reaper
-The unified reaper lives in **`task/reaper.rs`, not this module**. Leader-elected; each cycle (1) scales idle Deployments to 0 after `ttl_minutes`, and (2) auto-closes Open tasks inactive past `inactive_ttl_days` via the same `cleanup` + `update_task(Closed)` + `TaskSubType::Closed` sequence as the manual close handler.
+The unified reaper lives in **`task/reaper.rs`, not this module**. Leader-elected; each cycle (1) scales idle Deployments to 0 after `ttl_minutes`, and (2) auto-closes Open tasks inactive past `inactive_ttl_days` via the same `cleanup` + `update_task(Closed)` + `TaskSubType::Closed` sequence as the manual close handler. Its stop/start/remove go through `state.sandbox` (the lifecycle handle); its one interior read — the idle-eligibility agent status — goes through the consumer-owned `AgentStatusPort`, whose `ProviderAgentStatus` impl wraps the provider's `sandbox_client`.
 
 ### gRPC communication
 `SandboxClient` (`client.rs`) calls sandbox pods: execute-agent, stop-agent, notify-messages, file ops, search-files. Lazy connection, 5s connect / 10s request timeout. `classify_grpc_error()` maps gRPC → `SandboxError`: Unavailable/DeadlineExceeded/Cancelled → NotReady/503, NotFound → 404, FailedPrecondition/InvalidArgument → 400, else → Internal/500. `notify.rs` is fire-and-forget message notification.

@@ -581,7 +581,7 @@ fn should_filter_self_echo(binding: &TaskBinding, user_id: &str) -> bool {
 }
 
 async fn provision_task(state: &AppState, task_id: &str) {
-    if let Err(e) = state.lifecycle.start(task_id).await {
+    if let Err(e) = state.sandbox.start(task_id).await {
         warn!(task_id, error = %e, "Failed to start sandbox for external task");
     }
 }

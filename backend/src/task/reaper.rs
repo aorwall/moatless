@@ -12,6 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::{PersistentVolumeClaim, Pod, Service};
@@ -418,7 +419,7 @@ async fn run_reap_cycle(
                 // down, persists the Stopped intent + reason, and publishes the
                 // idle-tagged Stopped event (`idle_reaped`/`reaper`).
                 match app_state
-                    .lifecycle
+                    .sandbox
                     .stop(task_id, SandboxStopReason::IdleReaper)
                     .await
                 {
@@ -502,7 +503,7 @@ async fn reconcile_orphaned_turns(
 }
 
 async fn task_desires_running(app_state: &AppState, task_id: &str) -> bool {
-    match app_state.lifecycle.desired_state(task_id).await {
+    match app_state.sandbox.desired_state(task_id).await {
         Ok(desired) => desired == SandboxDesiredState::Running,
         Err(e) => {
             warn!(task_id, error = %e, "reconcile: desired-state lookup failed");
@@ -526,18 +527,44 @@ async fn agent_status_snapshot(
     app_state: &AppState,
     task_id: &str,
 ) -> Option<sandbox_proto::GetAgentStatusResponse> {
-    let client = match app_state.sandbox.sandbox_client(task_id).await {
-        Ok(c) => c,
-        Err(e) => {
-            debug!(task_id, error = %e, "reconcile: no sandbox client for status check");
-            return None;
-        }
-    };
-    match client.get_agent_status().await {
-        Ok(resp) => Some(resp),
-        Err(e) => {
-            debug!(task_id, error = %e, "reconcile: get_agent_status failed");
-            None
+    app_state.agent_status.agent_status(task_id).await
+}
+
+/// The reaper's read of a Sandbox's live agent status — the one interior read it
+/// needs, declared consumer-side so the provider handle stays off `AppState`.
+#[async_trait]
+pub trait AgentStatusPort: Send + Sync {
+    async fn agent_status(&self, task_id: &str) -> Option<sandbox_proto::GetAgentStatusResponse>;
+}
+
+/// Satisfies [`AgentStatusPort`] by wrapping the sandbox provider's
+/// `sandbox_client`.
+pub struct ProviderAgentStatus {
+    provider: Arc<dyn crate::sandbox::provider::SandboxProvider>,
+}
+
+impl ProviderAgentStatus {
+    pub fn new(provider: Arc<dyn crate::sandbox::provider::SandboxProvider>) -> Self {
+        Self { provider }
+    }
+}
+
+#[async_trait]
+impl AgentStatusPort for ProviderAgentStatus {
+    async fn agent_status(&self, task_id: &str) -> Option<sandbox_proto::GetAgentStatusResponse> {
+        let client = match self.provider.sandbox_client(task_id).await {
+            Ok(c) => c,
+            Err(e) => {
+                debug!(task_id, error = %e, "reconcile: no sandbox client for status check");
+                return None;
+            }
+        };
+        match client.get_agent_status().await {
+            Ok(resp) => Some(resp),
+            Err(e) => {
+                debug!(task_id, error = %e, "reconcile: get_agent_status failed");
+                None
+            }
         }
     }
 }
@@ -832,7 +859,7 @@ async fn auto_close_task(
     // issues the graceful agent stop and retains S3 archives per config so an
     // auto-closed task stays revivable.
     let retention = ArchiveRetention::on_close(app_state.config.sandbox.retain_storage_on_close);
-    if let Err(e) = app_state.lifecycle.remove(task_id, retention).await {
+    if let Err(e) = app_state.sandbox.remove(task_id, retention).await {
         warn!(task_id, error = %e, "auto-close: sandbox remove failed (continuing)");
     }
 
@@ -1322,7 +1349,7 @@ async fn reprovision_task(
     // A plan that can never be built (repo row deleted, credentials revoked)
     // surfaces as a permanent `lifecycle.start` error and counts against the
     // SAME budget as a runtime failure, so the task can't loop forever.
-    match app_state.lifecycle.start(task_id).await {
+    match app_state.sandbox.start(task_id).await {
         Ok(_) => {
             reprovision_attempts.remove(task_id);
             metrics::counter!(

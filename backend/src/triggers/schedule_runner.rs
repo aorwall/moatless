@@ -298,7 +298,7 @@ async fn create_scheduled_task(
     let task_id =
         crate::triggers::inbound::create_task_for_external_message(state, config, msg).await?;
 
-    if let Err(e) = state.lifecycle.start(&task_id).await {
+    if let Err(e) = state.sandbox.start(&task_id).await {
         record_job("error", "provision_failed", &config.id);
         warn!(task_id = %task_id, error = %e, "Failed to start sandbox for scheduled task");
     }

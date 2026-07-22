@@ -715,7 +715,7 @@ pub async fn close_tasks_for_pr(
         // teardown failure never leaves a non-terminal task). Lifecycle issues
         // the graceful agent stop and retains S3 archives per config.
         let retention = ArchiveRetention::on_close(state.config.sandbox.retain_storage_on_close);
-        if let Err(e) = state.lifecycle.remove(task_id, retention).await {
+        if let Err(e) = state.sandbox.remove(task_id, retention).await {
             warn!(task_id = %task_id, error = %e, "Failed to remove sandbox on PR close");
         }
 
@@ -1068,7 +1068,7 @@ fn parse_pr_destination_config(
 }
 
 async fn provision_task(state: &AppState, task_id: &str) {
-    if let Err(e) = state.lifecycle.start(task_id).await {
+    if let Err(e) = state.sandbox.start(task_id).await {
         warn!(task_id = %task_id, error = %e, "Failed to start sandbox for GitHub PR task");
     }
 }

@@ -82,7 +82,7 @@ pub async fn ensure_sandbox_and_notify(state: &AppState, task_id: &str) -> Resul
         }
     }
 
-    match state.lifecycle.start(task_id).await {
+    match state.sandbox.start(task_id).await {
         Ok(outcome) if outcome.observed == ObservedStatus::Ready => {
             notify_sandbox_for_task(state, task_id).await;
         }

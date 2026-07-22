@@ -1,6 +1,7 @@
 //! Pre-provision validation of GitHub credentials.
 //!
-//! Runs synchronously before `state.sandbox.provision(...)` so that a task
+//! Runs synchronously before the sandbox is provisioned (through the lifecycle
+//! handle and its runtime bridge) so that a task
 //! with a stale or unauthorised GitHub token fails fast — no Deployment,
 //! PVC, or pod is ever created — and the failure is surfaced as a single
 //! clear `sandbox.error` event on the task instead of a buried `Sandbox

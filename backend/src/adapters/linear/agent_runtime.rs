@@ -1130,7 +1130,7 @@ async fn close_active_bindings_for_issue(
         // Remove the sandbox (best-effort, Closed already committed). Lifecycle
         // issues the graceful agent stop and retains S3 archives per config.
         let retention = ArchiveRetention::on_close(state.config.sandbox.retain_storage_on_close);
-        if let Err(e) = state.lifecycle.remove(&binding.task_id, retention).await {
+        if let Err(e) = state.sandbox.remove(&binding.task_id, retention).await {
             warn!(task_id = %binding.task_id, error = %e, "Failed to remove sandbox on Linear close");
         }
 
@@ -1523,7 +1523,7 @@ async fn insert_event_task(
 }
 
 async fn provision_task(state: &AppState, task_id: &str) {
-    if let Err(e) = state.lifecycle.start(task_id).await {
+    if let Err(e) = state.sandbox.start(task_id).await {
         warn!(task_id = %task_id, error = %e, "Failed to start sandbox for Linear task");
     }
 }
