@@ -1,0 +1,174 @@
+//! The `SandboxRuntime` seam — the infrastructure-mutation interface lifecycle
+//! owns.
+//!
+//! Every mutation returns a typed [`RuntimeOutcome`] so lifecycle never infers
+//! what happened through a second status read, and takes a
+//! [`RuntimeOperationContext`] so the operation generation reaches the runtime
+//! and is stamped onto the resources it creates.
+//!
+//! The seam is held **only** by the lifecycle module: a task-scoped lifecycle
+//! mutation that bypasses lifecycle is a compile error, not a review comment.
+//! The one named exception is the orphan resource sweep (label-based deletion
+//! of taskless resources), which lifecycle cannot express and which lives
+//! outside this seam. The K8s and Docker adapters implement this trait; a
+//! recording adapter implements it for lifecycle module tests.
+
+use async_trait::async_trait;
+
+use super::error::RuntimeError;
+use super::outcome::Diagnostics;
+use super::types::{ArchiveRetention, ObservedStatus, OperationGeneration, RuntimeEffect};
+
+/// Context threaded to **every** runtime mutation.
+///
+/// Carries the operation generation the adapter stamps onto the resources it
+/// creates (K8s pod-template label, Docker container label) so that watcher
+/// events can be correlated back to the operation that caused them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeOperationContext {
+    pub operation_generation: OperationGeneration,
+}
+
+impl RuntimeOperationContext {
+    pub fn new(operation_generation: OperationGeneration) -> Self {
+        Self {
+            operation_generation,
+        }
+    }
+}
+
+/// Returned by **every** `SandboxRuntime` mutation.
+///
+/// Carries the observed status, the [`RuntimeEffect`] (so lifecycle knows
+/// whether infrastructure actually changed), and success diagnostics. It never
+/// describes failure — that is [`RuntimeError`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeOutcome {
+    pub observed: ObservedStatus,
+    pub effect: RuntimeEffect,
+    pub diagnostics: Diagnostics,
+}
+
+impl RuntimeOutcome {
+    pub fn applied(observed: ObservedStatus) -> Self {
+        Self {
+            observed,
+            effect: RuntimeEffect::Applied,
+            diagnostics: Diagnostics::default(),
+        }
+    }
+
+    /// A recording-adapter builder: production adapters compute the effect from
+    /// what they did rather than asserting `NoOp` up front.
+    #[cfg(test)]
+    pub fn no_op(observed: ObservedStatus) -> Self {
+        Self {
+            observed,
+            effect: RuntimeEffect::NoOp,
+            diagnostics: Diagnostics::default(),
+        }
+    }
+
+    pub fn with_diagnostics(mut self, diagnostics: Diagnostics) -> Self {
+        self.diagnostics = diagnostics;
+        self
+    }
+}
+
+/// The infrastructure mutation seam, implemented by the K8s and Docker
+/// adapters (and, for module tests, a recording adapter).
+///
+/// `ensure_running` names what the runtime start actually does: reuse Ready,
+/// wait for Initializing, scale up Stopped, rebuild on image change, create
+/// missing, heal network resources, and replace a terminal/error pod from the
+/// fresh plan. An existing failed pod is not reported as indefinitely
+/// Initializing.
+#[async_trait]
+pub trait SandboxRuntime: Send + Sync {
+    /// Ensure the sandbox is running from a fresh plan (start / reconcile
+    /// converge / message-wake).
+    async fn ensure_running(
+        &self,
+        task_id: &str,
+        ctx: RuntimeOperationContext,
+    ) -> Result<RuntimeOutcome, RuntimeError>;
+
+    /// Stop compute, preserving storage. Idempotent against already-stopped
+    /// compute (returns `NoOp`).
+    async fn stop(
+        &self,
+        task_id: &str,
+        ctx: RuntimeOperationContext,
+    ) -> Result<RuntimeOutcome, RuntimeError>;
+
+    /// Restart the current deployment, preserving identity by carrying the new
+    /// generation onto the replacement. On Kubernetes this patches the
+    /// pod-template under the `Recreate` strategy; on Docker it strictly
+    /// removes and recreates the sandbox container (labels are immutable on a
+    /// live container, so in-place restart could never carry identity).
+    async fn restart(
+        &self,
+        task_id: &str,
+        ctx: RuntimeOperationContext,
+    ) -> Result<RuntimeOutcome, RuntimeError>;
+
+    /// Replace the deployment from a fresh plan. **Edge teardown is strict**:
+    /// a redeploy never proceeds to provision past a failed delete.
+    async fn redeploy(
+        &self,
+        task_id: &str,
+        ctx: RuntimeOperationContext,
+    ) -> Result<RuntimeOutcome, RuntimeError>;
+
+    /// Delete all runtime resources (Deployment, Service, IngressRoutes, and
+    /// the PVC unconditionally), honoring `retention` only for S3 archives.
+    ///
+    /// **Strict success means observed absence, not accepted deletion**: the
+    /// implementation awaits actual absence of every resource before returning
+    /// `Ok`. An archive-deletion failure is load-bearing — it surfaces as a
+    /// [`RuntimeError`], not a swallowed log.
+    async fn remove(
+        &self,
+        task_id: &str,
+        retention: ArchiveRetention,
+        ctx: RuntimeOperationContext,
+    ) -> Result<RuntimeOutcome, RuntimeError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sandbox::lifecycle::outcome::DegradationWarning;
+
+    #[test]
+    fn runtime_outcome_builders_set_effect() {
+        assert_eq!(
+            RuntimeOutcome::applied(ObservedStatus::Starting).effect,
+            RuntimeEffect::Applied
+        );
+        assert_eq!(
+            RuntimeOutcome::no_op(ObservedStatus::Ready).effect,
+            RuntimeEffect::NoOp
+        );
+    }
+
+    #[test]
+    fn runtime_outcome_carries_degradations() {
+        let diags = Diagnostics {
+            degradations: vec![DegradationWarning {
+                code: "storage_degraded".into(),
+                message: "pvc failed, ephemeral fallback".into(),
+            }],
+            server_failures: vec![],
+        };
+        let outcome = RuntimeOutcome::applied(ObservedStatus::Starting)
+            .with_diagnostics(diags.clone());
+        assert_eq!(outcome.diagnostics, diags);
+    }
+
+    #[test]
+    fn context_threads_generation() {
+        let ctx = RuntimeOperationContext::new(OperationGeneration(42));
+        assert_eq!(ctx.operation_generation, OperationGeneration(42));
+    }
+}

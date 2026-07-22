@@ -12,15 +12,14 @@ use futures::stream::Stream;
 use serde::Deserialize;
 use tracing::{error, info, warn};
 
-use chrono::Utc;
-
 use super::error::SandboxError;
+use super::lifecycle::{ArchiveRetention, Lifecycle, ObservedStatus};
 use super::models::*;
 use super::routes::SandboxApiState;
 use super::schemas::*;
 use crate::access_control;
 use crate::extractors::OptionalScope;
-use crate::task::dao::{TaskPatch, TaskRepository};
+use crate::task::dao::TaskRepository;
 use crate::task::models::{SandboxDesiredState, SandboxStopReason, Task};
 use crate::team::dao::TeamRepository;
 use moatless_backend_core::scope::ScopeContext;
@@ -38,6 +37,8 @@ use moatless_backend_core::scope::ScopeContext;
     ),
     responses(
         (status = 200, description = "Sandbox provisioned successfully", body = ProvisionResponse),
+        (status = 400, description = "Task is Closed — start not allowed", body = crate::error::ErrorBody),
+        (status = 409, description = "Another lifecycle operation is in progress", body = crate::error::ErrorBody),
         (status = 500, description = "Provisioning failed", body = crate::error::ErrorBody)
     )
 )]
@@ -49,48 +50,13 @@ pub async fn provision_handler(
     info!(task_id = %task_id, "POST /provision");
     authorize_task_control(&state, &scope, &task_id).await?;
 
-    let (tasks, repos, provider_tokens, plugin_repos, workspaces) = match (
-        &state.tasks,
-        &state.repos,
-        &state.provider_tokens,
-        &state.plugin_repos,
-        &state.workspaces,
-    ) {
-        (Some(t), Some(r), Some(pt), Some(pr), Some(ws)) => (
-            t.as_ref(),
-            r.as_ref(),
-            pt.as_ref(),
-            pr.as_ref(),
-            ws.as_ref(),
-        ),
-        _ => {
-            return Err(SandboxError::Internal(
-                "Database not available for provisioning".into(),
-            ));
-        }
-    };
-
-    let request = super::auto_provision::build_provision_request(
-        tasks,
-        repos,
-        provider_tokens,
-        plugin_repos,
-        workspaces,
-        &task_id,
-    )
-    .await?;
-
-    match state.provider.provision(&task_id, &request).await {
-        Ok(response) => {
-            info!(task_id = %task_id, "Provision succeeded");
-            record_sandbox_started(&state, &task_id).await;
-            Ok(Json(response))
-        }
-        Err(e) => {
-            error!(task_id = %task_id, error = %e, "Provision failed");
-            Err(e)
-        }
-    }
+    // Lifecycle owns plan construction, the Running intent, and the start
+    // timestamp; the bridge builds the provision request from DB state internally.
+    let outcome = require_lifecycle(&state)?.start(&task_id).await?;
+    info!(task_id = %task_id, "Provision (start) succeeded");
+    Ok(Json(ProvisionResponse {
+        status: observed_to_sandbox_status(outcome.observed),
+    }))
 }
 
 /// Get the canonical live status for a Task's Sandbox and Agent.
@@ -115,10 +81,14 @@ pub async fn live_status_handler(
         Ok(task) => task,
         Err(e) => return e.into_response(),
     };
+    let desired_state = match resolve_desired_state(&state, &task_id).await {
+        Ok(d) => d,
+        Err(e) => return e.into_response(),
+    };
 
     match state
         .provider
-        .live_status(&task_id, task.status, task.sandbox_desired_state)
+        .live_status(&task_id, task.status, desired_state)
         .await
     {
         Ok(status) => Json(status).into_response(),
@@ -149,18 +119,17 @@ pub async fn sandbox_status_handler(
         Ok(task) => task,
         Err(e) => return e.into_response(),
     };
+    let desired_state = match resolve_desired_state(&state, &task_id).await {
+        Ok(d) => d,
+        Err(e) => return e.into_response(),
+    };
 
     // Resolve server configs from DB
     let server_configs = resolve_server_configs(&state, &task_id).await;
 
     match state
         .provider
-        .sandbox_status(
-            &task_id,
-            &server_configs,
-            task.status,
-            task.sandbox_desired_state,
-        )
+        .sandbox_status(&task_id, &server_configs, task.status, desired_state)
         .await
     {
         Ok(mut resp) => {
@@ -168,7 +137,7 @@ pub async fn sandbox_status_handler(
             // UI can tell whether a redeploy would move the sandbox to a newer
             // image. The "latest" image is what a fresh (re)deploy would use:
             // the per-repo `docker_image` override, else the configured default.
-            resp.sandbox_desired_state = Some(task.sandbox_desired_state);
+            resp.sandbox_desired_state = Some(desired_state);
 
             let docker_image_override = match (&state.workspaces, task.workspace_id.as_deref()) {
                 (Some(workspaces), Some(ws_id)) => workspaces
@@ -207,6 +176,7 @@ pub async fn sandbox_status_handler(
     ),
     responses(
         (status = 204, description = "Sandbox stopped"),
+        (status = 409, description = "Another lifecycle operation is in progress", body = crate::error::ErrorBody),
         (status = 500, description = "Stop failed", body = crate::error::ErrorBody)
     )
 )]
@@ -217,29 +187,11 @@ pub async fn stop_handler(
 ) -> Result<StatusCode, SandboxError> {
     info!(task_id = %task_id, "POST /stop");
     authorize_task_control(&state, &scope, &task_id).await?;
-    match state.provider.stop(&task_id).await {
-        Ok(()) => {
-            record_sandbox_stopped(&state, &task_id, SandboxStopReason::User).await;
-            info!(task_id = %task_id, "Stop succeeded");
-            Ok(StatusCode::NO_CONTENT)
-        }
-        Err(e) => {
-            error!(task_id = %task_id, error = %e, "Stop failed");
-            Err(e)
-        }
-    }
-}
-
-/// Run a multi-step lifecycle sequence on a detached task so it completes even
-/// if the HTTP client disconnects. Axum drops the handler future on disconnect;
-/// a mid-flight drop of a scale-to-0 -> wait -> scale-to-1 sequence leaves the
-/// sandbox half-transitioned (e.g. permanently stuck at 0 replicas).
-async fn run_detached<T: Send + 'static>(
-    fut: impl std::future::Future<Output = Result<T, SandboxError>> + Send + 'static,
-) -> Result<T, SandboxError> {
-    tokio::spawn(fut)
-        .await
-        .map_err(|e| SandboxError::Internal(format!("lifecycle task panicked: {e}")))?
+    require_lifecycle(&state)?
+        .stop(&task_id, SandboxStopReason::User)
+        .await?;
+    info!(task_id = %task_id, "Stop succeeded");
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Restart a sandbox (stop + start).
@@ -252,6 +204,8 @@ async fn run_detached<T: Send + 'static>(
     ),
     responses(
         (status = 204, description = "Sandbox restarted"),
+        (status = 400, description = "Task is Closed — restart not allowed", body = crate::error::ErrorBody),
+        (status = 409, description = "Another lifecycle operation is in progress", body = crate::error::ErrorBody),
         (status = 500, description = "Restart failed", body = crate::error::ErrorBody)
     )
 )]
@@ -262,22 +216,11 @@ pub async fn restart_handler(
 ) -> Result<StatusCode, SandboxError> {
     info!(task_id = %task_id, "POST /restart");
     authorize_task_control(&state, &scope, &task_id).await?;
-    let outcome = {
-        let provider = state.provider.clone();
-        let task_id = task_id.clone();
-        run_detached(async move { provider.restart(&task_id).await }).await
-    };
-    match outcome {
-        Ok(()) => {
-            info!(task_id = %task_id, "Restart succeeded");
-            record_sandbox_started(&state, &task_id).await;
-            Ok(StatusCode::NO_CONTENT)
-        }
-        Err(e) => {
-            error!(task_id = %task_id, error = %e, "Restart failed");
-            Err(e)
-        }
-    }
+    // lifecycle.restart detaches internally, so it runs to completion even if the
+    // HTTP client disconnects.
+    require_lifecycle(&state)?.restart(&task_id).await?;
+    info!(task_id = %task_id, "Restart succeeded");
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Redeploy a sandbox (delete Deployment/Service/IngressRoutes, recreate with fresh repo config).
@@ -292,6 +235,8 @@ pub async fn restart_handler(
     ),
     responses(
         (status = 200, description = "Sandbox redeployed successfully", body = ProvisionResponse),
+        (status = 400, description = "Task is Closed — redeploy not allowed", body = crate::error::ErrorBody),
+        (status = 409, description = "Another lifecycle operation is in progress", body = crate::error::ErrorBody),
         (status = 500, description = "Redeploy failed", body = crate::error::ErrorBody)
     )
 )]
@@ -303,53 +248,13 @@ pub async fn redeploy_handler(
     info!(task_id = %task_id, "POST /redeploy");
     authorize_task_control(&state, &scope, &task_id).await?;
 
-    let (tasks, repos, provider_tokens, plugin_repos, workspaces) = match (
-        &state.tasks,
-        &state.repos,
-        &state.provider_tokens,
-        &state.plugin_repos,
-        &state.workspaces,
-    ) {
-        (Some(t), Some(r), Some(pt), Some(pr), Some(ws)) => (
-            t.as_ref(),
-            r.as_ref(),
-            pt.as_ref(),
-            pr.as_ref(),
-            ws.as_ref(),
-        ),
-        _ => {
-            return Err(SandboxError::Internal(
-                "Database not available for redeployment".into(),
-            ));
-        }
-    };
-
-    let request = super::auto_provision::build_provision_request(
-        tasks,
-        repos,
-        provider_tokens,
-        plugin_repos,
-        workspaces,
-        &task_id,
-    )
-    .await?;
-
-    let outcome = {
-        let provider = state.provider.clone();
-        let task_id = task_id.clone();
-        run_detached(async move { provider.redeploy(&task_id, &request).await }).await
-    };
-    match outcome {
-        Ok(response) => {
-            info!(task_id = %task_id, "Redeploy succeeded");
-            record_sandbox_started(&state, &task_id).await;
-            Ok(Json(response))
-        }
-        Err(e) => {
-            error!(task_id = %task_id, error = %e, "Redeploy failed");
-            Err(e)
-        }
-    }
+    // Lifecycle owns plan construction and detaches internally; the bridge
+    // rebuilds the provision request from fresh DB state.
+    let outcome = require_lifecycle(&state)?.redeploy(&task_id).await?;
+    info!(task_id = %task_id, "Redeploy succeeded");
+    Ok(Json(ProvisionResponse {
+        status: observed_to_sandbox_status(outcome.observed),
+    }))
 }
 
 /// Clean up a sandbox and all associated resources.
@@ -362,6 +267,7 @@ pub async fn redeploy_handler(
     ),
     responses(
         (status = 204, description = "Sandbox cleaned up"),
+        (status = 409, description = "Another lifecycle operation is in progress", body = crate::error::ErrorBody),
         (status = 500, description = "Cleanup failed", body = crate::error::ErrorBody)
     )
 )]
@@ -372,17 +278,13 @@ pub async fn cleanup_handler(
 ) -> Result<StatusCode, SandboxError> {
     info!(task_id = %task_id, "POST /cleanup");
     authorize_task_control(&state, &scope, &task_id).await?;
-    match state.provider.cleanup(&task_id, false).await {
-        Ok(()) => {
-            record_sandbox_removed(&state, &task_id).await;
-            info!(task_id = %task_id, "Cleanup succeeded");
-            Ok(StatusCode::NO_CONTENT)
-        }
-        Err(e) => {
-            error!(task_id = %task_id, error = %e, "Cleanup failed");
-            Err(e)
-        }
-    }
+    // A cleanup deletes archives (no retention) — lifecycle owns the Removed
+    // intent and strict teardown.
+    require_lifecycle(&state)?
+        .remove(&task_id, ArchiveRetention::DeleteArchives)
+        .await?;
+    info!(task_id = %task_id, "Cleanup succeeded");
+    Ok(StatusCode::NO_CONTENT)
 }
 
 // =============================================================================
@@ -559,45 +461,32 @@ async fn authorize_task_control_inner(
 // Private helpers
 // =============================================================================
 
-/// Update `sandbox_started_at` to prevent the idle reaper from killing
-/// a just-started sandbox based on stale message timestamps.
-async fn record_sandbox_started(state: &SandboxApiState, task_id: &str) {
-    if let Some(ref tasks) = state.tasks {
-        let patch = TaskPatch {
-            sandbox_started_at: Some(Utc::now()),
-            sandbox_desired_state: Some(SandboxDesiredState::Running),
-            sandbox_stop_reason: Some(None),
-            ..Default::default()
-        };
-        if let Err(e) = tasks.update_task(task_id, &patch).await {
-            warn!(task_id = %task_id, error = %e, "Failed to update sandbox_started_at");
-        }
-    }
+/// The shared lifecycle handle, or a clean "unavailable" error in the no-database
+/// mode where the lifecycle handlers cannot operate.
+fn require_lifecycle(state: &SandboxApiState) -> Result<&Lifecycle, SandboxError> {
+    state
+        .lifecycle
+        .as_deref()
+        .ok_or_else(|| SandboxError::Internal("Sandbox lifecycle unavailable (no database)".into()))
 }
 
-async fn record_sandbox_stopped(state: &SandboxApiState, task_id: &str, reason: SandboxStopReason) {
-    if let Some(ref tasks) = state.tasks {
-        let patch = TaskPatch {
-            sandbox_desired_state: Some(SandboxDesiredState::Stopped),
-            sandbox_stop_reason: Some(Some(reason)),
-            ..Default::default()
-        };
-        if let Err(e) = tasks.update_task(task_id, &patch).await {
-            warn!(task_id = %task_id, error = %e, "Failed to update sandbox stopped intent");
-        }
-    }
+/// The desired Sandbox state for a Task, read from the Sandbox row through the
+/// lifecycle store. Absence of a row reads as `Stopped` (never requested).
+async fn resolve_desired_state(
+    state: &SandboxApiState,
+    task_id: &str,
+) -> Result<SandboxDesiredState, SandboxError> {
+    Ok(require_lifecycle(state)?.desired_state(task_id).await?)
 }
 
-async fn record_sandbox_removed(state: &SandboxApiState, task_id: &str) {
-    if let Some(ref tasks) = state.tasks {
-        let patch = TaskPatch {
-            sandbox_desired_state: Some(SandboxDesiredState::Removed),
-            sandbox_stop_reason: Some(Some(SandboxStopReason::Cleanup)),
-            ..Default::default()
-        };
-        if let Err(e) = tasks.update_task(task_id, &patch).await {
-            warn!(task_id = %task_id, error = %e, "Failed to update sandbox removed intent");
-        }
+/// The `ProvisionResponse.status` a lifecycle outcome reports.
+fn observed_to_sandbox_status(observed: ObservedStatus) -> moatless_events::SandboxStatus {
+    use moatless_events::SandboxStatus;
+    match observed {
+        ObservedStatus::Ready => SandboxStatus::Ready,
+        ObservedStatus::Starting => SandboxStatus::Initializing,
+        ObservedStatus::Stopped => SandboxStatus::Stopped,
+        ObservedStatus::Removed => SandboxStatus::Removed,
     }
 }
 
@@ -794,10 +683,6 @@ mod authz_tests {
             created_at_db: None,
             updated_at: None,
             append_system_prompt: None,
-            sandbox_started_at: None,
-            sandbox_desired_state: SandboxDesiredState::Running,
-            sandbox_stop_reason: None,
-            sandbox_desired_state_updated_at: epoch(),
             headless: false,
             ttl_minutes: 0,
             inactive_ttl_days: 0,

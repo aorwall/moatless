@@ -32,11 +32,29 @@ pub enum SandboxError {
     #[error("Bad request: {0}")]
     BadRequest(String),
 
+    #[error("Conflict: {0}")]
+    Conflict(String),
+
     #[error("Forbidden: {0}")]
     Forbidden(String),
 
     #[error("Internal error: {0}")]
     Internal(String),
+}
+
+impl From<crate::sandbox::lifecycle::LifecycleError> for SandboxError {
+    fn from(value: crate::sandbox::lifecycle::LifecycleError) -> Self {
+        use crate::sandbox::lifecycle::LifecycleError as LE;
+        match &value {
+            LE::TaskNotFound(id) => Self::NotFound(id.clone()),
+            // The Closed guard rejected the operation — a client state error.
+            LE::NotAllowed { .. } => Self::BadRequest(value.to_string()),
+            // Another operation holds the per-Task lock — a client-visible
+            // conflict (409), matching the task API.
+            LE::OperationInProgress { .. } => Self::Conflict(value.to_string()),
+            _ => Self::Internal(value.to_string()),
+        }
+    }
 }
 
 impl IntoResponse for SandboxError {
@@ -45,6 +63,7 @@ impl IntoResponse for SandboxError {
             Self::NotReady(_) => (StatusCode::SERVICE_UNAVAILABLE, self.to_string()),
             Self::NotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
             Self::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            Self::Conflict(_) => (StatusCode::CONFLICT, self.to_string()),
             Self::Forbidden(_) => (StatusCode::FORBIDDEN, self.to_string()),
             Self::ConfigMissing(ref msg) => {
                 tracing::error!(error = %msg, "Sandbox config missing");

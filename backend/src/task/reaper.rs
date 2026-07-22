@@ -12,6 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::{PersistentVolumeClaim, Pod, Service};
@@ -31,7 +32,7 @@ use crate::events::EventPublisher;
 use crate::message::dao::MessageRepository;
 use crate::sandbox::k8s::client::K8sClient;
 use crate::sandbox::k8s::leader_election::LeaderElection;
-use crate::sandbox::provider::SandboxProvider;
+use crate::sandbox::lifecycle::ArchiveRetention;
 use crate::state::AppState;
 use crate::task_turn::models::{TurnStatus, TurnTransition, UnclosedTurn};
 use moatless_events::{EventType, SandboxEventPayload, SandboxStatus};
@@ -64,7 +65,6 @@ pub fn spawn_task_reaper(
     k8s: K8sClient,
     messages: Arc<dyn MessageRepository>,
     tasks: Arc<dyn TaskRepository>,
-    sandbox: Arc<dyn SandboxProvider>,
     events: Option<Arc<dyn EventPublisher>>,
     config: Arc<Config>,
     cancel: CancellationToken,
@@ -116,7 +116,6 @@ pub fn spawn_task_reaper(
                         &k8s,
                         &messages,
                         &tasks,
-                        &sandbox,
                         &events,
                         &config.reconcile,
                         &mut reprovision_attempts,
@@ -156,7 +155,6 @@ async fn run_reap_cycle(
     k8s: &K8sClient,
     messages: &Arc<dyn MessageRepository>,
     tasks: &Arc<dyn TaskRepository>,
-    sandbox: &Arc<dyn SandboxProvider>,
     events: &Option<Arc<dyn EventPublisher>>,
     reconcile: &ReconcileConfig,
     reprovision_attempts: &mut HashMap<String, u32>,
@@ -196,7 +194,6 @@ async fn run_reap_cycle(
         app_state,
         k8s,
         tasks,
-        sandbox,
         events,
         reconcile,
         &deployments,
@@ -356,7 +353,7 @@ async fn run_reap_cycle(
                 last_activity = ?latest_at,
                 "Auto-closing inactive task"
             );
-            auto_close_task(app_state, task_id, tasks, sandbox, events).await;
+            auto_close_task(app_state, task_id, tasks, events).await;
             closed_count += 1;
             continue;
         }
@@ -418,48 +415,17 @@ async fn run_reap_cycle(
                     last_activity = ?latest_at,
                     "Stopping idle sandbox"
                 );
-                // Stop the agent gracefully before scaling the Deployment to 0
-                // so the pod exits promptly instead of riding its full
-                // termination grace until SIGKILL (exit 137). Best-effort; an
-                // already-idle agent makes this a no-op.
-                crate::sandbox::notify::stop_agent_for_task(app_state, task_id).await;
-                match sandbox.stop(task_id).await {
-                    Ok(()) => {
-                        if let Err(e) = tasks
-                            .update_task(
-                                task_id,
-                                &TaskPatch {
-                                    sandbox_desired_state: Some(SandboxDesiredState::Stopped),
-                                    sandbox_stop_reason: Some(Some(SandboxStopReason::IdleReaper)),
-                                    ..Default::default()
-                                },
-                            )
-                            .await
-                        {
-                            warn!(task_id = %task_id, error = %e, "Failed to persist idle sandbox stop intent");
-                        }
+                // lifecycle.stop issues the graceful agent stop, scales compute
+                // down, persists the Stopped intent + reason, and publishes the
+                // idle-tagged Stopped event (`idle_reaped`/`reaper`).
+                match app_state
+                    .sandbox
+                    .stop(task_id, SandboxStopReason::IdleReaper)
+                    .await
+                {
+                    Ok(_) => {
                         info!(task_id = %task_id, "Idle sandbox stopped successfully");
                         stopped_count += 1;
-                        // Emit a distinctly-tagged stop so the UI can render
-                        // "Stopped (idle)" instead of the crash-ish lifecycle tag
-                        // the watcher would otherwise downgrade (pod_failed →
-                        // Stopped). `idle_reaped` is the disambiguator.
-                        if let Some(events) = events {
-                            events
-                                .publish_sandbox_event_with_payload(
-                                    task_id,
-                                    SandboxStatus::Stopped,
-                                    &SandboxEventPayload {
-                                        message: format!(
-                                            "Sandbox stopped after {ttl_minutes} min idle"
-                                        ),
-                                        lifecycle_event: Some("idle_reaped".to_string()),
-                                        initiator: Some("reaper".to_string()),
-                                        ..Default::default()
-                                    },
-                                )
-                                .await;
-                        }
                     }
                     Err(e) => {
                         warn!(task_id = %task_id, error = %e, "Failed to stop idle sandbox");
@@ -537,11 +503,10 @@ async fn reconcile_orphaned_turns(
 }
 
 async fn task_desires_running(app_state: &AppState, task_id: &str) -> bool {
-    match app_state.tasks.find_by_id_internal(task_id).await {
-        Ok(Some(task)) => task.sandbox_desired_state == SandboxDesiredState::Running,
-        Ok(None) => false,
+    match app_state.sandbox.desired_state(task_id).await {
+        Ok(desired) => desired == SandboxDesiredState::Running,
         Err(e) => {
-            warn!(task_id, error = %e, "reconcile: task lookup failed for desired state");
+            warn!(task_id, error = %e, "reconcile: desired-state lookup failed");
             false
         }
     }
@@ -562,18 +527,44 @@ async fn agent_status_snapshot(
     app_state: &AppState,
     task_id: &str,
 ) -> Option<sandbox_proto::GetAgentStatusResponse> {
-    let client = match app_state.sandbox.sandbox_client(task_id).await {
-        Ok(c) => c,
-        Err(e) => {
-            debug!(task_id, error = %e, "reconcile: no sandbox client for status check");
-            return None;
-        }
-    };
-    match client.get_agent_status().await {
-        Ok(resp) => Some(resp),
-        Err(e) => {
-            debug!(task_id, error = %e, "reconcile: get_agent_status failed");
-            None
+    app_state.agent_status.agent_status(task_id).await
+}
+
+/// The reaper's read of a Sandbox's live agent status — the one interior read it
+/// needs, declared consumer-side so the provider handle stays off `AppState`.
+#[async_trait]
+pub trait AgentStatusPort: Send + Sync {
+    async fn agent_status(&self, task_id: &str) -> Option<sandbox_proto::GetAgentStatusResponse>;
+}
+
+/// Satisfies [`AgentStatusPort`] by wrapping the sandbox provider's
+/// `sandbox_client`.
+pub struct ProviderAgentStatus {
+    provider: Arc<dyn crate::sandbox::provider::SandboxProvider>,
+}
+
+impl ProviderAgentStatus {
+    pub fn new(provider: Arc<dyn crate::sandbox::provider::SandboxProvider>) -> Self {
+        Self { provider }
+    }
+}
+
+#[async_trait]
+impl AgentStatusPort for ProviderAgentStatus {
+    async fn agent_status(&self, task_id: &str) -> Option<sandbox_proto::GetAgentStatusResponse> {
+        let client = match self.provider.sandbox_client(task_id).await {
+            Ok(c) => c,
+            Err(e) => {
+                debug!(task_id, error = %e, "reconcile: no sandbox client for status check");
+                return None;
+            }
+        };
+        match client.get_agent_status().await {
+            Ok(resp) => Some(resp),
+            Err(e) => {
+                debug!(task_id, error = %e, "reconcile: get_agent_status failed");
+                None
+            }
         }
     }
 }
@@ -832,7 +823,6 @@ async fn auto_close_task(
     app_state: &AppState,
     task_id: &str,
     tasks: &Arc<dyn TaskRepository>,
-    sandbox: &Arc<dyn SandboxProvider>,
     events: &Option<Arc<dyn EventPublisher>>,
 ) {
     let agent_type = match tasks.find_by_id_internal(task_id).await {
@@ -856,8 +846,6 @@ async fn auto_close_task(
             task_id,
             &TaskPatch {
                 status: Some(TaskStatus::Closed),
-                sandbox_desired_state: Some(SandboxDesiredState::Removed),
-                sandbox_stop_reason: Some(Some(SandboxStopReason::Cleanup)),
                 ..Default::default()
             },
         )
@@ -867,14 +855,12 @@ async fn auto_close_task(
         return;
     }
 
-    // Stop the agent gracefully before tearing down K8s resources so the pod
-    // exits promptly instead of riding its full termination grace until SIGKILL
-    // (exit 137). Best-effort — an already-idle agent makes this a no-op.
-    crate::sandbox::notify::stop_agent_for_task(app_state, task_id).await;
-    // Auto-closed tasks are revivable too when storage retention is enabled.
-    let retain_storage = app_state.config.sandbox.retain_storage_on_close;
-    if let Err(e) = sandbox.cleanup(task_id, retain_storage).await {
-        warn!(task_id, error = %e, "auto-close: sandbox.cleanup failed (continuing)");
+    // Remove the sandbox (best-effort; `Closed` already persisted). Lifecycle
+    // issues the graceful agent stop and retains S3 archives per config so an
+    // auto-closed task stays revivable.
+    let retention = ArchiveRetention::on_close(app_state.config.sandbox.retain_storage_on_close);
+    if let Err(e) = app_state.sandbox.remove(task_id, retention).await {
+        warn!(task_id, error = %e, "auto-close: sandbox remove failed (continuing)");
     }
 
     // A closed task is terminal — deactivate its bindings so inbound comments
@@ -1248,7 +1234,6 @@ async fn run_reconcile_pass(
     app_state: &AppState,
     k8s: &K8sClient,
     tasks: &Arc<dyn TaskRepository>,
-    sandbox: &Arc<dyn SandboxProvider>,
     events: &Option<Arc<dyn EventPublisher>>,
     reconcile: &ReconcileConfig,
     deployments: &[DeploymentInfo],
@@ -1307,8 +1292,6 @@ async fn run_reconcile_pass(
                         // finalises it and surfaces the error).
                         let exhausted = reprovision_task(
                             app_state,
-                            tasks,
-                            sandbox,
                             events,
                             reconcile,
                             id,
@@ -1357,44 +1340,16 @@ async fn run_reconcile_pass(
 /// surfaced), `false` while still recovering or after a successful provision.
 async fn reprovision_task(
     app_state: &AppState,
-    tasks: &Arc<dyn TaskRepository>,
-    sandbox: &Arc<dyn SandboxProvider>,
     events: &Option<Arc<dyn EventPublisher>>,
     reconcile: &ReconcileConfig,
     task_id: &str,
     reprovision_attempts: &mut HashMap<String, u32>,
 ) -> bool {
-    let request = match crate::sandbox::auto_provision::build_provision_request(
-        tasks.as_ref(),
-        app_state.repositories.as_ref(),
-        app_state.provider_tokens.as_ref(),
-        app_state.plugin_repos.as_ref(),
-        app_state.workspaces.as_ref(),
-        task_id,
-    )
-    .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            // A request that can never be built (repo row deleted, credentials
-            // revoked) is a terminal failure — count it against the SAME budget
-            // as a failed `provision()`. Otherwise the task would loop forever:
-            // the turn is kept open every cycle and no `environment_error` is ever
-            // surfaced, which is exactly the wedge this budget exists to break.
-            warn!(task_id = %task_id, error = %e, "reconcile: failed to build provision request");
-            return record_reprovision_failure(
-                events,
-                reconcile,
-                task_id,
-                reprovision_attempts,
-                &e.to_string(),
-            )
-            .await;
-        }
-    };
-
     info!(task_id = %task_id, "reconcile: re-provisioning Deployment that vanished for an in-flight turn");
-    match sandbox.provision(task_id, &request).await {
+    // A plan that can never be built (repo row deleted, credentials revoked)
+    // surfaces as a permanent `lifecycle.start` error and counts against the
+    // SAME budget as a runtime failure, so the task can't loop forever.
+    match app_state.sandbox.start(task_id).await {
         Ok(_) => {
             reprovision_attempts.remove(task_id);
             metrics::counter!(

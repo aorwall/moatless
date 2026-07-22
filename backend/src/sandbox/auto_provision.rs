@@ -73,13 +73,16 @@ pub async fn build_provision_request(
         "Auto-provision: task found in DB"
     );
 
-    // 2. Read repository from DB
+    // 2. Read repository from DB. A missing row is a permanent misconfiguration
+    // (the task references a repository that does not exist) — retrying can't
+    // create it — so it surfaces as a client error, not a transient one. A DB
+    // read error stays `Internal` (transient).
     let repo = repos
         .find_repository_by_id(&repository_id)
         .await
         .map_err(|e| SandboxError::Internal(format!("DB error reading repository: {e}")))?
         .ok_or_else(|| {
-            SandboxError::Internal(format!(
+            SandboxError::BadRequest(format!(
                 "Repository '{repository_id}' not found in database"
             ))
         })?;

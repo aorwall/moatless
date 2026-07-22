@@ -58,10 +58,6 @@ pub struct Task {
     pub created_at_db: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
     pub append_system_prompt: Option<String>,
-    pub sandbox_started_at: Option<DateTime<Utc>>,
-    pub sandbox_desired_state: SandboxDesiredState,
-    pub sandbox_stop_reason: Option<SandboxStopReason>,
-    pub sandbox_desired_state_updated_at: DateTime<Utc>,
     pub headless: bool,
     /// Idle TTL in minutes. The reaper stops the sandbox when no activity has
     /// occurred for this many minutes. `0` means "indefinite — never reap".
@@ -92,6 +88,30 @@ impl Task {
                 .as_deref()
                 .or(self.created_by.as_deref()),
         )
+    }
+}
+
+/// The durable Sandbox lifecycle state for one Task, read from the `sandboxes`
+/// table to populate task responses. Absence of a Sandbox row is the lazy
+/// converged-Stopped default.
+#[derive(Debug, Clone)]
+pub struct SandboxIntentView {
+    pub started_at: Option<DateTime<Utc>>,
+    pub desired_state: SandboxDesiredState,
+    pub stop_reason: Option<SandboxStopReason>,
+    pub desired_state_updated_at: DateTime<Utc>,
+}
+
+impl Default for SandboxIntentView {
+    /// A Task with no Sandbox row: never requested = converged Stopped, no start
+    /// timestamp, epoch intent timestamp.
+    fn default() -> Self {
+        Self {
+            started_at: None,
+            desired_state: SandboxDesiredState::Stopped,
+            stop_reason: None,
+            desired_state_updated_at: DateTime::<Utc>::from(std::time::UNIX_EPOCH),
+        }
     }
 }
 

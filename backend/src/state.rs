@@ -22,6 +22,10 @@ use crate::file_storage::dao::{FileRepository, PgFileRepository};
 use crate::message::dao::{MessageRepository, PgMessageRepository};
 use crate::plugin_repo::dao::{PgPluginRepoRepository, PluginRepoRepository};
 use crate::repository::dao::{PgRepoRepository, RepoRepository};
+use crate::sandbox::lifecycle::{
+    FleetObserver, GrpcAgentStop, Lifecycle, NotifyPort, OutboxEventSink, PgLifecycleLock,
+    PgLifecycleStore, ProvisionDeps, Reconciler, ReconcilerConfig, RuntimeBridge, SystemWallClock,
+};
 use crate::sandbox::provider::SandboxProvider;
 use crate::secret::audit::{PgSecretAuditRepository, SecretAuditRepository};
 use crate::secret::dao::{PgSecretRepository, SecretRepository};
@@ -30,6 +34,7 @@ use crate::skill::fetcher::{GitHubSkillFetcher, SkillFetcher};
 use crate::skill::service::SkillService;
 use crate::tag::dao::{PgTagRepository, TagRepository};
 use crate::task::dao::{PgTaskRepository, TaskRepository};
+use crate::task::reaper::AgentStatusPort;
 use crate::workspace::dao::{PgWorkspaceRepository, WorkspaceRepository};
 use crate::task::relations::{PgTaskRelationRepository, TaskRelationRepository};
 use crate::task_event::dao::{PgTaskEventRepository, TaskEventRepository};
@@ -47,8 +52,13 @@ pub struct AppState {
     pub db: DbPool,
     /// Immutable configuration shared across handlers.
     pub config: Arc<Config>,
-    /// Sandbox workspace provider (trait object for K8s or future backends).
-    pub sandbox: Arc<dyn SandboxProvider>,
+    /// The one Sandbox value on `AppState`: the durable lifecycle handle. Callers
+    /// request transitions (`start`/`stop`/`restart`/`redeploy`/`remove`) and read
+    /// desired state through it rather than driving a provider directly.
+    pub sandbox: Arc<Lifecycle>,
+    /// The reaper's idle-eligibility read of live agent status, behind a
+    /// consumer-owned one-method port. The provider handle is not on `AppState`.
+    pub agent_status: Arc<dyn AgentStatusPort>,
     /// Optional event publisher for real-time event streaming (trait object).
     pub events: Option<Arc<dyn EventPublisher>>,
     /// Optional S3 client for file uploads/downloads.
@@ -114,15 +124,87 @@ pub struct AppState {
     pub skills: Arc<SkillService>,
 }
 
+/// Bounded per-Task lock-acquire attempts before a lifecycle call surfaces
+/// `OperationInProgress`. The inline retry is only a latency fast path — the
+/// reconciler is the durable retry owner — so this stays small.
+const LIFECYCLE_LOCK_ATTEMPTS: u32 = 3;
+
+/// Build the shared durable Sandbox lifecycle handle over its Postgres and
+/// runtime adapters. One instance is shared by `AppState`, the sandbox API, and
+/// the pod watcher so Sandbox intent writes and per-Task locks stay
+/// single-sourced. `pool` backs the store + plan repositories; `lock_pool` must
+/// be the dedicated lock-only pool.
+pub fn build_lifecycle(
+    pool: DbPool,
+    lock_pool: DbPool,
+    sandbox: Arc<dyn SandboxProvider>,
+    events: Option<Arc<dyn EventPublisher>>,
+) -> Arc<Lifecycle> {
+    let tasks: Arc<dyn TaskRepository> = Arc::new(PgTaskRepository(pool.clone()));
+    let repos: Arc<dyn RepoRepository> = Arc::new(PgRepoRepository(pool.clone()));
+    let provider_tokens: Arc<dyn ProviderTokenRepository> =
+        Arc::new(PgProviderTokenRepository(pool.clone()));
+    let plugin_repos: Arc<dyn PluginRepoRepository> = Arc::new(PgPluginRepoRepository(pool.clone()));
+    let workspaces: Arc<dyn WorkspaceRepository> = Arc::new(PgWorkspaceRepository(pool.clone()));
+    let store = Arc::new(PgLifecycleStore::new(pool.clone()));
+    Arc::new(
+        Lifecycle::new(
+            store.clone(),
+            Arc::new(RuntimeBridge::new(
+                sandbox.clone(),
+                ProvisionDeps {
+                    tasks,
+                    repos,
+                    provider_tokens,
+                    plugin_repos,
+                    workspaces,
+                },
+                store,
+            )),
+            Arc::new(GrpcAgentStop::new(sandbox)),
+            Arc::new(OutboxEventSink::new(events)),
+            Arc::new(PgLifecycleLock::new(lock_pool)),
+            Arc::new(SystemWallClock),
+        )
+        .with_lock_attempts(LIFECYCLE_LOCK_ATTEMPTS),
+    )
+}
+
+/// Assemble the desired-state reconciler over the shared pool, the lifecycle
+/// handle it drives operations through, and a provider fleet observer. Keeps the
+/// concrete `Pg*` adapters private to this constructor.
+pub fn build_reconciler(
+    pool: DbPool,
+    lifecycle: Arc<Lifecycle>,
+    observer: Arc<dyn FleetObserver>,
+    notify: Arc<dyn NotifyPort>,
+    config: ReconcilerConfig,
+) -> Reconciler {
+    Reconciler::new(
+        (*lifecycle).clone(),
+        Arc::new(PgLifecycleStore::new(pool.clone())),
+        Arc::new(PgMessageRepository(pool)),
+        observer,
+        notify,
+        Arc::new(SystemWallClock),
+        config,
+    )
+}
+
 impl AppState {
     /// Build `AppState` with Postgres-backed repositories.
     ///
     /// Wires all `Arc<dyn …Repository>` from a single connection pool,
     /// keeping the concrete `Pg*` types private to this constructor.
+    // reason: independent infrastructure handles (pools, config, provider,
+    // events, s3, adapters, apps); bundling them behind a one-use struct only
+    // shuffles the same fields.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         pool: DbPool,
+        lifecycle: Arc<Lifecycle>,
         config: Arc<Config>,
-        sandbox: Arc<dyn SandboxProvider>,
+        agent_status: Arc<dyn AgentStatusPort>,
         events: Option<Arc<dyn EventPublisher>>,
         s3: Option<aws_sdk_s3::Client>,
         adapters: Option<Arc<Adapters>>,
@@ -130,6 +212,8 @@ impl AppState {
     ) -> Self {
         let github_app_service = github_apps.default_service();
 
+        let tasks: Arc<dyn TaskRepository> = Arc::new(PgTaskRepository(pool.clone()));
+        let workspaces: Arc<dyn WorkspaceRepository> = Arc::new(PgWorkspaceRepository(pool.clone()));
         let repositories: Arc<dyn RepoRepository> = Arc::new(PgRepoRepository(pool.clone()));
         let plugin_repos: Arc<dyn PluginRepoRepository> =
             Arc::new(PgPluginRepoRepository(pool.clone()));
@@ -200,8 +284,12 @@ impl AppState {
             std::time::Duration::from_secs(config.skill.cache_ttl_secs),
         ));
 
+        // The shared durable Sandbox lifecycle handle is built once by the caller
+        // (`build_lifecycle`) so the sandbox API and pod watcher share this
+        // instance — one intent writer, one per-Task lock.
+
         Self {
-            tasks: Arc::new(PgTaskRepository(pool.clone())),
+            tasks,
             task_relations: Arc::new(PgTaskRelationRepository(pool.clone())),
             messages: Arc::new(PgMessageRepository(pool.clone())),
             feedback: Arc::new(PgFeedbackRepository(pool.clone())),
@@ -218,11 +306,12 @@ impl AppState {
             task_events: Arc::new(PgTaskEventRepository(pool.clone())),
             task_turns: Arc::new(PgTaskTurnRepository(pool.clone())),
             plugin_repos,
-            workspaces: Arc::new(PgWorkspaceRepository(pool.clone())),
+            workspaces,
             skills,
             db: pool,
             config,
-            sandbox,
+            sandbox: lifecycle,
+            agent_status,
             events,
             s3,
             adapters,

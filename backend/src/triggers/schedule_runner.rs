@@ -298,26 +298,9 @@ async fn create_scheduled_task(
     let task_id =
         crate::triggers::inbound::create_task_for_external_message(state, config, msg).await?;
 
-    match crate::sandbox::auto_provision::build_provision_request(
-        state.tasks.as_ref(),
-        state.repositories.as_ref(),
-        state.provider_tokens.as_ref(),
-        state.plugin_repos.as_ref(),
-        state.workspaces.as_ref(),
-        &task_id,
-    )
-    .await
-    {
-        Ok(request) => {
-            if let Err(e) = state.sandbox.provision(&task_id, &request).await {
-                record_job("error", "provision_failed", &config.id);
-                warn!(task_id = %task_id, error = %e, "Failed to provision sandbox for scheduled task");
-            }
-        }
-        Err(e) => {
-            record_job("error", "provision_failed", &config.id);
-            warn!(task_id = %task_id, error = %e, "Failed to build provision request for scheduled task");
-        }
+    if let Err(e) = state.sandbox.start(&task_id).await {
+        record_job("error", "provision_failed", &config.id);
+        warn!(task_id = %task_id, error = %e, "Failed to start sandbox for scheduled task");
     }
 
     Ok(task_id)

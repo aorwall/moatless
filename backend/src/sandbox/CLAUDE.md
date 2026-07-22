@@ -4,8 +4,54 @@ Rust (Axum) service managing the full lifecycle of Kubernetes- and Docker-based 
 
 ## Architecture
 
+### Lifecycle module (`lifecycle/`)
+Deep module owning durable lifecycle intent and orchestration per Task, per
+`specs/sandbox/04-lifecycle-architecture.md`. **Migration status: step 2 caller
+migration landed.** The typed surface (`LifecycleOutcome` with independent
+intent/runtime effect axes, `ArchiveRetention`, classifiable
+`LifecycleError`/`RuntimeError`, `OperationGeneration`/`CorrelationMarker`), the
+`SandboxRuntime` seam (`RuntimeOperationContext` + `RuntimeOutcome`), the
+`Lifecycle` orchestrator over ports (`LifecycleStore`, `AgentStopPort`,
+`LifecycleEventSink`, `LifecycleLock`, `Clock`), and the load-bearing decision
+logic as pure, unit-tested functions: `convergence` (reconciler desired/observed
+map), `classify` (watcher four-case classification), `marker` (per-class
+acknowledgement), `wake` (message-wake causal precedence), `events` (deterministic
+`sandbox:{task}:{gen}:{fact}` ids + acceptance/completion/infrastructure
+derivation), `attempt` (leader-local cap + backoff). Durability, event-dedup, and
+strict-removal are load-bearing.
+
+The `Lifecycle` handle is wired in production (`state::build_lifecycle`, shared by
+`AppState`, the sandbox API, and the pod watcher) and is the sole writer of
+Sandbox intent. `AppState` carries exactly one sandbox value — this handle, as
+`state.sandbox`; the provider handle is not on `AppState`. Every
+start/stop/restart/redeploy/remove caller — task and
+sandbox handlers, adapters, the reaper, message-send/notify, and the pod watcher's
+crash remediation — routes through it, over the `PgLifecycleStore`/`PgLifecycleLock`
+Postgres adapters, the `RuntimeBridge` over `SandboxProvider`, `GrpcAgentStop`, and
+the `OutboxEventSink`. `delete_task` requires a successful `lifecycle.remove` before
+row deletion. Durable Sandbox state — desired state, stop reason, archive
+retention, the correlation marker, the start/intent timestamps, and the per-Task
+generation counter — lives in the **`sandboxes` table** (PK `task_id`, FK
+`ON DELETE CASCADE`), born lazily through the intent upsert: no row means no
+Sandbox was ever requested (converged Stopped, always wakeable). The row is
+therefore the mechanism making lifecycle the sole intent writer by construction.
+The status handlers and reaper read desired state through the store
+(`Lifecycle::desired_state`); task responses read the row via
+`TaskRepository::get_sandbox_intents`. The transactional outbox is in place.
+
+The pending-Message query/index and the desired-state reconciler are in place:
+the reconciler is lease-elected on K8s / lease-free single-replica on Docker,
+re-notifies a woken Ready sandbox of its undelivered pending messages, and
+subsumes the `Removed`-intent orphan rule. Remaining step-2 work: thread
+`RuntimeOperationContext` generation into the provider mutations so pods/containers
+carry generation labels (and restrict Docker observation to the sandbox
+container); the stale edge-marker (restart/redeploy) handling (both need
+generation identity); and deleting the reaper's retired `run_reconcile_pass` (no
+later than step 4). Steps 3–4 (rename `SandboxProvider` → `SandboxRuntime`, delete
+shallow paths) remain pending.
+
 ### Provider abstraction
-`SandboxProvider` trait (`provider.rs`) is the provider-agnostic interface for lifecycle operations (provision, start, stop, restart, cleanup, status, server logs, file search, `sandbox_client()`). Implementations: `K8sSandboxProvider` (`k8s/provider.rs`) and `DockerSandboxProvider` (`docker/provider.rs`).
+`SandboxProvider` trait (`provider.rs`) is the provider-agnostic interface for lifecycle operations (provision, start, stop, restart, cleanup, status, server logs, file search, `sandbox_client()`). Implementations: `K8sSandboxProvider` (`k8s/provider.rs`) and `DockerSandboxProvider` (`docker/provider.rs`). Migration step 3 renames this to `SandboxRuntime` (`provision` → `ensure_running`) and splits out the read-side `SandboxAccess` seam.
 
 ### Request flow
 ```
@@ -32,7 +78,7 @@ Provisioning creates (all labeled `moatless.io/task-id={task_id}`): a **Deployme
 `pod_watcher.rs` — leader-elected (K8s Lease) task that watches all sandbox pods, detects lifecycle transitions (OOM, crash loop, eviction, restart, ready, failed, deleted), and publishes events to Redis Streams for SSE/event-handler consumption. Tracks pods **by pod_name, not task_id**, so rolling updates don't confuse old/new pods.
 
 ### Task reaper
-The unified reaper lives in **`task/reaper.rs`, not this module**. Leader-elected; each cycle (1) scales idle Deployments to 0 after `ttl_minutes`, and (2) auto-closes Open tasks inactive past `inactive_ttl_days` via the same `cleanup` + `update_task(Closed)` + `TaskSubType::Closed` sequence as the manual close handler.
+The unified reaper lives in **`task/reaper.rs`, not this module**. Leader-elected; each cycle (1) scales idle Deployments to 0 after `ttl_minutes`, and (2) auto-closes Open tasks inactive past `inactive_ttl_days` via the same `cleanup` + `update_task(Closed)` + `TaskSubType::Closed` sequence as the manual close handler. Its stop/start/remove go through `state.sandbox` (the lifecycle handle); its one interior read — the idle-eligibility agent status — goes through the consumer-owned `AgentStatusPort`, whose `ProviderAgentStatus` impl wraps the provider's `sandbox_client`.
 
 ### gRPC communication
 `SandboxClient` (`client.rs`) calls sandbox pods: execute-agent, stop-agent, notify-messages, file ops, search-files. Lazy connection, 5s connect / 10s request timeout. `classify_grpc_error()` maps gRPC → `SandboxError`: Unavailable/DeadlineExceeded/Cancelled → NotReady/503, NotFound → 404, FailedPrecondition/InvalidArgument → 400, else → Internal/500. `notify.rs` is fire-and-forget message notification.
@@ -51,9 +97,10 @@ The unified reaper lives in **`task/reaper.rs`, not this module**. Leader-electe
 - `app.kubernetes.io/component` — `sandbox`, `storage`, `sandbox-service`
 
 ## Leader election
-Two independent leader-elected subsystems use K8s Leases, both keyed on the `HOSTNAME` env var:
+Three independent leader-elected subsystems use K8s Leases, all keyed on the `HOSTNAME` env var:
 - `moatless-pod-watcher` — pod lifecycle watcher (15s default lease)
 - `moatless-task-reaper` — unified reaper (impl in `task/reaper.rs`), 2× check-interval lease
+- `moatless-sandbox-reconciler` — desired-state reconciler (impl in `sandbox/lifecycle/reconciler.rs`), 120s lease; Docker runs it lease-free (single replica)
 
 ## Design patterns
 - **Data-driven servers**: no hardcoded server names; `ServerConfig` carries all per-server fields. Image resolution: `server.docker_image` → `sandbox_image`.

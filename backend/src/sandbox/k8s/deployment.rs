@@ -378,6 +378,33 @@ pub async fn find_deployment(
     Ok(list.items.into_iter().next())
 }
 
+/// Coarse desired/ready replica state for every labeled sandbox Deployment, in
+/// one LIST — the reconciler's per-tick fleet observation. Each entry is
+/// `(task_id, desired_replicas, ready_replicas)`.
+pub async fn list_sandbox_deployment_states(
+    k8s: &K8sClient,
+) -> Result<Vec<(String, i32, i32)>, kube::Error> {
+    let deployments: Api<Deployment> = Api::namespaced(k8s.client.clone(), k8s.namespace());
+    let lp = ListParams::default().labels("moatless.io/task-id");
+    let list = deployments.list(&lp).await?;
+
+    Ok(list
+        .items
+        .into_iter()
+        .filter_map(|dep| {
+            let task_id = dep
+                .metadata
+                .labels
+                .as_ref()?
+                .get("moatless.io/task-id")?
+                .clone();
+            let desired = dep.spec.as_ref().and_then(|s| s.replicas).unwrap_or(1);
+            let ready = dep.status.as_ref().and_then(|s| s.ready_replicas).unwrap_or(0);
+            Some((task_id, desired, ready))
+        })
+        .collect())
+}
+
 /// Get the current replica counts (desired, ready) for a task's Deployment.
 pub async fn get_deployment_replicas(
     k8s: &K8sClient,

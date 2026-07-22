@@ -14,9 +14,10 @@ use crate::access_control::{
     ensure_can_control_task, ensure_can_use_repository, resolve_scope_for_create,
 };
 use crate::extractors::AuthUser;
+use crate::sandbox::lifecycle::ArchiveRetention;
 use crate::shared_models::{AgentMode, AgentType};
 use crate::state::AppState;
-use crate::task::models::{SandboxDesiredState, SandboxStopReason, TaskStatus, Visibility};
+use crate::task::models::{SandboxIntentView, SandboxStopReason, TaskStatus, Visibility};
 use moatless_backend_core::scope::{Scope, ScopedResource};
 
 use crate::repository::models::{RepositoryKind, RepositoryProvider};
@@ -171,10 +172,6 @@ pub async fn create_task(
         created_at_db: None,
         updated_at: None,
         append_system_prompt: None,
-        sandbox_started_at: None,
-        sandbox_desired_state: SandboxDesiredState::Running,
-        sandbox_stop_reason: None,
-        sandbox_desired_state_updated_at: chrono::Utc::now(),
         headless: req.headless.unwrap_or(false),
         ttl_minutes: state.config.sandbox.idle_timeout_minutes as i32,
         inactive_ttl_days: state.config.sandbox.inactive_task_timeout_days as i32,
@@ -243,54 +240,11 @@ async fn insert_and_provision_task(
             .await;
     }
 
-    // Always provision sandbox
-    match crate::sandbox::auto_provision::build_provision_request(
-        state.tasks.as_ref(),
-        state.repositories.as_ref(),
-        state.provider_tokens.as_ref(),
-        state.plugin_repos.as_ref(),
-        state.workspaces.as_ref(),
-        task_id,
-    )
-    .await
-    {
-        Ok(request) => match state.sandbox.provision(task_id, &request).await {
-            Ok(_response) => {
-                tracing::info!(task_id = %task_id, "Sandbox provisioning started (initializing)");
-            }
-            Err(e) => {
-                tracing::warn!(task_id = %task_id, error = %e, "Failed to provision sandbox");
-                if let Some(ref events) = state.events {
-                    events
-                        .publish_sandbox_event_with_payload(
-                            task_id,
-                            SandboxStatus::Error,
-                            &SandboxEventPayload {
-                                message: format!("Failed to provision sandbox: {e}"),
-                                error: Some(e.to_string()),
-                                ..Default::default()
-                            },
-                        )
-                        .await;
-                }
-            }
-        },
-        Err(e) => {
-            tracing::warn!(task_id = %task_id, error = %e, "Failed to build provision request");
-            if let Some(ref events) = state.events {
-                events
-                    .publish_sandbox_event_with_payload(
-                        task_id,
-                        SandboxStatus::Error,
-                        &SandboxEventPayload {
-                            message: format!("Failed to build provision request: {e}"),
-                            error: Some(e.to_string()),
-                            ..Default::default()
-                        },
-                    )
-                    .await;
-            }
-        }
+    // Provision the sandbox. Best-effort: a failure leaves the Task in its
+    // Running intent for the reconciler and lifecycle publishes its own Error
+    // fact, so task creation still proceeds to the initial message.
+    if let Err(e) = state.sandbox.start(task_id).await {
+        tracing::warn!(task_id = %task_id, error = %e, "Sandbox start failed during task creation");
     }
 
     // If a message was provided, send it to the agent
@@ -373,6 +327,17 @@ pub async fn list_tasks(
 
     let task_ids: Vec<String> = rows.iter().map(|r| r.task_id.clone()).collect();
     let all_tags = state.tags.get_tags_for_tasks(&task_ids).await?;
+
+    // Durable Sandbox state comes from the `sandboxes` table; absent rows fall
+    // back to the lazy converged-Stopped default in the loop below.
+    let sandbox_intents = state
+        .tasks
+        .get_sandbox_intents(&task_ids)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "Failed to load sandbox intents for task list");
+            Default::default()
+        });
 
     // Batch resolve user display names (single query instead of N+1)
     let creator_ids: Vec<String> = rows
@@ -469,9 +434,11 @@ pub async fn list_tasks(
                 .collect();
 
             let relations = all_relations.get(&row.task_id).cloned().unwrap_or_default();
+            let sandbox = sandbox_intents.get(&row.task_id).cloned().unwrap_or_default();
 
-            let mut resp =
-                build_task_response(row, tags, display_name, repo_name, bindings, relations);
+            let mut resp = build_task_response(
+                row, &sandbox, tags, display_name, repo_name, bindings, relations,
+            );
             resp.last_read_at = read_receipts
                 .get(&row.task_id)
                 .map(chrono::DateTime::to_rfc3339);
@@ -671,16 +638,14 @@ pub async fn delete_task(
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
     ensure_can_control_task(&state, &auth, &task_resource(&existing)).await?;
 
-    // Stop the agent gracefully before tearing down the workspace so the pod
-    // exits promptly instead of riding its full termination grace until SIGKILL
-    // (exit 137). Best-effort — never blocks teardown.
-    crate::sandbox::notify::stop_agent_for_task(&state, &task_id).await;
-
-    // Cleanup workspace (best-effort). Permanent deletion removes S3 storage
-    // too — never retain here.
-    if let Err(e) = state.sandbox.cleanup(&task_id, false).await {
-        tracing::warn!(task_id = %task_id, error = %e, "Failed to cleanup workspace on delete");
-    }
+    // Permanent deletion is strict remove with archive deletion, and the row is
+    // deleted only on success. The lifecycle handle owns the graceful agent stop
+    // and awaits observed absence; on failure the typed error surfaces, the row
+    // survives with `Removed` intent, and the reconciler keeps retrying.
+    state
+        .sandbox
+        .remove(&task_id, ArchiveRetention::DeleteArchives)
+        .await?;
 
     // Stop external listeners. `task_bindings.task_id` is not an FK, so rows
     // don't cascade on delete — deactivate them so inbound routing stops.
@@ -883,29 +848,25 @@ async fn close_single_task(state: &AppState, task_id: &str) -> Result<(), TaskEr
         return Ok(());
     }
 
-    // Stop the agent gracefully before tearing down the sandbox so the pod
-    // exits promptly instead of riding its full termination grace until SIGKILL
-    // (exit 137). Best-effort — never blocks teardown.
-    crate::sandbox::notify::stop_agent_for_task(state, task_id).await;
-
+    // Persist `Closed` before removing the sandbox — the Closed guard permits
+    // remove, and lifecycle owns the sandbox intent plus the graceful agent stop.
     state
         .tasks
         .update_task(
             task_id,
             &TaskPatch {
                 status: Some(TaskStatus::Closed),
-                sandbox_desired_state: Some(SandboxDesiredState::Removed),
-                sandbox_stop_reason: Some(Some(SandboxStopReason::Cleanup)),
                 ..Default::default()
             },
         )
         .await?;
 
-    // Cleanup sandbox (best-effort). Preserve S3 storage when configured so the
-    // task can later be revived via reopen.
-    let retain_storage = state.config.sandbox.retain_storage_on_close;
-    if let Err(e) = state.sandbox.cleanup(task_id, retain_storage).await {
-        tracing::warn!(task_id, error = %e, "Failed to cleanup sandbox on close");
+    // Remove the sandbox (best-effort on close). Preserve S3 archives when
+    // configured so the task can later be revived via reopen; a failure leaves
+    // the `Removed` intent for the reconciler.
+    let retention = ArchiveRetention::on_close(state.config.sandbox.retain_storage_on_close);
+    if let Err(e) = state.sandbox.remove(task_id, retention).await {
+        tracing::warn!(task_id, error = %e, "Failed to remove sandbox on close");
     }
 
     // A closed task is terminal — stop its external listeners so inbound
@@ -1091,36 +1052,9 @@ pub async fn start_task(
     // tables pick up the latest committed settings. Never fails the start.
     maybe_sync_repo_config_on_start(&state, &auth, &repo).await;
 
-    state
-        .tasks
-        .update_task(
-            &task_id,
-            &TaskPatch {
-                sandbox_desired_state: Some(SandboxDesiredState::Running),
-                sandbox_stop_reason: Some(None),
-                ..Default::default()
-            },
-        )
-        .await?;
+    state.sandbox.start(&task_id).await?;
 
-    let request = crate::sandbox::auto_provision::build_provision_request(
-        state.tasks.as_ref(),
-        state.repositories.as_ref(),
-        state.provider_tokens.as_ref(),
-        state.plugin_repos.as_ref(),
-        state.workspaces.as_ref(),
-        &task_id,
-    )
-    .await
-    .map_err(|e| TaskError::Internal(e.to_string()))?;
-
-    state
-        .sandbox
-        .provision(&task_id, &request)
-        .await
-        .map_err(|e| TaskError::Internal(e.to_string()))?;
-
-    tracing::info!(task_id = %task_id, "Sandbox provision initiated (initializing)");
+    tracing::info!(task_id = %task_id, "Sandbox start initiated (initializing)");
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
@@ -1219,56 +1153,30 @@ pub async fn stop_task(
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
     ensure_can_control_task(&state, &auth, &task_resource(&task)).await?;
 
-    // Stop the agent process via gRPC (keeps sandbox pod running). When this
-    // call succeeds the sandbox publishes `agent.stopped` itself, so we must
-    // not publish it again or the event fan-out doubles per request.
-    let mut sandbox_published_stop = false;
-    match state.sandbox.sandbox_client(&task_id).await {
-        Ok(client) => match client.stop_agent().await {
-            Ok(()) => {
-                sandbox_published_stop = true;
-            }
-            Err(e) => {
-                tracing::warn!(task_id = %task_id, error = %e, "Failed to stop agent via gRPC");
-            }
-        },
-        Err(e) => {
-            tracing::warn!(task_id = %task_id, error = %e, "Failed to get sandbox client for agent stop");
-        }
-    }
-
-    // Fallback publish only when the sandbox couldn't publish for us
-    // (Docker container killed mid-call, pod gone, gRPC unreachable).
-    // `handle_agent_stopped` is the sole owner of `taskTurn.stopped` —
-    // never publish it from here.
-    if !sandbox_published_stop {
-        if let Some(ref events) = state.events {
-            events
-                .publish_agent_event(
-                    &task_id,
-                    moatless_events::AgentSubType::Stopped,
-                    None,
-                    serde_json::json!({}),
-                )
-                .await;
-        }
-    }
-
-    // Update task status and record that this was an intentional user stop.
+    // lifecycle owns the Stopped intent + user reason, stops compute, and issues
+    // the graceful StopAgent. Task status is not lifecycle's to write.
     state
-        .tasks
-        .update_task(
-            &task_id,
-            &TaskPatch {
-                status: Some(TaskStatus::Open),
-                sandbox_desired_state: Some(SandboxDesiredState::Stopped),
-                sandbox_stop_reason: Some(Some(SandboxStopReason::User)),
-                ..Default::default()
-            },
-        )
+        .sandbox
+        .stop(&task_id, SandboxStopReason::User)
         .await?;
 
-    tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Agent stopped");
+    // Signal the user stop. `handle_agent_stopped` owns the task-status flip
+    // (→ Open unless Closed), the "Stopped by user request" message, and the
+    // taskTurn.stopped fan-out. Its idempotency guard dedupes this against the
+    // agent.stopped the sandbox publishes in response to the graceful StopAgent,
+    // so the stop still lands cleanly when the sandbox is already gone.
+    if let Some(ref events) = state.events {
+        events
+            .publish_agent_event(
+                &task_id,
+                moatless_events::AgentSubType::Stopped,
+                None,
+                serde_json::json!({}),
+            )
+            .await;
+    }
+
+    tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Sandbox stop requested");
 
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
@@ -1485,8 +1393,18 @@ async fn enrich_task(
         }
     };
 
+    // Durable Sandbox state comes from the `sandboxes` table; absence is the
+    // lazy converged-Stopped default.
+    let sandbox = state
+        .tasks
+        .get_sandbox_intents(std::slice::from_ref(&row.task_id))
+        .await
+        .ok()
+        .and_then(|mut m| m.remove(&row.task_id))
+        .unwrap_or_default();
     let mut resp = build_task_response(
         row,
+        &sandbox,
         tag_responses,
         display_name,
         repo_name,
@@ -1533,6 +1451,7 @@ async fn enrich_task(
 /// clients that pre-date the relations field.
 fn build_task_response(
     row: &Task,
+    sandbox: &SandboxIntentView,
     tags: Vec<TagResponse>,
     display_name: Option<String>,
     repo_name: Option<String>,
@@ -1576,10 +1495,10 @@ fn build_task_response(
         bindings,
         ttl_minutes: row.ttl_minutes,
         inactive_ttl_days: row.inactive_ttl_days,
-        sandbox_started_at: row.sandbox_started_at.map(|t| t.to_rfc3339()),
-        sandbox_desired_state: row.sandbox_desired_state,
-        sandbox_stop_reason: row.sandbox_stop_reason,
-        sandbox_desired_state_updated_at: row.sandbox_desired_state_updated_at.to_rfc3339(),
+        sandbox_started_at: sandbox.started_at.map(|t| t.to_rfc3339()),
+        sandbox_desired_state: sandbox.desired_state,
+        sandbox_stop_reason: sandbox.stop_reason,
+        sandbox_desired_state_updated_at: sandbox.desired_state_updated_at.to_rfc3339(),
         // Populated per-request by callers that know the requesting user.
         last_read_at: None,
         is_following: None,

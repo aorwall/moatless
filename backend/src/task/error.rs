@@ -25,6 +25,23 @@ pub enum TaskError {
 
     #[error("Forbidden: {0}")]
     Forbidden(String),
+
+    #[error("{0}")]
+    Conflict(String),
+}
+
+impl From<crate::sandbox::lifecycle::LifecycleError> for TaskError {
+    fn from(value: crate::sandbox::lifecycle::LifecycleError) -> Self {
+        use crate::sandbox::lifecycle::LifecycleError as LE;
+        match &value {
+            LE::TaskNotFound(id) => Self::NotFound(id.clone()),
+            // The Closed guard rejected the operation — a client state error.
+            LE::NotAllowed { .. } => Self::BadRequest(value.to_string()),
+            // Another operation holds the per-Task lock.
+            LE::OperationInProgress { .. } => Self::Conflict(value.to_string()),
+            _ => Self::Internal(value.to_string()),
+        }
+    }
 }
 
 impl From<AccessControlError> for TaskError {
@@ -58,6 +75,7 @@ impl IntoResponse for TaskError {
                 )
             }
             TaskError::Forbidden(_) => (StatusCode::FORBIDDEN, self.to_string()),
+            TaskError::Conflict(_) => (StatusCode::CONFLICT, self.to_string()),
         };
 
         error_response(status, message)

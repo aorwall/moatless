@@ -581,24 +581,8 @@ fn should_filter_self_echo(binding: &TaskBinding, user_id: &str) -> bool {
 }
 
 async fn provision_task(state: &AppState, task_id: &str) {
-    match crate::sandbox::auto_provision::build_provision_request(
-        state.tasks.as_ref(),
-        state.repositories.as_ref(),
-        state.provider_tokens.as_ref(),
-        state.plugin_repos.as_ref(),
-        state.workspaces.as_ref(),
-        task_id,
-    )
-    .await
-    {
-        Ok(request) => {
-            if let Err(e) = state.sandbox.provision(task_id, &request).await {
-                warn!(task_id, error = %e, "Failed to provision sandbox for external task");
-            }
-        }
-        Err(e) => {
-            warn!(task_id, error = %e, "Failed to build provision request for external task");
-        }
+    if let Err(e) = state.sandbox.start(task_id).await {
+        warn!(task_id, error = %e, "Failed to start sandbox for external task");
     }
 }
 

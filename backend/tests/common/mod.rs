@@ -286,7 +286,8 @@ pub fn test_app_state(pool: PgPool) -> AppState {
     let config = test_config();
     let github_apps = Arc::new(GitHubAppRegistry::from_config(&config));
     AppState::new(
-        pool,
+        pool.clone(),
+        pool, // lock pool — tests reuse the same DB pool
         Arc::new(config),
         Arc::new(MockSandboxProvider),
         None, // events

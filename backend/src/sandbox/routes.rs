@@ -16,6 +16,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use super::file_handlers;
 use super::handlers;
+use super::lifecycle::Lifecycle;
 use super::provider::SandboxProvider;
 use crate::auth::provider_token_dao::ProviderTokenRepository;
 use crate::plugin_repo::dao::PluginRepoRepository;
@@ -29,6 +30,11 @@ use crate::workspace::dao::WorkspaceRepository;
 #[derive(Clone)]
 pub struct SandboxApiState {
     pub provider: Arc<dyn SandboxProvider>,
+    /// Shared durable lifecycle handle — the sole writer of Sandbox intent. The
+    /// lifecycle HTTP handlers (`provision`/`stop`/`restart`/`redeploy`/`cleanup`)
+    /// drive transitions through it. `None` only in the no-database mode, where
+    /// those handlers return a clean "unavailable" error.
+    pub lifecycle: Option<Arc<Lifecycle>>,
     /// Optional task repository — enables server config resolution and
     /// per-task authorization in handlers.
     pub tasks: Option<Arc<dyn TaskRepository>>,
