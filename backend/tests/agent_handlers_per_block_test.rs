@@ -25,7 +25,7 @@ use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::task::dao as task_dao;
 use sqlx::PgPool;
 
-use common::{make_repository_row, make_task_row, test_app_state};
+use common::{make_repository_row, make_task_row, seed_team, test_app_state};
 
 /// A per-block assistant source event: one native block at `block_index`, with
 /// usage repeated on every block (as a coalescing-free CLI would emit it).
@@ -92,6 +92,7 @@ fn tool_use(id: &str, name: &str) -> serde_json::Value {
 }
 
 async fn seed(pool: &PgPool, task_id: &str) -> moatless_vibe_backend::state::AppState {
+    seed_team(pool, "personal-user-1").await;
     let repo = make_repository_row("repo-1", "user-1");
     repository_dao::insert(pool, &repo).await.unwrap();
     let task = make_task_row(task_id, "user-1");
