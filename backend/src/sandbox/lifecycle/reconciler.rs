@@ -157,7 +157,7 @@ pub struct Reconciler {
 }
 
 impl Reconciler {
-    pub fn new(
+    pub(crate) fn new(
         lifecycle: Lifecycle,
         store: Arc<dyn LifecycleStore>,
         messages: Arc<dyn MessageRepository>,
@@ -454,7 +454,7 @@ mod db_tests {
     use super::super::runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
     use super::super::test_support::seed_task_with as seed;
     use super::super::types::{ObservedStatus, OperationKind};
-    use super::super::{CorrelationMarker, OperationGeneration};
+    use super::super::types::{CorrelationMarker, OperationGeneration};
 
     // ---- Recording ports ----
 

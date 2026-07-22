@@ -207,9 +207,9 @@ impl OperationGeneration {
         self.0
     }
 
-    /// The next generation after this one. Allocation is durable in
-    /// production (a persisted per-Task counter); tests use an in-memory
-    /// counter.
+    /// The next generation after this one. Production allocates from a persisted
+    /// per-Task counter; only the in-memory test counter advances this way.
+    #[cfg(test)]
     pub fn next(self) -> Self {
         Self(self.0 + 1)
     }

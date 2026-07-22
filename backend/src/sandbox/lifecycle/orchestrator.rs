@@ -203,7 +203,7 @@ pub struct Lifecycle {
 }
 
 impl Lifecycle {
-    pub fn new(
+    pub(crate) fn new(
         store: Arc<dyn LifecycleStore>,
         runtime: Arc<dyn SandboxRuntime>,
         agent_stop: Arc<dyn AgentStopPort>,

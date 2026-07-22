@@ -58,6 +58,9 @@ impl RuntimeOutcome {
         }
     }
 
+    /// A recording-adapter builder: production adapters compute the effect from
+    /// what they did rather than asserting `NoOp` up front.
+    #[cfg(test)]
     pub fn no_op(observed: ObservedStatus) -> Self {
         Self {
             observed,

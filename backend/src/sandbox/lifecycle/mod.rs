@@ -73,20 +73,28 @@ mod contract_tests;
 #[cfg(all(test, feature = "db-tests"))]
 pub(crate) mod test_support;
 
-// ---- Curated public surface ----
+// ---- Curated surface ----
+//
+// `pub` is the deep module's cross-crate contract: the `Lifecycle` handle, its
+// typed outcomes/errors, and the reconciler surface `main` assembles. Everything
+// the module is merely built *over* — the ports, the runtime seam, and the
+// correlation internals — is `pub(crate)`; no caller outside this crate names it.
 
 pub use error::{ErrorClass, LifecycleError, RuntimeError};
 pub use outcome::{Diagnostics, LifecycleOutcome};
-pub use runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
-pub use types::{
-    ArchiveRetention, CorrelationMarker, IntentEffect, ObservedStatus, OperationGeneration,
-    OperationKind, RuntimeEffect,
-};
+pub use types::{ArchiveRetention, IntentEffect, ObservedStatus, OperationKind, RuntimeEffect};
+pub use orchestrator::Lifecycle;
 
-pub use orchestrator::{
-    AgentStopPort, IntentWrite, Lifecycle, LifecycleEventSink, LifecycleLock, LifecycleStore,
-    LockGuard, StoreError, SystemWallClock, TaskIntent, WallClock,
-};
+// The desired-state reconciler and its production fleet-observer adapters,
+// assembled by `state::build_reconciler` and spawned by `main`.
+pub use observe::{DockerFleetObserver, GrpcNotify, K8sFleetObserver};
+pub use reconciler::{FleetObserver, NotifyPort, Reconciler, ReconcilerConfig};
+
+// The system clock `state` hands to the `Lifecycle` and `Reconciler`. The ports,
+// runtime seam, and correlation internals are named through their defining
+// submodules (`super::orchestrator`, `super::runtime`, `super::types`), so no
+// curated re-export widens them.
+pub(crate) use orchestrator::SystemWallClock;
 
 // The concrete port adapters `AppState` assembles into a `Lifecycle`.
 pub(crate) use agent_stop::GrpcAgentStop;
@@ -94,8 +102,3 @@ pub(crate) use dao::PgLifecycleStore;
 pub(crate) use event_sink::OutboxEventSink;
 pub(crate) use lock::PgLifecycleLock;
 pub(crate) use runtime_bridge::{ProvisionDeps, RuntimeBridge};
-
-// The desired-state reconciler and its production fleet-observer adapters,
-// assembled by `state::build_reconciler` and spawned by `main`.
-pub use observe::{DockerFleetObserver, GrpcNotify, K8sFleetObserver};
-pub use reconciler::{FleetObserver, NotifyPort, Reconciler, ReconcilerConfig};

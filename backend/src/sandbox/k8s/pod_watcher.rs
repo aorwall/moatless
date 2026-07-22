@@ -197,6 +197,8 @@ impl PodObservedState {
 /// 2. If leader, start watching pods.
 /// 3. If not leader, sleep and retry.
 /// 4. On watch stream error, re-enter the leadership loop.
+// reason: the watcher wires eight collaborators (client, publisher, cancel, the
+// crash threshold, and four optional repositories) into one spawned task.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_pod_lifecycle_watcher(
     k8s: K8sClient,
@@ -354,7 +356,6 @@ fn sibling_pods_for_task<'a>(
 }
 
 /// Process a single watcher event and detect state transitions.
-#[allow(clippy::too_many_arguments)]
 async fn process_watcher_event(
     k8s: &K8sClient,
     event: &watcher::Event<Pod>,
