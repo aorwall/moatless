@@ -17,6 +17,9 @@
 image:
   pullPolicy: IfNotPresent
   tag: "dev"
+# Local previews are served over plain http under proxy.domain below, so the
+# frontend CSP frame-src must allow that host in addition to the https default.
+cspFrameSrc: "https: http://*.preview.moatless.localhost"
 backend:
   # One replica: a single-node cluster gains nothing from two, and it halves the
   # rollout time on every `task dev:backend`.

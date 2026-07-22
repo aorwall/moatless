@@ -42,6 +42,11 @@ spec:
             - name: http
               containerPort: 80
               protocol: TCP
+          env:
+            # Rendered into the CSP frame-src directive by the nginx entrypoint's
+            # envsubst step. Defaults to the external https preview URLs.
+            - name: CSP_FRAME_SRC
+              value: {{ .Values.cspFrameSrc | default "https:" | quote }}
           {{- with .Values.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
@@ -56,6 +61,9 @@ spec:
           {{- end }}
           {{- if (and .Values.frontendContainerSecurityContext .Values.frontendContainerSecurityContext.readOnlyRootFilesystem) }}
           volumeMounts:
+            # Writable so the entrypoint can render the config template here.
+            - name: nginx-conf
+              mountPath: /etc/nginx/conf.d
             - name: nginx-cache
               mountPath: /var/cache/nginx
             - name: nginx-run
@@ -65,6 +73,8 @@ spec:
           {{- end }}
       {{- if (and .Values.frontendContainerSecurityContext .Values.frontendContainerSecurityContext.readOnlyRootFilesystem) }}
       volumes:
+        - name: nginx-conf
+          emptyDir: {}
         - name: nginx-cache
           emptyDir: {}
         - name: nginx-run

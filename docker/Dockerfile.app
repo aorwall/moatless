@@ -20,8 +20,15 @@ RUN echo "OS security refresh: ${APK_SECURITY_REFRESH}" \
 # Copy pre-built frontend assets
 COPY apps/frontend/dist /usr/share/nginx/html
 
-# Copy nginx configuration
-COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+# Copy nginx configuration as an envsubst template. The base image entrypoint
+# renders /etc/nginx/templates/*.template into /etc/nginx/conf.d/ at startup,
+# substituting ${CSP_FRAME_SRC} (nginx's own $vars are left untouched — the
+# entrypoint only substitutes names present in the environment).
+COPY docker/nginx.conf /etc/nginx/templates/default.conf.template
+
+# CSP frame-src value. Defaults to the external https preview URLs; local http
+# clusters override it (e.g. to add http://*.preview.moatless.localhost).
+ENV CSP_FRAME_SRC="https:"
 
 EXPOSE 80
 
