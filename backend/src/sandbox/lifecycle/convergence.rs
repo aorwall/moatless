@@ -69,6 +69,13 @@ pub enum ReconcileAction {
     Remove,
 }
 
+impl ReconcileAction {
+    /// A concrete lifecycle operation to drive this tick (not `None`/`Wait`).
+    pub fn is_operation(self) -> bool {
+        matches!(self, Self::Start | Self::Stop | Self::Remove)
+    }
+}
+
 /// Is the observed status converged on the desired state?
 ///
 /// - Running ↔ `Ready`

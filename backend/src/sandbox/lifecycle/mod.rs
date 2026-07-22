@@ -49,6 +49,8 @@ pub(crate) mod marker;
 #[allow(dead_code)]
 pub(crate) mod reconcile;
 #[allow(dead_code)]
+pub(crate) mod reconciler;
+#[allow(dead_code)]
 pub(crate) mod wake;
 
 pub(crate) mod error;

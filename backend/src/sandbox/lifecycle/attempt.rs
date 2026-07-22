@@ -52,6 +52,13 @@ impl AttemptBudget {
         self.attempts = 0;
     }
 
+    /// Exhaust the budget outright — a permanent failure (bad plan, Closed) is
+    /// never retried for this generation. A new generation (`begin`) or a wake
+    /// (`reset_for_wake`) reopens it.
+    pub fn block(&mut self) {
+        self.attempts = self.cap;
+    }
+
     pub fn attempts(&self) -> u32 {
         self.attempts
     }
@@ -133,6 +140,22 @@ mod tests {
         b.reset_for_wake();
         assert!(!b.exhausted());
         assert_eq!(b.attempts(), 0);
+    }
+
+    #[test]
+    fn block_exhausts_until_a_new_generation_or_wake() {
+        let mut b = AttemptBudget::new(5);
+        b.begin(gen(1));
+        b.block();
+        assert!(b.exhausted());
+        // A wake reopens it.
+        b.reset_for_wake();
+        assert!(!b.exhausted());
+        // Re-block, then a new generation reopens it.
+        b.block();
+        assert!(b.exhausted());
+        b.begin(gen(2));
+        assert!(!b.exhausted());
     }
 
     #[test]
