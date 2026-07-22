@@ -285,12 +285,6 @@ impl SandboxProvider for K8sSandboxProvider {
             }
         }
 
-        if let Some(ref publisher) = self.event_publisher {
-            publisher
-                .publish_sandbox_event(task_id, moatless_events::SandboxStatus::Stopped, "Stopped")
-                .await;
-        }
-
         Ok(())
     }
 
@@ -424,20 +418,11 @@ impl SandboxProvider for K8sSandboxProvider {
             }
         }
 
-        // Surface any load-bearing failure to the caller. Skip the "Removed"
-        // event — resources or archives may linger for a retry.
+        // Surface any load-bearing failure to the caller: a propagated error
+        // withholds lifecycle's `Removed` completion (its sole publisher), so
+        // resources or archives that linger get another reconciler pass.
         if let Some(e) = first_err {
             return Err(e);
-        }
-
-        if let Some(ref publisher) = self.event_publisher {
-            publisher
-                .publish_sandbox_event(
-                    task_id,
-                    moatless_events::SandboxStatus::Removed,
-                    "Resources removed",
-                )
-                .await;
         }
 
         Ok(())

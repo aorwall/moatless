@@ -313,12 +313,6 @@ impl SandboxProvider for DockerSandboxProvider {
             .await
             .map_err(|e| SandboxError::DockerError(format!("Failed to stop container: {e}")))?;
 
-        if let Some(ref publisher) = self.event_publisher {
-            publisher
-                .publish_sandbox_event(task_id, moatless_events::SandboxStatus::Stopped, "Stopped")
-                .await;
-        }
-
         Ok(())
     }
 
@@ -377,18 +371,9 @@ impl SandboxProvider for DockerSandboxProvider {
         let container_name = generate_container_name(task_id);
 
         // Load-bearing: strict removal must not report success while the sandbox
-        // container lingers, and the `Removed` event must not fire on failure.
+        // container lingers — a propagated error withholds lifecycle's `Removed`
+        // completion, the sole publisher of that fact.
         self.force_remove_container(&container_name, task_id).await?;
-
-        if let Some(ref publisher) = self.event_publisher {
-            publisher
-                .publish_sandbox_event(
-                    task_id,
-                    moatless_events::SandboxStatus::Removed,
-                    "Container removed",
-                )
-                .await;
-        }
 
         Ok(())
     }

@@ -82,31 +82,45 @@ pub async fn ensure_sandbox_and_notify(state: &AppState, task_id: &str) -> Resul
         }
     }
 
-    match state.sandbox.start(task_id).await {
-        Ok(outcome) if outcome.observed == ObservedStatus::Ready => {
-            notify_sandbox_for_task(state, task_id).await;
-        }
-        Ok(_) => {
-            tracing::info!(task_id = %task_id, "Sandbox starting, skipping notification");
-        }
-        Err(LifecycleError::OperationInProgress { kind }) => {
-            // A concurrent lifecycle op holds the per-Task lock. The persisted
-            // pending message is the reconciler's durable wake input, so this is
-            // never surfaced as an agent error: a toward-Running op already
-            // covers the wake, and a stop/remove is left for the reconciler.
-            if kind.is_toward_running() {
+    // A concurrent lifecycle op holds the per-Task lock. Inline handling of
+    // contention is a latency fast path only — the persisted pending message is
+    // the reconciler's durable wake input, never an agent error. A toward-Running
+    // op already covers the wake and stops inline work; a stop/remove gets a
+    // bounded inline retry so a fresh message lands with low latency once that op
+    // releases the lock, then defers to the reconciler.
+    const MAX_WAKE_RETRIES: u32 = 3;
+    const WAKE_RETRY_BACKOFF: std::time::Duration = std::time::Duration::from_millis(300);
+
+    let mut retries = 0u32;
+    loop {
+        match state.sandbox.start(task_id).await {
+            Ok(outcome) if outcome.observed == ObservedStatus::Ready => {
+                notify_sandbox_for_task(state, task_id).await;
+                return Ok(());
+            }
+            Ok(_) => {
+                tracing::info!(task_id = %task_id, "Sandbox starting, skipping notification");
+                return Ok(());
+            }
+            Err(LifecycleError::OperationInProgress { kind }) if kind.is_toward_running() => {
                 tracing::debug!(task_id, ?kind, "message wake coincided with an in-flight start; covered");
-            } else {
-                tracing::info!(task_id, ?kind, "message wake contended with stop/remove; left as pending reconciler input");
+                return Ok(());
+            }
+            Err(LifecycleError::OperationInProgress { kind }) => {
+                if retries >= MAX_WAKE_RETRIES {
+                    tracing::info!(task_id, ?kind, retries, "message wake contended with stop/remove past retry budget; left as pending reconciler input");
+                    return Ok(());
+                }
+                retries += 1;
+                tracing::debug!(task_id, ?kind, retries, "message wake contended with stop/remove; retrying inline");
+                tokio::time::sleep(WAKE_RETRY_BACKOFF).await;
+            }
+            Err(e) => {
+                tracing::warn!(task_id = %task_id, error = %e, "Failed to start sandbox for message delivery");
+                return Err(e.to_string());
             }
         }
-        Err(e) => {
-            tracing::warn!(task_id = %task_id, error = %e, "Failed to start sandbox for message delivery");
-            return Err(e.to_string());
-        }
     }
-
-    Ok(())
 }
 
 /// Notify a sandbox pod that new messages are available (K8s-specific).
