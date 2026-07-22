@@ -416,10 +416,12 @@ impl WorkspaceRepository for PgWorkspaceRepository {
 /// This is the runtime twin of the Phase A migration backfill: it copies the
 /// same repository columns 1:1, uses the same `kind = 'single'`, and creates the
 /// same single primary placement, so a task created at runtime lands on exactly
-/// the shape the migration produced for pre-existing tasks. The deterministic
-/// primary keys plus `ON CONFLICT (id) DO NOTHING` make concurrent creators
-/// race-safe — the id is returned unconditionally rather than gated on a prior
-/// existence `SELECT`. Both inserts run in one transaction.
+/// the shape the migration produced for pre-existing tasks. The workspace insert
+/// dedupes on `ON CONFLICT (id)`; the primary placement is skipped when the
+/// workspace already has one, so it stays correct even after `git_sync` has
+/// re-elected the primary under a random id. The id is returned unconditionally
+/// rather than gated on a prior existence `SELECT`. Both inserts run in one
+/// transaction.
 ///
 /// If the repository row does not exist the `INSERT ... SELECT`s are no-ops; the
 /// returned id is still `ws_<repository_id>` (there is no FK on
@@ -460,6 +462,10 @@ pub async fn ensure_shadow_workspace(
                'wsr_' || r.id, 'ws_' || r.id, r.id, NULL, NULL, true, 0
            FROM repositories r
            WHERE r.id = $1
+             AND NOT EXISTS (
+                 SELECT 1 FROM workspace_repos wr
+                 WHERE wr.workspace_id = 'ws_' || r.id AND wr.is_primary
+             )
            ON CONFLICT (id) DO NOTHING"#,
     )
     .bind(repository_id)
