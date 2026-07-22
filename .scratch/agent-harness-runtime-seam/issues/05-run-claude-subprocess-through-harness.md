@@ -19,6 +19,6 @@
 - [ ] Resume failure does not silently start fresh; the coordinator explicitly drives the existing context-loss behavior.
 - [ ] Model, mode, system prompt, environment, and permission configuration retain current behavior.
 - [ ] Scripted contract tests cover happy path, prompts, resume, failure, cancellation, and early output.
-- [ ] A focused real Claude subprocess E2E test proves actual CLI launch and protocol compatibility.
+- [ ] A focused real Claude subprocess E2E case exists for the final integrated verification of actual CLI launch and protocol compatibility.
 - [ ] Sandbox and backend clippy pass with warnings denied.
 - [ ] Relevant Sandbox, backend, and database integration tests pass.

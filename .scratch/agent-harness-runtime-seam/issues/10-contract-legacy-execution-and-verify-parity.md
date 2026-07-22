@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+**Required E2E:** Run the complete Docker Compose Rust integration gate with all available Agent credentials, then run `task test:compose:e2e` for public API-chain regression coverage. Ticket 10 is not complete if a required available tier is red.
+
 - [ ] Legacy harness-specific actor branches and obsolete execution compatibility paths are removed.
 - [ ] Sandbox-side assistant coalescing, repeated-usage tracking, and pending-buffer flushing are removed.
 - [ ] The backend compatibility path for coalesced assistant events is removed once every Sandbox producer emits canonical per-block source events.
@@ -24,3 +26,6 @@
 - [ ] Sandbox and backend formatting pass.
 - [ ] Sandbox and backend clippy pass with warnings denied.
 - [ ] Full Sandbox and backend test suites pass.
+- [ ] `task test:compose:all` passes with all available Agent credentials and environment gates enabled.
+- [ ] `task test:compose:e2e` passes against Docker Compose.
+- [ ] Any credential-gated Agent or real-CLI test not run is listed explicitly with its missing prerequisite.

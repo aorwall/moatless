@@ -18,7 +18,7 @@
 - [ ] Authentication refresh failures, unavailable thread state, protocol errors, and unexpected process exit become stable harness failure classes with Session impact.
 - [ ] Credential recovery mechanics remain hidden behind the harness while retry policy remains in the coordinator.
 - [ ] Scripted tests cover fresh execution, resume, queued input, all supported item families, duplicate native IDs, credential failure, cancellation, and EOF.
-- [ ] A focused real Codex E2E test proves actual CLI launch, thread resume, and protocol compatibility.
+- [ ] A focused real Codex E2E case exists for final integrated verification of actual CLI launch, thread resume, and protocol compatibility.
 - [ ] No shared harness or coordinator file becomes a repository for Codex-native payload mapping.
 - [ ] Sandbox and backend clippy pass with warnings denied.
 - [ ] Relevant Sandbox, backend, and database integration tests pass.

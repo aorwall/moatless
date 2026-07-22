@@ -17,7 +17,7 @@
 - [ ] Pending input remains ordered while process replacement or an active execution is in progress.
 - [ ] The coordinator contains no persistent-transport or tmux branch.
 - [ ] Scripted tests cover injection, incompatible replacement, internal execution, cancellation, EOF, and queued input.
-- [ ] A focused persistent-Claude E2E test proves actual transport launch, injection, and Session continuity.
+- [ ] A focused persistent-Claude E2E case exists for final integrated verification of actual transport launch, injection, and Session continuity.
 - [ ] No shared harness or coordinator file becomes a repository for Claude-native payload mapping.
 - [ ] Sandbox clippy passes with warnings denied.
 - [ ] The full Sandbox crate test suite passes.
