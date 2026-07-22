@@ -15,8 +15,8 @@ use super::dao::WorkspacePatch;
 use super::error::WorkspaceError;
 use super::models::{Workspace, WorkspaceRepo};
 use super::schemas::{
-    workspace_response, AddRepoRequest, CreateWorkspaceRequest, UpdateWorkspaceRequest,
-    WorkspaceRepoInput, WorkspaceResponse,
+    workspace_response, AddRepoRequest, CreateWorkspaceRequest, OverrideWorkspaceRequest,
+    UpdateWorkspaceRequest, WorkspaceRepoInput, WorkspaceResponse,
 };
 
 /// Serialize a typed run-config value into the jsonb column shape, dropping it
@@ -139,10 +139,11 @@ pub async fn create_workspace(
         servers: to_json(req.servers),
         plugins: to_json(req.plugins),
         resources: to_json(req.resources),
-        network_profile: None,
+        network_profile: req.network_profile,
         source: "manual".to_string(),
         source_repository_id: None,
         source_key: None,
+        source_config_path: None,
         scope: resolved.scope,
         team_id: Some(resolved.team_id),
         owner_user_id: resolved.owner_user_id,
@@ -304,12 +305,13 @@ pub async fn update_workspace(
         servers: req.servers.map(|v| to_json(Some(v))),
         plugins: req.plugins.map(|v| to_json(Some(v))),
         resources: req.resources.map(|v| to_json(Some(v))),
+        network_profile: req.network_profile.map(Some),
         kind: None,
-        // Provenance is not editable via the write API; only re-sync sets these.
-        network_profile: None,
+        // Provenance not editable via the write API.
         source: None,
         source_repository_id: None,
         source_key: None,
+        source_config_path: None,
     };
     state.workspaces.update(&workspace_id, &patch).await?;
 
@@ -356,6 +358,126 @@ pub async fn delete_workspace(
 
     state.workspaces.soft_delete(&workspace_id).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/v1/workspaces/{workspace_id}/override",
+    tag = "workspaces",
+    params(("workspace_id" = String, Path, description = "Workspace id")),
+    request_body = OverrideWorkspaceRequest,
+    responses(
+        (status = 200, description = "Workspace overridden; source set to manual", body = WorkspaceResponse),
+        (status = 403, description = "Forbidden", body = crate::error::ErrorBody),
+        (status = 404, description = "Not found", body = crate::error::ErrorBody)
+    )
+)]
+/// Override a git-synced workspace. Sets `source = "manual"` so that git sync
+/// skips this workspace going forward. Provenance fields are preserved.
+/// Use `POST /{id}/reset-git` to re-enable git sync.
+pub async fn override_workspace(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(workspace_id): Path<String>,
+    Json(req): Json<OverrideWorkspaceRequest>,
+) -> Result<Json<WorkspaceResponse>, WorkspaceError> {
+    let existing = state
+        .workspaces
+        .find_by_id_scoped(&workspace_id, &auth.scope_context())
+        .await?
+        .ok_or_else(|| WorkspaceError::NotFound(workspace_id.clone()))?;
+    // Intentionally skipping `ensure_workspace_mutable` — this endpoint is the
+    // explicit way to take ownership of a git-synced workspace.
+    ensure_can_write_resource(
+        &state,
+        &auth,
+        &ScopedResource::borrowed(
+            existing.scope,
+            existing.team_id.as_deref(),
+            existing
+                .owner_user_id
+                .as_deref()
+                .or(existing.created_by.as_deref()),
+        ),
+        "workspace",
+    )
+    .await?;
+
+    let patch = WorkspacePatch {
+        name: req.name,
+        description: req.description.map(Some),
+        docker_image: req.docker_image.map(Some),
+        docker_access: req.docker_access.map(Some),
+        sandbox_service_account: req.sandbox_service_account.map(Some),
+        system_prompt: req.system_prompt.map(Some),
+        setup_commands: req.setup_commands.map(|v| to_json(Some(v))),
+        env_vars: req.env_vars.map(|v| to_json(Some(v))),
+        servers: req.servers.map(|v| to_json(Some(v))),
+        plugins: req.plugins.map(|v| to_json(Some(v))),
+        resources: req.resources.map(|v| to_json(Some(v))),
+        network_profile: req.network_profile.map(Some),
+        // Mark as manually managed; provenance columns stay unchanged.
+        source: Some("manual".to_string()),
+        kind: None,
+        scope: None,
+        team_id: None,
+        owner_user_id: None,
+        source_repository_id: None,
+        source_key: None,
+        source_config_path: None,
+    };
+    state.workspaces.update(&workspace_id, &patch).await?;
+
+    let response = load_response(&state, &auth, &workspace_id).await?;
+    Ok(Json(response))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/workspaces/{workspace_id}/reset-git",
+    tag = "workspaces",
+    params(("workspace_id" = String, Path, description = "Workspace id")),
+    responses(
+        (status = 200, description = "Workspace reset to git-managed; next sync will update it", body = WorkspaceResponse),
+        (status = 403, description = "Forbidden", body = crate::error::ErrorBody),
+        (status = 404, description = "Not found", body = crate::error::ErrorBody)
+    )
+)]
+/// Reset an overridden workspace back to `source = "git"` so the next
+/// git sync will update its run-config from the repository again.
+pub async fn reset_git_workspace(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(workspace_id): Path<String>,
+) -> Result<Json<WorkspaceResponse>, WorkspaceError> {
+    let existing = state
+        .workspaces
+        .find_by_id_scoped(&workspace_id, &auth.scope_context())
+        .await?
+        .ok_or_else(|| WorkspaceError::NotFound(workspace_id.clone()))?;
+    ensure_can_write_resource(
+        &state,
+        &auth,
+        &ScopedResource::borrowed(
+            existing.scope,
+            existing.team_id.as_deref(),
+            existing
+                .owner_user_id
+                .as_deref()
+                .or(existing.created_by.as_deref()),
+        ),
+        "workspace",
+    )
+    .await?;
+
+    let patch = WorkspacePatch {
+        source: Some("git".to_string()),
+        ..WorkspacePatch::default()
+    };
+    state.workspaces.update(&workspace_id, &patch).await?;
+
+    let response = load_response(&state, &auth, &workspace_id).await?;
+    Ok(Json(response))
 }
 
 /// Look up a workspace (scoped) and assert the caller may mutate it.
@@ -577,6 +699,7 @@ mod tests {
             source: source.to_string(),
             source_repository_id: None,
             source_key: None,
+            source_config_path: None,
             scope: moatless_backend_core::scope::Scope::User,
             team_id: None,
             owner_user_id: None,

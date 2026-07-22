@@ -42,6 +42,11 @@ pub struct Workspace {
     /// Stable natural key within the source repo — the workspace entry `key`
     /// (or slugified name), or `__config_json__` for the legacy config.json form.
     pub source_key: Option<String>,
+    /// Path to the config file within the source repository that declared this
+    /// workspace, e.g. `.moatless/workspaces.json` or `.moatless/config.json`.
+    /// Retained even after the workspace is overridden (source='manual') so the
+    /// origin remains visible.
+    pub source_config_path: Option<String>,
     // --- Access control (mirrors repositories) ---
     pub scope: Scope,
     pub team_id: Option<String>,

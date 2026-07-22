@@ -240,15 +240,19 @@ pub async fn sync_repo_workspaces(
                 let desired = DesiredWorkspace {
                     fixed_id: None,
                     source_key,
+                    source_config_path: ".moatless/workspaces.json".to_string(),
                     name: entry.name.clone(),
                     description: entry.description.clone(),
                     run,
                     placements,
                 };
-                if upsert_git_workspace(state, repo, &desired).await? {
-                    summary.created += 1;
-                } else {
-                    summary.updated += 1;
+                match upsert_git_workspace(state, repo, &desired).await? {
+                    Some(true) => summary.created += 1,
+                    Some(false) => summary.updated += 1,
+                    None => summary.skipped.push(WorkspaceSyncSkip {
+                        source_key: desired.source_key.clone(),
+                        reason: "manually overridden".to_string(),
+                    }),
                 }
             }
         }
@@ -271,6 +275,7 @@ pub async fn sync_repo_workspaces(
                 let desired = DesiredWorkspace {
                     fixed_id: Some(format!("ws_{}", repo.id)),
                     source_key: CONFIG_JSON_KEY.to_string(),
+                    source_config_path: ".moatless/config.json".to_string(),
                     name: repo.name.clone(),
                     description: repo.description.clone(),
                     // The shadow mirrors the run-config declared in config.json.
@@ -282,10 +287,13 @@ pub async fn sync_repo_workspaces(
                         primary: true,
                     }],
                 };
-                if upsert_git_workspace(state, repo, &desired).await? {
-                    summary.created += 1;
-                } else {
-                    summary.updated += 1;
+                match upsert_git_workspace(state, repo, &desired).await? {
+                    Some(true) => summary.created += 1,
+                    Some(false) => summary.updated += 1,
+                    None => summary.skipped.push(WorkspaceSyncSkip {
+                        source_key: desired.source_key.clone(),
+                        reason: "manually overridden".to_string(),
+                    }),
                 }
             } else {
                 debug!(repository_id = %repo.id, "No .moatless/workspaces.json or config.json; nothing to sync");
@@ -343,6 +351,9 @@ struct DesiredWorkspace {
     /// workspaces.json entries (found by natural key, else a fresh id).
     fixed_id: Option<String>,
     source_key: String,
+    /// Path to the declaring file within the repository, e.g.
+    /// `.moatless/workspaces.json` or `.moatless/config.json`.
+    source_config_path: String,
     name: String,
     description: Option<String>,
     run: RunConfig,
@@ -409,66 +420,87 @@ fn run_config_from_moatless_config(
 }
 
 /// Insert or update the workspace row + placements for one desired workspace.
-/// Returns `true` when a fresh workspace row was created, `false` on update.
+///
+/// Returns `Some(true)` when created, `Some(false)` when updated, `None` when
+/// the workspace has been manually overridden (`source = 'manual'`) and should
+/// not be touched by git sync.
 async fn upsert_git_workspace(
     state: &AppState,
     repo: &Repository,
     desired: &DesiredWorkspace,
-) -> Result<bool, RepositoryError> {
+) -> Result<Option<bool>, RepositoryError> {
     let (workspace_id, created) = if let Some(id) = &desired.fixed_id {
-        let existed: bool =
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workspaces WHERE id = $1)")
+        // Shadow workspace — look up by id to check if it has been overridden.
+        let source: Option<String> =
+            sqlx::query_scalar("SELECT source FROM workspaces WHERE id = $1")
                 .bind(id)
-                .fetch_one(&state.db)
+                .fetch_optional(&state.db)
                 .await?;
-        // Ensure the shadow workspace row exists (idempotent, race-safe).
-        ensure_shadow_workspace(&state.db, &repo.id).await?;
-        (id.clone(), !existed)
+        match source.as_deref() {
+            Some("manual") => {
+                debug!(workspace_id = %id, "skipping git sync — workspace has been manually overridden");
+                return Ok(None);
+            }
+            None => {
+                // Doesn't exist yet — create it (idempotent, race-safe).
+                ensure_shadow_workspace(&state.db, &repo.id).await?;
+                (id.clone(), true)
+            }
+            Some(_) => (id.clone(), false),
+        }
     } else {
-        // Look up an existing git workspace by natural key (including
-        // soft-deleted rows — the unique index ignores `deleted`, so a re-added
-        // key must reuse and un-delete the same row).
-        let existing: Option<String> = sqlx::query_scalar(
-            "SELECT id FROM workspaces \
-             WHERE source_repository_id = $1 AND source_key = $2 AND source = 'git' \
+        // Look up by natural key — include 'manual' so an overridden workspace
+        // is found and skipped rather than re-created under the same key.
+        let existing: Option<(String, String)> = sqlx::query_as(
+            "SELECT id, source FROM workspaces \
+             WHERE source_repository_id = $1 AND source_key = $2 \
+               AND source IN ('git', 'manual') \
              LIMIT 1",
         )
         .bind(&repo.id)
         .bind(&desired.source_key)
         .fetch_optional(&state.db)
         .await?;
-        if let Some(id) = existing {
-            (id, false)
-        } else {
-            let id = format!("ws_{}", uuid::Uuid::new_v4());
-            let row = Workspace {
-                id: id.clone(),
-                name: desired.name.clone(),
-                description: desired.description.clone(),
-                kind: "single".to_string(), // refresh_kind fixes below
-                docker_image: desired.run.docker_image.clone(),
-                docker_access: desired.run.docker_access,
-                sandbox_service_account: desired.run.sandbox_service_account.clone(),
-                system_prompt: desired.run.system_prompt.clone(),
-                setup_commands: desired.run.setup_commands.clone(),
-                env_vars: desired.run.env_vars.clone(),
-                servers: desired.run.servers.clone(),
-                plugins: desired.run.plugins.clone(),
-                resources: desired.run.resources.clone(),
-                network_profile: desired.run.network_profile.clone(),
-                source: "git".to_string(),
-                source_repository_id: Some(repo.id.clone()),
-                source_key: Some(desired.source_key.clone()),
-                scope: repo.scope,
-                team_id: repo.team_id.clone(),
-                owner_user_id: repo.owner_user_id.clone(),
-                created_by: repo.created_by.clone(),
-                deleted: Some(false),
-                created_at: None,
-                updated_at: None,
-            };
-            state.workspaces.insert_workspace(&row).await?;
-            (id, true)
+
+        match existing {
+            Some((id, source)) if source == "manual" => {
+                debug!(workspace_id = %id, source_key = %desired.source_key,
+                    "skipping git sync — workspace has been manually overridden");
+                return Ok(None);
+            }
+            Some((id, _)) => (id, false),
+            None => {
+                let id = format!("ws_{}", uuid::Uuid::new_v4());
+                let row = Workspace {
+                    id: id.clone(),
+                    name: desired.name.clone(),
+                    description: desired.description.clone(),
+                    kind: "single".to_string(), // refresh_kind fixes below
+                    docker_image: desired.run.docker_image.clone(),
+                    docker_access: desired.run.docker_access,
+                    sandbox_service_account: desired.run.sandbox_service_account.clone(),
+                    system_prompt: desired.run.system_prompt.clone(),
+                    setup_commands: desired.run.setup_commands.clone(),
+                    env_vars: desired.run.env_vars.clone(),
+                    servers: desired.run.servers.clone(),
+                    plugins: desired.run.plugins.clone(),
+                    resources: desired.run.resources.clone(),
+                    network_profile: desired.run.network_profile.clone(),
+                    source: "git".to_string(),
+                    source_repository_id: Some(repo.id.clone()),
+                    source_key: Some(desired.source_key.clone()),
+                    source_config_path: Some(desired.source_config_path.clone()),
+                    scope: repo.scope,
+                    team_id: repo.team_id.clone(),
+                    owner_user_id: repo.owner_user_id.clone(),
+                    created_by: repo.created_by.clone(),
+                    deleted: Some(false),
+                    created_at: None,
+                    updated_at: None,
+                };
+                state.workspaces.insert_workspace(&row).await?;
+                (id, true)
+            }
         }
     };
 
@@ -499,6 +531,7 @@ async fn upsert_git_workspace(
         source: Some("git".to_string()),
         source_repository_id: Some(Some(repo.id.clone())),
         source_key: Some(Some(desired.source_key.clone())),
+        source_config_path: Some(Some(desired.source_config_path.clone())),
     };
     state.workspaces.update(&workspace_id, &patch).await?;
 
@@ -536,7 +569,7 @@ async fn upsert_git_workspace(
     }
     state.workspaces.refresh_kind(&workspace_id).await?;
 
-    Ok(created)
+    Ok(Some(created))
 }
 
 /// Resolve each `repos[].url` to a repository id, creating (and verifying) rows

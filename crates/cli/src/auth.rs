@@ -258,7 +258,7 @@ async fn login_browser(api_url: &str) -> Result<(), ClientError> {
     }
 
     // Wait for callback with 120s timeout
-    let result = tokio::time::timeout(std::time::Duration::from_secs(120), async {
+    let result = tokio::time::timeout(std::time::Duration::from_mins(2), async {
         let (mut stream, _addr) = listener.accept().await.map_err(|e| ClientError::Api {
             status: 500,
             body: format!("Failed to accept connection: {e}"),

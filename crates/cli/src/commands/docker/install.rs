@@ -65,7 +65,7 @@ pub(super) async fn run(args: InstallArgs, json: bool) -> Result<(), ClientError
     }
 
     let all_healthy = if args.wait {
-        Some(wait_for_healthy(&compose_dir, Duration::from_secs(120)).await?)
+        Some(wait_for_healthy(&compose_dir, Duration::from_mins(2)).await?)
     } else {
         // Fast `ps` probe to populate the report without blocking.
         super::status::quick_all_healthy(&compose_dir).await.ok()

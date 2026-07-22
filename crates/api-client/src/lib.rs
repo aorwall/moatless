@@ -510,6 +510,77 @@ impl ApiClient {
     }
 
     // ========================================================================
+    // Workspaces
+    // ========================================================================
+
+    /// GET /api/v1/workspaces
+    pub async fn list_workspaces(
+        &self,
+    ) -> Result<Vec<moatless_api_schemas::workspace::WorkspaceResponse>, ApiError> {
+        self.get("/api/v1/workspaces").await
+    }
+
+    /// GET /api/v1/workspaces/{workspace_id}
+    pub async fn get_workspace(
+        &self,
+        workspace_id: &str,
+    ) -> Result<moatless_api_schemas::workspace::WorkspaceResponse, ApiError> {
+        self.get(&format!("/api/v1/workspaces/{workspace_id}")).await
+    }
+
+    /// POST /api/v1/workspaces
+    pub async fn create_workspace(
+        &self,
+        req: &moatless_api_schemas::workspace::CreateWorkspaceRequest,
+    ) -> Result<moatless_api_schemas::workspace::WorkspaceResponse, ApiError> {
+        self.post("/api/v1/workspaces", req).await
+    }
+
+    /// PATCH /api/v1/workspaces/{workspace_id}
+    pub async fn update_workspace(
+        &self,
+        workspace_id: &str,
+        req: &moatless_api_schemas::workspace::UpdateWorkspaceRequest,
+    ) -> Result<moatless_api_schemas::workspace::WorkspaceResponse, ApiError> {
+        self.patch(&format!("/api/v1/workspaces/{workspace_id}"), req)
+            .await
+    }
+
+    /// DELETE /api/v1/workspaces/{workspace_id}
+    pub async fn delete_workspace(&self, workspace_id: &str) -> Result<(), ApiError> {
+        self.delete_request(&format!("/api/v1/workspaces/{workspace_id}"))
+            .await
+    }
+
+    /// PATCH /api/v1/workspaces/{workspace_id}/override
+    ///
+    /// Override a git-synced workspace — sets `source = "manual"` so git sync
+    /// skips it going forward. Use `reset_git_workspace` to re-enable sync.
+    pub async fn override_workspace(
+        &self,
+        workspace_id: &str,
+        req: &moatless_api_schemas::workspace::OverrideWorkspaceRequest,
+    ) -> Result<moatless_api_schemas::workspace::WorkspaceResponse, ApiError> {
+        self.patch(
+            &format!("/api/v1/workspaces/{workspace_id}/override"),
+            req,
+        )
+        .await
+    }
+
+    /// POST /api/v1/workspaces/{workspace_id}/reset-git
+    ///
+    /// Reset an overridden workspace back to `source = "git"` so the next
+    /// git sync will update its run-config from the repository again.
+    pub async fn reset_git_workspace(
+        &self,
+        workspace_id: &str,
+    ) -> Result<moatless_api_schemas::workspace::WorkspaceResponse, ApiError> {
+        self.post_no_body(&format!("/api/v1/workspaces/{workspace_id}/reset-git"))
+            .await
+    }
+
+    // ========================================================================
     // Messages
     // ========================================================================
 

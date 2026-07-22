@@ -30,6 +30,7 @@ pub struct WorkspacePatch {
     pub source: Option<String>,
     pub source_repository_id: Option<Option<String>>,
     pub source_key: Option<Option<String>>,
+    pub source_config_path: Option<Option<String>>,
 }
 
 /// Repository trait for workspace persistence.
@@ -144,11 +145,11 @@ impl WorkspaceRepository for PgWorkspaceRepository {
                    id, name, description, kind,
                    docker_image, docker_access, sandbox_service_account,
                    system_prompt, setup_commands, env_vars, servers, plugins, resources,
-                   network_profile, source, source_repository_id, source_key,
+                   network_profile, source, source_repository_id, source_key, source_config_path,
                    scope, team_id, owner_user_id, created_by, deleted
                ) VALUES (
                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-                   $14, $15, $16, $17, $18, $19, $20, $21, $22
+                   $14, $15, $16, $17, $18, $19, $20, $21, $22, $23
                )"#,
         )
         .bind(&row.id)
@@ -168,6 +169,7 @@ impl WorkspaceRepository for PgWorkspaceRepository {
         .bind(&row.source)
         .bind(&row.source_repository_id)
         .bind(&row.source_key)
+        .bind(&row.source_config_path)
         .bind(row.scope)
         .bind(&row.team_id)
         .bind(&row.owner_user_id)
@@ -263,6 +265,7 @@ impl WorkspaceRepository for PgWorkspaceRepository {
         push_set!(source);
         push_set!(source_repository_id);
         push_set!(source_key);
+        push_set!(source_config_path);
 
         if sets.is_empty() {
             return Ok(false);
@@ -305,6 +308,7 @@ impl WorkspaceRepository for PgWorkspaceRepository {
         bind_opt!(source);
         bind_opt!(source_repository_id);
         bind_opt!(source_key);
+        bind_opt!(source_config_path);
 
         q = q.bind(now);
 

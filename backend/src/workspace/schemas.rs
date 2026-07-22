@@ -42,6 +42,7 @@ pub fn workspace_response(w: Workspace, repos: Vec<WorkspaceRepo>) -> WorkspaceR
             resources: w.resources.and_then(|v| serde_json::from_value(v).ok()),
             network_profile: w.network_profile,
             synced_from_git: w.source == "git",
+            source_config_path: w.source_config_path,
             source: w.source,
             source_repository_id: w.source_repository_id,
             scope: w.scope,

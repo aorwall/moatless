@@ -17,6 +17,8 @@ use crate::state::AppState;
         handlers::get_workspace,
         handlers::update_workspace,
         handlers::delete_workspace,
+        handlers::override_workspace,
+        handlers::reset_git_workspace,
         handlers::add_workspace_repo,
         handlers::remove_workspace_repo,
         handlers::set_workspace_primary_repo,
@@ -36,6 +38,8 @@ pub fn workspace_router(state: AppState) -> (axum::Router, utoipa::openapi::Open
             handlers::update_workspace,
             handlers::delete_workspace
         ))
+        .routes(routes!(handlers::override_workspace))
+        .routes(routes!(handlers::reset_git_workspace))
         .routes(routes!(handlers::add_workspace_repo))
         .routes(routes!(handlers::remove_workspace_repo))
         .routes(routes!(handlers::set_workspace_primary_repo))

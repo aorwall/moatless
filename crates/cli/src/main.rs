@@ -50,6 +50,11 @@ enum SharedCommands {
         #[command(subcommand)]
         action: Box<commands::repos::RepoAction>,
     },
+    /// Workspace management
+    Workspaces {
+        #[command(subcommand)]
+        action: commands::workspaces::WorkspaceAction,
+    },
     /// Adapter connection management
     Adapters {
         #[command(subcommand)]
@@ -369,6 +374,9 @@ async fn run_shared(
         }
         SharedCommands::Repos { action } => {
             commands::repos::run(moat, *action, json).await?;
+        }
+        SharedCommands::Workspaces { action } => {
+            commands::workspaces::run(moat, action, json).await?;
         }
         SharedCommands::Adapters { action } => {
             commands::adapters::run_adapters(moat, action, json).await?;

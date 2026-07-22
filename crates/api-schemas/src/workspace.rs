@@ -69,6 +69,8 @@ pub struct CreateWorkspaceRequest {
     pub plugins: Option<Vec<String>>,
     #[serde(default)]
     pub resources: Option<ResourceConfig>,
+    #[serde(default)]
+    pub network_profile: Option<String>,
     // --- Composition ---
     /// Repository placements. May be empty (a blank/scratch workspace).
     #[serde(default)]
@@ -99,6 +101,37 @@ pub struct UpdateWorkspaceRequest {
     pub servers: Option<Vec<ServerConfig>>,
     pub plugins: Option<Vec<String>>,
     pub resources: Option<ResourceConfig>,
+    pub network_profile: Option<String>,
+}
+
+// =============================================================================
+// OverrideWorkspaceRequest — override specific fields on a git-synced workspace
+// =============================================================================
+
+/// Patch run-config fields on a git-synced workspace, bypassing the read-only
+/// guard. Sets `source = "manual"` so the workspace is no longer updated by
+/// git sync. Provenance fields (`source_repository_id`, `source_key`,
+/// `source_config_path`) are preserved so the origin remains visible. Only
+/// fields that are explicitly set (non-`None`) are changed.
+///
+/// Use `PATCH /api/v1/workspaces/{id}/override`.
+/// Use `POST /api/v1/workspaces/{id}/reset-git` to re-enable git sync.
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct OverrideWorkspaceRequest {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub docker_image: Option<String>,
+    pub docker_access: Option<bool>,
+    pub sandbox_service_account: Option<String>,
+    pub system_prompt: Option<String>,
+    pub setup_commands: Option<Vec<String>>,
+    pub env_vars: Option<HashMap<String, String>>,
+    pub servers: Option<Vec<ServerConfig>>,
+    pub plugins: Option<Vec<String>>,
+    pub resources: Option<ResourceConfig>,
+    pub network_profile: Option<String>,
 }
 
 // =============================================================================
@@ -169,6 +202,11 @@ pub struct WorkspaceResponse {
     /// Convenience flag derived from `source == "git"`.
     #[serde(default)]
     pub synced_from_git: bool,
+    /// Path to the config file within the source repository that declared this
+    /// workspace (e.g. `.moatless/workspaces.json` or `.moatless/config.json`).
+    /// Retained even after a manual override so the origin remains visible.
+    #[serde(default)]
+    pub source_config_path: Option<String>,
     /// The repository whose git tree declared this workspace (`source == "git"`).
     #[serde(default)]
     pub source_repository_id: Option<String>,
