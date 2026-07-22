@@ -105,36 +105,6 @@ pub struct UpdateWorkspaceRequest {
 }
 
 // =============================================================================
-// OverrideWorkspaceRequest — override specific fields on a git-synced workspace
-// =============================================================================
-
-/// Patch run-config fields on a git-synced workspace, bypassing the read-only
-/// guard. Sets `source = "manual"` so the workspace is no longer updated by
-/// git sync. Provenance fields (`source_repository_id`, `source_key`,
-/// `source_config_path`) are preserved so the origin remains visible. Only
-/// fields that are explicitly set (non-`None`) are changed.
-///
-/// Use `PATCH /api/v1/workspaces/{id}/override`.
-/// Use `POST /api/v1/workspaces/{id}/reset-git` to re-enable git sync.
-#[derive(Debug, Default, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct OverrideWorkspaceRequest {
-    pub name: Option<String>,
-    pub description: Option<String>,
-    pub docker_image: Option<String>,
-    pub docker_access: Option<bool>,
-    pub sandbox_service_account: Option<String>,
-    pub system_prompt: Option<String>,
-    pub setup_commands: Option<Vec<String>>,
-    pub env_vars: Option<HashMap<String, String>>,
-    pub servers: Option<Vec<ServerConfig>>,
-    pub plugins: Option<Vec<String>>,
-    pub resources: Option<ResourceConfig>,
-    pub network_profile: Option<String>,
-}
-
-// =============================================================================
 // AddRepoRequest
 // =============================================================================
 

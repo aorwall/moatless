@@ -559,7 +559,7 @@ impl ApiClient {
     pub async fn override_workspace(
         &self,
         workspace_id: &str,
-        req: &moatless_api_schemas::workspace::OverrideWorkspaceRequest,
+        req: &moatless_api_schemas::workspace::UpdateWorkspaceRequest,
     ) -> Result<moatless_api_schemas::workspace::WorkspaceResponse, ApiError> {
         self.patch(
             &format!("/api/v1/workspaces/{workspace_id}/override"),

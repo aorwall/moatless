@@ -3,8 +3,7 @@
 use clap::Subcommand;
 use moatless_api_schemas::enums::Scope;
 use moatless_api_schemas::workspace::{
-    CreateWorkspaceRequest, OverrideWorkspaceRequest, UpdateWorkspaceRequest,
-    WorkspaceRepoInput, WorkspaceResponse,
+    CreateWorkspaceRequest, UpdateWorkspaceRequest, WorkspaceRepoInput, WorkspaceResponse,
 };
 
 use crate::client::{ClientError, MoatClient};
@@ -259,9 +258,11 @@ pub async fn run(
             resources_json,
             network_profile,
         } => {
-            let req = OverrideWorkspaceRequest {
+            let req = UpdateWorkspaceRequest {
                 name,
                 description,
+                scope: None,
+                team_id: None,
                 docker_image,
                 docker_access,
                 sandbox_service_account,

@@ -15,8 +15,8 @@ use super::dao::WorkspacePatch;
 use super::error::WorkspaceError;
 use super::models::{Workspace, WorkspaceRepo};
 use super::schemas::{
-    workspace_response, AddRepoRequest, CreateWorkspaceRequest, OverrideWorkspaceRequest,
-    UpdateWorkspaceRequest, WorkspaceRepoInput, WorkspaceResponse,
+    workspace_response, AddRepoRequest, CreateWorkspaceRequest, UpdateWorkspaceRequest,
+    WorkspaceRepoInput, WorkspaceResponse,
 };
 
 /// Serialize a typed run-config value into the jsonb column shape, dropping it
@@ -365,7 +365,7 @@ pub async fn delete_workspace(
     path = "/api/v1/workspaces/{workspace_id}/override",
     tag = "workspaces",
     params(("workspace_id" = String, Path, description = "Workspace id")),
-    request_body = OverrideWorkspaceRequest,
+    request_body = UpdateWorkspaceRequest,
     responses(
         (status = 200, description = "Workspace overridden; source set to manual", body = WorkspaceResponse),
         (status = 403, description = "Forbidden", body = crate::error::ErrorBody),
@@ -379,7 +379,7 @@ pub async fn override_workspace(
     State(state): State<AppState>,
     auth: AuthUser,
     Path(workspace_id): Path<String>,
-    Json(req): Json<OverrideWorkspaceRequest>,
+    Json(req): Json<UpdateWorkspaceRequest>,
 ) -> Result<Json<WorkspaceResponse>, WorkspaceError> {
     let existing = state
         .workspaces
