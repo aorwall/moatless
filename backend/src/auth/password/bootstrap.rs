@@ -36,10 +36,19 @@ pub async fn ensure_local_admin(
     config: &AuthConfig,
 ) -> Result<(), BootstrapError> {
     let username = config.admin_username.trim();
-    // The `local:<username>` handle is the provider identity; the internal id is a
-    // uuid derived from it (v5) so the seed stays idempotent across restarts.
+    // The `local:<username>` handle is the provider identity. Reuse the internal
+    // id already mapped to it (an admin seeded before the uuid migration keeps
+    // the id that migration assigned); only mint the deterministic v5 id for a
+    // brand-new admin, so the seed stays idempotent across restarts.
     let provider_user_id = format!("local:{}", username.to_lowercase());
-    let user_id = uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, provider_user_id.as_bytes());
+    let user_id = match users
+        .find_user_by_provider_id("local", &provider_user_id)
+        .await
+        .map_err(BootstrapError::Read)?
+    {
+        Some(existing) => existing.id,
+        None => uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, provider_user_id.as_bytes()),
+    };
 
     let existing = credentials
         .find_by_user_id(&user_id)
@@ -129,6 +138,10 @@ mod tests {
         users
             .expect_upsert_provider_id()
             .returning(|_, _, _| Ok(()));
+        // No admin is mapped yet → the seed mints the deterministic v5 id.
+        users
+            .expect_find_user_by_provider_id()
+            .returning(|_, _| Ok(None));
 
         let mut credentials = MockUserCredentialRepository::new();
         credentials
@@ -201,6 +214,56 @@ mod tests {
             .unwrap();
         let (_, _, hash, _) = captured.lock().unwrap().clone().expect("upsert not called");
         assert!(verify_password("new-password-1234".into(), hash).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn existing_admin_keeps_its_mapped_id() {
+        // An admin seeded before the uuid migration is mapped to a non-v5 id;
+        // the seed must reuse it, not mint (and collide on) the v5 id.
+        let mapped_id = uuid::Uuid::parse_str("fbeb5f73-28e2-4939-9cdb-b8f0107875a5").unwrap();
+        let captured: Captured = Arc::new(Mutex::new(None));
+
+        let mut users = MockUserRepository::new();
+        users.expect_upsert_user().returning(|_| Ok(()));
+        users
+            .expect_upsert_provider_id()
+            .returning(|_, _, _| Ok(()));
+        users
+            .expect_find_user_by_provider_id()
+            .returning(move |_, _| {
+                Ok(Some(User {
+                    id: mapped_id,
+                    login: "admin".into(),
+                    email: None,
+                    name: Some("admin".into()),
+                    avatar_url: None,
+                    provider: "local".into(),
+                    provider_user_id: Some("local:admin".into()),
+                    role: UserRole::Admin,
+                    created_at: Utc::now(),
+                    last_login_at: Utc::now(),
+                    settings: serde_json::json!({}),
+                    is_bot: false,
+                }))
+            });
+
+        let mut credentials = MockUserCredentialRepository::new();
+        credentials.expect_find_by_user_id().returning(|_| Ok(None));
+        let sink = captured.clone();
+        credentials
+            .expect_upsert()
+            .returning(move |user_id, _, _, _| {
+                *sink.lock().expect("captured mutex poisoned") =
+                    Some((user_id.to_string(), String::new(), String::new(), false));
+                Ok(())
+            });
+
+        ensure_local_admin(&users, &credentials, &auth_config(Some("keep-my-id-1234")))
+            .await
+            .unwrap();
+
+        let (user_id, ..) = captured.lock().unwrap().clone().expect("upsert not called");
+        assert_eq!(user_id, mapped_id.to_string(), "must reuse the mapped id");
     }
 
     #[tokio::test]
