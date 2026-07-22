@@ -73,7 +73,23 @@ pub fn decide(input: &ReconcileInput) -> ReconcileDecision {
             .as_ref()
             .is_some_and(|m| m.kind == OperationKind::Remove);
 
-    let action = reconcile_action(effective_desired, input.observed, remove_marker_incomplete);
+    let mut action = reconcile_action(effective_desired, input.observed, remove_marker_incomplete);
+
+    // A Stopped Task that converged on the runtime but still carries its stop
+    // marker owes a `Stopped` completion commit (a crash between convergence and
+    // the commit). Re-drive stop so the orchestrator's Unchanged+NoOp+incomplete
+    // -marker path commits the fact and clears the marker — otherwise the
+    // incomplete marker re-enumerates the Task as a permanent no-op every tick.
+    if action == ReconcileAction::None
+        && effective_desired == SandboxDesiredState::Stopped
+        && intent
+            .marker
+            .as_ref()
+            .is_some_and(|m| m.kind == OperationKind::Stop)
+    {
+        action = ReconcileAction::Stop;
+    }
+
     ReconcileDecision { action, woken }
 }
 
@@ -252,6 +268,31 @@ mod tests {
         let d = decide(&input(
             intent(TaskStatus::Open, SandboxDesiredState::Removed, None, None),
             SandboxObservedStatus::Absent,
+            None,
+        ));
+        assert_eq!(d.action, ReconcileAction::None);
+    }
+
+    #[test]
+    fn converged_stopped_with_incomplete_stop_marker_redrives_stop() {
+        // Crashed between stop convergence and the completion commit: observed
+        // Stopped, but the stop marker is still present → re-drive stop so the
+        // owed `Stopped` fact commits and the marker clears.
+        let marker = CorrelationMarker::new(OperationKind::Stop, OperationGeneration(3), at(1_000));
+        let d = decide(&input(
+            intent(TaskStatus::Open, SandboxDesiredState::Stopped, None, Some(marker)),
+            SandboxObservedStatus::Stopped,
+            None,
+        ));
+        assert_eq!(d.action, ReconcileAction::Stop);
+    }
+
+    #[test]
+    fn converged_stopped_without_a_marker_is_a_no_op() {
+        // No owed commit → nothing to do.
+        let d = decide(&input(
+            intent(TaskStatus::Open, SandboxDesiredState::Stopped, None, None),
+            SandboxObservedStatus::Stopped,
             None,
         ));
         assert_eq!(d.action, ReconcileAction::None);

@@ -33,25 +33,21 @@
 //! (per-Task reconcile decision combining wake and convergence), [`events`]
 //! (event derivation), and [`attempt`] (attempt cap + backoff).
 
-// The pure decision core. Its in-crate consumers — the desired-state
-// reconciler and the pod/container watchers — arrive with the caller migration;
-// until then these tested functions have no non-test caller, so dead_code is
-// allowed deliberately rather than by widening their visibility to `pub`.
-// reason: staged delivery — decision logic lands before the code that drives it.
-#[allow(dead_code)]
+// Decision modules driven by the desired-state reconciler (wired in `main`).
 pub(crate) mod attempt;
+pub(crate) mod convergence;
+pub(crate) mod reconcile;
+pub(crate) mod reconciler;
+pub(crate) mod wake;
+
+// The watcher four-case classifier and per-class marker acknowledgement land
+// before the watcher migration that drives them, so their tested functions
+// have no non-test caller yet.
+// reason: staged delivery — watcher classification lands before the watcher migration.
 #[allow(dead_code)]
 pub(crate) mod classify;
 #[allow(dead_code)]
-pub(crate) mod convergence;
-#[allow(dead_code)]
 pub(crate) mod marker;
-#[allow(dead_code)]
-pub(crate) mod reconcile;
-#[allow(dead_code)]
-pub(crate) mod reconciler;
-#[allow(dead_code)]
-pub(crate) mod wake;
 
 pub(crate) mod error;
 pub(crate) mod events;

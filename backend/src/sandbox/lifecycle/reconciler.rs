@@ -87,6 +87,10 @@ impl Default for ReconcilerConfig {
 struct TaskRetry {
     budget: AttemptBudget,
     next_eligible: Option<DateTime<Utc>>,
+    /// The newest pending-message timestamp that has already reset this budget.
+    /// A wake resets the cap only when a *newer* message arrives — the same
+    /// pending row (still undelivered every tick until Ready) must not.
+    last_wake_at: Option<DateTime<Utc>>,
 }
 
 impl TaskRetry {
@@ -94,6 +98,7 @@ impl TaskRetry {
         Self {
             budget: AttemptBudget::new(cap),
             next_eligible: None,
+            last_wake_at: None,
         }
     }
 }
@@ -188,8 +193,13 @@ impl Reconciler {
         pending_at: Option<DateTime<Utc>>,
         now: DateTime<Utc>,
     ) {
-        let Some(intent) = self.store.load(task_id).await.ok().flatten() else {
-            return;
+        let intent = match self.store.load(task_id).await {
+            Ok(Some(intent)) => intent,
+            Ok(None) => return,
+            Err(e) => {
+                warn!(task_id, error = %e, "reconciler: intent load failed; skipping task");
+                return;
+            }
         };
 
         // Give a freshly-changed intent its grace window — a caller's own
@@ -234,7 +244,10 @@ impl Reconciler {
             return;
         }
 
-        if !self.retry_gate(task_id, intent.marker.map(|m| m.generation.value()), decision.woken, now) {
+        // A wake carries its message timestamp so the budget resets only for a
+        // *newly observed* message, not every tick the same row stays pending.
+        let wake_at = decision.woken.then_some(pending_at).flatten();
+        if !self.retry_gate(task_id, intent.marker.map(|m| m.generation.value()), wake_at, now) {
             return;
         }
 
@@ -256,7 +269,17 @@ impl Reconciler {
 
     /// Decide whether to drive an operation this tick under the attempt cap +
     /// backoff. Mutates the Task's budget (begin/reset) before gating.
-    fn retry_gate(&self, task_id: &str, generation: Option<i64>, woken: bool, now: DateTime<Utc>) -> bool {
+    ///
+    /// `wake_at` is `Some(newest_pending_message_at)` when a message superseded
+    /// the intent this tick. The budget resets only when it advances past the
+    /// last wake — a genuinely new causal wake — never for the same pending row.
+    fn retry_gate(
+        &self,
+        task_id: &str,
+        generation: Option<i64>,
+        wake_at: Option<DateTime<Utc>>,
+        now: DateTime<Utc>,
+    ) -> bool {
         let mut guard = self.retries.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let retry = guard
             .entry(task_id.to_string())
@@ -265,9 +288,13 @@ impl Reconciler {
         if let Some(g) = generation {
             retry.budget.begin(super::types::OperationGeneration(g));
         }
-        if woken {
-            retry.budget.reset_for_wake();
-            retry.next_eligible = None;
+        if let Some(wake_at) = wake_at {
+            let advanced = retry.last_wake_at.is_none_or(|prev| wake_at > prev);
+            if advanced {
+                retry.budget.reset_for_wake();
+                retry.next_eligible = None;
+                retry.last_wake_at = Some(wake_at);
+            }
         }
 
         // Backing off between transient retries.
@@ -356,14 +383,21 @@ mod db_tests {
 
     struct RecordingRuntime {
         calls: Mutex<RuntimeCalls>,
-        ensure_result: Mutex<Option<Result<RuntimeOutcome, super::super::error::RuntimeError>>>,
+        /// When set, every `ensure_running` returns this transient failure.
+        fail_ensure: bool,
     }
 
     impl RecordingRuntime {
         fn new() -> Self {
             Self {
                 calls: Mutex::new(RuntimeCalls::default()),
-                ensure_result: Mutex::new(None),
+                fail_ensure: false,
+            }
+        }
+        fn failing_ensure() -> Self {
+            Self {
+                calls: Mutex::new(RuntimeCalls::default()),
+                fail_ensure: true,
             }
         }
         fn calls(&self) -> (u32, u32, u32) {
@@ -376,11 +410,10 @@ mod db_tests {
     impl SandboxRuntime for RecordingRuntime {
         async fn ensure_running(&self, _t: &str, _c: RuntimeOperationContext) -> Result<RuntimeOutcome, super::super::error::RuntimeError> {
             self.calls.lock().unwrap().ensure += 1;
-            self.ensure_result
-                .lock()
-                .unwrap()
-                .take()
-                .unwrap_or_else(|| Ok(RuntimeOutcome::applied(ObservedStatus::Starting)))
+            if self.fail_ensure {
+                return Err(super::super::error::RuntimeError::Infrastructure("boom".into()));
+            }
+            Ok(RuntimeOutcome::applied(ObservedStatus::Starting))
         }
         async fn stop(&self, _t: &str, _c: RuntimeOperationContext) -> Result<RuntimeOutcome, super::super::error::RuntimeError> {
             self.calls.lock().unwrap().stop += 1;
@@ -435,12 +468,49 @@ mod db_tests {
         }
     }
 
+    /// A clock that jumps forward a fixed step on every read, so successive
+    /// reconcile ticks always land past the exponential backoff window.
+    struct StepClock {
+        base: DateTime<Utc>,
+        step: chrono::Duration,
+        reads: Mutex<i32>,
+    }
+    impl WallClock for StepClock {
+        fn now(&self) -> DateTime<Utc> {
+            let mut r = self.reads.lock().unwrap();
+            let t = self.base + self.step * *r;
+            *r += 1;
+            t
+        }
+    }
+
     fn build(
         pool: PgPool,
         lock_pool: PgPool,
         runtime: Arc<RecordingRuntime>,
         observer: Arc<dyn FleetObserver>,
         grace: Duration,
+    ) -> (Reconciler, Arc<CollectSink>) {
+        build_with(
+            pool,
+            lock_pool,
+            runtime,
+            observer,
+            Arc::new(SystemWallClock),
+            ReconcilerConfig {
+                grace,
+                ..Default::default()
+            },
+        )
+    }
+
+    fn build_with(
+        pool: PgPool,
+        lock_pool: PgPool,
+        runtime: Arc<RecordingRuntime>,
+        observer: Arc<dyn FleetObserver>,
+        clock: Arc<dyn WallClock>,
+        config: ReconcilerConfig,
     ) -> (Reconciler, Arc<CollectSink>) {
         let store = Arc::new(PgLifecycleStore::new(pool.clone()));
         let sink = Arc::new(CollectSink::default());
@@ -457,11 +527,8 @@ mod db_tests {
             store,
             Arc::new(PgMessageRepository(pool)),
             observer,
-            Arc::new(SystemWallClock),
-            ReconcilerConfig {
-                grace,
-                ..Default::default()
-            },
+            clock,
+            config,
         );
         (reconciler, sink)
     }
@@ -533,6 +600,45 @@ mod db_tests {
                 .await
                 .unwrap();
         assert_eq!(desired, "running", "wake flipped intent to running");
+    }
+
+    #[sqlx::test]
+    async fn a_persistent_wake_still_honours_the_attempt_cap(pool: PgPool) {
+        // One pending message supersedes the stop, but the start keeps failing
+        // transiently. The same undelivered row must not reset the budget every
+        // tick — retries stay bounded by the cap instead of running forever.
+        seed(&pool, "t1", "open", "stopped").await;
+        seed_pending_user_message(&pool, "t1", Utc::now() + chrono::Duration::hours(1)).await;
+        let runtime = Arc::new(RecordingRuntime::failing_ensure());
+        // Each tick jumps an hour so the exponential backoff never gates —
+        // isolating the wake-reset behaviour as the only thing bounding retries.
+        let clock = Arc::new(StepClock {
+            base: DateTime::from_timestamp(2_000_000_000, 0).unwrap(),
+            step: chrono::Duration::hours(1),
+            reads: Mutex::new(0),
+        });
+        let (rec, _sink) = build_with(
+            pool.clone(),
+            pool,
+            runtime.clone(),
+            observer(&[], SandboxObservedStatus::Absent),
+            clock,
+            ReconcilerConfig {
+                grace: Duration::ZERO,
+                attempt_cap: 3,
+                ..Default::default()
+            },
+        );
+
+        for _ in 0..8 {
+            rec.reconcile_once().await;
+        }
+
+        // Bounded near the cap. Without the newest-message guard the wake would
+        // reset every tick and drive all 8.
+        let ensure = runtime.calls().0;
+        assert!(ensure <= 5, "ensure driven {ensure} times; the cap should bound it");
+        assert!(ensure >= 3, "ensure should retry up to the cap, got {ensure}");
     }
 
     #[sqlx::test]

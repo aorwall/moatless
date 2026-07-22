@@ -82,6 +82,11 @@ impl ReconcileAction {
 /// - Stopped ↔ `Stopped` **or** `Absent` (a missing runtime satisfies Stopped)
 /// - Removed ↔ `Absent` (every resource gone, PVC included) — and only when the
 ///   remove marker's archive obligation is complete.
+///
+/// The driver acts through [`reconcile_action`]; this is the paired predicate it
+/// is verified total against (action is `None` exactly when converged), so it is
+/// exercised only by tests.
+#[cfg(test)]
 pub fn converged(
     desired: SandboxDesiredState,
     observed: SandboxObservedStatus,

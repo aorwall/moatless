@@ -9,7 +9,6 @@
 
 use std::time::Duration;
 
-use super::error::ErrorClass;
 use super::types::OperationGeneration;
 
 /// A single Task's leader-local retry budget.
@@ -59,6 +58,9 @@ impl AttemptBudget {
         self.attempts = self.cap;
     }
 
+    /// Attempts recorded for the current generation. Test introspection only —
+    /// the driver gates on [`exhausted`](Self::exhausted).
+    #[cfg(test)]
     pub fn attempts(&self) -> u32 {
         self.attempts
     }
@@ -66,15 +68,6 @@ impl AttemptBudget {
     /// Whether the cap is exhausted.
     pub fn exhausted(&self) -> bool {
         self.attempts >= self.cap
-    }
-
-    /// Whether another retry is permitted for a failure of `class`.
-    ///
-    /// Only transient classes retry, and only while the cap has budget.
-    /// Permanent failures (bad plan, Closed) and contention are never retried
-    /// under the cap.
-    pub fn should_retry(&self, class: ErrorClass) -> bool {
-        class.is_transient() && !self.exhausted()
     }
 
     /// The backoff delay before the next attempt.
@@ -111,10 +104,9 @@ mod tests {
         b.begin(gen(1)); // same generation — does NOT reset
         b.record_failure();
         assert_eq!(b.attempts(), 2);
-        assert!(b.should_retry(ErrorClass::Transient));
+        assert!(!b.exhausted());
         b.record_failure();
         assert!(b.exhausted());
-        assert!(!b.should_retry(ErrorClass::Transient));
     }
 
     #[test]
@@ -156,15 +148,6 @@ mod tests {
         assert!(b.exhausted());
         b.begin(gen(2));
         assert!(!b.exhausted());
-    }
-
-    #[test]
-    fn permanent_and_contention_never_retry() {
-        let mut b = AttemptBudget::new(5);
-        b.begin(gen(1));
-        assert!(!b.should_retry(ErrorClass::Permanent));
-        assert!(!b.should_retry(ErrorClass::Contention));
-        assert!(b.should_retry(ErrorClass::Transient));
     }
 
     #[test]
