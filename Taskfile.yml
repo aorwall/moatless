@@ -225,6 +225,64 @@ tasks:
         if [ "$built" = "$running" ]; then echo "==> OK: cluster is running the image just built";
         else echo "==> MISMATCH: cluster is not running the new build"; exit 1; fi'
 
+  dev:frontend:
+    desc: "Local loop: rebuild the frontend and roll it out on the Docker Desktop cluster"
+    vars:
+      DEV_TAG: '{{.DEV_TAG | default "dev"}}'
+      DEV_NS: '{{.DEV_NS | default "moatless"}}'
+      KC: 'KUBECONFIG=$HOME/.kube/config kubectl --context docker-desktop -n {{.DEV_NS}}'
+    cmds:
+      # `--local` builds a native single-arch image into the local Docker store
+      # (no registry push) — docker-desktop's kubelet shares that store.
+      - ./docker/build-app.sh --local --tag {{.DEV_TAG}}
+      - echo "==> Rolling out {{.RELEASE_NAME}} to docker-desktop/{{.DEV_NS}}..."
+      - '{{.KC}} rollout restart deployment/{{.RELEASE_NAME}}'
+      - '{{.KC}} rollout status deployment/{{.RELEASE_NAME}} --timeout=180s'
+      - task: dev:verify:frontend
+        vars:
+          DEV_TAG: '{{.DEV_TAG}}'
+          DEV_NS: '{{.DEV_NS}}'
+
+  dev:verify:frontend:
+    desc: Assert the cluster is running the frontend image that was just built
+    vars:
+      DEV_TAG: '{{.DEV_TAG | default "dev"}}'
+      DEV_NS: '{{.DEV_NS | default "moatless"}}'
+    cmds:
+      # `IfNotPresent` + a re-used `:dev` tag makes "stale image silently kept"
+      # the failure mode to guard against, so compare the digests explicitly.
+      # Pods are scoped to the newest ReplicaSet: `rollout status` returns before
+      # the previous revision's pods finish terminating, and those still report
+      # the old digest.
+      - >-
+        bash -c 'set -euo pipefail;
+        export KUBECONFIG=$HOME/.kube/config;
+        built=$(docker images --no-trunc --quiet {{.REGISTRY_ORG}}/moatless-frontend:{{.DEV_TAG}});
+        hash=$(kubectl --context docker-desktop -n {{.DEV_NS}} get rs
+        -l app.kubernetes.io/component=app --sort-by=.metadata.creationTimestamp
+        -o jsonpath="{.items[-1:].metadata.labels.pod-template-hash}");
+        running=$(kubectl --context docker-desktop -n {{.DEV_NS}} get pods
+        -l app.kubernetes.io/component=app,pod-template-hash=$hash
+        -o jsonpath="{.items[*].status.containerStatuses[0].imageID}"
+        | tr " " "\n" | sed "s|.*@||" | sort -u);
+        echo "  built  : $built";
+        echo "  running: $running";
+        if [ "$built" = "$running" ]; then echo "==> OK: cluster is running the image just built";
+        else echo "==> MISMATCH: cluster is not running the new build"; exit 1; fi'
+
+  dev:sandbox:
+    desc: "Local loop: build the sandbox image into the local Docker store (no push, no rollout)"
+    vars:
+      DEV_TAG: '{{.DEV_TAG | default "latest"}}'
+    cmds:
+      # `--local` builds a native single-arch image into the local Docker store
+      # (no registry push). Sandbox pods are created per task, so there's nothing
+      # to roll out — new pods on the same tag with IfNotPresent pull the fresh
+      # image. Forward extra flags after `--`, e.g. `task dev:sandbox -- --skip-base`
+      # to reuse the existing base and rebuild only the sandbox layers.
+      - ./docker/build-sandbox.sh --local --tag {{.DEV_TAG}} {{.CLI_ARGS}}
+      - echo "==> Sandbox built locally at tag '{{.DEV_TAG}}'. New sandbox pods on this tag will use it."
+
   # ── Kubernetes operations ──────────────────────────────────────
 
   restart:
