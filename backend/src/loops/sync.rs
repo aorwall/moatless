@@ -174,6 +174,18 @@ async fn resolve_loop(
         repo.owner_user_id.as_deref(),
         repo.created_by.as_deref(),
     );
+    // A committed `runAsUserId` (or the configured default) may be a legacy
+    // provider id; resolve it to the internal uuid, falling back to the repo
+    // owner/creator (already uuids) when it names no known user.
+    let run_as_user_id = match run_as_user_id {
+        Some(raw) => resolve_run_as_to_internal_id(state.users.as_ref(), &raw)
+            .await
+            .or_else(|| {
+                warn!(run_as = %raw, "runAsUserId does not resolve to a known user; falling back to repo owner/creator");
+                repo.owner_user_id.clone().or_else(|| repo.created_by.clone())
+            }),
+        None => None,
+    };
 
     let routing_mode = match fm.routing_mode.as_deref() {
         None => RoutingMode::BySubject,
@@ -420,7 +432,7 @@ async fn upsert_loop(
     let created_by = repo
         .created_by
         .clone()
-        .unwrap_or_else(|| auth.user_id.clone());
+        .unwrap_or_else(|| auth.user_id.to_string());
     let trigger_name = resolved.name.clone().or_else(|| Some(parsed.name.clone()));
 
     let mut tx = state.db.begin().await?;
@@ -553,7 +565,7 @@ async fn upsert_loop(
 /// rows all yield a usable token. Returns `None` (unauthenticated fetch, works
 /// for public repos) when there's no connection or resolution fails.
 async fn resolve_github_token(state: &AppState, auth: &AuthUser) -> Option<String> {
-    match resolve_state_github_token_for(state, &auth.user_id, &auth.team_ids, None).await {
+    match resolve_state_github_token_for(state, &auth.user_id.to_string(), &auth.team_ids, None).await {
         Ok(token) => token,
         Err(e) => {
             warn!(error = %e, "Loop sync: failed to resolve GitHub token");
@@ -590,6 +602,24 @@ pub(crate) fn resolve_run_as_user_id(
         .or(repo_owner)
         .or(repo_created_by)
         .map(str::to_string)
+}
+
+/// Resolve a `run_as_user_id` reference — an internal uuid, or a legacy provider
+/// id preserved in `user_provider_ids.provider_user_id` — to the internal uuid.
+/// Returns `None` when it names no known user.
+async fn resolve_run_as_to_internal_id(
+    users: &dyn crate::auth::users::UserRepository,
+    raw: &str,
+) -> Option<String> {
+    if let Ok(uid) = raw.parse::<uuid::Uuid>() {
+        if matches!(users.get_user(&uid).await, Ok(Some(_))) {
+            return Some(uid.to_string());
+        }
+    }
+    match users.find_user_by_legacy_id(raw).await {
+        Ok(Some(user)) => Some(user.id.to_string()),
+        _ => None,
+    }
 }
 
 /// Given the repo's existing `repo_loop` triggers as `(trigger_id, loop_name)`

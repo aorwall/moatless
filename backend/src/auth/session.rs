@@ -3,6 +3,7 @@
 use chrono::Utc;
 use rand::RngExt;
 use tracing::{error, info, warn};
+use uuid::Uuid;
 
 use super::jwt;
 use super::models::{OAuthTokens, ProviderUserInfo, UserRole};
@@ -26,6 +27,7 @@ pub async fn create_session(
     sessions: &dyn SessionRepository,
     provider_tokens: &dyn ProviderTokenAuthRepository,
     secrets: Option<&crate::secret::service::SecretService>,
+    user_id: Uuid,
     provider_id: &str,
     tokens: &OAuthTokens,
     user_info: &ProviderUserInfo,
@@ -36,18 +38,27 @@ pub async fn create_session(
 ) -> Result<String, crate::auth::error::AuthError> {
     let now = Utc::now();
     let expires_at = now + chrono::Duration::seconds(session_max_age_secs as i64);
+    let user_id_str = user_id.to_string();
 
-    // Upsert user
-    let existing_user = users.get_user(&user_info.id).await?;
+    // `github` and `github_app` collapse to a single provider-identity key.
+    let provider_key = if provider_id == "github" || provider_id == "github_app" {
+        "github"
+    } else {
+        provider_id
+    };
+
+    // Upsert user (keyed on the internal uuid).
+    let existing_user = users.get_user(&user_id).await?;
     let role = existing_user.as_ref().map_or(UserRole::User, |u| u.role);
 
     let user_row = User {
-        id: user_info.id.clone(),
+        id: user_id,
         login: user_info.login.clone(),
         email: user_info.email.clone(),
         name: user_info.name.clone(),
         avatar_url: user_info.avatar_url.clone(),
         provider: provider_id.to_string(),
+        provider_user_id: Some(user_info.id.clone()),
         role,
         created_at: existing_user.as_ref().map_or(now, |u| u.created_at),
         last_login_at: now,
@@ -58,6 +69,15 @@ pub async fn create_session(
     };
     users.upsert_user(&user_row).await?;
 
+    // Record the provider identity so future logins resolve by
+    // (provider, provider_user_id) to this internal uuid.
+    if let Err(e) = users
+        .upsert_provider_id(&user_id, provider_key, &user_info.id)
+        .await
+    {
+        warn!(error = %e, user_id = %user_id, "Failed to record provider identity");
+    }
+
     let action = if existing_user.is_some() {
         "Updated"
     } else {
@@ -65,7 +85,8 @@ pub async fn create_session(
     };
     info!(
         user_login = %user_info.login,
-        user_id = %user_info.id,
+        user_id = %user_id,
+        provider_user_id = %user_info.id,
         provider = %provider_id,
         "{} user record",
         action,
@@ -76,7 +97,7 @@ pub async fn create_session(
     let session = Session {
         id: session_id.clone(),
         provider: provider_id.to_string(),
-        user_id: user_info.id.clone(),
+        user_id: user_id_str.clone(),
         user_login: user_info.login.clone(),
         user_email: user_info.email.clone(),
         user_name: user_info.name.clone(),
@@ -97,7 +118,7 @@ pub async fn create_session(
     let is_github_provider = provider_id == "github" || provider_id == "github_app";
     if is_github_provider && !tokens.access_token.is_empty() {
         let existing_token_type = provider_tokens
-            .find_token_type(&user_info.id, "github")
+            .find_token_type(&user_id_str, "github")
             .await
             .unwrap_or(None);
 
@@ -108,19 +129,19 @@ pub async fn create_session(
                 Some(secrets) => {
                     if let Err(e) = crate::auth::credentials::stash_github_oauth_token(
                         secrets,
-                        &user_info.id,
+                        &user_id_str,
                         &tokens.access_token,
                     )
                     .await
                     {
                         warn!(
                             error = %e,
-                            user_id = %user_info.id,
+                            user_id = %user_id,
                             "Failed to stash OAuth token behind PAT override"
                         );
                     } else {
                         info!(
-                            user_id = %user_info.id,
+                            user_id = %user_id,
                             login = %user_info.login,
                             "Updated stashed OAuth token (PAT override active)"
                         );
@@ -128,7 +149,7 @@ pub async fn create_session(
                 }
                 None => {
                     warn!(
-                        user_id = %user_info.id,
+                        user_id = %user_id,
                         "No secret service wired — cannot stash OAuth token behind PAT override"
                     );
                 }
@@ -140,7 +161,7 @@ pub async fn create_session(
                 "oauth"
             };
             let pt = ProviderToken {
-                user_id: user_info.id.clone(),
+                user_id: user_id_str.clone(),
                 provider: "github".to_string(),
                 auth_method: auth_method.to_string(),
                 access_token: tokens.access_token.clone(),
@@ -157,12 +178,12 @@ pub async fn create_session(
             if let Err(e) = provider_tokens.upsert_provider_token(&pt).await {
                 warn!(
                     error = %e,
-                    user_id = %user_info.id,
+                    user_id = %user_id,
                     "Failed to persist GitHub token to provider_tokens"
                 );
             } else {
                 info!(
-                    user_id = %user_info.id,
+                    user_id = %user_id,
                     login = %user_info.login,
                     auth_method = %auth_method,
                     "Persisted GitHub token to provider_tokens"
@@ -173,7 +194,7 @@ pub async fn create_session(
 
     // Generate JWT
     let token = jwt::generate_session_jwt(
-        &user_info.id,
+        user_id,
         &user_info.login,
         role,
         provider_id,
@@ -244,7 +265,7 @@ pub async fn create_session_from_user_with_provider(
     let session = Session {
         id: session_id.clone(),
         provider: provider.to_string(),
-        user_id: user.id.clone(),
+        user_id: user.id.to_string(),
         user_login: user.login.clone(),
         user_email: user.email.clone(),
         user_name: user.name.clone(),
@@ -262,7 +283,7 @@ pub async fn create_session_from_user_with_provider(
 
     // Generate JWT
     let token = jwt::generate_session_jwt(
-        &user.id,
+        user.id,
         &user.login,
         user.role,
         provider,

@@ -146,7 +146,7 @@ pub async fn create_workspace(
         scope: resolved.scope,
         team_id: Some(resolved.team_id),
         owner_user_id: resolved.owner_user_id,
-        created_by: Some(auth.user_id.clone()),
+        created_by: Some(auth.user_id.clone().to_string()),
         deleted: Some(false),
         created_at: None,
         updated_at: None,

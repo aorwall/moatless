@@ -2,6 +2,7 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use uuid::Uuid;
 
 use super::models::UserCredential;
 use crate::db::DbPool;
@@ -13,11 +14,11 @@ pub trait UserCredentialRepository: Send + Sync {
     /// Look up a credential by username, case-insensitively.
     async fn find_by_username(&self, username: &str)
         -> Result<Option<UserCredential>, sqlx::Error>;
-    async fn find_by_user_id(&self, user_id: &str) -> Result<Option<UserCredential>, sqlx::Error>;
+    async fn find_by_user_id(&self, user_id: &Uuid) -> Result<Option<UserCredential>, sqlx::Error>;
     /// Insert or replace a user's credential.
     async fn upsert(
         &self,
-        user_id: &str,
+        user_id: &Uuid,
         username: &str,
         password_hash: &str,
         must_change: bool,
@@ -25,13 +26,13 @@ pub trait UserCredentialRepository: Send + Sync {
     /// Replace the hash and clear the failure counter and change flag.
     async fn set_password_hash(
         &self,
-        user_id: &str,
+        user_id: &Uuid,
         password_hash: &str,
     ) -> Result<bool, sqlx::Error>;
-    async fn record_login_success(&self, user_id: &str, at: DateTime<Utc>)
+    async fn record_login_success(&self, user_id: &Uuid, at: DateTime<Utc>)
         -> Result<(), sqlx::Error>;
-    async fn record_login_failure(&self, user_id: &str) -> Result<(), sqlx::Error>;
-    async fn delete(&self, user_id: &str) -> Result<bool, sqlx::Error>;
+    async fn record_login_failure(&self, user_id: &Uuid) -> Result<(), sqlx::Error>;
+    async fn delete(&self, user_id: &Uuid) -> Result<bool, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`UserCredentialRepository`].
@@ -53,7 +54,7 @@ impl UserCredentialRepository for PgUserCredentialRepository {
         .await
     }
 
-    async fn find_by_user_id(&self, user_id: &str) -> Result<Option<UserCredential>, sqlx::Error> {
+    async fn find_by_user_id(&self, user_id: &Uuid) -> Result<Option<UserCredential>, sqlx::Error> {
         sqlx::query_as::<_, UserCredential>(
             "SELECT user_id, username, password_hash, must_change, failed_attempts, \
                     last_login_at, password_changed_at, created_at, updated_at \
@@ -66,7 +67,7 @@ impl UserCredentialRepository for PgUserCredentialRepository {
 
     async fn upsert(
         &self,
-        user_id: &str,
+        user_id: &Uuid,
         username: &str,
         password_hash: &str,
         must_change: bool,
@@ -94,7 +95,7 @@ impl UserCredentialRepository for PgUserCredentialRepository {
 
     async fn set_password_hash(
         &self,
-        user_id: &str,
+        user_id: &Uuid,
         password_hash: &str,
     ) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
@@ -115,7 +116,7 @@ impl UserCredentialRepository for PgUserCredentialRepository {
 
     async fn record_login_success(
         &self,
-        user_id: &str,
+        user_id: &Uuid,
         at: DateTime<Utc>,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
@@ -130,7 +131,7 @@ impl UserCredentialRepository for PgUserCredentialRepository {
         Ok(())
     }
 
-    async fn record_login_failure(&self, user_id: &str) -> Result<(), sqlx::Error> {
+    async fn record_login_failure(&self, user_id: &Uuid) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"UPDATE user_credentials
                SET failed_attempts = failed_attempts + 1, updated_at = now()
@@ -142,7 +143,7 @@ impl UserCredentialRepository for PgUserCredentialRepository {
         Ok(())
     }
 
-    async fn delete(&self, user_id: &str) -> Result<bool, sqlx::Error> {
+    async fn delete(&self, user_id: &Uuid) -> Result<bool, sqlx::Error> {
         let result = sqlx::query("DELETE FROM user_credentials WHERE user_id = $1")
             .bind(user_id)
             .execute(&self.0)

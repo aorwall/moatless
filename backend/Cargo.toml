@@ -45,13 +45,13 @@ metrics-exporter-prometheus = "0.18"
 dotenvy = "0.15"
 
 # Database
-sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "migrate"] }
+sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid", "migrate"] }
 
 # Redis
 redis = { version = "1.2", features = ["tokio-comp", "connection-manager"] }
 
 # UUID + timestamps
-uuid = { version = "1", features = ["v4"] }
+uuid = { version = "1", features = ["v4", "v5", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 
 # HTTP client (OAuth token exchange)
@@ -140,7 +140,7 @@ workspace = true
 
 [dev-dependencies]
 tokio-test = "0.4"
-sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "migrate"] }
+sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "migrate"] }
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
 mockall = "0.15"

@@ -12,6 +12,7 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use tracing::{debug, warn};
+use uuid::Uuid;
 
 use super::api_key::validate_key_cached;
 use super::api_keys::ApiKeyRepository;
@@ -125,12 +126,16 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
             .await
             {
                 Ok(Some(payload)) => {
-                    debug!(user_id = %payload.user_id, path = %path, "Auth middleware: API key valid");
+                    let Ok(user_id) = payload.user_id.parse::<Uuid>() else {
+                        warn!(path = %path, user_id = %payload.user_id, "Auth middleware: API key user_id is not a uuid");
+                        return unauthorized_response();
+                    };
+                    debug!(user_id = %user_id, path = %path, "Auth middleware: API key valid");
                     // Stamp user_id onto the surrounding request-trace span so
                     // every downstream log line carries it.
-                    tracing::Span::current().record("user_id", payload.user_id.as_str());
+                    tracing::Span::current().record("user_id", user_id.to_string().as_str());
                     req.extensions_mut().insert(AuthIdentity {
-                        user_id: payload.user_id,
+                        user_id,
                         login: payload.user_login,
                         role: payload.role,
                         provider: payload.provider,
@@ -165,7 +170,7 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
                 debug!(user_id = %claims.sub, path = %path, "Auth middleware: session JWT valid");
                 // Stamp user_id onto the surrounding request-trace span so
                 // every downstream log line carries it.
-                tracing::Span::current().record("user_id", claims.sub.as_str());
+                tracing::Span::current().record("user_id", claims.sub.to_string().as_str());
                 let role = claims.user_role();
                 req.extensions_mut().insert(AuthIdentity {
                     user_id: claims.sub,

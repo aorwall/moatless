@@ -493,7 +493,7 @@ async fn change_password_handler(
     // Invalidate every session, including this one — the browser re-logs in.
     if let Err(e) = state
         .sessions
-        .delete_sessions_for_user(&claims.sub)
+        .delete_sessions_for_user(&claims.sub.to_string())
         .await
     {
         warn!(error = %e, "Failed to clear sessions after password change");
@@ -557,7 +557,7 @@ async fn admin_reset_password_handler(
 
     if let Err(e) = state
         .sessions
-        .delete_sessions_for_user(&credential.user_id)
+        .delete_sessions_for_user(&credential.user_id.to_string())
         .await
     {
         warn!(error = %e, "Failed to clear sessions after admin password reset");
@@ -603,7 +603,11 @@ async fn create_local_user(
     }
 
     let role = req.role.unwrap_or(UserRole::User);
-    let user_id = format!("local:{}", login.to_lowercase());
+    // The internal id is a uuid; the `local:<login>` handle is preserved as the
+    // provider identity so it resolves back to this uuid.
+    let provider_user_id = format!("local:{}", login.to_lowercase());
+    let user_id = uuid::Uuid::new_v4();
+    let user_id_str = user_id.to_string();
     let team_id = format!("personal-{user_id}");
 
     // Hash before opening the transaction — argon2 costs ~100ms and must not
@@ -617,16 +621,27 @@ async fn create_local_user(
 
     sqlx::query(
         r#"
-        INSERT INTO users (id, login, email, name, avatar_url, provider, role, created_at, last_login_at, is_bot)
-        VALUES ($1, $2, NULL, $3, NULL, 'local', $4, $5, $5, false)
+        INSERT INTO users (id, login, email, name, avatar_url, provider, provider_user_id, role, created_at, last_login_at, is_bot)
+        VALUES ($1, $2, NULL, $3, NULL, 'local', $4, $5, $6, $6, false)
         ON CONFLICT (id) DO NOTHING
         "#,
     )
-    .bind(&user_id)
+    .bind(user_id)
     .bind(login)
     .bind(login)
+    .bind(&provider_user_id)
     .bind(role)
     .bind(now)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query(
+        r#"INSERT INTO user_provider_ids (user_id, provider, provider_user_id, created_at)
+           VALUES ($1, 'local', $2, NOW())
+           ON CONFLICT (user_id, provider) DO NOTHING"#,
+    )
+    .bind(user_id)
+    .bind(&provider_user_id)
     .execute(&mut *tx)
     .await?;
 
@@ -638,7 +653,7 @@ async fn create_local_user(
     )
     .bind(&team_id)
     .bind(format!("{login} Personal"))
-    .bind(personal_team_slug(&user_id))
+    .bind(personal_team_slug(&user_id_str))
     .execute(&mut *tx)
     .await?;
 
@@ -648,7 +663,7 @@ async fn create_local_user(
            ON CONFLICT (team_id, user_id) DO UPDATE SET role = EXCLUDED.role"#,
     )
     .bind(&team_id)
-    .bind(&user_id)
+    .bind(user_id)
     .execute(&mut *tx)
     .await?;
 
@@ -657,7 +672,7 @@ async fn create_local_user(
            VALUES ($1, $2, $3, $4)
            ON CONFLICT DO NOTHING"#,
     )
-    .bind(&user_id)
+    .bind(user_id)
     .bind(login)
     .bind(&password_hash)
     .bind(req.must_change_password.unwrap_or(false))
@@ -738,8 +753,12 @@ async fn authenticate_request(
             )
             .await?
             {
+                let user_id = payload
+                    .user_id
+                    .parse::<uuid::Uuid>()
+                    .map_err(|_| AuthError::InvalidApiKey)?;
                 return Ok(AuthIdentity {
-                    user_id: payload.user_id,
+                    user_id,
                     login: payload.user_login,
                     role: payload.role,
                     provider: payload.provider,
@@ -807,7 +826,7 @@ async fn verify_handler(
         if let Some(task_id) = extract_task_id_from_hostname(host) {
             if let Some(ref tasks) = state.tasks {
                 let scope_ctx = ScopeContext {
-                    user_id: identity.user_id.clone(),
+                    user_id: identity.user_id.clone().to_string(),
                     team_ids: identity.team_ids.clone(),
                     is_admin: identity.role == UserRole::Admin,
                 };
@@ -869,14 +888,15 @@ async fn me_handler(
     };
 
     let setup_ctx = SetupContext {
-        user_id: &identity.user_id,
+        user_id: &identity.user_id.to_string(),
         team_ids: &identity.team_ids,
         is_admin: identity.role == UserRole::Admin,
         provider_tokens: state.provider_tokens_dao.as_ref(),
         secrets: Some(state.secrets.as_ref()),
     };
+    let user_id_str = identity.user_id.to_string();
     let (providers, setup) = tokio::join!(
-        check_provider_connections(&state, &identity.user_id),
+        check_provider_connections(&state, &user_id_str),
         evaluate_setup(&setup_ctx),
     );
 
@@ -1232,26 +1252,39 @@ async fn handle_oauth_callback(
     // Resolve JWT secret
     let jwt_secret = require_jwt_secret(&state.config)?;
 
+    // Resolve the internal user id from the provider identity (github/github_app
+    // share one key), or mint a fresh uuid for a first-time login.
+    let provider_str = provider_id.to_string();
+    let provider_key = if provider_str == "github" || provider_str == "github_app" {
+        "github"
+    } else {
+        provider_str.as_str()
+    };
+    let user_id = match state
+        .users
+        .find_user_by_provider_id(provider_key, &user_info.id)
+        .await
+        .map_err(AuthError::Database)?
+    {
+        Some(user) => user.id,
+        None => uuid::Uuid::new_v4(),
+    };
+
     // Resolve team memberships
     let team_ids = if let Some(ref teams_repo) = state.teams {
-        resolve_team_ids_on_login(
-            teams_repo.as_ref(),
-            &user_info.id,
-            group_id.as_deref(),
-            &state.config,
-        )
-        .await
+        resolve_team_ids_on_login(teams_repo.as_ref(), &user_id, group_id.as_deref(), &state.config)
+            .await
     } else {
         vec![]
     };
 
     // Create session (returns JWT)
-    let provider_str = provider_id.to_string();
     let jwt_token = session::create_session(
         state.users.as_ref(),
         state.sessions.as_ref(),
         state.provider_tokens.as_ref(),
         Some(state.secrets.as_ref()),
+        user_id,
         &provider_str,
         &tokens,
         &user_info,
@@ -1276,7 +1309,7 @@ async fn handle_oauth_callback(
         // CLI flow: generate API key and redirect to localhost callback
         let result = api_key::generate_key(
             state.api_keys.as_ref(),
-            &user_info.id,
+            &user_id.to_string(),
             "moat-cli",
             None,
             None,
@@ -1500,9 +1533,13 @@ async fn exchange_api_key_handler(
         .await?
         .ok_or(AuthError::InvalidApiKey)?;
 
+    let user_id = payload
+        .user_id
+        .parse::<uuid::Uuid>()
+        .map_err(|_| AuthError::Unauthorized)?;
     let user = state
         .users
-        .get_user(&payload.user_id)
+        .get_user(&user_id)
         .await?
         .ok_or(AuthError::Unauthorized)?;
 
@@ -1594,9 +1631,13 @@ async fn exchange_token_handler(
     let claims = crate::sandbox::jwt::verify_user_auth_token(token, secret)
         .map_err(|_| AuthError::Unauthorized)?;
 
+    let user_id = claims
+        .user_id
+        .parse::<uuid::Uuid>()
+        .map_err(|_| AuthError::Unauthorized)?;
     let user = state
         .users
-        .get_user(&claims.user_id)
+        .get_user(&user_id)
         .await?
         .ok_or(AuthError::Unauthorized)?;
 
@@ -1680,7 +1721,7 @@ async fn create_api_key_handler(
 
     let result = api_key::generate_key(
         state.api_keys.as_ref(),
-        &claims.sub,
+        &claims.sub.to_string(),
         &body.name,
         body.scopes,
         expires_at,
@@ -1717,7 +1758,7 @@ async fn list_api_keys_handler(
     headers: HeaderMap,
 ) -> Result<Json<Vec<ApiKeyListItem>>, AuthError> {
     let claims = authenticate_from_cookie(&state.config, &headers)?;
-    let keys = api_key::list_keys(state.api_keys.as_ref(), &claims.sub).await?;
+    let keys = api_key::list_keys(state.api_keys.as_ref(), &claims.sub.to_string()).await?;
 
     let items: Vec<ApiKeyListItem> = keys
         .iter()
@@ -1758,7 +1799,7 @@ async fn revoke_api_key_handler(
     Path(key_id): Path<String>,
 ) -> Result<Json<MessageResponse>, AuthError> {
     let claims = authenticate_from_cookie(&state.config, &headers)?;
-    let result = api_key::revoke_key(state.api_keys.as_ref(), &key_id, &claims.sub).await?;
+    let result = api_key::revoke_key(state.api_keys.as_ref(), &key_id, &claims.sub.to_string()).await?;
 
     match result {
         Some(key_hash) => {
@@ -1828,8 +1869,9 @@ async fn create_user_handler(
         .map_err(|e| AuthError::Internal(format!("Failed to resolve bot identity: {e}")))?;
 
     let now = chrono::Utc::now();
-    let user_id = format!("bot:{app_key}");
-    let team_id = format!("personal-{user_id}");
+    // The App key is preserved as the bot's provider identity; the internal id
+    // is a uuid, reused across re-runs so the endpoint stays idempotent.
+    let provider_user_id = format!("bot:{app_key}");
 
     // Atomic: users + personal team scaffolding + provider_tokens row succeed
     // together. A failure of the provider_tokens insert must not leave a
@@ -1838,29 +1880,50 @@ async fn create_user_handler(
     // login/email from the GitHub App metadata via the ON CONFLICT clauses.
     let mut tx = state.db.begin().await.map_err(AuthError::Database)?;
 
+    let existing_bot: Option<(uuid::Uuid,)> =
+        sqlx::query_as("SELECT id FROM users WHERE provider_user_id = $1")
+            .bind(&provider_user_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    let user_id = existing_bot.map_or_else(uuid::Uuid::new_v4, |(id,)| id);
+    let user_id_str = user_id.to_string();
+    let team_id = format!("personal-{user_id}");
+
     sqlx::query(
         r#"
-        INSERT INTO users (id, login, email, name, avatar_url, provider, role, created_at, last_login_at, is_bot)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        INSERT INTO users (id, login, email, name, avatar_url, provider, provider_user_id, role, created_at, last_login_at, is_bot)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         ON CONFLICT (id) DO UPDATE SET
             login = EXCLUDED.login,
             email = COALESCE(users.email, EXCLUDED.email),
             name = EXCLUDED.name,
             avatar_url = EXCLUDED.avatar_url,
+            provider_user_id = COALESCE(EXCLUDED.provider_user_id, users.provider_user_id),
             last_login_at = EXCLUDED.last_login_at,
             is_bot = EXCLUDED.is_bot
         "#,
     )
-    .bind(&user_id)
+    .bind(user_id)
     .bind(&bot_identity.login)
     .bind(Some(&bot_identity.email))
     .bind(Some(&bot_identity.login))
     .bind::<Option<String>>(None)
     .bind("github_app")
+    .bind(&provider_user_id)
     .bind(UserRole::User)
     .bind(now)
     .bind(now)
     .bind(true)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query(
+        r#"INSERT INTO user_provider_ids (user_id, provider, provider_user_id, created_at)
+           VALUES ($1, 'github_app', $2, NOW())
+           ON CONFLICT (user_id, provider) DO NOTHING"#,
+    )
+    .bind(user_id)
+    .bind(&provider_user_id)
     .execute(&mut *tx)
     .await?;
 
@@ -1873,7 +1936,7 @@ async fn create_user_handler(
     )
     .bind(&team_id)
     .bind(format!("{user_id} Personal"))
-    .bind(personal_team_slug(&user_id))
+    .bind(personal_team_slug(&user_id_str))
     .execute(&mut *tx)
     .await?;
 
@@ -1883,7 +1946,7 @@ async fn create_user_handler(
            ON CONFLICT (team_id, user_id) DO UPDATE SET role = EXCLUDED.role"#,
     )
     .bind(&team_id)
-    .bind(&user_id)
+    .bind(user_id)
     .execute(&mut *tx)
     .await?;
 
@@ -1914,7 +1977,7 @@ async fn create_user_handler(
             expires_at = EXCLUDED.expires_at
         "#,
     )
-    .bind(&user_id)
+    .bind(&user_id_str)
     .bind("github")
     .bind(super::provider_tokens::AUTH_METHOD_APP_INSTALLATION)
     .bind(super::provider_tokens::APP_INSTALLATION_TOKEN_PLACEHOLDER)
@@ -1980,7 +2043,10 @@ async fn admin_set_codex_provider_token_handler(
     }
 
     // Validate the target user exists so we don't silently seed an orphan row.
-    let target = state.users.get_user(&target_user_id).await?;
+    let target = match target_user_id.parse::<uuid::Uuid>() {
+        Ok(uid) => state.users.get_user(&uid).await?,
+        Err(_) => None,
+    };
     if target.is_none() {
         return Err(AuthError::BadRequest(format!(
             "Unknown target user '{target_user_id}'"
@@ -2055,7 +2121,7 @@ async fn list_users_handler(
     let items: Vec<UserListItem> = users
         .iter()
         .map(|u| UserListItem {
-            id: u.id.clone(),
+            id: u.id,
             login: u.login.clone(),
             email: u.email.clone(),
             name: u.name.clone(),
@@ -2134,7 +2200,10 @@ async fn update_user_handler(
 // ============================================================================
 
 /// Resolve a login to a user ID, returning 404 if not found.
-async fn resolve_login_to_user_id(state: &AuthState, login: &str) -> Result<String, AuthError> {
+async fn resolve_login_to_user_id(
+    state: &AuthState,
+    login: &str,
+) -> Result<uuid::Uuid, AuthError> {
     let user = state
         .users
         .get_user_by_login(login)
@@ -2279,7 +2348,7 @@ async fn list_user_provider_ids_handler(
 /// For all users, checks for default team assignment if the user has no teams.
 async fn resolve_team_ids_on_login(
     teams: &dyn crate::team::dao::TeamRepository,
-    user_id: &str,
+    user_id: &uuid::Uuid,
     group_id: Option<&str>,
     config: &Config,
 ) -> Vec<String> {
@@ -2289,11 +2358,11 @@ async fn resolve_team_ids_on_login(
         match teams.upsert_by_external(group, "auth0", group, &slug).await {
             Ok(team) => {
                 if let Err(e) = teams.add_member(&team.id, user_id, "member").await {
-                    warn!(error = %e, user_id, team_id = %team.id, "Failed to add user to Auth0 team");
+                    warn!(error = %e, user_id = %user_id, team_id = %team.id, "Failed to add user to Auth0 team");
                 }
             }
             Err(e) => {
-                warn!(error = %e, user_id, group = group, "Failed to upsert Auth0 team");
+                warn!(error = %e, user_id = %user_id, group = group, "Failed to upsert Auth0 team");
             }
         }
     }
@@ -2309,7 +2378,7 @@ async fn resolve_team_ids_on_login(
         if let Some(ref slug) = config.auth.default_team_slug {
             if let Ok(Some(default_team)) = teams.find_by_slug(slug).await {
                 if let Err(e) = teams.add_member(&default_team.id, user_id, "member").await {
-                    warn!(error = %e, user_id, "Failed to add user to default team");
+                    warn!(error = %e, user_id = %user_id, "Failed to add user to default team");
                 } else {
                     team_ids.push(default_team.id);
                 }

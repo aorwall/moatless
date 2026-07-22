@@ -1,6 +1,7 @@
 //! Team DAO — queries for team and membership persistence.
 
 use async_trait::async_trait;
+use uuid::Uuid;
 
 use super::models::{Team, TeamMember};
 use crate::db::DbPool;
@@ -26,13 +27,13 @@ pub trait TeamRepository: Send + Sync {
     ) -> Result<(), sqlx::Error>;
     async fn delete(&self, id: &str) -> Result<(), sqlx::Error>;
 
-    async fn find_teams_for_user(&self, user_id: &str) -> Result<Vec<Team>, sqlx::Error>;
-    async fn find_team_ids_for_user(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error>;
+    async fn find_teams_for_user(&self, user_id: &Uuid) -> Result<Vec<Team>, sqlx::Error>;
+    async fn find_team_ids_for_user(&self, user_id: &Uuid) -> Result<Vec<String>, sqlx::Error>;
     async fn find_members(&self, team_id: &str) -> Result<Vec<TeamMember>, sqlx::Error>;
-    async fn add_member(&self, team_id: &str, user_id: &str, role: &str)
+    async fn add_member(&self, team_id: &str, user_id: &Uuid, role: &str)
         -> Result<(), sqlx::Error>;
-    async fn remove_member(&self, team_id: &str, user_id: &str) -> Result<(), sqlx::Error>;
-    async fn is_member(&self, team_id: &str, user_id: &str) -> Result<bool, sqlx::Error>;
+    async fn remove_member(&self, team_id: &str, user_id: &Uuid) -> Result<(), sqlx::Error>;
+    async fn is_member(&self, team_id: &str, user_id: &Uuid) -> Result<bool, sqlx::Error>;
 
     /// Upsert a team by external_id + provider (for Auth0 group sync).
     async fn upsert_by_external(
@@ -149,7 +150,7 @@ impl TeamRepository for PgTeamRepository {
         Ok(())
     }
 
-    async fn find_teams_for_user(&self, user_id: &str) -> Result<Vec<Team>, sqlx::Error> {
+    async fn find_teams_for_user(&self, user_id: &Uuid) -> Result<Vec<Team>, sqlx::Error> {
         sqlx::query_as::<_, Team>(
             r#"SELECT t.id, t.name, t.slug, t.description, t.external_id, t.external_provider, t.is_default, t.settings, t.created_at, t.updated_at
                FROM teams t
@@ -162,7 +163,7 @@ impl TeamRepository for PgTeamRepository {
         .await
     }
 
-    async fn find_team_ids_for_user(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
+    async fn find_team_ids_for_user(&self, user_id: &Uuid) -> Result<Vec<String>, sqlx::Error> {
         let rows: Vec<(String,)> =
             sqlx::query_as("SELECT team_id FROM team_members WHERE user_id = $1")
                 .bind(user_id)
@@ -183,7 +184,7 @@ impl TeamRepository for PgTeamRepository {
     async fn add_member(
         &self,
         team_id: &str,
-        user_id: &str,
+        user_id: &Uuid,
         role: &str,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
@@ -199,7 +200,7 @@ impl TeamRepository for PgTeamRepository {
         Ok(())
     }
 
-    async fn remove_member(&self, team_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
+    async fn remove_member(&self, team_id: &str, user_id: &Uuid) -> Result<(), sqlx::Error> {
         sqlx::query("DELETE FROM team_members WHERE team_id = $1 AND user_id = $2")
             .bind(team_id)
             .bind(user_id)
@@ -208,7 +209,7 @@ impl TeamRepository for PgTeamRepository {
         Ok(())
     }
 
-    async fn is_member(&self, team_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
+    async fn is_member(&self, team_id: &str, user_id: &Uuid) -> Result<bool, sqlx::Error> {
         let row: (bool,) = sqlx::query_as(
             "SELECT EXISTS(SELECT 1 FROM team_members WHERE team_id = $1 AND user_id = $2)",
         )

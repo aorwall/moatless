@@ -543,7 +543,10 @@ async fn fill_git_identity(
     user_id: &str,
 ) {
     let Some(users) = users else { return };
-    let user = match users.get_user(user_id).await {
+    let Ok(uuid) = user_id.parse::<uuid::Uuid>() else {
+        return;
+    };
+    let user = match users.get_user(&uuid).await {
         Ok(Some(u)) => u,
         Ok(None) => return,
         Err(e) => {
@@ -827,7 +830,8 @@ mod tests {
         use chrono::{DateTime, Utc};
         let epoch = DateTime::<Utc>::from_timestamp(0, 0).expect("valid epoch");
         crate::auth::users::User {
-            id: "u1".to_string(),
+            id: uuid::Uuid::from_u128(1),
+            provider_user_id: None,
             login: login.to_string(),
             email: email.map(str::to_string),
             name: name.map(str::to_string),
@@ -866,7 +870,11 @@ mod tests {
         );
 
         let mut credentials = HashMap::new();
-        fill_git_identity(&mut credentials, Some(&users), "u1").await;
+        fill_git_identity(
+            &mut credentials,
+            Some(&users),
+            &uuid::Uuid::from_u128(1).to_string(),
+        ).await;
 
         assert_eq!(
             credentials.get(GIT_USER_NAME).map(String::as_str),
@@ -890,7 +898,11 @@ mod tests {
         );
 
         let mut credentials = HashMap::new();
-        fill_git_identity(&mut credentials, Some(&users), "u1").await;
+        fill_git_identity(
+            &mut credentials,
+            Some(&users),
+            &uuid::Uuid::from_u128(1).to_string(),
+        ).await;
 
         assert_eq!(
             credentials.get(GIT_USER_EMAIL).map(String::as_str),
@@ -909,7 +921,11 @@ mod tests {
         let users = users_returning("alice", None, None, /* is_bot */ false);
 
         let mut credentials = HashMap::new();
-        fill_git_identity(&mut credentials, Some(&users), "u1").await;
+        fill_git_identity(
+            &mut credentials,
+            Some(&users),
+            &uuid::Uuid::from_u128(1).to_string(),
+        ).await;
 
         assert!(!credentials.contains_key(GIT_USER_EMAIL));
         assert!(!credentials.contains_key(GIT_USER_NAME));
@@ -926,7 +942,11 @@ mod tests {
         );
 
         let mut credentials = HashMap::new();
-        fill_git_identity(&mut credentials, Some(&users), "u1").await;
+        fill_git_identity(
+            &mut credentials,
+            Some(&users),
+            &uuid::Uuid::from_u128(1).to_string(),
+        ).await;
 
         assert_eq!(
             credentials.get(GIT_USER_NAME).map(String::as_str),

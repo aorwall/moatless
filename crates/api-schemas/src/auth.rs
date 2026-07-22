@@ -1,6 +1,7 @@
 //! Auth API request/response schemas.
 
 use serde::{Deserialize, Deserializer, Serialize};
+use uuid::Uuid;
 
 use crate::enums::UserRole;
 use crate::setup::SetupStatus;
@@ -114,7 +115,7 @@ pub struct ProviderConnection {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct UserInfo {
-    pub id: String,
+    pub id: Uuid,
     pub login: String,
     pub email: Option<String>,
     pub name: Option<String>,
@@ -156,7 +157,7 @@ pub struct ApiKeyListItem {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct UserListItem {
-    pub id: String,
+    pub id: Uuid,
     pub login: String,
     pub email: Option<String>,
     pub name: Option<String>,
@@ -318,7 +319,7 @@ pub struct AuthModeResponse {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct CreateUserResponse {
-    pub id: String,
+    pub id: Uuid,
     pub login: String,
     pub email: Option<String>,
     pub is_bot: bool,

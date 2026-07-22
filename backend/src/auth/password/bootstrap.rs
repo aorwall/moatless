@@ -36,8 +36,10 @@ pub async fn ensure_local_admin(
     config: &AuthConfig,
 ) -> Result<(), BootstrapError> {
     let username = config.admin_username.trim();
-    // Deterministic id keeps the seed idempotent across restarts.
-    let user_id = format!("local:{}", username.to_lowercase());
+    // The `local:<username>` handle is the provider identity; the internal id is a
+    // uuid derived from it (v5) so the seed stays idempotent across restarts.
+    let provider_user_id = format!("local:{}", username.to_lowercase());
+    let user_id = uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, provider_user_id.as_bytes());
 
     let existing = credentials
         .find_by_user_id(&user_id)
@@ -54,12 +56,13 @@ pub async fn ensure_local_admin(
 
     let now = Utc::now();
     let user = User {
-        id: user_id.clone(),
+        id: user_id,
         login: username.to_string(),
         email: None,
         name: Some(username.to_string()),
         avatar_url: None,
         provider: "local".to_string(),
+        provider_user_id: Some(provider_user_id.clone()),
         role: UserRole::Admin,
         created_at: now,
         last_login_at: now,
@@ -69,6 +72,12 @@ pub async fn ensure_local_admin(
 
     users
         .upsert_user(&user)
+        .await
+        .map_err(BootstrapError::Persist)?;
+
+    // Keep the `local:<username>` identity resolvable (legacy refs, re-login).
+    users
+        .upsert_provider_id(&user_id, "local", &provider_user_id)
         .await
         .map_err(BootstrapError::Persist)?;
 
@@ -117,13 +126,16 @@ mod tests {
 
         let mut users = MockUserRepository::new();
         users.expect_upsert_user().returning(|_| Ok(()));
+        users
+            .expect_upsert_provider_id()
+            .returning(|_, _, _| Ok(()));
 
         let mut credentials = MockUserCredentialRepository::new();
         credentials
             .expect_find_by_user_id()
             .returning(move |user_id| {
                 Ok(existing.then(|| super::super::models::UserCredential {
-                    user_id: user_id.to_string(),
+                    user_id: *user_id,
                     username: "admin".into(),
                     password_hash: "$argon2id$existing".into(),
                     must_change: false,
@@ -160,7 +172,9 @@ mod tests {
 
         let (user_id, username, hash, must_change) =
             captured.lock().unwrap().clone().expect("upsert not called");
-        assert_eq!(user_id, "local:admin");
+        let expected_id =
+            uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, b"local:admin").to_string();
+        assert_eq!(user_id, expected_id);
         assert_eq!(username, "admin");
         assert!(!must_change);
         assert_ne!(hash, "hunter2-hunter2", "plaintext must never be persisted");

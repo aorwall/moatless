@@ -190,7 +190,7 @@ pub async fn create_trigger(
     .bind(resolved.scope)
     .bind(Some(resolved.team_id))
     .bind(resolved.owner_user_id)
-    .bind(&auth.user_id)
+    .bind(auth.user_id.to_string())
     .bind(now)
     .execute(&mut *tx)
     .await?;

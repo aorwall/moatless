@@ -219,7 +219,7 @@ impl SkillService {
                 self.github_app_service.as_deref(),
                 self.github_apps.as_ref(),
                 Some(self.secrets.as_ref()),
-                &auth.user_id,
+                &auth.user_id.to_string(),
                 None,
             )
             .await
@@ -237,7 +237,7 @@ impl SkillService {
         let provider_str = provider_to_token_key(*provider);
         let token = self
             .provider_tokens
-            .find_provider_token(&auth.user_id, provider_str)
+            .find_provider_token(&auth.user_id.to_string(), provider_str)
             .await?;
         Ok(token.map(|t| t.access_token))
     }

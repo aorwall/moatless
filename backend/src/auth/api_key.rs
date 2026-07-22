@@ -121,8 +121,11 @@ pub async fn validate_key(
         }
     });
 
-    // Get user info
-    let user = users.get_user(&row.user_id).await?;
+    // Get user info. The stored id is the uuid's text form.
+    let user = match row.user_id.parse::<uuid::Uuid>() {
+        Ok(uid) => users.get_user(&uid).await?,
+        Err(_) => None,
+    };
     let (user_name, role) = match user {
         Some(u) => (Some(u.login), u.role),
         None => (None, UserRole::User),

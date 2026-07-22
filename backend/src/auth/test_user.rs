@@ -32,15 +32,18 @@ pub async fn ensure_test_user(
         return;
     }
 
-    // 1. Upsert the test user
+    // 1. Upsert the test user. The fixed `test-api-user` handle is the provider
+    // identity; the internal id is a uuid derived from it (v5) for idempotency.
     let now = Utc::now();
+    let user_id = uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, TEST_USER_ID.as_bytes());
     let user = User {
-        id: TEST_USER_ID.to_string(),
+        id: user_id,
         login: TEST_USER_LOGIN.to_string(),
         email: None,
         name: Some("Test API User".to_string()),
         avatar_url: None,
         provider: TEST_USER_PROVIDER.to_string(),
+        provider_user_id: Some(TEST_USER_ID.to_string()),
         role: UserRole::Admin,
         created_at: now,
         last_login_at: now,
@@ -74,7 +77,7 @@ pub async fn ensure_test_user(
 
     let row = ApiKey {
         id,
-        user_id: TEST_USER_ID.to_string(),
+        user_id: user_id.to_string(),
         name: TEST_KEY_NAME.to_string(),
         key_hash,
         key_prefix: key_prefix.clone(),

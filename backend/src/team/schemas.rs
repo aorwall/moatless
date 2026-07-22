@@ -24,7 +24,7 @@ impl From<TeamMember> for TeamMemberResponse {
     fn from(m: TeamMember) -> Self {
         Self {
             team_id: m.team_id,
-            user_id: m.user_id,
+            user_id: m.user_id.to_string(),
             role: m.role,
             created_at: m.created_at.to_rfc3339(),
         }

@@ -13,6 +13,7 @@ use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use uuid::Uuid;
 
 use crate::auth::identity::AuthIdentity;
 use crate::auth::models::UserRole;
@@ -23,7 +24,7 @@ use moatless_backend_core::scope::ScopeContext;
 /// Authenticated user extracted from request extensions, user token, or dev-mode headers.
 #[derive(Debug, Clone)]
 pub struct AuthUser {
-    pub user_id: String,
+    pub user_id: Uuid,
     pub login: String,
     pub role: Option<String>,
     pub provider: Option<String>,
@@ -42,7 +43,7 @@ impl AuthUser {
     /// Build a `ScopeContext` from this authenticated user.
     pub fn scope_context(&self) -> ScopeContext {
         ScopeContext {
-            user_id: self.user_id.clone(),
+            user_id: self.user_id.to_string(),
             team_ids: self.team_ids.clone(),
             is_admin: self.role.as_deref() == Some("admin"),
         }
@@ -75,7 +76,7 @@ impl FromRequestParts<AppState> for AuthUser {
         // Path 1: AuthIdentity from middleware (production — auth provider configured)
         if let Some(identity) = parts.extensions.get::<AuthIdentity>() {
             return Ok(AuthUser {
-                user_id: identity.user_id.clone(),
+                user_id: identity.user_id,
                 login: identity.login.clone(),
                 role: Some(identity.role.as_str().to_string()),
                 provider: Some(identity.provider.clone()),
@@ -102,8 +103,13 @@ impl FromRequestParts<AppState> for AuthUser {
             let claims = jwt::verify_user_auth_token(token, secret)
                 .map_err(|e| AuthError(format!("Invalid user token: {e}")))?;
 
+            let user_id = claims
+                .user_id
+                .parse::<Uuid>()
+                .map_err(|_| AuthError("Invalid user id in token".to_string()))?;
+
             return Ok(AuthUser {
-                user_id: claims.user_id,
+                user_id,
                 login: claims.login,
                 role: None,
                 provider: Some("user-token".to_string()),
@@ -161,7 +167,7 @@ impl<S: Send + Sync> FromRequestParts<S> for OptionalScope {
             .extensions
             .get::<AuthIdentity>()
             .map(|id| ScopeContext {
-                user_id: id.user_id.clone(),
+                user_id: id.user_id.to_string(),
                 team_ids: id.team_ids.clone(),
                 is_admin: id.role == UserRole::Admin,
             });

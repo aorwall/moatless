@@ -296,26 +296,27 @@ impl BackendSandboxServiceImpl {
         &self,
         claims: &jwt::UserTokenClaims,
     ) -> Result<ScopeContext, Status> {
+        let user_uuid = claims
+            .user_id
+            .parse::<uuid::Uuid>()
+            .map_err(|_| Status::unauthenticated("Invalid user id in token"))?;
         let team_ids = match self.teams.as_ref() {
-            Some(teams) => teams
-                .find_team_ids_for_user(&claims.user_id)
-                .await
-                .map_err(|e| {
-                    warn!(error = %e, user_id = %claims.user_id, "team membership lookup failed");
-                    Status::internal("Failed to resolve caller teams")
-                })?,
+            Some(teams) => teams.find_team_ids_for_user(&user_uuid).await.map_err(|e| {
+                warn!(error = %e, user_id = %claims.user_id, "team membership lookup failed");
+                Status::internal("Failed to resolve caller teams")
+            })?,
             None => Vec::new(),
         };
         Ok(ScopeContext {
             user_id: claims.user_id.clone(),
             team_ids,
-            is_admin: self.user_is_admin(&claims.user_id).await,
+            is_admin: self.user_is_admin(&user_uuid).await,
         })
     }
 
     /// Platform-admin check for `assert_task_access`. Missing repo or a lookup
     /// error is treated as "not admin" (fail closed).
-    async fn user_is_admin(&self, user_id: &str) -> bool {
+    async fn user_is_admin(&self, user_id: &uuid::Uuid) -> bool {
         match self.users.as_ref() {
             Some(users) => {
                 matches!(users.get_user(user_id).await, Ok(Some(u)) if u.role == UserRole::Admin)
@@ -767,7 +768,10 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                 }
                 if let Some(uid) = row.sent_by.as_deref() {
                     if seen.insert(uid) {
-                        match users.get_user(uid).await {
+                        let Ok(uuid) = uid.parse::<uuid::Uuid>() else {
+                            continue;
+                        };
+                        match users.get_user(&uuid).await {
                             Ok(Some(user)) => {
                                 login_cache.insert(uid.to_string(), user.login);
                             }
@@ -2350,7 +2354,7 @@ mod tests {
     /// membership/role methods `assert_task_access` consults are meaningful.
     struct StubTeamRepo {
         /// `(user_id, role)` rows, role as stored in the DB (`owner`/`admin`/`member`).
-        members: Vec<(String, String)>,
+        members: Vec<(uuid::Uuid, String)>,
     }
 
     impl StubTeamRepo {
@@ -2358,7 +2362,7 @@ mod tests {
             Self {
                 members: members
                     .iter()
-                    .map(|(u, r)| ((*u).to_string(), (*r).to_string()))
+                    .map(|(u, r)| (uid(u), (*r).to_string()))
                     .collect(),
             }
         }
@@ -2372,7 +2376,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl TeamRepository for StubTeamRepo {
-        async fn is_member(&self, _team_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
+        async fn is_member(&self, _team_id: &str, user_id: &uuid::Uuid) -> Result<bool, sqlx::Error> {
             Ok(self.members.iter().any(|(u, _)| u == user_id))
         }
         async fn find_members(&self, team_id: &str) -> Result<Vec<TeamMember>, sqlx::Error> {
@@ -2381,13 +2385,16 @@ mod tests {
                 .iter()
                 .map(|(u, r)| TeamMember {
                     team_id: team_id.to_string(),
-                    user_id: u.clone(),
+                    user_id: *u,
                     role: r.clone(),
                     created_at: epoch(),
                 })
                 .collect())
         }
-        async fn find_team_ids_for_user(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
+        async fn find_team_ids_for_user(
+            &self,
+            user_id: &uuid::Uuid,
+        ) -> Result<Vec<String>, sqlx::Error> {
             Ok(self
                 .members
                 .iter()
@@ -2428,18 +2435,22 @@ mod tests {
         async fn delete(&self, _id: &str) -> Result<(), sqlx::Error> {
             unimplemented!()
         }
-        async fn find_teams_for_user(&self, _user_id: &str) -> Result<Vec<Team>, sqlx::Error> {
+        async fn find_teams_for_user(&self, _user_id: &uuid::Uuid) -> Result<Vec<Team>, sqlx::Error> {
             unimplemented!()
         }
         async fn add_member(
             &self,
             _team_id: &str,
-            _user_id: &str,
+            _user_id: &uuid::Uuid,
             _role: &str,
         ) -> Result<(), sqlx::Error> {
             unimplemented!()
         }
-        async fn remove_member(&self, _team_id: &str, _user_id: &str) -> Result<(), sqlx::Error> {
+        async fn remove_member(
+            &self,
+            _team_id: &str,
+            _user_id: &uuid::Uuid,
+        ) -> Result<(), sqlx::Error> {
             unimplemented!()
         }
         async fn upsert_by_external(
@@ -2455,6 +2466,12 @@ mod tests {
 
     fn epoch() -> chrono::DateTime<chrono::Utc> {
         chrono::DateTime::from_timestamp(0, 0).expect("epoch is a valid timestamp")
+    }
+
+    /// Deterministic uuid for a readable test name: distinct names map to
+    /// distinct ids, equal names to equal ids.
+    fn uid(name: &str) -> uuid::Uuid {
+        uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, name.as_bytes())
     }
 
     /// A `Task` fixture with the given scope/owner/team; all other columns are
@@ -2477,11 +2494,11 @@ mod tests {
             site_id: None,
             site_provider: None,
             branch: None,
-            created_by: owner_user_id.map(str::to_string),
+            created_by: owner_user_id.map(|u| uid(u).to_string()),
             visibility: crate::task::models::Visibility::Private,
             scope,
             team_id: team_id.map(str::to_string),
-            owner_user_id: owner_user_id.map(str::to_string),
+            owner_user_id: owner_user_id.map(|u| uid(u).to_string()),
             created_at_db: None,
             updated_at: None,
             append_system_prompt: None,
@@ -2498,9 +2515,10 @@ mod tests {
         }
     }
 
-    fn user_fixture(id: &str, role: UserRole) -> User {
+    fn user_fixture(id: &uuid::Uuid, role: UserRole) -> User {
         User {
-            id: id.to_string(),
+            id: *id,
+            provider_user_id: None,
             login: id.to_string(),
             email: None,
             name: None,
@@ -2516,7 +2534,7 @@ mod tests {
 
     fn claims_for(user_id: &str) -> jwt::UserTokenClaims {
         jwt::UserTokenClaims {
-            user_id: user_id.to_string(),
+            user_id: uid(user_id).to_string(),
             login: user_id.to_string(),
             iat: 0,
             exp: u64::MAX,
@@ -2673,7 +2691,7 @@ mod tests {
         // stays denied.
         let teams = &[("creator", "member")];
         let mut task = task_fixture(Scope::Team, None, Some("team-1"));
-        task.created_by = Some("creator".to_string());
+        task.created_by = Some(uid("creator").to_string());
 
         let svc = service_with(
             tasks_returning(Some(task)),

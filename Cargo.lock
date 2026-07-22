@@ -3100,6 +3100,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "utoipa",
+ "uuid",
 ]
 
 [[package]]
@@ -4830,6 +4831,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "url",
+ "uuid",
  "webpki-roots",
 ]
 
@@ -4897,6 +4899,7 @@ dependencies = [
  "sqlx-core",
  "thiserror 2.0.18",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -4932,6 +4935,7 @@ dependencies = [
  "stringprep",
  "thiserror 2.0.18",
  "tracing",
+ "uuid",
  "whoami",
 ]
 
@@ -4958,6 +4962,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tracing",
  "url",
+ "uuid",
 ]
 
 [[package]]
@@ -5614,6 +5619,7 @@ dependencies = [
  "quote",
  "regex",
  "syn",
+ "uuid",
 ]
 
 [[package]]
@@ -5624,6 +5630,8 @@ checksum = "d258b83ceec21034727ecee8c382cfa6c3e133699b0742c64571814fb420c9f7"
 dependencies = [
  "getrandom 0.4.2",
  "js-sys",
+ "serde_core",
+ "sha1_smol",
  "wasm-bindgen",
 ]
 

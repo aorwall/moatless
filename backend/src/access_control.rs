@@ -40,7 +40,7 @@ pub async fn resolve_scope_for_create(
         Scope::Global => ensure_system_team(state).await?,
         Scope::Team | Scope::User => resolve_team_id(state, auth, requested_team_id).await?,
     };
-    let owner_user_id = (scope == Scope::User).then(|| auth.user_id.clone());
+    let owner_user_id = (scope == Scope::User).then(|| auth.user_id.to_string());
     let role = team_role_for_user(state, auth, &team_id).await?;
 
     if !auth
@@ -119,7 +119,7 @@ pub async fn team_role_for_ctx(
     let members = teams.find_members(team_id).await?;
     Ok(members
         .into_iter()
-        .find(|m| m.user_id == ctx.user_id)
+        .find(|m| m.user_id.to_string() == ctx.user_id)
         .and_then(|m| TeamRole::try_from(m.role.as_str()).ok()))
 }
 
@@ -225,7 +225,7 @@ async fn ensure_personal_team(
     let team_id = format!("personal-{}", auth.user_id);
     if state.teams.find_by_id(&team_id).await?.is_none() {
         let now = Utc::now();
-        let slug = format!("personal-{}", slugify(&auth.user_id));
+        let slug = format!("personal-{}", slugify(&auth.user_id.to_string()));
         let team = Team {
             id: team_id.clone(),
             name: format!("{} Personal", auth.login),
@@ -259,12 +259,13 @@ async fn ensure_user_row(state: &AppState, auth: &AuthUser) -> Result<(), Access
         .and_then(|role| UserRole::try_from(role).ok())
         .unwrap_or(UserRole::User);
     let user = User {
-        id: auth.user_id.clone(),
+        id: auth.user_id,
         login: auth.login.clone(),
         email: None,
         name: None,
         avatar_url: None,
         provider: auth.provider.clone().unwrap_or_else(|| "local".to_string()),
+        provider_user_id: None,
         role,
         created_at: now,
         last_login_at: now,

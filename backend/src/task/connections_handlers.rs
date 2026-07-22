@@ -92,10 +92,12 @@ pub async fn list_task_connections(
     let owner_names: HashMap<String, String> = if owner_ids.is_empty() {
         HashMap::new()
     } else {
-        match state.users.get_users_by_ids(&owner_ids).await {
+        let owner_uuids: Vec<uuid::Uuid> =
+            owner_ids.iter().filter_map(|id| id.parse().ok()).collect();
+        match state.users.get_users_by_ids(&owner_uuids).await {
             Ok(users) => users
                 .into_iter()
-                .map(|u| (u.id, u.name.unwrap_or(u.login)))
+                .map(|u| (u.id.to_string(), u.name.unwrap_or(u.login)))
                 .collect(),
             Err(e) => {
                 tracing::warn!(error = %e, "Failed to batch resolve owner display names");

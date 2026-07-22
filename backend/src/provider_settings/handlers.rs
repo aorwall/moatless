@@ -38,7 +38,7 @@ pub async fn get_github_config(
 ) -> Result<Json<GitHubConfigResponse>, ProviderSettingsError> {
     let token = state
         .provider_tokens
-        .find_provider_token_full(&auth.user_id, "github")
+        .find_provider_token_full(&auth.user_id.to_string(), "github")
         .await?;
 
     let is_github_oauth_user = auth.provider.as_deref() == Some("github");
@@ -171,7 +171,7 @@ pub async fn admin_save_global_github_pat(
         .secrets
         .put_secret(
             &auth.scope_context(),
-            &auth.user_id,
+            &auth.user_id.to_string(),
             PutSecretRequest {
                 scope_type: SecretScopeType::Global,
                 scope_id: None,
@@ -231,7 +231,7 @@ pub async fn admin_delete_global_github_pat(
         .secrets
         .delete_scope_secret(
             &auth.scope_context(),
-            &auth.user_id,
+            &auth.user_id.to_string(),
             SecretScopeType::Global,
             None,
             GITHUB_TOKEN,
@@ -274,7 +274,7 @@ pub async fn save_github_pat(
     if auth.provider.as_deref() == Some("github") {
         if let Ok(Some(existing)) = state
             .provider_tokens
-            .find_provider_token_full(&auth.user_id, "github")
+            .find_provider_token_full(&auth.user_id.to_string(), "github")
             .await
         {
             if existing.token_type.as_deref() == Some("pat") {
@@ -291,7 +291,7 @@ pub async fn save_github_pat(
                     }
                 }
             } else {
-                stash_github_oauth_token(&state.secrets, &auth.user_id, &existing.access_token)
+                stash_github_oauth_token(&state.secrets, &auth.user_id.to_string(), &existing.access_token)
                     .await?;
                 if let Some(oauth_login) = existing
                     .metadata
@@ -321,10 +321,10 @@ pub async fn save_github_pat(
         .secrets
         .put_secret(
             &auth.scope_context(),
-            &auth.user_id,
+            &auth.user_id.to_string(),
             PutSecretRequest {
                 scope_type: SecretScopeType::User,
-                scope_id: Some(auth.user_id.clone()),
+                scope_id: Some(auth.user_id.clone().to_string()),
                 key: GITHUB_TOKEN.to_string(),
                 kind: SecretKind::ProviderToken,
                 provider: Some("github".to_string()),
@@ -337,7 +337,7 @@ pub async fn save_github_pat(
     state
         .provider_tokens
         .upsert_token_with_auth_method(
-            &auth.user_id,
+            &auth.user_id.to_string(),
             "github",
             AUTH_METHOD_SECRET_REF,
             SECRET_REF_TOKEN_PLACEHOLDER,
@@ -463,7 +463,7 @@ pub async fn exchange_github_token(
     state
         .provider_tokens
         .upsert_token_with_auth_method(
-            &auth.user_id,
+            &auth.user_id.to_string(),
             "github",
             "oauth",
             &access_token,
@@ -479,7 +479,7 @@ pub async fn exchange_github_token(
     ] {
         if let Err(e) = state
             .secrets
-            .delete_user_secret(&auth.user_id, key, Some(kind))
+            .delete_user_secret(&auth.user_id.to_string(), key, Some(kind))
             .await
         {
             tracing::warn!(error = %e, user_id = %auth.user_id, key, "Failed to clean up secret on GitHub OAuth exchange");
@@ -508,7 +508,7 @@ pub async fn delete_github_config(
 ) -> Result<Json<GitHubConfigResponse>, ProviderSettingsError> {
     state
         .provider_tokens
-        .delete_token(&auth.user_id, "github")
+        .delete_token(&auth.user_id.to_string(), "github")
         .await?;
 
     for (key, kind) in [
@@ -517,7 +517,7 @@ pub async fn delete_github_config(
     ] {
         if let Err(e) = state
             .secrets
-            .delete_user_secret(&auth.user_id, key, Some(kind))
+            .delete_user_secret(&auth.user_id.to_string(), key, Some(kind))
             .await
         {
             tracing::warn!(error = %e, user_id = %auth.user_id, key, "Failed to clean up secret on GitHub disconnect");
@@ -555,7 +555,7 @@ pub async fn delete_github_pat_override(
 
     let token = state
         .provider_tokens
-        .find_provider_token_full(&auth.user_id, "github")
+        .find_provider_token_full(&auth.user_id.to_string(), "github")
         .await?
         .ok_or_else(|| ProviderSettingsError::NotFound("No GitHub token found".to_string()))?;
 
@@ -565,7 +565,7 @@ pub async fn delete_github_pat_override(
         ));
     }
 
-    let oauth_token = read_github_oauth_stash(&state.secrets, &auth.user_id)
+    let oauth_token = read_github_oauth_stash(&state.secrets, &auth.user_id.to_string())
         .await?
         .ok_or_else(|| {
             ProviderSettingsError::BadRequest(
@@ -598,7 +598,7 @@ pub async fn delete_github_pat_override(
     state
         .provider_tokens
         .upsert_token_with_auth_method(
-            &auth.user_id,
+            &auth.user_id.to_string(),
             "github",
             &restored_auth_method,
             &oauth_token,
@@ -616,7 +616,7 @@ pub async fn delete_github_pat_override(
     ] {
         if let Err(e) = state
             .secrets
-            .delete_user_secret(&auth.user_id, key, Some(kind))
+            .delete_user_secret(&auth.user_id.to_string(), key, Some(kind))
             .await
         {
             tracing::warn!(error = %e, user_id = %auth.user_id, key, "Failed to clean up secret after PAT removal");
@@ -651,7 +651,7 @@ pub async fn get_gitness_config(
 ) -> Result<Json<GitnessConfigResponse>, ProviderSettingsError> {
     let token = state
         .provider_tokens
-        .find_provider_token_full(&auth.user_id, "gitness")
+        .find_provider_token_full(&auth.user_id.to_string(), "gitness")
         .await?;
 
     match token {
@@ -713,7 +713,7 @@ pub async fn save_gitness_pat(
     state
         .provider_tokens
         .upsert_token(
-            &auth.user_id,
+            &auth.user_id.to_string(),
             "gitness",
             &req.token,
             None,
@@ -745,7 +745,7 @@ pub async fn delete_gitness_config(
 ) -> Result<Json<GitnessConfigResponse>, ProviderSettingsError> {
     state
         .provider_tokens
-        .delete_token(&auth.user_id, "gitness")
+        .delete_token(&auth.user_id.to_string(), "gitness")
         .await?;
 
     Ok(Json(GitnessConfigResponse {
@@ -775,7 +775,7 @@ pub async fn get_codex_config(
 ) -> Result<Json<CodexConfigResponse>, ProviderSettingsError> {
     let token = state
         .provider_tokens
-        .find_provider_token_full(&auth.user_id, "codex")
+        .find_provider_token_full(&auth.user_id.to_string(), "codex")
         .await?;
 
     match token {
@@ -834,7 +834,8 @@ pub async fn save_codex_auth(
     auth: AuthUser,
     Json(req): Json<SaveCodexAuthRequest>,
 ) -> Result<Json<CodexConfigResponse>, ProviderSettingsError> {
-    let resp = save_codex_auth_for_scope(&state, CodexScope::user(&auth.user_id), req).await?;
+    let resp = save_codex_auth_for_scope(&state, CodexScope::user(auth.user_id.to_string()), req)
+        .await?;
     Ok(Json(resp))
 }
 
@@ -920,7 +921,7 @@ pub async fn delete_codex_config(
 ) -> Result<Json<CodexConfigResponse>, ProviderSettingsError> {
     state
         .provider_tokens
-        .delete_codex_blob(&CodexScope::user(&auth.user_id))
+        .delete_codex_blob(&CodexScope::user(auth.user_id.to_string()))
         .await?;
 
     Ok(Json(CodexConfigResponse {
@@ -1020,7 +1021,7 @@ pub async fn poll_codex_device_login(
             state
                 .provider_tokens
                 .upsert_token(
-                    &auth.user_id,
+                    &auth.user_id.to_string(),
                     "codex",
                     &serialized,
                     None,
@@ -1035,7 +1036,7 @@ pub async fn poll_codex_device_login(
             if let Err(e) = state
                 .credentials_svc
                 .store(
-                    &auth.user_id,
+                    &auth.user_id.to_string(),
                     "CODEX_AUTH_JSON",
                     &serialized,
                     WriteSource::UserUiSave,

@@ -119,7 +119,7 @@ pub async fn create_issue(
     // calling user's email (best-effort — never fails issue creation).
     let assignee_id = match req.assignee.as_deref() {
         Some(value) => Some(resolve_user_required(&api, value).await?.id),
-        None => default_assignee_from_caller(&state, &api, &auth.user_id).await,
+        None => default_assignee_from_caller(&state, &api, &auth.user_id.to_string()).await,
     };
     // Reporter (records who requested the issue) hard-fails on an explicit miss.
     let reporter = match req.reporter.as_deref() {
@@ -743,7 +743,10 @@ async fn default_assignee_from_caller(
     api: &LinearAgentApi,
     user_id: &str,
 ) -> Option<String> {
-    let user = match state.users.get_user(user_id).await {
+    let Ok(uid) = user_id.parse::<uuid::Uuid>() else {
+        return None;
+    };
+    let user = match state.users.get_user(&uid).await {
         Ok(Some(u)) => u,
         Ok(None) => {
             warn!(

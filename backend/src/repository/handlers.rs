@@ -56,7 +56,7 @@ pub async fn create_repository(
     // Check for name uniqueness
     if let Some(_existing) = state
         .repositories
-        .find_by_name_and_user(&req.name, &auth.user_id)
+        .find_by_name_and_user(&req.name, &auth.user_id.to_string())
         .await?
     {
         return Err(RepositoryError::Conflict(format!(
@@ -67,7 +67,7 @@ pub async fn create_repository(
 
     let id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now();
-    let user_id = auth.user_id.clone();
+    let user_id = auth.user_id;
 
     let resolved_scope =
         resolve_scope_for_create(&state, &auth, req.scope, req.team_id.clone()).await?;
@@ -84,7 +84,7 @@ pub async fn create_repository(
         scope: resolved_scope.scope,
         team_id: Some(resolved_scope.team_id),
         owner_user_id: resolved_scope.owner_user_id,
-        created_by: Some(user_id.clone()),
+        created_by: Some(user_id.to_string()),
         access_status: "unchecked".to_string(),
         access_checked_at: None,
         access_error: None,
@@ -443,9 +443,9 @@ pub async fn get_branches(
 
     // Get user's provider token (refresh expired GitHub App tokens)
     let access_token = if provider == RepositoryProvider::Github {
-        resolve_github_token(&state, &auth.user_id, &auth.team_ids).await?
+        resolve_github_token(&state, &auth.user_id.to_string(), &auth.team_ids).await?
     } else {
-        state.provider_tokens.find_provider_token(&auth.user_id, provider_str)
+        state.provider_tokens.find_provider_token(&auth.user_id.to_string(), provider_str)
             .await
             .map_err(RepositoryError::Db)?
             .ok_or_else(|| {
@@ -463,7 +463,7 @@ pub async fn get_branches(
         RepositoryProvider::Gitness => {
             let full_token = state
                 .provider_tokens
-                .find_provider_token_full(&auth.user_id, "gitness")
+                .find_provider_token_full(&auth.user_id.to_string(), "gitness")
                 .await
                 .map_err(RepositoryError::Db)?;
             let base_url = full_token

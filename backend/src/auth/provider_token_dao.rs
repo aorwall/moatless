@@ -16,9 +16,11 @@ pub(crate) async fn ensure_personal_team(
     let team_name = format!("{user_id} Personal");
     let team_slug = personal_team_slug(user_id);
 
+    // `user_id` is the uuid's text form; cast it for the native `uuid` id column
+    // while `login` keeps the same text value.
     sqlx::query(
         r#"INSERT INTO users (id, login, provider, role, created_at, last_login_at, settings)
-           VALUES ($1, $1, 'local', 'user', NOW(), NOW(), '{}'::jsonb)
+           VALUES ($1::uuid, $1, 'local', 'user', NOW(), NOW(), '{}'::jsonb)
            ON CONFLICT (id) DO NOTHING"#,
     )
     .bind(user_id)
@@ -38,7 +40,7 @@ pub(crate) async fn ensure_personal_team(
 
     sqlx::query(
         r#"INSERT INTO team_members (team_id, user_id, role, created_at)
-           VALUES ($1, $2, 'owner', NOW())
+           VALUES ($1, $2::uuid, 'owner', NOW())
            ON CONFLICT (team_id, user_id) DO UPDATE SET role = EXCLUDED.role"#,
     )
     .bind(&team_id)

@@ -788,7 +788,7 @@ impl TaskRepository for PgTaskRepository {
             "team" => {
                 sqlx::query_as(
                     r#"SELECT DISTINCT t.task_id FROM tasks t
-                       JOIN team_members tm ON tm.user_id = t.created_by
+                       JOIN team_members tm ON tm.user_id::text = t.created_by
                        WHERE t.status = 'open'
                          AND t.agent_type = 'codex'
                          AND tm.team_id = $1

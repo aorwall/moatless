@@ -102,7 +102,7 @@ pub async fn upload_file(
         scope: resolved_scope.scope,
         team_id: resolved_scope.team_id,
         owner_user_id: resolved_scope.owner_user_id,
-        created_by: Some(auth.user_id),
+        created_by: Some(auth.user_id.to_string()),
         uploaded_at: chrono::Utc::now(),
     };
 

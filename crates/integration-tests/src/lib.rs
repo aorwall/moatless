@@ -20,7 +20,7 @@ use moatless_cli::client::MoatClient;
 
 /// A test user plus a client authenticated as them.
 pub struct TestUser {
-    /// Server-assigned user id (`local:<login>`).
+    /// Server-assigned internal user id (a uuid, in text form).
     pub id: String,
     pub login: String,
     pub client: MoatClient,
@@ -104,7 +104,7 @@ pub async fn client_as_user_with_teams(login: &str, role: &str, team_ids: &[&str
     let admin = admin_client().await;
     // Idempotent: tests seed the same logins repeatedly within a process, and
     // `reset_database()` may or may not have run in between.
-    let user_id = match admin
+    let created_id = match admin
         .api()
         .create_user(&moatless_api_schemas::auth::CreateUserRequest {
             is_bot: false,
@@ -116,9 +116,27 @@ pub async fn client_as_user_with_teams(login: &str, role: &str, team_ids: &[&str
         })
         .await
     {
-        Ok(created) => created.id,
-        Err(e) if is_conflict(&e) => format!("local:{}", login.to_lowercase()),
+        Ok(created) => Some(created.id.to_string()),
+        Err(e) if is_conflict(&e) => None,
         Err(e) => panic!("failed to create test user '{login}': {e}"),
+    };
+
+    // The internal id is a server-minted uuid. On the conflict path resolve it by
+    // logging in and reading `me()` rather than reconstructing a provider handle.
+    let user_id = match created_id {
+        Some(id) => id,
+        None => {
+            let cookie = login_cookie(login, TEST_PASSWORD).await;
+            let probe = MoatClient::new_with_session_cookie(&base_url(), &cookie);
+            probe
+                .api()
+                .me()
+                .await
+                .ok()
+                .and_then(|session| session.user)
+                .map(|user| user.id.to_string())
+                .unwrap_or_else(|| panic!("failed to resolve id for existing test user '{login}'"))
+        }
     };
 
     for team_id in team_ids {

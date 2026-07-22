@@ -128,7 +128,7 @@ pub async fn create_task(
     if agent_type.as_str() == "codex" {
         if let Err(crate::credentials::CredentialError::NotFound(reason)) = state
             .credentials_svc
-            .ensure_fresh_codex_for(&auth.user_id, task_team_id.as_deref(), None)
+            .ensure_fresh_codex_for(&auth.user_id.to_string(), task_team_id.as_deref(), None)
             .await
         {
             tracing::info!(
@@ -163,7 +163,7 @@ pub async fn create_task(
         site_id: None,
         site_provider: None,
         branch: req.branch.clone().or(repo.default_branch.clone()),
-        created_by: Some(auth.user_id.clone()),
+        created_by: Some(auth.user_id.clone().to_string()),
         visibility: Visibility::Private,
         scope: task_scope,
         team_id: task_team_id,
@@ -310,7 +310,7 @@ async fn insert_and_provision_task(
             None,
             None,
             false,
-            Some(&auth.user_id),
+            Some(&auth.user_id.to_string()),
         )
         .await
         {
@@ -318,7 +318,7 @@ async fn insert_and_provision_task(
         }
     }
 
-    let task_response = enrich_task(row, state, &auth.user_id).await?;
+    let task_response = enrich_task(row, state, &auth.user_id.to_string()).await?;
 
     if let Some(ref events) = state.events {
         events
@@ -407,7 +407,7 @@ pub async fn list_tasks(
     // the unread indicator; best-effort — empty on error.
     let read_receipts = state
         .tasks
-        .get_read_receipts(&auth.user_id, &task_ids)
+        .get_read_receipts(&auth.user_id.to_string(), &task_ids)
         .await
         .unwrap_or_else(|e| {
             tracing::warn!(error = %e, "Failed to batch resolve read receipts");
@@ -418,7 +418,7 @@ pub async fn list_tasks(
     // query). Drives the follow indicator; best-effort — empty on error.
     let followed = state
         .tasks
-        .get_followed(&auth.user_id, &task_ids)
+        .get_followed(&auth.user_id.to_string(), &task_ids)
         .await
         .unwrap_or_else(|e| {
             tracing::warn!(error = %e, "Failed to batch resolve follow state");
@@ -515,7 +515,7 @@ pub async fn get_task(
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
-    let resp = enrich_task(&row, &state, &auth.user_id).await?;
+    let resp = enrich_task(&row, &state, &auth.user_id.to_string()).await?;
     Ok(Json(resp))
 }
 
@@ -621,7 +621,7 @@ pub async fn update_task_metadata(
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
-    let resp = enrich_task(&row, &state, &auth.user_id).await?;
+    let resp = enrich_task(&row, &state, &auth.user_id.to_string()).await?;
     Ok(Json(resp))
 }
 
@@ -721,7 +721,7 @@ pub async fn mark_task_read(
 
     state
         .tasks
-        .mark_task_read(&auth.user_id, &task_id, chrono::Utc::now())
+        .mark_task_read(&auth.user_id.to_string(), &task_id, chrono::Utc::now())
         .await?;
 
     Ok(axum::http::StatusCode::NO_CONTENT)
@@ -753,7 +753,7 @@ pub async fn follow_task(
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
-    state.tasks.follow_task(&auth.user_id, &task_id).await?;
+    state.tasks.follow_task(&auth.user_id.to_string(), &task_id).await?;
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task followed");
 
     Ok(Json(FollowTaskResponse { following: true }))
@@ -785,7 +785,7 @@ pub async fn unfollow_task(
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
-    state.tasks.unfollow_task(&auth.user_id, &task_id).await?;
+    state.tasks.unfollow_task(&auth.user_id.to_string(), &task_id).await?;
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task unfollowed");
 
     Ok(Json(FollowTaskResponse { following: false }))
@@ -826,7 +826,7 @@ pub async fn close_task(
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
-    let resp = enrich_task(&updated, &state, &auth.user_id).await?;
+    let resp = enrich_task(&updated, &state, &auth.user_id.to_string()).await?;
     Ok(Json(resp))
 }
 
@@ -997,7 +997,7 @@ pub async fn reopen_task(
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
-    let resp = enrich_task(&updated, &state, &auth.user_id).await?;
+    let resp = enrich_task(&updated, &state, &auth.user_id.to_string()).await?;
     Ok(Json(resp))
 }
 
@@ -1143,7 +1143,7 @@ async fn maybe_sync_repo_config_on_start(
     let token = if provider == RepositoryProvider::Github {
         crate::auth::credentials::resolve_state_github_token_for(
             state,
-            &auth.user_id,
+            &auth.user_id.to_string(),
             &auth.team_ids,
             None,
         )
@@ -1155,7 +1155,7 @@ async fn maybe_sync_repo_config_on_start(
     } else {
         match state
             .provider_tokens
-            .find_provider_token(&auth.user_id, provider.as_str())
+            .find_provider_token(&auth.user_id.to_string(), provider.as_str())
             .await
         {
             Ok(token) => token.map(|t| t.access_token),
@@ -1362,7 +1362,7 @@ pub async fn update_visibility(
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
-    let resp = enrich_task(&row, &state, &auth.user_id).await?;
+    let resp = enrich_task(&row, &state, &auth.user_id.to_string()).await?;
     Ok(Json(resp))
 }
 
@@ -1438,7 +1438,7 @@ pub async fn update_ttl(
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
-    let resp = enrich_task(&row, &state, &auth.user_id).await?;
+    let resp = enrich_task(&row, &state, &auth.user_id.to_string()).await?;
     Ok(Json(resp))
 }
 
@@ -1682,12 +1682,13 @@ async fn resolve_user_display_names_batch(
     if user_ids.is_empty() {
         return std::collections::HashMap::new();
     }
-    match state.users.get_users_by_ids(user_ids).await {
+    let uuids: Vec<uuid::Uuid> = user_ids.iter().filter_map(|id| id.parse().ok()).collect();
+    match state.users.get_users_by_ids(&uuids).await {
         Ok(users) => users
             .into_iter()
             .map(|u| {
                 let display_name = u.name.unwrap_or(u.login);
-                (u.id, display_name)
+                (u.id.to_string(), display_name)
             })
             .collect(),
         Err(e) => {
@@ -1699,7 +1700,8 @@ async fn resolve_user_display_names_batch(
 
 /// Resolve a single user's display name.
 async fn resolve_single_user_display_name(state: &AppState, user_id: &str) -> Option<String> {
-    match state.users.get_user(user_id).await {
+    let uid = user_id.parse::<uuid::Uuid>().ok()?;
+    match state.users.get_user(&uid).await {
         Ok(Some(user)) => Some(user.name.unwrap_or(user.login)),
         _ => None,
     }

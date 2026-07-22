@@ -1,6 +1,7 @@
 //! Team domain types — DB row structs.
 
 use chrono::{DateTime, Utc};
+use uuid::Uuid;
 
 /// Row from the `teams` table.
 #[derive(sqlx::FromRow, Debug, Clone)]
@@ -21,7 +22,7 @@ pub struct Team {
 #[derive(sqlx::FromRow, Debug, Clone)]
 pub struct TeamMember {
     pub team_id: String,
-    pub user_id: String,
+    pub user_id: Uuid,
     pub role: String,
     pub created_at: DateTime<Utc>,
 }

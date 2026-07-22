@@ -2,18 +2,23 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use uuid::Uuid;
 
 use super::models::UserRole;
 use crate::db::DbPool;
 
 #[derive(sqlx::FromRow, Debug)]
 pub struct User {
-    pub id: String,
+    pub id: Uuid,
     pub login: String,
     pub email: Option<String>,
     pub name: Option<String>,
     pub avatar_url: Option<String>,
     pub provider: String,
+    /// The provider's own user id (GitHub numeric id, `local:<login>`,
+    /// `bot:<appkey>`, or an Auth0 `sub`). Preserved so login can resolve
+    /// `(provider, provider_user_id)` to this internal uuid.
+    pub provider_user_id: Option<String>,
     pub role: UserRole,
     pub created_at: DateTime<Utc>,
     pub last_login_at: DateTime<Utc>,
@@ -28,7 +33,7 @@ pub struct User {
 /// A provider-specific identity linked to a moatless user.
 #[derive(sqlx::FromRow, Debug, Clone)]
 pub struct UserProviderAccount {
-    pub user_id: String,
+    pub user_id: Uuid,
     pub provider: String,
     pub provider_user_id: String,
     pub created_at: DateTime<Utc>,
@@ -38,20 +43,20 @@ pub struct UserProviderAccount {
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait UserRepository: Send + Sync {
-    async fn get_user(&self, user_id: &str) -> Result<Option<User>, sqlx::Error>;
+    async fn get_user(&self, user_id: &Uuid) -> Result<Option<User>, sqlx::Error>;
     async fn get_user_by_login(&self, login: &str) -> Result<Option<User>, sqlx::Error>;
-    async fn get_users_by_ids(&self, user_ids: &[String]) -> Result<Vec<User>, sqlx::Error>;
+    async fn get_users_by_ids(&self, user_ids: &[Uuid]) -> Result<Vec<User>, sqlx::Error>;
     async fn upsert_user(&self, user: &User) -> Result<(), sqlx::Error>;
     async fn list_users(&self) -> Result<Vec<User>, sqlx::Error>;
     async fn update_user_profile(
         &self,
-        user_id: &str,
+        user_id: &Uuid,
         name: Option<String>,
         email: Option<String>,
     ) -> Result<Option<User>, sqlx::Error>;
     async fn update_user_profile_and_role(
         &self,
-        user_id: &str,
+        user_id: &Uuid,
         name: Option<Option<String>>,
         email: Option<Option<String>>,
         role: Option<UserRole>,
@@ -60,13 +65,13 @@ pub trait UserRepository: Send + Sync {
     // Provider ID mapping
     async fn upsert_provider_id(
         &self,
-        user_id: &str,
+        user_id: &Uuid,
         provider: &str,
         provider_user_id: &str,
     ) -> Result<(), sqlx::Error>;
     async fn get_provider_id(
         &self,
-        user_id: &str,
+        user_id: &Uuid,
         provider: &str,
     ) -> Result<Option<String>, sqlx::Error>;
     async fn find_user_by_provider_id(
@@ -74,10 +79,19 @@ pub trait UserRepository: Send + Sync {
         provider: &str,
         provider_user_id: &str,
     ) -> Result<Option<User>, sqlx::Error>;
-    async fn delete_provider_id(&self, user_id: &str, provider: &str) -> Result<bool, sqlx::Error>;
+    /// Resolve a legacy provider id (the old `users.id`, preserved in
+    /// `user_provider_ids.provider_user_id`) to a user, regardless of provider.
+    /// Used to keep pre-migration references (e.g. committed `runAsUserId`
+    /// values) resolving to the new internal uuid.
+    async fn find_user_by_legacy_id(
+        &self,
+        provider_user_id: &str,
+    ) -> Result<Option<User>, sqlx::Error>;
+    async fn delete_provider_id(&self, user_id: &Uuid, provider: &str)
+        -> Result<bool, sqlx::Error>;
     async fn list_provider_ids(
         &self,
-        user_id: &str,
+        user_id: &Uuid,
     ) -> Result<Vec<UserProviderAccount>, sqlx::Error>;
 }
 
@@ -86,14 +100,14 @@ pub struct PgUserRepository(pub DbPool);
 
 #[async_trait]
 impl UserRepository for PgUserRepository {
-    async fn get_user(&self, user_id: &str) -> Result<Option<User>, sqlx::Error> {
+    async fn get_user(&self, user_id: &Uuid) -> Result<Option<User>, sqlx::Error> {
         sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
             .bind(user_id)
             .fetch_optional(&self.0)
             .await
     }
 
-    async fn get_users_by_ids(&self, user_ids: &[String]) -> Result<Vec<User>, sqlx::Error> {
+    async fn get_users_by_ids(&self, user_ids: &[Uuid]) -> Result<Vec<User>, sqlx::Error> {
         if user_ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -106,23 +120,25 @@ impl UserRepository for PgUserRepository {
     async fn upsert_user(&self, user: &User) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
-            INSERT INTO users (id, login, email, name, avatar_url, provider, role, created_at, last_login_at, is_bot)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            INSERT INTO users (id, login, email, name, avatar_url, provider, provider_user_id, role, created_at, last_login_at, is_bot)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             ON CONFLICT (id) DO UPDATE SET
                 login = EXCLUDED.login,
                 email = COALESCE(users.email, EXCLUDED.email),
                 name = EXCLUDED.name,
                 avatar_url = EXCLUDED.avatar_url,
+                provider_user_id = COALESCE(EXCLUDED.provider_user_id, users.provider_user_id),
                 last_login_at = EXCLUDED.last_login_at,
                 is_bot = EXCLUDED.is_bot
             "#,
         )
-        .bind(&user.id)
+        .bind(user.id)
         .bind(&user.login)
         .bind(&user.email)
         .bind(&user.name)
         .bind(&user.avatar_url)
         .bind(&user.provider)
+        .bind(&user.provider_user_id)
         .bind(user.role)
         .bind(user.created_at)
         .bind(user.last_login_at)
@@ -140,7 +156,7 @@ impl UserRepository for PgUserRepository {
 
     async fn update_user_profile(
         &self,
-        user_id: &str,
+        user_id: &Uuid,
         name: Option<String>,
         email: Option<String>,
     ) -> Result<Option<User>, sqlx::Error> {
@@ -156,7 +172,7 @@ impl UserRepository for PgUserRepository {
 
     async fn update_user_profile_and_role(
         &self,
-        user_id: &str,
+        user_id: &Uuid,
         name: Option<Option<String>>,
         email: Option<Option<String>>,
         role: Option<UserRole>,
@@ -193,7 +209,7 @@ impl UserRepository for PgUserRepository {
 
     async fn upsert_provider_id(
         &self,
-        user_id: &str,
+        user_id: &Uuid,
         provider: &str,
         provider_user_id: &str,
     ) -> Result<(), sqlx::Error> {
@@ -213,7 +229,7 @@ impl UserRepository for PgUserRepository {
 
     async fn get_provider_id(
         &self,
-        user_id: &str,
+        user_id: &Uuid,
         provider: &str,
     ) -> Result<Option<String>, sqlx::Error> {
         let row: Option<(String,)> = sqlx::query_as(
@@ -243,7 +259,27 @@ impl UserRepository for PgUserRepository {
         .await
     }
 
-    async fn delete_provider_id(&self, user_id: &str, provider: &str) -> Result<bool, sqlx::Error> {
+    async fn find_user_by_legacy_id(
+        &self,
+        provider_user_id: &str,
+    ) -> Result<Option<User>, sqlx::Error> {
+        sqlx::query_as::<_, User>(
+            r#"SELECT u.* FROM users u
+               JOIN user_provider_ids p ON u.id = p.user_id
+               WHERE p.provider_user_id = $1
+               ORDER BY p.created_at ASC
+               LIMIT 1"#,
+        )
+        .bind(provider_user_id)
+        .fetch_optional(&self.0)
+        .await
+    }
+
+    async fn delete_provider_id(
+        &self,
+        user_id: &Uuid,
+        provider: &str,
+    ) -> Result<bool, sqlx::Error> {
         let result =
             sqlx::query("DELETE FROM user_provider_ids WHERE user_id = $1 AND provider = $2")
                 .bind(user_id)
@@ -255,7 +291,7 @@ impl UserRepository for PgUserRepository {
 
     async fn list_provider_ids(
         &self,
-        user_id: &str,
+        user_id: &Uuid,
     ) -> Result<Vec<UserProviderAccount>, sqlx::Error> {
         sqlx::query_as::<_, UserProviderAccount>(
             "SELECT * FROM user_provider_ids WHERE user_id = $1 ORDER BY provider ASC",

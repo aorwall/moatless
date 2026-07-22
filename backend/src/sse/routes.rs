@@ -53,7 +53,7 @@ impl<S: Send + Sync> FromRequestParts<S> for SseAuth {
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         let ctx = parts.extensions.get::<AuthIdentity>().map(|id| ScopeContext {
-            user_id: id.user_id.clone(),
+            user_id: id.user_id.clone().to_string(),
             team_ids: id.team_ids.clone(),
             is_admin: id.role == UserRole::Admin,
         });

@@ -286,7 +286,12 @@ pub(crate) async fn ensure_can_run_as(
     if ctx.can_run_as(target) {
         return Ok(());
     }
-    match state.users.get_user(target).await {
+    // `target` is a uuid; a legacy provider id also resolves via the identity map.
+    let found = match target.parse::<uuid::Uuid>() {
+        Ok(uid) => state.users.get_user(&uid).await,
+        Err(_) => state.users.find_user_by_legacy_id(target).await,
+    };
+    match found {
         Ok(Some(user)) if user.is_bot => Ok(()),
         Ok(_) => Err(AdapterError::AccessDenied(format!(
             "Cannot run as user {target}"

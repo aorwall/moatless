@@ -654,7 +654,7 @@ async fn resolve_sync_token(
     provider: RepositoryProvider,
 ) -> Option<String> {
     if provider == RepositoryProvider::Github {
-        crate::auth::credentials::resolve_state_github_token(state, &auth.user_id, None)
+        crate::auth::credentials::resolve_state_github_token(state, &auth.user_id.to_string(), None)
             .await
             .unwrap_or_else(|e| {
                 warn!(error = %e, "Workspace sync: failed to resolve GitHub token");
@@ -663,7 +663,7 @@ async fn resolve_sync_token(
     } else {
         match state
             .provider_tokens
-            .find_provider_token(&auth.user_id, provider.as_str())
+            .find_provider_token(&auth.user_id.to_string(), provider.as_str())
             .await
         {
             Ok(token) => token.map(|t| t.access_token),

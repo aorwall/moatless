@@ -88,7 +88,7 @@ pub async fn create_feedback(
         surface: req.surface.as_str().to_string(),
         comment: req.comment.clone(),
         metadata: req.metadata.clone(),
-        created_by: auth.user_id.clone(),
+        created_by: auth.user_id.clone().to_string(),
         created_at: Utc::now(),
     };
 

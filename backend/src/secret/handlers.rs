@@ -79,7 +79,7 @@ pub async fn put_secret(
 ) -> Result<Json<SecretMutationResponse>, SecretError> {
     let row = state
         .secrets
-        .put_secret(&auth.scope_context(), &auth.user_id, req)
+        .put_secret(&auth.scope_context(), &auth.user_id.to_string(), req)
         .await?;
     Ok(Json(SecretMutationResponse { secret: row }))
 }
@@ -103,7 +103,7 @@ pub async fn patch_secret(
 ) -> Result<Json<SecretMutationResponse>, SecretError> {
     let row = state
         .secrets
-        .patch_secret(&auth.scope_context(), &auth.user_id, &id, req)
+        .patch_secret(&auth.scope_context(), &auth.user_id.to_string(), &id, req)
         .await?;
     Ok(Json(SecretMutationResponse { secret: row }))
 }
@@ -125,7 +125,7 @@ pub async fn delete_secret(
 ) -> Result<StatusCode, SecretError> {
     state
         .secrets
-        .delete_secret(&auth.scope_context(), &auth.user_id, &id)
+        .delete_secret(&auth.scope_context(), &auth.user_id.to_string(), &id)
         .await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -180,7 +180,7 @@ pub async fn resolve_task_secrets(
     let credentials = state
         .secrets
         .resolve_accessible_plaintext(
-            task.created_by.as_deref().unwrap_or(&auth.user_id),
+            task.created_by.as_deref().unwrap_or(&auth.user_id.to_string()),
             task.team_id.as_deref(),
         )
         .await?;

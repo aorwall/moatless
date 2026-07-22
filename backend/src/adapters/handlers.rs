@@ -113,7 +113,7 @@ pub async fn create_adapter_connection(
         transport_config: req
             .transport_config
             .unwrap_or_else(|| serde_json::json!({})),
-        created_by: auth.user_id,
+        created_by: auth.user_id.to_string(),
         scope: resolved.scope,
         team_id: Some(resolved.team_id),
         owner_user_id: resolved.owner_user_id,

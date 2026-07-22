@@ -657,11 +657,17 @@ mod authz_tests {
         chrono::DateTime::from_timestamp(0, 0).expect("epoch is a valid timestamp")
     }
 
+    /// Deterministic uuid for a readable test name: distinct names map to
+    /// distinct ids, equal names to equal ids.
+    fn uid(name: &str) -> uuid::Uuid {
+        uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, name.as_bytes())
+    }
+
     /// Minimal `TeamRepository` stub — only the membership/role methods the
     /// control check consults are meaningful; everything else is `unimplemented!`.
     struct StubTeamRepo {
         /// `(user_id, role)` rows for `team-1`, role as stored (`owner`/`admin`/`member`).
-        members: Vec<(String, String)>,
+        members: Vec<(uuid::Uuid, String)>,
     }
 
     impl StubTeamRepo {
@@ -669,7 +675,7 @@ mod authz_tests {
             Self {
                 members: members
                     .iter()
-                    .map(|(u, r)| ((*u).to_string(), (*r).to_string()))
+                    .map(|(u, r)| (uid(u), (*r).to_string()))
                     .collect(),
             }
         }
@@ -683,16 +689,19 @@ mod authz_tests {
                 .iter()
                 .map(|(u, r)| TeamMember {
                     team_id: team_id.to_string(),
-                    user_id: u.clone(),
+                    user_id: *u,
                     role: r.clone(),
                     created_at: epoch(),
                 })
                 .collect())
         }
-        async fn is_member(&self, _team_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
+        async fn is_member(&self, _team_id: &str, user_id: &uuid::Uuid) -> Result<bool, sqlx::Error> {
             Ok(self.members.iter().any(|(u, _)| u == user_id))
         }
-        async fn find_team_ids_for_user(&self, _user_id: &str) -> Result<Vec<String>, sqlx::Error> {
+        async fn find_team_ids_for_user(
+            &self,
+            _user_id: &uuid::Uuid,
+        ) -> Result<Vec<String>, sqlx::Error> {
             Ok(vec![])
         }
         async fn find_by_id(&self, _id: &str) -> Result<Option<Team>, sqlx::Error> {
@@ -728,18 +737,22 @@ mod authz_tests {
         async fn delete(&self, _id: &str) -> Result<(), sqlx::Error> {
             unimplemented!()
         }
-        async fn find_teams_for_user(&self, _user_id: &str) -> Result<Vec<Team>, sqlx::Error> {
+        async fn find_teams_for_user(&self, _user_id: &uuid::Uuid) -> Result<Vec<Team>, sqlx::Error> {
             unimplemented!()
         }
         async fn add_member(
             &self,
             _team_id: &str,
-            _user_id: &str,
+            _user_id: &uuid::Uuid,
             _role: &str,
         ) -> Result<(), sqlx::Error> {
             unimplemented!()
         }
-        async fn remove_member(&self, _team_id: &str, _user_id: &str) -> Result<(), sqlx::Error> {
+        async fn remove_member(
+            &self,
+            _team_id: &str,
+            _user_id: &uuid::Uuid,
+        ) -> Result<(), sqlx::Error> {
             unimplemented!()
         }
         async fn upsert_by_external(
@@ -773,11 +786,11 @@ mod authz_tests {
             site_id: None,
             site_provider: None,
             branch: None,
-            created_by: owner_user_id.map(str::to_string),
+            created_by: owner_user_id.map(|u| uid(u).to_string()),
             visibility: crate::task::models::Visibility::Private,
             scope,
             team_id: team_id.map(str::to_string),
-            owner_user_id: owner_user_id.map(str::to_string),
+            owner_user_id: owner_user_id.map(|u| uid(u).to_string()),
             created_at_db: None,
             updated_at: None,
             append_system_prompt: None,
@@ -796,7 +809,7 @@ mod authz_tests {
 
     fn ctx(user_id: &str, team_ids: &[&str], is_admin: bool) -> ScopeContext {
         ScopeContext {
-            user_id: user_id.to_string(),
+            user_id: uid(user_id).to_string(),
             team_ids: team_ids.iter().map(|t| (*t).to_string()).collect(),
             is_admin,
         }
@@ -881,7 +894,7 @@ mod authz_tests {
         // None and `created_by` records the creator, who keeps control of
         // their own task (and its sandbox) with a plain member role.
         let mut task = task_fixture(Scope::Team, None, Some("team-1"));
-        task.created_by = Some("creator".to_string());
+        task.created_by = Some(uid("creator").to_string());
         let tasks = tasks_returning(Some(task));
         let teams = StubTeamRepo::with_roles(&[("creator", "member")]);
         let scope = Some(ctx("creator", &["team-1"], false));

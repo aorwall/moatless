@@ -6,15 +6,21 @@
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
+use uuid::Uuid;
 
 use super::models::UserRole;
 use crate::config::Config;
 
+/// Issuer stamped on session JWTs. Bumped at the internal-uuid cutover so cookies
+/// minted before it (provider-id `sub`, `personal-<provider-id>` teams) fail
+/// verification and force a fresh login.
+const SESSION_JWT_ISSUER: &str = "moatless-vibe-backend/v2";
+
 /// JWT claims embedded in the session cookie.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionClaims {
-    /// User ID
-    pub sub: String,
+    /// Internal user uuid (serialized as a string in the token).
+    pub sub: Uuid,
     /// User login name
     pub login: String,
     /// User role ("user" or "admin")
@@ -45,7 +51,7 @@ impl SessionClaims {
 /// Generate a session JWT.
 #[allow(clippy::too_many_arguments)]
 pub fn generate_session_jwt(
-    user_id: &str,
+    user_id: Uuid,
     login: &str,
     role: UserRole,
     provider: &str,
@@ -60,7 +66,7 @@ pub fn generate_session_jwt(
         .as_secs();
 
     let claims = SessionClaims {
-        sub: user_id.to_string(),
+        sub: user_id,
         login: login.to_string(),
         role: role.as_str().to_string(),
         provider: provider.to_string(),
@@ -68,7 +74,7 @@ pub fn generate_session_jwt(
         team_ids: team_ids.to_vec(),
         iat: now,
         exp: now + max_age_secs,
-        iss: "moatless-vibe-backend".to_string(),
+        iss: SESSION_JWT_ISSUER.to_string(),
     };
 
     let token = encode(
@@ -77,7 +83,7 @@ pub fn generate_session_jwt(
         &EncodingKey::from_secret(secret.as_bytes()),
     )?;
 
-    debug!(user_id, "Generated session JWT");
+    debug!(user_id = %user_id, "Generated session JWT");
     Ok(token)
 }
 
@@ -87,7 +93,7 @@ pub fn verify_session_jwt(
     secret: &str,
 ) -> Result<SessionClaims, jsonwebtoken::errors::Error> {
     let mut validation = Validation::default();
-    validation.set_issuer(&["moatless-vibe-backend"]);
+    validation.set_issuer(&[SESSION_JWT_ISSUER]);
 
     let data = decode::<SessionClaims>(
         token,
@@ -127,10 +133,15 @@ pub fn warn_on_jwt_secret_fallback(config: &Config) {
 mod tests {
     use super::*;
 
+    fn test_user_id() -> Uuid {
+        Uuid::from_u128(0x1234_5678_90ab_cdef)
+    }
+
     #[test]
     fn round_trip() {
+        let uid = test_user_id();
         let token = generate_session_jwt(
-            "user-123",
+            uid,
             "alice",
             UserRole::Admin,
             "github",
@@ -144,20 +155,20 @@ mod tests {
         assert_eq!(token.split('.').count(), 3);
 
         let claims = verify_session_jwt(&token, "test-secret").unwrap();
-        assert_eq!(claims.sub, "user-123");
+        assert_eq!(claims.sub, uid);
         assert_eq!(claims.login, "alice");
         assert_eq!(claims.role, "admin");
         assert_eq!(claims.provider, "github");
         assert_eq!(claims.group_id.as_deref(), Some("group-1"));
         assert_eq!(claims.team_ids, vec!["team-a", "team-b"]);
-        assert_eq!(claims.iss, "moatless-vibe-backend");
+        assert_eq!(claims.iss, SESSION_JWT_ISSUER);
         assert_eq!(claims.user_role(), UserRole::Admin);
     }
 
     #[test]
     fn wrong_secret_fails() {
         let token = generate_session_jwt(
-            "user-123",
+            test_user_id(),
             "alice",
             UserRole::User,
             "github",
@@ -180,7 +191,7 @@ mod tests {
             .as_secs();
 
         let claims = SessionClaims {
-            sub: "user-123".to_string(),
+            sub: test_user_id(),
             login: "alice".to_string(),
             role: "user".to_string(),
             provider: "github".to_string(),
@@ -188,7 +199,7 @@ mod tests {
             team_ids: vec![],
             iat: now - 7200,
             exp: now - 3600, // expired 1 hour ago (well past default 60s leeway)
-            iss: "moatless-vibe-backend".to_string(),
+            iss: SESSION_JWT_ISSUER.to_string(),
         };
 
         let token = jsonwebtoken::encode(
@@ -204,7 +215,7 @@ mod tests {
     #[test]
     fn no_group_id_omitted_in_json() {
         let token = generate_session_jwt(
-            "user-123",
+            test_user_id(),
             "alice",
             UserRole::User,
             "github",

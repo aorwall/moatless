@@ -60,7 +60,7 @@ pub async fn create_pr(
         ensure_task_access(&state, &ctx, task_id).await?;
     }
 
-    let api = resolve_github_api(&state, &auth.user_id, &owner).await?;
+    let api = resolve_github_api(&state, &auth.user_id.to_string(), &owner).await?;
 
     let base = match req.base.as_deref() {
         Some(b) => b.to_string(),
@@ -105,7 +105,7 @@ pub async fn create_pr(
         .to_string();
 
     let binding_id = if let Some(task_id) = req.task_id.as_deref() {
-        let bid = bind_task_to_pr(&state, &owner, &repo, number, task_id, &auth.user_id).await;
+        let bid = bind_task_to_pr(&state, &owner, &repo, number, task_id, &auth.user_id.to_string()).await;
         state
             .recently_sent
             .note(task_id, &external_id::pr_opened(number));
@@ -151,7 +151,7 @@ pub async fn post_comment(
         ensure_task_access(&state, &ctx, task_id).await?;
     }
 
-    let api = resolve_github_api(&state, &auth.user_id, &owner).await?;
+    let api = resolve_github_api(&state, &auth.user_id.to_string(), &owner).await?;
 
     let body = body_with_task_footer(&state, req.task_id.as_deref(), &req.body).await;
     let comment_id = api.post_comment(&owner, &repo, number, &body).await?;
@@ -162,7 +162,7 @@ pub async fn post_comment(
         state
             .recently_sent
             .note(task_id, &external_id::issue_comment(comment_id));
-        bind_task_to_pr(&state, &owner, &repo, number, task_id, &auth.user_id).await
+        bind_task_to_pr(&state, &owner, &repo, number, task_id, &auth.user_id.to_string()).await
     } else {
         None
     };
@@ -208,7 +208,7 @@ pub async fn reply_to_review_comment(
         ensure_task_access(&state, &ctx, task_id).await?;
     }
 
-    let api = resolve_github_api(&state, &auth.user_id, &owner).await?;
+    let api = resolve_github_api(&state, &auth.user_id.to_string(), &owner).await?;
 
     let body = body_with_task_footer(&state, req.task_id.as_deref(), &req.body).await;
     let new_id = api
@@ -221,7 +221,7 @@ pub async fn reply_to_review_comment(
         state
             .recently_sent
             .note(task_id, &external_id::review_comment(new_id));
-        bind_task_to_pr(&state, &owner, &repo, number, task_id, &auth.user_id).await
+        bind_task_to_pr(&state, &owner, &repo, number, task_id, &auth.user_id.to_string()).await
     } else {
         None
     };

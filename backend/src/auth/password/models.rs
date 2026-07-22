@@ -1,13 +1,14 @@
 //! Local credential row.
 
 use chrono::{DateTime, Utc};
+use uuid::Uuid;
 
 /// A row of `user_credentials`.
 ///
 /// `Debug` is hand-written so the argon2 hash never reaches a log line.
 #[derive(sqlx::FromRow, Clone)]
 pub struct UserCredential {
-    pub user_id: String,
+    pub user_id: Uuid,
     pub username: String,
     pub password_hash: String,
     pub must_change: bool,

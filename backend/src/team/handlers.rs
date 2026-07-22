@@ -229,7 +229,11 @@ pub async fn add_member(
     ensure_team_manager(&state, &auth, &team_id).await?;
 
     let role = req.role.as_deref().unwrap_or("member");
-    state.teams.add_member(&team_id, &req.user_id, role).await?;
+    let user_id = req
+        .user_id
+        .parse::<uuid::Uuid>()
+        .map_err(|_| TeamError::BadRequest("user_id must be a uuid".to_string()))?;
+    state.teams.add_member(&team_id, &user_id, role).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -259,6 +263,9 @@ pub async fn remove_member(
         .ok_or_else(|| TeamError::NotFound(team_id.clone()))?;
     ensure_team_manager(&state, &auth, &team_id).await?;
 
+    let user_id = user_id
+        .parse::<uuid::Uuid>()
+        .map_err(|_| TeamError::NotFound(format!("User '{user_id}' not found")))?;
     state.teams.remove_member(&team_id, &user_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
