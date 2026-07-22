@@ -193,4 +193,4 @@ Report to the user:
 
 - All tickets: title, PR URL, review outcome
 - Any open items or follow-up work
-- Suggested next steps (merging, deployment, closing the spec issue)
+- Suggested next steps (merging, deployment, archiving the spec and plan files)
