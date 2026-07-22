@@ -1,6 +1,7 @@
 pub mod agent_state;
 pub mod background_watch_job;
 pub mod codex_exec;
+pub mod coordinator;
 pub mod dispatcher;
 pub mod handle;
 pub mod harness;
