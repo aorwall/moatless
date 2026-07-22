@@ -145,9 +145,10 @@ pub fn build_lifecycle(
         Arc::new(PgProviderTokenRepository(pool.clone()));
     let plugin_repos: Arc<dyn PluginRepoRepository> = Arc::new(PgPluginRepoRepository(pool.clone()));
     let workspaces: Arc<dyn WorkspaceRepository> = Arc::new(PgWorkspaceRepository(pool.clone()));
+    let store = Arc::new(PgLifecycleStore::new(pool.clone()));
     Arc::new(
         Lifecycle::new(
-            Arc::new(PgLifecycleStore::new(pool.clone())),
+            store.clone(),
             Arc::new(RuntimeBridge::new(
                 sandbox.clone(),
                 ProvisionDeps {
@@ -157,6 +158,7 @@ pub fn build_lifecycle(
                     plugin_repos,
                     workspaces,
                 },
+                store,
             )),
             Arc::new(GrpcAgentStop::new(sandbox)),
             Arc::new(OutboxEventSink::new(events)),

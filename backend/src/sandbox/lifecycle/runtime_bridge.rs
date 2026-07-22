@@ -24,6 +24,7 @@ use crate::task::dao::TaskRepository;
 use crate::workspace::dao::WorkspaceRepository;
 
 use super::error::RuntimeError;
+use super::orchestrator::LifecycleStore;
 use super::outcome::{DegradationWarning, Diagnostics};
 use super::runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
 use super::types::{ArchiveRetention, ObservedStatus, RuntimeEffect};
@@ -50,25 +51,34 @@ pub struct ProvisionDeps {
 pub struct RuntimeBridge {
     provider: Arc<dyn SandboxProvider>,
     plan: ProvisionDeps,
+    store: Arc<dyn LifecycleStore>,
 }
 
 impl RuntimeBridge {
-    pub fn new(provider: Arc<dyn SandboxProvider>, plan: ProvisionDeps) -> Self {
-        Self { provider, plan }
+    pub fn new(
+        provider: Arc<dyn SandboxProvider>,
+        plan: ProvisionDeps,
+        store: Arc<dyn LifecycleStore>,
+    ) -> Self {
+        Self {
+            provider,
+            plan,
+            store,
+        }
     }
 
     /// The infrastructure status observed right now, under the operation's lock.
+    /// Task status and desired state come from the Sandbox row through the store.
     async fn observed(&self, task_id: &str) -> Result<SandboxStatus, RuntimeError> {
-        let task = self
-            .plan
-            .tasks
-            .find_by_id_internal(task_id)
+        let intent = self
+            .store
+            .load(task_id)
             .await
             .map_err(|e| RuntimeError::Infrastructure(e.to_string()))?
             .ok_or_else(|| RuntimeError::Infrastructure(format!("task {task_id} not found")))?;
         let live = self
             .provider
-            .live_status(task_id, task.status, task.sandbox_desired_state)
+            .live_status(task_id, intent.status, intent.desired_state)
             .await
             .map_err(map_runtime_err)?;
         Ok(live.sandbox_status)
@@ -368,8 +378,9 @@ mod db_tests {
                 repos: Arc::new(PgRepoRepository(pool.clone())),
                 provider_tokens: Arc::new(PgProviderTokenRepository(pool.clone())),
                 plugin_repos: Arc::new(PgPluginRepoRepository(pool.clone())),
-                workspaces: Arc::new(PgWorkspaceRepository(pool)),
+                workspaces: Arc::new(PgWorkspaceRepository(pool.clone())),
             },
+            Arc::new(super::super::dao::PgLifecycleStore::new(pool)),
         )
     }
 

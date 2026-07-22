@@ -17,7 +17,7 @@ use crate::sandbox::lifecycle::ArchiveRetention;
 use crate::shared_models::AgentType;
 use crate::state::AppState;
 use crate::task::dao::TaskPatch;
-use crate::task::models::{SandboxDesiredState, Task, TaskStatus, Visibility};
+use crate::task::models::{Task, TaskStatus, Visibility};
 use crate::triggers::rule_dao::PgTaskTriggerRouteRepository;
 
 use super::adapter::{resolve_user_or_fallback, PrCloseInfo};
@@ -904,10 +904,6 @@ async fn create_provider_event_task(
             // `parts` always contains at least PR_ORIGIN_CONTEXT.
             Some(parts.join("\n\n"))
         },
-        sandbox_started_at: None,
-        sandbox_desired_state: SandboxDesiredState::Running,
-        sandbox_stop_reason: None,
-        sandbox_desired_state_updated_at: chrono::Utc::now(),
         headless: true,
         ttl_minutes: crate::task::models::DEFAULT_TTL_MINUTES,
         inactive_ttl_days: rule

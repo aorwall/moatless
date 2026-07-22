@@ -20,7 +20,7 @@ use super::schemas::*;
 use crate::access_control;
 use crate::extractors::OptionalScope;
 use crate::task::dao::TaskRepository;
-use crate::task::models::{SandboxStopReason, Task};
+use crate::task::models::{SandboxDesiredState, SandboxStopReason, Task};
 use crate::team::dao::TeamRepository;
 use moatless_backend_core::scope::ScopeContext;
 
@@ -81,10 +81,14 @@ pub async fn live_status_handler(
         Ok(task) => task,
         Err(e) => return e.into_response(),
     };
+    let desired_state = match resolve_desired_state(&state, &task_id).await {
+        Ok(d) => d,
+        Err(e) => return e.into_response(),
+    };
 
     match state
         .provider
-        .live_status(&task_id, task.status, task.sandbox_desired_state)
+        .live_status(&task_id, task.status, desired_state)
         .await
     {
         Ok(status) => Json(status).into_response(),
@@ -115,18 +119,17 @@ pub async fn sandbox_status_handler(
         Ok(task) => task,
         Err(e) => return e.into_response(),
     };
+    let desired_state = match resolve_desired_state(&state, &task_id).await {
+        Ok(d) => d,
+        Err(e) => return e.into_response(),
+    };
 
     // Resolve server configs from DB
     let server_configs = resolve_server_configs(&state, &task_id).await;
 
     match state
         .provider
-        .sandbox_status(
-            &task_id,
-            &server_configs,
-            task.status,
-            task.sandbox_desired_state,
-        )
+        .sandbox_status(&task_id, &server_configs, task.status, desired_state)
         .await
     {
         Ok(mut resp) => {
@@ -134,7 +137,7 @@ pub async fn sandbox_status_handler(
             // UI can tell whether a redeploy would move the sandbox to a newer
             // image. The "latest" image is what a fresh (re)deploy would use:
             // the per-repo `docker_image` override, else the configured default.
-            resp.sandbox_desired_state = Some(task.sandbox_desired_state);
+            resp.sandbox_desired_state = Some(desired_state);
 
             let docker_image_override = match (&state.workspaces, task.workspace_id.as_deref()) {
                 (Some(workspaces), Some(ws_id)) => workspaces
@@ -467,6 +470,15 @@ fn require_lifecycle(state: &SandboxApiState) -> Result<&Lifecycle, SandboxError
         .ok_or_else(|| SandboxError::Internal("Sandbox lifecycle unavailable (no database)".into()))
 }
 
+/// The desired Sandbox state for a Task, read from the Sandbox row through the
+/// lifecycle store. Absence of a row reads as `Stopped` (never requested).
+async fn resolve_desired_state(
+    state: &SandboxApiState,
+    task_id: &str,
+) -> Result<SandboxDesiredState, SandboxError> {
+    Ok(require_lifecycle(state)?.desired_state(task_id).await?)
+}
+
 /// The `ProvisionResponse.status` a lifecycle outcome reports.
 fn observed_to_sandbox_status(observed: ObservedStatus) -> moatless_events::SandboxStatus {
     use moatless_events::SandboxStatus;
@@ -671,10 +683,6 @@ mod authz_tests {
             created_at_db: None,
             updated_at: None,
             append_system_prompt: None,
-            sandbox_started_at: None,
-            sandbox_desired_state: crate::task::models::SandboxDesiredState::Running,
-            sandbox_stop_reason: None,
-            sandbox_desired_state_updated_at: epoch(),
             headless: false,
             ttl_minutes: 0,
             inactive_ttl_days: 0,

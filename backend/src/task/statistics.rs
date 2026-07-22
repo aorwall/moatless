@@ -318,7 +318,7 @@ mod tests {
     use super::*;
     use crate::message::models::{MessageRole, MessageType};
     use crate::shared_models::AgentType;
-    use crate::task::models::{SandboxDesiredState, TaskStatus, Visibility};
+    use crate::task::models::{TaskStatus, Visibility};
 
     fn task() -> Task {
         Task {
@@ -346,10 +346,6 @@ mod tests {
             created_at_db: None,
             updated_at: None,
             append_system_prompt: None,
-            sandbox_started_at: None,
-            sandbox_desired_state: SandboxDesiredState::Running,
-            sandbox_stop_reason: None,
-            sandbox_desired_state_updated_at: chrono::Utc::now(),
             headless: false,
             ttl_minutes: 60,
             inactive_ttl_days: 7,

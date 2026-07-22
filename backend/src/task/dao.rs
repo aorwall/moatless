@@ -6,7 +6,9 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use sqlx::AssertSqlSafe;
 
-use super::models::{SandboxDesiredState, SandboxStopReason, Task, TaskStatus, Visibility};
+use super::models::{
+    SandboxDesiredState, SandboxIntentView, SandboxStopReason, Task, TaskStatus, Visibility,
+};
 use crate::db::DbPool;
 use crate::shared_models::AgentType;
 use moatless_backend_core::scope::{Scope, ScopeContext, ScopedEntity};
@@ -77,6 +79,14 @@ pub trait TaskRepository: Send + Sync {
         &self,
         task_ids: &[String],
     ) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error>;
+    /// Batch-fetch the durable Sandbox lifecycle state (desired state, stop
+    /// reason, start + intent timestamps) for the given tasks from `sandboxes`.
+    /// Tasks with no Sandbox row are omitted — the caller applies the lazy
+    /// converged-Stopped default.
+    async fn get_sandbox_intents(
+        &self,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, SandboxIntentView>, sqlx::Error>;
     /// Batch-fetch `ttl_minutes` for the given tasks. Tasks with no row are
     /// omitted (not present in the map).
     async fn get_ttl_minutes_map(
@@ -196,22 +206,22 @@ impl TaskRepository for PgTaskRepository {
             }
         };
 
+        // Durable Sandbox state lives in `sandboxes`, born lazily through
+        // lifecycle — task creation writes none of it.
         sqlx::query(
             r#"INSERT INTO tasks (
                 task_id, short_id, created_at, last_message_at, agent_type,
                 repository_id, status, total_cost_usd, site_url, template_id,
                 vibe, name, description, site_id, site_provider, branch,
                 created_by, visibility, scope, team_id, owner_user_id,
-                append_system_prompt, updated_at, sandbox_started_at,
-                sandbox_desired_state, sandbox_stop_reason,
-                sandbox_desired_state_updated_at, headless, ttl_minutes,
+                append_system_prompt, updated_at, headless, ttl_minutes,
                 inactive_ttl_days, trigger_id, disabled_servers,
                 workspace_id
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
-                $22, NOW(), $23, $24, $25, NOW(), $26, $27, $28, $29, $30,
-                $31
+                $22, NOW(), $23, $24, $25, $26, $27,
+                $28
             )"#,
         )
         .bind(&row.task_id)
@@ -236,9 +246,6 @@ impl TaskRepository for PgTaskRepository {
         .bind(&row.team_id)
         .bind(&row.owner_user_id)
         .bind(&row.append_system_prompt)
-        .bind(row.sandbox_started_at)
-        .bind(row.sandbox_desired_state)
-        .bind(row.sandbox_stop_reason)
         .bind(row.headless)
         .bind(row.ttl_minutes)
         .bind(row.inactive_ttl_days)
@@ -294,10 +301,6 @@ impl TaskRepository for PgTaskRepository {
             created_at_db: Option<DateTime<Utc>>,
             updated_at: Option<DateTime<Utc>>,
             append_system_prompt: Option<String>,
-            sandbox_started_at: Option<DateTime<Utc>>,
-            sandbox_desired_state: SandboxDesiredState,
-            sandbox_stop_reason: Option<SandboxStopReason>,
-            sandbox_desired_state_updated_at: DateTime<Utc>,
             headless: bool,
             ttl_minutes: i32,
             inactive_ttl_days: i32,
@@ -317,8 +320,7 @@ impl TaskRepository for PgTaskRepository {
                 t.vibe, t.name, t.description, t.site_id, t.site_provider, t.branch,
                 t.created_by, t.visibility, t.scope, t.team_id, t.owner_user_id,
                 t.created_at_db, t.updated_at, t.append_system_prompt,
-                t.sandbox_started_at, t.sandbox_desired_state, t.sandbox_stop_reason,
-                t.sandbox_desired_state_updated_at, t.headless, t.ttl_minutes,
+                t.headless, t.ttl_minutes,
                 t.inactive_ttl_days, t.trigger_id, t.disabled_servers,
                 COUNT(*) OVER() AS total_count
             FROM tasks t
@@ -391,10 +393,6 @@ impl TaskRepository for PgTaskRepository {
                 created_at_db: r.created_at_db,
                 updated_at: r.updated_at,
                 append_system_prompt: r.append_system_prompt,
-                sandbox_started_at: r.sandbox_started_at,
-                sandbox_desired_state: r.sandbox_desired_state,
-                sandbox_stop_reason: r.sandbox_stop_reason,
-                sandbox_desired_state_updated_at: r.sandbox_desired_state_updated_at,
                 headless: r.headless,
                 ttl_minutes: r.ttl_minutes,
                 inactive_ttl_days: r.inactive_ttl_days,
@@ -482,33 +480,6 @@ impl TaskRepository for PgTaskRepository {
             )
             .bind(task_id)
             .bind(append_system_prompt)
-            .execute(&self.0)
-            .await?;
-        }
-        if let Some(ref sandbox_started_at) = patch.sandbox_started_at {
-            sqlx::query(
-                "UPDATE tasks SET sandbox_started_at = $2, updated_at = NOW() WHERE task_id = $1",
-            )
-            .bind(task_id)
-            .bind(sandbox_started_at)
-            .execute(&self.0)
-            .await?;
-        }
-        if let Some(ref sandbox_desired_state) = patch.sandbox_desired_state {
-            sqlx::query(
-                "UPDATE tasks SET sandbox_desired_state = $2, sandbox_desired_state_updated_at = NOW(), updated_at = NOW() WHERE task_id = $1",
-            )
-            .bind(task_id)
-            .bind(sandbox_desired_state)
-            .execute(&self.0)
-            .await?;
-        }
-        if let Some(ref sandbox_stop_reason) = patch.sandbox_stop_reason {
-            sqlx::query(
-                "UPDATE tasks SET sandbox_stop_reason = $2, updated_at = NOW() WHERE task_id = $1",
-            )
-            .bind(task_id)
-            .bind(sandbox_stop_reason)
             .execute(&self.0)
             .await?;
         }
@@ -602,15 +573,56 @@ impl TaskRepository for PgTaskRepository {
         }
 
         let rows: Vec<(String, DateTime<Utc>)> = sqlx::query_as(
-            r#"SELECT task_id, sandbox_started_at
-               FROM tasks
-               WHERE task_id = ANY($1) AND sandbox_started_at IS NOT NULL"#,
+            r#"SELECT task_id, started_at
+               FROM sandboxes
+               WHERE task_id = ANY($1) AND started_at IS NOT NULL"#,
         )
         .bind(task_ids)
         .fetch_all(&self.0)
         .await?;
 
         Ok(rows.into_iter().collect())
+    }
+
+    async fn get_sandbox_intents(
+        &self,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, SandboxIntentView>, sqlx::Error> {
+        if task_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let rows: Vec<(
+            String,
+            Option<DateTime<Utc>>,
+            SandboxDesiredState,
+            Option<SandboxStopReason>,
+            DateTime<Utc>,
+        )> = sqlx::query_as(
+            r#"SELECT task_id, started_at, desired_state, stop_reason, desired_state_updated_at
+               FROM sandboxes
+               WHERE task_id = ANY($1)"#,
+        )
+        .bind(task_ids)
+        .fetch_all(&self.0)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(
+                |(task_id, started_at, desired_state, stop_reason, desired_state_updated_at)| {
+                    (
+                        task_id,
+                        SandboxIntentView {
+                            started_at,
+                            desired_state,
+                            stop_reason,
+                            desired_state_updated_at,
+                        },
+                    )
+                },
+            )
+            .collect())
     }
 
     async fn get_ttl_minutes_map(
@@ -829,9 +841,6 @@ pub struct TaskPatch {
     pub visibility: Option<Visibility>,
     pub short_id: Option<String>,
     pub append_system_prompt: Option<Option<String>>,
-    pub sandbox_started_at: Option<DateTime<Utc>>,
-    pub sandbox_desired_state: Option<SandboxDesiredState>,
-    pub sandbox_stop_reason: Option<Option<SandboxStopReason>>,
     pub ttl_minutes: Option<i32>,
     pub inactive_ttl_days: Option<i32>,
     /// Full-replace the per-task auto-disabled server list.

@@ -65,8 +65,8 @@ pub struct SubagentAggregate {
 /// A pending user message is `agent_session_id IS NULL AND message_type = 'user'`
 /// — the `task_messages_pending_user_idx` predicate. `newest_created_at` is the
 /// DB-owned timestamp of the most recent pending row; the reconciler compares it
-/// against `sandbox_desired_state_updated_at` to decide whether a wake supersedes
-/// a later stop/remove.
+/// against the Sandbox row's `desired_state_updated_at` to decide whether a wake
+/// supersedes a later stop/remove.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct PendingUserMessages {
     pub task_id: String,

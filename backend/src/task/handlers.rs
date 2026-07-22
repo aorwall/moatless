@@ -17,7 +17,7 @@ use crate::extractors::AuthUser;
 use crate::sandbox::lifecycle::ArchiveRetention;
 use crate::shared_models::{AgentMode, AgentType};
 use crate::state::AppState;
-use crate::task::models::{SandboxDesiredState, SandboxStopReason, TaskStatus, Visibility};
+use crate::task::models::{SandboxIntentView, SandboxStopReason, TaskStatus, Visibility};
 use moatless_backend_core::scope::{Scope, ScopedResource};
 
 use crate::repository::models::{RepositoryKind, RepositoryProvider};
@@ -172,10 +172,6 @@ pub async fn create_task(
         created_at_db: None,
         updated_at: None,
         append_system_prompt: None,
-        sandbox_started_at: None,
-        sandbox_desired_state: SandboxDesiredState::Running,
-        sandbox_stop_reason: None,
-        sandbox_desired_state_updated_at: chrono::Utc::now(),
         headless: req.headless.unwrap_or(false),
         ttl_minutes: state.config.sandbox.idle_timeout_minutes as i32,
         inactive_ttl_days: state.config.sandbox.inactive_task_timeout_days as i32,
@@ -332,6 +328,17 @@ pub async fn list_tasks(
     let task_ids: Vec<String> = rows.iter().map(|r| r.task_id.clone()).collect();
     let all_tags = state.tags.get_tags_for_tasks(&task_ids).await?;
 
+    // Durable Sandbox state comes from the `sandboxes` table; absent rows fall
+    // back to the lazy converged-Stopped default in the loop below.
+    let sandbox_intents = state
+        .tasks
+        .get_sandbox_intents(&task_ids)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "Failed to load sandbox intents for task list");
+            Default::default()
+        });
+
     // Batch resolve user display names (single query instead of N+1)
     let creator_ids: Vec<String> = rows
         .iter()
@@ -427,9 +434,11 @@ pub async fn list_tasks(
                 .collect();
 
             let relations = all_relations.get(&row.task_id).cloned().unwrap_or_default();
+            let sandbox = sandbox_intents.get(&row.task_id).cloned().unwrap_or_default();
 
-            let mut resp =
-                build_task_response(row, tags, display_name, repo_name, bindings, relations);
+            let mut resp = build_task_response(
+                row, &sandbox, tags, display_name, repo_name, bindings, relations,
+            );
             resp.last_read_at = read_receipts
                 .get(&row.task_id)
                 .map(chrono::DateTime::to_rfc3339);
@@ -1384,8 +1393,18 @@ async fn enrich_task(
         }
     };
 
+    // Durable Sandbox state comes from the `sandboxes` table; absence is the
+    // lazy converged-Stopped default.
+    let sandbox = state
+        .tasks
+        .get_sandbox_intents(std::slice::from_ref(&row.task_id))
+        .await
+        .ok()
+        .and_then(|mut m| m.remove(&row.task_id))
+        .unwrap_or_default();
     let mut resp = build_task_response(
         row,
+        &sandbox,
         tag_responses,
         display_name,
         repo_name,
@@ -1432,6 +1451,7 @@ async fn enrich_task(
 /// clients that pre-date the relations field.
 fn build_task_response(
     row: &Task,
+    sandbox: &SandboxIntentView,
     tags: Vec<TagResponse>,
     display_name: Option<String>,
     repo_name: Option<String>,
@@ -1475,10 +1495,10 @@ fn build_task_response(
         bindings,
         ttl_minutes: row.ttl_minutes,
         inactive_ttl_days: row.inactive_ttl_days,
-        sandbox_started_at: row.sandbox_started_at.map(|t| t.to_rfc3339()),
-        sandbox_desired_state: row.sandbox_desired_state,
-        sandbox_stop_reason: row.sandbox_stop_reason,
-        sandbox_desired_state_updated_at: row.sandbox_desired_state_updated_at.to_rfc3339(),
+        sandbox_started_at: sandbox.started_at.map(|t| t.to_rfc3339()),
+        sandbox_desired_state: sandbox.desired_state,
+        sandbox_stop_reason: sandbox.stop_reason,
+        sandbox_desired_state_updated_at: sandbox.desired_state_updated_at.to_rfc3339(),
         // Populated per-request by callers that know the requesting user.
         last_read_at: None,
         is_following: None,

@@ -27,7 +27,15 @@ sandbox handlers, adapters, the reaper, message-send/notify, and the pod watcher
 crash remediation — routes through it, over the `PgLifecycleStore`/`PgLifecycleLock`
 Postgres adapters, the `RuntimeBridge` over `SandboxProvider`, `GrpcAgentStop`, and
 the `OutboxEventSink`. `delete_task` requires a successful `lifecycle.remove` before
-row deletion. Marker/retention columns and the transactional outbox are in place.
+row deletion. Durable Sandbox state — desired state, stop reason, archive
+retention, the correlation marker, the start/intent timestamps, and the per-Task
+generation counter — lives in the **`sandboxes` table** (PK `task_id`, FK
+`ON DELETE CASCADE`), born lazily through the intent upsert: no row means no
+Sandbox was ever requested (converged Stopped, always wakeable). The row is
+therefore the mechanism making lifecycle the sole intent writer by construction.
+The status handlers and reaper read desired state through the store
+(`Lifecycle::desired_state`); task responses read the row via
+`TaskRepository::get_sandbox_intents`. The transactional outbox is in place.
 
 The pending-Message query/index and the desired-state reconciler are in place:
 the reconciler is lease-elected on K8s / lease-free single-replica on Docker,

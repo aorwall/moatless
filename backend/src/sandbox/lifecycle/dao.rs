@@ -34,12 +34,18 @@ impl PgLifecycleStore {
 /// The statement that clears the correlation marker (kind/generation/started_at).
 /// Shared by the standalone clear and the completion transaction so the two
 /// cannot drift.
-const CLEAR_MARKER_SQL: &str = r#"UPDATE tasks SET
-       sandbox_operation_kind = NULL,
-       sandbox_operation_generation = NULL,
-       sandbox_operation_started_at = NULL,
+const CLEAR_MARKER_SQL: &str = r#"UPDATE sandboxes SET
+       operation_kind = NULL,
+       operation_generation = NULL,
+       operation_started_at = NULL,
        updated_at = NOW()
    WHERE task_id = $1"#;
+
+/// The "no intent timestamp" sentinel for a Task with no Sandbox row: the Unix
+/// epoch, so any real Message timestamp supersedes a converged-Stopped absence.
+fn epoch() -> DateTime<Utc> {
+    DateTime::<Utc>::from(std::time::UNIX_EPOCH)
+}
 
 /// Clear the correlation marker on `executor`. Generic over the executor so the
 /// completion transaction (`&mut tx`) and the standalone clear (`&pool`) issue
@@ -72,27 +78,30 @@ fn marker_from_columns(
 #[async_trait]
 impl LifecycleStore for PgLifecycleStore {
     async fn load(&self, task_id: &str) -> Result<Option<TaskIntent>, StoreError> {
+        // Left join: a Task with no Sandbox row is not TaskNotFound — it reads as
+        // converged Stopped (never requested) with an epoch intent timestamp.
         let row: Option<(
             TaskStatus,
-            SandboxDesiredState,
+            Option<SandboxDesiredState>,
             Option<SandboxStopReason>,
             Option<String>,
             Option<String>,
             Option<i64>,
             Option<DateTime<Utc>>,
-            DateTime<Utc>,
+            Option<DateTime<Utc>>,
         )> = sqlx::query_as(
             r#"SELECT
-                status,
-                sandbox_desired_state,
-                sandbox_stop_reason,
-                sandbox_archive_retention,
-                sandbox_operation_kind,
-                sandbox_operation_generation,
-                sandbox_operation_started_at,
-                sandbox_desired_state_updated_at
-            FROM tasks
-            WHERE task_id = $1"#,
+                t.status,
+                s.desired_state,
+                s.stop_reason,
+                s.archive_retention,
+                s.operation_kind,
+                s.operation_generation,
+                s.operation_started_at,
+                s.desired_state_updated_at
+            FROM tasks t
+            LEFT JOIN sandboxes s ON s.task_id = t.task_id
+            WHERE t.task_id = $1"#,
         )
         .bind(task_id)
         .fetch_optional(&self.pool)
@@ -111,23 +120,24 @@ impl LifecycleStore for PgLifecycleStore {
                 desired_state_updated_at,
             )| TaskIntent {
                 status,
-                desired_state,
+                desired_state: desired_state.unwrap_or(SandboxDesiredState::Stopped),
                 stop_reason,
                 retention: retention.as_deref().and_then(ArchiveRetention::from_db_str),
                 marker: marker_from_columns(op_kind, op_generation, op_started_at),
-                desired_state_updated_at,
+                desired_state_updated_at: desired_state_updated_at.unwrap_or_else(epoch),
             },
         ))
     }
 
     async fn reconcile_candidates(&self) -> Result<Vec<String>, StoreError> {
         // Desired-Running participants (fleet observation may find them down)
-        // ∪ incomplete-marker Tasks (a crashed operation). Backed by
-        // `tasks_desired_running_idx` and `tasks_incomplete_operation_idx`.
+        // ∪ incomplete-marker Sandboxes (a crashed operation). Backed by
+        // `sandboxes_desired_running_idx` and `sandboxes_incomplete_operation_idx`.
         sqlx::query_scalar(
-            r#"SELECT task_id FROM tasks
-               WHERE (sandbox_desired_state = 'running' AND status IN ('open', 'error'))
-                  OR sandbox_operation_generation IS NOT NULL"#,
+            r#"SELECT s.task_id FROM sandboxes s
+               JOIN tasks t ON t.task_id = s.task_id
+               WHERE (s.desired_state = 'running' AND t.status IN ('open', 'error'))
+                  OR s.operation_generation IS NOT NULL"#,
         )
         .fetch_all(&self.pool)
         .await
@@ -135,11 +145,16 @@ impl LifecycleStore for PgLifecycleStore {
     }
 
     async fn allocate_generation(&self, task_id: &str) -> Result<OperationGeneration, StoreError> {
+        // Allocation is also the Sandbox row's lazy birth: the first operation on
+        // a Task inserts its row (seq 1); later operations increment. Serialized
+        // per Task by the lifecycle lock, so no concurrent allocation races.
         let seq: Option<i64> = sqlx::query_scalar(
-            r#"UPDATE tasks
-               SET sandbox_operation_seq = sandbox_operation_seq + 1
-               WHERE task_id = $1
-               RETURNING sandbox_operation_seq"#,
+            r#"INSERT INTO sandboxes (task_id, operation_seq)
+               VALUES ($1, 1)
+               ON CONFLICT (task_id) DO UPDATE
+                   SET operation_seq = sandboxes.operation_seq + 1,
+                       updated_at = NOW()
+               RETURNING operation_seq"#,
         )
         .bind(task_id)
         .fetch_optional(&self.pool)
@@ -156,33 +171,43 @@ impl LifecycleStore for PgLifecycleStore {
         task_id: &str,
         write: &IntentWrite,
     ) -> Result<IntentEffect, StoreError> {
-        // Single atomic statement. `prev` captures the pre-image under a row lock
-        // so `changed` reflects the desired-state / stop-reason / retention delta
-        // — the intent-change axis — while the marker is always overwritten.
+        // Single atomic statement, an upsert so the Sandbox row is born through
+        // lifecycle and nowhere else. `prev` captures the pre-image under a row
+        // lock so `changed` reflects the desired-state / stop-reason / retention
+        // delta — the intent-change axis — while the marker is always
+        // overwritten. A first write (empty `prev`) is `Changed` by definition.
         let changed: Option<bool> = sqlx::query_scalar(
             r#"WITH prev AS (
-                   SELECT sandbox_desired_state, sandbox_stop_reason, sandbox_archive_retention
-                   FROM tasks
+                   SELECT desired_state, stop_reason, archive_retention
+                   FROM sandboxes
                    WHERE task_id = $1
                    FOR UPDATE
+               ),
+               upsert AS (
+                   INSERT INTO sandboxes AS s (
+                       task_id, desired_state, stop_reason, archive_retention,
+                       operation_kind, operation_generation, operation_started_at,
+                       started_at, desired_state_updated_at, updated_at
+                   ) VALUES (
+                       $1, $2, $3, $4, $5, $6, $7,
+                       CASE WHEN $8 THEN NOW() ELSE NULL END, NOW(), NOW()
+                   )
+                   ON CONFLICT (task_id) DO UPDATE SET
+                       desired_state = EXCLUDED.desired_state,
+                       stop_reason = EXCLUDED.stop_reason,
+                       archive_retention = EXCLUDED.archive_retention,
+                       operation_kind = EXCLUDED.operation_kind,
+                       operation_generation = EXCLUDED.operation_generation,
+                       operation_started_at = EXCLUDED.operation_started_at,
+                       started_at = CASE WHEN $8 THEN NOW() ELSE s.started_at END,
+                       desired_state_updated_at = NOW(),
+                       updated_at = NOW()
+                   RETURNING 1
                )
-               UPDATE tasks t SET
-                   sandbox_desired_state = $2,
-                   sandbox_stop_reason = $3,
-                   sandbox_archive_retention = $4,
-                   sandbox_operation_kind = $5,
-                   sandbox_operation_generation = $6,
-                   sandbox_operation_started_at = $7,
-                   sandbox_started_at = CASE WHEN $8 THEN NOW() ELSE t.sandbox_started_at END,
-                   sandbox_desired_state_updated_at = NOW(),
-                   updated_at = NOW()
-               FROM prev
-               WHERE t.task_id = $1
-               RETURNING (
-                   prev.sandbox_desired_state IS DISTINCT FROM $2
-                   OR prev.sandbox_stop_reason IS DISTINCT FROM $3
-                   OR prev.sandbox_archive_retention IS DISTINCT FROM $4
-               )"#,
+               SELECT
+                   (SELECT desired_state FROM prev) IS DISTINCT FROM $2
+                   OR (SELECT stop_reason FROM prev) IS DISTINCT FROM $3
+                   OR (SELECT archive_retention FROM prev) IS DISTINCT FROM $4"#,
         )
         .bind(task_id)
         .bind(write.desired_state)
@@ -287,11 +312,11 @@ mod tests {
 /// Postgres-backed store tests. Gated on `db-tests` and run in isolation
 /// (`cargo test -p moatless-vibe-backend --features db-tests --lib`) against a
 /// live Postgres via `#[sqlx::test]`, which provisions an isolated database and
-/// applies `backend/migrations` (including 0089).
+/// applies `backend/migrations` (including the `sandboxes` table).
 #[cfg(all(test, feature = "db-tests"))]
 mod db_tests {
     use super::super::events::EventFact;
-    use super::super::test_support::seed_task as seed;
+    use super::super::test_support::{seed_bare_task, seed_task as seed};
     use super::*;
     use moatless_events::SandboxStatus;
     use sqlx::PgPool;
@@ -438,7 +463,7 @@ mod db_tests {
         let store = PgLifecycleStore::new(pool.clone());
         let started_at = |pool: PgPool| async move {
             sqlx::query_scalar::<_, Option<chrono::DateTime<Utc>>>(
-                "SELECT sandbox_started_at FROM tasks WHERE task_id = 't1'",
+                "SELECT started_at FROM sandboxes WHERE task_id = 't1'",
             )
             .fetch_one(&pool)
             .await
@@ -474,5 +499,74 @@ mod db_tests {
             .await
             .unwrap();
         assert_eq!(started_at(pool).await, Some(stamped), "non-running persist preserves started_at");
+    }
+
+    // ---- Persistence matrix ----
+
+    async fn sandbox_row_count(pool: &PgPool, task_id: &str) -> i64 {
+        sqlx::query_scalar("SELECT count(*) FROM sandboxes WHERE task_id = $1")
+            .bind(task_id)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    #[sqlx::test]
+    async fn first_operation_creates_the_sandbox_row(pool: PgPool) {
+        // The atomic intent write is the row's lazy birth: a Task with no
+        // Sandbox row gains one on its first lifecycle operation.
+        seed_bare_task(&pool, "t1", "open").await;
+        assert_eq!(sandbox_row_count(&pool, "t1").await, 0, "no row before any operation");
+
+        let store = PgLifecycleStore::new(pool.clone());
+        let effect = store
+            .persist_intent(
+                "t1",
+                &IntentWrite {
+                    desired_state: SandboxDesiredState::Running,
+                    stop_reason: None,
+                    retention: None,
+                    marker: marker(OperationKind::Start, 1),
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(effect, IntentEffect::Changed, "first write is a change from absence");
+        assert_eq!(sandbox_row_count(&pool, "t1").await, 1, "the upsert created the row");
+    }
+
+    #[sqlx::test]
+    async fn no_row_task_loads_as_converged_stopped_and_is_no_candidate(pool: PgPool) {
+        // Absence is meaningful: no row means never-requested = converged Stopped
+        // with an epoch intent timestamp (so any Message supersedes it), and the
+        // Task is not a reconciler candidate.
+        seed_bare_task(&pool, "t1", "open").await;
+        let store = PgLifecycleStore::new(pool.clone());
+
+        let intent = store.load("t1").await.unwrap().expect("task exists");
+        assert_eq!(intent.desired_state, SandboxDesiredState::Stopped);
+        assert!(intent.marker.is_none());
+        assert_eq!(intent.stop_reason, None);
+        assert_eq!(intent.desired_state_updated_at, epoch(), "no intent timestamp");
+
+        assert!(
+            store.reconcile_candidates().await.unwrap().is_empty(),
+            "a no-row Task is converged, not a candidate",
+        );
+    }
+
+    #[sqlx::test]
+    async fn sandbox_row_cascades_with_task_deletion(pool: PgPool) {
+        seed(&pool, "t1").await;
+        assert_eq!(sandbox_row_count(&pool, "t1").await, 1);
+        sqlx::query("DELETE FROM tasks WHERE task_id = 't1'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            sandbox_row_count(&pool, "t1").await,
+            0,
+            "ON DELETE CASCADE removes the Sandbox row with its Task",
+        );
     }
 }

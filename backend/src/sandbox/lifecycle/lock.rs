@@ -126,7 +126,7 @@ impl PgLifecycleLock {
         fallback: OperationKind,
     ) -> OperationKind {
         let marker: Result<Option<String>, _> =
-            sqlx::query_scalar("SELECT sandbox_operation_kind FROM tasks WHERE task_id = $1")
+            sqlx::query_scalar("SELECT operation_kind FROM sandboxes WHERE task_id = $1")
                 .bind(task_id)
                 .fetch_optional(&mut **conn)
                 .await
@@ -161,7 +161,7 @@ mod db_tests {
     async fn contended_acquire_returns_holder_kind_from_marker(pool: PgPool) {
         seed(&pool, "t1").await;
         // Mark an in-flight remove so the holder kind is readable.
-        sqlx::query("UPDATE tasks SET sandbox_operation_kind = 'remove' WHERE task_id = 't1'")
+        sqlx::query("UPDATE sandboxes SET operation_kind = 'remove' WHERE task_id = 't1'")
             .execute(&pool)
             .await
             .unwrap();

@@ -178,10 +178,11 @@ fn build(store_pool: PgPool, lock_pool: PgPool, runtime: RecordingRuntime, lock_
     }
 }
 
-// The store's intent read is `pub(crate)` behind the port; read columns directly.
+// The store's intent read is `pub(crate)` behind the port; read the Sandbox row
+// columns directly.
 async fn desired(pool: &PgPool, task_id: &str) -> (String, Option<String>, Option<String>) {
     sqlx::query_as(
-        "SELECT sandbox_desired_state, sandbox_stop_reason, sandbox_operation_kind FROM tasks WHERE task_id = $1",
+        "SELECT desired_state, stop_reason, operation_kind FROM sandboxes WHERE task_id = $1",
     )
     .bind(task_id)
     .fetch_one(pool)

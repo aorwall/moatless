@@ -693,7 +693,7 @@ mod db_tests {
 
         assert_eq!(runtime.calls().0, 1, "wake drove a start");
         let desired: String =
-            sqlx::query_scalar("SELECT sandbox_desired_state FROM tasks WHERE task_id = 't1'")
+            sqlx::query_scalar("SELECT desired_state FROM sandboxes WHERE task_id = 't1'")
                 .fetch_one(&pool)
                 .await
                 .unwrap();

@@ -502,11 +502,10 @@ async fn reconcile_orphaned_turns(
 }
 
 async fn task_desires_running(app_state: &AppState, task_id: &str) -> bool {
-    match app_state.tasks.find_by_id_internal(task_id).await {
-        Ok(Some(task)) => task.sandbox_desired_state == SandboxDesiredState::Running,
-        Ok(None) => false,
+    match app_state.lifecycle.desired_state(task_id).await {
+        Ok(desired) => desired == SandboxDesiredState::Running,
         Err(e) => {
-            warn!(task_id, error = %e, "reconcile: task lookup failed for desired state");
+            warn!(task_id, error = %e, "reconcile: desired-state lookup failed");
             false
         }
     }

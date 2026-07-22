@@ -283,6 +283,17 @@ impl Lifecycle {
         .await
     }
 
+    /// The persisted desired state for the Task's Sandbox — the status
+    /// projections' and reaper's intent input, read from the Sandbox row through
+    /// the store. Absence of a row reads as `Stopped` (never requested =
+    /// converged Stopped); a missing Task is `TaskNotFound`.
+    pub async fn desired_state(
+        &self,
+        task_id: &str,
+    ) -> Result<SandboxDesiredState, LifecycleError> {
+        Ok(self.require_intent(task_id).await?.desired_state)
+    }
+
     /// Await a detached transition. Dropping the caller future drops this join
     /// handle, which does **not** cancel the spawned task — the transition runs
     /// to completion regardless.
