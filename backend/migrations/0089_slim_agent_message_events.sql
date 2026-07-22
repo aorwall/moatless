@@ -12,45 +12,58 @@
 -- unpruned table. Idempotent + gated: only rows whose payload is still fat (the
 -- message still carries a `content` key) are rewritten, so a slimmed row is
 -- never re-selected and re-running the migration is a no-op.
+--
+-- `payload` is `jsonb` on fresh installs (0013) but `text` on Drizzle-created
+-- schemas (see 0013/0015 — CREATE TABLE IF NOT EXISTS keeps Drizzle's column
+-- type). Reads cast `payload::jsonb` (a no-op when already jsonb, a parse when
+-- text); the rebuilt skeleton is written back in the column's own type, appended
+-- once from information_schema so the UPDATE type-checks on either schema.
 
 DO $$
 DECLARE
     slimmed integer;
+    stmt    text;
 BEGIN
-    LOOP
+    SELECT format($q$
         WITH batch AS (
             SELECT id
             FROM task_events
-            WHERE event_type = 'agent'
+            WHERE type = 'agent'
               AND sub_type = 'message'
-              AND payload -> 'message' ? 'content'
+              AND (payload::jsonb) -> 'message' ? 'content'
             ORDER BY id
             LIMIT 5000
         )
         UPDATE task_events t
         SET payload = jsonb_build_object(
             'message', jsonb_build_object(
-                'role', COALESCE(t.payload -> 'message' ->> 'role', 'assistant')
+                'role', COALESCE((t.payload::jsonb) -> 'message' ->> 'role', 'assistant')
             ),
-            'uuid', COALESCE(t.payload -> 'uuid', 'null'::jsonb),
+            'uuid', COALESCE((t.payload::jsonb) -> 'uuid', 'null'::jsonb),
             'blockCount', CASE
-                WHEN jsonb_typeof(t.payload -> 'message' -> 'content') = 'array'
-                    THEN jsonb_array_length(t.payload -> 'message' -> 'content')
+                WHEN jsonb_typeof((t.payload::jsonb) -> 'message' -> 'content') = 'array'
+                    THEN jsonb_array_length((t.payload::jsonb) -> 'message' -> 'content')
                 ELSE 0
             END,
             'toolNames', CASE
-                WHEN jsonb_typeof(t.payload -> 'message' -> 'content') = 'array' THEN
+                WHEN jsonb_typeof((t.payload::jsonb) -> 'message' -> 'content') = 'array' THEN
                     COALESCE((
                         SELECT jsonb_agg(elem ->> 'name')
-                        FROM jsonb_array_elements(t.payload -> 'message' -> 'content') elem
+                        FROM jsonb_array_elements((t.payload::jsonb) -> 'message' -> 'content') elem
                         WHERE elem ->> 'type' = 'tool_use'
                     ), '[]'::jsonb)
                 ELSE '[]'::jsonb
             END
-        )
+        )%s
         FROM batch b
-        WHERE t.id = b.id;
+        WHERE t.id = b.id
+    $q$, CASE WHEN data_type = 'jsonb' THEN '' ELSE '::text' END)
+    INTO stmt
+    FROM information_schema.columns
+    WHERE table_name = 'task_events' AND column_name = 'payload';
 
+    LOOP
+        EXECUTE stmt;
         GET DIAGNOSTICS slimmed = ROW_COUNT;
         EXIT WHEN slimmed = 0;
     END LOOP;
