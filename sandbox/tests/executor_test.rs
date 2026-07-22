@@ -389,6 +389,8 @@ async fn prompt_response_acknowledges_consumed_message() {
         .agent
         .set_session_id("session-active".to_string())
         .await;
+    // A pending prompt only exists during an active run, which always holds a
+    // run_id; the ack attributes the response to that run's turn.
     state.agent.set_run_id("run-active".to_string()).await;
 
     let (tx, rx) = tokio::sync::oneshot::channel();

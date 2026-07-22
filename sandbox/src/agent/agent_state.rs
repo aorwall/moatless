@@ -1,6 +1,7 @@
 //! Generic agent state machine — tracks status, session, cancel token, and pending prompts.
 //!
-//! Extracted from `executor.rs` so it can be reused by any agent type.
+//! Owned by the agent actor (`handle/`); harness-neutral so any agent
+//! implementation can reuse it.
 
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
