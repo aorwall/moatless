@@ -1,7 +1,6 @@
 //! Work trigger storage, event delivery, and schedule execution.
 
 pub mod dao;
-pub mod delivery;
 pub mod handlers;
 pub mod inbound;
 pub mod listen;

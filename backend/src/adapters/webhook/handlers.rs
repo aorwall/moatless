@@ -8,7 +8,6 @@ use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::error::AdapterError;
 use crate::adapters::metrics::record_webhook;
 use crate::state::AppState;
-use crate::triggers::delivery::AdapterEventDeliveryService;
 
 #[utoipa::path(
     post,
@@ -64,17 +63,17 @@ pub async fn webhook_inbound(
     let thread_id = msg.thread_id.as_deref().unwrap_or(&msg.message_thread_id);
     let subject_key = format!("{}:{thread_id}", msg.source_id);
 
-    match AdapterEventDeliveryService::new(&state)
-        .deliver(
-            &connection,
-            &rule,
-            msg,
-            "webhook",
-            "webhook_thread",
-            &subject_key,
-            serde_json::json!({}),
-        )
-        .await
+    match crate::bindings::runtime::route_inbound_message(
+        &state,
+        &connection,
+        &rule,
+        msg,
+        "webhook",
+        "webhook_thread",
+        &subject_key,
+        serde_json::json!({}),
+    )
+    .await
     {
         Ok(task_id) => {
             record_webhook("webhook", "success", "", "", &trigger_id, &connection.id);

@@ -1,11 +1,7 @@
 //! GitHub webhook HMAC-SHA256 signature verification.
 
-use hmac::{Hmac, KeyInit, Mac};
-use sha2::Sha256;
-
 use crate::adapters::error::AdapterError;
-
-type HmacSha256 = Hmac<Sha256>;
+use crate::adapters::signature::verify_hmac_sha256;
 
 /// Verify the GitHub webhook signature.
 ///
@@ -19,23 +15,16 @@ pub fn verify_signature(
     let expected_hex = signature_header
         .strip_prefix("sha256=")
         .ok_or(AdapterError::SignatureInvalid)?;
-
-    let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-        .map_err(|_| AdapterError::Internal("Invalid webhook secret".to_string()))?;
-    mac.update(body);
-
-    let computed = hex::encode(mac.finalize().into_bytes());
-
-    if computed != expected_hex {
-        return Err(AdapterError::SignatureInvalid);
-    }
-
-    Ok(())
+    verify_hmac_sha256(secret, body, expected_hex)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hmac::{Hmac, KeyInit, Mac};
+    use sha2::Sha256;
+
+    type HmacSha256 = Hmac<Sha256>;
 
     #[test]
     fn valid_signature() {

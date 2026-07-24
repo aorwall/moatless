@@ -643,18 +643,17 @@ pub async fn resolve_and_process_telegram_update(
             let connection = connection.clone();
             let rule = rule.clone();
             tokio::spawn(async move {
-                if let Err(e) =
-                    crate::triggers::delivery::AdapterEventDeliveryService::new(&state_clone)
-                        .deliver(
-                            &connection,
-                            &rule,
-                            msg,
-                            "telegram",
-                            destination.subject_kind,
-                            &destination.subject_key,
-                            destination.destination_config,
-                        )
-                        .await
+                if let Err(e) = crate::bindings::runtime::route_inbound_message(
+                    &state_clone,
+                    &connection,
+                    &rule,
+                    msg,
+                    "telegram",
+                    destination.subject_kind,
+                    &destination.subject_key,
+                    destination.destination_config,
+                )
+                .await
                 {
                     warn!(error = %e, "Failed to process Telegram inbound message");
                 }

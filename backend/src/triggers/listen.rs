@@ -282,37 +282,16 @@ pub async fn connect_github_binding(
     thread_properties: serde_json::Value,
     filter_user_id: Option<&str>,
 ) -> Result<(Option<TaskTriggerRoute>, TaskBinding), AdapterError> {
-    if let Some(provider) = state
+    let provider = state
         .adapters
         .as_ref()
         .and_then(|providers| providers.get(AdapterKind::GithubPr))
-    {
-        return connect_binding_optional_rule(
-            state,
-            provider.as_ref(),
-            source_id,
-            task_id,
-            "",
-            &thread_properties,
-            filter_user_id,
-        )
-        .await;
-    }
-
-    let provider = crate::adapters::github_pr::adapter::GithubPrAdapter::new(
-        state.config.github_pr.webhook_secret.clone(),
-        state.config.github_pr.bot_token.clone(),
-        state.config.auth.frontend_url.clone(),
-        state.db.clone(),
-        state.provider_tokens.clone(),
-        Some(state.provider_token_auth.clone()),
-        state.github_app_service.clone(),
-        state.github_apps.clone(),
-    )
-    .with_secrets(state.secrets.clone());
+        .ok_or_else(|| {
+            AdapterError::Internal("GitHub PR adapter is not registered".to_string())
+        })?;
     connect_binding_optional_rule(
         state,
-        &provider,
+        provider.as_ref(),
         source_id,
         task_id,
         "",

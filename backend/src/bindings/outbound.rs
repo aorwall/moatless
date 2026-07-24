@@ -123,13 +123,38 @@ pub async fn direct_send_to_rule(
     Ok(Some(thread_info.external_thread_id))
 }
 
-/// Truncate text to a max length, appending "..." if truncated.
+/// The footer that GitHub/Linear comments end with — a link back to the
+/// moatless task. Other providers don't carry the footer, so this returns
+/// `None` for them (and when the task can't be resolved).
+pub(crate) async fn maybe_task_comment_footer(
+    state: &AppState,
+    adapter_kind: crate::adapters::AdapterKind,
+    task_id: &str,
+) -> Option<String> {
+    match adapter_kind {
+        crate::adapters::AdapterKind::GithubPr | crate::adapters::AdapterKind::Linear => {
+            crate::adapters::footer::task_comment_footer(state, task_id).await
+        }
+        _ => None,
+    }
+}
+
+/// Truncate text to a max byte length, appending "..." if truncated.
+///
+/// The cut is pulled back to the nearest UTF-8 char boundary so multibyte
+/// input never panics (see PR #621).
 pub(crate) fn truncate_text(text: &str, max: usize) -> String {
     if text.len() <= max {
-        text.to_string()
-    } else {
-        format!("{}...", &text[..max.saturating_sub(3)])
+        return text.to_string();
     }
+    let cutoff = max.saturating_sub(3);
+    let safe = text
+        .char_indices()
+        .map(|(i, _)| i)
+        .take_while(|&i| i <= cutoff)
+        .last()
+        .unwrap_or(0);
+    format!("{}...", &text[..safe])
 }
 
 // ---------------------------------------------------------------------------
@@ -258,14 +283,7 @@ pub async fn send_to_binding(
         ));
     }
 
-    // GitHub/Linear comments end with a link back to the moatless task. Other
-    // providers don't carry the footer.
-    let footer = match provider.adapter_kind() {
-        crate::adapters::AdapterKind::GithubPr | crate::adapters::AdapterKind::Linear => {
-            crate::adapters::footer::task_comment_footer(state, task_id).await
-        }
-        _ => None,
-    };
+    let footer = maybe_task_comment_footer(state, provider.adapter_kind(), task_id).await;
 
     // Author the reply under the owning task's identity (preferred by the GitHub
     // adapter over binding/trigger-derived identities).
@@ -401,5 +419,41 @@ async fn persist_outbound_stub_for_binding(
             warn!(task_id, error = %e, "Failed to persist outbound stub message");
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate_text;
+
+    #[test]
+    fn truncate_under_max_returns_input() {
+        assert_eq!(truncate_text("hello", 10), "hello");
+    }
+
+    #[test]
+    fn truncate_over_max_appends_ellipsis() {
+        assert_eq!(truncate_text("abcdefghij", 8), "abcde...");
+    }
+
+    #[test]
+    fn truncate_respects_utf8_char_boundaries() {
+        // Reproduces PR #621 panic: byte 197 fell inside '→' (3 bytes).
+        let mut s = String::new();
+        for _ in 0..195 {
+            s.push('a');
+        }
+        s.push_str("→ main");
+        let out = truncate_text(&s, 200);
+        assert!(out.is_char_boundary(out.len() - 3));
+        assert!(out.ends_with("..."));
+    }
+
+    #[test]
+    fn truncate_at_exact_multibyte_boundary() {
+        let s = "aaaa→bbbb";
+        let out = truncate_text(s, 7);
+        assert!(out.ends_with("..."));
+        assert!(out.len() <= 7);
     }
 }

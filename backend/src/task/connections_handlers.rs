@@ -13,7 +13,7 @@ use axum::extract::{Path, Query, State};
 use axum::Json;
 use futures::stream::{self, StreamExt};
 
-use moatless_api_schemas::enums::{AdapterKind, TaskStatus};
+use moatless_api_schemas::enums::TaskStatus;
 use moatless_api_schemas::task::PaginationResponse;
 use moatless_api_schemas::task_connections::{
     Connection, GetTaskConnectionsQuery, ListTaskConnectionsQuery, TaskConnectionRow,
@@ -414,7 +414,7 @@ fn decode_connection(b: &TaskBinding, counts: &HashMap<String, (i64, i64)>) -> C
 
     Connection {
         binding_id: b.id.clone(),
-        adapter_kind: map_provider(&b.provider),
+        adapter_kind: crate::adapters::common::parse_adapter_kind(&b.provider),
         kind: connection_kind(&b.subject_kind),
         label,
         url,
@@ -428,16 +428,6 @@ fn decode_connection(b: &TaskBinding, counts: &HashMap<String, (i64, i64)>) -> C
         last_event_at: Some(b.last_event_at.to_rfc3339()),
         active: b.active,
         deactivated_at: b.deactivated_at.map(|t| t.to_rfc3339()),
-    }
-}
-
-fn map_provider(provider: &str) -> AdapterKind {
-    match provider {
-        "github" | "github_pr" => AdapterKind::Github,
-        "linear" => AdapterKind::Linear,
-        "telegram" => AdapterKind::Telegram,
-        "webhook" => AdapterKind::Webhook,
-        _ => AdapterKind::Slack,
     }
 }
 

@@ -5,12 +5,8 @@
 //! GitHub there is no `sha256=` prefix and no timestamp — replay protection
 //! is provided by the `webhookId` dedup cache in the provider.
 
-use hmac::{Hmac, KeyInit, Mac};
-use sha2::Sha256;
-
 use crate::adapters::error::AdapterError;
-
-type HmacSha256 = Hmac<Sha256>;
+use crate::adapters::signature::verify_hmac_sha256;
 
 /// Verify the Linear webhook signature using a constant-time comparison.
 pub fn verify_signature(
@@ -18,23 +14,16 @@ pub fn verify_signature(
     body: &[u8],
     signature_header: &str,
 ) -> Result<(), AdapterError> {
-    if signature_header.is_empty() {
-        return Err(AdapterError::SignatureInvalid);
-    }
-
-    let provided = hex::decode(signature_header).map_err(|_| AdapterError::SignatureInvalid)?;
-
-    let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-        .map_err(|_| AdapterError::Internal("Invalid webhook secret".to_string()))?;
-    mac.update(body);
-
-    mac.verify_slice(&provided)
-        .map_err(|_| AdapterError::SignatureInvalid)
+    verify_hmac_sha256(secret, body, signature_header)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hmac::{Hmac, KeyInit, Mac};
+    use sha2::Sha256;
+
+    type HmacSha256 = Hmac<Sha256>;
 
     fn sign(secret: &str, body: &[u8]) -> String {
         let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).expect("hmac key");

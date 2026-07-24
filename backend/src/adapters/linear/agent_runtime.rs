@@ -1494,7 +1494,7 @@ async fn insert_event_task(
             .task_name
             .clone()
             .or_else(|| Some(format!("{identifier} — {title}"))),
-        description: Some(truncate(preview, 200)),
+        description: Some(crate::bindings::outbound::truncate_text(preview, 200)),
         branch: None,
         created_by: Some(rule.effective_user_id().to_string()),
         headless: true,
@@ -1554,14 +1554,6 @@ async fn insert_event_task(
         })?;
 
     Ok(outcome.task.task_id)
-}
-
-fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        format!("{}...", &s[..max.saturating_sub(3)])
-    }
 }
 
 pub(crate) fn task_url(state: &AppState, task_id: &str) -> String {

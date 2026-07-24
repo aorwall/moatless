@@ -134,29 +134,6 @@ impl TaskRoute {
     }
 }
 
-/// Row from the `adapter_event_trigger_sources` table.
-#[derive(sqlx::FromRow, Debug, Clone)]
-pub struct TaskTrigger {
-    pub id: String,
-    pub provider: String,
-    pub connection_id: String,
-    pub source_matcher: String,
-    pub source_name: Option<String>,
-    pub event_filter: serde_json::Value,
-    pub trigger_config: Option<serde_json::Value>,
-    pub route_id: String,
-    pub allow_direct_send: bool,
-    pub close_task_on_close: bool,
-    pub notify_on_success: bool,
-    pub active: bool,
-    pub scope: Scope,
-    pub team_id: Option<String>,
-    pub owner_user_id: Option<String>,
-    pub created_by: String,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
 /// Canonical adapter-event trigger view backed by triggers, sources, and rules.
 #[derive(sqlx::FromRow, Debug, Clone)]
 pub struct TaskTriggerRoute {

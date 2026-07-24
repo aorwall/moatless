@@ -298,13 +298,12 @@ pub async fn reply_to_message(
         )));
     }
 
-    // GitHub/Linear comments end with a link back to the moatless task.
-    let footer = match adapter.adapter_kind() {
-        crate::adapters::AdapterKind::GithubPr | crate::adapters::AdapterKind::Linear => {
-            crate::adapters::footer::task_comment_footer(&state, &binding.task_id).await
-        }
-        _ => None,
-    };
+    let footer = crate::bindings::outbound::maybe_task_comment_footer(
+        &state,
+        adapter.adapter_kind(),
+        &binding.task_id,
+    )
+    .await;
 
     let outbound = OutboundReply {
         text: req.text,

@@ -915,7 +915,7 @@ async fn create_provider_event_task(
         repository_id: rule.repository_id.clone(),
         agent_type: AgentType(rule.agent_type.clone()),
         name: rule.task_name.clone(),
-        description: Some(truncate(&msg.text, 200)),
+        description: Some(crate::bindings::outbound::truncate_text(&msg.text, 200)),
         branch: None,
         created_by: Some(rule.effective_user_id().to_string()),
         headless: true,
@@ -1151,55 +1151,8 @@ pub(crate) fn is_review_comment(external_event_id: &str) -> bool {
     external_event_id.starts_with("github:rc:")
 }
 
-fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        return s.to_string();
-    }
-    let cutoff = max.saturating_sub(3);
-    let safe = s
-        .char_indices()
-        .map(|(i, _)| i)
-        .take_while(|&i| i <= cutoff)
-        .last()
-        .unwrap_or(0);
-    format!("{}...", &s[..safe])
-}
-
 #[cfg(test)]
 mod tests {
-    use super::truncate;
-
-    #[test]
-    fn truncate_under_max_returns_input() {
-        assert_eq!(truncate("hello", 10), "hello");
-    }
-
-    #[test]
-    fn truncate_over_max_appends_ellipsis() {
-        assert_eq!(truncate("abcdefghij", 8), "abcde...");
-    }
-
-    #[test]
-    fn truncate_respects_utf8_char_boundaries() {
-        // Reproduces PR #621 panic: byte 197 fell inside '→' (3 bytes).
-        let mut s = String::new();
-        for _ in 0..195 {
-            s.push('a');
-        }
-        s.push_str("→ main");
-        let out = truncate(&s, 200);
-        assert!(out.is_char_boundary(out.len() - 3));
-        assert!(out.ends_with("..."));
-    }
-
-    #[test]
-    fn truncate_at_exact_multibyte_boundary() {
-        let s = "aaaa→bbbb";
-        let out = truncate(s, 7);
-        assert!(out.ends_with("..."));
-        assert!(out.len() <= 7);
-    }
-
     mod connection_only_rule {
         use super::super::connection_only_rule;
         use crate::adapters::models::AdapterConnection;

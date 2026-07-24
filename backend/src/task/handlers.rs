@@ -401,13 +401,7 @@ pub async fn list_tasks(
                 .filter(|c| c.task_id == row.task_id)
                 .map(|c| TaskBindingSummary {
                     trigger_id: c.trigger_id.clone(),
-                    adapter_kind: match c.provider.as_str() {
-                        "github" | "github_pr" => moatless_api_schemas::enums::AdapterKind::Github,
-                        "linear" => moatless_api_schemas::enums::AdapterKind::Linear,
-                        "telegram" => moatless_api_schemas::enums::AdapterKind::Telegram,
-                        "webhook" => moatless_api_schemas::enums::AdapterKind::Webhook,
-                        _ => moatless_api_schemas::enums::AdapterKind::Slack,
-                    },
+                    adapter_kind: crate::adapters::common::parse_adapter_kind(&c.provider),
                     source_id: c.source_id.clone(),
                     source_name: c.source_name.clone(),
                     thread_id: None,

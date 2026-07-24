@@ -8,7 +8,6 @@ use crate::adapters::metrics::record_webhook;
 use crate::adapters::{Adapter, AdapterKind};
 use crate::bindings::dao::PgTaskBindingRepository;
 use crate::state::AppState;
-use crate::triggers::delivery::AdapterEventDeliveryService;
 
 #[utoipa::path(
     post,
@@ -160,17 +159,17 @@ pub async fn slack_webhook(
             let rule = rule.clone();
             let event_type_owned = event_type.to_string();
             tokio::spawn(async move {
-                match AdapterEventDeliveryService::new(&state_clone)
-                    .deliver(
-                        &connection,
-                        &rule,
-                        msg,
-                        "slack",
-                        destination.subject_kind,
-                        &destination.subject_key,
-                        destination.destination_config,
-                    )
-                    .await
+                match crate::bindings::runtime::route_inbound_message(
+                    &state_clone,
+                    &connection,
+                    &rule,
+                    msg,
+                    "slack",
+                    destination.subject_kind,
+                    &destination.subject_key,
+                    destination.destination_config,
+                )
+                .await
                 {
                     Ok(_) => {
                         record_webhook(

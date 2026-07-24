@@ -7,17 +7,7 @@ pub use moatless_api_schemas::adapters::*;
 pub use moatless_api_schemas::bindings::*;
 pub use moatless_api_schemas::triggers::*;
 
-use moatless_api_schemas::enums::AdapterKind;
-
-fn adapter_kind(provider: &str) -> AdapterKind {
-    match provider {
-        "github" | "github_pr" => AdapterKind::Github,
-        "linear" => AdapterKind::Linear,
-        "telegram" => AdapterKind::Telegram,
-        "webhook" => AdapterKind::Webhook,
-        _ => AdapterKind::Slack,
-    }
-}
+use crate::adapters::common::parse_adapter_kind;
 
 pub fn task_binding_summary_from_binding(
     binding: &crate::adapters::models::TaskBinding,
@@ -45,7 +35,7 @@ pub fn task_binding_summary_from_binding(
 
     TaskBindingSummary {
         trigger_id: rule.map(|r| r.id.clone()).unwrap_or_default(),
-        adapter_kind: adapter_kind(&binding.provider),
+        adapter_kind: parse_adapter_kind(&binding.provider),
         source_id: source_id.clone(),
         source_name: Some(source_id),
         thread_id: None,

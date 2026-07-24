@@ -1,11 +1,7 @@
 //! Slack HMAC-SHA256 webhook signature verification.
 
-use hmac::{Hmac, KeyInit, Mac};
-use sha2::Sha256;
-
 use crate::adapters::error::AdapterError;
-
-type HmacSha256 = Hmac<Sha256>;
+use crate::adapters::signature::verify_hmac_sha256;
 
 /// Verify the Slack request signature.
 ///
@@ -26,23 +22,21 @@ pub fn verify_signature(
         }
     }
 
+    let expected_hex = expected_signature
+        .strip_prefix("v0=")
+        .ok_or(AdapterError::SignatureInvalid)?;
     let sig_basestring = format!("v0:{timestamp}:{}", String::from_utf8_lossy(body));
 
-    let mut mac = HmacSha256::new_from_slice(signing_secret.as_bytes())
-        .map_err(|_| AdapterError::Internal("Invalid signing secret".to_string()))?;
-    mac.update(sig_basestring.as_bytes());
-    let computed = format!("v0={}", hex::encode(mac.finalize().into_bytes()));
-
-    if computed != expected_signature {
-        return Err(AdapterError::SignatureInvalid);
-    }
-
-    Ok(())
+    verify_hmac_sha256(signing_secret, sig_basestring.as_bytes(), expected_hex)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hmac::{Hmac, KeyInit, Mac};
+    use sha2::Sha256;
+
+    type HmacSha256 = Hmac<Sha256>;
 
     #[test]
     fn valid_signature() {

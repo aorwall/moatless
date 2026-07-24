@@ -2,12 +2,8 @@
 //!
 //! Verifies `X-Webhook-Signature` header using `HMAC-SHA256(secret, body)`.
 
-use hmac::{Hmac, KeyInit, Mac};
-use sha2::Sha256;
-
 use crate::adapters::error::AdapterError;
-
-type HmacSha256 = Hmac<Sha256>;
+use crate::adapters::signature::verify_hmac_sha256;
 
 /// Verify the webhook request signature.
 ///
@@ -18,21 +14,19 @@ pub fn verify_signature(
     body: &[u8],
     expected_signature: &str,
 ) -> Result<(), AdapterError> {
-    let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-        .map_err(|_| AdapterError::Internal("Invalid webhook secret".to_string()))?;
-    mac.update(body);
-    let computed = format!("sha256={}", hex::encode(mac.finalize().into_bytes()));
-
-    if computed != expected_signature {
-        return Err(AdapterError::SignatureInvalid);
-    }
-
-    Ok(())
+    let expected_hex = expected_signature
+        .strip_prefix("sha256=")
+        .ok_or(AdapterError::SignatureInvalid)?;
+    verify_hmac_sha256(secret, body, expected_hex)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hmac::{Hmac, KeyInit, Mac};
+    use sha2::Sha256;
+
+    type HmacSha256 = Hmac<Sha256>;
 
     #[test]
     fn valid_signature() {

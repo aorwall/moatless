@@ -58,7 +58,7 @@ pub(crate) async fn create_task_for_external_message(
         repository_id: config.repository_id.clone(),
         agent_type: AgentType(config.agent_type.clone()),
         name: config.task_name.clone(),
-        description: Some(truncate(&msg.text, 200)),
+        description: Some(crate::bindings::outbound::truncate_text(&msg.text, 200)),
         branch: None, // Will use repo default
         created_by: Some(config.effective_user_id().to_string()),
         headless: true,
@@ -101,29 +101,3 @@ pub(crate) async fn create_task_for_external_message(
     Ok(outcome)
 }
 
-/// Truncate a string to a max length, appending "..." if truncated.
-fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        format!("{}...", &s[..max.saturating_sub(3)])
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn truncate_short() {
-        assert_eq!(truncate("hello", 10), "hello");
-    }
-
-    #[test]
-    fn truncate_long() {
-        let long = "a".repeat(300);
-        let result = truncate(&long, 200);
-        assert!(result.len() <= 200);
-        assert!(result.ends_with("..."));
-    }
-}
