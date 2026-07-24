@@ -16,8 +16,9 @@ use crate::bindings::dao::PgTaskBindingRepository;
 use crate::sandbox::lifecycle::ArchiveRetention;
 use crate::shared_models::AgentType;
 use crate::state::AppState;
+use crate::task::creation::{NewTaskRequest, TaskCreationError};
 use crate::task::dao::TaskPatch;
-use crate::task::models::{Task, TaskStatus, Visibility};
+use crate::task::models::{TaskStatus, Visibility};
 use crate::triggers::rule_dao::PgTaskTriggerRouteRepository;
 
 use super::adapter::{resolve_user_or_fallback, PrCloseInfo};
@@ -368,36 +369,51 @@ pub async fn route_inbound_message(
                         }),
                     },
                 );
-            let task_id = create_provider_event_task(state, rule, &msg).await?;
-            if let Some(ref r) = related {
-                crate::task::relations::record_related_to(
-                    state.task_relations.as_ref(),
-                    &task_id,
-                    r,
-                )
-                .await;
+            // The service owns insert + preflight + provision. A creation error
+            // (e.g. failed preflight) already left the task marked errored with a
+            // sandbox error event; don't abort the whole webhook — skip the
+            // new-task binding/delivery and fall through to delivering the event
+            // to any existing bindings below.
+            match create_provider_event_task(state, rule, &msg).await {
+                Ok(task_id) => {
+                    if let Some(ref r) = related {
+                        crate::task::relations::record_related_to(
+                            state.task_relations.as_ref(),
+                            &task_id,
+                            r,
+                        )
+                        .await;
+                    }
+
+                    let binding = upsert_binding(
+                        state,
+                        connection,
+                        Some(rule),
+                        &task_id,
+                        &subject_key,
+                        &msg.thread_properties,
+                        ORIGIN_ADAPTER_EVENT,
+                    )
+                    .await?;
+
+                    info!(
+                        task_id = %task_id,
+                        rule_id = %rule.id,
+                        subject_key = %subject_key,
+                        "Created provider event task for GitHub PR binding"
+                    );
+
+                    delivery_targets.insert(0, (binding, true));
+                }
+                Err(e) => {
+                    warn!(
+                        rule_id = %rule.id,
+                        subject_key = %subject_key,
+                        error = %e,
+                        "Failed to create GitHub PR review task; skipping new-task delivery"
+                    );
+                }
             }
-            provision_task(state, &task_id).await;
-
-            let binding = upsert_binding(
-                state,
-                connection,
-                Some(rule),
-                &task_id,
-                &subject_key,
-                &msg.thread_properties,
-                ORIGIN_ADAPTER_EVENT,
-            )
-            .await?;
-
-            info!(
-                task_id = %task_id,
-                rule_id = %rule.id,
-                subject_key = %subject_key,
-                "Created provider event task for GitHub PR binding"
-            );
-
-            delivery_targets.insert(0, (binding, true));
         } else {
             debug!(
                 subject_key = %subject_key,
@@ -850,33 +866,44 @@ pub async fn upsert_binding(
         .await?)
 }
 
+/// Translate a GitHub PR provider event into a [`NewTaskRequest`] and hand it to
+/// the shared [`TaskCreationService`]. The service owns short-id generation,
+/// preflight, insert, tags, provision, and the task event; this function only
+/// maps the trigger route + inbound message onto the normalised request.
+///
+/// The binding upsert and first-message delivery stay with the caller
+/// ([`route_inbound_message`]), so no first message is passed here.
 async fn create_provider_event_task(
     state: &AppState,
     rule: &TaskTriggerRoute,
     msg: &InboundMessage,
 ) -> Result<String, AdapterError> {
-    let task_id = uuid::Uuid::new_v4().to_string();
-    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    let short_id = generate_short_id(state).await?;
+    // Always provide the PR origin context so loop/trigger prompts don't have to
+    // repeat it, then append the trigger's template and any adapter reply
+    // guidance. `parts` always contains at least PR_ORIGIN_CONTEXT.
+    let append_system_prompt = {
+        let mut parts = vec![PR_ORIGIN_CONTEXT.to_string()];
+        if let Some(ref tpl) = rule.prompt_template {
+            parts.push(tpl.to_string());
+        }
+        if let Some(providers) = state.adapters.as_ref() {
+            if let Some(provider) = providers.get_by_name(ADAPTER_LABEL) {
+                if let Some(extra) = provider.reply_instructions() {
+                    parts.push(extra);
+                }
+            }
+        }
+        Some(parts.join("\n\n"))
+    };
 
-    let row = Task {
-        task_id: task_id.clone(),
-        short_id: Some(short_id),
-        created_at: now.clone(),
-        last_message_at: now,
-        agent_type: AgentType(rule.agent_type.clone()),
+    let req = NewTaskRequest {
         repository_id: rule.repository_id.clone(),
-        status: TaskStatus::Open,
-        total_cost_usd: 0.0,
-        site_url: None,
-        template_id: None,
-        vibe: None,
+        agent_type: AgentType(rule.agent_type.clone()),
         name: rule.task_name.clone(),
         description: Some(truncate(&msg.text, 200)),
-        site_id: None,
-        site_provider: None,
         branch: None,
         created_by: Some(rule.effective_user_id().to_string()),
+        headless: true,
         // Tasks auto-created from a GitHub PR webhook default to public so the
         // people collaborating in the PR thread can open the task.
         visibility: Visibility::Public,
@@ -884,62 +911,49 @@ async fn create_provider_event_task(
         team_id: rule.team_id.clone(),
         owner_user_id: (rule.scope == moatless_backend_core::scope::Scope::User)
             .then(|| rule.effective_user_id().to_string()),
-        created_at_db: None,
-        updated_at: None,
-        append_system_prompt: {
-            // Always provide the PR origin context so loop/trigger prompts
-            // don't have to repeat it.
-            let mut parts = vec![PR_ORIGIN_CONTEXT.to_string()];
-            if let Some(ref tpl) = rule.prompt_template {
-                parts.push(tpl.to_string());
-            }
-            // Universal reply guidance now lives in the base sandbox-tools prompt.
-            if let Some(providers) = state.adapters.as_ref() {
-                if let Some(provider) = providers.get_by_name(ADAPTER_LABEL) {
-                    if let Some(extra) = provider.reply_instructions() {
-                        parts.push(extra);
-                    }
-                }
-            }
-            // `parts` always contains at least PR_ORIGIN_CONTEXT.
-            Some(parts.join("\n\n"))
-        },
-        headless: true,
+        trigger_id: Some(rule.id.clone()),
+        workspace_id: None,
+        template_id: None,
+        vibe: None,
+        append_system_prompt,
         ttl_minutes: crate::task::models::DEFAULT_TTL_MINUTES,
         inactive_ttl_days: rule
             .inactive_ttl_days
             .unwrap_or(crate::task::models::DEFAULT_INACTIVE_TTL_DAYS),
-        trigger_id: Some(rule.id.clone()),
-        workspace_id: None,
-        disabled_servers: None,
+        tag_ids: rule.tag_ids.clone(),
+        parent: None,
+        // `related_to` is recorded by the caller after creation succeeds.
+        related_to: None,
+        // First message is delivered by the caller through the binding.
+        first_message: None,
+        event_subtype: moatless_events::TaskSubType::Open,
+        // Let the service fetch the repo so preflight runs against it.
+        repository: None,
     };
 
-    state
-        .tasks
-        .insert_task(&row)
-        .await
-        .map_err(|e| AdapterError::Internal(format!("Failed to create task: {e}")))?;
-
-    if !rule.tag_ids.is_empty() {
-        if let Err(e) = state.tags.add_task_tags(&task_id, &rule.tag_ids).await {
-            warn!(task_id = %task_id, error = %e, "Failed to assign trigger tags to task");
-        }
-    }
-
-    if let Some(ref events) = state.events {
-        events
-            .publish_task_event(
-                &task_id,
-                moatless_events::TaskSubType::Open,
-                Some("claude-code"),
+    let source_matcher = rule.source_matcher.clone();
+    let outcome = state
+        .task_creation
+        .create(
+            req,
+            move |_task| async move {
                 serde_json::json!({
                     "adapter": ADAPTER_LABEL,
-                    "source_matcher": rule.source_matcher,
-                }),
-            )
-            .await;
-    }
+                    "source_matcher": source_matcher,
+                })
+            },
+            |_task_id, _first_message| async {},
+        )
+        .await
+        .map_err(|e| match e {
+            TaskCreationError::RepoNotFound(id) => {
+                AdapterError::NotFound(format!("Repository {id} not found"))
+            }
+            TaskCreationError::Preflight(msg) => AdapterError::AccessDenied(msg),
+            other => AdapterError::Internal(format!("Failed to create task: {other}")),
+        })?;
 
+    let task_id = outcome.task.task_id;
     info!(task_id = %task_id, rule_id = %rule.id, "Created task from GitHub PR provider event");
     Ok(task_id)
 }
@@ -1065,29 +1079,6 @@ fn parse_pr_destination_config(
             AdapterError::BadRequest("Missing pr_number in GitHub PR destination".into())
         })?;
     Ok((owner, repo, pr_number))
-}
-
-async fn provision_task(state: &AppState, task_id: &str) {
-    if let Err(e) = state.sandbox.start(task_id).await {
-        warn!(task_id = %task_id, error = %e, "Failed to start sandbox for GitHub PR task");
-    }
-}
-
-async fn generate_short_id(state: &AppState) -> Result<String, AdapterError> {
-    for _ in 0..10 {
-        let id = nanoid::nanoid!(8, &nanoid::alphabet::SAFE);
-        if !state
-            .tasks
-            .exists_by_short_id(&id)
-            .await
-            .map_err(|e| AdapterError::Internal(format!("Short ID check failed: {e}")))?
-        {
-            return Ok(id);
-        }
-    }
-    Err(AdapterError::Internal(
-        "Failed to generate unique short ID".to_string(),
-    ))
 }
 
 /// Returns `true` when `user_id` matches either identity field on the task's
