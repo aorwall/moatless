@@ -84,7 +84,7 @@ find leftovers.
 
 Notable behaviors:
 
-- **Auto-provisioning** (`k8s/auto_provision.rs`): `start` on a
+- **Auto-provisioning** (`auto_provision.rs`): `start` on a
   never-provisioned or cleaned-up task rebuilds the full provision plan from
   the DB (task + repository + credentials), so "start" always works.
 - **Per-repo resource overrides**: the repository config's `resources` field
@@ -397,8 +397,8 @@ All read from env at backend startup (`backend/src/config.rs`).
 
 ---
 
-*Sources: `backend/src/task/reaper.rs`, `backend/src/sandbox/k8s/pod_watcher.rs`,
-`backend/src/sandbox/k8s/{provider,status_resolver,pod_builder,auto_provision}.rs`,
+*Sources: `backend/src/task/reaper.rs`, `backend/src/sandbox/auto_provision.rs`,
+`backend/src/sandbox/k8s/{provider,status_resolver,pod_builder,pod_watcher}.rs`,
 `sandbox/src/{grpc_server,process_tree}.rs`, `sandbox/src/agent/handle/claude.rs`,
 `backend/src/message/send.rs`, `backend/src/credentials/codex/refresh.rs`,
 `backend/src/config.rs` — as of main @ July 2026.*

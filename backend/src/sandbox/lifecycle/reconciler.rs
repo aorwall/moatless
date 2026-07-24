@@ -40,10 +40,7 @@ pub struct RuntimeObservation {
 }
 
 impl RuntimeObservation {
-    pub fn new(
-        status: SandboxObservedStatus,
-        generation: Option<OperationGeneration>,
-    ) -> Self {
+    pub fn new(status: SandboxObservedStatus, generation: Option<OperationGeneration>) -> Self {
         Self { status, generation }
     }
 }
@@ -56,7 +53,7 @@ impl From<SandboxObservedStatus> for RuntimeObservation {
 
 /// A runtime-status read failed. The reconciler logs and skips the Task this
 /// tick rather than acting on missing observation. Keeps the underlying source
-/// (a K8s/Docker/provider error) so fleet-LIST debugging retains the chain.
+/// (a K8s/Docker observation error) so fleet-LIST debugging retains the chain.
 #[derive(Debug, thiserror::Error)]
 #[error("{context}")]
 pub struct ObserveError {
@@ -90,12 +87,11 @@ pub trait FleetObserver: Send + Sync {
     /// One label-selector LIST per tick: coarse observed status for every Task
     /// with live resources. Tasks absent from the map have no resources and are
     /// treated as [`SandboxObservedStatus::Absent`].
-    async fn observe_fleet(&self)
-        -> Result<HashMap<String, RuntimeObservation>, ObserveError>;
+    async fn observe_fleet(&self) -> Result<HashMap<String, RuntimeObservation>, ObserveError>;
 
     /// Authoritative per-Task status, read to confirm a divergence before acting
     /// so the reconciler never drives an operation off stale coarse data. The
-    /// intent fields are the ones the provider's live-status projection needs.
+    /// intent fields are the ones the observer's live-status projection needs.
     async fn observe(
         &self,
         task_id: &str,
@@ -401,7 +397,10 @@ impl Reconciler {
     /// Ready) must not.
     fn note_wake(&self, task_id: &str, wake_at: Option<DateTime<Utc>>) {
         let Some(wake_at) = wake_at else { return };
-        let mut guard = self.retries.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut guard = self
+            .retries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let retry = guard
             .entry(task_id.to_string())
             .or_insert_with(|| TaskRetry::new(self.config.attempt_cap));
@@ -418,7 +417,10 @@ impl Reconciler {
     /// exponential backoff keyed by Task.
     async fn maybe_notify(&self, task_id: &str, now: DateTime<Utc>) {
         let due = {
-            let mut guard = self.retries.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut guard = self
+                .retries
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             let retry = guard
                 .entry(task_id.to_string())
                 .or_insert_with(|| TaskRetry::new(self.config.attempt_cap));
@@ -439,7 +441,10 @@ impl Reconciler {
             }
         };
         if due {
-            debug!(task_id, "reconciler: re-notifying Ready sandbox of pending wake");
+            debug!(
+                task_id,
+                "reconciler: re-notifying Ready sandbox of pending wake"
+            );
             self.notify.notify(task_id).await;
         }
     }
@@ -448,7 +453,10 @@ impl Reconciler {
     /// backoff. Mutates the Task's budget (`begin`) before gating. Wake resets
     /// are handled by [`note_wake`](Self::note_wake) before this runs.
     fn retry_gate(&self, task_id: &str, generation: Option<i64>, now: DateTime<Utc>) -> bool {
-        let mut guard = self.retries.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut guard = self
+            .retries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let retry = guard
             .entry(task_id.to_string())
             .or_insert_with(|| TaskRetry::new(self.config.attempt_cap));
@@ -480,7 +488,10 @@ impl Reconciler {
         result: Result<super::outcome::LifecycleOutcome, super::error::LifecycleError>,
         now: DateTime<Utc>,
     ) {
-        let mut guard = self.retries.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut guard = self
+            .retries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let retry = guard
             .entry(task_id.to_string())
             .or_insert_with(|| TaskRetry::new(self.config.attempt_cap));
@@ -529,8 +540,8 @@ mod db_tests {
     };
     use super::super::runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
     use super::super::test_support::{seed_bare_task, seed_task_with as seed};
-    use super::super::types::{ObservedStatus, OperationKind};
     use super::super::types::{CorrelationMarker, OperationGeneration};
+    use super::super::types::{ObservedStatus, OperationKind};
 
     // ---- Recording ports ----
 
@@ -568,24 +579,47 @@ mod db_tests {
 
     #[async_trait]
     impl SandboxRuntime for RecordingRuntime {
-        async fn ensure_running(&self, _t: &str, _c: RuntimeOperationContext) -> Result<RuntimeOutcome, super::super::error::RuntimeError> {
+        async fn ensure_running(
+            &self,
+            _t: &str,
+            _c: RuntimeOperationContext,
+        ) -> Result<RuntimeOutcome, super::super::error::RuntimeError> {
             self.calls.lock().unwrap().ensure += 1;
             if self.fail_ensure {
-                return Err(super::super::error::RuntimeError::Infrastructure("boom".into()));
+                return Err(super::super::error::RuntimeError::Infrastructure(
+                    "boom".into(),
+                ));
             }
             Ok(RuntimeOutcome::applied(ObservedStatus::Starting))
         }
-        async fn stop(&self, _t: &str, _c: RuntimeOperationContext) -> Result<RuntimeOutcome, super::super::error::RuntimeError> {
+        async fn stop(
+            &self,
+            _t: &str,
+            _c: RuntimeOperationContext,
+        ) -> Result<RuntimeOutcome, super::super::error::RuntimeError> {
             self.calls.lock().unwrap().stop += 1;
             Ok(RuntimeOutcome::applied(ObservedStatus::Stopped))
         }
-        async fn restart(&self, _t: &str, _c: RuntimeOperationContext) -> Result<RuntimeOutcome, super::super::error::RuntimeError> {
+        async fn restart(
+            &self,
+            _t: &str,
+            _c: RuntimeOperationContext,
+        ) -> Result<RuntimeOutcome, super::super::error::RuntimeError> {
             Ok(RuntimeOutcome::applied(ObservedStatus::Starting))
         }
-        async fn redeploy(&self, _t: &str, _c: RuntimeOperationContext) -> Result<RuntimeOutcome, super::super::error::RuntimeError> {
+        async fn redeploy(
+            &self,
+            _t: &str,
+            _c: RuntimeOperationContext,
+        ) -> Result<RuntimeOutcome, super::super::error::RuntimeError> {
             Ok(RuntimeOutcome::applied(ObservedStatus::Starting))
         }
-        async fn remove(&self, _t: &str, _r: ArchiveRetention, _c: RuntimeOperationContext) -> Result<RuntimeOutcome, super::super::error::RuntimeError> {
+        async fn remove(
+            &self,
+            _t: &str,
+            _r: ArchiveRetention,
+            _c: RuntimeOperationContext,
+        ) -> Result<RuntimeOutcome, super::super::error::RuntimeError> {
             self.calls.lock().unwrap().remove += 1;
             Ok(RuntimeOutcome::applied(ObservedStatus::Removed))
         }
@@ -599,6 +633,14 @@ mod db_tests {
     impl LifecycleEventSink for CollectSink {
         async fn publish(&self, _t: &str, event: &LifecycleEvent) {
             self.facts.lock().unwrap().push(event.fact);
+        }
+
+        async fn publish_diagnostics(
+            &self,
+            _task_id: &str,
+            _generation: OperationGeneration,
+            _diagnostics: &super::super::outcome::Diagnostics,
+        ) {
         }
     }
 
@@ -626,9 +668,7 @@ mod db_tests {
     }
     #[async_trait]
     impl FleetObserver for FixedObserver {
-        async fn observe_fleet(
-            &self,
-        ) -> Result<HashMap<String, RuntimeObservation>, ObserveError> {
+        async fn observe_fleet(&self) -> Result<HashMap<String, RuntimeObservation>, ObserveError> {
             Ok(self.fleet.clone())
         }
         async fn observe(
@@ -765,7 +805,11 @@ mod db_tests {
         rec.reconcile_once().await;
 
         assert_eq!(runtime.calls().0, 1, "ensure_running driven once");
-        assert!(sink.facts.lock().unwrap().contains(&EventFact::Initializing));
+        assert!(sink
+            .facts
+            .lock()
+            .unwrap()
+            .contains(&EventFact::Initializing));
     }
 
     #[sqlx::test]
@@ -853,8 +897,14 @@ mod db_tests {
         // Bounded near the cap. Without the newest-message guard the wake would
         // reset every tick and drive all 8.
         let ensure = runtime.calls().0;
-        assert!(ensure <= 5, "ensure driven {ensure} times; the cap should bound it");
-        assert!(ensure >= 3, "ensure should retry up to the cap, got {ensure}");
+        assert!(
+            ensure <= 5,
+            "ensure driven {ensure} times; the cap should bound it"
+        );
+        assert!(
+            ensure >= 3,
+            "ensure should retry up to the cap, got {ensure}"
+        );
     }
 
     #[sqlx::test]
@@ -871,7 +921,10 @@ mod db_tests {
             pool.clone(),
             pool,
             runtime.clone(),
-            observer(&[("t1", SandboxObservedStatus::Ready)], SandboxObservedStatus::Ready),
+            observer(
+                &[("t1", SandboxObservedStatus::Ready)],
+                SandboxObservedStatus::Ready,
+            ),
             notify.clone(),
             Arc::new(SystemWallClock),
             ReconcilerConfig {
@@ -883,7 +936,11 @@ mod db_tests {
         rec.reconcile_once().await;
         rec.reconcile_once().await;
 
-        assert_eq!(runtime.calls(), (0, 0, 0), "converged — no lifecycle operation driven");
+        assert_eq!(
+            runtime.calls(),
+            (0, 0, 0),
+            "converged — no lifecycle operation driven"
+        );
         assert_eq!(
             *notify.count.lock().unwrap(),
             1,
@@ -901,7 +958,10 @@ mod db_tests {
             pool.clone(),
             pool,
             runtime.clone(),
-            observer(&[("t1", SandboxObservedStatus::Ready)], SandboxObservedStatus::Ready),
+            observer(
+                &[("t1", SandboxObservedStatus::Ready)],
+                SandboxObservedStatus::Ready,
+            ),
             Duration::ZERO,
         );
 
@@ -936,7 +996,10 @@ mod db_tests {
             pool.clone(),
             pool,
             runtime.clone(),
-            observer(&[("t1", SandboxObservedStatus::Ready)], SandboxObservedStatus::Ready),
+            observer(
+                &[("t1", SandboxObservedStatus::Ready)],
+                SandboxObservedStatus::Ready,
+            ),
             Duration::ZERO,
         );
 

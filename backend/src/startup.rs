@@ -241,6 +241,7 @@ pub fn spawn_grpc_server(
     db_pool: Option<&DbPool>,
     event_publisher: Option<Arc<dyn EventPublisher>>,
     s3: Option<Arc<aws_sdk_s3::Client>>,
+    connector: Arc<dyn crate::sandbox::access::SandboxConnector>,
 ) {
     let messages: Option<Arc<dyn MessageRepository>> =
         db_pool.map(|pool| Arc::new(PgMessageRepository(pool.clone())) as _);
@@ -308,9 +309,7 @@ pub fn spawn_grpc_server(
             provider_token_auth.clone(),
             github_app_service.clone(),
             tasks.as_ref().map(|t| BroadcastContext {
-                provider: config.sandbox_provider,
-                sandbox_namespace: config.sandbox.namespace.clone(),
-                sandbox_grpc_port: config.sandbox.grpc_port,
+                connector: Arc::clone(&connector),
                 tasks: t.clone(),
             }),
         );
@@ -381,51 +380,46 @@ pub fn install_shutdown_handler(cancel: CancellationToken) {
 }
 
 // =========================================================================
-// Sandbox providers
+// Sandbox adapters
 // =========================================================================
 
-/// Build the K8s sandbox provider with optional DB-backed repositories.
-///
-/// The provider itself is pure infrastructure — no DB dependencies.
-/// DB-backed repos are returned separately for use in `SandboxApiState`.
-pub fn build_sandbox_provider(
+/// Build the Kubernetes runtime/observer/connector adapter.
+pub fn build_k8s_sandbox_adapter(
     config: &Config,
     k8s: K8sClient,
-    event_publisher: Option<Arc<dyn EventPublisher>>,
     s3: Option<Arc<aws_sdk_s3::Client>>,
-) -> Arc<dyn crate::sandbox::provider::SandboxProvider> {
-    use crate::sandbox::k8s::provider::K8sSandboxProvider;
+    db_pool: Option<&DbPool>,
+) -> Arc<crate::sandbox::k8s::provider::K8sSandboxAdapter> {
+    use crate::sandbox::k8s::provider::K8sSandboxAdapter;
     use crate::sandbox::k8s::status_resolver::StatusResolver;
 
     let status_resolver = StatusResolver::new(k8s.clone(), Arc::new(config.clone()));
 
-    Arc::new(K8sSandboxProvider {
+    Arc::new(K8sSandboxAdapter {
         config: Arc::new(config.clone()),
         k8s,
         status_resolver,
-        event_publisher,
+        plan: db_pool.map(crate::sandbox::lifecycle::ProvisionDeps::from_pool),
         s3,
     })
 }
 
-/// Build the Docker sandbox provider with optional DB-backed repositories.
-///
-/// The provider itself is pure infrastructure — no DB dependencies.
-pub fn build_docker_sandbox_provider(
+/// Build the Docker runtime/observer/connector adapter.
+pub fn build_docker_sandbox_adapter(
     config: &Config,
     client: crate::sandbox::docker::client::DockerClient,
-    event_publisher: Option<Arc<dyn EventPublisher>>,
-) -> Arc<dyn crate::sandbox::provider::SandboxProvider> {
-    use crate::sandbox::docker::provider::DockerSandboxProvider;
+    db_pool: Option<&DbPool>,
+) -> Arc<crate::sandbox::docker::provider::DockerSandboxAdapter> {
+    use crate::sandbox::docker::provider::DockerSandboxAdapter;
     use crate::sandbox::docker::status_resolver::DockerStatusResolver;
 
     let status_resolver = DockerStatusResolver::new(client.clone(), Arc::new(config.clone()));
 
-    Arc::new(DockerSandboxProvider {
+    Arc::new(DockerSandboxAdapter {
         config: Arc::new(config.clone()),
         client,
         status_resolver,
-        event_publisher,
+        plan: db_pool.map(crate::sandbox::lifecycle::ProvisionDeps::from_pool),
     })
 }
 

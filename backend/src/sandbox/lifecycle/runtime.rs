@@ -15,6 +15,8 @@
 
 use async_trait::async_trait;
 
+use crate::sandbox::error::SandboxError;
+
 use super::error::RuntimeError;
 use super::outcome::Diagnostics;
 use super::types::{ArchiveRetention, ObservedStatus, OperationGeneration, RuntimeEffect};
@@ -46,6 +48,23 @@ impl RuntimeOperationContext {
 
 pub(crate) fn generation_from_label(value: Option<&String>) -> Option<OperationGeneration> {
     value?.parse::<i64>().ok().map(OperationGeneration)
+}
+
+/// Map infrastructure-facing adapter errors onto lifecycle's retry classes.
+pub(crate) fn map_sandbox_error(error: SandboxError) -> RuntimeError {
+    match error {
+        SandboxError::BadRequest(message)
+        | SandboxError::ConfigMissing(message)
+        | SandboxError::PodBuildError(message)
+        | SandboxError::Conflict(message)
+        | SandboxError::Forbidden(message) => RuntimeError::Rejected(message),
+        SandboxError::JwtError(message)
+        | SandboxError::DockerError(message)
+        | SandboxError::NotReady(message)
+        | SandboxError::NotFound(message)
+        | SandboxError::Internal(message) => RuntimeError::Infrastructure(message),
+        SandboxError::KubeError(error) => RuntimeError::Infrastructure(error.to_string()),
+    }
 }
 
 /// Returned by **every** `SandboxRuntime` mutation.
@@ -172,8 +191,8 @@ mod tests {
             }],
             server_failures: vec![],
         };
-        let outcome = RuntimeOutcome::applied(ObservedStatus::Starting)
-            .with_diagnostics(diags.clone());
+        let outcome =
+            RuntimeOutcome::applied(ObservedStatus::Starting).with_diagnostics(diags.clone());
         assert_eq!(outcome.diagnostics, diags);
     }
 

@@ -3,8 +3,6 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use axum::response::sse::Event;
-use futures::stream::BoxStream;
 use sqlx::PgPool;
 
 use moatless_vibe_backend::auth::github_app_registry::GitHubAppRegistry;
@@ -15,104 +13,105 @@ use moatless_vibe_backend::config::{
 };
 use moatless_vibe_backend::message::models::{MessageRole, MessageType, TaskMessage};
 use moatless_vibe_backend::repository::models::{Repository, RepositoryKind, RepositoryProvider};
+use moatless_vibe_backend::sandbox::access::SandboxConnector;
 use moatless_vibe_backend::sandbox::client::SandboxClient;
 use moatless_vibe_backend::sandbox::error::SandboxError;
-use moatless_vibe_backend::sandbox::lifecycle::RuntimeOperationContext;
-use moatless_vibe_backend::sandbox::models::*;
-use moatless_vibe_backend::sandbox::provider::SandboxProvider;
-use moatless_vibe_backend::sandbox::schemas::*;
+use moatless_vibe_backend::sandbox::lifecycle::{
+    ArchiveRetention, NotifyPort, ObservedStatus, RuntimeOperationContext, RuntimeOutcome,
+    SandboxRuntime,
+};
 use moatless_vibe_backend::shared_models::AgentType;
-use moatless_vibe_backend::state::AppState;
+use moatless_vibe_backend::state::{build_lifecycle, AppState};
 use moatless_vibe_backend::task::models::{SandboxDesiredState, Task, TaskStatus, Visibility};
+use moatless_vibe_backend::task::reaper::AgentStatusPort;
 use moatless_vibe_backend::workspace::models::{Workspace, WorkspaceRepo};
 
 // =========================================================================
-// Mock sandbox provider
+// Mock sandbox capabilities
 // =========================================================================
 
-/// Minimal mock that returns errors for all sandbox operations.
-/// Tests that exercise DB-only handlers don't hit the sandbox provider.
-pub struct MockSandboxProvider;
+/// Minimal runtime used by DB-only handler tests.
+pub struct MockSandboxRuntime;
 
 #[async_trait]
-impl SandboxProvider for MockSandboxProvider {
-    async fn provision(
+impl SandboxRuntime for MockSandboxRuntime {
+    async fn ensure_running(
         &self,
         _task_id: &str,
-        _request: &ProvisionRequest,
         _ctx: RuntimeOperationContext,
-    ) -> Result<ProvisionResponse, SandboxError> {
-        Err(SandboxError::Internal("mock: not implemented".into()))
-    }
-
-    async fn sandbox_status(
-        &self,
-        _task_id: &str,
-        _server_configs: &[moatless_vibe_backend::sandbox::models::ServerConfig],
-    ) -> Result<SandboxStatusFullResponse, SandboxError> {
-        Err(SandboxError::Internal("mock: not implemented".into()))
-    }
-
-    fn expected_sandbox_image(&self, repo_docker_image: Option<&str>) -> String {
-        repo_docker_image
-            .filter(|s| !s.is_empty())
-            .map(str::to_string)
-            .unwrap_or_else(|| "mock-sandbox:latest".to_string())
+    ) -> Result<RuntimeOutcome, moatless_vibe_backend::sandbox::lifecycle::RuntimeError> {
+        Err(
+            moatless_vibe_backend::sandbox::lifecycle::RuntimeError::Infrastructure(
+                "mock: not implemented".into(),
+            ),
+        )
     }
 
     async fn stop(
         &self,
         _task_id: &str,
         _ctx: RuntimeOperationContext,
-    ) -> Result<(), SandboxError> {
-        Ok(()) // best-effort in handlers
+    ) -> Result<RuntimeOutcome, moatless_vibe_backend::sandbox::lifecycle::RuntimeError> {
+        Ok(RuntimeOutcome::applied(ObservedStatus::Stopped))
     }
 
     async fn restart(
         &self,
         _task_id: &str,
         _ctx: RuntimeOperationContext,
-    ) -> Result<(), SandboxError> {
-        Err(SandboxError::Internal("mock: not implemented".into()))
+    ) -> Result<RuntimeOutcome, moatless_vibe_backend::sandbox::lifecycle::RuntimeError> {
+        Err(
+            moatless_vibe_backend::sandbox::lifecycle::RuntimeError::Infrastructure(
+                "mock: not implemented".into(),
+            ),
+        )
     }
 
     async fn redeploy(
         &self,
         _task_id: &str,
-        _request: &ProvisionRequest,
         _ctx: RuntimeOperationContext,
-    ) -> Result<ProvisionResponse, SandboxError> {
-        Err(SandboxError::Internal("mock: not implemented".into()))
+    ) -> Result<RuntimeOutcome, moatless_vibe_backend::sandbox::lifecycle::RuntimeError> {
+        Err(
+            moatless_vibe_backend::sandbox::lifecycle::RuntimeError::Infrastructure(
+                "mock: not implemented".into(),
+            ),
+        )
     }
 
-    async fn cleanup(
+    async fn remove(
         &self,
         _task_id: &str,
-        _retain_storage: bool,
+        _retention: ArchiveRetention,
         _ctx: RuntimeOperationContext,
-    ) -> Result<(), SandboxError> {
-        Ok(()) // best-effort in handlers
+    ) -> Result<RuntimeOutcome, moatless_vibe_backend::sandbox::lifecycle::RuntimeError> {
+        Ok(RuntimeOutcome::applied(ObservedStatus::Removed))
     }
+}
 
-    async fn container_statuses(
-        &self,
-        _task_id: &str,
-    ) -> Result<Vec<ContainerObservedStatus>, SandboxError> {
-        Ok(vec![])
-    }
+pub struct MockSandboxConnector;
 
-    async fn server_logs(
-        &self,
-        _task_id: &str,
-        _server_name: &str,
-        _previous: bool,
-    ) -> Result<BoxStream<'static, Result<Event, SandboxError>>, SandboxError> {
-        Err(SandboxError::Internal("mock: not implemented".into()))
-    }
-
+#[async_trait]
+impl SandboxConnector for MockSandboxConnector {
     async fn sandbox_client(&self, _task_id: &str) -> Result<SandboxClient, SandboxError> {
         Err(SandboxError::Internal("mock: not implemented".into()))
     }
+}
+
+pub struct MockAgentStatus;
+
+#[async_trait]
+impl AgentStatusPort for MockAgentStatus {
+    async fn agent_status(&self, _task_id: &str) -> Option<sandbox_proto::GetAgentStatusResponse> {
+        None
+    }
+}
+
+pub struct MockNotify;
+
+#[async_trait]
+impl NotifyPort for MockNotify {
+    async fn notify(&self, _task_id: &str) {}
 }
 
 // =========================================================================
@@ -288,16 +287,27 @@ pub fn test_config() -> Config {
     }
 }
 
-/// Build an AppState with a real PgPool and mock sandbox provider.
+/// Build an AppState with a real PgPool and mock sandbox capabilities.
 #[allow(dead_code)]
 pub fn test_app_state(pool: PgPool) -> AppState {
     let config = test_config();
     let github_apps = Arc::new(GitHubAppRegistry::from_config(&config));
+    let connector: Arc<dyn SandboxConnector> = Arc::new(MockSandboxConnector);
+    let lifecycle = build_lifecycle(
+        pool.clone(),
+        pool.clone(),
+        Arc::new(MockSandboxRuntime),
+        connector.clone(),
+        "mock-sandbox:latest".into(),
+        None,
+    );
     AppState::new(
         pool.clone(),
-        pool, // lock pool — tests reuse the same DB pool
+        lifecycle,
         Arc::new(config),
-        Arc::new(MockSandboxProvider),
+        connector,
+        Arc::new(MockAgentStatus),
+        Arc::new(MockNotify),
         None, // events
         None, // s3
         None, // adapters

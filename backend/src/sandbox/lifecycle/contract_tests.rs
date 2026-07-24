@@ -97,7 +97,10 @@ impl RecordingRuntime {
         self.gate = Some(gate);
         self
     }
-    fn take(slot: &Mutex<Option<Result<RuntimeOutcome, RuntimeError>>>, default: ObservedStatus) -> Result<RuntimeOutcome, RuntimeError> {
+    fn take(
+        slot: &Mutex<Option<Result<RuntimeOutcome, RuntimeError>>>,
+        default: ObservedStatus,
+    ) -> Result<RuntimeOutcome, RuntimeError> {
         slot.lock()
             .unwrap()
             .take()
@@ -107,7 +110,11 @@ impl RecordingRuntime {
 
 #[async_trait]
 impl SandboxRuntime for RecordingRuntime {
-    async fn ensure_running(&self, _t: &str, ctx: RuntimeOperationContext) -> Result<RuntimeOutcome, RuntimeError> {
+    async fn ensure_running(
+        &self,
+        _t: &str,
+        ctx: RuntimeOperationContext,
+    ) -> Result<RuntimeOutcome, RuntimeError> {
         *self.last_generation.lock().unwrap() = Some(ctx.operation_generation.value());
         if let Some(gate) = &self.gate {
             gate.entered.notify_one();
@@ -115,17 +122,34 @@ impl SandboxRuntime for RecordingRuntime {
         }
         Self::take(&self.ensure, ObservedStatus::Starting)
     }
-    async fn stop(&self, _t: &str, ctx: RuntimeOperationContext) -> Result<RuntimeOutcome, RuntimeError> {
+    async fn stop(
+        &self,
+        _t: &str,
+        ctx: RuntimeOperationContext,
+    ) -> Result<RuntimeOutcome, RuntimeError> {
         *self.last_generation.lock().unwrap() = Some(ctx.operation_generation.value());
         Self::take(&self.stop, ObservedStatus::Stopped)
     }
-    async fn restart(&self, _t: &str, _ctx: RuntimeOperationContext) -> Result<RuntimeOutcome, RuntimeError> {
+    async fn restart(
+        &self,
+        _t: &str,
+        _ctx: RuntimeOperationContext,
+    ) -> Result<RuntimeOutcome, RuntimeError> {
         Ok(RuntimeOutcome::applied(ObservedStatus::Starting))
     }
-    async fn redeploy(&self, _t: &str, _ctx: RuntimeOperationContext) -> Result<RuntimeOutcome, RuntimeError> {
+    async fn redeploy(
+        &self,
+        _t: &str,
+        _ctx: RuntimeOperationContext,
+    ) -> Result<RuntimeOutcome, RuntimeError> {
         Ok(RuntimeOutcome::applied(ObservedStatus::Starting))
     }
-    async fn remove(&self, _t: &str, _r: ArchiveRetention, ctx: RuntimeOperationContext) -> Result<RuntimeOutcome, RuntimeError> {
+    async fn remove(
+        &self,
+        _t: &str,
+        _r: ArchiveRetention,
+        ctx: RuntimeOperationContext,
+    ) -> Result<RuntimeOutcome, RuntimeError> {
         *self.last_generation.lock().unwrap() = Some(ctx.operation_generation.value());
         Self::take(&self.remove, ObservedStatus::Removed)
     }
@@ -139,6 +163,14 @@ struct CollectSink {
 impl LifecycleEventSink for CollectSink {
     async fn publish(&self, _task_id: &str, event: &LifecycleEvent) {
         self.facts.lock().unwrap().push(event.fact);
+    }
+
+    async fn publish_diagnostics(
+        &self,
+        _task_id: &str,
+        _generation: super::OperationGeneration,
+        _diagnostics: &super::Diagnostics,
+    ) {
     }
 }
 
@@ -156,7 +188,12 @@ struct Harness {
     pool: PgPool,
 }
 
-fn build(store_pool: PgPool, lock_pool: PgPool, runtime: RecordingRuntime, lock_attempts: u32) -> Harness {
+fn build(
+    store_pool: PgPool,
+    lock_pool: PgPool,
+    runtime: RecordingRuntime,
+    lock_attempts: u32,
+) -> Harness {
     let store = Arc::new(PgLifecycleStore::new(store_pool.clone()));
     let runtime = Arc::new(runtime);
     let sink = Arc::new(CollectSink::default());
@@ -193,7 +230,10 @@ async fn desired(pool: &PgPool, task_id: &str) -> (String, Option<String>, Optio
 // ---- Contract (Postgres half) ----
 
 #[sqlx::test]
-async fn start_persists_running_and_publishes_initializing(opts: PgPoolOptions, conn: PgConnectOptions) {
+async fn start_persists_running_and_publishes_initializing(
+    opts: PgPoolOptions,
+    conn: PgConnectOptions,
+) {
     let (store_pool, lock_pool) = pools(&opts, &conn).await;
     seed(&store_pool, "t1", "open", "stopped").await;
     let h = build(
@@ -208,7 +248,12 @@ async fn start_persists_running_and_publishes_initializing(opts: PgPoolOptions, 
     let (state, reason, _kind) = desired(&h.pool, "t1").await;
     assert_eq!(state, "running");
     assert_eq!(reason, None);
-    assert!(h.sink.facts.lock().unwrap().contains(&EventFact::Initializing));
+    assert!(h
+        .sink
+        .facts
+        .lock()
+        .unwrap()
+        .contains(&EventFact::Initializing));
     // The allocated generation reached the runtime context.
     assert_eq!(*h.runtime.last_generation.lock().unwrap(), Some(1));
     // A start that ends Starting leaves its marker for the watcher's convergence.
@@ -227,7 +272,10 @@ async fn stop_commits_completion_and_clears_marker(opts: PgPoolOptions, conn: Pg
         1,
     );
 
-    h.lifecycle.stop("t1", SandboxStopReason::IdleReaper).await.expect("stop ok");
+    h.lifecycle
+        .stop("t1", SandboxStopReason::IdleReaper)
+        .await
+        .expect("stop ok");
     let (state, reason, kind) = desired(&h.pool, "t1").await;
     assert_eq!(state, "stopped");
     assert_eq!(reason.as_deref(), Some("idle_reaper"));
@@ -235,15 +283,20 @@ async fn stop_commits_completion_and_clears_marker(opts: PgPoolOptions, conn: Pg
     assert!(h.sink.facts.lock().unwrap().contains(&EventFact::Stopped));
 
     // Exactly one persisted Stopped fact for generation 1.
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM task_events WHERE event_id = 'sandbox:t1:1:stopped'")
-        .fetch_one(&h.pool)
-        .await
-        .unwrap();
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM task_events WHERE event_id = 'sandbox:t1:1:stopped'",
+    )
+    .fetch_one(&h.pool)
+    .await
+    .unwrap();
     assert_eq!(count, 1);
 }
 
 #[sqlx::test]
-async fn remove_publishes_removing_then_removed_and_keeps_retention(opts: PgPoolOptions, conn: PgConnectOptions) {
+async fn remove_publishes_removing_then_removed_and_keeps_retention(
+    opts: PgPoolOptions,
+    conn: PgConnectOptions,
+) {
     let (store_pool, lock_pool) = pools(&opts, &conn).await;
     seed(&store_pool, "t1", "open", "running").await;
     let h = build(
@@ -253,7 +306,10 @@ async fn remove_publishes_removing_then_removed_and_keeps_retention(opts: PgPool
         1,
     );
 
-    h.lifecycle.remove("t1", ArchiveRetention::DeleteArchives).await.expect("remove ok");
+    h.lifecycle
+        .remove("t1", ArchiveRetention::DeleteArchives)
+        .await
+        .expect("remove ok");
     let facts = h.sink.facts.lock().unwrap().clone();
     assert_eq!(facts, vec![EventFact::Removing, EventFact::Removed]);
     let loaded = h.store.load("t1").await.unwrap().unwrap();
@@ -290,8 +346,8 @@ async fn closed_task_start_is_rejected(opts: PgPoolOptions, conn: PgConnectOptio
 
 // The recording runtime injects the permanent `Rejected`, so this covers the
 // orchestrator's response to a bad plan (intent kept, Error fact, non-retriable).
-// The real plan path — `RuntimeBridge::build_request`'s unbuildable-plan →
-// `Rejected` mapping — is covered by `runtime_bridge::db_tests`.
+// The real plan path — the native runtime adapter's unbuildable-plan →
+// `Rejected` mapping — is covered by `plan::db_tests::bad_plan_is_permanent_rejected`.
 #[sqlx::test]
 async fn bad_plan_start_is_permanent_and_keeps_intent(opts: PgPoolOptions, conn: PgConnectOptions) {
     let (store_pool, lock_pool) = pools(&opts, &conn).await;
@@ -352,7 +408,10 @@ async fn concurrent_starts_serialize_and_contender_gets_operation_in_progress(
 }
 
 #[sqlx::test]
-async fn bounded_lock_retry_exhausts_to_operation_in_progress(opts: PgPoolOptions, conn: PgConnectOptions) {
+async fn bounded_lock_retry_exhausts_to_operation_in_progress(
+    opts: PgPoolOptions,
+    conn: PgConnectOptions,
+) {
     let (store_pool, lock_pool) = pools(&opts, &conn).await;
     seed(&store_pool, "t1", "open", "stopped").await;
     let gate = Arc::new(Gate::default());
@@ -370,7 +429,12 @@ async fn bounded_lock_retry_exhausts_to_operation_in_progress(opts: PgPoolOption
     gate.entered.notified().await;
 
     let b = h.lifecycle.stop("t1", SandboxStopReason::User).await;
-    assert!(matches!(b, Err(LifecycleError::OperationInProgress { kind: OperationKind::Start })));
+    assert!(matches!(
+        b,
+        Err(LifecycleError::OperationInProgress {
+            kind: OperationKind::Start
+        })
+    ));
 
     gate.release.notify_one();
     a.await.unwrap().expect("A completes");

@@ -49,6 +49,7 @@ pub(crate) mod error;
 pub(crate) mod events;
 pub(crate) mod orchestrator;
 pub(crate) mod outcome;
+pub(crate) mod plan;
 pub(crate) mod runtime;
 pub(crate) mod types;
 
@@ -59,7 +60,6 @@ pub(crate) mod dao;
 pub(crate) mod event_sink;
 pub(crate) mod lock;
 pub(crate) mod observe;
-pub(crate) mod runtime_bridge;
 
 // The lifecycle contract against local Postgres (Lifecycle over the Pg adapters).
 #[cfg(all(test, feature = "db-tests"))]
@@ -77,20 +77,18 @@ pub(crate) mod test_support;
 // correlation internals — is `pub(crate)`; no caller outside this crate names it.
 
 pub use error::{ErrorClass, LifecycleError, RuntimeError};
+pub use orchestrator::Lifecycle;
 pub use outcome::{Diagnostics, LifecycleOutcome};
-pub use runtime::RuntimeOperationContext;
+pub use runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
 pub use types::{
     ArchiveRetention, IntentEffect, ObservedStatus, OperationGeneration, OperationKind,
     RuntimeEffect,
 };
-pub use orchestrator::Lifecycle;
 
 // The desired-state reconciler and its production fleet-observer adapters,
 // assembled by `state::build_reconciler` and spawned by `main`.
 pub use observe::{DockerFleetObserver, GrpcNotify, K8sFleetObserver};
-pub use reconciler::{
-    FleetObserver, NotifyPort, Reconciler, ReconcilerConfig, RuntimeObservation,
-};
+pub use reconciler::{FleetObserver, NotifyPort, Reconciler, ReconcilerConfig, RuntimeObservation};
 
 // The system clock `state` hands to the `Lifecycle` and `Reconciler`. The ports,
 // runtime seam, and correlation internals are named through their defining
@@ -103,4 +101,4 @@ pub(crate) use agent_stop::GrpcAgentStop;
 pub(crate) use dao::PgLifecycleStore;
 pub(crate) use event_sink::OutboxEventSink;
 pub(crate) use lock::PgLifecycleLock;
-pub(crate) use runtime_bridge::{ProvisionDeps, RuntimeBridge};
+pub(crate) use plan::ProvisionDeps;

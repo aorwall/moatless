@@ -2,7 +2,7 @@
 //!
 //! `observe_fleet` is one label-selector LIST per tick, mapped to the coarse
 //! [`SandboxObservedStatus`] the reconciler joins against intent. `observe` is
-//! the authoritative per-Task confirm, delegated to the provider's live-status
+//! the authoritative per-Task confirm, delegated to the observer's live-status
 //! projection so a divergence is verified before any operation is driven.
 
 use std::collections::HashMap;
@@ -10,26 +10,25 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use crate::config::SandboxProviderType;
+use crate::sandbox::access::{SandboxConnector, SandboxObserver};
 use crate::sandbox::docker::client::DockerClient;
 use crate::sandbox::docker::container_builder::{SANDBOX_SERVICE, SERVICE_LABEL};
 use crate::sandbox::docker::naming::generate_container_name;
 use crate::sandbox::k8s::client::K8sClient;
-use crate::sandbox::provider::SandboxProvider;
 use crate::task::models::{SandboxDesiredState, TaskStatus};
 
 use super::convergence::SandboxObservedStatus;
 use super::reconciler::{FleetObserver, NotifyPort, ObserveError, RuntimeObservation};
 use super::runtime::{generation_from_label, OPERATION_GENERATION_LABEL};
 
-/// Confirm a Task's status authoritatively via the provider's live-status read.
+/// Confirm a Task's status authoritatively via the observer's live-status read.
 async fn confirm(
-    provider: &Arc<dyn SandboxProvider>,
+    observer: &Arc<dyn SandboxObserver>,
     task_id: &str,
     task_status: TaskStatus,
     desired_state: SandboxDesiredState,
 ) -> Result<SandboxObservedStatus, ObserveError> {
-    let live = provider
+    let live = observer
         .live_status(task_id, task_status, desired_state)
         .await
         .map_err(|e| ObserveError::with_source("confirm live status", e))?;
@@ -39,20 +38,18 @@ async fn confirm(
 /// Kubernetes fleet observer: one Deployment LIST → coarse status per Task.
 pub struct K8sFleetObserver {
     k8s: K8sClient,
-    provider: Arc<dyn SandboxProvider>,
+    observer: Arc<dyn SandboxObserver>,
 }
 
 impl K8sFleetObserver {
-    pub fn new(k8s: K8sClient, provider: Arc<dyn SandboxProvider>) -> Self {
-        Self { k8s, provider }
+    pub fn new(k8s: K8sClient, observer: Arc<dyn SandboxObserver>) -> Self {
+        Self { k8s, observer }
     }
 }
 
 #[async_trait]
 impl FleetObserver for K8sFleetObserver {
-    async fn observe_fleet(
-        &self,
-    ) -> Result<HashMap<String, RuntimeObservation>, ObserveError> {
+    async fn observe_fleet(&self) -> Result<HashMap<String, RuntimeObservation>, ObserveError> {
         let states = crate::sandbox::k8s::deployment::list_sandbox_deployment_states(&self.k8s)
             .await
             .map_err(|e| ObserveError::with_source("list sandbox deployments", e))?;
@@ -82,7 +79,7 @@ impl FleetObserver for K8sFleetObserver {
         task_status: TaskStatus,
         desired_state: SandboxDesiredState,
     ) -> Result<RuntimeObservation, ObserveError> {
-        let status = confirm(&self.provider, task_id, task_status, desired_state).await?;
+        let status = confirm(&self.observer, task_id, task_status, desired_state).await?;
         let generation = crate::sandbox::k8s::deployment::find_deployment(&self.k8s, task_id)
             .await
             .map_err(|e| ObserveError::with_source("inspect sandbox deployment generation", e))?
@@ -103,20 +100,18 @@ impl FleetObserver for K8sFleetObserver {
 /// → coarse status per Task.
 pub struct DockerFleetObserver {
     docker: DockerClient,
-    provider: Arc<dyn SandboxProvider>,
+    observer: Arc<dyn SandboxObserver>,
 }
 
 impl DockerFleetObserver {
-    pub fn new(docker: DockerClient, provider: Arc<dyn SandboxProvider>) -> Self {
-        Self { docker, provider }
+    pub fn new(docker: DockerClient, observer: Arc<dyn SandboxObserver>) -> Self {
+        Self { docker, observer }
     }
 }
 
 #[async_trait]
 impl FleetObserver for DockerFleetObserver {
-    async fn observe_fleet(
-        &self,
-    ) -> Result<HashMap<String, RuntimeObservation>, ObserveError> {
+    async fn observe_fleet(&self) -> Result<HashMap<String, RuntimeObservation>, ObserveError> {
         use bollard::models::ContainerSummaryStateEnum as State;
         use bollard::query_parameters::ListContainersOptionsBuilder;
 
@@ -170,7 +165,7 @@ impl FleetObserver for DockerFleetObserver {
         task_status: TaskStatus,
         desired_state: SandboxDesiredState,
     ) -> Result<RuntimeObservation, ObserveError> {
-        let status = confirm(&self.provider, task_id, task_status, desired_state).await?;
+        let status = confirm(&self.observer, task_id, task_status, desired_state).await?;
         let generation = match self
             .docker
             .docker
@@ -178,15 +173,12 @@ impl FleetObserver for DockerFleetObserver {
             .await
         {
             Ok(container) => container.config.and_then(|config| {
-                config
-                    .labels
-                    .and_then(|labels| {
-                        generation_from_label(labels.get(OPERATION_GENERATION_LABEL))
-                    })
+                config.labels.and_then(|labels| {
+                    generation_from_label(labels.get(OPERATION_GENERATION_LABEL))
+                })
             }),
             Err(bollard::errors::Error::DockerResponseServerError {
-                status_code: 404,
-                ..
+                status_code: 404, ..
             }) => None,
             Err(e) => {
                 return Err(ObserveError::with_source(
@@ -200,32 +192,20 @@ impl FleetObserver for DockerFleetObserver {
 }
 
 /// gRPC notifier: pings a Ready sandbox to fetch its pending messages, over the
-/// provider's service/container DNS.
+/// connector's service/container addressing.
 pub struct GrpcNotify {
-    provider: SandboxProviderType,
-    namespace: String,
-    grpc_port: u16,
+    connector: Arc<dyn SandboxConnector>,
 }
 
 impl GrpcNotify {
-    pub fn new(provider: SandboxProviderType, namespace: String, grpc_port: u16) -> Self {
-        Self {
-            provider,
-            namespace,
-            grpc_port,
-        }
+    pub fn new(connector: Arc<dyn SandboxConnector>) -> Self {
+        Self { connector }
     }
 }
 
 #[async_trait]
 impl NotifyPort for GrpcNotify {
     async fn notify(&self, task_id: &str) {
-        crate::sandbox::notify::notify_task_over_grpc(
-            self.provider,
-            &self.namespace,
-            self.grpc_port,
-            task_id,
-        )
-        .await;
+        crate::sandbox::notify::notify_task_over_grpc(self.connector.as_ref(), task_id).await;
     }
 }

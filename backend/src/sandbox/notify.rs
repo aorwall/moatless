@@ -1,46 +1,19 @@
 //! Sandbox notification and wake-up helpers.
 
-use super::client::SandboxClient;
-use crate::config::SandboxProviderType;
+use super::access::SandboxConnector;
 use crate::sandbox::lifecycle::{LifecycleError, ObservedStatus};
 use crate::state::AppState;
 
 /// Convenience helper: notify the sandbox for a given task_id.
 ///
-/// Constructs the gRPC URL based on the configured sandbox provider:
-/// - **Kubernetes**: Uses K8s service DNS (`{svc}.{ns}.svc.cluster.local:{port}`)
-/// - **Docker**: Uses Docker network DNS (`{container_name}:{port}`)
 pub async fn notify_sandbox_for_task(state: &AppState, task_id: &str) {
-    notify_task_over_grpc(
-        state.config.sandbox_provider,
-        &state.config.sandbox.namespace,
-        state.config.sandbox.grpc_port,
-        task_id,
-    )
-    .await;
+    state.sandbox_notify.notify(task_id).await;
 }
 
-/// Ping a Task's sandbox over gRPC to fetch its pending messages, from raw config
-/// (no `AppState`) so background owners like the reconciler can re-notify a Ready
-/// sandbox. Fire-and-forget: logs on failure, never propagates.
-pub async fn notify_task_over_grpc(
-    provider: SandboxProviderType,
-    namespace: &str,
-    grpc_port: u16,
-    task_id: &str,
-) {
-    let url = match provider {
-        SandboxProviderType::Kubernetes => {
-            let svc_name = super::k8s::naming::generate_service_name(task_id);
-            format!("http://{svc_name}.{namespace}.svc.cluster.local:{grpc_port}")
-        }
-        SandboxProviderType::Docker => {
-            let container_name = super::docker::naming::generate_container_name(task_id);
-            format!("http://{container_name}:{grpc_port}")
-        }
-    };
-
-    let client = match SandboxClient::connect(&url) {
+/// Ping a Task's sandbox through the connector so background owners never
+/// construct service names or raw gRPC URLs.
+pub async fn notify_task_over_grpc(connector: &dyn SandboxConnector, task_id: &str) {
+    let client = match connector.sandbox_client(task_id).await {
         Ok(c) => c,
         Err(e) => {
             tracing::warn!(
@@ -103,7 +76,11 @@ pub async fn ensure_sandbox_and_notify(state: &AppState, task_id: &str) -> Resul
                 return Ok(());
             }
             Err(LifecycleError::OperationInProgress { kind }) if kind.is_toward_running() => {
-                tracing::debug!(task_id, ?kind, "message wake coincided with an in-flight start; covered");
+                tracing::debug!(
+                    task_id,
+                    ?kind,
+                    "message wake coincided with an in-flight start; covered"
+                );
                 return Ok(());
             }
             Err(LifecycleError::OperationInProgress { kind }) => {
@@ -112,7 +89,12 @@ pub async fn ensure_sandbox_and_notify(state: &AppState, task_id: &str) -> Resul
                     return Ok(());
                 }
                 retries += 1;
-                tracing::debug!(task_id, ?kind, retries, "message wake contended with stop/remove; retrying inline");
+                tracing::debug!(
+                    task_id,
+                    ?kind,
+                    retries,
+                    "message wake contended with stop/remove; retrying inline"
+                );
                 tokio::time::sleep(WAKE_RETRY_BACKOFF).await;
             }
             Err(e) => {
@@ -121,23 +103,4 @@ pub async fn ensure_sandbox_and_notify(state: &AppState, task_id: &str) -> Resul
             }
         }
     }
-}
-
-/// Notify a sandbox pod that new messages are available (K8s-specific).
-///
-/// Fire-and-forget: logs warnings on failure, never propagates errors.
-pub async fn notify_sandbox(namespace: &str, service_name: &str, grpc_port: u16) {
-    let client = match SandboxClient::for_service(service_name, namespace, grpc_port) {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::warn!(
-                service_name,
-                error = %e,
-                "Failed to create gRPC client for sandbox notification"
-            );
-            return;
-        }
-    };
-
-    client.notify_messages().await;
 }

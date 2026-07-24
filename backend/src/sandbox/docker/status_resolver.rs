@@ -9,7 +9,7 @@ use tracing::{debug, warn};
 use super::client::DockerClient;
 use super::naming::{generate_container_name, generate_server_container_name};
 use crate::config::Config;
-use crate::sandbox::client::SandboxClient;
+use crate::sandbox::access::SandboxConnector;
 use crate::sandbox::k8s::pod_status::DEFAULT_SERVER_READINESS_TIMEOUT_SECS;
 use crate::sandbox::live_status::{derive_live_status, AgentStatus, LiveStatus};
 use crate::sandbox::models::*;
@@ -55,6 +55,7 @@ impl DockerStatusResolver {
         server_configs: &[ServerConfig],
         task_status: TaskStatus,
         desired_state: SandboxDesiredState,
+        connector: &dyn SandboxConnector,
     ) -> SandboxStatusFullResponse {
         let container_name = generate_container_name(task_id);
         let (sandbox_status, resolver_error) = self.inspect_sandbox_status(&container_name).await;
@@ -66,7 +67,7 @@ impl DockerStatusResolver {
                 status: agent_status,
                 scheduled_jobs,
                 background_processes,
-            } = self.fetch_agent_status(task_id).await;
+            } = self.fetch_agent_status(task_id, connector).await;
             let servers = self.resolve_server_entries(task_id, server_configs).await;
             let live_status = derive_live_status(
                 task_status,
@@ -124,11 +125,12 @@ impl DockerStatusResolver {
         task_id: &str,
         task_status: TaskStatus,
         desired_state: SandboxDesiredState,
+        connector: &dyn SandboxConnector,
     ) -> LiveStatus {
         let container_name = generate_container_name(task_id);
         let (sandbox_status, resolver_error) = self.inspect_sandbox_status(&container_name).await;
         let agent_status = if sandbox_status == SandboxStatus::Ready {
-            self.fetch_agent_status(task_id).await.status
+            self.fetch_agent_status(task_id, connector).await.status
         } else {
             None
         };
@@ -222,13 +224,12 @@ impl DockerStatusResolver {
     }
 
     /// Query the sandbox container for current agent status via gRPC.
-    async fn fetch_agent_status(&self, task_id: &str) -> AgentStatusSnapshot {
-        let container_name = generate_container_name(task_id);
-        let url = format!(
-            "http://{}:{}",
-            container_name, self.config.sandbox.grpc_port
-        );
-        let client = match SandboxClient::connect(&url) {
+    async fn fetch_agent_status(
+        &self,
+        task_id: &str,
+        connector: &dyn SandboxConnector,
+    ) -> AgentStatusSnapshot {
+        let client = match connector.sandbox_client(task_id).await {
             Ok(c) => c,
             Err(e) => {
                 debug!(task_id = %task_id, error = %e, "Failed to create gRPC client for agent status");

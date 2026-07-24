@@ -9,25 +9,25 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use crate::sandbox::provider::SandboxProvider;
+use crate::sandbox::access::SandboxConnector;
 
 use super::orchestrator::AgentStopPort;
 
 /// Issues `StopAgent` over the sandbox gRPC client.
 pub struct GrpcAgentStop {
-    provider: Arc<dyn SandboxProvider>,
+    connector: Arc<dyn SandboxConnector>,
 }
 
 impl GrpcAgentStop {
-    pub fn new(provider: Arc<dyn SandboxProvider>) -> Self {
-        Self { provider }
+    pub fn new(connector: Arc<dyn SandboxConnector>) -> Self {
+        Self { connector }
     }
 }
 
 #[async_trait]
 impl AgentStopPort for GrpcAgentStop {
     async fn stop_agent(&self, task_id: &str) {
-        match self.provider.sandbox_client(task_id).await {
+        match self.connector.sandbox_client(task_id).await {
             Ok(client) => {
                 if let Err(e) = client.stop_agent().await {
                     tracing::debug!(task_id, error = %e, "graceful StopAgent failed (continuing)");

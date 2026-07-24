@@ -9,11 +9,14 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use moatless_events::{SandboxEventPayload, SandboxStatus, ServerEventPayload, ServerSubType};
 
 use crate::events::EventPublisher;
 
 use super::events::LifecycleEvent;
 use super::orchestrator::LifecycleEventSink;
+use super::outcome::Diagnostics;
+use super::types::OperationGeneration;
 
 /// Publishes lifecycle events through the existing Redis outbox path.
 ///
@@ -56,5 +59,78 @@ impl LifecycleEventSink for OutboxEventSink {
                 event.persisted_as_completion(),
             )
             .await;
+    }
+
+    async fn publish_diagnostics(
+        &self,
+        task_id: &str,
+        generation: OperationGeneration,
+        diagnostics: &Diagnostics,
+    ) {
+        let Some(publisher) = &self.publisher else {
+            return;
+        };
+        for (index, warning) in diagnostics.degradations.iter().enumerate() {
+            let payload = SandboxEventPayload {
+                message: warning.message.clone(),
+                lifecycle_event: Some(warning.code.clone()),
+                error: Some(warning.message.clone()),
+                ..Default::default()
+            };
+            match serde_json::to_value(payload) {
+                Ok(payload) => {
+                    publisher
+                        .publish_raw_event_with_id(
+                            &format!("sandbox:{task_id}:{generation}:degradation:{index}"),
+                            task_id,
+                            "sandbox",
+                            SandboxStatus::Initializing.as_str(),
+                            None,
+                            None,
+                            payload,
+                            false,
+                        )
+                        .await;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        task_id,
+                        error = %e,
+                        "failed to serialize lifecycle degradation"
+                    );
+                }
+            }
+        }
+        for (index, failure) in diagnostics.server_failures.iter().enumerate() {
+            let payload = ServerEventPayload {
+                server_name: failure.server.clone(),
+                status: ServerSubType::Failed,
+                message: failure.message.clone(),
+            };
+            match serde_json::to_value(payload) {
+                Ok(payload) => {
+                    publisher
+                        .publish_raw_event_with_id(
+                            &format!("server:{task_id}:{generation}:failed:{index}"),
+                            task_id,
+                            "server",
+                            ServerSubType::Failed.as_str(),
+                            None,
+                            None,
+                            payload,
+                            false,
+                        )
+                        .await;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        task_id,
+                        server = %failure.server,
+                        error = %e,
+                        "failed to serialize lifecycle server failure"
+                    );
+                }
+            }
+        }
     }
 }

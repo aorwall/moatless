@@ -133,3 +133,40 @@ pub async fn delete_sandbox_service(k8s: &K8sClient, task_id: &str) -> Result<()
         }
     }
 }
+
+/// Await observed absence of the task's Sandbox Service.
+pub async fn wait_for_sandbox_service_deleted(
+    k8s: &K8sClient,
+    task_id: &str,
+) -> Result<(), crate::sandbox::error::SandboxError> {
+    use std::time::Duration;
+
+    const POLL_INTERVAL: Duration = Duration::from_secs(2);
+    const TIMEOUT: Duration = Duration::from_mins(1);
+
+    let services: Api<Service> = Api::namespaced(k8s.client.clone(), k8s.namespace());
+    let service_name = generate_service_name(task_id);
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    loop {
+        match services.get_opt(&service_name).await {
+            Ok(None) => return Ok(()),
+            Ok(Some(_)) => {
+                debug!(
+                    task_id,
+                    service_name, "Waiting for Sandbox Service deletion"
+                );
+            }
+            Err(e) => {
+                warn!(task_id, error = %e, "Failed to observe Service deletion; retrying");
+            }
+        }
+
+        if tokio::time::Instant::now() >= deadline {
+            return Err(crate::sandbox::error::SandboxError::NotReady(format!(
+                "Timed out after {}s waiting for task {task_id} Service deletion",
+                TIMEOUT.as_secs()
+            )));
+        }
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
+}

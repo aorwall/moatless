@@ -30,9 +30,8 @@ use crate::auth::provider_tokens::{
     ProviderTokenAuthRepository, AUTH_METHOD_SECRET_REF, SECRET_REF_TOKEN_PLACEHOLDER,
 };
 use crate::auth::token_refresh::ensure_fresh_token_with_dao;
-use crate::config::SandboxProviderType;
 use crate::db::DbPool;
-use crate::sandbox::client::SandboxClient;
+use crate::sandbox::access::SandboxConnector;
 use crate::sandbox::secrets::GITHUB_TOKEN;
 use crate::secret::models::{SecretKind, SecretScopeType};
 use crate::secret::schemas::PutSecretRequest;
@@ -87,9 +86,7 @@ pub(crate) fn credential_key_to_provider(key: &str) -> Option<&'static str> {
 /// Kept as a separate struct so unit tests can construct a `CredentialService`
 /// without spinning up real K8s/Docker plumbing.
 pub struct BroadcastContext {
-    pub provider: SandboxProviderType,
-    pub sandbox_namespace: String,
-    pub sandbox_grpc_port: u16,
+    pub connector: Arc<dyn SandboxConnector>,
     pub tasks: Arc<dyn TaskRepository>,
 }
 
@@ -298,7 +295,12 @@ impl CredentialService {
         // plaintext row.
         if key == GITHUB_TOKEN && self.secrets.is_some() {
             self.store_github_secret_ref(user_id, value).await?;
-            info!(user_id, provider, ?source, "Persisted GitHub token as secret");
+            info!(
+                user_id,
+                provider,
+                ?source,
+                "Persisted GitHub token as secret"
+            );
             return Ok(());
         }
 
@@ -438,23 +440,11 @@ impl CredentialService {
         };
 
         for task_id in task_ids {
-            let url = match ctx.provider {
-                SandboxProviderType::Kubernetes => format!(
-                    "http://{}.{}.svc.cluster.local:{}",
-                    crate::sandbox::k8s::naming::generate_service_name(&task_id),
-                    ctx.sandbox_namespace,
-                    ctx.sandbox_grpc_port,
-                ),
-                SandboxProviderType::Docker => format!(
-                    "http://{}:{}",
-                    crate::sandbox::docker::naming::generate_container_name(&task_id),
-                    ctx.sandbox_grpc_port,
-                ),
-            };
+            let connector = Arc::clone(&ctx.connector);
             let key = key.to_string();
             let value = value.to_string();
             tokio::spawn(async move {
-                let client = match SandboxClient::connect(&url) {
+                let client = match connector.sandbox_client(&task_id).await {
                     Ok(c) => c,
                     Err(e) => {
                         debug!(task_id, error = %e, "broadcast: client connect failed");

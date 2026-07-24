@@ -87,18 +87,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sse_state = startup::init_sse(&config, db_pool.as_ref(), cancel.clone()).await?;
     let s3_client = startup::init_s3(&config).await;
     startup::install_shutdown_handler(cancel.clone());
-    startup::spawn_grpc_server(
-        &config,
-        db_pool.as_ref(),
-        event_publisher.clone(),
-        s3_client.clone().map(std::sync::Arc::new),
-    );
-
-    // Build sandbox provider based on configured provider type
-    let sandbox_provider: Arc<dyn sandbox::provider::SandboxProvider>;
+    // Build the configured runtime/observer/connector adapter once.
+    let sandbox_runtime: Arc<dyn sandbox::lifecycle::SandboxRuntime>;
+    let sandbox_observer: Arc<dyn sandbox::access::SandboxObserver>;
+    let sandbox_connector: Arc<dyn sandbox::access::SandboxConnector>;
+    let default_sandbox_image: String;
     let reaper_k8s: Option<sandbox::k8s::client::K8sClient>;
     let docker_watcher_client: Option<sandbox::docker::client::DockerClient>;
-    // The reconciler's per-tick fleet observation, built per provider.
+    // The reconciler's per-tick fleet observation, built per runtime backend.
     let sandbox_fleet_observer: Arc<dyn sandbox::lifecycle::FleetObserver>;
 
     match config.sandbox_provider {
@@ -109,15 +105,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             reaper_k8s = Some(k8s.clone());
             docker_watcher_client = None;
-            sandbox_provider = startup::build_sandbox_provider(
+            let adapter = startup::build_k8s_sandbox_adapter(
                 &config,
                 k8s.clone(),
-                event_publisher.clone(),
                 s3_client.clone().map(std::sync::Arc::new),
+                db_pool.as_ref(),
             );
+            sandbox_runtime = adapter.clone();
+            sandbox_observer = adapter.clone();
+            sandbox_connector = adapter;
+            default_sandbox_image = config.sandbox.image.clone();
             sandbox_fleet_observer = Arc::new(sandbox::lifecycle::K8sFleetObserver::new(
                 k8s.clone(),
-                sandbox_provider.clone(),
+                sandbox_observer.clone(),
             ));
 
             // The K8s pod lifecycle watcher is spawned after the DB repos are
@@ -133,14 +133,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             reaper_k8s = None;
             docker_watcher_client = Some(docker_client.clone());
-            sandbox_provider = startup::build_docker_sandbox_provider(
+            let adapter = startup::build_docker_sandbox_adapter(
                 &config,
                 docker_client.clone(),
-                event_publisher.clone(),
+                db_pool.as_ref(),
             );
+            sandbox_runtime = adapter.clone();
+            sandbox_observer = adapter.clone();
+            sandbox_connector = adapter;
+            default_sandbox_image = config.docker.image.clone();
             sandbox_fleet_observer = Arc::new(sandbox::lifecycle::DockerFleetObserver::new(
                 docker_client.clone(),
-                sandbox_provider.clone(),
+                sandbox_observer.clone(),
             ));
 
             // The Docker watcher is spawned after lifecycle is assembled so
@@ -148,20 +152,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    startup::spawn_grpc_server(
+        &config,
+        db_pool.as_ref(),
+        event_publisher.clone(),
+        s3_client.clone().map(std::sync::Arc::new),
+        sandbox_connector.clone(),
+    );
+
     // ── Build router ────────────────────────────────────────────────────
 
-    // Build optional repos for SandboxApiState (server config resolution in handlers)
+    // Sandbox route state keeps only authorization repositories. The pod
+    // watcher separately needs workspace and task-event repositories.
     let sandbox_tasks: Option<Arc<dyn moatless_vibe_backend::task::dao::TaskRepository>> =
         db_pool.as_ref().map(|p| {
             Arc::new(moatless_vibe_backend::task::dao::PgTaskRepository(
                 p.clone(),
             )) as Arc<dyn moatless_vibe_backend::task::dao::TaskRepository>
-        });
-    let sandbox_repos: Option<Arc<dyn moatless_vibe_backend::repository::dao::RepoRepository>> =
-        db_pool.as_ref().map(|p| {
-            Arc::new(moatless_vibe_backend::repository::dao::PgRepoRepository(
-                p.clone(),
-            )) as Arc<dyn moatless_vibe_backend::repository::dao::RepoRepository>
         });
     let sandbox_teams: Option<Arc<dyn moatless_vibe_backend::team::dao::TeamRepository>> =
         db_pool.as_ref().map(|p| {
@@ -169,26 +176,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 p.clone(),
             )) as Arc<dyn moatless_vibe_backend::team::dao::TeamRepository>
         });
-    let sandbox_provider_tokens: Option<
-        Arc<dyn moatless_vibe_backend::auth::provider_token_dao::ProviderTokenRepository>,
-    > = db_pool.as_ref().map(|p| {
-        Arc::new(
-            moatless_vibe_backend::auth::provider_token_dao::PgProviderTokenRepository(p.clone()),
-        )
-            as Arc<dyn moatless_vibe_backend::auth::provider_token_dao::ProviderTokenRepository>
-    });
-    let sandbox_plugin_repos: Option<
-        Arc<dyn moatless_vibe_backend::plugin_repo::dao::PluginRepoRepository>,
-    > = db_pool.as_ref().map(|p| {
-        Arc::new(moatless_vibe_backend::plugin_repo::dao::PgPluginRepoRepository(p.clone()))
-            as Arc<dyn moatless_vibe_backend::plugin_repo::dao::PluginRepoRepository>
-    });
     let sandbox_workspaces: Option<
         Arc<dyn moatless_vibe_backend::workspace::dao::WorkspaceRepository>,
     > = db_pool.as_ref().map(|p| {
-        Arc::new(moatless_vibe_backend::workspace::dao::PgWorkspaceRepository(
-            p.clone(),
-        )) as Arc<dyn moatless_vibe_backend::workspace::dao::WorkspaceRepository>
+        Arc::new(moatless_vibe_backend::workspace::dao::PgWorkspaceRepository(p.clone()))
+            as Arc<dyn moatless_vibe_backend::workspace::dao::WorkspaceRepository>
     });
     let sandbox_task_events: Option<
         Arc<dyn moatless_vibe_backend::task_event::dao::TaskEventRepository>,
@@ -196,23 +188,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(moatless_vibe_backend::task_event::dao::PgTaskEventRepository(p.clone()))
             as Arc<dyn moatless_vibe_backend::task_event::dao::TaskEventRepository>
     });
-    let sandbox_secrets: Option<Arc<moatless_vibe_backend::secret::service::SecretService>> =
-        db_pool.as_ref().map(|p| {
-            let secret_records: Arc<dyn moatless_vibe_backend::secret::dao::SecretRepository> =
-                Arc::new(moatless_vibe_backend::secret::dao::PgSecretRepository(
-                    p.clone(),
-                ));
-            let secret_audits: Arc<
-                dyn moatless_vibe_backend::secret::audit::SecretAuditRepository,
-            > = Arc::new(moatless_vibe_backend::secret::audit::PgSecretAuditRepository(p.clone()));
-            Arc::new(moatless_vibe_backend::secret::service::SecretService::new(
-                secret_records,
-                secret_audits,
-                moatless_vibe_backend::secret::service::LocalEnvelopeSecretCipher::from_config(
-                    &config.secrets,
-                ),
-            ))
-        });
 
     // Build the shared durable Sandbox lifecycle handle once (requires the DB).
     // The sandbox API, the pod watcher, and AppState all drive transitions
@@ -234,7 +209,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Some(moatless_vibe_backend::state::build_lifecycle(
                     pool.clone(),
                     lock_pool,
-                    Arc::clone(&sandbox_provider),
+                    sandbox_runtime.clone(),
+                    sandbox_connector.clone(),
+                    default_sandbox_image.clone(),
                     event_publisher.clone(),
                 ))
             }
@@ -285,15 +262,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let sandbox_state = sandbox::routes::SandboxApiState {
-        provider: Arc::clone(&sandbox_provider),
+        observer: sandbox_observer,
+        connector: sandbox_connector.clone(),
         lifecycle: lifecycle.clone(),
         tasks: sandbox_tasks,
         teams: sandbox_teams,
-        repos: sandbox_repos,
-        provider_tokens: sandbox_provider_tokens,
-        plugin_repos: sandbox_plugin_repos,
-        workspaces: sandbox_workspaces,
-        secrets: sandbox_secrets,
     };
     let (mut router, mut api) = sandbox::routes::api_router(sandbox_state);
 
@@ -329,11 +302,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // The shared lifecycle was built above; it is present whenever the DB is.
         let lifecycle = lifecycle
             .ok_or("lifecycle handle required to build AppState (missing database pool)")?;
+        let sandbox_notify: Arc<dyn sandbox::lifecycle::NotifyPort> = Arc::new(
+            sandbox::lifecycle::GrpcNotify::new(sandbox_connector.clone()),
+        );
         let app_state = AppState::new(
             pool,
             lifecycle,
             Arc::new(config.clone()),
-            Arc::new(crate::task::reaper::ProviderAgentStatus::new(sandbox_provider)),
+            sandbox_connector.clone(),
+            Arc::new(crate::task::reaper::ConnectorAgentStatus::new(
+                sandbox_connector.clone(),
+            )),
+            sandbox_notify.clone(),
             event_publisher,
             s3_client,
             adapter_registry.map(Arc::new),
@@ -421,9 +401,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // admin credential is unreachable, and continuing would produce a
         // server nobody can log into.
         if config.auth.provider == moatless_vibe_backend::config::AuthProvider::Local {
-            let credentials = moatless_vibe_backend::auth::password::dao::PgUserCredentialRepository(
-                app_state.db.clone(),
-            );
+            let credentials =
+                moatless_vibe_backend::auth::password::dao::PgUserCredentialRepository(
+                    app_state.db.clone(),
+                );
             auth::password::bootstrap::ensure_local_admin(
                 app_state.users.as_ref(),
                 &credentials,
@@ -467,16 +448,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .with_lease_duration(120);
             Arc::new(K8sLeaderGuard(election)) as Arc<dyn LeaderGuard>
         });
-        let reconciler_notify = Arc::new(sandbox::lifecycle::GrpcNotify::new(
-            config.sandbox_provider,
-            config.sandbox.namespace.clone(),
-            config.sandbox.grpc_port,
-        ));
         let reconciler = moatless_vibe_backend::state::build_reconciler(
             app_state.db.clone(),
             app_state.sandbox.clone(),
             sandbox_fleet_observer,
-            reconciler_notify,
+            sandbox_notify,
             sandbox::lifecycle::ReconcilerConfig::default(),
         );
         spawn_sandbox_reconciler(reconciler, reconciler_leader, cancel.clone());

@@ -14,44 +14,28 @@ use std::sync::Arc;
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
+use super::access::{SandboxConnector, SandboxObserver};
 use super::file_handlers;
 use super::handlers;
 use super::lifecycle::Lifecycle;
-use super::provider::SandboxProvider;
-use crate::auth::provider_token_dao::ProviderTokenRepository;
-use crate::plugin_repo::dao::PluginRepoRepository;
-use crate::repository::dao::RepoRepository;
-use crate::secret::service::SecretService;
 use crate::task::dao::TaskRepository;
 use crate::team::dao::TeamRepository;
-use crate::workspace::dao::WorkspaceRepository;
 
 /// State shared across sandbox API handlers.
 #[derive(Clone)]
 pub struct SandboxApiState {
-    pub provider: Arc<dyn SandboxProvider>,
+    pub observer: Arc<dyn SandboxObserver>,
+    pub connector: Arc<dyn SandboxConnector>,
     /// Shared durable lifecycle handle — the sole writer of Sandbox intent. The
     /// lifecycle HTTP handlers (`provision`/`stop`/`restart`/`redeploy`/`cleanup`)
     /// drive transitions through it. `None` only in the no-database mode, where
     /// those handlers return a clean "unavailable" error.
     pub lifecycle: Option<Arc<Lifecycle>>,
-    /// Optional task repository — enables server config resolution and
-    /// per-task authorization in handlers.
+    /// Optional task repository for per-task authorization in handlers.
     pub tasks: Option<Arc<dyn TaskRepository>>,
     /// Optional team repository — enables team-role resolution for the
     /// task-control authorization checks.
     pub teams: Option<Arc<dyn TeamRepository>>,
-    /// Optional repo repository — enables server config resolution in handlers.
-    pub repos: Option<Arc<dyn RepoRepository>>,
-    /// Optional provider token repository — enables credential resolution for provisioning.
-    pub provider_tokens: Option<Arc<dyn ProviderTokenRepository>>,
-    /// Optional plugin repo repository — enables plugin git URL resolution for provisioning.
-    pub plugin_repos: Option<Arc<dyn PluginRepoRepository>>,
-    /// Optional workspace repository — resolves a task's repository composition
-    /// for provisioning when `tasks.workspace_id` is set.
-    pub workspaces: Option<Arc<dyn WorkspaceRepository>>,
-    /// Optional scoped secret service — enables server-targeted secret delivery.
-    pub secrets: Option<Arc<SecretService>>,
 }
 
 #[derive(OpenApi)]

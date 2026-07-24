@@ -51,7 +51,7 @@ pub async fn provision_handler(
     authorize_task_control(&state, &scope, &task_id).await?;
 
     // Lifecycle owns plan construction, the Running intent, and the start
-    // timestamp; the bridge builds the provision request from DB state internally.
+    // timestamp; the runtime receives a fresh request from DB state.
     let outcome = require_lifecycle(&state)?.start(&task_id).await?;
     info!(task_id = %task_id, "Provision (start) succeeded");
     Ok(Json(ProvisionResponse {
@@ -87,7 +87,7 @@ pub async fn live_status_handler(
     };
 
     match state
-        .provider
+        .observer
         .live_status(&task_id, task.status, desired_state)
         .await
     {
@@ -124,12 +124,9 @@ pub async fn sandbox_status_handler(
         Err(e) => return e.into_response(),
     };
 
-    // Resolve server configs from DB
-    let server_configs = resolve_server_configs(&state, &task_id).await;
-
     match state
-        .provider
-        .sandbox_status(&task_id, &server_configs, task.status, desired_state)
+        .observer
+        .sandbox_status(&task_id, task.status, desired_state)
         .await
     {
         Ok(mut resp) => {
@@ -139,23 +136,26 @@ pub async fn sandbox_status_handler(
             // the per-repo `docker_image` override, else the configured default.
             resp.sandbox_desired_state = Some(desired_state);
 
-            let docker_image_override = match (&state.workspaces, task.workspace_id.as_deref()) {
-                (Some(workspaces), Some(ws_id)) => workspaces
-                    .find_by_id(ws_id)
-                    .await
-                    .ok()
-                    .flatten()
-                    .and_then(|ws| ws.docker_image),
-                _ => None,
+            let lifecycle = match require_lifecycle(&state) {
+                Ok(lifecycle) => lifecycle,
+                Err(e) => return e.into_response(),
             };
-            let latest = state
-                .provider
-                .expected_sandbox_image(docker_image_override.as_deref());
-            resp.image_up_to_date = resp
-                .current_sandbox_image
-                .as_ref()
-                .map(|current| current == &latest);
-            resp.latest_sandbox_image = Some(latest);
+            match lifecycle.expected_sandbox_image(&task_id).await {
+                Ok(latest) => {
+                    resp.image_up_to_date = resp
+                        .current_sandbox_image
+                        .as_ref()
+                        .map(|current| current == &latest);
+                    resp.latest_sandbox_image = Some(latest);
+                }
+                Err(e) => {
+                    warn!(
+                        task_id,
+                        error = %e,
+                        "Failed to resolve expected sandbox image for status"
+                    );
+                }
+            }
 
             Json(resp).into_response()
         }
@@ -248,8 +248,8 @@ pub async fn redeploy_handler(
     info!(task_id = %task_id, "POST /redeploy");
     authorize_task_control(&state, &scope, &task_id).await?;
 
-    // Lifecycle owns plan construction and detaches internally; the bridge
-    // rebuilds the provision request from fresh DB state.
+    // Lifecycle owns plan construction and detaches internally; the runtime
+    // receives a fresh request from DB state.
     let outcome = require_lifecycle(&state)?.redeploy(&task_id).await?;
     info!(task_id = %task_id, "Redeploy succeeded");
     Ok(Json(ProvisionResponse {
@@ -309,24 +309,42 @@ pub async fn server_status_handler(
     OptionalScope(scope): OptionalScope,
     Path(task_id): Path<String>,
 ) -> impl IntoResponse {
-    if let Err(e) = authorize_task_read(&state, &scope, &task_id).await {
-        return e.into_response();
-    }
-
-    // Resolve server configs from DB
-    let server_configs = resolve_server_configs(&state, &task_id).await;
-
-    // Fetch container statuses from the provider
-    let container_statuses = match state.provider.container_statuses(&task_id).await {
-        Ok(cs) => cs,
+    let task = match authorize_task_read(&state, &scope, &task_id).await {
+        Ok(task) => task,
         Err(e) => {
-            error!(task_id = %task_id, error = %e, "server container_statuses failed");
             return e.into_response();
         }
     };
-
-    // Merge config + container statuses into server snapshots
-    let servers = merge_server_status(&server_configs, &container_statuses);
+    let desired_state = match resolve_desired_state(&state, &task_id).await {
+        Ok(desired_state) => desired_state,
+        Err(e) => return e.into_response(),
+    };
+    let status = match state
+        .observer
+        .sandbox_status(&task_id, task.status, desired_state)
+        .await
+    {
+        Ok(status) => status,
+        Err(e) => {
+            error!(task_id = %task_id, error = %e, "server status observation failed");
+            return e.into_response();
+        }
+    };
+    let servers = status
+        .servers
+        .into_iter()
+        .map(|server| ServerSnapshot {
+            name: server.name,
+            label: server.label,
+            port: server.port,
+            builtin: false,
+            default: server.default,
+            enable_inspector: server.capabilities.inspector,
+            status: server.status,
+            error: server.error,
+            pid: None,
+        })
+        .collect();
     Json(ServerStatusResponse { servers }).into_response()
 }
 
@@ -365,7 +383,7 @@ pub async fn server_logs_handler(
 ) -> Result<Sse<impl Stream<Item = Result<Event, SandboxError>>>, SandboxError> {
     authorize_task_read(&state, &scope, &task_id).await?;
     let stream = state
-        .provider
+        .observer
         .server_logs(&task_id, &server_name, query.previous)
         .await?;
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
@@ -410,7 +428,7 @@ pub(super) async fn authorize_task_control(
 }
 
 /// Core of [`authorize_task_read`] against explicit dependencies (so it can be
-/// unit-tested without a `SandboxProvider`).
+/// unit-tested without runtime infrastructure).
 async fn authorize_task_read_inner(
     tasks: Option<&dyn TaskRepository>,
     scope: &Option<ScopeContext>,
@@ -490,45 +508,6 @@ fn observed_to_sandbox_status(observed: ObservedStatus) -> moatless_events::Sand
     }
 }
 
-/// Resolve server configs from the task's workspace via the SandboxApiState.
-async fn resolve_server_configs(state: &SandboxApiState, task_id: &str) -> Vec<ServerConfig> {
-    if let (Some(ref tasks), Some(ref workspaces)) = (&state.tasks, &state.workspaces) {
-        super::auto_provision::get_server_configs_for_task(
-            tasks.as_ref(),
-            workspaces.as_ref(),
-            task_id,
-        )
-        .await
-    } else {
-        warn!(task_id = %task_id, "No task/workspace repositories available for server config resolution");
-        vec![]
-    }
-}
-
-/// Merge server configs (from DB) with container statuses (from runtime)
-/// into `ServerSnapshot` entries for the `ServerStatusResponse`.
-fn merge_server_status(
-    server_configs: &[ServerConfig],
-    container_statuses: &[ContainerObservedStatus],
-) -> Vec<ServerSnapshot> {
-    server_configs
-        .iter()
-        .map(|config| {
-            let container = container_statuses.iter().find(|cs| {
-                let name = cs.name.strip_suffix("-server").unwrap_or(&cs.name);
-                name == config.name
-            });
-            let status = container.map_or(
-                ServerStatus::Starting,
-                ContainerObservedStatus::to_server_status,
-            );
-            let mut snapshot = ServerSnapshot::from_config(config, status);
-            snapshot.error = container.and_then(|cs| cs.waiting_reason.clone());
-            snapshot
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod authz_tests {
     //! Unit tests for the per-task sandbox authorization gate. The scoped-read
@@ -584,7 +563,11 @@ mod authz_tests {
                 })
                 .collect())
         }
-        async fn is_member(&self, _team_id: &str, user_id: &uuid::Uuid) -> Result<bool, sqlx::Error> {
+        async fn is_member(
+            &self,
+            _team_id: &str,
+            user_id: &uuid::Uuid,
+        ) -> Result<bool, sqlx::Error> {
             Ok(self.members.iter().any(|(u, _)| u == user_id))
         }
         async fn find_team_ids_for_user(
@@ -626,7 +609,10 @@ mod authz_tests {
         async fn delete(&self, _id: &str) -> Result<(), sqlx::Error> {
             unimplemented!()
         }
-        async fn find_teams_for_user(&self, _user_id: &uuid::Uuid) -> Result<Vec<Team>, sqlx::Error> {
+        async fn find_teams_for_user(
+            &self,
+            _user_id: &uuid::Uuid,
+        ) -> Result<Vec<Team>, sqlx::Error> {
             unimplemented!()
         }
         async fn add_member(

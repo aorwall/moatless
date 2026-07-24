@@ -494,22 +494,21 @@ pub trait AgentStatusPort: Send + Sync {
     async fn agent_status(&self, task_id: &str) -> Option<sandbox_proto::GetAgentStatusResponse>;
 }
 
-/// Satisfies [`AgentStatusPort`] by wrapping the sandbox provider's
-/// `sandbox_client`.
-pub struct ProviderAgentStatus {
-    provider: Arc<dyn crate::sandbox::provider::SandboxProvider>,
+/// Satisfies [`AgentStatusPort`] through the task-addressed connector.
+pub struct ConnectorAgentStatus {
+    connector: Arc<dyn crate::sandbox::access::SandboxConnector>,
 }
 
-impl ProviderAgentStatus {
-    pub fn new(provider: Arc<dyn crate::sandbox::provider::SandboxProvider>) -> Self {
-        Self { provider }
+impl ConnectorAgentStatus {
+    pub fn new(connector: Arc<dyn crate::sandbox::access::SandboxConnector>) -> Self {
+        Self { connector }
     }
 }
 
 #[async_trait]
-impl AgentStatusPort for ProviderAgentStatus {
+impl AgentStatusPort for ConnectorAgentStatus {
     async fn agent_status(&self, task_id: &str) -> Option<sandbox_proto::GetAgentStatusResponse> {
-        let client = match self.provider.sandbox_client(task_id).await {
+        let client = match self.connector.sandbox_client(task_id).await {
             Ok(c) => c,
             Err(e) => {
                 debug!(task_id, error = %e, "reconcile: no sandbox client for status check");
@@ -1003,7 +1002,6 @@ async fn list_sandbox_deployments(k8s: &K8sClient) -> Result<Vec<DeploymentInfo>
     Ok(infos)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1288,5 +1286,4 @@ mod tests {
         assert!(ids.contains("a"));
         assert!(ids.contains("b"));
     }
-
 }

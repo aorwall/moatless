@@ -365,6 +365,20 @@ fn pod_blocks_redeploy(pod: &Pod) -> bool {
 /// rather than silently scheduling into the stall. A transient list error is
 /// still treated as best-effort (log and proceed), since it isn't the stall.
 pub async fn wait_for_pods_deleted(k8s: &K8sClient, task_id: &str) -> Result<(), SandboxError> {
+    wait_for_pods_deleted_inner(k8s, task_id, false).await
+}
+
+/// Strict removal variant: observation failures are retried until the same
+/// bounded deadline instead of being treated as evidence of absence.
+pub async fn wait_for_all_pods_deleted(k8s: &K8sClient, task_id: &str) -> Result<(), SandboxError> {
+    wait_for_pods_deleted_inner(k8s, task_id, true).await
+}
+
+async fn wait_for_pods_deleted_inner(
+    k8s: &K8sClient,
+    task_id: &str,
+    strict_observation: bool,
+) -> Result<(), SandboxError> {
     use std::time::Duration;
 
     const POLL_INTERVAL: Duration = Duration::from_secs(2);
@@ -390,8 +404,12 @@ pub async fn wait_for_pods_deleted(k8s: &K8sClient, task_id: &str) -> Result<(),
                 );
             }
             Err(e) => {
-                warn!(task_id, error = %e, "Failed to list pods while waiting for termination; proceeding");
-                return Ok(());
+                if strict_observation {
+                    warn!(task_id, error = %e, "Failed to observe pod deletion; retrying");
+                } else {
+                    warn!(task_id, error = %e, "Failed to list pods while waiting for termination; proceeding");
+                    return Ok(());
+                }
             }
         }
 
@@ -423,6 +441,38 @@ pub async fn find_deployment(
     Ok(list.items.into_iter().next())
 }
 
+/// Await observed absence of every Deployment for a task.
+pub async fn wait_for_deployment_deleted(
+    k8s: &K8sClient,
+    task_id: &str,
+) -> Result<(), SandboxError> {
+    use std::time::Duration;
+
+    const POLL_INTERVAL: Duration = Duration::from_secs(2);
+    const TIMEOUT: Duration = Duration::from_mins(1);
+
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    loop {
+        match find_deployment(k8s, task_id).await {
+            Ok(None) => return Ok(()),
+            Ok(Some(_)) => {
+                debug!(task_id, "Waiting for Deployment deletion");
+            }
+            Err(e) => {
+                warn!(task_id, error = %e, "Failed to observe Deployment deletion; retrying");
+            }
+        }
+
+        if tokio::time::Instant::now() >= deadline {
+            return Err(SandboxError::NotReady(format!(
+                "Timed out after {}s waiting for task {task_id} Deployment deletion",
+                TIMEOUT.as_secs()
+            )));
+        }
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
+}
+
 /// Coarse state for one labeled sandbox Deployment.
 pub struct SandboxDeploymentState {
     pub task_id: String,
@@ -451,7 +501,11 @@ pub async fn list_sandbox_deployment_states(
                 .get("moatless.io/task-id")?
                 .clone();
             let desired = dep.spec.as_ref().and_then(|s| s.replicas).unwrap_or(1);
-            let ready = dep.status.as_ref().and_then(|s| s.ready_replicas).unwrap_or(0);
+            let ready = dep
+                .status
+                .as_ref()
+                .and_then(|s| s.ready_replicas)
+                .unwrap_or(0);
             let generation = dep
                 .spec
                 .as_ref()
@@ -572,12 +626,10 @@ mod tests {
 
     #[test]
     fn restart_patch_labels_replacement_without_changing_strategy() {
-        let patch = operation_generation_patch(RuntimeOperationContext::new(
-            OperationGeneration(23),
-        ));
+        let patch =
+            operation_generation_patch(RuntimeOperationContext::new(OperationGeneration(23)));
         assert_eq!(
-            patch["spec"]["template"]["metadata"]["labels"]
-                [OPERATION_GENERATION_LABEL],
+            patch["spec"]["template"]["metadata"]["labels"][OPERATION_GENERATION_LABEL],
             "23"
         );
         assert!(

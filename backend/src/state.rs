@@ -22,11 +22,12 @@ use crate::file_storage::dao::{FileRepository, PgFileRepository};
 use crate::message::dao::{MessageRepository, PgMessageRepository};
 use crate::plugin_repo::dao::{PgPluginRepoRepository, PluginRepoRepository};
 use crate::repository::dao::{PgRepoRepository, RepoRepository};
+use crate::sandbox::access::SandboxConnector;
+use crate::sandbox::lifecycle::runtime::SandboxRuntime;
 use crate::sandbox::lifecycle::{
     FleetObserver, GrpcAgentStop, Lifecycle, NotifyPort, OutboxEventSink, PgLifecycleLock,
-    PgLifecycleStore, ProvisionDeps, Reconciler, ReconcilerConfig, RuntimeBridge, SystemWallClock,
+    PgLifecycleStore, ProvisionDeps, Reconciler, ReconcilerConfig, SystemWallClock,
 };
-use crate::sandbox::provider::SandboxProvider;
 use crate::secret::audit::{PgSecretAuditRepository, SecretAuditRepository};
 use crate::secret::dao::{PgSecretRepository, SecretRepository};
 use crate::secret::service::{LocalEnvelopeSecretCipher, SecretService};
@@ -35,11 +36,11 @@ use crate::skill::service::SkillService;
 use crate::tag::dao::{PgTagRepository, TagRepository};
 use crate::task::dao::{PgTaskRepository, TaskRepository};
 use crate::task::reaper::AgentStatusPort;
-use crate::workspace::dao::{PgWorkspaceRepository, WorkspaceRepository};
 use crate::task::relations::{PgTaskRelationRepository, TaskRelationRepository};
 use crate::task_event::dao::{PgTaskEventRepository, TaskEventRepository};
 use crate::task_turn::dao::{PgTaskTurnRepository, TaskTurnRepository};
 use crate::team::dao::{PgTeamRepository, TeamRepository};
+use crate::workspace::dao::{PgWorkspaceRepository, WorkspaceRepository};
 
 /// Shared application state for task/message/agent/file routes.
 ///
@@ -59,6 +60,9 @@ pub struct AppState {
     /// The reaper's idle-eligibility read of live agent status, behind a
     /// consumer-owned one-method port. The provider handle is not on `AppState`.
     pub agent_status: Arc<dyn AgentStatusPort>,
+    /// Message notification port. Address construction stays inside the
+    /// connector-backed adapter rather than on `AppState`.
+    pub sandbox_notify: Arc<dyn NotifyPort>,
     /// Optional event publisher for real-time event streaming (trait object).
     pub events: Option<Arc<dyn EventPublisher>>,
     /// Optional S3 client for file uploads/downloads.
@@ -137,41 +141,29 @@ const LIFECYCLE_LOCK_ATTEMPTS: u32 = 3;
 pub fn build_lifecycle(
     pool: DbPool,
     lock_pool: DbPool,
-    sandbox: Arc<dyn SandboxProvider>,
+    runtime: Arc<dyn SandboxRuntime>,
+    connector: Arc<dyn SandboxConnector>,
+    default_sandbox_image: String,
     events: Option<Arc<dyn EventPublisher>>,
 ) -> Arc<Lifecycle> {
-    let tasks: Arc<dyn TaskRepository> = Arc::new(PgTaskRepository(pool.clone()));
-    let repos: Arc<dyn RepoRepository> = Arc::new(PgRepoRepository(pool.clone()));
-    let provider_tokens: Arc<dyn ProviderTokenRepository> =
-        Arc::new(PgProviderTokenRepository(pool.clone()));
-    let plugin_repos: Arc<dyn PluginRepoRepository> = Arc::new(PgPluginRepoRepository(pool.clone()));
-    let workspaces: Arc<dyn WorkspaceRepository> = Arc::new(PgWorkspaceRepository(pool.clone()));
+    let plan = ProvisionDeps::from_pool(&pool);
     let store = Arc::new(PgLifecycleStore::new(pool.clone()));
     Arc::new(
         Lifecycle::new(
-            store.clone(),
-            Arc::new(RuntimeBridge::new(
-                sandbox.clone(),
-                ProvisionDeps {
-                    tasks,
-                    repos,
-                    provider_tokens,
-                    plugin_repos,
-                    workspaces,
-                },
-                store,
-            )),
-            Arc::new(GrpcAgentStop::new(sandbox)),
+            store,
+            runtime,
+            Arc::new(GrpcAgentStop::new(connector)),
             Arc::new(OutboxEventSink::new(events)),
             Arc::new(PgLifecycleLock::new(lock_pool)),
             Arc::new(SystemWallClock),
         )
+        .with_plan_knowledge(plan, default_sandbox_image)
         .with_lock_attempts(LIFECYCLE_LOCK_ATTEMPTS),
     )
 }
 
 /// Assemble the desired-state reconciler over the shared pool, the lifecycle
-/// handle it drives operations through, and a provider fleet observer. Keeps the
+/// handle it drives operations through, and a fleet observer. Keeps the
 /// concrete `Pg*` adapters private to this constructor.
 pub fn build_reconciler(
     pool: DbPool,
@@ -196,7 +188,7 @@ impl AppState {
     ///
     /// Wires all `Arc<dyn …Repository>` from a single connection pool,
     /// keeping the concrete `Pg*` types private to this constructor.
-    // reason: independent infrastructure handles (pools, config, provider,
+    // reason: independent infrastructure handles (pool, lifecycle, connector,
     // events, s3, adapters, apps); bundling them behind a one-use struct only
     // shuffles the same fields.
     #[allow(clippy::too_many_arguments)]
@@ -204,7 +196,9 @@ impl AppState {
         pool: DbPool,
         lifecycle: Arc<Lifecycle>,
         config: Arc<Config>,
+        connector: Arc<dyn SandboxConnector>,
         agent_status: Arc<dyn AgentStatusPort>,
+        sandbox_notify: Arc<dyn NotifyPort>,
         events: Option<Arc<dyn EventPublisher>>,
         s3: Option<aws_sdk_s3::Client>,
         adapters: Option<Arc<Adapters>>,
@@ -213,7 +207,8 @@ impl AppState {
         let github_app_service = github_apps.default_service();
 
         let tasks: Arc<dyn TaskRepository> = Arc::new(PgTaskRepository(pool.clone()));
-        let workspaces: Arc<dyn WorkspaceRepository> = Arc::new(PgWorkspaceRepository(pool.clone()));
+        let workspaces: Arc<dyn WorkspaceRepository> =
+            Arc::new(PgWorkspaceRepository(pool.clone()));
         let repositories: Arc<dyn RepoRepository> = Arc::new(PgRepoRepository(pool.clone()));
         let plugin_repos: Arc<dyn PluginRepoRepository> =
             Arc::new(PgPluginRepoRepository(pool.clone()));
@@ -250,9 +245,7 @@ impl AppState {
                 Some(provider_token_auth.clone()),
                 github_app_service.clone(),
                 Some(BroadcastContext {
-                    provider: config.sandbox_provider,
-                    sandbox_namespace: config.sandbox.namespace.clone(),
-                    sandbox_grpc_port: config.sandbox.grpc_port,
+                    connector,
                     tasks: Arc::new(PgTaskRepository(pool.clone())),
                 }),
             )
@@ -312,6 +305,7 @@ impl AppState {
             config,
             sandbox: lifecycle,
             agent_status,
+            sandbox_notify,
             events,
             s3,
             adapters,

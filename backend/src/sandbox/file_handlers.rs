@@ -1,7 +1,7 @@
 //! File operation handlers for sandbox workspaces.
 //!
-//! These handlers call `SandboxClient` directly via `provider.sandbox_client()`,
-//! eliminating the need for file methods on the `SandboxProvider` trait.
+//! These handlers receive a task-addressed client from `SandboxConnector`, the
+//! only code that knows runtime-specific gRPC addressing.
 
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -72,7 +72,7 @@ pub async fn file_tree_handler(
     authorize_task_read(&state, &scope, &task_id).await?;
     let root_path = query.path.as_deref().unwrap_or(".");
     let recursive = query.recursive.unwrap_or(false);
-    let client = state.provider.sandbox_client(&task_id).await?;
+    let client = state.connector.sandbox_client(&task_id).await?;
     let resp = client
         .get_file_tree(root_path, recursive)
         .await
@@ -105,7 +105,7 @@ pub async fn read_file_handler(
 ) -> Result<Json<FileContentResponse>, SandboxError> {
     authorize_task_read(&state, &scope, &task_id).await?;
     let include_changes = query.changes.unwrap_or(false);
-    let client = state.provider.sandbox_client(&task_id).await?;
+    let client = state.connector.sandbox_client(&task_id).await?;
     let resp = client
         .read_file(&query.path, include_changes)
         .await
@@ -136,7 +136,7 @@ pub async fn write_file_handler(
     Json(req): Json<WriteFileRequestBody>,
 ) -> Result<StatusCode, SandboxError> {
     authorize_task_control(&state, &scope, &task_id).await?;
-    let client = state.provider.sandbox_client(&task_id).await?;
+    let client = state.connector.sandbox_client(&task_id).await?;
     client
         .write_file(&req.path, &req.content)
         .await
@@ -168,7 +168,7 @@ pub async fn list_files_handler(
     authorize_task_read(&state, &scope, &task_id).await?;
     let path = query.path.as_deref().unwrap_or(".");
     let recursive = query.recursive.unwrap_or(false);
-    let client = state.provider.sandbox_client(&task_id).await?;
+    let client = state.connector.sandbox_client(&task_id).await?;
     let files = client
         .list_files(path, recursive)
         .await
@@ -198,7 +198,7 @@ pub async fn search_by_name_handler(
     Json(req): Json<SearchByNameRequest>,
 ) -> Result<Json<SearchByNameResponse>, SandboxError> {
     authorize_task_read(&state, &scope, &task_id).await?;
-    let client = state.provider.sandbox_client(&task_id).await?;
+    let client = state.connector.sandbox_client(&task_id).await?;
     let resp = client
         .search_files_by_name(
             &req.query,

@@ -4,6 +4,7 @@
 //! and services. The `k8s` submodule contains Kubernetes-specific
 //! implementation details.
 
+pub mod access;
 pub mod auto_provision;
 pub mod client;
 pub mod docker;
@@ -20,7 +21,6 @@ pub mod metrics;
 pub mod models;
 pub mod notify;
 pub mod preflight;
-pub mod provider;
 pub mod routes;
 pub mod schemas;
 pub mod secrets;
