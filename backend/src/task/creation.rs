@@ -130,6 +130,11 @@ pub struct NewTaskRequest {
     /// Task-event subtype to publish — `Created` on the HTTP path, `Open` on
     /// trigger/adapter paths. Kept per-caller by design.
     pub event_subtype: TaskSubType,
+    /// Optionally pre-fetched repository. When `Some`, the service uses it and
+    /// skips its own lookup (the HTTP path already fetched the repo for access
+    /// control); when `None`, the service fetches it and surfaces
+    /// [`TaskCreationError::RepoNotFound`] for an unknown id.
+    pub repository: Option<Repository>,
 }
 
 /// The first message payload the HTTP path sends through `send_message_flow`.
@@ -153,6 +158,10 @@ pub enum ProvisionOutcome {
 }
 
 /// Result of a successful creation: the inserted row plus the provision result.
+///
+/// `task` is the in-memory row as inserted; DB-populated columns
+/// (`created_at_db`, `updated_at`) are `None` because the row is not re-read
+/// after insert. Callers needing those must re-fetch the task by id.
 #[derive(Debug)]
 pub struct TaskCreationOutcome {
     pub task: Task,
@@ -234,7 +243,7 @@ impl TaskCreationService {
     /// hold.
     pub async fn create<EvFut, MsgFut>(
         &self,
-        req: NewTaskRequest,
+        mut req: NewTaskRequest,
         build_event_payload: impl FnOnce(Task) -> EvFut + Send,
         send_first_message: impl FnOnce(String, FirstMessage) -> MsgFut + Send,
     ) -> Result<TaskCreationOutcome, TaskCreationError>
@@ -279,12 +288,17 @@ impl TaskCreationService {
             disabled_servers: None,
         };
 
-        // Repo is needed for preflight (and yields the 404 for an unknown id).
-        let repo = self
-            .repositories
-            .find_repository_by_id(&req.repository_id)
-            .await?
-            .ok_or_else(|| TaskCreationError::RepoNotFound(req.repository_id.clone()))?;
+        // Repo is needed for preflight. Reuse a caller-supplied one if present
+        // (the HTTP path already fetched it); otherwise look it up, which also
+        // yields the 404 for an unknown id.
+        let repo = match req.repository.take() {
+            Some(repo) => repo,
+            None => self
+                .repositories
+                .find_repository_by_id(&req.repository_id)
+                .await?
+                .ok_or_else(|| TaskCreationError::RepoNotFound(req.repository_id.clone()))?,
+        };
 
         // Preflight. On failure persist the row as `Error` and publish a
         // sandbox error event (the `start_task` pattern) so the task surfaces as
@@ -302,6 +316,7 @@ impl TaskCreationService {
         self.tasks.insert_task(&row).await?;
         tracing::info!(
             task_id = %task_id,
+            created_by = ?row.created_by,
             repository_id = %row.repository_id,
             "Task created"
         );
@@ -455,6 +470,7 @@ mod tests {
             related_to: None,
             first_message: None,
             event_subtype: TaskSubType::Created,
+            repository: None,
         }
     }
 

@@ -1,6 +1,7 @@
 //! Task HTTP handlers — coordinate repository calls + enrichment.
 
 use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
 
 use axum::extract::{Path, Query, State};
 use axum::Json;
@@ -183,11 +184,21 @@ pub async fn create_task(
             sent_by: Some(auth.user_id.to_string()),
         }),
         event_subtype: TaskSubType::Created,
+        // Reuse the repo already fetched for access control so the service
+        // skips a redundant lookup.
+        repository: Some(repo),
     };
 
+    // enrich_task is DB-heavy (~6 queries); enrich exactly once. The event
+    // closure stashes the enriched response here and the HTTP response reuses
+    // it, avoiding both a second round of queries and an event/response
+    // divergence window.
     let user_id = auth.user_id.to_string();
+    let enriched: Arc<Mutex<Option<TaskResponse>>> = Arc::new(Mutex::new(None));
+
     let state_ev = state.clone();
     let uid_ev = user_id.clone();
+    let enriched_ev = enriched.clone();
     let state_msg = state.clone();
 
     let outcome = state
@@ -196,10 +207,33 @@ pub async fn create_task(
             new_task,
             move |task| async move {
                 match enrich_task(&task, &state_ev, &uid_ev).await {
-                    Ok(resp) => serde_json::json!({ "task": resp }),
+                    Ok(resp) => {
+                        let payload = serde_json::json!({ "task": resp });
+                        if let Ok(mut cell) = enriched_ev.lock() {
+                            *cell = Some(resp);
+                        }
+                        payload
+                    }
                     Err(e) => {
-                        tracing::warn!(task_id = %task.task_id, error = %e, "Failed to enrich created task for event");
-                        serde_json::json!({ "task_id": task.task_id })
+                        // Fall back to the un-enriched row projection so the
+                        // payload keeps the same `{"task": TaskResponse}` shape
+                        // consumers destructure (tags/bindings/relations/sandbox
+                        // empty rather than a differently-shaped object).
+                        tracing::warn!(task_id = %task.task_id, error = %e, "Failed to enrich created task for event; using unenriched row");
+                        let resp = build_task_response(
+                            &task,
+                            &SandboxIntentView::default(),
+                            Vec::new(),
+                            None,
+                            None,
+                            Vec::new(),
+                            Vec::new(),
+                        );
+                        let payload = serde_json::json!({ "task": resp });
+                        if let Ok(mut cell) = enriched_ev.lock() {
+                            *cell = Some(resp);
+                        }
+                        payload
                     }
                 }
             },
@@ -229,7 +263,13 @@ pub async fn create_task(
         )
         .await?;
 
-    let task_response = enrich_task(&outcome.task, &state, &user_id).await?;
+    // Reuse the enriched response from the event closure; only re-enrich if the
+    // closure never ran (events disabled) or its enrichment failed.
+    let stashed = enriched.lock().ok().and_then(|mut cell| cell.take());
+    let task_response = match stashed {
+        Some(resp) => resp,
+        None => enrich_task(&outcome.task, &state, &user_id).await?,
+    };
     Ok(Json(CreateTaskResponse {
         task_id: outcome.task.task_id.clone(),
         status: outcome.task.status,

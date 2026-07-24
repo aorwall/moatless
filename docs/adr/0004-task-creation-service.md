@@ -76,6 +76,19 @@ sequence is consolidated:
    02's `schedule_runner` can keep recording its
    `record_job("error", "provision_failed", …)` metric.
 
+The two error paths treat the task **row status** asymmetrically, by design:
+
+- **Preflight failure** inserts the row as `Error`. Preflight is terminal — the
+  credential is unusable, no sandbox will ever come up, so the durable row
+  reflects that final state, matching what `start_task` already does.
+- **Provision failure** leaves the row `Open` and signals the failure *only*
+  through the `SandboxStatus::Error` event. Provisioning is a best-effort,
+  retryable side effect: the sandbox lifecycle/reconciler owns sandbox state and
+  can recover a stuck sandbox, so the creation service does not stamp a terminal
+  `Error` on the task row that a later successful start would have to unwind. The
+  event makes the transient failure visible in the UI without overwriting durable
+  task state that isn't the service's to own.
+
 ## What stays per-caller / in the handler
 
 - **Per-caller, passed in `NewTaskRequest`:** event subtype (`Created` vs
