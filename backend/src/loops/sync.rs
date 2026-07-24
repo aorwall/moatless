@@ -24,6 +24,7 @@ use crate::extractors::AuthUser;
 use crate::repository::access::{parse_github_owner_repo, resolve_repository_github_token};
 use crate::repository::models::{Repository, RepositoryProvider};
 use crate::state::AppState;
+use crate::triggers::store::{ManagedAdapterSource, ManagedLoopUpsert, NewScheduleSource};
 
 /// Fetch, parse, and reconcile the loops declared in a repository.
 ///
@@ -99,21 +100,12 @@ pub async fn sync_loops(
     }
 
     // Reconcile deletes: drop repo_loop triggers whose directory is gone.
-    let existing: Vec<(String, String)> = sqlx::query_as(
-        "SELECT id, loop_name FROM triggers \
-         WHERE source_repository_id = $1 AND managed_by = 'repo_loop' AND loop_name IS NOT NULL",
-    )
-    .bind(&repo.id)
-    .fetch_all(&state.db)
-    .await?;
+    let existing = state.loops.list_managed_loops(&repo.id).await?;
 
     let to_delete = names_to_delete(&existing, &present);
     for id in &to_delete {
         // Cascade drops trigger_rules + source rows.
-        sqlx::query("DELETE FROM triggers WHERE id = $1")
-            .bind(id)
-            .execute(&state.db)
-            .await?;
+        state.loops.delete(id).await?;
     }
     summary.removed = to_delete.len() as u32;
 
@@ -427,134 +419,48 @@ async fn upsert_loop(
     parsed: &ParsedLoop,
     resolved: &ResolvedLoop,
 ) -> Result<bool, LoopError> {
-    let now = Utc::now();
     let created_by = repo
         .created_by
         .clone()
         .unwrap_or_else(|| auth.user_id.to_string());
     let trigger_name = resolved.name.clone().or_else(|| Some(parsed.name.clone()));
 
-    let mut tx = state.db.begin().await?;
+    let adapter = resolved.adapter.as_ref().map(|a| ManagedAdapterSource {
+        adapter_kind: a.adapter_kind.clone(),
+        connection_id: a.connection_id.clone(),
+        source_matcher: a.source_matcher.clone(),
+        event_filter: a.event_filter.clone(),
+        adapter_config: a.adapter_config.clone(),
+    });
+    let schedule = resolved.schedule.as_ref().map(|s| NewScheduleSource {
+        cron_expression: s.cron_expression.clone(),
+        timezone: s.timezone.clone(),
+        message_template: s.message_template.clone(),
+        next_fire_at: s.next_fire_at,
+    });
 
-    let existing_id: Option<String> = sqlx::query_scalar(
-        "SELECT id FROM triggers \
-         WHERE source_repository_id = $1 AND loop_name = $2 AND managed_by = 'repo_loop'",
-    )
-    .bind(&repo.id)
-    .bind(&parsed.name)
-    .fetch_optional(&mut *tx)
-    .await?;
-
-    let (trigger_id, created) = if let Some(id) = existing_id {
-        sqlx::query(
-            "UPDATE triggers \
-             SET name = $2, kind = $3, active = $4, scope = $5, team_id = $6, \
-                 owner_user_id = $7, updated_at = $8 \
-             WHERE id = $1",
-        )
-        .bind(&id)
-        .bind(&trigger_name)
-        .bind(resolved.kind.as_str())
-        .bind(resolved.active)
-        .bind(repo.scope)
-        .bind(&repo.team_id)
-        .bind(&repo.owner_user_id)
-        .bind(now)
-        .execute(&mut *tx)
+    let created = state
+        .loops
+        .upsert_managed_loop(&ManagedLoopUpsert {
+            source_repository_id: repo.id.clone(),
+            loop_name: parsed.name.clone(),
+            trigger_name,
+            kind: resolved.kind.as_str().to_string(),
+            active: resolved.active,
+            scope: repo.scope,
+            team_id: repo.team_id.clone(),
+            owner_user_id: repo.owner_user_id.clone(),
+            created_by,
+            routing_mode: resolved.routing_mode,
+            prompt: resolved.prompt.clone(),
+            tag_ids: resolved.tag_ids.clone(),
+            run_as_user_id: resolved.run_as_user_id.clone(),
+            agent_type: resolved.agent_type.clone(),
+            inactive_ttl_days: resolved.inactive_ttl_days,
+            adapter,
+            schedule,
+        })
         .await?;
-        (id, false)
-    } else {
-        let id = format!("tr_{}", uuid::Uuid::new_v4());
-        sqlx::query(
-            "INSERT INTO triggers \
-             (id, name, kind, active, scope, team_id, owner_user_id, created_by, \
-              managed_by, source_repository_id, loop_name, created_at, updated_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'repo_loop', $9, $10, $11, $11)",
-        )
-        .bind(&id)
-        .bind(&trigger_name)
-        .bind(resolved.kind.as_str())
-        .bind(resolved.active)
-        .bind(repo.scope)
-        .bind(&repo.team_id)
-        .bind(&repo.owner_user_id)
-        .bind(&created_by)
-        .bind(&repo.id)
-        .bind(&parsed.name)
-        .bind(now)
-        .execute(&mut *tx)
-        .await?;
-        (id, true)
-    };
-
-    // Upsert the rule row (handles both insert + update paths).
-    sqlx::query(
-        "INSERT INTO trigger_rules \
-         (trigger_id, repository_id, routing_mode, ongoing_task_id, prompt, task_name, \
-          tag_ids, run_as_user_id, agent_type, inactive_ttl_days) \
-         VALUES ($1, $2, $3, NULL, $4, NULL, $5, $6, $7, $8) \
-         ON CONFLICT (trigger_id) DO UPDATE SET \
-           repository_id = EXCLUDED.repository_id, \
-           routing_mode = EXCLUDED.routing_mode, \
-           prompt = EXCLUDED.prompt, \
-           tag_ids = EXCLUDED.tag_ids, \
-           run_as_user_id = EXCLUDED.run_as_user_id, \
-           agent_type = EXCLUDED.agent_type, \
-           inactive_ttl_days = EXCLUDED.inactive_ttl_days",
-    )
-    .bind(&trigger_id)
-    .bind(&repo.id)
-    .bind(resolved.routing_mode)
-    .bind(&resolved.prompt)
-    .bind(&resolved.tag_ids)
-    .bind(&resolved.run_as_user_id)
-    .bind(&resolved.agent_type)
-    .bind(resolved.inactive_ttl_days)
-    .execute(&mut *tx)
-    .await?;
-
-    // Replace source rows so a kind switch (github_pr <-> schedule) is clean.
-    sqlx::query("DELETE FROM adapter_event_trigger_sources WHERE trigger_id = $1")
-        .bind(&trigger_id)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query("DELETE FROM schedule_trigger_sources WHERE trigger_id = $1")
-        .bind(&trigger_id)
-        .execute(&mut *tx)
-        .await?;
-
-    if let Some(adapter) = &resolved.adapter {
-        sqlx::query(
-            "INSERT INTO adapter_event_trigger_sources \
-             (trigger_id, adapter_kind, connection_id, source_matcher, source_name, \
-              event_filter, adapter_config, allow_direct_send, close_task_on_close, notify_on_success) \
-             VALUES ($1, $2, $3, $4, NULL, $5, $6, false, true, false)",
-        )
-        .bind(&trigger_id)
-        .bind(&adapter.adapter_kind)
-        .bind(&adapter.connection_id)
-        .bind(&adapter.source_matcher)
-        .bind(&adapter.event_filter)
-        .bind(&adapter.adapter_config)
-        .execute(&mut *tx)
-        .await?;
-    }
-    if let Some(schedule) = &resolved.schedule {
-        sqlx::query(
-            "INSERT INTO schedule_trigger_sources \
-             (trigger_id, cron_expression, timezone, message_template, next_fire_at) \
-             VALUES ($1, $2, $3, $4, $5)",
-        )
-        .bind(&trigger_id)
-        .bind(&schedule.cron_expression)
-        .bind(&schedule.timezone)
-        .bind(&schedule.message_template)
-        .bind(schedule.next_fire_at)
-        .execute(&mut *tx)
-        .await?;
-    }
-
-    tx.commit().await?;
     Ok(created)
 }
 

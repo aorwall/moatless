@@ -7,6 +7,7 @@ use tracing::info;
 
 use crate::adapters::error::AdapterError;
 use crate::db::DbPool;
+use crate::triggers::store::LoopStore;
 
 use super::config::TelegramAdapterConfig;
 
@@ -163,16 +164,13 @@ pub async fn approve_request(
     .map_err(AdapterError::Db)?;
 
     // Read current provider_config and append user to dm_allowlist
-    let row: (Option<serde_json::Value>,) = sqlx::query_as(
-        "SELECT adapter_config FROM adapter_event_trigger_sources WHERE trigger_id = $1",
-    )
-    .bind(trigger_id)
-    .fetch_one(db)
-    .await
-    .map_err(AdapterError::Db)?;
+    let store = LoopStore::new(db.clone());
+    let current_config = store
+        .get_adapter_config(trigger_id)
+        .await
+        .map_err(AdapterError::Db)?;
 
-    let mut tg_config: TelegramAdapterConfig = row
-        .0
+    let mut tg_config: TelegramAdapterConfig = current_config
         .as_ref()
         .and_then(|v| serde_json::from_value(v.clone()).ok())
         .unwrap_or_default();
@@ -186,17 +184,8 @@ pub async fn approve_request(
     let updated_config = serde_json::to_value(&tg_config)
         .map_err(|e| AdapterError::Internal(format!("Failed to serialize config: {e}")))?;
 
-    sqlx::query(
-        "UPDATE adapter_event_trigger_sources SET adapter_config = $1 WHERE trigger_id = $2",
-    )
-    .bind(&updated_config)
-    .bind(trigger_id)
-    .execute(db)
-    .await
-    .map_err(AdapterError::Db)?;
-    sqlx::query("UPDATE triggers SET updated_at = now() WHERE id = $1")
-        .bind(trigger_id)
-        .execute(db)
+    store
+        .set_adapter_config(trigger_id, &updated_config)
         .await
         .map_err(AdapterError::Db)?;
 

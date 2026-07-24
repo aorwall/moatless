@@ -16,7 +16,7 @@ use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, TaskBinding};
 use crate::extractors::AuthUser;
 use crate::state::AppState;
-use crate::triggers::dao::{PgTriggerRepository, TriggerRecord, TriggerSourceRow};
+use crate::triggers::store::{TriggerRecord, TriggerSourceRow};
 use moatless_backend_core::scope::{ScopeContext, ScopedResource};
 
 #[derive(Debug, Deserialize)]
@@ -378,8 +378,9 @@ pub(crate) async fn load_trigger_for_auth(
     ctx: &ScopeContext,
     id: &str,
 ) -> Result<TriggerRecord, AdapterError> {
-    let record = PgTriggerRepository(state.db.clone())
-        .find_by_id(id)
+    let record = state
+        .loops
+        .get(id)
         .await?
         .ok_or_else(|| AdapterError::NotFound(format!("Trigger {id} not found")))?;
     ensure_scope_access(

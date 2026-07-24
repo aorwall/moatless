@@ -246,7 +246,7 @@ pub async fn route_inbound_message(
             Ok(outcome) => {
                 let task_id = outcome.task.task_id;
                 if rule.routing_mode == RoutingMode::Ongoing {
-                    update_rule_ongoing_task(state, &rule.id, &task_id).await?;
+                    state.loops.set_ongoing_task(&rule.id, &task_id).await?;
                 }
                 // Seed the cursor as None so `fetch_context` retrieves the full
                 // prior thread on the first delivery; `touch_cursor` advances it
@@ -560,29 +560,6 @@ async fn deliver_to_binding(
         }
     }
 
-    Ok(())
-}
-
-async fn update_rule_ongoing_task(
-    state: &AppState,
-    rule_id: &str,
-    task_id: &str,
-) -> Result<(), AdapterError> {
-    sqlx::query(
-        r#"WITH updated_rule AS (
-               UPDATE trigger_rules
-               SET ongoing_task_id = $2
-               WHERE trigger_id = $1
-               RETURNING trigger_id
-           )
-           UPDATE triggers
-           SET updated_at = now()
-           WHERE id IN (SELECT trigger_id FROM updated_rule)"#,
-    )
-    .bind(rule_id)
-    .bind(task_id)
-    .execute(&state.db)
-    .await?;
     Ok(())
 }
 

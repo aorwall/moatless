@@ -3,10 +3,10 @@
 use std::sync::Arc;
 
 use chrono::Utc;
-use cron::Schedule;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
+use crate::adapters::common::next_fire_at;
 use crate::adapters::models::{InboundMessage, ScheduledJob, TaskRoute, TriggerContext};
 use crate::adapters::AdapterKind;
 use crate::leader::LeaderGuard;
@@ -62,85 +62,9 @@ async fn tick(
     state: &AppState,
     worker_id: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let due_jobs = sqlx::query_as::<_, ScheduledJob>(
-        r#"SELECT t.id,
-                  t.id AS route_id,
-                  sts.cron_expression AS schedule_expr,
-                  sts.timezone,
-                  sts.message_template,
-                  r.run_as_user_id,
-                  t.active,
-                  sts.last_fired_at,
-                  sts.next_fire_at,
-                  sts.locked_by,
-                  sts.locked_until,
-                  t.created_by,
-                  t.scope,
-                  t.team_id,
-                  t.owner_user_id,
-                  t.created_at,
-                  t.updated_at
-           FROM triggers t
-           JOIN trigger_rules r ON r.trigger_id = t.id
-           JOIN schedule_trigger_sources sts ON sts.trigger_id = t.id
-           WHERE t.kind = 'schedule'
-             AND t.active = true
-             AND sts.next_fire_at <= now()
-             AND (sts.locked_until IS NULL OR sts.locked_until < now())
-           ORDER BY sts.next_fire_at ASC
-           LIMIT 20"#,
-    )
-    .fetch_all(&state.db)
-    .await?;
+    let locked_jobs = state.loops.claim_due_schedules(worker_id, 20).await?;
 
-    for job in due_jobs {
-        let locked = sqlx::query_as::<_, ScheduledJob>(
-            r#"WITH locked_source AS (
-                   UPDATE schedule_trigger_sources
-                   SET locked_by = $2,
-                       locked_until = now() + interval '2 minutes'
-                   WHERE trigger_id = $1
-                     AND next_fire_at <= now()
-                     AND (locked_until IS NULL OR locked_until < now())
-                   RETURNING *
-               ),
-               touched_trigger AS (
-                   UPDATE triggers
-                   SET updated_at = now()
-                   WHERE id = $1 AND active = true AND kind = 'schedule'
-                   RETURNING *
-               )
-               SELECT t.id,
-                      t.id AS route_id,
-                      s.cron_expression AS schedule_expr,
-                      s.timezone,
-                      s.message_template,
-                      r.run_as_user_id,
-                      t.active,
-                      s.last_fired_at,
-                      s.next_fire_at,
-                      s.locked_by,
-                      s.locked_until,
-                      t.created_by,
-                      t.scope,
-                      t.team_id,
-                      t.owner_user_id,
-                      t.created_at,
-                      t.updated_at
-               FROM touched_trigger t
-               JOIN trigger_rules r ON r.trigger_id = t.id
-               JOIN locked_source s ON s.trigger_id = t.id"#,
-        )
-        .bind(&job.id)
-        .bind(worker_id)
-        .fetch_optional(&state.db)
-        .await?;
-
-        let Some(locked) = locked else {
-            record_job("ignored", "no_lock", &job.id);
-            continue;
-        };
-
+    for locked in locked_jobs {
         match execute_job(state, &locked).await {
             Ok(()) => {
                 record_job("success", "", &locked.id);
@@ -151,62 +75,18 @@ async fn tick(
             }
         }
 
-        let next = compute_next_fire(&locked.schedule_expr)?;
-        sqlx::query(
-            r#"UPDATE schedule_trigger_sources
-               SET last_fired_at = now(),
-                   next_fire_at = $2,
-                   locked_by = NULL,
-                   locked_until = NULL
-               WHERE trigger_id = $1"#,
-        )
-        .bind(&locked.id)
-        .bind(next)
-        .execute(&state.db)
-        .await?;
+        let next = next_fire_at(&locked.schedule_expr)?;
+        state.loops.record_schedule_fire(&locked.id, next).await?;
     }
 
     Ok(())
-}
-
-fn compute_next_fire(
-    schedule_expr: &str,
-) -> Result<chrono::DateTime<Utc>, Box<dyn std::error::Error + Send + Sync>> {
-    let schedule: Schedule = schedule_expr.parse()?;
-    schedule
-        .after(&Utc::now())
-        .next()
-        .ok_or_else(|| "schedule has no future fire time".into())
 }
 
 async fn execute_job(
     state: &AppState,
     job: &ScheduledJob,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let route = sqlx::query_as::<_, TaskRoute>(
-        r#"SELECT t.id,
-                  r.repository_id,
-                  r.routing_mode,
-                  r.ongoing_task_id,
-                  r.prompt AS prompt_template,
-                  r.task_name,
-                  r.tag_ids,
-                  r.run_as_user_id,
-                  r.agent_type,
-                  r.inactive_ttl_days,
-                  t.scope,
-                  t.team_id,
-                  t.owner_user_id,
-                  t.created_by,
-                  t.created_at,
-                  t.updated_at
-           FROM triggers t
-           JOIN trigger_rules r ON r.trigger_id = t.id
-           WHERE t.id = $1"#,
-    )
-    .bind(&job.route_id)
-    .fetch_one(&state.db)
-    .await?;
+    let route = state.loops.find_task_route(&job.route_id).await?;
 
     let config = route_to_config(&route, job);
     let msg = InboundMessage {
@@ -247,21 +127,7 @@ async fn execute_job(
     };
 
     if is_new_task && route.routing_mode == crate::adapters::models::RoutingMode::Ongoing {
-        sqlx::query(
-            r#"WITH updated_rule AS (
-                   UPDATE trigger_rules
-                   SET ongoing_task_id = $2
-                   WHERE trigger_id = $1
-                   RETURNING trigger_id
-               )
-               UPDATE triggers
-               SET updated_at = now()
-               WHERE id IN (SELECT trigger_id FROM updated_rule)"#,
-        )
-        .bind(&route.id)
-        .bind(&task_id)
-        .execute(&state.db)
-        .await?;
+        state.loops.set_ongoing_task(&route.id, &task_id).await?;
     }
 
     crate::message::send::send_message_flow(

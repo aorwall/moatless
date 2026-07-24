@@ -37,6 +37,7 @@ use crate::tag::dao::{PgTagRepository, TagRepository};
 use crate::sandbox::preflight::{PreflightCredentials, RealGithubValidator};
 use crate::task::creation::{RealPreflight, TaskCreationService};
 use crate::task::dao::{PgTaskRepository, TaskRepository};
+use crate::triggers::store::LoopStore;
 use crate::task::reaper::AgentStatusPort;
 use crate::task::relations::{PgTaskRelationRepository, TaskRelationRepository};
 use crate::task_event::dao::{PgTaskEventRepository, TaskEventRepository};
@@ -108,6 +109,10 @@ pub struct AppState {
     /// insert, tags, relations, provision, first message, event).
     pub task_creation: Arc<TaskCreationService>,
     pub task_relations: Arc<dyn TaskRelationRepository>,
+    /// Single owner of persistence for the four Loop tables (`triggers`,
+    /// `trigger_rules`, `adapter_event_trigger_sources`,
+    /// `schedule_trigger_sources`).
+    pub loops: Arc<LoopStore>,
     pub messages: Arc<dyn MessageRepository>,
     pub feedback: Arc<dyn FeedbackRepository>,
     pub repositories: Arc<dyn RepoRepository>,
@@ -320,6 +325,7 @@ impl AppState {
             tasks,
             task_creation,
             task_relations,
+            loops: Arc::new(LoopStore::new(pool.clone())),
             messages: Arc::new(PgMessageRepository(pool.clone())),
             feedback: Arc::new(PgFeedbackRepository(pool.clone())),
             repositories,

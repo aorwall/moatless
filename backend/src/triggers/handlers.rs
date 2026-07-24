@@ -5,10 +5,8 @@ use chrono::Utc;
 use moatless_api_schemas::bindings::TaskBindingResponse;
 use moatless_api_schemas::enums::TaskStatus;
 use moatless_api_schemas::triggers::{
-    CreateAdapterEventTriggerSource, CreateScheduleTriggerSource, CreateTriggerRequest,
-    TriggerKind, TriggerRecentTaskItem, TriggerRecentTaskSummary, TriggerResponse,
-    UpdateAdapterEventTriggerSource, UpdateScheduleTriggerSource, UpdateTriggerRequest,
-    UpdateTriggerSource,
+    CreateTriggerRequest, TriggerKind, TriggerRecentTaskItem, TriggerRecentTaskSummary,
+    TriggerResponse, UpdateTriggerRequest, UpdateTriggerSource,
 };
 use serde::Deserialize;
 use utoipa::ToSchema;
@@ -23,7 +21,10 @@ use crate::adapters::error::AdapterError;
 use crate::bindings::dao::{PgTaskBindingRepository, TriggerRecentTaskRow};
 use crate::extractors::AuthUser;
 use crate::state::AppState;
-use crate::triggers::dao::{PgTriggerRepository, TriggerListFilter, TriggerSourceRow};
+use crate::triggers::store::{
+    AdapterSourceUpdate, LoopTriggerUpdate, NewAdapterEventSource, NewLoop, NewLoopRule,
+    NewLoopSource, NewScheduleSource, TriggerListFilter, TriggerSourceRow, UpdateLoopSource,
+};
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct RecentTasksQuery {
@@ -100,7 +101,8 @@ pub async fn list_triggers(
     let adapter_kind = query
         .adapter_kind
         .map(|adapter_kind| adapter_kind.as_str().to_string());
-    let records = PgTriggerRepository(state.db.clone())
+    let records = state
+        .loops
         .list(
             &ctx,
             TriggerListFilter {
@@ -175,117 +177,72 @@ pub async fn create_trigger(
         resolve_scope_for_adapter_create(&state, &auth, req.scope, req.team_id.clone()).await?;
     let id = format!("tr_{}", uuid::Uuid::new_v4());
     let now = Utc::now();
-    let mut tx = state.db.begin().await?;
 
-    sqlx::query(
-        r#"INSERT INTO triggers
-           (id, name, kind, active, scope, team_id, owner_user_id,
-            created_by, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)"#,
-    )
-    .bind(&id)
-    .bind(&req.name)
-    .bind(req.kind.as_str())
-    .bind(req.active.unwrap_or(true))
-    .bind(resolved.scope)
-    .bind(Some(resolved.team_id))
-    .bind(resolved.owner_user_id)
-    .bind(auth.user_id.to_string())
-    .bind(now)
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query(
-        r#"INSERT INTO trigger_rules
-           (trigger_id, repository_id, routing_mode, ongoing_task_id, prompt,
-            task_name, tag_ids, run_as_user_id, agent_type, inactive_ttl_days)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"#,
-    )
-    .bind(&id)
-    .bind(&req.rule.repository_id)
-    .bind(req.rule.routing_mode)
-    .bind(&req.rule.ongoing_task_id)
-    .bind(&req.rule.prompt)
-    .bind(&req.rule.task_name)
-    .bind(req.rule.tag_ids.unwrap_or_default())
-    .bind(&req.rule.run_as_user_id)
-    .bind(
-        req.rule
-            .agent_type
-            .unwrap_or_else(|| "claude-code".to_string()),
-    )
-    .bind(req.rule.inactive_ttl_days)
-    .execute(&mut *tx)
-    .await?;
-
-    if let Some(source) = adapter_source {
-        insert_adapter_event_source(&mut tx, &id, source).await?;
-    }
-    if let Some(source) = schedule_source {
+    let source = if let Some(source) = adapter_source {
+        NewLoopSource::AdapterEvent(NewAdapterEventSource {
+            adapter_kind: source.adapter_kind.as_str().to_string(),
+            connection_id: source.connection_id.clone(),
+            source_matcher: source.source_matcher.clone(),
+            source_name: source.source_name.clone(),
+            event_filter: source
+                .event_filter
+                .clone()
+                .unwrap_or_else(|| serde_json::json!([])),
+            adapter_config: source.adapter_config.clone(),
+            allow_direct_send: source.allow_direct_send.unwrap_or(false),
+            close_task_on_close: source.close_task_on_close.unwrap_or(true),
+            notify_on_success: source.notify_on_success.unwrap_or(false),
+        })
+    } else if let Some(source) = schedule_source {
         let next_fire = next_fire
             .ok_or_else(|| AdapterError::Internal("missing schedule next fire".to_string()))?;
-        insert_schedule_source(&mut tx, &id, source, next_fire).await?;
-    }
-    tx.commit().await?;
+        NewLoopSource::Schedule(NewScheduleSource {
+            cron_expression: source.cron_expression.clone(),
+            timezone: source.timezone.clone().unwrap_or_else(|| "UTC".to_string()),
+            message_template: source.message_template.clone(),
+            next_fire_at: next_fire,
+        })
+    } else {
+        NewLoopSource::Manual
+    };
 
-    let record = PgTriggerRepository(state.db.clone())
-        .find_by_id(&id)
+    state
+        .loops
+        .create(NewLoop {
+            id: id.clone(),
+            name: req.name.clone(),
+            kind: req.kind.as_str().to_string(),
+            active: req.active.unwrap_or(true),
+            scope: resolved.scope,
+            team_id: Some(resolved.team_id),
+            owner_user_id: resolved.owner_user_id,
+            created_by: auth.user_id.to_string(),
+            created_at: now,
+            rule: NewLoopRule {
+                repository_id: req.rule.repository_id.clone(),
+                routing_mode: req.rule.routing_mode,
+                ongoing_task_id: req.rule.ongoing_task_id.clone(),
+                prompt: req.rule.prompt.clone(),
+                task_name: req.rule.task_name.clone(),
+                tag_ids: req.rule.tag_ids.clone().unwrap_or_default(),
+                run_as_user_id: req.rule.run_as_user_id.clone(),
+                agent_type: req
+                    .rule
+                    .agent_type
+                    .clone()
+                    .unwrap_or_else(|| "claude-code".to_string()),
+                inactive_ttl_days: req.rule.inactive_ttl_days,
+            },
+            source,
+        })
+        .await?;
+
+    let record = state
+        .loops
+        .get(&id)
         .await?
         .ok_or_else(|| AdapterError::NotFound(format!("Trigger {id} not found")))?;
     Ok(Json(trigger_response(&record)))
-}
-
-async fn insert_adapter_event_source(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    trigger_id: &str,
-    source: &CreateAdapterEventTriggerSource,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        r#"INSERT INTO adapter_event_trigger_sources
-           (trigger_id, adapter_kind, connection_id, source_matcher, source_name,
-            event_filter, adapter_config, allow_direct_send, close_task_on_close,
-            notify_on_success)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"#,
-    )
-    .bind(trigger_id)
-    .bind(source.adapter_kind.as_str())
-    .bind(&source.connection_id)
-    .bind(&source.source_matcher)
-    .bind(&source.source_name)
-    .bind(
-        source
-            .event_filter
-            .clone()
-            .unwrap_or_else(|| serde_json::json!([])),
-    )
-    .bind(&source.adapter_config)
-    .bind(source.allow_direct_send.unwrap_or(false))
-    .bind(source.close_task_on_close.unwrap_or(true))
-    .bind(source.notify_on_success.unwrap_or(false))
-    .execute(&mut **tx)
-    .await?;
-    Ok(())
-}
-
-async fn insert_schedule_source(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    trigger_id: &str,
-    source: &CreateScheduleTriggerSource,
-    next_fire: chrono::DateTime<Utc>,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        r#"INSERT INTO schedule_trigger_sources
-           (trigger_id, cron_expression, timezone, message_template, next_fire_at)
-           VALUES ($1, $2, $3, $4, $5)"#,
-    )
-    .bind(trigger_id)
-    .bind(&source.cron_expression)
-    .bind(source.timezone.as_deref().unwrap_or("UTC"))
-    .bind(&source.message_template)
-    .bind(next_fire)
-    .execute(&mut **tx)
-    .await?;
-    Ok(())
 }
 
 #[utoipa::path(
@@ -365,204 +322,110 @@ pub async fn update_trigger(
         None
     };
 
-    let mut tx = state.db.begin().await?;
-    sqlx::query(
-        r#"UPDATE triggers
-           SET name = $2,
-               active = $3,
-               scope = $4,
-               team_id = $5,
-               owner_user_id = $6,
-               updated_at = now()
-           WHERE id = $1"#,
-    )
-    .bind(&id)
-    .bind(req.name.unwrap_or_else(|| current.trigger.name.clone()))
-    .bind(req.active.unwrap_or(current.trigger.active))
-    .bind(resolved.scope)
-    .bind(Some(resolved.team_id))
-    .bind(resolved.owner_user_id)
-    .execute(&mut *tx)
-    .await?;
+    let rule_update = req.rule.map(|rule| NewLoopRule {
+        repository_id: rule
+            .repository_id
+            .unwrap_or_else(|| current.rule.repository_id.clone()),
+        routing_mode: rule.routing_mode.unwrap_or(current.rule.routing_mode),
+        ongoing_task_id: rule
+            .ongoing_task_id
+            .unwrap_or_else(|| current.rule.ongoing_task_id.clone()),
+        prompt: rule.prompt.unwrap_or_else(|| current.rule.prompt.clone()),
+        task_name: rule
+            .task_name
+            .unwrap_or_else(|| current.rule.task_name.clone()),
+        tag_ids: rule.tag_ids.unwrap_or_else(|| current.rule.tag_ids.clone()),
+        run_as_user_id: rule
+            .run_as_user_id
+            .unwrap_or_else(|| current.rule.run_as_user_id.clone()),
+        agent_type: rule
+            .agent_type
+            .unwrap_or_else(|| current.rule.agent_type.clone()),
+        inactive_ttl_days: rule
+            .inactive_ttl_days
+            .unwrap_or(current.rule.inactive_ttl_days),
+    });
 
-    if let Some(rule) = req.rule {
-        sqlx::query(
-            r#"UPDATE trigger_rules
-               SET repository_id = $2,
-                   routing_mode = $3,
-                   ongoing_task_id = $4,
-                   prompt = $5,
-                   task_name = $6,
-                   tag_ids = $7,
-                   run_as_user_id = $8,
-                   agent_type = $9,
-                   inactive_ttl_days = $10
-               WHERE trigger_id = $1"#,
-        )
-        .bind(&id)
-        .bind(
-            rule.repository_id
-                .unwrap_or_else(|| current.rule.repository_id.clone()),
-        )
-        .bind(rule.routing_mode.unwrap_or(current.rule.routing_mode))
-        .bind(
-            rule.ongoing_task_id
-                .unwrap_or_else(|| current.rule.ongoing_task_id.clone()),
-        )
-        .bind(rule.prompt.unwrap_or_else(|| current.rule.prompt.clone()))
-        .bind(
-            rule.task_name
-                .unwrap_or_else(|| current.rule.task_name.clone()),
-        )
-        .bind(rule.tag_ids.unwrap_or_else(|| current.rule.tag_ids.clone()))
-        .bind(
-            rule.run_as_user_id
-                .unwrap_or_else(|| current.rule.run_as_user_id.clone()),
-        )
-        .bind(
-            rule.agent_type
-                .unwrap_or_else(|| current.rule.agent_type.clone()),
-        )
-        .bind(
-            rule.inactive_ttl_days
-                .unwrap_or(current.rule.inactive_ttl_days),
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
-
-    if let Some(source) = req.source {
-        match source {
-            UpdateTriggerSource::AdapterEvent(source) => {
-                update_adapter_event_source(&mut tx, &id, &current.source, source).await?;
-            }
-            UpdateTriggerSource::Schedule(source) => {
-                let next_fire = next_fire.ok_or_else(|| {
-                    AdapterError::Internal("missing schedule next fire".to_string())
-                })?;
-                update_schedule_source(&mut tx, &id, &current.source, source, next_fire).await?;
-            }
-            UpdateTriggerSource::Manual(_) => {}
+    let source_update = match req.source {
+        Some(UpdateTriggerSource::AdapterEvent(source)) => {
+            let TriggerSourceRow::AdapterEvent(current_source) = &current.source else {
+                return Err(AdapterError::BadRequest(
+                    "adapter-event source updates are only valid for adapter_event triggers".into(),
+                ));
+            };
+            Some(UpdateLoopSource::AdapterEvent(AdapterSourceUpdate {
+                connection_id: source
+                    .connection_id
+                    .unwrap_or_else(|| current_source.connection_id.clone()),
+                source_matcher: source
+                    .source_matcher
+                    .unwrap_or_else(|| current_source.source_matcher.clone()),
+                source_name: source
+                    .source_name
+                    .unwrap_or_else(|| current_source.source_name.clone()),
+                event_filter: source
+                    .event_filter
+                    .unwrap_or_else(|| current_source.event_filter.clone()),
+                adapter_config: source
+                    .adapter_config
+                    .unwrap_or_else(|| current_source.adapter_config.clone()),
+                allow_direct_send: source
+                    .allow_direct_send
+                    .unwrap_or(current_source.allow_direct_send),
+                close_task_on_close: source
+                    .close_task_on_close
+                    .unwrap_or(current_source.close_task_on_close),
+                notify_on_success: source
+                    .notify_on_success
+                    .unwrap_or(current_source.notify_on_success),
+            }))
         }
-    }
-    tx.commit().await?;
+        Some(UpdateTriggerSource::Schedule(source)) => {
+            let TriggerSourceRow::Schedule(current_source) = &current.source else {
+                return Err(AdapterError::BadRequest(
+                    "schedule source updates are only valid for schedule triggers".into(),
+                ));
+            };
+            let next_fire = next_fire
+                .ok_or_else(|| AdapterError::Internal("missing schedule next fire".to_string()))?;
+            Some(UpdateLoopSource::Schedule(NewScheduleSource {
+                cron_expression: source
+                    .cron_expression
+                    .unwrap_or_else(|| current_source.cron_expression.clone()),
+                timezone: source
+                    .timezone
+                    .unwrap_or_else(|| current_source.timezone.clone()),
+                message_template: source
+                    .message_template
+                    .unwrap_or_else(|| current_source.message_template.clone()),
+                next_fire_at: next_fire,
+            }))
+        }
+        Some(UpdateTriggerSource::Manual(_)) | None => None,
+    };
 
-    let record = PgTriggerRepository(state.db.clone())
-        .find_by_id(&id)
+    state
+        .loops
+        .update(
+            &id,
+            LoopTriggerUpdate {
+                name: req.name.unwrap_or_else(|| current.trigger.name.clone()),
+                active: req.active.unwrap_or(current.trigger.active),
+                scope: resolved.scope,
+                team_id: Some(resolved.team_id),
+                owner_user_id: resolved.owner_user_id,
+            },
+            rule_update,
+            source_update,
+        )
+        .await?;
+
+    let record = state
+        .loops
+        .get(&id)
         .await?
         .ok_or_else(|| AdapterError::NotFound(format!("Trigger {id} not found")))?;
     Ok(Json(trigger_response(&record)))
-}
-
-async fn update_adapter_event_source(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    trigger_id: &str,
-    current: &TriggerSourceRow,
-    source: UpdateAdapterEventTriggerSource,
-) -> Result<(), AdapterError> {
-    let TriggerSourceRow::AdapterEvent(current_source) = current else {
-        return Err(AdapterError::BadRequest(
-            "adapter-event source updates are only valid for adapter_event triggers".into(),
-        ));
-    };
-    sqlx::query(
-        r#"UPDATE adapter_event_trigger_sources
-           SET connection_id = $2,
-               source_matcher = $3,
-               source_name = $4,
-               event_filter = $5,
-               adapter_config = $6,
-               allow_direct_send = $7,
-               close_task_on_close = $8,
-               notify_on_success = $9
-           WHERE trigger_id = $1"#,
-    )
-    .bind(trigger_id)
-    .bind(
-        source
-            .connection_id
-            .unwrap_or_else(|| current_source.connection_id.clone()),
-    )
-    .bind(
-        source
-            .source_matcher
-            .unwrap_or_else(|| current_source.source_matcher.clone()),
-    )
-    .bind(
-        source
-            .source_name
-            .unwrap_or_else(|| current_source.source_name.clone()),
-    )
-    .bind(
-        source
-            .event_filter
-            .unwrap_or_else(|| current_source.event_filter.clone()),
-    )
-    .bind(
-        source
-            .adapter_config
-            .unwrap_or_else(|| current_source.adapter_config.clone()),
-    )
-    .bind(
-        source
-            .allow_direct_send
-            .unwrap_or(current_source.allow_direct_send),
-    )
-    .bind(
-        source
-            .close_task_on_close
-            .unwrap_or(current_source.close_task_on_close),
-    )
-    .bind(
-        source
-            .notify_on_success
-            .unwrap_or(current_source.notify_on_success),
-    )
-    .execute(&mut **tx)
-    .await?;
-    Ok(())
-}
-
-async fn update_schedule_source(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    trigger_id: &str,
-    current: &TriggerSourceRow,
-    source: UpdateScheduleTriggerSource,
-    next_fire: chrono::DateTime<Utc>,
-) -> Result<(), AdapterError> {
-    let TriggerSourceRow::Schedule(current_source) = current else {
-        return Err(AdapterError::BadRequest(
-            "schedule source updates are only valid for schedule triggers".into(),
-        ));
-    };
-    sqlx::query(
-        r#"UPDATE schedule_trigger_sources
-           SET cron_expression = $2,
-               timezone = $3,
-               message_template = $4,
-               next_fire_at = $5
-           WHERE trigger_id = $1"#,
-    )
-    .bind(trigger_id)
-    .bind(
-        source
-            .cron_expression
-            .unwrap_or_else(|| current_source.cron_expression.clone()),
-    )
-    .bind(
-        source
-            .timezone
-            .unwrap_or_else(|| current_source.timezone.clone()),
-    )
-    .bind(
-        source
-            .message_template
-            .unwrap_or_else(|| current_source.message_template.clone()),
-    )
-    .bind(next_fire)
-    .execute(&mut **tx)
-    .await?;
-    Ok(())
 }
 
 #[utoipa::path(
@@ -632,7 +495,7 @@ pub async fn delete_trigger(
         &current.trigger.created_by,
     );
     ensure_can_write_adapter_resource(&state, &auth, &resource, "trigger").await?;
-    let result = PgTriggerRepository(state.db.clone()).delete(&id).await?;
+    let result = state.loops.delete(&id).await?;
 
     if result == 0 {
         return Err(AdapterError::NotFound(format!("trigger {id}")));
