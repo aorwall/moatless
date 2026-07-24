@@ -254,6 +254,8 @@ pub async fn get_bindings_for_tasks(
                   COALESCE(aes.source_matcher, tb.subject_key) AS source_id,
                   aes.source_name
            FROM task_bindings tb
+           -- adapter_event_trigger_sources is owned by loops::store; this is a
+           -- read-only enrichment join (source_matcher/source_name for display).
            LEFT JOIN adapter_event_trigger_sources aes ON aes.trigger_id = tb.trigger_id
            WHERE tb.task_id = ANY($1)"#,
     )

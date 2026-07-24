@@ -21,12 +21,12 @@ mod parser;
 use self::error::LoopError;
 use self::fetcher::{GitHubLoopFetcher, LoopFetcher};
 use self::models::{LoopFrontmatter, ParsedLoop};
-use self::parser::parse_loop;
+pub use self::parser::parse_loop;
 use crate::adapters::common::next_fire_at;
 use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::models::RoutingMode;
 use crate::extractors::AuthUser;
-use crate::loops::store::{ManagedAdapterSource, ManagedLoopUpsert, NewScheduleSource};
+use crate::loops::store::{ManagedLoopUpsert, NewAdapterEventSource, NewScheduleSource};
 use crate::repository::access::{parse_github_owner_repo, resolve_repository_github_token};
 use crate::repository::models::{Repository, RepositoryProvider};
 use crate::state::AppState;
@@ -430,12 +430,16 @@ async fn upsert_loop(
         .unwrap_or_else(|| auth.user_id.to_string());
     let trigger_name = resolved.name.clone().or_else(|| Some(parsed.name.clone()));
 
-    let adapter = resolved.adapter.as_ref().map(|a| ManagedAdapterSource {
+    let adapter = resolved.adapter.as_ref().map(|a| NewAdapterEventSource {
         adapter_kind: a.adapter_kind.clone(),
         connection_id: a.connection_id.clone(),
         source_matcher: a.source_matcher.clone(),
+        source_name: None,
         event_filter: a.event_filter.clone(),
         adapter_config: a.adapter_config.clone(),
+        allow_direct_send: false,
+        close_task_on_close: true,
+        notify_on_success: false,
     });
     let schedule = resolved.schedule.as_ref().map(|s| NewScheduleSource {
         cron_expression: s.cron_expression.clone(),

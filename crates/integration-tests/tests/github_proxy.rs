@@ -229,7 +229,7 @@ async fn pr_create_and_comment_bind_task_via_mock_github() {
             active: Some(true),
             scope: None,
             team_id: None,
-            rule: CreateLoopConfig {
+            config: CreateLoopConfig {
                 repository_id: repo_id.clone(),
                 routing_mode: RoutingMode::BySubject,
                 ongoing_task_id: None,

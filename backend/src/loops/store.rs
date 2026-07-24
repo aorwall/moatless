@@ -342,16 +342,8 @@ pub struct ManagedLoopUpsert {
     pub run_as_user_id: Option<String>,
     pub agent_type: String,
     pub inactive_ttl_days: Option<i32>,
-    pub adapter: Option<ManagedAdapterSource>,
+    pub adapter: Option<NewAdapterEventSource>,
     pub schedule: Option<NewScheduleSource>,
-}
-
-pub struct ManagedAdapterSource {
-    pub adapter_kind: String,
-    pub connection_id: String,
-    pub source_matcher: String,
-    pub event_filter: serde_json::Value,
-    pub adapter_config: Option<serde_json::Value>,
 }
 
 // =============================================================================
@@ -861,33 +853,13 @@ impl LoopStore {
             (id, true)
         };
 
-        // Upsert the rule row (handles both insert + update paths).
-        sqlx::query(
-            "INSERT INTO trigger_rules \
-             (trigger_id, repository_id, routing_mode, ongoing_task_id, prompt, task_name, \
-              tag_ids, run_as_user_id, agent_type, inactive_ttl_days) \
-             VALUES ($1, $2, $3, NULL, $4, NULL, $5, $6, $7, $8) \
-             ON CONFLICT (trigger_id) DO UPDATE SET \
-               repository_id = EXCLUDED.repository_id, \
-               routing_mode = EXCLUDED.routing_mode, \
-               prompt = EXCLUDED.prompt, \
-               tag_ids = EXCLUDED.tag_ids, \
-               run_as_user_id = EXCLUDED.run_as_user_id, \
-               agent_type = EXCLUDED.agent_type, \
-               inactive_ttl_days = EXCLUDED.inactive_ttl_days",
-        )
-        .bind(&trigger_id)
-        .bind(&input.source_repository_id)
-        .bind(input.routing_mode)
-        .bind(&input.prompt)
-        .bind(&input.tag_ids)
-        .bind(&input.run_as_user_id)
-        .bind(&input.agent_type)
-        .bind(input.inactive_ttl_days)
-        .execute(&mut *tx)
-        .await?;
-
-        // Replace source rows so a kind switch (github_pr <-> schedule) is clean.
+        // Replace the rule + source rows so both the update path and a kind
+        // switch (github_pr <-> schedule) reduce to a clean delete-then-insert
+        // through the shared helpers.
+        sqlx::query("DELETE FROM trigger_rules WHERE trigger_id = $1")
+            .bind(&trigger_id)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query("DELETE FROM adapter_event_trigger_sources WHERE trigger_id = $1")
             .bind(&trigger_id)
             .execute(&mut *tx)
@@ -897,35 +869,28 @@ impl LoopStore {
             .execute(&mut *tx)
             .await?;
 
+        insert_config(
+            &mut tx,
+            &trigger_id,
+            &NewLoopConfig {
+                repository_id: input.source_repository_id.clone(),
+                routing_mode: input.routing_mode,
+                ongoing_task_id: None,
+                prompt: input.prompt.clone(),
+                task_name: None,
+                tag_ids: input.tag_ids.clone(),
+                run_as_user_id: input.run_as_user_id.clone(),
+                agent_type: input.agent_type.clone(),
+                inactive_ttl_days: input.inactive_ttl_days,
+            },
+        )
+        .await?;
+
         if let Some(adapter) = &input.adapter {
-            sqlx::query(
-                "INSERT INTO adapter_event_trigger_sources \
-                 (trigger_id, adapter_kind, connection_id, source_matcher, source_name, \
-                  event_filter, adapter_config, allow_direct_send, close_task_on_close, notify_on_success) \
-                 VALUES ($1, $2, $3, $4, NULL, $5, $6, false, true, false)",
-            )
-            .bind(&trigger_id)
-            .bind(&adapter.adapter_kind)
-            .bind(&adapter.connection_id)
-            .bind(&adapter.source_matcher)
-            .bind(&adapter.event_filter)
-            .bind(&adapter.adapter_config)
-            .execute(&mut *tx)
-            .await?;
+            insert_adapter_event_source(&mut tx, &trigger_id, adapter).await?;
         }
         if let Some(schedule) = &input.schedule {
-            sqlx::query(
-                "INSERT INTO schedule_trigger_sources \
-                 (trigger_id, cron_expression, timezone, message_template, next_fire_at) \
-                 VALUES ($1, $2, $3, $4, $5)",
-            )
-            .bind(&trigger_id)
-            .bind(&schedule.cron_expression)
-            .bind(&schedule.timezone)
-            .bind(&schedule.message_template)
-            .bind(schedule.next_fire_at)
-            .execute(&mut *tx)
-            .await?;
+            insert_schedule_source(&mut tx, &trigger_id, schedule).await?;
         }
 
         tx.commit().await?;
@@ -946,8 +911,8 @@ impl LoopStore {
     ) -> Result<Vec<Schedule>, sqlx::Error> {
         let due_jobs = sqlx::query_as::<_, Schedule>(
             r#"SELECT t.id,
-                      t.id AS route_id,
-                      sts.cron_expression AS schedule_expr,
+                      t.id AS loop_id,
+                      sts.cron_expression,
                       sts.timezone,
                       sts.message_template,
                       r.run_as_user_id,
@@ -995,8 +960,8 @@ impl LoopStore {
                        RETURNING *
                    )
                    SELECT t.id,
-                          t.id AS route_id,
-                          s.cron_expression AS schedule_expr,
+                          t.id AS loop_id,
+                          s.cron_expression,
                           s.timezone,
                           s.message_template,
                           r.run_as_user_id,

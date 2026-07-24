@@ -137,11 +137,14 @@ a Loop
 The config that persists a Loop *is* the Loop — its fields are Loop fields, so
 there is no separate "Routing" term beyond `Routing mode`. As of ticket 03 this
 is reflected in code: the whole domain lives in one `loops/` module, the config
-is `LoopConfig` (API) / `LoopSpawnConfig` (runtime), and there are no
-`Trigger`/`TaskRoute`/"rule" nouns left in `backend/src` or `crates/api-schemas`.
+is `LoopConfig` (API) / `LoopSpawnConfig` (runtime), and the public
+`Trigger`/`TaskRoute` types and the API `rule` field are gone (the wire keeps the
+`rule` JSON key via `#[serde(rename)]` for alias compatibility).
 Rename debt still open: the config targets a `repository_id` but a Loop should
-target a Workspace, and the DB tables keep their legacy names (`triggers`,
-`trigger_rules`, `*_trigger_sources`) behind the store.
+target a Workspace; the DB tables keep their legacy names (`triggers`,
+`trigger_rules`, `*_trigger_sources`) behind the store, so the `LoopRecord`
+row structs and the adapter firing-path's matched-`SubscriptionMatch` binding
+still read as `trigger`/`rule` locally — reworked in tickets 04/05.
 
 **Schedule**:
 A Loop's time-based firing condition (cron expression + timezone).

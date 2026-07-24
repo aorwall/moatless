@@ -31,8 +31,8 @@ async fn task_route_trigger_crud_chain() {
     assert!(!fixture.connection.id.is_empty());
     assert_eq!(fixture.connection.external_account_id, source);
     assert!(!fixture.trigger.id.is_empty());
-    assert_eq!(fixture.trigger.rule.repository_id, repo_id);
-    assert_eq!(fixture.trigger.rule.routing_mode, RoutingMode::BySubject);
+    assert_eq!(fixture.trigger.config.repository_id, repo_id);
+    assert_eq!(fixture.trigger.config.routing_mode, RoutingMode::BySubject);
     assert!(fixture.trigger.active);
     let LoopSource::AdapterEvent(source_config) = &fixture.trigger.source else {
         panic!("expected adapter-event trigger source");
@@ -53,7 +53,7 @@ async fn task_route_trigger_crud_chain() {
         .update_trigger(
             &fixture.trigger.id,
             &UpdateLoopRequest {
-                rule: Some(UpdateLoopConfig {
+                config: Some(UpdateLoopConfig {
                     prompt: Some(Some("Please help: {message}".into())),
                     task_name: Some(Some("Updated webhook task".into())),
                     ..Default::default()
@@ -64,11 +64,11 @@ async fn task_route_trigger_crud_chain() {
         .await
         .unwrap();
     assert_eq!(
-        updated_trigger.rule.prompt.as_deref(),
+        updated_trigger.config.prompt.as_deref(),
         Some("Please help: {message}")
     );
     assert_eq!(
-        updated_trigger.rule.task_name.as_deref(),
+        updated_trigger.config.task_name.as_deref(),
         Some("Updated webhook task")
     );
 
@@ -110,7 +110,7 @@ async fn schedule_trigger_crud_and_next_fire_chain() {
             active: Some(true),
             scope: None,
             team_id: None,
-            rule: CreateLoopConfig {
+            config: CreateLoopConfig {
                 repository_id: repo_id.clone(),
                 routing_mode: RoutingMode::BySubject,
                 ongoing_task_id: None,
@@ -131,14 +131,14 @@ async fn schedule_trigger_crud_and_next_fire_chain() {
         .unwrap();
 
     assert_eq!(created.kind, LoopKind::Schedule);
-    assert_eq!(created.rule.repository_id, repo_id);
-    assert_eq!(created.rule.routing_mode, RoutingMode::BySubject);
+    assert_eq!(created.config.repository_id, repo_id);
+    assert_eq!(created.config.routing_mode, RoutingMode::BySubject);
     assert_eq!(
-        created.rule.task_name.as_deref(),
+        created.config.task_name.as_deref(),
         Some("Scheduled smoke task")
     );
     assert_eq!(
-        created.rule.prompt.as_deref(),
+        created.config.prompt.as_deref(),
         Some("Scheduled prompt: {message}")
     );
 

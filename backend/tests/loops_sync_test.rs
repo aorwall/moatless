@@ -16,7 +16,7 @@ mod common;
 use sqlx::{PgPool, Row};
 
 use moatless_vibe_backend::extractors::AuthUser;
-use moatless_vibe_backend::loops::parser::parse_loop;
+use moatless_vibe_backend::loops::sync::parse_loop;
 use moatless_vibe_backend::loops::sync::sync_loops;
 use moatless_vibe_backend::repository::dao as repository_dao;
 

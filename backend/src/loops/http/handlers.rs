@@ -90,7 +90,7 @@ fn map_recent_task_item(row: &LoopRecentTaskRow) -> LoopRecentTaskItem {
     get,
     path = "/api/v1/loops",
     tag = "loops",
-    responses((status = 200, description = "Triggers", body = Vec<Loop>))
+    responses((status = 200, description = "Loops", body = Vec<Loop>))
 )]
 pub async fn list_loops(
     State(state): State<AppState>,
@@ -120,7 +120,7 @@ pub async fn list_loops(
     path = "/api/v1/loops",
     tag = "loops",
     request_body = CreateLoopRequest,
-    responses((status = 200, description = "Trigger created", body = Loop))
+    responses((status = 200, description = "Loop created", body = Loop))
 )]
 pub async fn create_loop(
     State(state): State<AppState>,
@@ -128,8 +128,8 @@ pub async fn create_loop(
     Json(req): Json<CreateLoopRequest>,
 ) -> Result<Json<Loop>, AdapterError> {
     let ctx = auth.scope_context();
-    ensure_repository_exists(&state, &ctx, &req.rule.repository_id).await?;
-    ensure_can_run_as(&state, &ctx, req.rule.run_as_user_id.as_deref()).await?;
+    ensure_repository_exists(&state, &ctx, &req.config.repository_id).await?;
+    ensure_can_run_as(&state, &ctx, req.config.run_as_user_id.as_deref()).await?;
 
     let adapter_source = match (&req.kind, &req.source) {
         (
@@ -147,12 +147,12 @@ pub async fn create_loop(
     };
     if matches!(req.kind, LoopKind::AdapterEvent) && adapter_source.is_none() {
         return Err(AdapterError::BadRequest(
-            "adapter_event triggers require an adapter-event source".into(),
+            "adapter_event loops require an adapter-event source".into(),
         ));
     }
     if matches!(req.kind, LoopKind::Schedule) && schedule_source.is_none() {
         return Err(AdapterError::BadRequest(
-            "schedule triggers require a schedule source".into(),
+            "schedule loops require a schedule source".into(),
         ));
     }
 
@@ -220,19 +220,19 @@ pub async fn create_loop(
             created_by: auth.user_id.to_string(),
             created_at: now,
             rule: NewLoopConfig {
-                repository_id: req.rule.repository_id.clone(),
-                routing_mode: req.rule.routing_mode,
-                ongoing_task_id: req.rule.ongoing_task_id.clone(),
-                prompt: req.rule.prompt.clone(),
-                task_name: req.rule.task_name.clone(),
-                tag_ids: req.rule.tag_ids.clone().unwrap_or_default(),
-                run_as_user_id: req.rule.run_as_user_id.clone(),
+                repository_id: req.config.repository_id.clone(),
+                routing_mode: req.config.routing_mode,
+                ongoing_task_id: req.config.ongoing_task_id.clone(),
+                prompt: req.config.prompt.clone(),
+                task_name: req.config.task_name.clone(),
+                tag_ids: req.config.tag_ids.clone().unwrap_or_default(),
+                run_as_user_id: req.config.run_as_user_id.clone(),
                 agent_type: req
-                    .rule
+                    .config
                     .agent_type
                     .clone()
                     .unwrap_or_else(|| "claude-code".to_string()),
-                inactive_ttl_days: req.rule.inactive_ttl_days,
+                inactive_ttl_days: req.config.inactive_ttl_days,
             },
             source,
         })
@@ -242,7 +242,7 @@ pub async fn create_loop(
         .loops
         .get(&id)
         .await?
-        .ok_or_else(|| AdapterError::NotFound(format!("Trigger {id} not found")))?;
+        .ok_or_else(|| AdapterError::NotFound(format!("Loop {id} not found")))?;
     Ok(Json(loop_response(&record)))
 }
 
@@ -251,7 +251,7 @@ pub async fn create_loop(
     path = "/api/v1/loops/{id}",
     tag = "loops",
     request_body = UpdateLoopRequest,
-    responses((status = 200, description = "Trigger updated", body = Loop))
+    responses((status = 200, description = "Loop updated", body = Loop))
 )]
 pub async fn update_loop(
     State(state): State<AppState>,
@@ -269,7 +269,7 @@ pub async fn update_loop(
     );
     ensure_can_write_adapter_resource(&state, &auth, &current_resource, "trigger").await?;
 
-    if let Some(rule) = &req.rule {
+    if let Some(rule) = &req.config {
         if let Some(repository_id) = rule.repository_id.as_deref() {
             ensure_repository_exists(&state, &ctx, repository_id).await?;
         }
@@ -292,7 +292,7 @@ pub async fn update_loop(
     if let Some(UpdateLoopSource::AdapterEvent(source)) = &req.source {
         let LoopSourceRow::AdapterEvent(current_source) = &current.source else {
             return Err(AdapterError::BadRequest(
-                "adapter-event source updates are only valid for adapter_event triggers".into(),
+                "adapter-event source updates are only valid for adapter_event loops".into(),
             ));
         };
         let next_connection_id = source
@@ -311,7 +311,7 @@ pub async fn update_loop(
     let next_fire = if let Some(UpdateLoopSource::Schedule(source)) = &req.source {
         let LoopSourceRow::Schedule(current_source) = &current.source else {
             return Err(AdapterError::BadRequest(
-                "schedule source updates are only valid for schedule triggers".into(),
+                "schedule source updates are only valid for schedule loops".into(),
             ));
         };
         let expr = source
@@ -323,7 +323,7 @@ pub async fn update_loop(
         None
     };
 
-    let rule_update = req.rule.map(|rule| NewLoopConfig {
+    let rule_update = req.config.map(|rule| NewLoopConfig {
         repository_id: rule
             .repository_id
             .unwrap_or_else(|| current.rule.repository_id.clone()),
@@ -351,7 +351,7 @@ pub async fn update_loop(
         Some(UpdateLoopSource::AdapterEvent(source)) => {
             let LoopSourceRow::AdapterEvent(current_source) = &current.source else {
                 return Err(AdapterError::BadRequest(
-                    "adapter-event source updates are only valid for adapter_event triggers".into(),
+                    "adapter-event source updates are only valid for adapter_event loops".into(),
                 ));
             };
             Some(StoreUpdateSource::AdapterEvent(AdapterSourceUpdate {
@@ -384,7 +384,7 @@ pub async fn update_loop(
         Some(UpdateLoopSource::Schedule(source)) => {
             let LoopSourceRow::Schedule(current_source) = &current.source else {
                 return Err(AdapterError::BadRequest(
-                    "schedule source updates are only valid for schedule triggers".into(),
+                    "schedule source updates are only valid for schedule loops".into(),
                 ));
             };
             let next_fire = next_fire
@@ -425,7 +425,7 @@ pub async fn update_loop(
         .loops
         .get(&id)
         .await?
-        .ok_or_else(|| AdapterError::NotFound(format!("Trigger {id} not found")))?;
+        .ok_or_else(|| AdapterError::NotFound(format!("Loop {id} not found")))?;
     Ok(Json(loop_response(&record)))
 }
 
@@ -433,9 +433,9 @@ pub async fn update_loop(
     get,
     path = "/api/v1/loops/{id}",
     tag = "loops",
-    params(("id" = String, Path, description = "Trigger id")),
+    params(("id" = String, Path, description = "Loop id")),
     responses(
-        (status = 200, description = "Trigger", body = Loop),
+        (status = 200, description = "Loop", body = Loop),
         (status = 404, description = "Not found", body = crate::error::ErrorBody),
     )
 )]
@@ -453,7 +453,7 @@ pub async fn get_loop(
     path = "/api/v1/loops/{id}/tasks",
     tag = "loops",
     params(
-        ("id" = String, Path, description = "Trigger id"),
+        ("id" = String, Path, description = "Loop id"),
         ("limit" = Option<u32>, Query, description = "Max items, default 10, cap 50"),
     ),
     responses((status = 200, body = Vec<LoopRecentTaskItem>))
@@ -476,10 +476,10 @@ pub async fn list_loop_recent_tasks(
     delete,
     path = "/api/v1/loops/{id}",
     tag = "loops",
-    params(("id" = String, Path, description = "Trigger id")),
+    params(("id" = String, Path, description = "Loop id")),
     responses(
-        (status = 204, description = "Trigger deleted"),
-        (status = 404, description = "Trigger not found", body = crate::error::ErrorBody)
+        (status = 204, description = "Loop deleted"),
+        (status = 404, description = "Loop not found", body = crate::error::ErrorBody)
     )
 )]
 pub async fn delete_loop(

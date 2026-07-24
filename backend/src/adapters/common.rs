@@ -98,7 +98,7 @@ pub(crate) fn loop_response(record: &LoopRecord) -> Loop {
         created_by: record.trigger.created_by.clone(),
         created_at: record.trigger.created_at.to_rfc3339(),
         updated_at: record.trigger.updated_at.to_rfc3339(),
-        rule: LoopConfig {
+        config: LoopConfig {
             repository_id: record.rule.repository_id.clone(),
             routing_mode: record.rule.routing_mode,
             ongoing_task_id: record.rule.ongoing_task_id.clone(),

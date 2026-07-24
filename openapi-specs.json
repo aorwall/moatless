@@ -2802,7 +2802,7 @@
         "operationId": "list_loops",
         "responses": {
           "200": {
-            "description": "Triggers",
+            "description": "Loops",
             "content": {
               "application/json": {
                 "schema": {
@@ -2833,7 +2833,7 @@
         },
         "responses": {
           "200": {
-            "description": "Trigger created",
+            "description": "Loop created",
             "content": {
               "application/json": {
                 "schema": {
@@ -2855,7 +2855,7 @@
           {
             "name": "id",
             "in": "path",
-            "description": "Trigger id",
+            "description": "Loop id",
             "required": true,
             "schema": {
               "type": "string"
@@ -2864,7 +2864,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Trigger",
+            "description": "Loop",
             "content": {
               "application/json": {
                 "schema": {
@@ -2912,7 +2912,7 @@
         },
         "responses": {
           "200": {
-            "description": "Trigger updated",
+            "description": "Loop updated",
             "content": {
               "application/json": {
                 "schema": {
@@ -2932,7 +2932,7 @@
           {
             "name": "id",
             "in": "path",
-            "description": "Trigger id",
+            "description": "Loop id",
             "required": true,
             "schema": {
               "type": "string"
@@ -2941,10 +2941,10 @@
         ],
         "responses": {
           "204": {
-            "description": "Trigger deleted"
+            "description": "Loop deleted"
           },
           "404": {
-            "description": "Trigger not found",
+            "description": "Loop not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -2966,7 +2966,7 @@
           {
             "name": "id",
             "in": "path",
-            "description": "Trigger id",
+            "description": "Loop id",
             "required": true,
             "schema": {
               "type": "string"

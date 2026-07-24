@@ -240,8 +240,8 @@ pub struct TaskBinding {
 #[derive(sqlx::FromRow, Debug, Clone)]
 pub struct Schedule {
     pub id: String,
-    pub route_id: String,
-    pub schedule_expr: String,
+    pub loop_id: String,
+    pub cron_expression: String,
     pub timezone: String,
     pub message_template: String,
     pub run_as_user_id: Option<String>,

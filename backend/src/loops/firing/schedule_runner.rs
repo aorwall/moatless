@@ -78,7 +78,7 @@ async fn tick(
         // Release the lock and reschedule this job. Contain failures per-job so a
         // single bad cron expression or DB hiccup doesn't strand the rest of the
         // already-locked batch until their 2-minute lock expiry.
-        let next = match next_fire_at(&locked.schedule_expr) {
+        let next = match next_fire_at(&locked.cron_expression) {
             Ok(next) => next,
             Err(e) => {
                 record_job("error", "next_fire_failed", &locked.id);
@@ -99,7 +99,7 @@ async fn execute_job(
     state: &AppState,
     job: &Schedule,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let route = state.loops.find_loop_spawn_config(&job.route_id).await?;
+    let route = state.loops.find_loop_spawn_config(&job.loop_id).await?;
 
     let config = route_to_config(&route, job);
     let msg = InboundMessage {
@@ -216,7 +216,7 @@ fn route_to_config(route: &LoopSpawnConfig, job: &Schedule) -> LoopContext {
         allow_direct_send: false,
         provider_config: Some(serde_json::json!({
             "message": job.message_template,
-            "schedule": job.schedule_expr,
+            "schedule": job.cron_expression,
             "timezone": job.timezone,
         })),
         ongoing_task_id: route.ongoing_task_id.clone(),

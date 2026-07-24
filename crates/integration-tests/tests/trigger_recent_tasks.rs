@@ -72,7 +72,7 @@ async fn schedule_trigger_recent_tasks_returns_binding_none() {
             active: Some(true),
             scope: None,
             team_id: None,
-            rule: CreateLoopConfig {
+            config: CreateLoopConfig {
                 repository_id: repo_id.clone(),
                 routing_mode: RoutingMode::BySubject,
                 ongoing_task_id: None,

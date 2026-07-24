@@ -450,7 +450,7 @@ pub async fn run_triggers(
                 active: None,
                 scope: None,
                 team_id,
-                rule: create_rule(rule)?,
+                config: create_rule(rule)?,
                 source: CreateLoopSource::AdapterEvent(CreateSubscription {
                     adapter_kind: parse_adapter_kind(&adapter)?,
                     connection_id,
@@ -480,7 +480,7 @@ pub async fn run_triggers(
                 active: None,
                 scope: None,
                 team_id,
-                rule: create_rule(rule)?,
+                config: create_rule(rule)?,
                 source: CreateLoopSource::Schedule(CreateSchedule {
                     cron_expression,
                     timezone,
@@ -581,7 +581,7 @@ pub async fn run_triggers(
                 active,
                 scope,
                 team_id: fold_clearable(team_id, clear_team_id, "team-id")?,
-                rule,
+                config: rule,
                 source,
             };
             let updated = client.api().update_trigger(&id, &req).await?;

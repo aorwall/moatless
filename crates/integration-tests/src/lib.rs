@@ -380,7 +380,7 @@ pub async fn create_webhook_integration(
             active: Some(true),
             scope: None,
             team_id: None,
-            rule: CreateLoopConfig {
+            config: CreateLoopConfig {
                 repository_id: repository_id.into(),
                 routing_mode,
                 ongoing_task_id: None,

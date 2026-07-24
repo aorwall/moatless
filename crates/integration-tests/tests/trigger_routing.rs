@@ -64,7 +64,7 @@ async fn trigger_by_subject_routing_without_thread() {
     )
     .await;
     assert!(fixture.trigger.active);
-    assert_eq!(fixture.trigger.rule.routing_mode, RoutingMode::BySubject);
+    assert_eq!(fixture.trigger.config.routing_mode, RoutingMode::BySubject);
     let trigger_id = fixture.trigger.id;
 
     // INT-11: Send message via webhook — task created
@@ -130,7 +130,7 @@ async fn trigger_ongoing_routing() {
     )
     .await;
     assert!(fixture.trigger.active);
-    assert_eq!(fixture.trigger.rule.routing_mode, RoutingMode::Ongoing);
+    assert_eq!(fixture.trigger.config.routing_mode, RoutingMode::Ongoing);
     let trigger_id = fixture.trigger.id;
 
     // INT-21: First message creates ongoing task
@@ -145,7 +145,7 @@ async fn trigger_ongoing_routing() {
     // Check that the embedded rule now has ongoing_task_id
     let trigger = client.api().get_trigger(&trigger_id).await.unwrap();
     assert_eq!(
-        trigger.rule.ongoing_task_id.as_deref(),
+        trigger.config.ongoing_task_id.as_deref(),
         Some(ongoing_task_id.as_str())
     );
 
@@ -168,7 +168,7 @@ async fn trigger_ongoing_routing() {
     // Rule should now point to the new task
     let trigger = client.api().get_trigger(&trigger_id).await.unwrap();
     assert_eq!(
-        trigger.rule.ongoing_task_id.as_deref(),
+        trigger.config.ongoing_task_id.as_deref(),
         Some(new_task_id.as_str())
     );
 
@@ -197,7 +197,7 @@ async fn trigger_by_subject_routing_with_thread() {
     )
     .await;
     assert!(fixture.trigger.active);
-    assert_eq!(fixture.trigger.rule.routing_mode, RoutingMode::BySubject);
+    assert_eq!(fixture.trigger.config.routing_mode, RoutingMode::BySubject);
     let trigger_id = fixture.trigger.id;
 
     // INT-31: New message creates task

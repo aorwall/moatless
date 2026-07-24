@@ -18,9 +18,9 @@ mod common;
 
 use chrono::Utc;
 use moatless_vibe_backend::adapters::dao::PgAdapterConnectionRepository;
-use moatless_vibe_backend::adapters::models::{AdapterConnection, RoutingMode, TaskTriggerRoute};
+use moatless_vibe_backend::adapters::models::{AdapterConnection, RoutingMode, SubscriptionMatch};
 use moatless_vibe_backend::bindings::dao::PgTaskBindingRepository;
-use moatless_vibe_backend::triggers::rule_dao::PgTaskTriggerRouteRepository;
+use moatless_vibe_backend::loops::store::LoopStore;
 use moatless_vibe_backend::event_handler::agent_handlers::handle_agent_message;
 use moatless_vibe_backend::event_handler::models::AgentEvent;
 use moatless_vibe_backend::repository::dao as repository_dao;
@@ -52,7 +52,7 @@ async fn seed_github_trigger(pool: &PgPool, owner: &str, repo: &str, repository_
         .await
         .unwrap();
 
-    let trigger_route = TaskTriggerRoute {
+    let subscription = SubscriptionMatch {
         id: format!("tt_{owner}_{repo}"),
         provider: "github".to_string(),
         connection_id: connection.id.clone(),
@@ -80,8 +80,8 @@ async fn seed_github_trigger(pool: &PgPool, owner: &str, repo: &str, repository_
         created_at: now,
         updated_at: now,
     };
-    PgTaskTriggerRouteRepository(pool.clone())
-        .upsert(&trigger_route)
+    LoopStore::new(pool.clone())
+        .upsert_subscription(&subscription)
         .await
         .unwrap();
 }
@@ -178,8 +178,9 @@ async fn gh_pr_create_auto_connects_task_binding(pool: PgPool) {
         .await
         .unwrap()
         .expect("seeded github org connection");
-    let trigger = PgTaskTriggerRouteRepository(pool.clone())
-        .find_by_source_matcher("github", "foo/bar")
+    let trigger = state
+        .loops
+        .find_subscription_by_source_matcher("github", "foo/bar")
         .await
         .unwrap()
         .expect("seeded github trigger");
