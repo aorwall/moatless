@@ -506,3 +506,183 @@ fn context_recovery_prompt_wraps_the_original_prompt() {
     assert!(out.contains("fix the bug"), "got {out}");
     assert!(out.contains("context-recovery"), "got {out}");
 }
+
+// ── CoordinatorService integration tests ────────────────────────────────────
+
+use std::collections::HashMap;
+
+use tokio::sync::{mpsc, RwLock};
+
+use crate::agent::agent_state::AgentState;
+use crate::agent::handle::AgentCommand;
+use crate::agent::heartbeat::Heartbeat;
+use crate::config::{test_support::minimal_config, Config};
+
+use super::CoordinatorService;
+
+/// Build a `CoordinatorService` over a scripted harness with the recording
+/// publisher, returning the command sender and the event recording buffer.
+fn service_with_script(
+    script: Script,
+    config: Arc<Config>,
+    agent_state: Arc<AgentState>,
+    cancel: CancellationToken,
+) -> (
+    mpsc::UnboundedSender<AgentCommand>,
+    Arc<Mutex<Vec<PublishEventRequest>>>,
+    GrpcEventPublisher,
+) {
+    let (events, received, _outbox_cancel) = recording_publisher_with_cancel(cancel);
+    let coordinator = Coordinator::new(Harness::scripted(script), events.clone(), "task-1");
+    let service = CoordinatorService::new(
+        coordinator,
+        Arc::clone(&agent_state),
+        Arc::clone(&config),
+        Arc::new(RwLock::new(HashMap::new())),
+        Arc::new(RecordingBackend {
+            received: Arc::new(Mutex::new(Vec::new())),
+        }),
+        Arc::new(RwLock::new(None)),
+    );
+    let (tx, rx) = mpsc::unbounded_channel::<AgentCommand>();
+    let heartbeat = Heartbeat::new();
+    tokio::spawn(service.run(rx, heartbeat));
+    (tx, received, events)
+}
+
+/// Like `recording_publisher` but accepts an external cancel token so the
+/// outbox drainer lives for the caller's test scope.
+fn recording_publisher_with_cancel(
+    cancel: CancellationToken,
+) -> (
+    GrpcEventPublisher,
+    Arc<Mutex<Vec<PublishEventRequest>>>,
+    CancellationToken,
+) {
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let backend = Arc::new(RecordingBackend {
+        received: Arc::clone(&received),
+    });
+    let outbox = EventOutbox::spawn(backend, "task-1".to_string(), cancel.clone());
+    (GrpcEventPublisher::new(outbox), received, cancel)
+}
+
+/// Drive a Submit through a successful scripted execution and assert that
+/// `agent_state.status()` ends `Idle` and a `completed` event was published.
+#[tokio::test]
+async fn coordinator_service_submit_completed_sets_idle_and_publishes_completed() {
+    use crate::agent::types::AgentStatus;
+
+    let cancel = CancellationToken::new();
+    let config = {
+        let mut c = minimal_config();
+        c.agent_type = Some("claude-code".to_string());
+        Arc::new(c)
+    };
+    let agent_state = Arc::new(AgentState::new());
+
+    let script = Script::new(vec![
+        Step::SessionReady(SessionId("sess-1".to_string())),
+        Step::AcceptInput,
+        Step::Block(block("msg-1", text_block("response"), Role::Assistant)),
+        Step::Completed,
+    ]);
+    let (tx, received, events) = service_with_script(
+        script,
+        Arc::clone(&config),
+        Arc::clone(&agent_state),
+        cancel.clone(),
+    );
+
+    // Send a Submit command with a throwaway ack.
+    let (ack_tx, _ack_rx) = oneshot::channel();
+    tx.send(AgentCommand::Send {
+        text: "do the thing".to_string(),
+        model: None,
+        agent_type: None,
+        agent_mode: None,
+        resume_session_id: None,
+        start_fresh: false,
+        ack: ack_tx,
+    })
+    .expect("channel open");
+
+    // Wait for `completed` event to arrive in the recording buffer.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        flush(&events).await;
+        let types = sub_types(&received);
+        if types.contains(&"completed".to_string()) {
+            break;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            panic!("completed event not published within 5 s; got {types:?}");
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+
+    // Agent state must be Idle after a successful completion.
+    assert_eq!(agent_state.status().await, AgentStatus::Idle);
+
+    cancel.cancel();
+}
+
+/// Drive a Failed execution and assert `agent_state.last_error()` is set.
+#[tokio::test]
+async fn coordinator_service_failed_execution_sets_error_on_agent_state() {
+    let cancel = CancellationToken::new();
+    let config = {
+        let mut c = minimal_config();
+        c.agent_type = Some("claude-code".to_string());
+        Arc::new(c)
+    };
+    let agent_state = Arc::new(AgentState::new());
+
+    let script = Script::new(vec![
+        Step::SessionReady(SessionId("sess-err".to_string())),
+        Step::AcceptInput,
+        Step::Failed(failure()),
+    ]);
+    let (tx, received, events) = service_with_script(
+        script,
+        Arc::clone(&config),
+        Arc::clone(&agent_state),
+        cancel.clone(),
+    );
+
+    let (ack_tx, _ack_rx) = oneshot::channel();
+    tx.send(AgentCommand::Send {
+        text: "do the thing".to_string(),
+        model: None,
+        agent_type: None,
+        agent_mode: None,
+        resume_session_id: None,
+        start_fresh: false,
+        ack: ack_tx,
+    })
+    .expect("channel open");
+
+    // Wait for `error` event.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        flush(&events).await;
+        let types = sub_types(&received);
+        if types.contains(&"error".to_string()) {
+            break;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            panic!("error event not published within 5 s; got {types:?}");
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+
+    // last_error must be set after a Failed outcome.
+    let err = agent_state.last_error().await;
+    assert!(err.is_some(), "expected last_error to be set");
+    assert!(
+        err.unwrap().contains("boom"),
+        "diagnostic should mention 'boom'"
+    );
+
+    cancel.cancel();
+}

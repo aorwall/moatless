@@ -21,12 +21,13 @@ mod codex;
 mod codex_payloads;
 mod credential_recovery;
 mod retry;
-mod session;
+pub(crate) mod session;
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use claude_agent_sdk::QueryHandle as ClaudeQueryHandle;
+use moatless_events::AgentSubType;
 use tokio::sync::{mpsc, oneshot, RwLock};
 
 use crate::backend_client::BackendClient;
@@ -42,7 +43,7 @@ use super::harness::{
 };
 use super::scheduled_job::ScheduledJobRegistry;
 
-const AGENT_TYPE_CLAUDE_CODE: &str = "claude-code";
+pub(crate) const AGENT_TYPE_CLAUDE_CODE: &str = "claude-code";
 /// Claude Code over the tmux (interactive TUI) transport. Same executor family
 /// as claude-code; the tmux transport is selected backend-side via the
 /// `SANDBOX_USE_TMUX` env var.
@@ -180,7 +181,7 @@ pub struct RunAck {
 }
 
 /// Commands sent to the agent actor.
-enum AgentCommand {
+pub(crate) enum AgentCommand {
     /// Send a message. The ack sender is resolved with the session and run IDs
     /// once the agent confirms it processed the message.
     Send {
@@ -210,7 +211,7 @@ enum AgentCommand {
 }
 
 /// Queued turn waiting for a runtime to become idle.
-struct QueuedSend {
+pub(crate) struct QueuedSend {
     text: String,
     model: Option<String>,
     agent_type: Option<String>,
@@ -299,6 +300,11 @@ impl AgentHandle {
 }
 
 /// Spawn the agent actor loop and return a handle.
+///
+/// When `config.agent_type` is `Some(...)`, routes through the new
+/// [`CoordinatorService`] backed by the appropriate [`Harness`]. When
+/// `config.agent_type` is `None` (legacy pod), spawns the legacy
+/// `actor::agent_loop` unchanged — the one migration-compat path.
 #[allow(clippy::too_many_arguments)] // reason: actor wiring; refactor pending
 pub fn spawn_agent(
     config: Arc<Config>,
@@ -312,6 +318,56 @@ pub fn spawn_agent(
     system_prompt_cache: Arc<RwLock<Option<String>>>,
     heartbeat: super::heartbeat::Heartbeat,
 ) -> AgentHandle {
+    if let Some(ref agent_type) = config.agent_type.clone() {
+        // New harness path: build the harness fixed for this Sandbox's agent
+        // type and drive it with a CoordinatorService.
+        let (command_tx, command_rx) = mpsc::unbounded_channel::<AgentCommand>();
+
+        match build_harness(&config, &agent_state, &credential_failures, agent_type) {
+            Ok(harness) => {
+                let coordinator = super::coordinator::Coordinator::new(
+                    harness,
+                    events.clone(),
+                    config.task_id.clone(),
+                );
+                let service = super::coordinator::CoordinatorService::new(
+                    coordinator,
+                    Arc::clone(&agent_state),
+                    Arc::clone(&config),
+                    Arc::clone(&credentials),
+                    Arc::clone(&backend_client),
+                    Arc::clone(&system_prompt_cache),
+                );
+                tokio::spawn(service.run(command_rx, heartbeat));
+            }
+            Err(harness_err) => {
+                // Invalid configuration: spawn a "poison" task that publishes
+                // one classified error event and then exits (dropping command_rx
+                // so `is_closed()` → true and `/livez` restarts the pod).
+                let task_id = config.task_id.clone();
+                let diagnostic = harness_err.diagnostic.clone();
+                tokio::spawn(async move {
+                    events
+                        .publish_agent_event(
+                            &task_id,
+                            AgentSubType::Error,
+                            serde_json::json!({
+                                "error": diagnostic,
+                                "reason": "invalid_configuration",
+                            }),
+                        )
+                        .await;
+                    // command_rx is dropped here, closing the channel.
+                    drop(command_rx);
+                });
+            }
+        }
+
+        return AgentHandle { command_tx };
+    }
+
+    // Legacy path (config.agent_type is None): spawn the existing actor loop
+    // exactly as before — the one migration-compat path.
     let (command_tx, command_rx) = mpsc::unbounded_channel();
 
     tokio::spawn(actor::agent_loop(
@@ -360,13 +416,131 @@ mod tests {
     use std::sync::Arc;
 
     use super::{
-        adopt_agent_type, build_harness, resolve_agent_harness, AGENT_TYPE_CLAUDE_CODE,
-        AGENT_TYPE_CODEX,
+        adopt_agent_type, build_harness, resolve_agent_harness, spawn_agent,
+        AGENT_TYPE_CLAUDE_CODE, AGENT_TYPE_CODEX,
     };
     use crate::agent::agent_state::AgentState;
     use crate::agent::harness::ErrorClass;
+    use crate::agent::heartbeat::Heartbeat;
+    use crate::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
+    use crate::backend_client::BackendClient;
     use crate::config::{test_support::minimal_config, Config};
     use crate::credentials::recovery::CredentialFailureDetector;
+    use crate::credentials::Dispatcher;
+    use crate::events::GrpcEventPublisher;
+    use crate::outbox::EventOutbox;
+    use async_trait::async_trait;
+    use sandbox_proto::{
+        DownloadUploadResponse, GetCredentialsResponse, InterruptedTurn, PendingMessage,
+        PublishEventRequest,
+    };
+    use std::time::Duration;
+    use tokio::sync::RwLock;
+    use tokio_util::sync::CancellationToken;
+    use tonic::Status;
+
+    /// Minimal recording backend for spawn_agent tests.
+    struct NopBackend;
+
+    #[async_trait]
+    impl BackendClient for NopBackend {
+        async fn publish_event(&self, _req: PublishEventRequest) -> Result<(), Status> {
+            Ok(())
+        }
+        async fn get_pending_messages(
+            &self,
+            _task_id: &str,
+        ) -> Result<Vec<PendingMessage>, Status> {
+            Ok(vec![])
+        }
+        async fn acknowledge_messages(
+            &self,
+            _task_id: &str,
+            _uuids: Vec<String>,
+            _session_id: &str,
+            _run_id: &str,
+        ) -> Result<(), Status> {
+            Ok(())
+        }
+        async fn get_credentials(&self, _task_id: &str) -> Result<GetCredentialsResponse, Status> {
+            Err(Status::unimplemented("nop"))
+        }
+        async fn update_credential(
+            &self,
+            _task_id: &str,
+            _key: &str,
+            _value: &str,
+        ) -> Result<(), Status> {
+            Err(Status::unimplemented("nop"))
+        }
+        async fn get_system_prompt(&self, _task_id: &str) -> Result<String, Status> {
+            Err(Status::unimplemented("nop"))
+        }
+        async fn download_upload(
+            &self,
+            _task_id: &str,
+            _file_id: &str,
+        ) -> Result<DownloadUploadResponse, Status> {
+            Err(Status::unimplemented("nop"))
+        }
+        async fn recover_interrupted_run(
+            &self,
+            _task_id: &str,
+        ) -> Result<Option<InterruptedTurn>, Status> {
+            Ok(None)
+        }
+        async fn upload_transcript(&self, _task_id: &str, _tar: Vec<u8>) -> Result<(), Status> {
+            Err(Status::unimplemented("nop"))
+        }
+        async fn download_transcript(&self, _task_id: &str) -> Result<Vec<u8>, Status> {
+            Ok(vec![])
+        }
+    }
+
+    fn make_publisher(cancel: CancellationToken) -> GrpcEventPublisher {
+        let backend = Arc::new(NopBackend);
+        let outbox = EventOutbox::spawn(backend, "test-task".to_string(), cancel);
+        GrpcEventPublisher::new(outbox)
+    }
+
+    /// `spawn_agent` with an unsupported `agent_type` must return an
+    /// `AgentHandle` whose channel closes promptly (the poison task drops
+    /// `command_rx` so `is_closed()` becomes true and `/livez` restarts the pod).
+    #[tokio::test]
+    async fn spawn_agent_with_invalid_agent_type_closes_channel_promptly() {
+        let cancel = CancellationToken::new();
+        let events = make_publisher(cancel.clone());
+
+        let mut config = minimal_config();
+        config.agent_type = Some("gpt-9000".to_string()); // not a supported harness
+
+        let handle = spawn_agent(
+            Arc::new(config),
+            Arc::new(AgentState::new()),
+            events,
+            Arc::new(RwLock::new(std::collections::HashMap::new())),
+            Arc::new(NopBackend),
+            Arc::new(ScheduledJobRegistry::new(Arc::new(LateInjector::new()))),
+            CredentialFailureDetector::default(),
+            Arc::new(Dispatcher::new()),
+            Arc::new(RwLock::new(None)),
+            Heartbeat::new(),
+        );
+
+        // Give the poison task a moment to run and drop command_rx.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            if handle.is_closed() {
+                break;
+            }
+            if tokio::time::Instant::now() >= deadline {
+                panic!("handle channel did not close within 2 s");
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        cancel.cancel();
+    }
 
     fn harness_inputs(use_tmux: bool) -> (Arc<Config>, Arc<AgentState>, CredentialFailureDetector) {
         let mut config = minimal_config();

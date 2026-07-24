@@ -33,16 +33,27 @@
 //! first, reversible step of that cutover.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use moatless_events::{AgentSubType, TaskTurnSubType};
 use serde_json::{json, Value};
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot, RwLock};
+use tokio_util::sync::CancellationToken;
+use tracing::{info, warn};
 
+use crate::agent::heartbeat::{Heartbeat, HEARTBEAT_TICK_INTERVAL};
 use crate::agent::types::ResumeSession;
+use crate::backend_client::BackendClient;
+use crate::config::Config;
 use crate::events::GrpcEventPublisher;
+use crate::init::credentials::filter_agent_credentials;
 
-use super::handle::RunAck;
+use super::agent_state::AgentState;
+use super::handle::{
+    resolve_agent_harness, session::fetch_system_prompt, AgentCommand, RunAck,
+    AGENT_TYPE_CLAUDE_CODE,
+};
 use super::harness::{
     Activity, ErrorClass, Harness, HarnessClosed, HarnessError, Input, InputId, Outcome, Rejection,
     Role, SessionImpact, Signal, SourceEvent,
@@ -142,8 +153,28 @@ impl Coordinator {
         }
     }
 
+    /// Receive the next normalized signal, or `None` once the harness has stopped.
+    pub(crate) async fn next_signal(&mut self) -> Option<Signal> {
+        self.harness.next_signal().await
+    }
+
+    /// The Run id currently in flight (minted on the most recent
+    /// [`Signal::ExecutionStarted`]).
+    pub(crate) fn current_run_id(&self) -> &str {
+        &self.run_id
+    }
+
+    /// Whether a context-loss recovery is in flight — the coordinator re-drove a
+    /// fresh Turn after a lost resume and is holding the Run for it. The service
+    /// reads this to avoid recording a terminal error for a rejection the
+    /// coordinator already recovered (which would otherwise pollute the
+    /// consecutive-error count the dispatcher and circuit breaker read).
+    pub(crate) fn is_recovering(&self) -> bool {
+        self.hold_run_id
+    }
+
     /// Map one signal onto Run/ack/publication effects.
-    async fn handle_signal(&mut self, signal: Signal) {
+    pub(crate) async fn handle_signal(&mut self, signal: Signal) {
         match signal {
             Signal::ExecutionStarted { session, .. } => {
                 // A new execution opens a new Run — for input-opened and
@@ -450,6 +481,356 @@ fn error_reason(class: ErrorClass) -> &'static str {
         ErrorClass::ProcessExit => "process_exit",
         ErrorClass::UnresponsiveProcess => "unresponsive_process",
         ErrorClass::Internal => "internal",
+    }
+}
+
+// ── CoordinatorService ───────────────────────────────────────────────────────
+
+/// Drives a [`Coordinator`] from an [`AgentCommand`] channel — the new-harness
+/// equivalent of the legacy `actor::agent_loop`.
+///
+/// Owns the [`Coordinator`], shared services, and the service-lifetime cancel
+/// token. The command channel carries [`AgentCommand`]s directly (same type as
+/// `AgentHandle` sends) so `AgentHandle`'s public API is unchanged.
+pub(crate) struct CoordinatorService {
+    coordinator: Coordinator,
+    agent_state: Arc<AgentState>,
+    config: Arc<Config>,
+    credentials: Arc<RwLock<HashMap<String, String>>>,
+    backend_client: Arc<dyn BackendClient>,
+    system_prompt_cache: Arc<RwLock<Option<String>>>,
+    /// Cancelled when `AgentCommand::Stop` is received; also the root for
+    /// per-turn child tokens stored in `AgentState`.
+    run_cancel: CancellationToken,
+}
+
+impl CoordinatorService {
+    pub(crate) fn new(
+        coordinator: Coordinator,
+        agent_state: Arc<AgentState>,
+        config: Arc<Config>,
+        credentials: Arc<RwLock<HashMap<String, String>>>,
+        backend_client: Arc<dyn BackendClient>,
+        system_prompt_cache: Arc<RwLock<Option<String>>>,
+    ) -> Self {
+        Self {
+            coordinator,
+            agent_state,
+            config,
+            credentials,
+            backend_client,
+            system_prompt_cache,
+            run_cancel: CancellationToken::new(),
+        }
+    }
+
+    /// Drive the service loop: heartbeat ticks, harness signals, and incoming
+    /// commands all run inside a single `select!`.
+    ///
+    /// Returns when `Stop` is received or the harness signal stream closes.
+    pub(crate) async fn run(
+        mut self,
+        mut command_rx: mpsc::UnboundedReceiver<AgentCommand>,
+        heartbeat: Heartbeat,
+    ) {
+        let task_id = self.config.task_id.clone();
+        info!(task_id = %task_id, "CoordinatorService started");
+
+        // Per-turn cancellation token: refreshed on each ExecutionStarted so
+        // an external `agent_state.stop()` cancels the active harness turn.
+        let mut turn_cancel = self.run_cancel.child_token();
+
+        let mut heartbeat_tick = tokio::time::interval(HEARTBEAT_TICK_INTERVAL);
+        heartbeat_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+        loop {
+            // Prove the loop is alive on every iteration.
+            heartbeat.beat();
+
+            tokio::select! {
+                _ = heartbeat_tick.tick() => {
+                    // Periodic tick keeps the heartbeat fresh while the loop is
+                    // parked on `next_signal` during a long tool call.
+                }
+
+                maybe_signal = self.coordinator.next_signal() => {
+                    if let Some(signal) = maybe_signal {
+                        // Extract turn-cancel side-effects before handing
+                        // ownership to handle_signal.
+                        let new_session = if let Signal::ExecutionStarted { ref session, .. } = signal {
+                            Some(session.clone())
+                        } else {
+                            None
+                        };
+
+                        let outcome_ref = match &signal {
+                            Signal::ExecutionFinished { outcome } => Some(outcome.clone()),
+                            _ => None,
+                        };
+
+                        let rejection_ref = match &signal {
+                            Signal::InputRejected { input, reason } => {
+                                Some((input.clone(), reason.clone()))
+                            }
+                            _ => None,
+                        };
+
+                        // Let the coordinator update Run identity, acks,
+                        // and publish backend events.
+                        self.coordinator.handle_signal(signal).await;
+
+                        // --- Increment 4: AgentState transitions ----------
+
+                        if let Some(session) = new_session {
+                            // Mint a fresh per-turn cancel token (child of
+                            // run_cancel) so `agent_state.stop()` → token
+                            // cancel → the turn_cancel arm below → harness
+                            // cancel.
+                            turn_cancel = self.run_cancel.child_token();
+                            self.agent_state.set_session_id(session.0.clone()).await;
+                            self.agent_state
+                                .set_run_id(self.coordinator.current_run_id().to_string())
+                                .await;
+                            self.agent_state
+                                .set_running(turn_cancel.clone())
+                                .await;
+                        }
+
+                        if let Some(outcome) = outcome_ref {
+                            match outcome {
+                                Outcome::Completed | Outcome::Cancelled => {
+                                    self.agent_state.set_idle().await;
+                                }
+                                Outcome::Failed(err) => {
+                                    self.agent_state
+                                        .set_error(err.diagnostic.clone())
+                                        .await;
+                                }
+                            }
+                        }
+
+                        if let Some((_, reason)) = rejection_ref {
+                            match reason {
+                                // A lost-resume rejection the coordinator recovered
+                                // (re-drove a fresh Turn, holding the Run) is not a
+                                // terminal error — its recovery `ExecutionStarted`
+                                // will `set_running` shortly. Only a rejection the
+                                // coordinator did NOT recover is a real failure.
+                                Rejection::Failed(err) if !self.coordinator.is_recovering() => {
+                                    self.agent_state.set_error(err.diagnostic.clone()).await;
+                                }
+                                Rejection::Failed(_) => {}
+                                Rejection::Cancelled => {
+                                    self.agent_state.set_idle().await;
+                                }
+                            }
+                        }
+                    } else {
+                        // Harness signal stream closed: the harness has stopped.
+                        info!(task_id = %task_id, "Harness signal stream closed; CoordinatorService exiting");
+                        break;
+                    }
+                }
+
+                // When the active turn's cancel token fires (set via
+                // `agent_state.set_running(turn_cancel)`), forward the
+                // cancellation to the harness so the active execution is
+                // interrupted. The select arm stays active as long as the loop
+                // runs — once turn_cancel is a cancelled child the arm fires
+                // immediately; a new ExecutionStarted mints a fresh child so
+                // only the current turn is affected.
+                () = turn_cancel.cancelled() => {
+                    self.coordinator.cancel();
+                    // Re-create so a subsequent turn gets its own cancel scope.
+                    turn_cancel = self.run_cancel.child_token();
+                }
+
+                cmd = command_rx.recv() => {
+                    match cmd {
+                        Some(AgentCommand::Send {
+                            text,
+                            model,
+                            agent_type: _,
+                            agent_mode,
+                            resume_session_id,
+                            start_fresh,
+                            ack,
+                        }) => {
+                            // TODO(ticket-08): circuit-breaker migrates here.
+                            // TODO(ticket-08): credential recovery migrates here.
+                            let input = match self.build_input(
+                                text,
+                                model,
+                                agent_mode,
+                                resume_session_id,
+                                start_fresh,
+                            ).await {
+                                Ok(input) => input,
+                                Err(err) => {
+                                    warn!(error = %err, "Failed to build input; dropping ack");
+                                    drop(ack);
+                                    continue;
+                                }
+                            };
+                            if self.coordinator.submit(input, ack).await.is_err() {
+                                // HarnessClosed — the signal loop will see None next.
+                            }
+                        }
+                        Some(AgentCommand::Recover {
+                            text,
+                            agent_type: _,
+                            agent_mode,
+                            resume_session_id,
+                        }) => {
+                            // TODO(ticket-09): restoration-ordering migrates here.
+                            let (throwaway_tx, _throwaway_rx) = oneshot::channel();
+                            let input = match self.build_input(
+                                text,
+                                None,
+                                agent_mode,
+                                Some(resume_session_id),
+                                false,
+                            ).await {
+                                Ok(input) => input,
+                                Err(err) => {
+                                    warn!(error = %err, "Failed to build recovery input; skipping");
+                                    continue;
+                                }
+                            };
+                            if self.coordinator.submit(input, throwaway_tx).await.is_err() {
+                                // HarnessClosed.
+                            }
+                        }
+                        Some(AgentCommand::Stop) | None => {
+                            info!(task_id = %task_id, "CoordinatorService stopping");
+                            self.coordinator.cancel();
+                            self.run_cancel.cancel();
+                            self.agent_state.set_stopped().await;
+                            self.coordinator
+                                .events
+                                .for_run(self.coordinator.current_run_id())
+                                .publish_agent_event(
+                                    &task_id,
+                                    AgentSubType::Stopped,
+                                    json!({}),
+                                )
+                                .await;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        info!(task_id = %task_id, "CoordinatorService exited");
+    }
+
+    /// Build a harness [`Input`] for a single Turn, resolving credentials,
+    /// system prompt, and resume from per-Turn sources — mirroring
+    /// `session::spawn_session`.
+    async fn build_input(
+        &self,
+        text: String,
+        model: Option<String>,
+        agent_mode: Option<String>,
+        resume_session_id: Option<String>,
+        start_fresh: bool,
+    ) -> Result<Input, String> {
+        // Resolve system prompt from backend (with cache fallback) — same as
+        // `session::fetch_system_prompt`.
+        let system_prompt = fetch_system_prompt(
+            self.backend_client.as_ref(),
+            &self.config.task_id,
+            &self.system_prompt_cache,
+        )
+        .await;
+
+        // Refresh credentials; on failure keep the cached copy (same as
+        // `session::spawn_session`).
+        match self
+            .backend_client
+            .get_credentials(&self.config.task_id)
+            .await
+        {
+            Ok(resp) => {
+                crate::init::credentials::persist_agent_credentials(
+                    &self.config,
+                    &resp.credentials,
+                    crate::init::credentials::PersistMode::Refresh,
+                )
+                .await;
+                *self.credentials.write().await = filter_agent_credentials(&resp.credentials);
+            }
+            Err(error) => {
+                warn!(error = %error, "Failed to refresh credentials, using cached");
+            }
+        }
+
+        let creds = self.credentials.read().await;
+        let env: Option<HashMap<String, String>> = if creds.is_empty() {
+            None
+        } else {
+            Some(creds.clone())
+        };
+        drop(creds);
+
+        // Resolve resume exactly as `session::resolve_resume_session`: the pod's
+        // last known Session id takes precedence, then the backend-provided id,
+        // then a `--continue` for the Claude family. The harness is fixed for the
+        // Sandbox, so the family is `config.agent_type`, not the per-Turn value.
+        let harness_family = self
+            .config
+            .agent_type
+            .as_deref()
+            .and_then(|t| resolve_agent_harness(t).ok())
+            .unwrap_or(AGENT_TYPE_CLAUDE_CODE);
+        let resume = build_resume(
+            self.agent_state
+                .last_session_id()
+                .await
+                .as_deref()
+                .unwrap_or(""),
+            resume_session_id.as_deref(),
+            harness_family,
+            start_fresh,
+        );
+
+        Ok(Input {
+            id: InputId(uuid::Uuid::new_v4().to_string()),
+            text,
+            model,
+            mode: agent_mode,
+            resume,
+            start_fresh,
+            env,
+            system_prompt,
+        })
+    }
+}
+
+/// Resolve the `ResumeSession` for a new harness `Input`. Mirrors
+/// `session::resolve_resume_session`: the pod's last known Session id wins, then
+/// the backend-provided id, then a `--continue` (`ResumeSession::Last`) for the
+/// Claude family (Codex has no `--continue`, so it starts fresh).
+fn build_resume(
+    previous_session_id: &str,
+    resume_session_id: Option<&str>,
+    agent_type: &str,
+    start_fresh: bool,
+) -> Option<ResumeSession> {
+    if start_fresh {
+        return None;
+    }
+    if !previous_session_id.is_empty() {
+        return Some(ResumeSession::WithId(previous_session_id.to_string()));
+    }
+    if let Some(session_id) = resume_session_id.filter(|s| !s.is_empty()) {
+        return Some(ResumeSession::WithId(session_id.to_string()));
+    }
+    if agent_type == AGENT_TYPE_CLAUDE_CODE {
+        Some(ResumeSession::Last)
+    } else {
+        None
     }
 }
 

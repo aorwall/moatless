@@ -250,23 +250,22 @@ fn parse_permission_mode(raw: &str) -> Option<PermissionMode> {
     }
 }
 
-/// Read and validate the Task's fixed Agent-harness selection from `AGENT_TYPE`.
+/// Read the Task's fixed Agent-harness selection from `AGENT_TYPE`.
 ///
-/// Returns `None` when the env is absent or empty (a legacy pod). When present,
-/// the value is validated once here so an unsupported harness fails fast at
-/// startup — a classified invalid-configuration failure rather than a silent
-/// Claude fall-through. The original (validated) string is preserved so Claude
-/// transport/model variants keep flowing through the same normalization path.
+/// Returns `None` when the env is absent or empty (a legacy pod). Any non-empty
+/// value is preserved verbatim — including an unsupported one. Validation is not
+/// done here: an unsupported harness must surface as a classified
+/// [`HarnessError::InvalidConfiguration`](crate::agent::harness::HarnessError)
+/// at the construction seam (`build_harness`, driven from `spawn_agent`), not as
+/// a config-load `panic!` that aborts the pod before the Sandbox can publish the
+/// failure. Preserving the raw string keeps Claude transport/model variants
+/// flowing through the same normalization path and lets the seam reject a truly
+/// unsupported selection with a diagnostic.
 fn resolve_agent_type_env() -> Option<String> {
     let raw = env::var("AGENT_TYPE").ok()?;
     let raw = raw.trim();
     if raw.is_empty() {
         return None;
-    }
-    // Validate once at load: an unsupported harness is a configuration error we
-    // fail fast on at startup, never a silent Claude fall-through.
-    if let Err(e) = crate::agent::handle::resolve_agent_harness(raw) {
-        panic!("AGENT_TYPE is an invalid Agent-harness configuration: {e}");
     }
     Some(raw.to_string())
 }

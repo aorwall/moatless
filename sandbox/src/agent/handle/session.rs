@@ -189,7 +189,7 @@ pub(super) async fn publish_turn_start(
 /// Fetch the assembled append-system-prompt from the backend. On failure,
 /// fall back to whatever was last cached in this pod. Cache is purely a
 /// resilience layer — every successful fetch refreshes it.
-pub(super) async fn fetch_system_prompt(
+pub(crate) async fn fetch_system_prompt(
     backend_client: &dyn BackendClient,
     task_id: &str,
     system_prompt_cache: &RwLock<Option<String>>,
