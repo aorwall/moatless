@@ -896,4 +896,104 @@ export const useSyncConfig = <TError = ErrorType<ErrorBody>,
       > => {
       return useMutation(getSyncConfigMutationOptions(options), queryClient);
     }
+    /**
+ * @summary Verify the persisted repository URL with the credentials appropriate to its
+persisted scope, then stamp and return the updated repository.
+ */
+export type verifyAccessResponse200 = {
+  data: RepositoryResponse
+  status: 200
+}
+
+export type verifyAccessResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type verifyAccessResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type verifyAccessResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type verifyAccessResponseSuccess = (verifyAccessResponse200) & {
+  headers: Headers;
+};
+export type verifyAccessResponseError = (verifyAccessResponse400 | verifyAccessResponse403 | verifyAccessResponse404) & {
+  headers: Headers;
+};
+
+export type verifyAccessResponse = (verifyAccessResponseSuccess | verifyAccessResponseError)
+
+export const getVerifyAccessUrl = (repositoryId: string,) => {
+
+
+  
+
+  return `/api/v1/repositories/${repositoryId}/verify-access`
+}
+
+export const verifyAccess = async (repositoryId: string, options?: RequestInit): Promise<verifyAccessResponse> => {
+  
+  return customInstance<verifyAccessResponse>(getVerifyAccessUrl(repositoryId),
+  {      
+    ...options,
+    method: 'POST'
+    
+    
+  }
+);}
+
+
+
+
+export const getVerifyAccessMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof verifyAccess>>, TError,{repositoryId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof verifyAccess>>, TError,{repositoryId: string}, TContext> => {
+
+const mutationKey = ['verifyAccess'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof verifyAccess>>, {repositoryId: string}> = (props) => {
+          const {repositoryId} = props ?? {};
+
+          return  verifyAccess(repositoryId,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type VerifyAccessMutationResult = NonNullable<Awaited<ReturnType<typeof verifyAccess>>>
+    
+    export type VerifyAccessMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Verify the persisted repository URL with the credentials appropriate to its
+persisted scope, then stamp and return the updated repository.
+ */
+export const useVerifyAccess = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof verifyAccess>>, TError,{repositoryId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof verifyAccess>>,
+        TError,
+        {repositoryId: string},
+        TContext
+      > => {
+      return useMutation(getVerifyAccessMutationOptions(options), queryClient);
+    }
     

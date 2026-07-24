@@ -1,17 +1,17 @@
-import type { UpdateRepositoryRequest } from '@moatless/api-client'
-import { AlertTriangle, ArrowRight, FileCode, Loader2, RefreshCw, Save, Trash2 } from 'lucide-react'
+import type { Scope, UpdateRepositoryRequest } from '@moatless/api-client'
+import { ArrowRight, FileCode, Loader2, RefreshCw, Save, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
+import { useAdminTeamsList, useAdminUsersList } from '@/features/admin/hooks/use-admin-users-teams'
 import {
   useConvertToTemplate,
   useDeleteRepository,
   useRepository,
   useSyncRepositoryConfig,
   useUpdateRepository,
+  useVerifyRepositoryAccess,
 } from '@/features/repositories/hooks/use-repositories'
-import { accessFailureLabel, isAccessFailure } from '@/features/repositories/utils/access-status'
 import { ConfigurationSectionWrapper as ConfigurationSection } from '@/lib/components/configuration'
-import { Alert, AlertDescription, AlertTitle } from '@/lib/components/ui/alert'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,6 +24,7 @@ import {
 } from '@/lib/components/ui/alert-dialog'
 import { Button } from '@/lib/components/ui/button'
 import { getErrorMessage } from '@/lib/utils/error'
+import { AccessSettingsGroup } from './access-settings-group'
 import { GeneralSettingsGroup } from './general-settings-group'
 
 interface RepositoryConfigEditSectionProps {
@@ -50,9 +51,12 @@ export function RepositoryConfigEditSection({
 }: RepositoryConfigEditSectionProps) {
   const { data: repository, isLoading, error } = useRepository(repositoryId)
   const updateRepository = useUpdateRepository()
+  const verifyRepositoryAccess = useVerifyRepositoryAccess()
   const deleteRepository = useDeleteRepository()
   const convertToTemplate = useConvertToTemplate()
   const syncRepositoryConfig = useSyncRepositoryConfig()
+  const teamsQuery = useAdminTeamsList()
+  const usersQuery = useAdminUsersList()
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [showConvertDialog, setShowConvertDialog] = useState(false)
 
@@ -73,6 +77,8 @@ export function RepositoryConfigEditSection({
       name: repository.name || '',
       description: repository.description || '',
       remoteUrl: repository.remoteUrl || '',
+      scope: repository.scope,
+      teamId: repository.teamId ?? null,
     }
   })()
 
@@ -101,12 +107,23 @@ export function RepositoryConfigEditSection({
       return
     }
 
-    // Send the git-pointer fields. Empty strings are converted to null to
-    // signal field removal.
-    const payload: UpdateRepositoryRequest = {
-      ...formData,
-      description: formData.description?.trim() || null,
-      remoteUrl: formData.remoteUrl?.trim() || null,
+    // Send only fields the user changed. Ownership is intentionally absent
+    // from the edit contract, and teamId only accompanies a team-scope update.
+    const { teamId: _omittedTeamId, ...nonTeamModifications } = userModifications
+    const payload: UpdateRepositoryRequest =
+      formData.scope === 'team' ? { ...userModifications } : nonTeamModifications
+    if ('description' in userModifications) {
+      payload.description = formData.description?.trim() || null
+    }
+    if ('remoteUrl' in userModifications) {
+      payload.remoteUrl = formData.remoteUrl?.trim() || null
+    }
+    if (
+      formData.scope === 'team' &&
+      ('scope' in userModifications || 'teamId' in userModifications)
+    ) {
+      payload.scope = 'team'
+      payload.teamId = formData.teamId ?? null
     }
 
     updateRepository.mutate(
@@ -131,6 +148,36 @@ export function RepositoryConfigEditSection({
   }
 
   const hasChanges = Object.keys(userModifications).length > 0
+  const teamSelectionMissing = formData.scope === 'team' && !formData.teamId
+
+  const handleScopeChange = (scope: Scope) => {
+    setUserModifications((prev) => ({
+      ...prev,
+      scope,
+      ...(scope === 'team' && formData.scope !== 'team' ? { teamId: null } : {}),
+    }))
+  }
+
+  const handleTeamChange = (teamId: string) => {
+    setUserModifications((prev) => ({
+      ...prev,
+      scope: 'team',
+      teamId,
+    }))
+  }
+
+  const handleVerifyAccess = () => {
+    verifyRepositoryAccess.mutate(repositoryId, {
+      onSuccess: () => {
+        toast.success('Repository access verified')
+      },
+      onError: (error) => {
+        toast.error('Failed to verify repository access', {
+          description: getErrorMessage(error),
+        })
+      },
+    })
+  }
 
   const handleDelete = () => {
     deleteRepository.mutate(repositoryId, {
@@ -188,22 +235,28 @@ export function RepositoryConfigEditSection({
 
   return (
     <ConfigurationSection>
-      {isAccessFailure(repository.accessStatus) && (
-        <Alert variant="destructive">
-          <AlertTriangle />
-          <AlertTitle>{accessFailureLabel(repository.accessStatus)}</AlertTitle>
-          <AlertDescription>
-            {repository.accessError ??
-              'This repository could not be reached with the current credentials. Check the remote URL and access.'}
-          </AlertDescription>
-        </Alert>
-      )}
-
       <GeneralSettingsGroup
         repositoryKind={repository.kind}
         provider={repository.provider}
         formData={formData}
         onUpdateField={updateField}
+      />
+
+      <AccessSettingsGroup
+        scope={formData.scope ?? repository.scope}
+        teamId={formData.teamId}
+        ownerUserId={repository.ownerUserId}
+        teams={teamsQuery.data ?? []}
+        users={usersQuery.data?.users ?? []}
+        teamsLoading={teamsQuery.isLoading}
+        accessStatus={repository.accessStatus}
+        accessCheckedAt={repository.accessCheckedAt}
+        accessError={repository.accessError}
+        isDirty={hasChanges}
+        isVerifying={verifyRepositoryAccess.isPending}
+        onScopeChange={handleScopeChange}
+        onTeamChange={handleTeamChange}
+        onVerify={handleVerifyAccess}
       />
 
       <div className="flex justify-between gap-3 pt-6 border-t">
@@ -267,7 +320,7 @@ export function RepositoryConfigEditSection({
           <Button
             type="button"
             onClick={handleSave}
-            disabled={!hasChanges || updateRepository.isPending}
+            disabled={!hasChanges || teamSelectionMissing || updateRepository.isPending}
           >
             {updateRepository.isPending ? (
               <>

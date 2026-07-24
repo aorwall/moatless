@@ -43,7 +43,7 @@ use crate::message::dao::MessageRepository;
 use crate::repository::dao::RepoRepository;
 use crate::sandbox::jwt;
 use crate::sandbox::secrets::{
-    resolve_server_env, resolve_task_credentials, resolve_task_repo_owner, resolve_task_ssh_keys,
+    resolve_server_env, resolve_task_credentials, resolve_task_repository, resolve_task_ssh_keys,
     resolve_task_team_id, TaskCredentialInputs,
 };
 use crate::secret::service::SecretService;
@@ -301,10 +301,13 @@ impl BackendSandboxServiceImpl {
             .parse::<uuid::Uuid>()
             .map_err(|_| Status::unauthenticated("Invalid user id in token"))?;
         let team_ids = match self.teams.as_ref() {
-            Some(teams) => teams.find_team_ids_for_user(&user_uuid).await.map_err(|e| {
-                warn!(error = %e, user_id = %claims.user_id, "team membership lookup failed");
-                Status::internal("Failed to resolve caller teams")
-            })?,
+            Some(teams) => teams
+                .find_team_ids_for_user(&user_uuid)
+                .await
+                .map_err(|e| {
+                    warn!(error = %e, user_id = %claims.user_id, "team membership lookup failed");
+                    Status::internal("Failed to resolve caller teams")
+                })?,
             None => Vec::new(),
         };
         Ok(ScopeContext {
@@ -957,7 +960,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         self.assert_task_access(&claims, &req.task_id).await?;
 
         let team_id = resolve_task_team_id(self.tasks.as_ref(), &req.task_id).await;
-        let repo_owner = resolve_task_repo_owner(
+        let repository = resolve_task_repository(
             self.tasks.as_ref(),
             self.repositories.as_ref(),
             &req.task_id,
@@ -972,7 +975,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             github_app_service: self.github_app_service.as_ref(),
             provider_token_auth: self.provider_token_auth.as_ref(),
             github_apps: Some(&self.github_apps),
-            repo_owner: repo_owner.as_deref(),
+            repository: repository.as_ref(),
             users: self.users.as_ref(),
             credentials_svc: self.credentials_svc.as_ref(),
         })
@@ -1062,6 +1065,11 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         };
 
         let team_id = resolve_task_team_id(self.tasks.as_ref(), &req.task_id).await;
+        if req.key == crate::sandbox::secrets::GITHUB_TOKEN && team_id.is_some() {
+            return Err(Status::invalid_argument(
+                "Team GitHub credentials cannot be updated from a sandbox",
+            ));
+        }
 
         // When the credential service is wired (production path), route through
         // it so the broadcast fan-out fires for every running sandbox the user
@@ -2389,7 +2397,11 @@ mod tests {
 
     #[async_trait::async_trait]
     impl TeamRepository for StubTeamRepo {
-        async fn is_member(&self, _team_id: &str, user_id: &uuid::Uuid) -> Result<bool, sqlx::Error> {
+        async fn is_member(
+            &self,
+            _team_id: &str,
+            user_id: &uuid::Uuid,
+        ) -> Result<bool, sqlx::Error> {
             Ok(self.members.iter().any(|(u, _)| u == user_id))
         }
         async fn find_members(&self, team_id: &str) -> Result<Vec<TeamMember>, sqlx::Error> {
@@ -2448,7 +2460,10 @@ mod tests {
         async fn delete(&self, _id: &str) -> Result<(), sqlx::Error> {
             unimplemented!()
         }
-        async fn find_teams_for_user(&self, _user_id: &uuid::Uuid) -> Result<Vec<Team>, sqlx::Error> {
+        async fn find_teams_for_user(
+            &self,
+            _user_id: &uuid::Uuid,
+        ) -> Result<Vec<Team>, sqlx::Error> {
             unimplemented!()
         }
         async fn add_member(

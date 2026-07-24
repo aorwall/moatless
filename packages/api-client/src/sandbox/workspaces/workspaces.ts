@@ -545,6 +545,105 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       > => {
       return useMutation(getUpdateWorkspaceMutationOptions(options), queryClient);
     }
+    /**
+ * @summary Override a git-synced workspace. Sets `source = "manual"` so that git sync
+skips this workspace going forward. Provenance fields are preserved.
+Use `POST /{id}/reset-git` to re-enable git sync.
+ */
+export type overrideWorkspaceResponse200 = {
+  data: WorkspaceResponse
+  status: 200
+}
+
+export type overrideWorkspaceResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type overrideWorkspaceResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type overrideWorkspaceResponseSuccess = (overrideWorkspaceResponse200) & {
+  headers: Headers;
+};
+export type overrideWorkspaceResponseError = (overrideWorkspaceResponse403 | overrideWorkspaceResponse404) & {
+  headers: Headers;
+};
+
+export type overrideWorkspaceResponse = (overrideWorkspaceResponseSuccess | overrideWorkspaceResponseError)
+
+export const getOverrideWorkspaceUrl = (workspaceId: string,) => {
+
+
+  
+
+  return `/api/v1/workspaces/${workspaceId}/override`
+}
+
+export const overrideWorkspace = async (workspaceId: string,
+    updateWorkspaceRequest: UpdateWorkspaceRequest, options?: RequestInit): Promise<overrideWorkspaceResponse> => {
+  
+  return customInstance<overrideWorkspaceResponse>(getOverrideWorkspaceUrl(workspaceId),
+  {      
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      updateWorkspaceRequest,)
+  }
+);}
+
+
+
+
+export const getOverrideWorkspaceMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof overrideWorkspace>>, TError,{workspaceId: string;data: UpdateWorkspaceRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof overrideWorkspace>>, TError,{workspaceId: string;data: UpdateWorkspaceRequest}, TContext> => {
+
+const mutationKey = ['overrideWorkspace'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof overrideWorkspace>>, {workspaceId: string;data: UpdateWorkspaceRequest}> = (props) => {
+          const {workspaceId,data} = props ?? {};
+
+          return  overrideWorkspace(workspaceId,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type OverrideWorkspaceMutationResult = NonNullable<Awaited<ReturnType<typeof overrideWorkspace>>>
+    export type OverrideWorkspaceMutationBody = UpdateWorkspaceRequest
+    export type OverrideWorkspaceMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Override a git-synced workspace. Sets `source = "manual"` so that git sync
+skips this workspace going forward. Provenance fields are preserved.
+Use `POST /{id}/reset-git` to re-enable git sync.
+ */
+export const useOverrideWorkspace = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof overrideWorkspace>>, TError,{workspaceId: string;data: UpdateWorkspaceRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof overrideWorkspace>>,
+        TError,
+        {workspaceId: string;data: UpdateWorkspaceRequest},
+        TContext
+      > => {
+      return useMutation(getOverrideWorkspaceMutationOptions(options), queryClient);
+    }
     export type addWorkspaceRepoResponse200 = {
   data: WorkspaceResponse
   status: 200
@@ -816,5 +915,100 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
         TContext
       > => {
       return useMutation(getSetWorkspacePrimaryRepoMutationOptions(options), queryClient);
+    }
+    /**
+ * @summary Reset an overridden workspace back to `source = "git"` so the next
+git sync will update its run-config from the repository again.
+ */
+export type resetGitWorkspaceResponse200 = {
+  data: WorkspaceResponse
+  status: 200
+}
+
+export type resetGitWorkspaceResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type resetGitWorkspaceResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type resetGitWorkspaceResponseSuccess = (resetGitWorkspaceResponse200) & {
+  headers: Headers;
+};
+export type resetGitWorkspaceResponseError = (resetGitWorkspaceResponse403 | resetGitWorkspaceResponse404) & {
+  headers: Headers;
+};
+
+export type resetGitWorkspaceResponse = (resetGitWorkspaceResponseSuccess | resetGitWorkspaceResponseError)
+
+export const getResetGitWorkspaceUrl = (workspaceId: string,) => {
+
+
+  
+
+  return `/api/v1/workspaces/${workspaceId}/reset-git`
+}
+
+export const resetGitWorkspace = async (workspaceId: string, options?: RequestInit): Promise<resetGitWorkspaceResponse> => {
+  
+  return customInstance<resetGitWorkspaceResponse>(getResetGitWorkspaceUrl(workspaceId),
+  {      
+    ...options,
+    method: 'POST'
+    
+    
+  }
+);}
+
+
+
+
+export const getResetGitWorkspaceMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resetGitWorkspace>>, TError,{workspaceId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof resetGitWorkspace>>, TError,{workspaceId: string}, TContext> => {
+
+const mutationKey = ['resetGitWorkspace'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof resetGitWorkspace>>, {workspaceId: string}> = (props) => {
+          const {workspaceId} = props ?? {};
+
+          return  resetGitWorkspace(workspaceId,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ResetGitWorkspaceMutationResult = NonNullable<Awaited<ReturnType<typeof resetGitWorkspace>>>
+    
+    export type ResetGitWorkspaceMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Reset an overridden workspace back to `source = "git"` so the next
+git sync will update its run-config from the repository again.
+ */
+export const useResetGitWorkspace = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resetGitWorkspace>>, TError,{workspaceId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof resetGitWorkspace>>,
+        TError,
+        {workspaceId: string},
+        TContext
+      > => {
+      return useMutation(getResetGitWorkspaceMutationOptions(options), queryClient);
     }
     

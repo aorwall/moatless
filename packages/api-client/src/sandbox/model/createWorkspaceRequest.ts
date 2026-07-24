@@ -22,6 +22,8 @@ export interface CreateWorkspaceRequest {
   envVars?: CreateWorkspaceRequestEnvVars;
   name: string;
   /** @nullable */
+  networkProfile?: string | null;
+  /** @nullable */
   plugins?: string[] | null;
   /** Repository placements. May be empty (a blank/scratch workspace). */
   repos?: WorkspaceRepoInput[];

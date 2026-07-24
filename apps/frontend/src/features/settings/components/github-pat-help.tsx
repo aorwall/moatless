@@ -3,7 +3,7 @@ import { ExternalLink } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/lib/components/ui/alert'
 
 interface GitHubPatHelpProps {
-  /** Scope guidance — differs between a personal and an org-wide token. */
+  /** Optional scope guidance for the user's PAT. */
   scopeHint?: string
 }
 

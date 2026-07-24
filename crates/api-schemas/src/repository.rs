@@ -140,8 +140,9 @@ pub struct CreateRepositoryRequest {
 pub struct UpdateRepositoryRequest {
     pub name: Option<String>,
     /// Change the repository's access scope (`global`, `team`, or `user`).
-    /// When set, `team_id`/`owner_user_id` are re-resolved from the new scope
-    /// (e.g. `global` moves it to the system team with no owner).
+    /// Re-submitting `user` preserves the repository's existing immutable
+    /// owner and team. An ownerless repository cannot move to `user`.
+    /// Team/global targets are resolved from `team_id` and clear the owner.
     pub scope: Option<Scope>,
     /// Target team when moving to `team` scope. Ignored for `global`/`user`.
     pub team_id: Option<String>,

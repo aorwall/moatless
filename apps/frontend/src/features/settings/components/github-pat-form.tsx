@@ -8,7 +8,7 @@ import { Input } from '@/lib/components/ui/input'
 interface GitHubPatFormProps {
   /** Drives Save-vs-Update wording and whether Remove is offered. */
   hasToken: boolean
-  /** A mutation's `mutateAsync`, so this stays agnostic of user-vs-admin. */
+  /** A mutation's `mutateAsync`. */
   onSave: (token: string) => Promise<unknown>
   isSaving: boolean
   onRemove?: (() => void) | undefined
@@ -18,8 +18,7 @@ interface GitHubPatFormProps {
 }
 
 /**
- * Password input + save/remove controls for a GitHub PAT, shared by the
- * per-user settings section and the org-wide admin page.
+ * Password input + save/remove controls for a user's GitHub PAT.
  */
 export function GitHubPatForm({
   hasToken,

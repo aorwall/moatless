@@ -1,5 +1,6 @@
 //! Repository CRUD module.
 
+pub(crate) mod access;
 pub mod config_reader;
 pub mod dao;
 pub mod error;

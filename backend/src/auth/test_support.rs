@@ -229,6 +229,8 @@ impl ProviderTokenRepository for StubProviderTokens {
         _access_token: &str,
         _token_type: Option<&str>,
         _metadata: Option<&serde_json::Value>,
+        _provider_user_id: Option<&str>,
+        _provider_login: Option<&str>,
     ) -> Result<(), sqlx::Error> {
         Ok(())
     }

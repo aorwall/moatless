@@ -62,6 +62,11 @@ export type cleanupHandlerResponse204 = {
   status: 204
 }
 
+export type cleanupHandlerResponse409 = {
+  data: ErrorBody
+  status: 409
+}
+
 export type cleanupHandlerResponse500 = {
   data: ErrorBody
   status: 500
@@ -70,7 +75,7 @@ export type cleanupHandlerResponse500 = {
 export type cleanupHandlerResponseSuccess = (cleanupHandlerResponse204) & {
   headers: Headers;
 };
-export type cleanupHandlerResponseError = (cleanupHandlerResponse500) & {
+export type cleanupHandlerResponseError = (cleanupHandlerResponse409 | cleanupHandlerResponse500) & {
   headers: Headers;
 };
 
@@ -944,6 +949,16 @@ export type provisionHandlerResponse200 = {
   status: 200
 }
 
+export type provisionHandlerResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type provisionHandlerResponse409 = {
+  data: ErrorBody
+  status: 409
+}
+
 export type provisionHandlerResponse500 = {
   data: ErrorBody
   status: 500
@@ -952,7 +967,7 @@ export type provisionHandlerResponse500 = {
 export type provisionHandlerResponseSuccess = (provisionHandlerResponse200) & {
   headers: Headers;
 };
-export type provisionHandlerResponseError = (provisionHandlerResponse500) & {
+export type provisionHandlerResponseError = (provisionHandlerResponse400 | provisionHandlerResponse409 | provisionHandlerResponse500) & {
   headers: Headers;
 };
 
@@ -1033,6 +1048,16 @@ export type redeployHandlerResponse200 = {
   status: 200
 }
 
+export type redeployHandlerResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type redeployHandlerResponse409 = {
+  data: ErrorBody
+  status: 409
+}
+
 export type redeployHandlerResponse500 = {
   data: ErrorBody
   status: 500
@@ -1041,7 +1066,7 @@ export type redeployHandlerResponse500 = {
 export type redeployHandlerResponseSuccess = (redeployHandlerResponse200) & {
   headers: Headers;
 };
-export type redeployHandlerResponseError = (redeployHandlerResponse500) & {
+export type redeployHandlerResponseError = (redeployHandlerResponse400 | redeployHandlerResponse409 | redeployHandlerResponse500) & {
   headers: Headers;
 };
 
@@ -1121,6 +1146,16 @@ export type restartHandlerResponse204 = {
   status: 204
 }
 
+export type restartHandlerResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type restartHandlerResponse409 = {
+  data: ErrorBody
+  status: 409
+}
+
 export type restartHandlerResponse500 = {
   data: ErrorBody
   status: 500
@@ -1129,7 +1164,7 @@ export type restartHandlerResponse500 = {
 export type restartHandlerResponseSuccess = (restartHandlerResponse204) & {
   headers: Headers;
 };
-export type restartHandlerResponseError = (restartHandlerResponse500) & {
+export type restartHandlerResponseError = (restartHandlerResponse400 | restartHandlerResponse409 | restartHandlerResponse500) & {
   headers: Headers;
 };
 
@@ -1635,6 +1670,11 @@ export type stopHandlerResponse204 = {
   status: 204
 }
 
+export type stopHandlerResponse409 = {
+  data: ErrorBody
+  status: 409
+}
+
 export type stopHandlerResponse500 = {
   data: ErrorBody
   status: 500
@@ -1643,7 +1683,7 @@ export type stopHandlerResponse500 = {
 export type stopHandlerResponseSuccess = (stopHandlerResponse204) & {
   headers: Headers;
 };
-export type stopHandlerResponseError = (stopHandlerResponse500) & {
+export type stopHandlerResponseError = (stopHandlerResponse409 | stopHandlerResponse500) & {
   headers: Headers;
 };
 

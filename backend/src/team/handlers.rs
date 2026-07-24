@@ -324,6 +324,12 @@ pub async fn upsert_credential(
     Json(req): Json<UpsertTeamCredentialRequest>,
 ) -> Result<StatusCode, TeamError> {
     ensure_team_manager(&state, &auth, &team_id).await?;
+    if provider.eq_ignore_ascii_case("github") {
+        return Err(TeamError::BadRequest(
+            "Team GitHub credentials must be configured through the GitHub App installation binding"
+                .to_string(),
+        ));
+    }
 
     state
         .provider_tokens

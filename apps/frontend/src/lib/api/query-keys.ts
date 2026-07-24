@@ -118,8 +118,12 @@ export const queryKeys = {
     all: () => [...queryKeys.all, 'admin'] as const,
     taskConnections: (params?: { limit?: number; offset?: number; refresh?: boolean }) =>
       [...queryKeys.admin.all(), 'task-connections', params] as const,
-    /** Org-wide GitHub token — distinct from `settings.github()` (per-user). */
     github: () => [...queryKeys.admin.all(), 'github'] as const,
+    githubApps: () => [...queryKeys.admin.github(), 'apps'] as const,
+    globalGithubInstallation: () =>
+      [...queryKeys.admin.github(), 'installation', 'global'] as const,
+    teamGithubInstallation: (teamId: string) =>
+      [...queryKeys.admin.github(), 'installation', 'team', teamId] as const,
   },
 
   settings: {

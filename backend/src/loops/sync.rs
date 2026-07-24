@@ -20,9 +20,8 @@ use super::parser::parse_loop;
 use crate::adapters::common::next_fire_at;
 use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::models::RoutingMode;
-use crate::auth::credentials::resolve_state_github_token_for;
 use crate::extractors::AuthUser;
-use crate::repository::handlers::parse_github_owner_repo;
+use crate::repository::access::{parse_github_owner_repo, resolve_repository_github_token};
 use crate::repository::models::{Repository, RepositoryProvider};
 use crate::state::AppState;
 
@@ -49,7 +48,7 @@ pub async fn sync_repo_loops(
         return Ok(LoopSyncSummary::default());
     }
 
-    let token = resolve_github_token(state, auth).await;
+    let token = resolve_github_token(state, repo, remote_url).await;
     let fetcher = GitHubLoopFetcher::new(loop_http_client());
     let files = fetcher
         .fetch_loop_files(remote_url, token.as_deref())
@@ -564,8 +563,12 @@ async fn upsert_loop(
 /// Goes through the canonical resolver so App / installation / `secret_ref`
 /// rows all yield a usable token. Returns `None` (unauthenticated fetch, works
 /// for public repos) when there's no connection or resolution fails.
-async fn resolve_github_token(state: &AppState, auth: &AuthUser) -> Option<String> {
-    match resolve_state_github_token_for(state, &auth.user_id.to_string(), &auth.team_ids, None).await {
+async fn resolve_github_token(
+    state: &AppState,
+    repository: &Repository,
+    remote_url: &str,
+) -> Option<String> {
+    match resolve_repository_github_token(state, repository, remote_url).await {
         Ok(token) => token,
         Err(e) => {
             warn!(error = %e, "Loop sync: failed to resolve GitHub token");

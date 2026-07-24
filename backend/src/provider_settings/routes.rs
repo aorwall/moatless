@@ -18,9 +18,13 @@ use crate::state::AppState;
         handlers::get_github_oauth_url,
         handlers::exchange_github_token,
         handlers::delete_github_config,
-        handlers::admin_get_global_github_config,
-        handlers::admin_save_global_github_pat,
-        handlers::admin_delete_global_github_pat,
+        handlers::admin_list_github_apps,
+        handlers::admin_get_global_github_installation,
+        handlers::admin_put_global_github_installation,
+        handlers::admin_delete_global_github_installation,
+        handlers::admin_get_team_github_installation,
+        handlers::admin_put_team_github_installation,
+        handlers::admin_delete_team_github_installation,
         handlers::get_gitness_config,
         handlers::save_gitness_pat,
         handlers::delete_gitness_config,
@@ -46,10 +50,16 @@ pub fn provider_settings_router(state: AppState) -> (axum::Router, utoipa::opena
             handlers::save_github_pat,
             handlers::delete_github_pat_override
         ))
-        .routes(routes!(handlers::admin_get_global_github_config))
+        .routes(routes!(handlers::admin_list_github_apps))
         .routes(routes!(
-            handlers::admin_save_global_github_pat,
-            handlers::admin_delete_global_github_pat
+            handlers::admin_get_global_github_installation,
+            handlers::admin_put_global_github_installation,
+            handlers::admin_delete_global_github_installation
+        ))
+        .routes(routes!(
+            handlers::admin_get_team_github_installation,
+            handlers::admin_put_team_github_installation,
+            handlers::admin_delete_team_github_installation
         ))
         .routes(routes!(handlers::get_github_oauth_url))
         .routes(routes!(handlers::exchange_github_token))

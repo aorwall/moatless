@@ -18,11 +18,13 @@ This spec defines all testable scenarios for repository management: creation fro
 │   │   └── REPO-05.1: Repository removed from listing
 ```
 
-### Standalone: Error Cases
+### Standalone
 
 ```
 ├── REPO-06: Create repository with missing required fields
-└── REPO-07: Get non-existent repository
+├── REPO-07: Get non-existent repository
+├── REPO-08: Reject an unverifiable repository target
+└── REPO-09: Manually verify repository access
 ```
 
 ---
@@ -125,7 +127,7 @@ A deleted repository no longer appears in the listing.
 
 ---
 
-## Standalone: Error Cases
+## Standalone Scenarios
 
 These scenarios are independent — each creates and tears down its own resources.
 
@@ -154,3 +156,32 @@ Fetching a repository that does not exist returns an error.
 
 * **Then** the system returns an error indicating the repository was not found
   * **And** the response includes an error message
+
+---
+
+### REPO-08: Reject an unverifiable repository target
+
+Manual verification only runs against a persisted URL and a provider with a supported check.
+
+* **Given** a repository has no URL, an invalid URL, or uses an unsupported provider
+
+* **When** a user with write permission asks the system to verify access
+
+* **Then** the system rejects the request without contacting the provider
+  * **And** the repository's previous access status is unchanged
+
+### REPO-09: Manually verify repository access
+
+The stored access state reflects the provider's current response using credentials for the repository's scope.
+
+* **Given** a repository has a valid persisted remote URL
+  * **And** the user has write permission
+  * **And** User scope has an owner PAT or OAuth token, or Team/Global scope has
+    an App installation bound to the repository URL owner
+
+* **When** the user asks the system to verify repository access
+
+* **Then** the response records whether the repository is reachable
+  * **And** the response records when the check completed
+  * **And** a reachability failure is returned as repository status rather than a request failure
+  * **And** credentials from any other repository scope are not used as fallback

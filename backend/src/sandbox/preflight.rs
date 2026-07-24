@@ -7,22 +7,21 @@
 //! clear `sandbox.error` event on the task instead of a buried `Sandbox
 //! stopped: permanent init failure.` log dump from the pod watcher.
 //!
-//! The check is a layered probe of `api.github.com`:
-//! 1. `GET /user` — distinguishes "token outright invalid" from
-//!    "token can't see this repo".
-//! 2. `GET /repos/{owner}/{repo}` — only when the repo URL is a
+//! The check probes `GET /repos/{owner}/{repo}` directly. Installation tokens
+//! are repository credentials and cannot use the user-only `/user` endpoint.
+//! The probe runs only when the repo URL is a
 //!    parseable `github.com` URL.
 //!
-//! Token resolution mirrors `resolve_task_credentials`: team
-//! `provider_tokens` → user `provider_tokens` (with GitHub-App refresh),
-//! resolving `secret_ref` rows through the `SecretService`. Only a
-//! `provider_token`-kind `GITHUB_TOKEN` secret satisfies the check; a plain
-//! `env` one stays the operator escape hatch we don't pre-validate.
+//! Token resolution mirrors `resolve_task_credentials`: the persisted
+//! repository scope selects exactly one credential row. User repositories use
+//! the immutable owner's PAT/OAuth credential; Team and Global repositories
+//! use only their bound GitHub App installation. Scoped `GITHUB_TOKEN` secrets
+//! are never fallback credentials.
 
 use async_trait::async_trait;
 use tracing::warn;
 
-use crate::repository::handlers::parse_github_owner_repo;
+use crate::repository::access::parse_github_owner_repo;
 use crate::repository::models::{Repository, RepositoryKind, RepositoryProvider};
 use crate::sandbox::secrets::{resolve_task_github_token, TaskCredentialInputs};
 use crate::state::AppState;
@@ -51,8 +50,8 @@ impl PreflightError {
     /// "token expired" from "token can't see this repo" at a glance.
     pub fn user_message(&self) -> String {
         match self {
-            Self::NoGithubToken { .. } => "GitHub account not connected. \
-                Connect a GitHub token before starting this task."
+            Self::NoGithubToken { .. } => "GitHub access is not configured for this repository \
+                scope. Configure it before starting this task."
                 .to_string(),
             Self::InvalidGithubToken { reason } => {
                 format!("GitHub token is invalid or expired: {reason}")
@@ -69,9 +68,6 @@ impl PreflightError {
 /// so unit tests can exercise the logic without hitting the network.
 #[async_trait]
 pub trait GithubValidator: Send + Sync {
-    /// `GET /user` — returns `Ok(())` on 2xx.
-    async fn validate_token(&self, token: &str) -> Result<(), String>;
-
     /// `GET /repos/{owner}/{repo}` — returns `Ok(())` on 2xx.
     async fn check_repo_access(&self, token: &str, owner: &str, repo: &str) -> Result<(), String>;
 }
@@ -82,12 +78,6 @@ pub struct RealGithubValidator;
 
 #[async_trait]
 impl GithubValidator for RealGithubValidator {
-    async fn validate_token(&self, token: &str) -> Result<(), String> {
-        crate::provider_settings::github_client::validate_github_token(token)
-            .await
-            .map(|_login| ())
-    }
-
     async fn check_repo_access(&self, token: &str, owner: &str, repo: &str) -> Result<(), String> {
         crate::provider_settings::github_client::check_github_repo_access(token, owner, repo).await
     }
@@ -109,12 +99,6 @@ pub async fn preflight_validate_github_token(
     }
 
     let user_id = task.created_by.as_deref().unwrap_or("system").to_string();
-    let repo_owner = repo
-        .remote_url
-        .as_deref()
-        .and_then(crate::repository::handlers::parse_github_owner_repo)
-        .map(|(owner, _)| owner);
-
     let token = resolve_task_github_token(TaskCredentialInputs {
         task_id: &task.task_id,
         user_id: &user_id,
@@ -126,7 +110,7 @@ pub async fn preflight_validate_github_token(
         github_app_service: state.github_app_service.as_ref(),
         provider_token_auth: Some(&state.provider_token_auth),
         github_apps: Some(&state.github_apps),
-        repo_owner: repo_owner.as_deref(),
+        repository: Some(repo),
         users: Some(&state.users),
         credentials_svc: Some(&state.credentials_svc),
     })
@@ -134,12 +118,6 @@ pub async fn preflight_validate_github_token(
     .ok_or_else(|| PreflightError::NoGithubToken {
         user_id: user_id.clone(),
     })?;
-
-    if let Err(e) = validator.validate_token(&token).await {
-        return Err(PreflightError::InvalidGithubToken {
-            reason: truncate(&e, 200),
-        });
-    }
 
     let Some(remote_url) = repo.remote_url.as_deref() else {
         return Ok(());
@@ -209,28 +187,20 @@ mod tests {
     /// Mock validator with configurable responses + call counters so tests
     /// can assert which branch was taken.
     struct MockValidator {
-        token_result: std::sync::Mutex<Result<(), String>>,
         repo_result: std::sync::Mutex<Result<(), String>>,
-        token_calls: AtomicUsize,
         repo_calls: AtomicUsize,
     }
 
     impl Default for MockValidator {
         fn default() -> Self {
             Self {
-                token_result: std::sync::Mutex::new(Ok(())),
                 repo_result: std::sync::Mutex::new(Ok(())),
-                token_calls: AtomicUsize::new(0),
                 repo_calls: AtomicUsize::new(0),
             }
         }
     }
 
     impl MockValidator {
-        fn set_token_err(&self, err: &str) {
-            *self.token_result.lock().unwrap() = Err(err.to_string());
-        }
-
         fn set_repo_err(&self, err: &str) {
             *self.repo_result.lock().unwrap() = Err(err.to_string());
         }
@@ -238,11 +208,6 @@ mod tests {
 
     #[async_trait]
     impl GithubValidator for MockValidator {
-        async fn validate_token(&self, _token: &str) -> Result<(), String> {
-            self.token_calls.fetch_add(1, Ordering::SeqCst);
-            self.token_result.lock().unwrap().clone()
-        }
-
         async fn check_repo_access(
             &self,
             _token: &str,
@@ -267,7 +232,7 @@ mod tests {
             repo: "r".to_string(),
             reason: "404".to_string(),
         };
-        assert!(no_token.user_message().contains("not connected"));
+        assert!(no_token.user_message().contains("not configured"));
         assert!(invalid.user_message().contains("invalid or expired"));
         assert!(no_access.user_message().contains("o/r"));
     }
@@ -345,21 +310,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn validator_returns_invalid_token_on_user_endpoint_failure() {
-        let v = MockValidator::default();
-        v.set_token_err("GitHub API returned 401: Bad credentials");
-        assert!(v.validate_token("ghs_x").await.is_err());
-        assert_eq!(v.token_calls.load(Ordering::SeqCst), 1);
-        assert_eq!(v.repo_calls.load(Ordering::SeqCst), 0);
-    }
-
-    #[tokio::test]
-    async fn validator_returns_no_access_on_repo_endpoint_failure() {
+    async fn validator_checks_repository_directly() {
         let v = MockValidator::default();
         v.set_repo_err("You do not have access...");
-        assert!(v.validate_token("ghs_x").await.is_ok());
         assert!(v.check_repo_access("ghs_x", "o", "r").await.is_err());
-        assert_eq!(v.token_calls.load(Ordering::SeqCst), 1);
         assert_eq!(v.repo_calls.load(Ordering::SeqCst), 1);
     }
 }

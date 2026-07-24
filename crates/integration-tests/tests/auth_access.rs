@@ -3,8 +3,11 @@
 //! Mirrors: tests/api/chains/auth-access-control.spec.ts
 //! Spec IDs: AUTH-20 through AUTH-26
 
-use integration_tests::{client_as_user, create_repo_request, relogin, seed_test_users};
+use integration_tests::{
+    base_url, client_as_user, create_repo_request, raw_client_as_user, relogin, seed_test_users,
+};
 use moatless_api_schemas::enums::{RepositoryKind, Scope};
+use moatless_api_schemas::repository::UpdateRepositoryRequest;
 use moatless_api_schemas::task::CreateTaskRequest;
 use moatless_api_schemas::team::{AddTeamMemberRequest, CreateTeamRequest};
 use pretty_assertions::assert_eq;
@@ -15,6 +18,82 @@ fn timestamp_suffix() -> String {
         .unwrap()
         .as_millis()
         .to_string()
+}
+
+// AUTH-27
+#[tokio::test]
+async fn github_installation_settings_are_admin_only_and_reject_team_pat_writes() {
+    let suffix = timestamp_suffix();
+    let (admin, admin_http) =
+        raw_client_as_user(&format!("installation-admin-{suffix}"), "admin").await;
+    let (_, user_http) = raw_client_as_user(&format!("installation-user-{suffix}"), "user").await;
+    let team = admin
+        .client
+        .api()
+        .create_team(&CreateTeamRequest {
+            name: format!("Installation Team {suffix}"),
+            slug: format!("installation-team-{suffix}"),
+            description: None,
+        })
+        .await
+        .unwrap();
+
+    let apps_url = format!("{}/api/v1/admin/settings/github/apps", base_url());
+    assert_eq!(user_http.get(&apps_url).send().await.unwrap().status(), 403);
+    assert_eq!(
+        admin_http.get(&apps_url).send().await.unwrap().status(),
+        200
+    );
+
+    let team_installation_url = format!(
+        "{}/api/v1/teams/{}/settings/github/installation",
+        base_url(),
+        team.id
+    );
+    assert_eq!(
+        user_http
+            .get(&team_installation_url)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
+    assert_eq!(
+        admin_http
+            .get(&team_installation_url)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+
+    let invalid_binding = admin_http
+        .put(format!(
+            "{}/api/v1/admin/settings/github/installation",
+            base_url()
+        ))
+        .json(&serde_json::json!({
+            "githubAppKey": "not-configured",
+            "installationId": 42,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(invalid_binding.status(), 400);
+
+    let legacy_pat = admin_http
+        .put(format!(
+            "{}/api/v1/teams/{}/credentials/github",
+            base_url(),
+            team.id
+        ))
+        .json(&serde_json::json!({ "accessToken": "ghp_legacy" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(legacy_pat.status(), 400);
 }
 
 // =============================================================================
@@ -68,21 +147,48 @@ async fn repository_scope_filtering() {
 
     // AUTH-20.1: Other user can see global repository
     let bob_with_team = relogin(&bob).await;
-    let bob_repos = bob_with_team.client.api().list_repositories().await.unwrap();
+    let bob_repos = bob_with_team
+        .client
+        .api()
+        .list_repositories()
+        .await
+        .unwrap();
     assert!(bob_repos.iter().any(|r| r.id == global_repo.id));
 
     // AUTH-21: Create team-scoped repository
     let mut req = create_repo_request(&format!("Team Repo {suffix}"), RepositoryKind::Template);
     req.scope = Some(Scope::Team);
     req.team_id = Some(team_id.clone());
-    let team_repo = alice_with_team.client.api().create_repository(&req).await.unwrap();
+    let team_repo = alice_with_team
+        .client
+        .api()
+        .create_repository(&req)
+        .await
+        .unwrap();
     assert_eq!(team_repo.scope, Scope::Team);
     assert_eq!(team_repo.team_id.as_deref(), Some(team_id.as_str()));
     repo_ids.push(team_repo.id.clone());
 
     // AUTH-21.1: Team member can see team repository
-    let bob_repos = bob_with_team.client.api().list_repositories().await.unwrap();
+    let bob_repos = bob_with_team
+        .client
+        .api()
+        .list_repositories()
+        .await
+        .unwrap();
     assert!(bob_repos.iter().any(|r| r.id == team_repo.id));
+
+    // AUTH-21.3: A non-managing team member cannot manually verify access.
+    let err = bob_with_team
+        .client
+        .api()
+        .verify_repository_access(&team_repo.id)
+        .await
+        .expect_err("team member must not mutate repository access status");
+    assert!(matches!(
+        err,
+        moatless_api_client::ApiError::Api { status: 403, .. }
+    ));
 
     // AUTH-21.2: Non-member cannot see team repository
     let outsider = client_as_user(&format!("outsider-{suffix}"), "user").await;
@@ -159,7 +265,12 @@ async fn task_scope_inheritance() {
     );
     req.scope = Some(Scope::Team);
     req.team_id = Some(team_id.clone());
-    let team_repo = alice_with_team.client.api().create_repository(&req).await.unwrap();
+    let team_repo = alice_with_team
+        .client
+        .api()
+        .create_repository(&req)
+        .await
+        .unwrap();
 
     // AUTH-23: Create task under team-scoped repository
     let task = alice_with_team
@@ -185,7 +296,12 @@ async fn task_scope_inheritance() {
     assert!(!task.task_id.is_empty());
 
     // AUTH-23.1: Task inherits team scope
-    let fetched = alice_with_team.client.api().get_task(&task.task_id).await.unwrap();
+    let fetched = alice_with_team
+        .client
+        .api()
+        .get_task(&task.task_id)
+        .await
+        .unwrap();
     assert_eq!(fetched.scope, Scope::Team);
     assert_eq!(fetched.team_id.as_deref(), Some(team_id.as_str()));
 
@@ -255,7 +371,12 @@ async fn admin_bypass() {
     let mut req = create_repo_request(&format!("Team Only {suffix}"), RepositoryKind::Template);
     req.scope = Some(Scope::Team);
     req.team_id = Some(team_id.clone());
-    let team_repo = alice_with_team.client.api().create_repository(&req).await.unwrap();
+    let team_repo = alice_with_team
+        .client
+        .api()
+        .create_repository(&req)
+        .await
+        .unwrap();
 
     // AUTH-24: Admin can see all scoped resources
     let carol_repos = carol.client.api().list_repositories().await.unwrap();
@@ -263,9 +384,49 @@ async fn admin_bypass() {
     assert!(carol_repos.iter().any(|r| r.id == team_repo.id));
 
     // AUTH-24.1: Admin can fetch user-scoped repository by ID
-    let repo = carol.client.api().get_repository(&user_repo.id).await.unwrap();
+    let repo = carol
+        .client
+        .api()
+        .get_repository(&user_repo.id)
+        .await
+        .unwrap();
     assert_eq!(repo.id, user_repo.id);
     assert!(repo.name.contains("Alice Private"));
+
+    // AUTH-24.2: An admin re-submitting user scope cannot take ownership.
+    let preserved = carol
+        .client
+        .api()
+        .update_repository(
+            &user_repo.id,
+            &UpdateRepositoryRequest {
+                scope: Some(Scope::User),
+                team_id: Some("system".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(preserved.owner_user_id, user_repo.owner_user_id);
+    assert_eq!(preserved.team_id, user_repo.team_id);
+
+    // AUTH-24.3: An ownerless team repository cannot move to user scope.
+    let err = carol
+        .client
+        .api()
+        .update_repository(
+            &team_repo.id,
+            &UpdateRepositoryRequest {
+                scope: Some(Scope::User),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect_err("ownerless repository must require a future explicit owner picker");
+    assert!(matches!(
+        err,
+        moatless_api_client::ApiError::Api { status: 400, .. }
+    ));
 
     // Cleanup
     let _ = alice.client.api().delete_repository(&user_repo.id).await;
@@ -307,7 +468,12 @@ async fn listing_repos_filters_by_scope() {
     let mut req = create_repo_request(&format!("Team {suffix}"), RepositoryKind::Template);
     req.scope = Some(Scope::Team);
     req.team_id = Some(team.id.clone());
-    let team_repo = alice_with_team.client.api().create_repository(&req).await.unwrap();
+    let team_repo = alice_with_team
+        .client
+        .api()
+        .create_repository(&req)
+        .await
+        .unwrap();
 
     let mut req = create_repo_request(&format!("User {suffix}"), RepositoryKind::Template);
     req.scope = Some(Scope::User);
@@ -334,7 +500,12 @@ async fn listing_repos_filters_by_scope() {
         .await
         .unwrap();
     let bob_with_team = relogin(&bob).await;
-    let bob_team_repos = bob_with_team.client.api().list_repositories().await.unwrap();
+    let bob_team_repos = bob_with_team
+        .client
+        .api()
+        .list_repositories()
+        .await
+        .unwrap();
     assert!(bob_team_repos.iter().any(|r| r.id == global_repo.id));
     assert!(bob_team_repos.iter().any(|r| r.id == team_repo.id));
     assert!(!bob_team_repos.iter().any(|r| r.id == user_repo.id));
@@ -378,7 +549,12 @@ async fn listing_tasks_filters_by_scope() {
     );
     req.scope = Some(Scope::Team);
     req.team_id = Some(team.id.clone());
-    let team_repo = alice_with_team.client.api().create_repository(&req).await.unwrap();
+    let team_repo = alice_with_team
+        .client
+        .api()
+        .create_repository(&req)
+        .await
+        .unwrap();
 
     let task = alice_with_team
         .client

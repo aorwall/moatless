@@ -1,12 +1,15 @@
 //! Provider settings HTTP handlers (GitHub, Gitness, Codex).
 
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::Json;
 
 use crate::auth::credentials::{
     read_github_oauth_stash, stash_github_oauth_token, GITHUB_OAUTH_STASH_KEY,
 };
-use crate::auth::provider_tokens::{AUTH_METHOD_SECRET_REF, SECRET_REF_TOKEN_PLACEHOLDER};
+use crate::auth::provider_tokens::{
+    APP_INSTALLATION_TOKEN_PLACEHOLDER, AUTH_METHOD_APP_INSTALLATION, AUTH_METHOD_SECRET_REF,
+    SECRET_REF_TOKEN_PLACEHOLDER,
+};
 use crate::credentials::codex::oauth::{self as codex_oauth, PollStatus};
 use crate::credentials::codex::{save_codex_auth_for_scope, CodexScope};
 use crate::credentials::github::scope::GitHubScope;
@@ -79,7 +82,7 @@ pub async fn get_github_config(
 }
 
 // ============================================================================
-// Org-wide (global) GitHub token — admin only
+// Repository-scoped GitHub App installation bindings — admin only
 // ============================================================================
 
 fn require_admin(auth: &AuthUser, action: &str) -> Result<(), ProviderSettingsError> {
@@ -87,164 +90,292 @@ fn require_admin(auth: &AuthUser, action: &str) -> Result<(), ProviderSettingsEr
         return Ok(());
     }
     Err(ProviderSettingsError::Forbidden(format!(
-        "Admin role required to {action} the organization GitHub token"
+        "Admin role required to {action} GitHub installation settings"
     )))
 }
 
-/// Read the org-wide GitHub token's status. Admin only.
-#[utoipa::path(
-    get,
-    path = "/api/v1/admin/settings/github/config",
-    tag = "provider-settings",
-    responses(
-        (status = 200, description = "Organization GitHub config", body = GitHubConfigResponse),
-        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
-        (status = 403, description = "Admin only", body = crate::error::ErrorBody)
-    )
-)]
-pub async fn admin_get_global_github_config(
-    State(state): State<AppState>,
-    auth: AuthUser,
-) -> Result<Json<GitHubConfigResponse>, ProviderSettingsError> {
-    require_admin(&auth, "read")?;
+fn installation_binding_response(
+    row: Option<crate::auth::models::ProviderToken>,
+) -> GitHubInstallationBindingResponse {
+    let Some(row) = row else {
+        return GitHubInstallationBindingResponse {
+            configured: false,
+            github_app_key: None,
+            installation_id: None,
+            account_login: None,
+            account_type: None,
+        };
+    };
+    let installation_id = row
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata.get("installation_id"))
+        .and_then(serde_json::Value::as_u64);
+    let account_login = row
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata.get("account_login"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+    let account_type = row
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata.get("account_type"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+    let github_app_key = row.provider_user_id;
+    let configured = row.auth_method.as_deref() == Some(AUTH_METHOD_APP_INSTALLATION)
+        && github_app_key.is_some()
+        && installation_id.is_some()
+        && account_login.is_some();
 
-    let row = state
-        .provider_tokens
-        .find_github_row(&GitHubScope::Global)
-        .await?;
-
-    Ok(Json(match row {
-        Some(row) => GitHubConfigResponse {
-            connected: true,
-            login: row
-                .metadata
-                .as_ref()
-                .and_then(|m| m.get("login"))
-                .and_then(|v| v.as_str())
-                .map(std::string::ToString::to_string),
-            token_type: row.token_type,
-            // A PAT override is a GitHub-OAuth-user concept; the org-wide
-            // token is always a PAT, so there's nothing to override.
-            has_pat_override: None,
-        },
-        None => GitHubConfigResponse {
-            connected: false,
-            login: None,
-            token_type: None,
-            has_pat_override: None,
-        },
-    }))
+    GitHubInstallationBindingResponse {
+        configured,
+        github_app_key,
+        installation_id,
+        account_login,
+        account_type,
+    }
 }
 
-/// Set the org-wide GitHub token after validating it. Admin only.
-///
-/// Sits at the bottom of the `user > team > global` precedence chain: any user
-/// with their own token shadows this one. It exists so a user who has never
-/// connected GitHub can still read repositories.
-#[utoipa::path(
-    put,
-    path = "/api/v1/admin/settings/github/pat",
-    tag = "provider-settings",
-    request_body = SavePatRequest,
-    responses(
-        (status = 200, description = "Organization PAT saved", body = GitHubConfigResponse),
-        (status = 400, description = "Invalid token", body = crate::error::ErrorBody),
-        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
-        (status = 403, description = "Admin only", body = crate::error::ErrorBody)
-    )
-)]
-pub async fn admin_save_global_github_pat(
-    State(state): State<AppState>,
-    auth: AuthUser,
-    Json(req): Json<SavePatRequest>,
-) -> Result<Json<GitHubConfigResponse>, ProviderSettingsError> {
-    require_admin(&auth, "set")?;
-
-    let login = github_client::validate_github_token(&req.token)
+async fn save_installation_binding(
+    state: &AppState,
+    scope: &GitHubScope,
+    req: GitHubInstallationBindingRequest,
+) -> Result<GitHubInstallationBindingResponse, ProviderSettingsError> {
+    let app = state.github_apps.get(&req.github_app_key).ok_or_else(|| {
+        ProviderSettingsError::BadRequest(format!(
+            "Unknown GitHub App key '{}'. Configured keys: {:?}",
+            req.github_app_key,
+            state.github_apps.keys()
+        ))
+    })?;
+    let installation = app
+        .get_installation(req.installation_id)
         .await
-        .map_err(ProviderSettingsError::ProviderError)?;
-
-    // Secret first, reference row second — a reference row pointing at a
-    // missing secret is a hard failure on read. `put_secret` re-checks
-    // admin-for-global via `ensure_scope_access`.
-    state
-        .secrets
-        .put_secret(
-            &auth.scope_context(),
-            &auth.user_id.to_string(),
-            PutSecretRequest {
-                scope_type: SecretScopeType::Global,
-                scope_id: None,
-                key: GITHUB_TOKEN.to_string(),
-                kind: SecretKind::ProviderToken,
-                provider: Some("github".to_string()),
-                value: Some(req.token.clone()),
-                external_ref: None,
-            },
-        )
-        .await?;
+        .map_err(|error| ProviderSettingsError::ProviderError(error.to_string()))?;
+    let metadata = serde_json::json!({
+        "installation_id": installation.id,
+        "account_login": installation.account.login,
+        "account_type": installation.account.account_type,
+    });
 
     state
         .provider_tokens
         .upsert_github_row(
-            &GitHubScope::Global,
-            AUTH_METHOD_SECRET_REF,
-            SECRET_REF_TOKEN_PLACEHOLDER,
-            Some("pat"),
-            Some(&serde_json::json!({ "login": login })),
+            scope,
+            AUTH_METHOD_APP_INSTALLATION,
+            APP_INSTALLATION_TOKEN_PLACEHOLDER,
+            None,
+            Some(&metadata),
+            Some(&req.github_app_key),
+            Some(&installation.account.login),
         )
         .await?;
 
-    Ok(Json(GitHubConfigResponse {
-        connected: true,
-        login: Some(login),
-        token_type: Some("pat".to_string()),
-        has_pat_override: None,
-    }))
+    Ok(installation_binding_response(
+        state.provider_tokens.find_github_row(scope).await?,
+    ))
 }
 
-/// Remove the org-wide GitHub token. Admin only.
 #[utoipa::path(
-    delete,
-    path = "/api/v1/admin/settings/github/pat",
+    get,
+    path = "/api/v1/admin/settings/github/apps",
     tag = "provider-settings",
     responses(
-        (status = 200, description = "Organization PAT removed", body = GitHubConfigResponse),
+        (status = 200, description = "Configured GitHub Apps and installations", body = GitHubAppsResponse),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
         (status = 403, description = "Admin only", body = crate::error::ErrorBody)
     )
 )]
-pub async fn admin_delete_global_github_pat(
+pub async fn admin_list_github_apps(
     State(state): State<AppState>,
     auth: AuthUser,
-) -> Result<Json<GitHubConfigResponse>, ProviderSettingsError> {
-    require_admin(&auth, "remove")?;
+) -> Result<Json<GitHubAppsResponse>, ProviderSettingsError> {
+    require_admin(&auth, "read")?;
 
-    // Reference row first: while both exist the row resolves fine, but a row
-    // outliving its secret is a hard error for every reader.
+    let mut apps = Vec::new();
+    for (github_app_key, app) in state.github_apps.entries() {
+        let (name, install_url) = app
+            .app_listing()
+            .await
+            .map_err(|error| ProviderSettingsError::ProviderError(error.to_string()))?;
+        let installations = app
+            .list_installations()
+            .await
+            .map_err(|error| ProviderSettingsError::ProviderError(error.to_string()))?
+            .into_iter()
+            .map(|installation| GitHubInstallationOption {
+                installation_id: installation.id,
+                account_login: installation.account.login,
+                account_type: installation.account.account_type,
+            })
+            .collect();
+        apps.push(GitHubAppOption {
+            github_app_key,
+            name,
+            install_url,
+            installations,
+        });
+    }
+    Ok(Json(GitHubAppsResponse { apps }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/settings/github/installation",
+    tag = "provider-settings",
+    responses(
+        (status = 200, description = "Global GitHub installation binding", body = GitHubInstallationBindingResponse),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
+        (status = 403, description = "Admin only", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn admin_get_global_github_installation(
+    State(state): State<AppState>,
+    auth: AuthUser,
+) -> Result<Json<GitHubInstallationBindingResponse>, ProviderSettingsError> {
+    require_admin(&auth, "read")?;
+    Ok(Json(installation_binding_response(
+        state
+            .provider_tokens
+            .find_github_row(&GitHubScope::Global)
+            .await?,
+    )))
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/admin/settings/github/installation",
+    tag = "provider-settings",
+    request_body = GitHubInstallationBindingRequest,
+    responses(
+        (status = 200, description = "Global GitHub installation bound", body = GitHubInstallationBindingResponse),
+        (status = 400, description = "Invalid App or installation", body = crate::error::ErrorBody),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
+        (status = 403, description = "Admin only", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn admin_put_global_github_installation(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Json(req): Json<GitHubInstallationBindingRequest>,
+) -> Result<Json<GitHubInstallationBindingResponse>, ProviderSettingsError> {
+    require_admin(&auth, "bind")?;
+    Ok(Json(
+        save_installation_binding(&state, &GitHubScope::Global, req).await?,
+    ))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/admin/settings/github/installation",
+    tag = "provider-settings",
+    responses(
+        (status = 200, description = "Global GitHub installation unbound", body = GitHubInstallationBindingResponse),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
+        (status = 403, description = "Admin only", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn admin_delete_global_github_installation(
+    State(state): State<AppState>,
+    auth: AuthUser,
+) -> Result<Json<GitHubInstallationBindingResponse>, ProviderSettingsError> {
+    require_admin(&auth, "unbind")?;
     state
         .provider_tokens
         .delete_github_row(&GitHubScope::Global)
         .await?;
+    Ok(Json(installation_binding_response(None)))
+}
 
+async fn require_admin_team(
+    state: &AppState,
+    auth: &AuthUser,
+    team_id: &str,
+    action: &str,
+) -> Result<(), ProviderSettingsError> {
+    require_admin(auth, action)?;
     state
-        .secrets
-        .delete_scope_secret(
-            &auth.scope_context(),
-            &auth.user_id.to_string(),
-            SecretScopeType::Global,
-            None,
-            GITHUB_TOKEN,
-            Some(SecretKind::ProviderToken),
-        )
-        .await?;
+        .teams
+        .find_by_id(team_id)
+        .await?
+        .ok_or_else(|| ProviderSettingsError::NotFound(format!("Team {team_id}")))?;
+    Ok(())
+}
 
-    Ok(Json(GitHubConfigResponse {
-        connected: false,
-        login: None,
-        token_type: None,
-        has_pat_override: None,
-    }))
+#[utoipa::path(
+    get,
+    path = "/api/v1/teams/{team_id}/settings/github/installation",
+    tag = "provider-settings",
+    params(("team_id" = String, Path, description = "Team identifier")),
+    responses(
+        (status = 200, description = "Team GitHub installation binding", body = GitHubInstallationBindingResponse),
+        (status = 403, description = "Admin only", body = crate::error::ErrorBody),
+        (status = 404, description = "Team not found", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn admin_get_team_github_installation(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(team_id): Path<String>,
+) -> Result<Json<GitHubInstallationBindingResponse>, ProviderSettingsError> {
+    require_admin_team(&state, &auth, &team_id, "read").await?;
+    Ok(Json(installation_binding_response(
+        state
+            .provider_tokens
+            .find_github_row(&GitHubScope::team(team_id))
+            .await?,
+    )))
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/teams/{team_id}/settings/github/installation",
+    tag = "provider-settings",
+    params(("team_id" = String, Path, description = "Team identifier")),
+    request_body = GitHubInstallationBindingRequest,
+    responses(
+        (status = 200, description = "Team GitHub installation bound", body = GitHubInstallationBindingResponse),
+        (status = 400, description = "Invalid App or installation", body = crate::error::ErrorBody),
+        (status = 403, description = "Admin only", body = crate::error::ErrorBody),
+        (status = 404, description = "Team not found", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn admin_put_team_github_installation(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(team_id): Path<String>,
+    Json(req): Json<GitHubInstallationBindingRequest>,
+) -> Result<Json<GitHubInstallationBindingResponse>, ProviderSettingsError> {
+    require_admin_team(&state, &auth, &team_id, "bind").await?;
+    Ok(Json(
+        save_installation_binding(&state, &GitHubScope::team(team_id), req).await?,
+    ))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/teams/{team_id}/settings/github/installation",
+    tag = "provider-settings",
+    params(("team_id" = String, Path, description = "Team identifier")),
+    responses(
+        (status = 200, description = "Team GitHub installation unbound", body = GitHubInstallationBindingResponse),
+        (status = 403, description = "Admin only", body = crate::error::ErrorBody),
+        (status = 404, description = "Team not found", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn admin_delete_team_github_installation(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(team_id): Path<String>,
+) -> Result<Json<GitHubInstallationBindingResponse>, ProviderSettingsError> {
+    require_admin_team(&state, &auth, &team_id, "unbind").await?;
+    state
+        .provider_tokens
+        .delete_github_row(&GitHubScope::team(team_id))
+        .await?;
+    Ok(Json(installation_binding_response(None)))
 }
 
 /// Save a GitHub Personal Access Token after validating it.
@@ -291,8 +422,12 @@ pub async fn save_github_pat(
                     }
                 }
             } else {
-                stash_github_oauth_token(&state.secrets, &auth.user_id.to_string(), &existing.access_token)
-                    .await?;
+                stash_github_oauth_token(
+                    &state.secrets,
+                    &auth.user_id.to_string(),
+                    &existing.access_token,
+                )
+                .await?;
                 if let Some(oauth_login) = existing
                     .metadata
                     .as_ref()
@@ -834,8 +969,8 @@ pub async fn save_codex_auth(
     auth: AuthUser,
     Json(req): Json<SaveCodexAuthRequest>,
 ) -> Result<Json<CodexConfigResponse>, ProviderSettingsError> {
-    let resp = save_codex_auth_for_scope(&state, CodexScope::user(auth.user_id.to_string()), req)
-        .await?;
+    let resp =
+        save_codex_auth_for_scope(&state, CodexScope::user(auth.user_id.to_string()), req).await?;
     Ok(Json(resp))
 }
 

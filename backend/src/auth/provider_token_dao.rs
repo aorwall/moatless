@@ -215,6 +215,8 @@ pub trait ProviderTokenRepository: Send + Sync {
         access_token: &str,
         token_type: Option<&str>,
         metadata: Option<&serde_json::Value>,
+        provider_user_id: Option<&str>,
+        provider_login: Option<&str>,
     ) -> Result<(), sqlx::Error>;
 
     /// Delete the github row at the requested scope.
@@ -532,6 +534,8 @@ impl ProviderTokenRepository for PgProviderTokenRepository {
         access_token: &str,
         token_type: Option<&str>,
         metadata: Option<&serde_json::Value>,
+        provider_user_id: Option<&str>,
+        provider_login: Option<&str>,
     ) -> Result<(), sqlx::Error> {
         match scope {
             GitHubScope::User(user_id) => {
@@ -544,19 +548,47 @@ impl ProviderTokenRepository for PgProviderTokenRepository {
                     token_type,
                     metadata,
                 )
-                .await
+                .await?;
+                if provider_user_id.is_some() || provider_login.is_some() {
+                    sqlx::query(
+                        r#"UPDATE provider_tokens
+                           SET provider_user_id = $2, provider_login = $3
+                           WHERE user_id = $1 AND provider = 'github' AND scope = 'user'"#,
+                    )
+                    .bind(user_id)
+                    .bind(provider_user_id)
+                    .bind(provider_login)
+                    .execute(&self.0)
+                    .await?;
+                }
+                Ok(())
             }
             GitHubScope::Team(team_id) => {
-                self.upsert_team_token(
-                    team_id,
-                    "github",
-                    auth_method,
-                    access_token,
-                    None,
-                    token_type,
-                    metadata,
+                sqlx::query(
+                    r#"INSERT INTO provider_tokens (
+                           team_id, provider, auth_method, access_token, refresh_token,
+                           token_type, metadata, provider_user_id, provider_login,
+                           connected_at, updated_at, scope, owner_user_id, user_id
+                       )
+                       VALUES ($1, 'github', $2, $3, NULL, $4, $5, $6, $7,
+                               NOW(), NOW(), 'team', NULL, NULL)
+                       ON CONFLICT ON CONSTRAINT provider_tokens_scope_uq
+                       DO UPDATE SET access_token = $3, refresh_token = NULL,
+                                     token_type = $4, metadata = $5,
+                                     provider_user_id = $6, provider_login = $7,
+                                     auth_method = $2, scope = 'team',
+                                     owner_user_id = NULL, updated_at = NOW()"#,
                 )
-                .await
+                .bind(team_id)
+                .bind(auth_method)
+                .bind(access_token)
+                .bind(token_type)
+                .bind(metadata)
+                .bind(provider_user_id)
+                .bind(provider_login)
+                .execute(&self.0)
+                .await?;
+                Ok(())
             }
             GitHubScope::Global => {
                 // Global github row: pinned to the reserved `'system'` team.
@@ -568,14 +600,16 @@ impl ProviderTokenRepository for PgProviderTokenRepository {
                 sqlx::query(
                     r#"INSERT INTO provider_tokens (
                            team_id, provider, auth_method, access_token, refresh_token,
-                           token_type, metadata, connected_at, updated_at, scope,
+                           token_type, metadata, provider_user_id, provider_login,
+                           connected_at, updated_at, scope,
                            owner_user_id, user_id
                        )
-                       VALUES ($1, 'github', $2, $3, NULL, $4, $5, NOW(), NOW(),
+                       VALUES ($1, 'github', $2, $3, NULL, $4, $5, $6, $7, NOW(), NOW(),
                                'global', NULL, NULL)
                        ON CONFLICT ON CONSTRAINT provider_tokens_scope_uq
                        DO UPDATE SET access_token = $3, refresh_token = NULL,
                                      token_type = $4, metadata = $5,
+                                     provider_user_id = $6, provider_login = $7,
                                      auth_method = $2, scope = 'global',
                                      owner_user_id = NULL, updated_at = NOW()"#,
                 )
@@ -584,6 +618,8 @@ impl ProviderTokenRepository for PgProviderTokenRepository {
                 .bind(access_token)
                 .bind(token_type)
                 .bind(metadata)
+                .bind(provider_user_id)
+                .bind(provider_login)
                 .execute(&self.0)
                 .await?;
                 Ok(())

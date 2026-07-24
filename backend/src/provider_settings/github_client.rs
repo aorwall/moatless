@@ -5,7 +5,10 @@
 pub async fn validate_github_token(token: &str) -> Result<String, String> {
     let client = reqwest::Client::new();
     let resp = client
-        .get(format!("{}/user", crate::adapters::github_pr::api::api_base()))
+        .get(format!(
+            "{}/user",
+            crate::adapters::github_pr::api::api_base()
+        ))
         .header("Authorization", format!("Bearer {token}"))
         .header("User-Agent", "moatless-vibe")
         .header("Accept", "application/vnd.github+json")
@@ -35,7 +38,10 @@ pub async fn validate_github_token(token: &str) -> Result<String, String> {
 pub async fn check_github_repo_access(token: &str, owner: &str, repo: &str) -> Result<(), String> {
     let client = reqwest::Client::new();
     let resp = client
-        .get(format!("https://api.github.com/repos/{owner}/{repo}"))
+        .get(format!(
+            "{}/repos/{owner}/{repo}",
+            crate::adapters::github_pr::api::api_base()
+        ))
         .header("Authorization", format!("Bearer {token}"))
         .header("User-Agent", "moatless-vibe")
         .header("Accept", "application/vnd.github+json")

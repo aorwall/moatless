@@ -28,6 +28,16 @@
           "204": {
             "description": "Sandbox cleaned up"
           },
+          "409": {
+            "description": "Another lifecycle operation is in progress",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Cleanup failed",
             "content": {
@@ -485,6 +495,26 @@
               }
             }
           },
+          "400": {
+            "description": "Task is Closed — start not allowed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another lifecycle operation is in progress",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Provisioning failed",
             "content": {
@@ -528,6 +558,26 @@
               }
             }
           },
+          "400": {
+            "description": "Task is Closed — redeploy not allowed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another lifecycle operation is in progress",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Redeploy failed",
             "content": {
@@ -562,6 +612,26 @@
         "responses": {
           "204": {
             "description": "Sandbox restarted"
+          },
+          "400": {
+            "description": "Task is Closed — restart not allowed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another lifecycle operation is in progress",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
           },
           "500": {
             "description": "Restart failed",
@@ -745,6 +815,16 @@
         "responses": {
           "204": {
             "description": "Sandbox stopped"
+          },
+          "409": {
+            "description": "Another lifecycle operation is in progress",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
           },
           "500": {
             "description": "Stop failed",
@@ -1109,20 +1189,19 @@
         }
       }
     },
-    "/api/v1/admin/settings/github/config": {
+    "/api/v1/admin/settings/github/apps": {
       "get": {
         "tags": [
           "provider-settings"
         ],
-        "summary": "Read the org-wide GitHub token's status. Admin only.",
-        "operationId": "admin_get_global_github_config",
+        "operationId": "admin_list_github_apps",
         "responses": {
           "200": {
-            "description": "Organization GitHub config",
+            "description": "Configured GitHub Apps and installations",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GitHubConfigResponse"
+                  "$ref": "#/components/schemas/GitHubAppsResponse"
                 }
               }
             }
@@ -1150,19 +1229,55 @@
         }
       }
     },
-    "/api/v1/admin/settings/github/pat": {
+    "/api/v1/admin/settings/github/installation": {
+      "get": {
+        "tags": [
+          "provider-settings"
+        ],
+        "operationId": "admin_get_global_github_installation",
+        "responses": {
+          "200": {
+            "description": "Global GitHub installation binding",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubInstallationBindingResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
       "put": {
         "tags": [
           "provider-settings"
         ],
-        "summary": "Set the org-wide GitHub token after validating it. Admin only.",
-        "description": "Sits at the bottom of the `user > team > global` precedence chain: any user\nwith their own token shadows this one. It exists so a user who has never\nconnected GitHub can still read repositories.",
-        "operationId": "admin_save_global_github_pat",
+        "operationId": "admin_put_global_github_installation",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SavePatRequest"
+                "$ref": "#/components/schemas/GitHubInstallationBindingRequest"
               }
             }
           },
@@ -1170,17 +1285,17 @@
         },
         "responses": {
           "200": {
-            "description": "Organization PAT saved",
+            "description": "Global GitHub installation bound",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GitHubConfigResponse"
+                  "$ref": "#/components/schemas/GitHubInstallationBindingResponse"
                 }
               }
             }
           },
           "400": {
-            "description": "Invalid token",
+            "description": "Invalid App or installation",
             "content": {
               "application/json": {
                 "schema": {
@@ -1215,15 +1330,14 @@
         "tags": [
           "provider-settings"
         ],
-        "summary": "Remove the org-wide GitHub token. Admin only.",
-        "operationId": "admin_delete_global_github_pat",
+        "operationId": "admin_delete_global_github_installation",
         "responses": {
           "200": {
-            "description": "Organization PAT removed",
+            "description": "Global GitHub installation unbound",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GitHubConfigResponse"
+                  "$ref": "#/components/schemas/GitHubInstallationBindingResponse"
                 }
               }
             }
@@ -3244,6 +3358,68 @@
           },
           "400": {
             "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Repository not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repositories/{repository_id}/verify-access": {
+      "post": {
+        "tags": [
+          "repositories"
+        ],
+        "summary": "Verify the persisted repository URL with the credentials appropriate to its\npersisted scope, then stamp and return the updated repository.",
+        "operationId": "verify_access",
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "description": "Repository identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Repository access checked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Repository cannot be verified",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Write access required",
             "content": {
               "application/json": {
                 "schema": {
@@ -6004,6 +6180,175 @@
         }
       }
     },
+    "/api/v1/teams/{team_id}/settings/github/installation": {
+      "get": {
+        "tags": [
+          "provider-settings"
+        ],
+        "operationId": "admin_get_team_github_installation",
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "description": "Team identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Team GitHub installation binding",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubInstallationBindingResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Team not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "provider-settings"
+        ],
+        "operationId": "admin_put_team_github_installation",
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "description": "Team identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitHubInstallationBindingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Team GitHub installation bound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubInstallationBindingResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid App or installation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Team not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "provider-settings"
+        ],
+        "operationId": "admin_delete_team_github_installation",
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "description": "Team identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Team GitHub installation unbound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubInstallationBindingResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Team not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/triggers": {
       "get": {
         "tags": [
@@ -7058,6 +7403,68 @@
         }
       }
     },
+    "/api/v1/workspaces/{workspace_id}/override": {
+      "patch": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "Override a git-synced workspace. Sets `source = \"manual\"` so that git sync\nskips this workspace going forward. Provenance fields are preserved.\nUse `POST /{id}/reset-git` to re-enable git sync.",
+        "operationId": "override_workspace",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "description": "Workspace id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWorkspaceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Workspace overridden; source set to manual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/workspaces/{workspace_id}/repos": {
       "post": {
         "tags": [
@@ -7218,6 +7625,58 @@
         "responses": {
           "200": {
             "description": "Primary set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/reset-git": {
+      "post": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "Reset an overridden workspace back to `source = \"git\"` so the next\ngit sync will update its run-config from the repository again.",
+        "operationId": "reset_git_workspace",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "description": "Workspace id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Workspace reset to git-managed; next sync will update it",
             "content": {
               "application/json": {
                 "schema": {
@@ -9199,7 +9658,8 @@
             ]
           },
           "id": {
-            "type": "string"
+            "type": "string",
+            "format": "uuid"
           },
           "isBot": {
             "type": "boolean"
@@ -9253,6 +9713,12 @@
           },
           "name": {
             "type": "string"
+          },
+          "networkProfile": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "plugins": {
             "type": [
@@ -9776,6 +10242,46 @@
           }
         }
       },
+      "GitHubAppOption": {
+        "type": "object",
+        "required": [
+          "githubAppKey",
+          "name",
+          "installUrl",
+          "installations"
+        ],
+        "properties": {
+          "githubAppKey": {
+            "type": "string"
+          },
+          "installUrl": {
+            "type": "string"
+          },
+          "installations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GitHubInstallationOption"
+            }
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "GitHubAppsResponse": {
+        "type": "object",
+        "required": [
+          "apps"
+        ],
+        "properties": {
+          "apps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GitHubAppOption"
+            }
+          }
+        }
+      },
       "GitHubConfigResponse": {
         "type": "object",
         "required": [
@@ -9803,6 +10309,83 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "GitHubInstallationBindingRequest": {
+        "type": "object",
+        "required": [
+          "githubAppKey",
+          "installationId"
+        ],
+        "properties": {
+          "githubAppKey": {
+            "type": "string"
+          },
+          "installationId": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "GitHubInstallationBindingResponse": {
+        "type": "object",
+        "required": [
+          "configured"
+        ],
+        "properties": {
+          "accountLogin": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "accountType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "githubAppKey": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "installationId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "GitHubInstallationOption": {
+        "type": "object",
+        "required": [
+          "installationId",
+          "accountLogin"
+        ],
+        "properties": {
+          "accountLogin": {
+            "type": "string"
+          },
+          "accountType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "installationId": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },
@@ -14320,7 +14903,7 @@
               },
               {
                 "$ref": "#/components/schemas/Scope",
-                "description": "Change the repository's access scope (`global`, `team`, or `user`).\nWhen set, `team_id`/`owner_user_id` are re-resolved from the new scope\n(e.g. `global` moves it to the system team with no owner)."
+                "description": "Change the repository's access scope (`global`, `team`, or `user`).\nRe-submitting `user` preserves the repository's existing immutable\nowner and team. An ownerless repository cannot move to `user`.\nTeam/global targets are resolved from `team_id` and clear the owner."
               }
             ]
           },
@@ -14613,6 +15196,12 @@
               "null"
             ]
           },
+          "networkProfile": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "plugins": {
             "type": [
               "array",
@@ -14820,7 +15409,8 @@
             ]
           },
           "id": {
-            "type": "string"
+            "type": "string",
+            "format": "uuid"
           },
           "login": {
             "type": "string"
@@ -14868,7 +15458,8 @@
             ]
           },
           "id": {
-            "type": "string"
+            "type": "string",
+            "format": "uuid"
           },
           "isBot": {
             "type": "boolean"
@@ -15259,6 +15850,13 @@
           "source": {
             "type": "string",
             "description": "`manual` or `git`. Git-synced workspaces are read-only in the UI and\nwrite API — only a re-sync from git changes them."
+          },
+          "sourceConfigPath": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Path to the config file within the source repository that declared this\nworkspace (e.g. `.moatless/workspaces.json` or `.moatless/config.json`).\nRetained even after a manual override so the origin remains visible."
           },
           "sourceRepositoryId": {
             "type": [
