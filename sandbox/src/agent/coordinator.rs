@@ -29,16 +29,13 @@
 //! production lifecycle policy that the legacy actor used to own now lives in
 //! [`CoordinatorService`] (also in this module): transient-error **retry** with
 //! backoff (same Run id), the consecutive-error **circuit breaker**, **wakeup
-//! and background-watch scheduling** (armed from Source blocks at turn end), and
-//! **`AgentState` status transitions**. Both are driven for every AGENT_TYPE pod
-//! by `handle::spawn_agent`; the legacy `actor::agent_loop` remains only for pods
-//! with no `AGENT_TYPE` set — the one migration-compat path, removed in the final
-//! ticket.
-//!
-//! The one lifecycle concern still deferred to the legacy actor is
-//! **credential-recovery retry** (re-authenticating and re-driving after an
-//! auth-class failure); the service refreshes credentials per Turn but does not
-//! yet own that recovery loop.
+//! and background-watch scheduling** (armed from Source blocks at turn end),
+//! **credential-recovery retry** (pull fresh credentials and re-drive the same
+//! prompt/Run after a stale-credential failure, or surface one reconnect error
+//! when nothing fresher is available), and **`AgentState` status transitions**.
+//! Both are driven for every AGENT_TYPE pod by `handle::spawn_agent`; the legacy
+//! `actor::agent_loop` remains only for pods with no `AGENT_TYPE` set — the one
+//! migration-compat path, removed in the final ticket.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -54,12 +51,15 @@ use crate::agent::heartbeat::{Heartbeat, HEARTBEAT_TICK_INTERVAL};
 use crate::agent::types::ResumeSession;
 use crate::backend_client::BackendClient;
 use crate::config::Config;
+use crate::credentials::recovery::CredentialFailureDetector;
+use crate::credentials::Dispatcher;
 use crate::events::GrpcEventPublisher;
 use crate::init::credentials::filter_agent_credentials;
 
 use super::agent_state::AgentState;
 use super::background_watch_job::BackgroundWatchJob;
 use super::handle::{
+    credential_recovery::{try_recover_credentials, MAX_CREDENTIAL_RECOVERY_RETRIES},
     resolve_agent_harness,
     retry::{compute_backoff, is_retryable_harness_error, MAX_RETRIES},
     session::fetch_system_prompt,
@@ -583,6 +583,18 @@ pub(crate) struct CoordinatorService {
     /// Consecutive terminal failures without a successful idle transition.
     consecutive_errors: u32,
 
+    // ── Credential recovery ──────────────────────────────────────────────────
+    /// Shared detector the harness flips when a Turn fails on a stale credential
+    /// (e.g. Codex's `refresh_token_reused`). The service polls it at each
+    /// terminal failure to decide whether to pull fresh credentials and re-drive.
+    credential_failures: CredentialFailureDetector,
+    /// Applies recovered credential values to their sinks (files, env).
+    credential_dispatcher: Arc<Dispatcher>,
+    /// Credential-recovery re-drives spent on the in-flight prompt. Reset on each
+    /// new `Send`/`Recover`; caps at [`MAX_CREDENTIAL_RECOVERY_RETRIES`] so a
+    /// permanently invalid credential can't loop forever.
+    credential_recovery_attempts: u32,
+
     // ── Scheduled jobs ───────────────────────────────────────────────────────
     /// Registry the self-scheduling jobs (ScheduleWakeup, background-completion
     /// watch) register into. Their injector re-enters this service's command
@@ -606,6 +618,7 @@ pub(crate) struct CoordinatorService {
 }
 
 impl CoordinatorService {
+    #[allow(clippy::too_many_arguments)] // reason: service wiring; every dep is a distinct Arc-shared collaborator
     pub(crate) fn new(
         coordinator: Coordinator,
         agent_state: Arc<AgentState>,
@@ -614,6 +627,8 @@ impl CoordinatorService {
         backend_client: Arc<dyn BackendClient>,
         system_prompt_cache: Arc<RwLock<Option<String>>>,
         scheduled_jobs: Arc<ScheduledJobRegistry>,
+        credential_failures: CredentialFailureDetector,
+        credential_dispatcher: Arc<Dispatcher>,
     ) -> Self {
         Self {
             coordinator,
@@ -631,6 +646,9 @@ impl CoordinatorService {
             retry_attempt: 0,
             retry_at: None,
             consecutive_errors: 0,
+            credential_failures,
+            credential_dispatcher,
+            credential_recovery_attempts: 0,
             scheduled_jobs,
             pending_wakeup: None,
             stopping: false,
@@ -710,11 +728,29 @@ impl CoordinatorService {
                         }
 
                         // Decide retry BEFORE the coordinator publishes: a
-                        // transient failure we will re-drive must suppress the
-                        // coordinator's terminal `error` event so the user sees
-                        // only `retrying` (matching the legacy actor's retry path).
+                        // failure we will re-drive must suppress the coordinator's
+                        // terminal `error` event so the user sees only `retrying`
+                        // (matching the legacy actor's retry path).
+                        //
+                        // A flagged credential takes precedence over transient
+                        // retry — a Codex auth failure can surface as a process
+                        // exit — and drives credential recovery here, which owns
+                        // the retry scheduling, the single reconnect error, and
+                        // the consecutive-error accounting for this failure.
+                        let mut credential_recovery_handled = false;
                         if let Some(Outcome::Failed(err)) = &outcome_ref {
-                            if is_retryable_harness_error(err) && self.retry_attempt < MAX_RETRIES {
+                            let flagged = self.credential_failures.take_all();
+                            if !flagged.is_empty() {
+                                // Recovery either schedules a retry (only
+                                // `retrying`) or publishes its own single
+                                // user-facing reconnect error — the coordinator's
+                                // generic terminal error is suppressed either way.
+                                self.coordinator.suppress_next_failure_event();
+                                self.try_credential_recovery(flagged, err, &task_id).await;
+                                credential_recovery_handled = true;
+                            } else if is_retryable_harness_error(err)
+                                && self.retry_attempt < MAX_RETRIES
+                            {
                                 self.coordinator.suppress_next_failure_event();
                             }
                         }
@@ -750,6 +786,7 @@ impl CoordinatorService {
                                     self.retry_attempt = 0;
                                     self.retry_at = None;
                                     self.consecutive_errors = 0;
+                                    self.credential_recovery_attempts = 0;
                                     self.agent_state.set_idle().await;
                                     // Arm any self-scheduled jobs the completed Turn requested.
                                     self.arm_scheduled_jobs(&task_id).await;
@@ -787,10 +824,12 @@ impl CoordinatorService {
                                     // "ignore ScheduleWakeup on error" path); a retry
                                     // re-emits the block if it recurs.
                                     self.pending_wakeup = None;
-                                    // Check whether this is a retryable transient error
-                                    // that still has budget remaining — mirroring
-                                    // actor.rs:457-499 exactly.
-                                    if is_retryable_harness_error(&err)
+                                    if credential_recovery_handled {
+                                        // Credential recovery (before publish) already
+                                        // owns this failure's retry scheduling, the
+                                        // single reconnect error, and the
+                                        // consecutive-error accounting.
+                                    } else if is_retryable_harness_error(&err)
                                         && self.retry_attempt < MAX_RETRIES
                                     {
                                         let attempt = self.retry_attempt;
@@ -921,6 +960,10 @@ impl CoordinatorService {
                             start_fresh,
                             ack,
                         }) => {
+                            // A fresh user Send gets a fresh credential-recovery
+                            // budget: the per-prompt cap is scoped to one prompt.
+                            self.credential_recovery_attempts = 0;
+
                             // ── Circuit breaker ───────────────────────────────────────
                             const MAX_CONSECUTIVE_ERRORS: u32 = 3;
                             if self.consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
@@ -956,7 +999,6 @@ impl CoordinatorService {
                             self.last_resume_session_id = resume_session_id.clone();
                             self.last_start_fresh = start_fresh;
 
-                            // TODO(ticket-08): credential recovery migrates here.
                             let input = match self.build_input(
                                 text,
                                 model,
@@ -981,6 +1023,9 @@ impl CoordinatorService {
                             agent_mode,
                             resume_session_id,
                         }) => {
+                            // A replayed run also gets a fresh recovery budget.
+                            self.credential_recovery_attempts = 0;
+
                             // TODO(ticket-09): restoration-ordering migrates here.
                             let (throwaway_tx, _throwaway_rx) = oneshot::channel();
                             let input = match self.build_input(
@@ -1122,6 +1167,104 @@ impl CoordinatorService {
         }
     }
 
+    /// Drive credential recovery after a Turn failed with the detector flagged.
+    /// Pull fresh values for `flagged`; if any is genuinely fresher than what the
+    /// failed Turn used, schedule the same prompt on the same Run for retry (the
+    /// caller has already suppressed the coordinator's terminal error, so the
+    /// user sees only `retrying`). Otherwise — nothing fresher, no prompt to
+    /// retry, or the per-prompt cap exhausted — publish exactly one user-facing
+    /// reconnect error and count one consecutive failure. No futile retry.
+    ///
+    /// Mirrors the legacy `try_credential_recovery_retry`, minus its double
+    /// publish: the coordinator suppresses the original terminal, so recovery
+    /// owns the single terminal event.
+    async fn try_credential_recovery(
+        &mut self,
+        flagged: Vec<String>,
+        err: &HarnessError,
+        task_id: &str,
+    ) {
+        let cap_reached = self.credential_recovery_attempts >= MAX_CREDENTIAL_RECOVERY_RETRIES;
+
+        // A cap-reached or prompt-less failure can never be re-driven, so skip the
+        // (side-effecting) backend pull and go straight to the terminal error.
+        let recovered = if cap_reached || self.last_text.is_none() {
+            Vec::new()
+        } else {
+            try_recover_credentials(
+                self.backend_client.as_ref(),
+                &self.credential_dispatcher,
+                task_id,
+                &flagged,
+                &self.config,
+            )
+            .await
+        };
+
+        let run_id = self.coordinator.current_run_id().to_string();
+
+        if recovered.is_empty() {
+            // Nothing fresher (or nothing to retry): surface the one reconnect
+            // error and count this failure once.
+            let message = credential_reconnect_message(&flagged);
+            self.consecutive_errors += 1;
+            self.agent_state.set_error(message.clone()).await;
+            warn!(
+                ?flagged,
+                cap_reached, "Credential recovery gave up; surfacing reconnect error"
+            );
+            self.coordinator
+                .events
+                .for_run(&run_id)
+                .publish_agent_event(
+                    task_id,
+                    AgentSubType::Error,
+                    json!({
+                        "error": message,
+                        "provider": provider_hint(&flagged),
+                        "credential_recovery_exhausted": true,
+                        "reason": if cap_reached {
+                            "credential_recovery_exhausted"
+                        } else {
+                            "no_fresher_credential_available"
+                        },
+                    }),
+                )
+                .await;
+            return;
+        }
+
+        // Fresher credential: re-drive the same prompt on the same Run.
+        self.credential_recovery_attempts += 1;
+        let backoff = compute_backoff(0);
+        info!(
+            ?recovered,
+            attempt = self.credential_recovery_attempts,
+            backoff_secs = backoff.as_secs_f64(),
+            "Scheduling credential-recovery retry"
+        );
+        self.retry_at = Some(tokio::time::Instant::now() + backoff);
+        // Record the diagnostic for observability, but a scheduled retry must not
+        // count toward the breaker (mirrors the transient-retry path).
+        self.agent_state.set_error(err.diagnostic.clone()).await;
+        self.agent_state.undo_error_increment().await;
+        self.coordinator
+            .events
+            .for_run(&run_id)
+            .publish_agent_event(
+                task_id,
+                AgentSubType::Retrying,
+                json!({
+                    "attempt": self.credential_recovery_attempts,
+                    "max_retries": MAX_CREDENTIAL_RECOVERY_RETRIES,
+                    "backoff_secs": backoff.as_secs_f64(),
+                    "reason": "credential_recovery",
+                    "recovered_keys": recovered,
+                }),
+            )
+            .await;
+    }
+
     /// Build a harness [`Input`] for a single Turn, resolving credentials,
     /// system prompt, and resume from per-Turn sources — mirroring
     /// `session::spawn_session`.
@@ -1229,6 +1372,29 @@ fn build_resume(
     } else {
         None
     }
+}
+
+/// A human-readable provider name for a set of flagged credential keys, for the
+/// user-facing reconnect message. Mirrors the legacy actor's mapping.
+fn provider_hint(flagged: &[String]) -> &'static str {
+    flagged
+        .iter()
+        .find_map(|k| match k.as_str() {
+            "CODEX_AUTH_JSON" => Some("Codex"),
+            "CLAUDE_CODE_OAUTH_TOKEN" => Some("Claude"),
+            "GITHUB_TOKEN" => Some("GitHub"),
+            _ => None,
+        })
+        .unwrap_or("provider")
+}
+
+/// The single user-facing "reconnect" message surfaced when credential recovery
+/// cannot re-drive (nothing fresher, or the per-prompt cap is exhausted).
+fn credential_reconnect_message(flagged: &[String]) -> String {
+    format!(
+        "Sign-in expired. Please reconnect {} in Settings.",
+        provider_hint(flagged)
+    )
 }
 
 #[cfg(test)]

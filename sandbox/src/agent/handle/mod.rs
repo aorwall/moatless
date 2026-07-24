@@ -19,7 +19,7 @@ mod actor;
 mod claude;
 mod codex;
 mod codex_payloads;
-mod credential_recovery;
+pub(crate) mod credential_recovery;
 pub(crate) mod retry;
 pub(crate) mod session;
 
@@ -347,6 +347,10 @@ pub fn spawn_agent(
                     Arc::clone(&backend_client),
                     Arc::clone(&system_prompt_cache),
                     Arc::clone(&scheduled_jobs),
+                    // The same detector instance the harness populates, so the
+                    // service sees the credential flags Codex raises mid-Turn.
+                    credential_failures.clone(),
+                    Arc::clone(&credential_dispatcher),
                 );
                 tokio::spawn(service.run(command_rx, heartbeat));
             }

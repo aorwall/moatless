@@ -18,7 +18,9 @@ use super::retry::{compute_backoff, RetryState};
 /// retry — distinct from `MAX_RETRIES` which covers transient API errors.
 /// Two retries is enough for the canonical race (winner + 1 loser per refresh
 /// cycle); more usually means the credential itself is invalid.
-const MAX_CREDENTIAL_RECOVERY_RETRIES: u32 = 2;
+///
+/// `pub(crate)` so the harness-path [`CoordinatorService`] shares the same cap.
+pub(crate) const MAX_CREDENTIAL_RECOVERY_RETRIES: u32 = 2;
 
 /// Drive a credential-recovery retry: take any flagged keys, pull fresh
 /// values from the backend, apply via dispatcher, and (on success) schedule
@@ -166,7 +168,10 @@ pub(super) async fn try_credential_recovery_retry(
 /// refresh). If the backend returns the same JSON, no other sandbox has
 /// pushed a rotation back yet — recovery is futile and we should surface
 /// the user-facing error instead of burning retries.
-async fn try_recover_credentials(
+///
+/// `pub(crate)` so the harness-path [`CoordinatorService`] reuses the same
+/// pull + disk-dedup + dispatch primitive without duplicating the policy.
+pub(crate) async fn try_recover_credentials(
     backend_client: &dyn BackendClient,
     dispatcher: &Dispatcher,
     task_id: &str,
