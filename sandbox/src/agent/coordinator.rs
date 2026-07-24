@@ -16,6 +16,14 @@
 //!   per-block `agent.message` in the shape the backend assembler consumes
 //!   (ADR-0002): a native block plus its `blockIndex`, grouped by `uuid`. The
 //!   coordinator forwards blocks; it never assembles a Message.
+//! - **Context-loss recovery** — a resume the harness reports as
+//!   [`SessionImpact::Lost`] never silently drops the Message. The coordinator
+//!   publishes the user-visible `session_context_lost` notice and re-drives one
+//!   fresh recovery Turn (same logical Run) whose prompt tells the Agent to
+//!   rebuild the prior conversation, keeping the pending ack alive. This is the
+//!   seam owner of the "resume failure never silently creates a fresh Session"
+//!   invariant — the harness refuses to start fresh; the coordinator decides to,
+//!   explicitly and once.
 //!
 //! What this module deliberately does **not** yet own — those remain on the
 //! legacy actor until it adopts this coordinator (the one migration-compat path,
@@ -31,12 +39,13 @@ use moatless_events::{AgentSubType, TaskTurnSubType};
 use serde_json::{json, Value};
 use tokio::sync::oneshot;
 
+use crate::agent::types::ResumeSession;
 use crate::events::GrpcEventPublisher;
 
 use super::handle::RunAck;
 use super::harness::{
     Activity, ErrorClass, Harness, HarnessClosed, HarnessError, Input, InputId, Outcome, Rejection,
-    Role, Signal, SourceEvent,
+    Role, SessionImpact, Signal, SourceEvent,
 };
 
 /// How often a rate-limited liveness [`Signal::Activity`] is republished. The
@@ -57,11 +66,19 @@ pub struct Coordinator {
     session_id: String,
     /// Acks awaiting their input's [`Signal::InputAccepted`], keyed by input id.
     pending_acks: HashMap<InputId, oneshot::Sender<RunAck>>,
+    /// Submitted inputs awaiting acceptance or rejection, keyed by input id.
+    /// Retained so a resume that the harness reports as [`SessionImpact::Lost`]
+    /// can be re-driven as a fresh context-recovery Turn instead of being dropped.
+    pending_inputs: HashMap<InputId, Input>,
     /// Next `blockIndex` per native Message id, reset at each Run start. Lets the
     /// backend assemble per-block source events in native order (ADR-0002).
     block_indices: HashMap<String, usize>,
     /// When the last rate-limited liveness event was published.
     last_activity_publish: Option<Instant>,
+    /// Reuse the current `run_id` on the next [`Signal::ExecutionStarted`] instead
+    /// of minting a fresh one. Set when a context-loss recovery mints the Run for
+    /// its notice, so the recovered Turn continues the same logical Run.
+    hold_run_id: bool,
 }
 
 impl Coordinator {
@@ -75,8 +92,10 @@ impl Coordinator {
             run_id: String::new(),
             session_id: String::new(),
             pending_acks: HashMap::new(),
+            pending_inputs: HashMap::new(),
             block_indices: HashMap::new(),
             last_activity_publish: None,
+            hold_run_id: false,
         }
     }
 
@@ -88,6 +107,7 @@ impl Coordinator {
         ack: oneshot::Sender<RunAck>,
     ) -> Result<(), HarnessClosed> {
         self.pending_acks.insert(input.id.clone(), ack);
+        self.pending_inputs.insert(input.id.clone(), input.clone());
         self.harness.submit(input).await
     }
 
@@ -128,9 +148,14 @@ impl Coordinator {
             Signal::ExecutionStarted { session, .. } => {
                 // A new execution opens a new Run — for input-opened and
                 // harness-internal executions alike. The acknowledgement (if any)
-                // waits for the following `InputAccepted`.
+                // waits for the following `InputAccepted`. A context-loss recovery
+                // already minted the Run for its notice, so the recovered Turn
+                // continues that same logical Run rather than opening a second.
                 self.session_id = session.0;
-                self.run_id = new_run_id();
+                if !self.hold_run_id {
+                    self.run_id = new_run_id();
+                }
+                self.hold_run_id = false;
                 self.block_indices.clear();
                 self.publish_turn_start().await;
                 self.run_events()
@@ -142,8 +167,11 @@ impl Coordinator {
                     .await;
             }
             Signal::InputAccepted { input } => {
-                // Acknowledge only now, against the current Run, so the batch
-                // joins this Run's turn regardless of ack/event delivery order.
+                // Accepted: it will never need context-loss recovery, so release
+                // the retained copy. Acknowledge only now, against the current Run,
+                // so the batch joins this Run's turn regardless of ack/event
+                // delivery order.
+                self.pending_inputs.remove(&input);
                 if let Some(ack) = self.pending_acks.remove(&input) {
                     let _ = ack.send(RunAck {
                         session_id: self.session_id.clone(),
@@ -164,13 +192,37 @@ impl Coordinator {
             Signal::Activity(activity) => self.publish_activity(&activity).await,
             Signal::ExecutionFinished { outcome } => self.publish_outcome(outcome).await,
             Signal::InputRejected { input, reason } => {
-                // No `ExecutionStarted` preceded a rejection, so no Run was
-                // minted and there is nothing to close. Drop the ack (the
-                // dispatcher observes a closed channel and leaves the batch
-                // unacknowledged), and surface a classified failure.
-                drop(self.pending_acks.remove(&input));
-                if let Rejection::Failed(error) = reason {
-                    self.publish_error(&error).await;
+                let original = self.pending_inputs.remove(&input);
+                match reason {
+                    // A resume the harness could not load (`SessionImpact::Lost`)
+                    // must never silently drop the Message. Re-drive it once as a
+                    // fresh context-recovery Turn, keeping the pending ack alive
+                    // for the recovered Turn's acceptance.
+                    Rejection::Failed(err)
+                        if original
+                            .as_ref()
+                            .is_some_and(|input| is_lost_resume(input, &err)) =>
+                    {
+                        // `is_some_and` above proved `original` is present.
+                        if let Some(original) = original {
+                            self.recover_lost_session(input, &original, &err).await;
+                        }
+                    }
+                    // No `ExecutionStarted` preceded a non-recoverable rejection,
+                    // so no Run was minted and there is nothing to close. Drop the
+                    // ack (the dispatcher observes a closed channel and leaves the
+                    // batch unacknowledged) and surface a classified failure. This
+                    // also ends a recovery re-drive that itself failed — recovery
+                    // is bounded to a single attempt.
+                    Rejection::Failed(err) => {
+                        self.hold_run_id = false;
+                        drop(self.pending_acks.remove(&input));
+                        self.publish_error(&err).await;
+                    }
+                    Rejection::Cancelled => {
+                        self.hold_run_id = false;
+                        drop(self.pending_acks.remove(&input));
+                    }
                 }
             }
         }
@@ -183,7 +235,10 @@ impl Coordinator {
 
     /// Position of the next block in its native Message, advanced per id.
     fn next_block_index(&mut self, message_id: &str) -> usize {
-        let slot = self.block_indices.entry(message_id.to_string()).or_insert(0);
+        let slot = self
+            .block_indices
+            .entry(message_id.to_string())
+            .or_insert(0);
         let index = *slot;
         *slot += 1;
         index
@@ -243,6 +298,89 @@ impl Coordinator {
             )
             .await;
     }
+
+    /// Drive a single context-loss recovery for a resume the harness reported as
+    /// [`SessionImpact::Lost`]. Mints the Run for the recovery Turn (held so its
+    /// `ExecutionStarted` continues it), publishes the user-visible
+    /// `session_context_lost` notice, and re-submits a fresh Turn whose prompt
+    /// instructs the Agent to recover the prior conversation. The pending ack is
+    /// left registered, so the recovered Turn's acceptance resolves the original
+    /// Message. The recovery input carries no resume, so a further failure can
+    /// never re-enter recovery — the attempt is bounded to one.
+    async fn recover_lost_session(&mut self, input: InputId, original: &Input, err: &HarnessError) {
+        self.run_id = new_run_id();
+        self.hold_run_id = true;
+        self.run_events()
+            .publish_agent_event(
+                &self.task_id,
+                AgentSubType::SessionContextLost,
+                json!({
+                    "stale_session_id": stale_session_id(&original.resume),
+                    "error": err.diagnostic,
+                    "reason": "transcript_unavailable",
+                }),
+            )
+            .await;
+
+        let recovery = recovery_input(original, &self.task_id);
+        self.pending_inputs.insert(input.clone(), recovery.clone());
+        if self.harness.submit(recovery).await.is_err() {
+            // The harness closed mid-recovery: nothing left to drive, so release
+            // the retained input and let the ack channel close.
+            self.hold_run_id = false;
+            self.pending_inputs.remove(&input);
+            drop(self.pending_acks.remove(&input));
+        }
+    }
+}
+
+/// Whether a rejected input was a resume attempt whose Session the harness could
+/// not load — the one condition that turns a rejection into a context-loss
+/// recovery rather than a plain failure.
+fn is_lost_resume(input: &Input, err: &HarnessError) -> bool {
+    err.session_impact == SessionImpact::Lost && input.resume.is_some() && !input.start_fresh
+}
+
+/// Build the fresh recovery Turn for a lost resume: same Turn configuration, but
+/// starting a new Session (`start_fresh`, no resume) with a prompt that tells the
+/// Agent to recover the prior conversation before acting.
+fn recovery_input(original: &Input, task_id: &str) -> Input {
+    Input {
+        id: original.id.clone(),
+        text: context_recovery_prompt(task_id, &original.text),
+        model: original.model.clone(),
+        mode: original.mode.clone(),
+        resume: None,
+        start_fresh: true,
+        env: original.env.clone(),
+        system_prompt: original.system_prompt.clone(),
+    }
+}
+
+/// The stale Session id a lost resume was targeting, for the `session_context_lost`
+/// notice. A `--continue` (`Last`) resume names no id.
+fn stale_session_id(resume: &Option<ResumeSession>) -> String {
+    match resume {
+        Some(ResumeSession::WithId(id)) => id.clone(),
+        _ => String::new(),
+    }
+}
+
+/// Wrap a prompt so the fresh recovery Session rebuilds the lost conversation
+/// context via the `moat` CLI before acting. The prior transcript is still
+/// readable through `moat messages list` even though it is no longer in the
+/// resumed CLI Session.
+fn context_recovery_prompt(task_id: &str, prompt: &str) -> String {
+    format!(
+        "<context-recovery>\n\
+         Your previous session for this task could not be resumed, so the prior \
+         conversation is not in your context. Before acting, recover it by running:\n\
+         \x20 moat messages list {task_id} --full --limit 100\n\
+         (if it reports older messages, rerun with the suggested --before-id to page back)\n\
+         Treat that transcript as the conversation so far and continue from it.\n\
+         </context-recovery>\n\n\
+         {prompt}"
+    )
 }
 
 /// Mint an identifier for a new agent Run. A UUID (not a counter) so it stays

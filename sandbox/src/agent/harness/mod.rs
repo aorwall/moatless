@@ -99,6 +99,28 @@ impl Harness {
         }
     }
 
+    /// Construct a one-shot harness whose executions run `scripts` in order — one
+    /// script per execution, so a test can model a first execution that rejects
+    /// (e.g. a failed resume) followed by a second that succeeds (the recovery
+    /// re-drive). Executions past the list end immediately at EOF.
+    #[cfg(test)]
+    pub(crate) fn scripted_sequence(scripts: Vec<Script>) -> Self {
+        let (submit_tx, submit_rx) = mpsc::channel(SUBMIT_CAPACITY);
+        let (cancel_tx, cancel_rx) = mpsc::channel(1);
+        let (signal_tx, signal_rx) = mpsc::channel(SIGNAL_CAPACITY);
+
+        let mut scripts = std::collections::VecDeque::from(scripts);
+        let factory =
+            move || scripted::ScriptedProcess::new(scripts.pop_front().unwrap_or_default());
+        tokio::spawn(driver::run(factory, submit_rx, cancel_rx, signal_tx));
+
+        Self {
+            submit_tx,
+            cancel_tx,
+            signal_rx,
+        }
+    }
+
     /// Construct a harness driven by a single scripted *persistent* process: one
     /// long-lived process that hosts many executions, so the script can model
     /// injection, harness-internal executions, and Turn boundaries.
