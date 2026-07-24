@@ -760,6 +760,30 @@ The base image (`Dockerfile.sandbox-base`) bakes a full Rust toolchain
   `1536Mi`) to fit the repo's target dir first — overflowing the emptyDir
   limit evicts the pod.
 
+**Sizing Rust-heavy repos**: a full `cargo build` of a multi-crate workspace
+peaks around 5 GiB of RSS and grows `target/` past several Gi, so a sandbox on
+the deployment defaults is prone to two evictions: node-pressure eviction
+(the pod is a low-memory-request eviction target) and
+`Usage of EmptyDir volume 'workspace-data' exceeds the limit` (the workspace
+volume fills with build artifacts). Give such repos an explicit per-repo
+`resources` block — via the `.moatless/workspaces.json` entry (git-synced) or
+the workspace API — with a raised memory request/limit and a sized `storage`,
+for example:
+
+```json
+"resources": {
+  "requests": { "cpu": "1", "memory": "4Gi" },
+  "limits":   { "cpu": "4", "memory": "8Gi" },
+  "storage":  "20Gi"
+}
+```
+
+The container's requests/limits are copied **verbatim** from this block
+(`pod_builder.rs`). Note it is all-or-nothing: a `resources` block that sets
+only `storage`/`dockerStorage` and omits `requests`/`limits` leaves the sandbox
+container **BestEffort** (no env-default fallback) — the first OOM/eviction
+target — so always pair a `storage` override with explicit `requests`/`limits`.
+
 ### User
 
 Runs as non-root user `moatless` (UID 1000) with home at `/home/moatless`.

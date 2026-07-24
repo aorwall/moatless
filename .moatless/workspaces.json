@@ -11,6 +11,11 @@
       "codeExecution": {
         "setupCommands": ["bun install"]
       },
+      "resources": {
+        "requests": { "cpu": "1", "memory": "4Gi" },
+        "limits": { "cpu": "4", "memory": "8Gi" },
+        "storage": "20Gi"
+      },
       "servers": [
         {
           "name": "dev",
@@ -65,6 +70,8 @@
         ]
       },
       "resources": {
+        "requests": { "cpu": "1", "memory": "4Gi" },
+        "limits": { "cpu": "4", "memory": "8Gi" },
         "storage": "20Gi",
         "dockerStorageMode": "node",
         "dockerStorage": "30Gi"
