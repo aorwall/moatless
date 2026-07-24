@@ -2,8 +2,8 @@
   "version": 1,
   "workspaces": [
     {
-      "key": "dev",
-      "name": "Dev",
+      "key": "moatless",
+      "name": "Moatless",
       "description": "Regular dev — the Vite dev server on port 3000.",
       "repos": [
         { "url": "https://github.com/aorwall/moatless.git", "primary": true }
@@ -25,8 +25,8 @@
       ]
     },
     {
-      "key": "storybook",
-      "name": "Storybook",
+      "key": "moatless-storybook",
+      "name": "Moatless Storybook",
       "description": "Storybook component explorer on port 6006.",
       "repos": [
         { "url": "https://github.com/aorwall/moatless.git", "primary": true }
@@ -48,13 +48,14 @@
       ]
     },
     {
-      "key": "shadow",
-      "name": "Backend + Frontend",
+      "key": "moatless-fullstack",
+      "name": "Moatless Fullstack",
       "description": "Shadow dev — runs the moatless-vibe backend (:8080) and frontend Vite dev server (:3000) as sidecars on the precompiled moatless-dev image.",
       "repos": [
         { "url": "https://github.com/aorwall/moatless.git", "primary": true }
       ],
       "dockerImage": "aorwall/moatless-dev:dev",
+      "dockerAccess": true,
       "sandboxServiceAccount": "moatless-dev",
       "codeExecution": {
         "setupCommands": [
@@ -64,10 +65,9 @@
         ]
       },
       "resources": {
-        "storageMode": "ephemeral",
         "storage": "20Gi",
         "dockerStorageMode": "node",
-        "dockerStorage": "20Gi"
+        "dockerStorage": "30Gi"
       },
       "servers": [
         {
