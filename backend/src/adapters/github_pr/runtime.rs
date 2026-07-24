@@ -369,11 +369,7 @@ pub async fn route_inbound_message(
                         }),
                     },
                 );
-            // The service owns insert + preflight + provision. A creation error
-            // (e.g. failed preflight) already left the task marked errored with a
-            // sandbox error event; don't abort the whole webhook — skip the
-            // new-task binding/delivery and fall through to delivering the event
-            // to any existing bindings below.
+            // The service owns insert + preflight + provision.
             match create_provider_event_task(state, rule, &msg).await {
                 Ok(task_id) => {
                     if let Some(ref r) = related {
@@ -405,13 +401,27 @@ pub async fn route_inbound_message(
 
                     delivery_targets.insert(0, (binding, true));
                 }
-                Err(e) => {
+                // Preflight is permanent: a bad token can't be fixed by a GitHub
+                // redelivery, and retrying would just accumulate errored rows.
+                // The service already marked the task errored with a sandbox
+                // error event, so degrade — log and skip the new-task
+                // binding/delivery, then fall through to existing-binding
+                // delivery below.
+                Err(TaskCreationError::Preflight(reason)) => {
                     warn!(
                         rule_id = %rule.id,
                         subject_key = %subject_key,
-                        error = %e,
-                        "Failed to create GitHub PR review task; skipping new-task delivery"
+                        error = %reason,
+                        "GitHub PR review task failed preflight; skipping new-task delivery"
                     );
+                }
+                // Transient failures (DB blip, short-id exhaustion) must surface
+                // so the webhook 5xx's and GitHub redelivers, rather than
+                // silently dropping the PR event.
+                Err(other) => {
+                    return Err(AdapterError::Internal(format!(
+                        "Failed to create GitHub PR review task: {other}"
+                    )));
                 }
             }
         } else {
@@ -873,11 +883,16 @@ pub async fn upsert_binding(
 ///
 /// The binding upsert and first-message delivery stay with the caller
 /// ([`route_inbound_message`]), so no first message is passed here.
+///
+/// Returns the raw [`TaskCreationError`] so the caller can distinguish a
+/// permanent failure (`Preflight` — a bad token that a webhook redelivery
+/// can't fix) from a transient one (a DB blip, short-id exhaustion) that
+/// should surface as a 5xx so GitHub retries.
 async fn create_provider_event_task(
     state: &AppState,
     rule: &TaskTriggerRoute,
     msg: &InboundMessage,
-) -> Result<String, AdapterError> {
+) -> Result<String, TaskCreationError> {
     // Always provide the PR origin context so loop/trigger prompts don't have to
     // repeat it, then append the trigger's template and any adapter reply
     // guidance. `parts` always contains at least PR_ORIGIN_CONTEXT.
@@ -944,14 +959,7 @@ async fn create_provider_event_task(
             },
             |_task_id, _first_message| async {},
         )
-        .await
-        .map_err(|e| match e {
-            TaskCreationError::RepoNotFound(id) => {
-                AdapterError::NotFound(format!("Repository {id} not found"))
-            }
-            TaskCreationError::Preflight(msg) => AdapterError::AccessDenied(msg),
-            other => AdapterError::Internal(format!("Failed to create task: {other}")),
-        })?;
+        .await?;
 
     let task_id = outcome.task.task_id;
     info!(task_id = %task_id, rule_id = %rule.id, "Created task from GitHub PR provider event");
