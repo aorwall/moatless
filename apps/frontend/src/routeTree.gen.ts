@@ -426,9 +426,9 @@ const AdminIntegrationsConnectionsConnectionIdIndexLazyRoute =
     path: '/$connection-id/',
     getParentRoute: () => AdminIntegrationsConnectionsLazyRoute,
   } as any).lazy(() =>
-    import(
-      './routes/admin/integrations/connections/$connection-id/index.lazy'
-    ).then((d) => d.Route),
+    import('./routes/admin/integrations/connections/$connection-id/index.lazy').then(
+      (d) => d.Route,
+    ),
   )
 
 export interface FileRoutesByFullPath {
