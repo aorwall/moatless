@@ -308,6 +308,18 @@ impl AgentHandle {
     }
 }
 
+#[cfg(test)]
+impl AgentHandle {
+    /// Build a handle backed by a fresh command channel, returning the receiver
+    /// so a test can observe exactly which `AgentCommand`s the init/dispatch path
+    /// enqueues. This channel is the single FIFO seam the lifecycle owner drains
+    /// into the harness, so command order is the order the harness accepts input.
+    pub(crate) fn test_channel() -> (Self, mpsc::UnboundedReceiver<AgentCommand>) {
+        let (command_tx, command_rx) = mpsc::unbounded_channel();
+        (Self { command_tx }, command_rx)
+    }
+}
+
 /// Spawn the agent actor loop and return a handle.
 ///
 /// When `config.agent_type` is `Some(...)`, routes through the new
@@ -610,6 +622,30 @@ mod tests {
     #[test]
     fn resolve_agent_harness_accepts_codex() {
         assert_eq!(resolve_agent_harness("codex").unwrap(), AGENT_TYPE_CODEX);
+    }
+
+    #[tokio::test]
+    async fn build_harness_reconstructs_the_selected_family() {
+        // A replacement pod rebuilds the harness fixed by `config.agent_type`.
+        // `build_harness` spawns the harness driver task, so a runtime is required.
+        // Every supported family reconstructs; an unsupported one is a classified
+        // configuration error, never a silent fall-through to Claude.
+        let config = Arc::new(minimal_config());
+        let agent_state = Arc::new(AgentState::new());
+        let failures = CredentialFailureDetector::default();
+
+        for family in ["claude-code", "claude-code-cli", "claude-code-fable", "codex"] {
+            assert!(
+                build_harness(&config, &agent_state, &failures, family).is_ok(),
+                "family {family} must reconstruct"
+            );
+        }
+
+        // `Harness` is intentionally not `Debug`, so match instead of `expect_err`.
+        match build_harness(&config, &agent_state, &failures, "gpt-9000") {
+            Ok(_) => panic!("unsupported family must be a classified error"),
+            Err(err) => assert_eq!(err.class, ErrorClass::InvalidConfiguration),
+        }
     }
 
     #[test]

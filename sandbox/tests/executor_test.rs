@@ -40,8 +40,6 @@ struct MockBackendClient {
     publish_count: AtomicUsize,
     ack_count: AtomicUsize,
     get_pending_count: AtomicUsize,
-    recover_count: AtomicUsize,
-    download_tar: Mutex<Vec<u8>>,
 }
 
 impl MockBackendClient {
@@ -52,19 +50,7 @@ impl MockBackendClient {
             publish_count: AtomicUsize::new(0),
             ack_count: AtomicUsize::new(0),
             get_pending_count: AtomicUsize::new(0),
-            recover_count: AtomicUsize::new(0),
-            download_tar: Mutex::new(Vec::new()),
         }
-    }
-
-    /// Number of times the backend was asked for an interrupted run to replay.
-    fn recover_count(&self) -> usize {
-        self.recover_count.load(Ordering::SeqCst)
-    }
-
-    /// Seed the archive that `download_transcript` (session-state restore) returns.
-    fn set_download_tar(&self, tar: Vec<u8>) {
-        *self.download_tar.lock().unwrap() = tar;
     }
 
     #[allow(dead_code)] // reason: used by some tests
@@ -159,7 +145,6 @@ impl BackendClient for MockBackendClient {
         &self,
         _task_id: &str,
     ) -> Result<Option<sandbox_proto::InterruptedTurn>, tonic::Status> {
-        self.recover_count.fetch_add(1, Ordering::SeqCst);
         Ok(None)
     }
 
@@ -172,7 +157,7 @@ impl BackendClient for MockBackendClient {
     }
 
     async fn download_transcript(&self, _task_id: &str) -> Result<Vec<u8>, tonic::Status> {
-        Ok(self.download_tar.lock().unwrap().clone())
+        Ok(Vec::new())
     }
 }
 
@@ -242,10 +227,6 @@ fn test_config() -> Config {
 }
 
 fn test_state(backend: Arc<dyn BackendClient>) -> SandboxState {
-    test_state_with_config(backend, Arc::new(test_config()))
-}
-
-fn test_state_with_config(backend: Arc<dyn BackendClient>, config: Arc<Config>) -> SandboxState {
     use moatless_sandbox::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
 
     let outbox = moatless_sandbox::outbox::EventOutbox::spawn(
@@ -254,6 +235,7 @@ fn test_state_with_config(backend: Arc<dyn BackendClient>, config: Arc<Config>) 
         tokio_util::sync::CancellationToken::new(),
     );
     let events = GrpcEventPublisher::new(outbox);
+    let config = Arc::new(test_config());
     let agent_state = Arc::new(AgentState::new());
     let credentials = Arc::new(RwLock::new(HashMap::new()));
 
@@ -634,124 +616,5 @@ async fn dispatch_does_not_ack_without_real_session() {
         backend.ack_count(),
         0,
         "Should not acknowledge without a real session (ack sender dropped)"
-    );
-}
-
-// =============================================================================
-// Sandbox-replacement lifecycle: restore session state, then honor interrupted-
-// run precedence at startup.
-// =============================================================================
-
-#[tokio::test]
-async fn interrupted_run_replayed_when_no_pending_messages() {
-    // With no pending user message waiting, the startup gate must ask the
-    // backend for an interrupted run to replay.
-    let backend = Arc::new(MockBackendClient::new(vec![]));
-    let state = test_state(Arc::clone(&backend) as _);
-
-    moatless_sandbox::init::recover_interrupted_run_unless_pending(
-        &state,
-        moatless_sandbox::init::WorkspaceOrigin::Persisted,
-    )
-    .await;
-
-    assert_eq!(
-        backend.recover_count(),
-        1,
-        "no pending messages → interrupted-run recovery must be attempted"
-    );
-}
-
-#[tokio::test]
-async fn interrupted_run_skipped_when_pending_message_supersedes() {
-    // A fresh pending message supersedes the interrupted turn: the gate must not
-    // drive a replay — `dispatch_pending_messages` resumes with the new text.
-    let backend = Arc::new(MockBackendClient::new(vec![vec![make_text_message(
-        "new instruction",
-        Some("uuid-new"),
-    )]]));
-    let state = test_state(Arc::clone(&backend) as _);
-
-    moatless_sandbox::init::recover_interrupted_run_unless_pending(
-        &state,
-        moatless_sandbox::init::WorkspaceOrigin::Persisted,
-    )
-    .await;
-
-    assert_eq!(
-        backend.recover_count(),
-        0,
-        "pending message present → interrupted-run replay must be skipped"
-    );
-    assert_eq!(
-        backend.get_pending_count(),
-        1,
-        "the gate probes pending messages exactly once"
-    );
-}
-
-#[tokio::test]
-async fn download_on_start_restores_claude_and_codex_session_state() {
-    // The restore-before-Ready orchestration: a combined archive from the
-    // backend must land Claude transcripts and Codex rollouts on disk at the
-    // config-derived dirs, so a later `--resume` sees the interrupted history.
-    let tmp = tempfile::TempDir::new().unwrap();
-    let workspace = tmp.path().join("workspace");
-    tokio::fs::create_dir_all(&workspace).await.unwrap();
-
-    let mut config = test_config();
-    config.workspace_dir = workspace.to_string_lossy().into_owned();
-    config.repo_dir = config.workspace_dir.clone();
-    config.claude_config_dir = tmp.path().join("claude-config").to_string_lossy().into_owned();
-    config.codex_home_dir = tmp.path().join("codex-home").to_string_lossy().into_owned();
-    let config = Arc::new(config);
-
-    // Build the archive exactly as the backend serves it: Claude entries under
-    // `claude/`, Codex rollouts under `codex/sessions/`.
-    let src = tmp.path().join("archive-src");
-    let claude_src = src.join("claude");
-    let codex_src = src.join("codex").join("sessions").join("2026").join("07");
-    tokio::fs::create_dir_all(&claude_src).await.unwrap();
-    tokio::fs::create_dir_all(&codex_src).await.unwrap();
-    tokio::fs::write(claude_src.join("session.jsonl"), b"{\"turn\":1}\n")
-        .await
-        .unwrap();
-    tokio::fs::write(codex_src.join("rollout-xyz.jsonl"), b"{\"thread\":\"xyz\"}\n")
-        .await
-        .unwrap();
-    let tar = tokio::task::spawn_blocking(move || {
-        let mut b = tar::Builder::new(Vec::new());
-        b.append_dir_all("claude", src.join("claude")).unwrap();
-        b.append_dir_all("codex/sessions", src.join("codex").join("sessions"))
-            .unwrap();
-        b.into_inner().unwrap()
-    })
-    .await
-    .unwrap();
-
-    let backend = Arc::new(MockBackendClient::new(vec![]));
-    backend.set_download_tar(tar);
-    let state = test_state_with_config(Arc::clone(&backend) as _, Arc::clone(&config));
-
-    moatless_sandbox::init::transcript_sync::download_on_start(&state).await;
-
-    let claude_dst = moatless_sandbox::init::transcript_sync::transcript_dir(&config);
-    let codex_dst = moatless_sandbox::init::transcript_sync::codex_sessions_dir(&config);
-    assert_eq!(
-        tokio::fs::read_to_string(claude_dst.join("session.jsonl"))
-            .await
-            .unwrap(),
-        "{\"turn\":1}\n"
-    );
-    assert_eq!(
-        tokio::fs::read_to_string(
-            codex_dst
-                .join("2026")
-                .join("07")
-                .join("rollout-xyz.jsonl")
-        )
-        .await
-        .unwrap(),
-        "{\"thread\":\"xyz\"}\n"
     );
 }

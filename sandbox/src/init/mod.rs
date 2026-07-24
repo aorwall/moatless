@@ -22,7 +22,10 @@ mod plugin_skills;
 pub(crate) mod refresher;
 pub(crate) mod server_env;
 mod ssh;
-pub mod transcript_sync;
+pub(crate) mod transcript_sync;
+
+#[cfg(test)]
+mod replacement_test;
 mod workspace;
 mod workspace_bridge;
 pub(crate) mod workspace_sync;
@@ -226,7 +229,7 @@ pub async fn run_init(state: SandboxState) {
 /// How the workspace came to exist on this start — determines what (if anything)
 /// a resuming agent must be warned lost across the restart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WorkspaceOrigin {
+pub(crate) enum WorkspaceOrigin {
     /// Repo persisted in place (EBS/PVC volume already held it) or this is a
     /// fresh task — nothing was lost, so no restart note is needed.
     Persisted,
@@ -298,25 +301,33 @@ fn workspace_recloned_note(workspace_dir: &str) -> String {
 /// treated as "no pending" so a transient backend blip can't strand an
 /// interrupted run.
 ///
-/// `pub` so the Sandbox-replacement lifecycle can be exercised with an
-/// in-memory backend without driving the whole of `run_init`.
-pub async fn recover_interrupted_run_unless_pending(
+/// `pub(crate)` so the Sandbox-replacement lifecycle can be exercised in-crate
+/// with an in-memory backend without driving the whole of `run_init`.
+pub(crate) async fn recover_interrupted_run_unless_pending(
     state: &SandboxState,
     origin: WorkspaceOrigin,
 ) {
     let task_id = &state.config.task_id;
+    // Fail closed on a probe error: treat "unknown" as "pending present" and skip
+    // the interrupted-run replay. Replaying on an unknown probe result risks
+    // resuming the stale Run and then having a newer Message dispatched
+    // concurrently once the backend recovers — two turns racing the same pod.
     let has_pending_messages = match state.backend_client.get_pending_messages(task_id).await {
         Ok(msgs) => !msgs.is_empty(),
         Err(e) => {
-            warn!(error = %e, task_id = %task_id, "Failed to probe pending messages on startup");
-            false
+            warn!(
+                error = %e,
+                task_id = %task_id,
+                "Failed to probe pending messages on startup; skipping interrupted-run replay"
+            );
+            true
         }
     };
 
     if has_pending_messages {
         info!(
             task_id = %task_id,
-            "Pending messages present on startup; skipping interrupted-run replay"
+            "Pending messages present (or probe failed) on startup; skipping interrupted-run replay"
         );
     } else {
         recover_interrupted_run(state, origin).await;

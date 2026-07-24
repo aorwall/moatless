@@ -8,6 +8,10 @@
 //! The dispatcher fetches pending messages from the backend, sends text to
 //! the agent actor via `agent_handle.send()`, and acknowledges the messages.
 //! The agent handles whether to start a new session or inject mid-turn.
+//!
+//! It self-gates on [`SandboxState::is_ready`]: the two gRPC entry points fire
+//! from the moment the pod starts, so a call that races `run_init` is dropped
+//! (the messages stay pending and `run_init` dispatches them after restoration).
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -30,6 +34,17 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
     // is cancelled by the shutdown driver.
     if state.lifecycle_cancel.is_cancelled() {
         info!("Dispatch skipped: sandbox is shutting down");
+        return;
+    }
+
+    // Init is not finished: the gRPC server accepts `execute_agent` /
+    // `notify_messages` from the moment the pod starts — before `run_init`
+    // restores Claude/Codex Session state and reaches Ready. Driving the harness
+    // now would submit input against un-restored `--resume` history. Dropping the
+    // call is safe: the messages stay pending on the backend, and `run_init`
+    // performs the authoritative dispatch itself right after restoration + Ready.
+    if !state.is_ready().await {
+        info!("Dispatch skipped: init not Ready — run_init will dispatch after restore");
         return;
     }
 

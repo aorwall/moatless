@@ -72,3 +72,16 @@ pub struct SandboxState {
     /// Refreshed on every successful fetch in `start_session`.
     pub system_prompt_cache: Arc<RwLock<Option<String>>>,
 }
+
+impl SandboxState {
+    /// Whether core init has finished (Session state restored, workspace cloned)
+    /// and the pod has reached [`InitPhase::Ready`].
+    ///
+    /// The message dispatcher gates on this so a backend notification that races
+    /// init (the gRPC server accepts calls before `run_init` completes) can never
+    /// drive the harness before restoration — `run_init` performs the
+    /// authoritative pending dispatch itself once Ready.
+    pub async fn is_ready(&self) -> bool {
+        matches!(*self.init_phase.read().await, InitPhase::Ready)
+    }
+}
