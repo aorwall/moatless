@@ -1,5 +1,5 @@
 import type { Scope, UpdateRepositoryRequest } from '@moatless/api-client'
-import { ArrowRight, FileCode, Loader2, Save, Trash2 } from 'lucide-react'
+import { ArrowRight, FileCode, Loader2, RefreshCw, Save, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { useAdminTeamsList, useAdminUsersList } from '@/features/admin/hooks/use-admin-users-teams'
@@ -7,6 +7,7 @@ import {
   useConvertToTemplate,
   useDeleteRepository,
   useRepository,
+  useSyncRepositoryConfig,
   useUpdateRepository,
   useVerifyRepositoryAccess,
 } from '@/features/repositories/hooks/use-repositories'
@@ -53,6 +54,7 @@ export function RepositoryConfigEditSection({
   const verifyRepositoryAccess = useVerifyRepositoryAccess()
   const deleteRepository = useDeleteRepository()
   const convertToTemplate = useConvertToTemplate()
+  const syncRepositoryConfig = useSyncRepositoryConfig()
   const teamsQuery = useAdminTeamsList()
   const usersQuery = useAdminUsersList()
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
@@ -208,6 +210,19 @@ export function RepositoryConfigEditSection({
     })
   }
 
+  const handleSync = () => {
+    syncRepositoryConfig.mutate(repositoryId, {
+      onSuccess: () => {
+        toast.success('Repository configuration synced from Git')
+      },
+      onError: (error) => {
+        toast.error('Failed to sync repository configuration', {
+          description: getErrorMessage(error),
+        })
+      },
+    })
+  }
+
   if (isLoading) {
     return <ConfigurationSkeleton />
   }
@@ -246,6 +261,19 @@ export function RepositoryConfigEditSection({
 
       <div className="flex justify-between gap-3 pt-6 border-t">
         <div className="flex gap-3">
+          {repository.remoteUrl && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleSync}
+              disabled={syncRepositoryConfig.isPending}
+            >
+              <RefreshCw
+                className={`mr-2 h-4 w-4 ${syncRepositoryConfig.isPending ? 'animate-spin' : ''}`}
+              />
+              {syncRepositoryConfig.isPending ? 'Syncing...' : 'Sync from Git'}
+            </Button>
+          )}
           <Button
             type="button"
             variant="destructive"

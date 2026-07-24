@@ -4,10 +4,16 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@/test-utils/render'
 import { RepositoryConfigEditSection } from '../repository-config-edit-section'
 
-const updateMutate = vi.fn()
-const verifyMutate = vi.fn()
+const mocks = vi.hoisted(() => ({
+  syncMutate: vi.fn(),
+  toastError: vi.fn(),
+  toastSuccess: vi.fn(),
+  updateMutate: vi.fn(),
+  verifyMutate: vi.fn(),
+}))
 
 let currentRepository: RepositoryResponse
+let syncPending = false
 
 beforeAll(() => {
   Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
@@ -16,12 +22,23 @@ beforeAll(() => {
   })
 })
 
+vi.mock('sonner', () => ({
+  toast: {
+    error: mocks.toastError,
+    success: mocks.toastSuccess,
+  },
+}))
+
 vi.mock('@/features/repositories/hooks/use-repositories', () => ({
   useRepository: () => ({ data: currentRepository, isLoading: false, error: null }),
-  useUpdateRepository: () => ({ mutate: updateMutate, isPending: false }),
-  useVerifyRepositoryAccess: () => ({ mutate: verifyMutate, isPending: false }),
+  useUpdateRepository: () => ({ mutate: mocks.updateMutate, isPending: false }),
+  useVerifyRepositoryAccess: () => ({ mutate: mocks.verifyMutate, isPending: false }),
   useDeleteRepository: () => ({ mutate: vi.fn(), isPending: false }),
   useConvertToTemplate: () => ({ mutate: vi.fn(), isPending: false }),
+  useSyncRepositoryConfig: () => ({
+    mutate: mocks.syncMutate,
+    isPending: syncPending,
+  }),
 }))
 
 vi.mock('@/features/admin/hooks/use-admin-users-teams', () => ({
@@ -54,11 +71,13 @@ function repository(overrides: Partial<RepositoryResponse> = {}): RepositoryResp
   }
 }
 
-describe('RepositoryConfigEditSection access editing', () => {
+describe('RepositoryConfigEditSection', () => {
   beforeEach(() => {
     currentRepository = repository()
-    updateMutate.mockReset()
-    verifyMutate.mockReset()
+    syncPending = false
+    for (const mock of Object.values(mocks)) {
+      mock.mockReset()
+    }
   })
 
   it('submits only changed repository fields', async () => {
@@ -70,7 +89,7 @@ describe('RepositoryConfigEditSection access editing', () => {
     await user.type(name, 'Renamed')
     await user.click(screen.getByRole('button', { name: 'Save Changes' }))
 
-    expect(updateMutate).toHaveBeenCalledWith(
+    expect(mocks.updateMutate).toHaveBeenCalledWith(
       {
         repoId: 'repo-1',
         request: { name: 'Renamed' },
@@ -95,7 +114,7 @@ describe('RepositoryConfigEditSection access editing', () => {
     await user.click(screen.getByRole('option', { name: 'Platform (platform)' }))
     await user.click(screen.getByRole('button', { name: 'Save Changes' }))
 
-    expect(updateMutate).toHaveBeenCalledWith(
+    expect(mocks.updateMutate).toHaveBeenCalledWith(
       {
         repoId: 'repo-1',
         request: { scope: 'team', teamId: 'team-2' },
@@ -126,5 +145,45 @@ describe('RepositoryConfigEditSection access editing', () => {
     expect(screen.getByRole('button', { name: 'Verify access' })).toBeEnabled()
     await user.type(screen.getByDisplayValue('Repository'), ' changed')
     expect(screen.getByRole('button', { name: 'Verify access' })).toBeDisabled()
+  })
+
+  it('triggers a Git configuration sync and reports success', async () => {
+    const user = userEvent.setup()
+    render(<RepositoryConfigEditSection repositoryId="repo-1" />)
+
+    await user.click(screen.getByRole('button', { name: 'Sync from Git' }))
+
+    expect(mocks.syncMutate).toHaveBeenCalledWith(
+      'repo-1',
+      expect.objectContaining({
+        onError: expect.any(Function),
+        onSuccess: expect.any(Function),
+      }),
+    )
+
+    const callbacks = mocks.syncMutate.mock.calls[0]?.[1]
+    callbacks.onSuccess()
+    expect(mocks.toastSuccess).toHaveBeenCalledWith('Repository configuration synced from Git')
+  })
+
+  it('disables the sync action while pending', () => {
+    syncPending = true
+
+    render(<RepositoryConfigEditSection repositoryId="repo-1" />)
+
+    expect(screen.getByRole('button', { name: 'Syncing...' })).toBeDisabled()
+  })
+
+  it('reports sync failures', async () => {
+    const user = userEvent.setup()
+    render(<RepositoryConfigEditSection repositoryId="repo-1" />)
+
+    await user.click(screen.getByRole('button', { name: 'Sync from Git' }))
+
+    const callbacks = mocks.syncMutate.mock.calls[0]?.[1]
+    callbacks.onError(new Error('Git provider unavailable'))
+    expect(mocks.toastError).toHaveBeenCalledWith('Failed to sync repository configuration', {
+      description: 'Git provider unavailable',
+    })
   })
 })

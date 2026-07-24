@@ -2,6 +2,7 @@ import type {
   BranchListResponse,
   CreateRepositoryRequest,
   RepositoryResponse,
+  SyncConfigResponse,
   UpdateRepositoryRequest,
 } from '@moatless/api-client'
 import { unwrapResponse } from '@moatless/api-client/custom-instance'
@@ -12,6 +13,7 @@ import {
   getBranches as getBranchesHandler,
   getRepository as getRepositoryHandler,
   listRepositories as listRepositoriesHandler,
+  syncConfig as syncConfigHandler,
   updateRepository as updateRepositoryHandler,
   verifyAccess as verifyAccessHandler,
 } from '@moatless/api-client/sandbox/repositories/repositories'
@@ -50,5 +52,9 @@ export const repositoriesApi = {
 
   async getBranches(repoId: string): Promise<BranchListResponse> {
     return await unwrapResponse(getBranchesHandler(repoId))
+  },
+
+  async syncConfig(repoId: string): Promise<SyncConfigResponse> {
+    return await unwrapResponse(syncConfigHandler(repoId))
   },
 }

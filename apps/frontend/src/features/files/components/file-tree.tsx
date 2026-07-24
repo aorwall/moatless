@@ -68,7 +68,8 @@ export function FileTree({ taskId, selectedPath, onFileSelect }: FileTreeProps) 
     if (!first) {
       return
     }
-    const meta = rowMetadata.get(first)
+    const lookupPath = first.endsWith('/') ? first.slice(0, -1) : first
+    const meta = rowMetadata.get(lookupPath)
     if (meta?.type === 'directory') {
       return
     }

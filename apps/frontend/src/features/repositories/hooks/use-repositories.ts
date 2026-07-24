@@ -2,6 +2,7 @@ import type {
   BranchListResponse,
   CreateRepositoryRequest,
   RepositoryResponse,
+  SyncConfigResponse,
   UpdateRepositoryRequest,
 } from '@moatless/api-client'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
@@ -138,6 +139,25 @@ export function useConvertToTemplate(
         }),
         // Invalidate repositories list
         queryClient.invalidateQueries({ queryKey: queryKeys.repositories.all() }),
+      ])
+      await options?.onSuccess?.(data, repoId, onMutateResult, mutationContext)
+    },
+  })
+}
+
+export function useSyncRepositoryConfig(
+  options?: UseMutationOptions<SyncConfigResponse, Error, string>,
+) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    ...options,
+    mutationFn: (repoId: string) => repositoriesApi.syncConfig(repoId),
+    onSuccess: async (data, repoId, onMutateResult, mutationContext) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.repositories.all() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.all() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.triggers.all() }),
       ])
       await options?.onSuccess?.(data, repoId, onMutateResult, mutationContext)
     },
