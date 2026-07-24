@@ -1189,20 +1189,19 @@
         }
       }
     },
-    "/api/v1/admin/settings/github/config": {
+    "/api/v1/admin/settings/github/apps": {
       "get": {
         "tags": [
           "provider-settings"
         ],
-        "summary": "Read the org-wide GitHub token's status. Admin only.",
-        "operationId": "admin_get_global_github_config",
+        "operationId": "admin_list_github_apps",
         "responses": {
           "200": {
-            "description": "Organization GitHub config",
+            "description": "Configured GitHub Apps and installations",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GitHubConfigResponse"
+                  "$ref": "#/components/schemas/GitHubAppsResponse"
                 }
               }
             }
@@ -1230,19 +1229,55 @@
         }
       }
     },
-    "/api/v1/admin/settings/github/pat": {
+    "/api/v1/admin/settings/github/installation": {
+      "get": {
+        "tags": [
+          "provider-settings"
+        ],
+        "operationId": "admin_get_global_github_installation",
+        "responses": {
+          "200": {
+            "description": "Global GitHub installation binding",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubInstallationBindingResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
       "put": {
         "tags": [
           "provider-settings"
         ],
-        "summary": "Set the org-wide GitHub token after validating it. Admin only.",
-        "description": "Sits at the bottom of the `user > team > global` precedence chain: any user\nwith their own token shadows this one. It exists so a user who has never\nconnected GitHub can still read repositories.",
-        "operationId": "admin_save_global_github_pat",
+        "operationId": "admin_put_global_github_installation",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SavePatRequest"
+                "$ref": "#/components/schemas/GitHubInstallationBindingRequest"
               }
             }
           },
@@ -1250,17 +1285,17 @@
         },
         "responses": {
           "200": {
-            "description": "Organization PAT saved",
+            "description": "Global GitHub installation bound",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GitHubConfigResponse"
+                  "$ref": "#/components/schemas/GitHubInstallationBindingResponse"
                 }
               }
             }
           },
           "400": {
-            "description": "Invalid token",
+            "description": "Invalid App or installation",
             "content": {
               "application/json": {
                 "schema": {
@@ -1295,15 +1330,14 @@
         "tags": [
           "provider-settings"
         ],
-        "summary": "Remove the org-wide GitHub token. Admin only.",
-        "operationId": "admin_delete_global_github_pat",
+        "operationId": "admin_delete_global_github_installation",
         "responses": {
           "200": {
-            "description": "Organization PAT removed",
+            "description": "Global GitHub installation unbound",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GitHubConfigResponse"
+                  "$ref": "#/components/schemas/GitHubInstallationBindingResponse"
                 }
               }
             }
@@ -6146,6 +6180,175 @@
         }
       }
     },
+    "/api/v1/teams/{team_id}/settings/github/installation": {
+      "get": {
+        "tags": [
+          "provider-settings"
+        ],
+        "operationId": "admin_get_team_github_installation",
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "description": "Team identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Team GitHub installation binding",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubInstallationBindingResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Team not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "provider-settings"
+        ],
+        "operationId": "admin_put_team_github_installation",
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "description": "Team identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitHubInstallationBindingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Team GitHub installation bound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubInstallationBindingResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid App or installation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Team not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "provider-settings"
+        ],
+        "operationId": "admin_delete_team_github_installation",
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "description": "Team identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Team GitHub installation unbound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubInstallationBindingResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Team not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/triggers": {
       "get": {
         "tags": [
@@ -10039,6 +10242,46 @@
           }
         }
       },
+      "GitHubAppOption": {
+        "type": "object",
+        "required": [
+          "githubAppKey",
+          "name",
+          "installUrl",
+          "installations"
+        ],
+        "properties": {
+          "githubAppKey": {
+            "type": "string"
+          },
+          "installUrl": {
+            "type": "string"
+          },
+          "installations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GitHubInstallationOption"
+            }
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "GitHubAppsResponse": {
+        "type": "object",
+        "required": [
+          "apps"
+        ],
+        "properties": {
+          "apps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GitHubAppOption"
+            }
+          }
+        }
+      },
       "GitHubConfigResponse": {
         "type": "object",
         "required": [
@@ -10066,6 +10309,83 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "GitHubInstallationBindingRequest": {
+        "type": "object",
+        "required": [
+          "githubAppKey",
+          "installationId"
+        ],
+        "properties": {
+          "githubAppKey": {
+            "type": "string"
+          },
+          "installationId": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "GitHubInstallationBindingResponse": {
+        "type": "object",
+        "required": [
+          "configured"
+        ],
+        "properties": {
+          "accountLogin": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "accountType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "githubAppKey": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "installationId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "GitHubInstallationOption": {
+        "type": "object",
+        "required": [
+          "installationId",
+          "accountLogin"
+        ],
+        "properties": {
+          "accountLogin": {
+            "type": "string"
+          },
+          "accountType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "installationId": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },

@@ -176,9 +176,12 @@ The stored access state reflects the provider's current response using credentia
 
 * **Given** a repository has a valid persisted remote URL
   * **And** the user has write permission
+  * **And** User scope has an owner PAT or OAuth token, or Team/Global scope has
+    an App installation bound to the repository URL owner
 
 * **When** the user asks the system to verify repository access
 
 * **Then** the response records whether the repository is reachable
   * **And** the response records when the check completed
   * **And** a reachability failure is returned as repository status rather than a request failure
+  * **And** credentials from any other repository scope are not used as fallback

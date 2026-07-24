@@ -48,7 +48,7 @@ pub async fn sync_repo_loops(
         return Ok(LoopSyncSummary::default());
     }
 
-    let token = resolve_github_token(state, repo, auth, remote_url).await;
+    let token = resolve_github_token(state, repo, remote_url).await;
     let fetcher = GitHubLoopFetcher::new(loop_http_client());
     let files = fetcher
         .fetch_loop_files(remote_url, token.as_deref())
@@ -566,10 +566,9 @@ async fn upsert_loop(
 async fn resolve_github_token(
     state: &AppState,
     repository: &Repository,
-    auth: &AuthUser,
     remote_url: &str,
 ) -> Option<String> {
-    match resolve_repository_github_token(state, repository, auth, remote_url).await {
+    match resolve_repository_github_token(state, repository, remote_url).await {
         Ok(token) => token,
         Err(e) => {
             warn!(error = %e, "Loop sync: failed to resolve GitHub token");

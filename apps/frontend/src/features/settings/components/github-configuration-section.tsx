@@ -68,7 +68,7 @@ function GitHubPATOverrideSection({
   return (
     <ConfigurationItem
       label="Personal Access Token Override"
-      description="Provide a PAT to use instead of your OAuth token for git operations (e.g., for additional scopes or private repo access)"
+      description="Used only for repositories persisted with User scope. A PAT overrides your OAuth token; Team and Global repositories use their bound GitHub App installation."
     >
       <div className="space-y-3">
         {hasOverride && (
@@ -253,10 +253,10 @@ export function GitHubConfigurationSection() {
             <AlertDescription>
               <div className="space-y-2">
                 <p className="text-sm">
-                  You are authenticated with GitHub.
+                  These credentials apply only to repositories with User scope that you own.
                   {githubConfig?.hasPatOverride
-                    ? ' A Personal Access Token is being used for git operations.'
-                    : ' Your OAuth credentials are automatically used for git operations.'}
+                    ? ' Your Personal Access Token overrides OAuth.'
+                    : ' Your OAuth token is used because no PAT override is configured.'}
                 </p>
                 {user.name && (
                   <p className="text-sm">
@@ -289,7 +289,8 @@ export function GitHubConfigurationSection() {
     <ConfigurationSectionWrapper>
       <ConfigurationGroup title="GitHub Configuration" showSeparator={false}>
         <p className="text-sm text-muted-foreground mb-4">
-          Connect your GitHub account to access private repositories and push changes
+          Connect credentials for repositories with User scope that you own. A Personal Access Token
+          overrides OAuth; Team and Global repositories use GitHub App installations.
         </p>
 
         {/* Connection Status */}

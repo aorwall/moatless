@@ -564,7 +564,7 @@ export type overrideWorkspaceResponse404 = {
   data: ErrorBody
   status: 404
 }
-
+    
 export type overrideWorkspaceResponseSuccess = (overrideWorkspaceResponse200) & {
   headers: Headers;
 };
@@ -577,16 +577,16 @@ export type overrideWorkspaceResponse = (overrideWorkspaceResponseSuccess | over
 export const getOverrideWorkspaceUrl = (workspaceId: string,) => {
 
 
-
+  
 
   return `/api/v1/workspaces/${workspaceId}/override`
 }
 
 export const overrideWorkspace = async (workspaceId: string,
     updateWorkspaceRequest: UpdateWorkspaceRequest, options?: RequestInit): Promise<overrideWorkspaceResponse> => {
-
+  
   return customInstance<overrideWorkspaceResponse>(getOverrideWorkspaceUrl(workspaceId),
-  {
+  {      
     ...options,
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -609,7 +609,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof overrideWorkspace>>, {workspaceId: string;data: UpdateWorkspaceRequest}> = (props) => {
@@ -620,7 +620,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -934,7 +934,7 @@ export type resetGitWorkspaceResponse404 = {
   data: ErrorBody
   status: 404
 }
-
+    
 export type resetGitWorkspaceResponseSuccess = (resetGitWorkspaceResponse200) & {
   headers: Headers;
 };
@@ -947,19 +947,19 @@ export type resetGitWorkspaceResponse = (resetGitWorkspaceResponseSuccess | rese
 export const getResetGitWorkspaceUrl = (workspaceId: string,) => {
 
 
-
+  
 
   return `/api/v1/workspaces/${workspaceId}/reset-git`
 }
 
 export const resetGitWorkspace = async (workspaceId: string, options?: RequestInit): Promise<resetGitWorkspaceResponse> => {
-
+  
   return customInstance<resetGitWorkspaceResponse>(getResetGitWorkspaceUrl(workspaceId),
-  {
+  {      
     ...options,
     method: 'POST'
-
-
+    
+    
   }
 );}
 
@@ -977,7 +977,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof resetGitWorkspace>>, {workspaceId: string}> = (props) => {
@@ -988,13 +988,13 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
 
     export type ResetGitWorkspaceMutationResult = NonNullable<Awaited<ReturnType<typeof resetGitWorkspace>>>
-
+    
     export type ResetGitWorkspaceMutationError = ErrorType<ErrorBody>
 
     /**

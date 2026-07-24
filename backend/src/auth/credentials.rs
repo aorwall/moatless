@@ -133,6 +133,7 @@ pub async fn resolve_github_token_for_scopes(
         &scope,
         user_id,
         repo_owner,
+        None,
     )
     .await?;
 
@@ -159,10 +160,11 @@ async fn resolve_github_row_token(
     scope: &GitHubScope,
     user_id: &str,
     repo_owner: Option<&str>,
+    repo_name: Option<&str>,
 ) -> Result<String, AuthError> {
     match row.auth_method.as_deref() {
         Some(AUTH_METHOD_APP_INSTALLATION) => {
-            mint_installation_token(row, github_apps, repo_owner).await
+            mint_installation_token(row, github_apps, repo_owner, repo_name).await
         }
         Some(AUTH_METHOD_SECRET_REF) => read_secret_ref_token(secrets, scope).await,
         Some("github_app") => {
@@ -184,6 +186,87 @@ async fn resolve_github_row_token(
         }
         _ => Ok(row.access_token.clone()),
     }
+}
+
+/// Resolve the one GitHub credential row selected by a persisted repository
+/// scope. This deliberately performs no scope walk.
+#[allow(clippy::too_many_arguments)]
+// reason: mirrors the canonical row resolver's infrastructure dependencies.
+pub(crate) async fn resolve_repository_github_scope_token(
+    provider_tokens: &dyn ProviderTokenRepository,
+    provider_token_auth: Option<&dyn ProviderTokenAuthRepository>,
+    github_app_service: Option<&GitHubAppService>,
+    github_apps: &GitHubAppRegistry,
+    secrets: Option<&SecretService>,
+    scope: &GitHubScope,
+    repo_owner: &str,
+    repo_name: &str,
+) -> Result<Option<String>, AuthError> {
+    let Some(row) = provider_tokens
+        .find_github_row(scope)
+        .await
+        .map_err(AuthError::Database)?
+    else {
+        return Ok(None);
+    };
+
+    match scope {
+        GitHubScope::User(_)
+            if row.auth_method.as_deref() == Some(AUTH_METHOD_APP_INSTALLATION) =>
+        {
+            return Err(AuthError::Config(
+                "User-scoped repositories require the repository owner's PAT or OAuth token"
+                    .to_string(),
+            ));
+        }
+        GitHubScope::Team(_) | GitHubScope::Global
+            if row.auth_method.as_deref() != Some(AUTH_METHOD_APP_INSTALLATION) =>
+        {
+            return Err(AuthError::Config(format!(
+                "GitHub credential at scope '{scope}' is not a GitHub App installation binding"
+            )));
+        }
+        GitHubScope::Team(_) | GitHubScope::Global => {
+            let metadata = row.metadata.as_ref().ok_or_else(|| {
+                AuthError::Config(format!(
+                    "GitHub App installation binding at scope '{scope}' has no metadata"
+                ))
+            })?;
+            if metadata
+                .get("installation_id")
+                .and_then(serde_json::Value::as_u64)
+                .is_none()
+                || metadata
+                    .get("account_login")
+                    .and_then(serde_json::Value::as_str)
+                    .is_none()
+            {
+                return Err(AuthError::Config(format!(
+                    "GitHub App installation binding at scope '{scope}' is malformed"
+                )));
+            }
+        }
+        _ => {}
+    }
+
+    let user_id = match scope {
+        GitHubScope::User(user_id) => user_id.as_str(),
+        GitHubScope::Team(_) | GitHubScope::Global => "",
+    };
+    resolve_github_row_token(
+        provider_tokens,
+        provider_token_auth,
+        github_app_service,
+        github_apps,
+        secrets,
+        &row,
+        scope,
+        user_id,
+        Some(repo_owner),
+        Some(repo_name),
+    )
+    .await
+    .map(Some)
 }
 
 /// Map a token scope onto the secret scope holding its encrypted value.
@@ -327,6 +410,7 @@ async fn mint_installation_token(
     row: &ProviderToken,
     github_apps: &GitHubAppRegistry,
     repo_owner: Option<&str>,
+    repo_name: Option<&str>,
 ) -> Result<String, AuthError> {
     let owner = repo_owner.ok_or_else(|| {
         AuthError::Config(format!(
@@ -340,6 +424,42 @@ async fn mint_installation_token(
             row.user_id
         ))
     })?;
+    if let Some(installation_id) = row
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata.get("installation_id"))
+        .and_then(serde_json::Value::as_u64)
+    {
+        let bound_login = row
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("account_login"))
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                AuthError::Config(format!(
+                    "GitHub App binding for installation {installation_id} is missing account_login"
+                ))
+            })?;
+        if !bound_login.eq_ignore_ascii_case(owner) {
+            return Err(AuthError::Config(format!(
+                "Repository owner '{owner}' does not match bound GitHub installation account '{bound_login}'"
+            )));
+        }
+        let repository = repo_name.ok_or_else(|| {
+            AuthError::Config(format!(
+                "Cannot mint repository-restricted installation token for '{owner}': no repository name in context"
+            ))
+        })?;
+        let app = github_apps.get(app_key).ok_or_else(|| {
+            AuthError::Config(format!(
+                "Unknown GitHub App key '{app_key}' in installation binding"
+            ))
+        })?;
+        return app
+            .get_repository_installation_token(installation_id, repository)
+            .await;
+    }
+
     let app = github_apps.get(app_key).ok_or_else(|| {
         AuthError::Config(format!(
             "Bot user '{}' references unknown GitHub App key '{app_key}'",
@@ -361,7 +481,16 @@ mod tests {
         secrets: Option<&SecretService>,
     ) -> Result<Option<String>, AuthError> {
         let apps = GitHubAppRegistry::default();
-        resolve_user_github_token(&StubProviderTokens::with_user_row(row), None, None, &apps, secrets, "u1", None).await
+        resolve_user_github_token(
+            &StubProviderTokens::with_user_row(row),
+            None,
+            None,
+            &apps,
+            secrets,
+            "u1",
+            None,
+        )
+        .await
     }
 
     #[tokio::test]
@@ -374,7 +503,10 @@ mod tests {
             "ghp_real",
         )]);
         let token = resolve(
-            Some(github_row(AUTH_METHOD_SECRET_REF, SECRET_REF_TOKEN_PLACEHOLDER)),
+            Some(github_row(
+                AUTH_METHOD_SECRET_REF,
+                SECRET_REF_TOKEN_PLACEHOLDER,
+            )),
             Some(&secrets),
         )
         .await
@@ -392,7 +524,10 @@ mod tests {
         // read as "GitHub not connected" and silently drop auth.
         let secrets = service_with(vec![]);
         let err = resolve(
-            Some(github_row(AUTH_METHOD_SECRET_REF, SECRET_REF_TOKEN_PLACEHOLDER)),
+            Some(github_row(
+                AUTH_METHOD_SECRET_REF,
+                SECRET_REF_TOKEN_PLACEHOLDER,
+            )),
             Some(&secrets),
         )
         .await
@@ -403,7 +538,10 @@ mod tests {
     #[tokio::test]
     async fn secret_ref_without_secret_service_errors() {
         let err = resolve(
-            Some(github_row(AUTH_METHOD_SECRET_REF, SECRET_REF_TOKEN_PLACEHOLDER)),
+            Some(github_row(
+                AUTH_METHOD_SECRET_REF,
+                SECRET_REF_TOKEN_PLACEHOLDER,
+            )),
             None,
         )
         .await
@@ -423,7 +561,10 @@ mod tests {
             "ghp_unvalidated",
         )]);
         let err = resolve(
-            Some(github_row(AUTH_METHOD_SECRET_REF, SECRET_REF_TOKEN_PLACEHOLDER)),
+            Some(github_row(
+                AUTH_METHOD_SECRET_REF,
+                SECRET_REF_TOKEN_PLACEHOLDER,
+            )),
             Some(&secrets),
         )
         .await
@@ -539,11 +680,112 @@ mod tests {
             AUTH_METHOD_SECRET_REF,
             SECRET_REF_TOKEN_PLACEHOLDER,
         ));
-        let resolved =
-            resolve_github_token_for_scopes(&tokens, None, None, &apps, Some(&secrets), "u1", &[], None)
-                .await
-                .expect("global secret_ref must resolve")
-                .expect("global row present");
+        let resolved = resolve_github_token_for_scopes(
+            &tokens,
+            None,
+            None,
+            &apps,
+            Some(&secrets),
+            "u1",
+            &[],
+            None,
+        )
+        .await
+        .expect("global secret_ref must resolve")
+        .expect("global row present");
         assert_eq!(resolved.token, "ghp_org_secret");
+    }
+
+    #[tokio::test]
+    async fn repository_user_scope_never_falls_through_to_global() {
+        let tokens =
+            StubProviderTokens::default().with_global_row(github_row("manual", "ghp_global"));
+        let apps = GitHubAppRegistry::default();
+        let resolved = resolve_repository_github_scope_token(
+            &tokens,
+            None,
+            None,
+            &apps,
+            None,
+            &GitHubScope::user("owner"),
+            "acme",
+            "repo",
+        )
+        .await
+        .expect("missing exact row is not an error");
+        assert_eq!(resolved, None);
+    }
+
+    #[tokio::test]
+    async fn repository_team_scope_rejects_legacy_pat_row() {
+        let tokens =
+            StubProviderTokens::default().with_team_row("t1", github_row("manual", "ghp_legacy"));
+        let apps = GitHubAppRegistry::default();
+        let error = resolve_repository_github_scope_token(
+            &tokens,
+            None,
+            None,
+            &apps,
+            None,
+            &GitHubScope::team("t1"),
+            "acme",
+            "repo",
+        )
+        .await
+        .expect_err("team PAT must stay inactive");
+        assert!(matches!(error, AuthError::Config(_)));
+    }
+
+    #[tokio::test]
+    async fn repository_installation_binding_requires_verified_metadata() {
+        let mut row = github_row(
+            AUTH_METHOD_APP_INSTALLATION,
+            crate::auth::provider_tokens::APP_INSTALLATION_TOKEN_PLACEHOLDER,
+        );
+        row.provider_user_id = Some("default".to_string());
+        let tokens = StubProviderTokens::default().with_global_row(row);
+        let apps = GitHubAppRegistry::default();
+        let error = resolve_repository_github_scope_token(
+            &tokens,
+            None,
+            None,
+            &apps,
+            None,
+            &GitHubScope::Global,
+            "acme",
+            "repo",
+        )
+        .await
+        .expect_err("missing installation metadata must fail");
+        assert!(error.to_string().contains("metadata"));
+    }
+
+    #[tokio::test]
+    async fn repository_owner_must_match_bound_installation_account() {
+        let mut row = github_row(
+            AUTH_METHOD_APP_INSTALLATION,
+            crate::auth::provider_tokens::APP_INSTALLATION_TOKEN_PLACEHOLDER,
+        );
+        row.provider_user_id = Some("default".to_string());
+        row.metadata = Some(serde_json::json!({
+            "installation_id": 42,
+            "account_login": "different-owner",
+            "account_type": "Organization",
+        }));
+        let tokens = StubProviderTokens::default().with_global_row(row);
+        let apps = GitHubAppRegistry::default();
+        let error = resolve_repository_github_scope_token(
+            &tokens,
+            None,
+            None,
+            &apps,
+            None,
+            &GitHubScope::Global,
+            "acme",
+            "repo",
+        )
+        .await
+        .expect_err("account mismatch must fail before minting");
+        assert!(error.to_string().contains("does not match"));
     }
 }

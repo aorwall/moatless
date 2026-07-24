@@ -1,27 +1,49 @@
 import { unwrapResponse } from '@moatless/api-client/custom-instance'
-import type { GitHubConfigResponse, SavePatRequest } from '@moatless/api-client/sandbox/model'
+import type {
+  GitHubAppsResponse,
+  GitHubInstallationBindingRequest,
+  GitHubInstallationBindingResponse,
+} from '@moatless/api-client/sandbox/model'
 import {
-  adminDeleteGlobalGithubPat as adminDeleteGlobalGithubPatHandler,
-  adminGetGlobalGithubConfig as adminGetGlobalGithubConfigHandler,
-  adminSaveGlobalGithubPat as adminSaveGlobalGithubPatHandler,
+  adminDeleteGlobalGithubInstallation,
+  adminDeleteTeamGithubInstallation,
+  adminGetGlobalGithubInstallation,
+  adminGetTeamGithubInstallation,
+  adminListGithubApps,
+  adminPutGlobalGithubInstallation,
+  adminPutTeamGithubInstallation,
 } from '@moatless/api-client/sandbox/provider-settings/provider-settings'
 
-/**
- * The org-wide GitHub token: one credential an admin sets once, used by any
- * user who has none of their own. Admin-only on the backend.
- */
 export const adminGithubConnectionApi = {
-  getConfig: async (): Promise<GitHubConfigResponse> => {
-    return await unwrapResponse<GitHubConfigResponse>(adminGetGlobalGithubConfigHandler())
-  },
+  getApps: async (): Promise<GitHubAppsResponse> =>
+    await unwrapResponse<GitHubAppsResponse>(adminListGithubApps()),
 
-  savePAT: async (request: SavePatRequest): Promise<GitHubConfigResponse> => {
-    return await unwrapResponse<GitHubConfigResponse>(
-      adminSaveGlobalGithubPatHandler({ token: request.token }),
-    )
-  },
+  getGlobalInstallation: async (): Promise<GitHubInstallationBindingResponse> =>
+    await unwrapResponse<GitHubInstallationBindingResponse>(adminGetGlobalGithubInstallation()),
 
-  remove: async (): Promise<GitHubConfigResponse> => {
-    return await unwrapResponse<GitHubConfigResponse>(adminDeleteGlobalGithubPatHandler())
-  },
+  saveGlobalInstallation: async (
+    request: GitHubInstallationBindingRequest,
+  ): Promise<GitHubInstallationBindingResponse> =>
+    await unwrapResponse<GitHubInstallationBindingResponse>(
+      adminPutGlobalGithubInstallation(request),
+    ),
+
+  removeGlobalInstallation: async (): Promise<GitHubInstallationBindingResponse> =>
+    await unwrapResponse<GitHubInstallationBindingResponse>(adminDeleteGlobalGithubInstallation()),
+
+  getTeamInstallation: async (teamId: string): Promise<GitHubInstallationBindingResponse> =>
+    await unwrapResponse<GitHubInstallationBindingResponse>(adminGetTeamGithubInstallation(teamId)),
+
+  saveTeamInstallation: async (
+    teamId: string,
+    request: GitHubInstallationBindingRequest,
+  ): Promise<GitHubInstallationBindingResponse> =>
+    await unwrapResponse<GitHubInstallationBindingResponse>(
+      adminPutTeamGithubInstallation(teamId, request),
+    ),
+
+  removeTeamInstallation: async (teamId: string): Promise<GitHubInstallationBindingResponse> =>
+    await unwrapResponse<GitHubInstallationBindingResponse>(
+      adminDeleteTeamGithubInstallation(teamId),
+    ),
 }

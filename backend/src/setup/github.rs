@@ -16,7 +16,7 @@ use crate::secret::models::SecretKind;
 
 /// Settings-dialog section holding the per-user GitHub connection.
 const SETTINGS_SECTION: &str = "github";
-/// Admin page for the org-wide GitHub token.
+/// Admin page for the global GitHub App installation.
 const ADMIN_ROUTE: &str = "/admin/integrations/github";
 
 /// Without a GitHub token the app can't read repositories, so nothing else
@@ -60,7 +60,10 @@ impl SetupRequirementCheck for GithubTokenRequirement {
 ///
 /// `/me` runs on every page load, so this stays to at most one extra indexed
 /// read — the `secret_exists` probe, and only for reference rows.
-async fn classify(ctx: &SetupContext<'_>, presence: &GithubTokenPresence) -> SetupRequirementStatus {
+async fn classify(
+    ctx: &SetupContext<'_>,
+    presence: &GithubTokenPresence,
+) -> SetupRequirementStatus {
     if presence.refresh_failure {
         return SetupRequirementStatus::Broken;
     }
@@ -105,8 +108,8 @@ async fn classify(ctx: &SetupContext<'_>, presence: &GithubTokenPresence) -> Set
     }
 }
 
-/// Admins get the org-wide route first: setting one token there fixes it for
-/// everyone, which beats each user pasting their own PAT.
+/// Admins get the global installation route first; users can still connect a
+/// PAT/OAuth credential for repositories persisted with User scope.
 fn actions(is_admin: bool) -> Vec<SetupAction> {
     let mut actions = Vec::with_capacity(2);
     if is_admin {

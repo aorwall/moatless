@@ -49,6 +49,7 @@ pub struct GitHubAppService {
     default_installation_id: Option<u64>,
     http: reqwest::Client,
     token_cache: RwLock<HashMap<u64, CachedToken>>,
+    repository_token_cache: RwLock<HashMap<(u64, String), CachedToken>>,
     /// Cached `installation_id` per `owner` (org or user login).
     installation_by_owner: RwLock<HashMap<String, u64>>,
     /// Cached bot identity (populated lazily).
@@ -82,20 +83,20 @@ struct RefreshTokenResponse {
     error_description: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct Installation {
     pub id: u64,
     pub account: InstallationAccount,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct InstallationAccount {
     pub login: String,
     #[serde(rename = "type")]
     pub account_type: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 struct AppMetadata {
     slug: String,
     #[serde(default)]
@@ -181,6 +182,7 @@ impl GitHubAppService {
             default_installation_id,
             http,
             token_cache: RwLock::new(HashMap::new()),
+            repository_token_cache: RwLock::new(HashMap::new()),
             installation_by_owner: RwLock::new(HashMap::new()),
             bot_identity: RwLock::new(None),
         })
@@ -226,7 +228,8 @@ impl GitHubAppService {
         let resp = self
             .http
             .post(format!(
-                "https://api.github.com/app/installations/{installation_id}/access_tokens"
+                "{}/app/installations/{installation_id}/access_tokens",
+                crate::adapters::github_pr::api::api_base()
             ))
             .header("Authorization", format!("Bearer {app_jwt}"))
             .header("Accept", "application/vnd.github+json")
@@ -272,6 +275,78 @@ impl GitHubAppService {
         Ok(data.token)
     }
 
+    /// Mint an installation token restricted by GitHub to one repository.
+    pub async fn get_repository_installation_token(
+        &self,
+        installation_id: u64,
+        repository: &str,
+    ) -> Result<String, AuthError> {
+        let cache_key = (installation_id, repository.to_ascii_lowercase());
+        {
+            let cache = self.repository_token_cache.read().await;
+            if let Some(cached) = cache.get(&cache_key) {
+                let margin = Utc::now() + chrono::Duration::minutes(5);
+                if cached.expires_at > margin {
+                    debug!(
+                        installation_id,
+                        repository, "Using cached repository-restricted installation token"
+                    );
+                    return Ok(cached.token.clone());
+                }
+            }
+        }
+
+        let app_jwt = self.generate_app_jwt()?;
+        let resp = self
+            .http
+            .post(format!(
+                "{}/app/installations/{installation_id}/access_tokens",
+                crate::adapters::github_pr::api::api_base()
+            ))
+            .header("Authorization", format!("Bearer {app_jwt}"))
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "moatless-vibe-backend")
+            .json(&serde_json::json!({ "repositories": [repository] }))
+            .send()
+            .await
+            .map_err(|e| {
+                AuthError::OAuth(format!(
+                    "GitHub repository installation token request failed: {e}"
+                ))
+            })?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(AuthError::OAuth(format!(
+                "GitHub repository installation token request returned {status}: {body}"
+            )));
+        }
+
+        let data: InstallationTokenResponse = resp.json().await.map_err(|e| {
+            AuthError::OAuth(format!(
+                "Failed to parse GitHub repository installation token response: {e}"
+            ))
+        })?;
+        let expires_at = data
+            .expires_at
+            .parse::<DateTime<Utc>>()
+            .unwrap_or_else(|_| Utc::now() + chrono::Duration::hours(1));
+        self.repository_token_cache.write().await.insert(
+            cache_key,
+            CachedToken {
+                token: data.token.clone(),
+                expires_at,
+            },
+        );
+
+        info!(
+            installation_id,
+            repository, "Obtained repository-restricted GitHub installation token"
+        );
+        Ok(data.token)
+    }
+
     /// Get an installation token using the default installation ID.
     pub async fn get_default_installation_token(&self) -> Result<String, AuthError> {
         let id = self.default_installation_id.ok_or_else(|| {
@@ -286,7 +361,10 @@ impl GitHubAppService {
 
         let resp = self
             .http
-            .get("https://api.github.com/app/installations")
+            .get(format!(
+                "{}/app/installations",
+                crate::adapters::github_pr::api::api_base()
+            ))
             .header("Authorization", format!("Bearer {app_jwt}"))
             .header("Accept", "application/vnd.github+json")
             .header("User-Agent", "moatless-vibe-backend")
@@ -308,6 +386,66 @@ impl GitHubAppService {
                 "Failed to parse GitHub installations response: {e}"
             ))
         })
+    }
+
+    /// Verify that an installation belongs to this App and return its account.
+    pub async fn get_installation(&self, installation_id: u64) -> Result<Installation, AuthError> {
+        let app_jwt = self.generate_app_jwt()?;
+        let resp = self
+            .http
+            .get(format!(
+                "{}/app/installations/{installation_id}",
+                crate::adapters::github_pr::api::api_base()
+            ))
+            .header("Authorization", format!("Bearer {app_jwt}"))
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "moatless-vibe-backend")
+            .send()
+            .await
+            .map_err(|e| AuthError::OAuth(format!("GitHub installation lookup failed: {e}")))?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            return Err(AuthError::OAuth(format!(
+                "GitHub installation lookup returned {status}"
+            )));
+        }
+        resp.json().await.map_err(|e| {
+            AuthError::OAuth(format!("Failed to parse GitHub installation response: {e}"))
+        })
+    }
+
+    /// Resolve display metadata and the App installation link.
+    pub async fn app_listing(&self) -> Result<(String, String), AuthError> {
+        let app_jwt = self.generate_app_jwt()?;
+        let resp = self
+            .http
+            .get(format!(
+                "{}/app",
+                crate::adapters::github_pr::api::api_base()
+            ))
+            .header("Authorization", format!("Bearer {app_jwt}"))
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "moatless-vibe-backend")
+            .send()
+            .await
+            .map_err(|e| AuthError::OAuth(format!("GitHub /app lookup failed: {e}")))?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            return Err(AuthError::OAuth(format!(
+                "GitHub /app returned {status} for app {}",
+                self.key
+            )));
+        }
+        let metadata: AppMetadata = resp
+            .json()
+            .await
+            .map_err(|e| AuthError::OAuth(format!("Failed to parse /app response: {e}")))?;
+        let name = metadata.name.unwrap_or_else(|| metadata.slug.clone());
+        let install_url = format!(
+            "https://github.com/apps/{}/installations/new",
+            metadata.slug
+        );
+        Ok((name, install_url))
     }
 
     /// Refresh a GitHub App user access token using a refresh token.
@@ -392,8 +530,14 @@ impl GitHubAppService {
         let app_jwt = self.generate_app_jwt()?;
 
         for endpoint in [
-            format!("https://api.github.com/orgs/{owner}/installation"),
-            format!("https://api.github.com/users/{owner}/installation"),
+            format!(
+                "{}/orgs/{owner}/installation",
+                crate::adapters::github_pr::api::api_base()
+            ),
+            format!(
+                "{}/users/{owner}/installation",
+                crate::adapters::github_pr::api::api_base()
+            ),
         ] {
             let resp = self
                 .http
@@ -453,7 +597,10 @@ impl GitHubAppService {
         let app_jwt = self.generate_app_jwt()?;
         let meta_resp = self
             .http
-            .get("https://api.github.com/app")
+            .get(format!(
+                "{}/app",
+                crate::adapters::github_pr::api::api_base()
+            ))
             .header("Authorization", format!("Bearer {app_jwt}"))
             .header("Accept", "application/vnd.github+json")
             .header("User-Agent", "moatless-vibe-backend")
@@ -475,7 +622,10 @@ impl GitHubAppService {
         let bot_login = format!("{}[bot]", meta.slug);
         let user_resp = self
             .http
-            .get(format!("https://api.github.com/users/{bot_login}"))
+            .get(format!(
+                "{}/users/{bot_login}",
+                crate::adapters::github_pr::api::api_base()
+            ))
             .header("Accept", "application/vnd.github+json")
             .header("User-Agent", "moatless-vibe-backend")
             .send()

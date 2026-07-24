@@ -2,60 +2,93 @@
 
 use moatless_backend_core::scope::Scope;
 
-use crate::extractors::AuthUser;
+use crate::auth::github_app_registry::GitHubAppRegistry;
+use crate::auth::github_app_service::GitHubAppService;
+use crate::auth::provider_token_dao::ProviderTokenRepository;
+use crate::auth::provider_tokens::ProviderTokenAuthRepository;
+use crate::credentials::github::scope::GitHubScope;
+use crate::secret::service::SecretService;
 use crate::state::AppState;
 
 use super::config_reader::AccessStatus;
 use super::error::RepositoryError;
 use super::models::Repository;
 
-/// Select the identity whose GitHub credentials apply to a repository.
-///
-/// User-scoped repositories are immutable-owned resources, so an admin viewing
-/// one must still use the owner's credential walk (`owner user > global`).
-/// Team/global repositories retain the caller-based walk.
-fn github_credential_identity<'a>(
-    repository: &'a Repository,
-    caller_user_id: &'a str,
-    caller_team_ids: &'a [String],
-) -> Result<(&'a str, &'a [String]), RepositoryError> {
+/// Select the single persisted GitHub credential scope for a repository.
+fn github_credential_scope(repository: &Repository) -> Result<GitHubScope, RepositoryError> {
     match repository.scope {
         Scope::User => repository
             .owner_user_id
             .as_deref()
-            .map(|owner_user_id| (owner_user_id, &[][..]))
+            .map(GitHubScope::user)
             .ok_or_else(|| {
                 RepositoryError::ProviderError(format!(
                     "User-scoped repository '{}' has no owner",
                     repository.id
                 ))
             }),
-        Scope::Team | Scope::Global => Ok((caller_user_id, caller_team_ids)),
+        Scope::Team => repository
+            .team_id
+            .as_deref()
+            .map(GitHubScope::team)
+            .ok_or_else(|| {
+                RepositoryError::ProviderError(format!(
+                    "Team-scoped repository '{}' has no team",
+                    repository.id
+                ))
+            }),
+        Scope::Global => Ok(GitHubScope::Global),
     }
 }
 
 /// Resolve a GitHub token for an operation on `remote_url`.
 ///
-/// The URL owner is passed through to the canonical resolver so bot credentials
-/// mint an installation token for the correct GitHub organization.
+/// The URL owner and repository name are passed through to the canonical
+/// resolver so Team/Global bindings can validate their installation account
+/// and mint a token restricted to this repository.
 pub(crate) async fn resolve_repository_github_token(
     state: &AppState,
     repository: &Repository,
-    auth: &AuthUser,
     remote_url: &str,
 ) -> Result<Option<String>, RepositoryError> {
-    let (repo_owner, _) = parse_github_owner_repo(remote_url).ok_or_else(|| {
+    resolve_repository_github_token_with(
+        state.provider_tokens.as_ref(),
+        Some(state.provider_token_auth.as_ref()),
+        state.github_app_service.as_deref(),
+        state.github_apps.as_ref(),
+        Some(state.secrets.as_ref()),
+        repository,
+        remote_url,
+    )
+    .await
+}
+
+/// Dependency-injected form used by sandbox credential delivery.
+#[allow(clippy::too_many_arguments)]
+// reason: this is the repository credential boundary shared by AppState and gRPC.
+pub(crate) async fn resolve_repository_github_token_with(
+    provider_tokens: &dyn ProviderTokenRepository,
+    provider_token_auth: Option<&dyn ProviderTokenAuthRepository>,
+    github_app_service: Option<&GitHubAppService>,
+    github_apps: &GitHubAppRegistry,
+    secrets: Option<&SecretService>,
+    repository: &Repository,
+    remote_url: &str,
+) -> Result<Option<String>, RepositoryError> {
+    let (repo_owner, repo_name) = parse_github_owner_repo(remote_url).ok_or_else(|| {
         RepositoryError::BadRequest(format!("Cannot parse GitHub URL: {remote_url}"))
     })?;
-    let caller_user_id = auth.user_id.to_string();
-    let (credential_user_id, team_ids) =
-        github_credential_identity(repository, &caller_user_id, &auth.team_ids)?;
+    let scope = github_credential_scope(repository)?;
 
-    crate::auth::credentials::resolve_state_github_token_for(
-        state,
-        credential_user_id,
-        team_ids,
-        Some(&repo_owner),
+    crate::auth::credentials::resolve_repository_github_scope_token(
+        provider_tokens,
+        provider_token_auth,
+        github_app_service,
+        github_apps,
+        secrets,
+        &scope,
+        &repo_owner,
+        &repo_name,
     )
     .await
     .map_err(|e| RepositoryError::ProviderError(format!("GitHub token resolution failed: {e}")))
@@ -129,36 +162,30 @@ mod tests {
     }
 
     #[test]
-    fn user_scope_selects_repository_owner_instead_of_caller() {
+    fn user_scope_selects_repository_owner() {
         let repo = repository(Scope::User, Some("owner"));
-        let caller_teams = vec!["admin-team".to_string()];
-
-        let (user_id, team_ids) =
-            github_credential_identity(&repo, "viewing-admin", &caller_teams).unwrap();
-
-        assert_eq!(user_id, "owner");
-        assert!(
-            team_ids.is_empty(),
-            "owner walk must fall back directly to global"
+        assert_eq!(
+            github_credential_scope(&repo).unwrap(),
+            GitHubScope::user("owner")
         );
     }
 
     #[test]
-    fn team_and_global_scopes_select_caller() {
-        let caller_teams = vec!["team-1".to_string()];
-        for scope in [Scope::Team, Scope::Global] {
-            let repo = repository(scope, None);
-            let (user_id, team_ids) =
-                github_credential_identity(&repo, "caller", &caller_teams).unwrap();
-            assert_eq!(user_id, "caller");
-            assert_eq!(team_ids, caller_teams);
-        }
+    fn team_and_global_scopes_select_only_the_bound_scope() {
+        assert_eq!(
+            github_credential_scope(&repository(Scope::Team, None)).unwrap(),
+            GitHubScope::team("team-1")
+        );
+        assert_eq!(
+            github_credential_scope(&repository(Scope::Global, None)).unwrap(),
+            GitHubScope::Global
+        );
     }
 
     #[test]
     fn malformed_user_scope_without_owner_is_rejected() {
         let repo = repository(Scope::User, None);
-        let err = github_credential_identity(&repo, "caller", &[])
+        let err = github_credential_scope(&repo)
             .expect_err("ownerless user-scoped row must not use caller credentials");
         assert!(matches!(err, RepositoryError::ProviderError(_)));
     }

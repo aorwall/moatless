@@ -434,10 +434,19 @@ pub async fn list_tasks(
                 .collect();
 
             let relations = all_relations.get(&row.task_id).cloned().unwrap_or_default();
-            let sandbox = sandbox_intents.get(&row.task_id).cloned().unwrap_or_default();
+            let sandbox = sandbox_intents
+                .get(&row.task_id)
+                .cloned()
+                .unwrap_or_default();
 
             let mut resp = build_task_response(
-                row, &sandbox, tags, display_name, repo_name, bindings, relations,
+                row,
+                &sandbox,
+                tags,
+                display_name,
+                repo_name,
+                bindings,
+                relations,
             );
             resp.last_read_at = read_receipts
                 .get(&row.task_id)
@@ -718,7 +727,10 @@ pub async fn follow_task(
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
-    state.tasks.follow_task(&auth.user_id.to_string(), &task_id).await?;
+    state
+        .tasks
+        .follow_task(&auth.user_id.to_string(), &task_id)
+        .await?;
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task followed");
 
     Ok(Json(FollowTaskResponse { following: true }))
@@ -750,7 +762,10 @@ pub async fn unfollow_task(
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
-    state.tasks.unfollow_task(&auth.user_id.to_string(), &task_id).await?;
+    state
+        .tasks
+        .unfollow_task(&auth.user_id.to_string(), &task_id)
+        .await?;
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task unfollowed");
 
     Ok(Json(FollowTaskResponse { following: false }))
@@ -1078,7 +1093,6 @@ async fn maybe_sync_repo_config_on_start(
         crate::repository::access::resolve_repository_github_token(
             state,
             repo,
-            auth,
             remote_url,
         )
             .await

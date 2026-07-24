@@ -14,6 +14,7 @@ import {
   useSaveAdminTeam,
   useSaveAdminTeamMember,
 } from '@/features/admin/hooks/use-admin-users-teams'
+import { GitHubInstallationCard } from '@/features/settings/components/github-installation-card'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/components/ui/card'
@@ -127,6 +128,8 @@ function AdminTeamDetailBody({ team }: { team: AdminTeam }) {
           />
         </div>
       </EditFormCard>
+
+      <GitHubInstallationCard teamId={team.id} />
 
       <TeamMembersCard
         teamId={team.id}

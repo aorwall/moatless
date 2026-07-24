@@ -60,7 +60,14 @@ pub async fn create_pr(
         ensure_task_access(&state, &ctx, task_id).await?;
     }
 
-    let api = resolve_github_api(&state, &auth.user_id.to_string(), &owner).await?;
+    let api = resolve_github_api(
+        &state,
+        &auth.user_id.to_string(),
+        &owner,
+        &repo,
+        req.task_id.as_deref(),
+    )
+    .await?;
 
     let base = match req.base.as_deref() {
         Some(b) => b.to_string(),
@@ -105,7 +112,15 @@ pub async fn create_pr(
         .to_string();
 
     let binding_id = if let Some(task_id) = req.task_id.as_deref() {
-        let bid = bind_task_to_pr(&state, &owner, &repo, number, task_id, &auth.user_id.to_string()).await;
+        let bid = bind_task_to_pr(
+            &state,
+            &owner,
+            &repo,
+            number,
+            task_id,
+            &auth.user_id.to_string(),
+        )
+        .await;
         state
             .recently_sent
             .note(task_id, &external_id::pr_opened(number));
@@ -151,7 +166,14 @@ pub async fn post_comment(
         ensure_task_access(&state, &ctx, task_id).await?;
     }
 
-    let api = resolve_github_api(&state, &auth.user_id.to_string(), &owner).await?;
+    let api = resolve_github_api(
+        &state,
+        &auth.user_id.to_string(),
+        &owner,
+        &repo,
+        req.task_id.as_deref(),
+    )
+    .await?;
 
     let body = body_with_task_footer(&state, req.task_id.as_deref(), &req.body).await;
     let comment_id = api.post_comment(&owner, &repo, number, &body).await?;
@@ -162,7 +184,15 @@ pub async fn post_comment(
         state
             .recently_sent
             .note(task_id, &external_id::issue_comment(comment_id));
-        bind_task_to_pr(&state, &owner, &repo, number, task_id, &auth.user_id.to_string()).await
+        bind_task_to_pr(
+            &state,
+            &owner,
+            &repo,
+            number,
+            task_id,
+            &auth.user_id.to_string(),
+        )
+        .await
     } else {
         None
     };
@@ -208,7 +238,14 @@ pub async fn reply_to_review_comment(
         ensure_task_access(&state, &ctx, task_id).await?;
     }
 
-    let api = resolve_github_api(&state, &auth.user_id.to_string(), &owner).await?;
+    let api = resolve_github_api(
+        &state,
+        &auth.user_id.to_string(),
+        &owner,
+        &repo,
+        req.task_id.as_deref(),
+    )
+    .await?;
 
     let body = body_with_task_footer(&state, req.task_id.as_deref(), &req.body).await;
     let new_id = api
@@ -221,7 +258,15 @@ pub async fn reply_to_review_comment(
         state
             .recently_sent
             .note(task_id, &external_id::review_comment(new_id));
-        bind_task_to_pr(&state, &owner, &repo, number, task_id, &auth.user_id.to_string()).await
+        bind_task_to_pr(
+            &state,
+            &owner,
+            &repo,
+            number,
+            task_id,
+            &auth.user_id.to_string(),
+        )
+        .await
     } else {
         None
     };
@@ -245,7 +290,52 @@ async fn resolve_github_api(
     state: &AppState,
     user_id: &str,
     owner: &str,
+    repo_name: &str,
+    task_id: Option<&str>,
 ) -> Result<GithubPrApi, AdapterError> {
+    if let Some(task_id) = task_id {
+        let task = state
+            .tasks
+            .find_by_id_internal(task_id)
+            .await
+            .map_err(|error| AdapterError::Internal(error.to_string()))?
+            .ok_or_else(|| AdapterError::NotFound(format!("Task {task_id}")))?;
+        let repository = state
+            .repositories
+            .find_repository_by_id(&task.repository_id)
+            .await
+            .map_err(|error| AdapterError::Internal(error.to_string()))?
+            .ok_or_else(|| AdapterError::NotFound(format!("Repository {}", task.repository_id)))?;
+        let remote_url = repository.remote_url.as_deref().ok_or_else(|| {
+            AdapterError::BadRequest("Task repository has no remote URL".to_string())
+        })?;
+        let requested = (owner.to_ascii_lowercase(), repo_name.to_ascii_lowercase());
+        let persisted = crate::repository::access::parse_github_owner_repo(remote_url)
+            .map(|(repo_owner, repo)| (repo_owner.to_ascii_lowercase(), repo.to_ascii_lowercase()))
+            .ok_or_else(|| {
+                AdapterError::BadRequest("Task repository is not a GitHub repository".to_string())
+            })?;
+        if persisted != requested {
+            return Err(AdapterError::BadRequest(format!(
+                "Requested GitHub repository {owner}/{repo_name} does not match task repository"
+            )));
+        }
+        let token = crate::repository::access::resolve_repository_github_token(
+            state,
+            &repository,
+            remote_url,
+        )
+        .await
+        .map_err(|error| AdapterError::AdapterApi(error.to_string()))?
+        .ok_or_else(|| {
+            AdapterError::AdapterApi(format!(
+                "No GitHub credential configured for repository scope {}",
+                repository.scope
+            ))
+        })?;
+        return Ok(GithubPrApi::new(&token));
+    }
+
     let providers = state
         .adapters
         .as_ref()

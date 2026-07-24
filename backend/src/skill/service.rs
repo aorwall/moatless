@@ -18,18 +18,18 @@ use super::fetcher::{SkillFetcher, SkillLayout};
 use super::models::{Skill, SkillSource};
 use super::scanner;
 use super::schemas::SkillResponse;
+use crate::auth::credentials::resolve_user_github_token;
 use crate::auth::error::AuthError;
+use crate::auth::github_app_registry::GitHubAppRegistry;
 use crate::auth::github_app_service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenRepository;
 use crate::auth::provider_tokens::ProviderTokenAuthRepository;
-use crate::auth::credentials::resolve_user_github_token;
-use crate::auth::github_app_registry::GitHubAppRegistry;
-use crate::secret::service::SecretService;
 use crate::extractors::AuthUser;
 use crate::plugin_repo::dao::PluginRepoRepository;
 use crate::plugin_repo::models::PluginRepo;
 use crate::repository::dao::RepoRepository;
 use crate::repository::models::{Repository, RepositoryKind, RepositoryProvider};
+use crate::secret::service::SecretService;
 
 /// Orchestrates skill discovery across workspace + plugin repositories.
 pub struct SkillService {
@@ -141,9 +141,22 @@ impl SkillService {
             return Ok(cached);
         }
 
-        let token = self
-            .resolve_token_for_provider(auth, repo.provider.as_ref())
-            .await?;
+        let token = if repo.provider == Some(RepositoryProvider::Github) {
+            crate::repository::access::resolve_repository_github_token_with(
+                self.provider_tokens.as_ref(),
+                Some(self.provider_token_auth.as_ref()),
+                self.github_app_service.as_deref(),
+                self.github_apps.as_ref(),
+                Some(self.secrets.as_ref()),
+                repo,
+                remote_url,
+            )
+            .await
+            .map_err(|error| SkillError::Internal(error.to_string()))?
+        } else {
+            self.resolve_token_for_provider(auth, repo.provider.as_ref())
+                .await?
+        };
 
         let files = self
             .fetcher

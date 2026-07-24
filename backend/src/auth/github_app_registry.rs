@@ -91,6 +91,17 @@ impl GitHubAppRegistry {
         keys
     }
 
+    /// All configured Apps in stable key order.
+    pub fn entries(&self) -> Vec<(String, Arc<GitHubAppService>)> {
+        let mut entries: Vec<_> = self
+            .apps
+            .iter()
+            .map(|(key, app)| (key.clone(), Arc::clone(app)))
+            .collect();
+        entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+        entries
+    }
+
     /// Whether the registry is empty (no Apps configured at all).
     pub fn is_empty(&self) -> bool {
         self.apps.is_empty()

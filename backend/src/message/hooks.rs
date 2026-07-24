@@ -22,7 +22,6 @@ use tracing::{debug, info, warn};
 use super::models::MessageType;
 use super::schemas::{SubagentStatus, UiMessage};
 use crate::adapters::github_pr::api::GithubPrApi;
-use crate::auth::credentials::resolve_state_github_token;
 use crate::bindings::dao::PgTaskBindingRepository;
 use crate::state::AppState;
 
@@ -218,12 +217,8 @@ pub async fn emit_message_upsert(state: &AppState, task_id: &str, message_uuid: 
             })
     };
 
-    let mut assembled = super::transform::transform_to_ui_with_files(
-        &messages,
-        &contexts,
-        &blocks,
-        &file_metadata,
-    );
+    let mut assembled =
+        super::transform::transform_to_ui_with_files(&messages, &contexts, &blocks, &file_metadata);
     // Inject subagent summaries onto `Agent` blocks via the shared helper.
     hydrate_subagent_summaries(state, task_id, &mut assembled).await;
 
@@ -407,22 +402,18 @@ async fn try_append_task_footer(state: &AppState, task_id: &str, pr: &ParsedPr) 
         }
     };
 
-    let Some(user_id) = task.created_by.as_deref() else {
-        debug!(task_id, "Task has no created_by — skipping PR footer");
-        return;
-    };
-
-    let token = match resolve_state_github_token(state, user_id, Some(pr.owner.as_str())).await {
+    let token = match resolve_task_repository_github_token(state, &task, &pr.owner, &pr.repo).await
+    {
         Ok(Some(t)) => t,
         Ok(None) => {
             warn!(
                 task_id,
-                user_id, "No GitHub provider token for user — skipping PR footer"
+                "No repository-scoped GitHub credential — skipping PR footer"
             );
             return;
         }
         Err(e) => {
-            warn!(task_id, user_id, error = %e, "Failed to resolve GitHub token for PR footer");
+            warn!(task_id, error = %e, "Failed to resolve GitHub token for PR footer");
             return;
         }
     };
@@ -583,25 +574,22 @@ async fn handle_git_push(state: &AppState, task_id: &str, parent_uuid: &str, res
         }
     };
 
-    let Some(user_id) = task.created_by.as_deref() else {
-        debug!(task_id, "Task has no created_by — skipping git push hook");
-        return;
-    };
-
-    let token = match resolve_state_github_token(state, user_id, Some(target.owner.as_str())).await {
-        Ok(Some(t)) => t,
-        Ok(None) => {
-            debug!(
-                task_id,
-                user_id, "No GitHub provider token — skipping git push hook"
-            );
-            return;
-        }
-        Err(e) => {
-            warn!(task_id, user_id, error = %e, "Failed to resolve GitHub token for git push hook");
-            return;
-        }
-    };
+    let token =
+        match resolve_task_repository_github_token(state, &task, &target.owner, &target.repo).await
+        {
+            Ok(Some(t)) => t,
+            Ok(None) => {
+                debug!(
+                    task_id,
+                    "No repository-scoped GitHub credential — skipping git push hook"
+                );
+                return;
+            }
+            Err(e) => {
+                warn!(task_id, error = %e, "Failed to resolve GitHub token for git push hook");
+                return;
+            }
+        };
 
     let api = GithubPrApi::new(&token);
 
@@ -669,6 +657,39 @@ async fn handle_git_push(state: &AppState, task_id: &str, parent_uuid: &str, res
             warn!(task_id, parent_uuid, pr_number, error = %e, "Failed to tag assistant row with external_event_id for git push");
         }
     }
+}
+
+async fn resolve_task_repository_github_token(
+    state: &AppState,
+    task: &crate::task::models::Task,
+    owner: &str,
+    repo_name: &str,
+) -> Result<Option<String>, crate::repository::error::RepositoryError> {
+    let repository = state
+        .repositories
+        .find_repository_by_id(&task.repository_id)
+        .await?
+        .ok_or_else(|| {
+            crate::repository::error::RepositoryError::NotFound(task.repository_id.clone())
+        })?;
+    let remote_url = repository.remote_url.as_deref().ok_or_else(|| {
+        crate::repository::error::RepositoryError::BadRequest(
+            "Task repository has no remote URL".to_string(),
+        )
+    })?;
+    let persisted = crate::repository::access::parse_github_owner_repo(remote_url);
+    if persisted
+        .as_ref()
+        .is_none_or(|(persisted_owner, persisted_repo)| {
+            !persisted_owner.eq_ignore_ascii_case(owner)
+                || !persisted_repo.eq_ignore_ascii_case(repo_name)
+        })
+    {
+        return Err(crate::repository::error::RepositoryError::BadRequest(
+            "GitHub target does not match the task repository".to_string(),
+        ));
+    }
+    crate::repository::access::resolve_repository_github_token(state, &repository, remote_url).await
 }
 
 /// Extract `(owner, repo, remote_branch)` from `git push` stdout.

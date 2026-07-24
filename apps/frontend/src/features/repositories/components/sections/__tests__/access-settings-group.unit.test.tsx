@@ -34,6 +34,7 @@ describe('AccessSettingsGroup', () => {
     renderGroup()
 
     expect(screen.getByLabelText('Repository owner')).toHaveValue('Alice Example (alice)')
+    expect(screen.getByText(/Alice Example.*Personal Access Token/)).toBeInTheDocument()
     expect(screen.getByText('Verified')).toBeInTheDocument()
     expect(screen.getByText(/Last checked:/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Verify access' })).toBeEnabled()
@@ -49,6 +50,7 @@ describe('AccessSettingsGroup', () => {
     renderGroup({ scope: 'team', teamId: null })
 
     expect(screen.getByText('Select a team to save.')).toBeInTheDocument()
+    expect(screen.getByText(/bound GitHub App installation/)).toBeInTheDocument()
   })
 
   it('disables verification while persisted fields are dirty', () => {

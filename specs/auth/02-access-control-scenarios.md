@@ -30,7 +30,8 @@ Chain 3: Admin Bypass
 
 Standalone
 ├── AUTH-25: Listing repositories filters by scope
-└── AUTH-26: Listing tasks filters by scope
+├── AUTH-26: Listing tasks filters by scope
+└── AUTH-27: GitHub installation bindings are admin-only
 ```
 
 ---
@@ -246,3 +247,17 @@ Verifies that a regular user's task listing only includes tasks matching their s
 * **When** the user lists tasks
 
 * **Then** only tasks the user has access to (via global scope, team membership, or ownership) are returned
+
+### AUTH-27: GitHub installation bindings are admin-only
+
+Only administrators may inspect or mutate the Global and Team GitHub App
+installation bindings.
+
+* **Given** a configured team and authenticated admin and regular users
+
+* **When** the regular user requests the configured Apps or a team installation binding
+
+* **Then** the system denies the request
+  * **And** an admin may read both interfaces
+  * **And** an unknown App key is rejected before persistence
+  * **And** the generic team credential endpoint rejects GitHub PAT writes

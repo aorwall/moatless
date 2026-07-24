@@ -365,7 +365,7 @@ pub async fn verify_access(
 
     let token = match provider {
         RepositoryProvider::Github => {
-            resolve_repository_github_token(&state, &repository, &auth, remote_url).await?
+            resolve_repository_github_token(&state, &repository, remote_url).await?
         }
         RepositoryProvider::Gitlab => state
             .provider_tokens
@@ -576,7 +576,7 @@ pub async fn get_branches(
     // Resolve a token for the repository's persisted scope. User-scoped
     // repositories always use their owner, never a viewing admin.
     let access_token = if provider == RepositoryProvider::Github {
-        resolve_repository_github_token(&state, &repo, &auth, remote_url)
+        resolve_repository_github_token(&state, &repo, remote_url)
             .await?
             .ok_or_else(|| {
                 RepositoryError::BadRequest(

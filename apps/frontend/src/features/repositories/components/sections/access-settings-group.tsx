@@ -64,6 +64,22 @@ function formatCheckedAt(value: string | null | undefined): string {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
 }
 
+function credentialSourceLabel(
+  scope: Scope,
+  ownerUserId: string | null | undefined,
+  users: AccessUser[],
+  selectedTeam: AccessTeam | undefined,
+  teamId: string | null | undefined,
+): string {
+  if (scope === 'user') {
+    return `${ownerDisplayName(ownerUserId, users)}'s Personal Access Token, or their OAuth token when no PAT is set`
+  }
+  if (scope === 'team') {
+    return `${selectedTeam?.name ?? teamId ?? 'Selected team'}'s bound GitHub App installation`
+  }
+  return 'The globally bound GitHub App installation'
+}
+
 export function AccessSettingsGroup({
   scope,
   teamId,
@@ -82,6 +98,7 @@ export function AccessSettingsGroup({
 }: AccessSettingsGroupProps) {
   const selectedTeam = teams.find((team) => team.id === teamId)
   const statusIsFailure = isAccessFailure(accessStatus)
+  const credentialSource = credentialSourceLabel(scope, ownerUserId, users, selectedTeam, teamId)
 
   return (
     <ConfigurationGroup title="Access">
@@ -151,6 +168,13 @@ export function AccessSettingsGroup({
           />
         </ConfigurationItem>
       )}
+
+      <ConfigurationItem
+        label="GitHub credential"
+        description="The persisted repository scope is the only credential source; other scopes are never used as fallbacks"
+      >
+        <p className="text-sm">{credentialSource}</p>
+      </ConfigurationItem>
 
       <ConfigurationItem
         label="Access status"

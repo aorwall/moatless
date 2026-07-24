@@ -22,7 +22,7 @@ use tracing::{debug, info, warn};
 use crate::extractors::AuthUser;
 use crate::repository::access::{access_error_for, resolve_repository_github_token};
 use crate::repository::config_reader::{
-    AccessStatus, fetch_provider_file, verify_repository_access,
+    fetch_provider_file, verify_repository_access, AccessStatus,
 };
 use crate::repository::dao::RepositoryPatch;
 use crate::repository::error::RepositoryError;
@@ -30,7 +30,7 @@ use crate::repository::handlers::{normalize_remote_url, validate_non_secret_env_
 use crate::repository::models::{Repository, RepositoryKind, RepositoryProvider, ResourceConfig};
 use crate::sandbox::models::ServerConfig;
 use crate::state::AppState;
-use crate::workspace::dao::{WorkspacePatch, ensure_shadow_workspace};
+use crate::workspace::dao::{ensure_shadow_workspace, WorkspacePatch};
 use crate::workspace::models::{Workspace, WorkspaceRepo};
 
 // =============================================================================
@@ -139,9 +139,14 @@ pub async fn fetch_moatless_workspaces(
     token: Option<&str>,
     provider: RepositoryProvider,
 ) -> Result<Option<MoatlessWorkspacesFile>, RepositoryError> {
-    let Some(body) =
-        fetch_provider_file(remote_url, ".moatless/workspaces.json", branch, token, provider)
-            .await?
+    let Some(body) = fetch_provider_file(
+        remote_url,
+        ".moatless/workspaces.json",
+        branch,
+        token,
+        provider,
+    )
+    .await?
     else {
         return Ok(None);
     };
@@ -259,8 +264,8 @@ pub async fn sync_repo_workspaces(
         }
         None => {
             // Fall back to config.json: flag the repo's shadow workspace in place.
-            if let Some(config) = fetch_moatless_config(remote_url, branch, token_str, provider)
-                .await?
+            if let Some(config) =
+                fetch_moatless_config(remote_url, branch, token_str, provider).await?
             {
                 let run = match run_config_from_moatless_config(&config) {
                     Ok(run) => run,
@@ -387,10 +392,26 @@ fn run_config_from_entry(entry: &MoatlessWorkspaceEntry) -> Result<RunConfig, se
         network_profile: entry.network_profile.clone(),
         system_prompt: entry.system_prompt.clone(),
         setup_commands,
-        env_vars: entry.env_vars.as_ref().map(serde_json::to_value).transpose()?,
-        servers: entry.servers.as_ref().map(serde_json::to_value).transpose()?,
-        plugins: entry.plugins.as_ref().map(serde_json::to_value).transpose()?,
-        resources: entry.resources.as_ref().map(serde_json::to_value).transpose()?,
+        env_vars: entry
+            .env_vars
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()?,
+        servers: entry
+            .servers
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()?,
+        plugins: entry
+            .plugins
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()?,
+        resources: entry
+            .resources
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()?,
     })
 }
 
@@ -414,9 +435,17 @@ fn run_config_from_moatless_config(
         system_prompt: config.system_prompt.clone(),
         setup_commands,
         env_vars: None,
-        servers: config.servers.as_ref().map(serde_json::to_value).transpose()?,
+        servers: config
+            .servers
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()?,
         plugins: None,
-        resources: config.resources.as_ref().map(serde_json::to_value).transpose()?,
+        resources: config
+            .resources
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()?,
     })
 }
 
@@ -683,7 +712,7 @@ async fn resolve_sync_token(
     remote_url: &str,
 ) -> Option<String> {
     if provider == RepositoryProvider::Github {
-        resolve_repository_github_token(state, repository, auth, remote_url)
+        resolve_repository_github_token(state, repository, remote_url)
             .await
             .unwrap_or_else(|e| {
                 warn!(error = %e, "Workspace sync: failed to resolve GitHub token");
@@ -904,7 +933,12 @@ mod tests {
         assert!(!api.repos[1].primary);
         assert_eq!(api.docker_image.as_deref(), Some("acme/sandbox:latest"));
         assert_eq!(
-            api.code_execution.as_ref().unwrap().setup_commands.as_ref().unwrap(),
+            api.code_execution
+                .as_ref()
+                .unwrap()
+                .setup_commands
+                .as_ref()
+                .unwrap(),
             &vec!["bun install".to_string()]
         );
         assert_eq!(api.network_profile.as_deref(), Some("sealed"));

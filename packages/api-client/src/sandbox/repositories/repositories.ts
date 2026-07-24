@@ -919,7 +919,7 @@ export type verifyAccessResponse404 = {
   data: ErrorBody
   status: 404
 }
-
+    
 export type verifyAccessResponseSuccess = (verifyAccessResponse200) & {
   headers: Headers;
 };
@@ -932,19 +932,19 @@ export type verifyAccessResponse = (verifyAccessResponseSuccess | verifyAccessRe
 export const getVerifyAccessUrl = (repositoryId: string,) => {
 
 
-
+  
 
   return `/api/v1/repositories/${repositoryId}/verify-access`
 }
 
 export const verifyAccess = async (repositoryId: string, options?: RequestInit): Promise<verifyAccessResponse> => {
-
+  
   return customInstance<verifyAccessResponse>(getVerifyAccessUrl(repositoryId),
-  {
+  {      
     ...options,
     method: 'POST'
-
-
+    
+    
   }
 );}
 
@@ -962,7 +962,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof verifyAccess>>, {repositoryId: string}> = (props) => {
@@ -973,13 +973,13 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
 
     export type VerifyAccessMutationResult = NonNullable<Awaited<ReturnType<typeof verifyAccess>>>
-
+    
     export type VerifyAccessMutationError = ErrorType<ErrorBody>
 
     /**
