@@ -11,7 +11,11 @@ You are a child task spawned by an orchestrator. Your job is to implement one ti
 
 Your initial message contains:
 - The full ticket: what to build, acceptance criteria, blocked-by list
+- The full feature spec, inlined — you run in your own sandbox and cannot read
+  the orchestrator's spec/plan files; the message is your only copy
 - `ORCHESTRATOR_TASK_ID: <id>` — the parent task to report back to
+- Optionally `BASE_BRANCH: <branch>` — your ticket is stacked on an unmerged
+  dependency PR; branch from it and target your PR at it (see Step 4)
 
 Extract the orchestrator task ID from your message:
 
@@ -26,7 +30,8 @@ Extract the orchestrator task ID from your message:
 Read the ticket. Understand:
 - What behaviour to build (end-to-end, all layers)
 - The acceptance criteria
-- Any mentions of the spec for additional context
+- The inlined spec — it fixes design decisions the ticket assumes; if the
+  message references a spec you don't have, ask the orchestrator to send it
 
 Explore the relevant parts of the codebase before writing a line.
 
@@ -61,11 +66,21 @@ Fix any failures before proceeding.
 
 ## Step 4 — Create PR
 
+Creating a PR is mandatory — every ticket ships as its own PR so the
+orchestrator can stack PRs by ticket.
+
+Work on a dedicated branch named after the ticket (e.g.
+`ticket-<NN>-<slug>`). If your message contains `BASE_BRANCH: <branch>`,
+start from that branch (`git fetch origin <branch> && git checkout -b
+ticket-<NN>-<slug> origin/<branch>`) and pass `--base <branch>` to
+`moat gh pr create`; otherwise base on the default branch.
+
 Commit your work with a conventional commit message, then create a PR:
 
 ```bash
 moat gh pr create \
   --title "<type>(<scope>): <short description>" \
+  --base <BASE_BRANCH, if given> \
   --body "$(cat <<'EOF'
 ## Summary
 
@@ -96,6 +111,7 @@ Send the result to the orchestrator:
 ```bash
 moat send --task <ORCHESTRATOR_TASK_ID> \
   --text "PR ready: <PR URL>
+Branch: <your PR branch>
 Ticket: <NN> — <title>
 All acceptance criteria implemented and tests passing."
 ```

@@ -1,6 +1,6 @@
 ---
 name: html-report
-description: Render an analysis or review as a single self-contained, editorial HTML page — Tailwind + Mermaid via CDN — written to the OS temp dir and opened in the browser. Use when the user asks for an HTML or visual report, or another skill needs the report format.
+description: Render an analysis or review as a single self-contained, editorial HTML page — Tailwind + Mermaid via CDN — saved under the workspace reports dir and opened in the browser. Use when the user asks for an HTML or visual report, or another skill needs the report format.
 # Forked from https://github.com/mattpocock/skills — maintained locally
 ---
 
@@ -10,7 +10,7 @@ Render the deliverable as a single self-contained HTML file. Tailwind and Mermai
 
 ## Mechanics
 
-Write the file to the OS temp directory so nothing lands in the repo. Resolve the temp dir from `$TMPDIR`, falling back to `/tmp` (or `%TEMP%` on Windows), and write to `<tmpdir>/<slug>-<timestamp>.html` so each run gets a fresh file. Open it for the user — `xdg-open <path>` on Linux, `open <path>` on macOS, `start <path>` on Windows — and tell them the absolute path.
+Write the file to `/opt/moatless/workspace/reports/<slug>-<timestamp>.html` (create the directory if missing) so each run gets a fresh file that stays out of the repo. If `/opt/moatless/workspace` doesn't exist (running outside a moatless sandbox), fall back to the OS temp dir (`$TMPDIR`, then `/tmp`, or `%TEMP%` on Windows). Open it for the user — `xdg-open <path>` on Linux, `open <path>` on macOS, `start <path>` on Windows; in a headless moatless sandbox there is no browser, so instead copy the file into the frontend dev server's public dir (`apps/frontend/public/`) and share the external preview URL, or just tell them the absolute path.
 
 ## Scaffold
 

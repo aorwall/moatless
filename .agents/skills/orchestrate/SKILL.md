@@ -10,6 +10,12 @@ Drive a feature from idea to merged PRs: clarify → spec → review → tickets
 
 This skill spawns child Moatless tasks to implement work in parallel. Each child creates a PR and reports back; you run code review on each and advance blocked tickets as their dependencies land.
 
+Three artifacts are produced along the way, each with a distinct audience:
+
+1. **Spec markdown** — `/opt/moatless/workspace/specs/<feature-slug>.md` — the source of truth; inlined into every child's spawn message.
+2. **Ticket markdown files** — `/opt/moatless/workspace/plans/<feature-slug>/<NN>-<slug>.md` — one per ticket; each becomes the body of its child's spawn message.
+3. **HTML report** — via `/html-report`, saved under `/opt/moatless/workspace/reports/` — how you communicate the spec and plan to the user for review and approval. Regenerate it whenever the spec or breakdown changes so the shared page always reflects the current plan.
+
 ---
 
 ## Phase 1 — Alignment
@@ -116,7 +122,9 @@ Ticket numbers/titles that must complete before this one can start, or "None —
 ready-for-agent
 </ticket-template>
 
-Present the breakdown as a numbered list (title / blocked-by / what it delivers). Ask whether granularity is right and whether edges are correct. Iterate until approved.
+In each ticket's Spec reference section, note that the full spec is included in the child's spawn message — children cannot read the orchestrator's files (see Phase 4).
+
+Present the breakdown as a numbered list (title / blocked-by / what it delivers). Ask whether granularity is right and whether edges are correct. Iterate until approved. Once approved, regenerate the HTML report as a combined spec + tickets page (overview, key decisions, dependency graph, per-ticket cards) so the user-facing page matches the final plan.
 
 ---
 
@@ -130,6 +138,8 @@ moat repos list --json | jq '.[] | {id, name, remoteUrl}'
 
 Identify which tickets have no blockers (or whose blockers are already complete). Spawn **all unblocked tickets in parallel** — one `moat tasks create` per ticket. Capture each child task ID.
 
+**The spawn message must be fully self-contained.** Each child runs in its own sandbox with a fresh checkout of the repository only — it CANNOT read the orchestrator's `/opt/moatless/workspace/specs/`, `plans/`, or `reports/` files. Inline everything the child needs: the full ticket AND the full spec.
+
 For each unblocked ticket:
 
 ```bash
@@ -140,12 +150,22 @@ CHILD_ID=$(moat tasks create \
   --message "$(cat /opt/moatless/workspace/plans/<slug>/<NN>-<file>.md)
 
 ---
-ORCHESTRATOR_TASK_ID: $TASK_ID
+# Feature spec (full text — included because you cannot read the orchestrator's files)
 
-Use /implement-ticket to implement this work.
-" --json | jq -r '.id')
+$(cat /opt/moatless/workspace/specs/<slug>.md)
+
+---
+ORCHESTRATOR_TASK_ID: $TASK_ID
+BASE_BRANCH: <branch>   # only for stacked tickets — see below; omit to base on the default branch
+
+Use /implement-ticket to implement this work. Create a PR when done.
+" --json | jq -r '.taskId')
 echo "Spawned $CHILD_ID for ticket <NN>"
 ```
+
+(The create response's field is `taskId`, not `id`.)
+
+**Every ticket ships as its own PR** — one ticket, one branch, one PR. Dependent tickets don't wait for their blocker's PR to merge: **stack them**. When ticket B is blocked by ticket A and A's PR has passed review, spawn B with `BASE_BRANCH: <A's PR branch>` — the child branches from it and opens its PR with that base. Record each child's PR branch (from its report-back) so you can stack dependents on it. Stacked PRs merge in dependency order; after a base PR merges, ask the dependent's child to rebase onto the default branch (GitHub retargets the PR base automatically on merge).
 
 Record a mapping of ticket number → child task ID for monitoring.
 
@@ -177,7 +197,7 @@ moat tasks children --json
    Please fix these and push an update, then message me again when ready."
    ```
 
-3. If review passes (or after fixes are applied), mark the ticket complete and check whether any blocked tickets are now fully unblocked. Spawn those tickets immediately.
+3. If review passes (or after fixes are applied), mark the ticket complete and check whether any blocked tickets are now fully unblocked. Spawn those tickets immediately, stacked on the reviewed PR's branch (`BASE_BRANCH: <branch>` in the spawn message) — do not wait for the PR to merge.
 
 **When a child reports "Blocked on: <description>":**
 
