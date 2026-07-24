@@ -3,6 +3,10 @@
 use axum::extract::{Path, State};
 use axum::Json;
 
+use moatless_backend_core::scope::Scope;
+
+use crate::adapters::dao::PgAdapterConnectionRepository;
+use crate::adapters::models::AdapterConnection;
 use crate::auth::credentials::{
     read_github_oauth_stash, stash_github_oauth_token, GITHUB_OAUTH_STASH_KEY,
 };
@@ -12,7 +16,7 @@ use crate::auth::provider_tokens::{
 };
 use crate::credentials::codex::oauth::{self as codex_oauth, PollStatus};
 use crate::credentials::codex::{save_codex_auth_for_scope, CodexScope};
-use crate::credentials::github::scope::GitHubScope;
+use crate::credentials::github::scope::{GitHubScope, SYSTEM_TEAM_ID};
 use crate::credentials::WriteSource;
 use crate::extractors::AuthUser;
 use crate::sandbox::secrets::GITHUB_TOKEN;
@@ -85,6 +89,10 @@ pub async fn get_github_config(
 // Repository-scoped GitHub App installation bindings — admin only
 // ============================================================================
 
+/// `adapter_kind` used for GitHub rows in `integration_connections` (matches
+/// the webhook ingress and binding resolution lookups).
+const GITHUB_ADAPTER_KIND: &str = "github";
+
 fn require_admin(auth: &AuthUser, action: &str) -> Result<(), ProviderSettingsError> {
     if auth.role.as_deref() == Some("admin") {
         return Ok(());
@@ -142,6 +150,7 @@ async fn save_installation_binding(
     state: &AppState,
     scope: &GitHubScope,
     req: GitHubInstallationBindingRequest,
+    created_by: &str,
 ) -> Result<GitHubInstallationBindingResponse, ProviderSettingsError> {
     let app = state.github_apps.get(&req.github_app_key).ok_or_else(|| {
         ProviderSettingsError::BadRequest(format!(
@@ -173,9 +182,88 @@ async fn save_installation_binding(
         )
         .await?;
 
+    upsert_github_org_connection(
+        state,
+        scope,
+        &installation.account.login,
+        &req.github_app_key,
+        installation.id,
+        created_by,
+    )
+    .await?;
+
     Ok(installation_binding_response(
         state.provider_tokens.find_github_row(scope).await?,
     ))
+}
+
+/// Mirror an installation binding into `integration_connections` so inbound
+/// GitHub webhooks and task↔PR bindings resolve for the installation's
+/// account (`external_account_id` = org/user login). Without this row,
+/// `resolve_connection` rejects the org and PRs created from tasks never
+/// show up as task connections.
+///
+/// An existing row for the same account keeps its id, webhook secret,
+/// credentials and connection kind; only the scope is retargeted to the
+/// binding's team (or global). Unbinding leaves the row in place because
+/// task bindings may still reference it.
+async fn upsert_github_org_connection(
+    state: &AppState,
+    scope: &GitHubScope,
+    account_login: &str,
+    github_app_key: &str,
+    installation_id: u64,
+    created_by: &str,
+) -> Result<(), ProviderSettingsError> {
+    let (conn_scope, team_id) = match scope {
+        GitHubScope::Global => (Scope::Global, SYSTEM_TEAM_ID.to_string()),
+        GitHubScope::Team(team_id) => (Scope::Team, team_id.clone()),
+        // Installation bindings are only exposed at team/global scope.
+        GitHubScope::User(_) => return Ok(()),
+    };
+
+    let repo = PgAdapterConnectionRepository(state.db.clone());
+    let existing = repo
+        .find_by_external_account(GITHUB_ADAPTER_KIND, account_login)
+        .await?;
+
+    let now = chrono::Utc::now();
+    let mut transport_config = existing
+        .as_ref()
+        .map(|c| c.transport_config.clone())
+        .filter(serde_json::Value::is_object)
+        .unwrap_or_else(|| serde_json::json!({}));
+    if let Some(fields) = transport_config.as_object_mut() {
+        fields.insert("github_app_key".to_string(), github_app_key.into());
+        fields.insert(
+            "installation_id".to_string(),
+            serde_json::Value::from(installation_id),
+        );
+    }
+
+    let row = AdapterConnection {
+        id: existing
+            .as_ref()
+            .map_or_else(|| format!("pc_{}", uuid::Uuid::new_v4()), |c| c.id.clone()),
+        provider: GITHUB_ADAPTER_KIND.to_string(),
+        connection_kind: existing
+            .as_ref()
+            .map_or_else(|| "org_webhook".to_string(), |c| c.connection_kind.clone()),
+        scope_value: account_login.to_string(),
+        credential_ref: existing.as_ref().and_then(|c| c.credential_ref.clone()),
+        webhook_secret: existing.as_ref().and_then(|c| c.webhook_secret.clone()),
+        transport_config,
+        created_by: existing
+            .as_ref()
+            .map_or_else(|| created_by.to_string(), |c| c.created_by.clone()),
+        scope: conn_scope,
+        team_id: Some(team_id),
+        owner_user_id: None,
+        created_at: existing.as_ref().map_or(now, |c| c.created_at),
+        updated_at: now,
+    };
+    repo.upsert(&row).await?;
+    Ok(())
 }
 
 #[utoipa::path(
@@ -263,7 +351,8 @@ pub async fn admin_put_global_github_installation(
 ) -> Result<Json<GitHubInstallationBindingResponse>, ProviderSettingsError> {
     require_admin(&auth, "bind")?;
     Ok(Json(
-        save_installation_binding(&state, &GitHubScope::Global, req).await?,
+        save_installation_binding(&state, &GitHubScope::Global, req, &auth.user_id.to_string())
+            .await?,
     ))
 }
 
@@ -350,7 +439,13 @@ pub async fn admin_put_team_github_installation(
 ) -> Result<Json<GitHubInstallationBindingResponse>, ProviderSettingsError> {
     require_admin_team(&state, &auth, &team_id, "bind").await?;
     Ok(Json(
-        save_installation_binding(&state, &GitHubScope::team(team_id), req).await?,
+        save_installation_binding(
+            &state,
+            &GitHubScope::team(team_id),
+            req,
+            &auth.user_id.to_string(),
+        )
+        .await?,
     ))
 }
 
