@@ -4,25 +4,28 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use sqlx::PgPool;
+use uuid::Uuid;
 
 use moatless_vibe_backend::auth::github_app_registry::GitHubAppRegistry;
 use moatless_vibe_backend::config::{
-    AuthConfig, CodexOAuthConfig, Config, DatabaseConfig, DockerConfig, GithubPrConfig,
-    LinearConfig, ProxyConfig, RedisConfig, S3Config, SandboxConfig, SandboxProviderType,
-    SecretsConfig, ServerConfig, SkillConfig, SlackConfig, SseConfig, TelegramConfig,
+    AuthConfig, AuthProvider, CodexOAuthConfig, Config, DatabaseConfig, DockerConfig,
+    GithubPrConfig, LinearConfig, ProxyConfig, RedisConfig, S3Config, SandboxConfig,
+    SandboxProviderType, SecretsConfig, ServerConfig, SkillConfig, SlackConfig, SseConfig,
+    TelegramConfig,
 };
+use moatless_vibe_backend::scope::ScopeContext;
 use moatless_vibe_backend::message::models::{MessageRole, MessageType, TaskMessage};
 use moatless_vibe_backend::repository::models::{Repository, RepositoryKind, RepositoryProvider};
 use moatless_vibe_backend::sandbox::access::SandboxConnector;
 use moatless_vibe_backend::sandbox::client::SandboxClient;
 use moatless_vibe_backend::sandbox::error::SandboxError;
 use moatless_vibe_backend::sandbox::lifecycle::{
-    ArchiveRetention, NotifyPort, ObservedStatus, RuntimeOperationContext, RuntimeOutcome,
-    SandboxRuntime,
+    ArchiveRetention, NotifyPort, ObservedStatus, ProvisionDeps, RuntimeOperationContext,
+    RuntimeOutcome, SandboxRuntime,
 };
 use moatless_vibe_backend::shared_models::AgentType;
 use moatless_vibe_backend::state::{build_lifecycle, AppState};
-use moatless_vibe_backend::task::models::{SandboxDesiredState, Task, TaskStatus, Visibility};
+use moatless_vibe_backend::task::models::{Task, TaskStatus, Visibility};
 use moatless_vibe_backend::task::reaper::AgentStatusPort;
 use moatless_vibe_backend::workspace::models::{Workspace, WorkspaceRepo};
 
@@ -218,7 +221,7 @@ pub fn test_config() -> Config {
             consumer_id: "test".into(),
         },
         auth: AuthConfig {
-            provider: None,
+            provider: AuthProvider::Local,
             github_client_id: None,
             github_client_secret: None,
             github_callback_url: None,
@@ -235,7 +238,8 @@ pub fn test_config() -> Config {
             cookie_domain: None,
             session_cookie_name: "test_session".into(),
             is_production: false,
-            allow_insecure_no_auth: false,
+            admin_username: "admin".into(),
+            admin_password: None,
             cache_ttl_secs: 0,
             session_jwt_secret: None,
             test_api_key: None,
@@ -296,6 +300,7 @@ pub fn test_app_state(pool: PgPool) -> AppState {
     let lifecycle = build_lifecycle(
         pool.clone(),
         pool.clone(),
+        ProvisionDeps::from_pool(&pool),
         Arc::new(MockSandboxRuntime),
         connector.clone(),
         "mock-sandbox:latest".into(),
@@ -318,6 +323,28 @@ pub fn test_app_state(pool: PgPool) -> AppState {
 // =========================================================================
 // Factory functions
 // =========================================================================
+
+/// Well-known test user ids. `AuthIdentity::user_id` is now a `Uuid`, so HTTP
+/// handler tests must authenticate as a real uuid and seed the matching row's
+/// owner with the same value. DB-only DAO tests keep using plain symbolic names
+/// (`"user-1"`) since they build their `ScopeContext` directly and never parse a
+/// uuid.
+#[allow(dead_code)]
+pub const USER_1: &str = "11111111-1111-1111-1111-111111111111";
+#[allow(dead_code)]
+pub const USER_2: &str = "22222222-2222-2222-2222-222222222222";
+
+/// A user-scoped [`ScopeContext`] for `user_id`, matching rows seeded by the
+/// factories below (owner = `user_id`, no team memberships). Used to assert DB
+/// state directly from HTTP handler tests.
+#[allow(dead_code)]
+pub fn user_scope(user_id: &str) -> ScopeContext {
+    ScopeContext {
+        user_id: user_id.to_string(),
+        team_ids: vec![],
+        is_admin: false,
+    }
+}
 
 /// Create a minimal Task for tests.
 #[allow(dead_code)]
@@ -348,14 +375,9 @@ pub fn make_task_row(task_id: &str, user_id: &str) -> Task {
         created_at_db: None,
         updated_at: None,
         append_system_prompt: None,
-        sandbox_started_at: None,
-        sandbox_desired_state: SandboxDesiredState::Running,
-        sandbox_stop_reason: None,
-        sandbox_desired_state_updated_at: chrono::Utc::now(),
         headless: false,
         ttl_minutes: 15,
         inactive_ttl_days: 7,
-        task_template_id: None,
         trigger_id: None,
         workspace_id: None,
         disabled_servers: None,
@@ -372,27 +394,15 @@ pub fn make_repository_row(id: &str, user_id: &str) -> Repository {
         kind: RepositoryKind::Git,
         remote_url: Some("https://github.com/test/repo.git".to_string()),
         default_branch: Some("main".to_string()),
-        docker_image: None,
-        docker_access: None,
-        system_prompt: None,
-        setup_commands: None,
-        env_vars: None,
-        servers: None,
-        plugins: None,
-        server_start_commands: None,
-        startup_timeout_seconds: None,
-        build_command: None,
-        build_output_directory: None,
-        enable_inspector: None,
-        auto_reload: None,
         description: None,
         provider: Some(RepositoryProvider::Github),
         scope: moatless_vibe_backend::scope::Scope::User,
         team_id: Some(format!("personal-{user_id}")),
         owner_user_id: Some(user_id.to_string()),
         created_by: Some(user_id.to_string()),
-        sandbox_service_account: None,
-        resources: None,
+        access_status: "unchecked".to_string(),
+        access_checked_at: None,
+        access_error: None,
         deleted: Some(false),
         created_at: Some(now),
         updated_at: Some(now),
@@ -470,7 +480,8 @@ pub fn authed_request(
         .unwrap();
     req.extensions_mut()
         .insert(moatless_vibe_backend::auth::identity::AuthIdentity {
-            user_id: user_id.to_string(),
+            user_id: Uuid::parse_str(user_id)
+                .expect("authed_request user_id must be a UUID (use common::USER_1)"),
             login: user_id.to_string(),
             role: moatless_vibe_backend::auth::models::UserRole::User,
             provider: "test".to_string(),
@@ -496,7 +507,8 @@ pub fn authed_json_request(
         .unwrap();
     req.extensions_mut()
         .insert(moatless_vibe_backend::auth::identity::AuthIdentity {
-            user_id: user_id.to_string(),
+            user_id: Uuid::parse_str(user_id)
+                .expect("authed_request user_id must be a UUID (use common::USER_1)"),
             login: user_id.to_string(),
             role: moatless_vibe_backend::auth::models::UserRole::User,
             provider: "test".to_string(),
@@ -542,6 +554,11 @@ pub fn make_workspace_row(id: &str, user_id: &str) -> Workspace {
         servers: None,
         plugins: None,
         resources: None,
+        network_profile: None,
+        source: "manual".to_string(),
+        source_repository_id: None,
+        source_key: None,
+        source_config_path: None,
         scope: moatless_vibe_backend::scope::Scope::User,
         team_id: Some(format!("personal-{user_id}")),
         owner_user_id: Some(user_id.to_string()),

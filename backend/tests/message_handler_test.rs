@@ -20,7 +20,7 @@ use moatless_vibe_backend::task::dao as task_dao;
 
 use common::{
     authed_json_request, authed_request, body_json, make_message_row, make_repository_row,
-    make_task_row, test_app_state,
+    make_task_row, test_app_state, USER_1,
 };
 
 fn build_router(pool: PgPool) -> axum::Router {
@@ -44,10 +44,10 @@ async fn seed_task(pool: &PgPool, task_id: &str, user: &str) {
 
 #[sqlx::test]
 async fn get_messages_empty(pool: PgPool) {
-    seed_task(&pool, "task-1", "user-1").await;
+    seed_task(&pool, "task-1", USER_1).await;
 
     let app = build_router(pool);
-    let req = authed_request("GET", "/api/v1/tasks/task-1/messages", "user-1");
+    let req = authed_request("GET", "/api/v1/tasks/task-1/messages", USER_1);
     let resp = app.oneshot(req).await.unwrap();
 
     assert_eq!(resp.status(), StatusCode::OK);
@@ -58,7 +58,7 @@ async fn get_messages_empty(pool: PgPool) {
 
 #[sqlx::test]
 async fn get_messages_pagination(pool: PgPool) {
-    seed_task(&pool, "task-1", "user-1").await;
+    seed_task(&pool, "task-1", USER_1).await;
 
     // Seed 75 user messages so they cleanly survive the empty-content filter.
     for i in 0..75 {
@@ -68,7 +68,7 @@ async fn get_messages_pagination(pool: PgPool) {
 
     // Page 1: latest 50.
     let app = build_router(pool.clone());
-    let req = authed_request("GET", "/api/v1/tasks/task-1/messages?limit=50", "user-1");
+    let req = authed_request("GET", "/api/v1/tasks/task-1/messages?limit=50", USER_1);
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
     let body = body_json(resp).await;
@@ -84,7 +84,7 @@ async fn get_messages_pagination(pool: PgPool) {
     let req = authed_request(
         "GET",
         &format!("/api/v1/tasks/task-1/messages?limit=50&before_id={next_before_id}"),
-        "user-1",
+        USER_1,
     );
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
@@ -97,7 +97,7 @@ async fn get_messages_pagination(pool: PgPool) {
 
 #[sqlx::test]
 async fn get_messages_with_data(pool: PgPool) {
-    seed_task(&pool, "task-1", "user-1").await;
+    seed_task(&pool, "task-1", USER_1).await;
 
     // Insert messages via DAO
     let msg1 = make_message_row("task-1", "msg-1");
@@ -107,7 +107,7 @@ async fn get_messages_with_data(pool: PgPool) {
     message_dao::append(&pool, &msg2, &[], &[]).await.unwrap();
 
     let app = build_router(pool);
-    let req = authed_request("GET", "/api/v1/tasks/task-1/messages", "user-1");
+    let req = authed_request("GET", "/api/v1/tasks/task-1/messages", USER_1);
     let resp = app.oneshot(req).await.unwrap();
 
     assert_eq!(resp.status(), StatusCode::OK);
@@ -137,10 +137,10 @@ async fn get_messages_missing_auth_401(pool: PgPool) {
 
 #[sqlx::test]
 async fn get_pending_messages_empty(pool: PgPool) {
-    seed_task(&pool, "task-1", "user-1").await;
+    seed_task(&pool, "task-1", USER_1).await;
 
     let app = build_router(pool);
-    let req = authed_request("GET", "/api/v1/tasks/task-1/messages/pending", "user-1");
+    let req = authed_request("GET", "/api/v1/tasks/task-1/messages/pending", USER_1);
     let resp = app.oneshot(req).await.unwrap();
 
     assert_eq!(resp.status(), StatusCode::OK);
@@ -150,7 +150,7 @@ async fn get_pending_messages_empty(pool: PgPool) {
 
 #[sqlx::test]
 async fn get_pending_messages_with_data(pool: PgPool) {
-    seed_task(&pool, "task-1", "user-1").await;
+    seed_task(&pool, "task-1", USER_1).await;
 
     // Insert pending user messages (no agent_session_id)
     let msg1 = make_message_row("task-1", "pending-1");
@@ -160,7 +160,7 @@ async fn get_pending_messages_with_data(pool: PgPool) {
     message_dao::append(&pool, &msg2, &[], &[]).await.unwrap();
 
     let app = build_router(pool);
-    let req = authed_request("GET", "/api/v1/tasks/task-1/messages/pending", "user-1");
+    let req = authed_request("GET", "/api/v1/tasks/task-1/messages/pending", USER_1);
     let resp = app.oneshot(req).await.unwrap();
 
     assert_eq!(resp.status(), StatusCode::OK);
@@ -182,7 +182,7 @@ async fn send_message_task_not_found(pool: PgPool) {
     let req = authed_json_request(
         "POST",
         "/api/v1/tasks/nonexistent/messages",
-        "user-1",
+        USER_1,
         serde_json::json!({"message": "hello"}),
     );
     let resp = app.oneshot(req).await.unwrap();
@@ -191,13 +191,13 @@ async fn send_message_task_not_found(pool: PgPool) {
 
 #[sqlx::test]
 async fn send_message_success(pool: PgPool) {
-    seed_task(&pool, "task-1", "user-1").await;
+    seed_task(&pool, "task-1", USER_1).await;
 
     let app = build_router(pool);
     let req = authed_json_request(
         "POST",
         "/api/v1/tasks/task-1/messages",
-        "user-1",
+        USER_1,
         serde_json::json!({"message": "hello world"}),
     );
     let resp = app.oneshot(req).await.unwrap();

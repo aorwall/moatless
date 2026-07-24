@@ -17,7 +17,9 @@ use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::repository::routes::repository_router;
 use moatless_vibe_backend::scope::ScopeContext;
 
-use common::{authed_json_request, authed_request, body_json, make_repository_row, test_app_state};
+use common::{
+    authed_json_request, authed_request, body_json, make_repository_row, test_app_state, USER_1,
+};
 
 fn build_router(pool: PgPool) -> axum::Router {
     let state = test_app_state(pool);
@@ -39,7 +41,7 @@ async fn create_repository(pool: PgPool) {
     let req = authed_json_request(
         "POST",
         "/api/v1/repositories",
-        "user-1",
+        USER_1,
         serde_json::json!({
             "name": "my-repo",
             "kind": "git",
@@ -57,11 +59,11 @@ async fn create_repository(pool: PgPool) {
 
 #[sqlx::test]
 async fn get_repository(pool: PgPool) {
-    let row = make_repository_row("repo-get", "user-1");
+    let row = make_repository_row("repo-get", USER_1);
     repository_dao::insert(&pool, &row).await.unwrap();
 
     let app = build_router(pool);
-    let req = authed_request("GET", "/api/v1/repositories/repo-get", "user-1");
+    let req = authed_request("GET", "/api/v1/repositories/repo-get", USER_1);
     let resp = app.oneshot(req).await.unwrap();
 
     assert_eq!(resp.status(), StatusCode::OK);
@@ -72,12 +74,12 @@ async fn get_repository(pool: PgPool) {
 #[sqlx::test]
 async fn list_repositories(pool: PgPool) {
     for id in ["repo-a", "repo-b"] {
-        let row = make_repository_row(id, "user-1");
+        let row = make_repository_row(id, USER_1);
         repository_dao::insert(&pool, &row).await.unwrap();
     }
 
     let app = build_router(pool);
-    let req = authed_request("GET", "/api/v1/repositories", "user-1");
+    let req = authed_request("GET", "/api/v1/repositories", USER_1);
     let resp = app.oneshot(req).await.unwrap();
 
     assert_eq!(resp.status(), StatusCode::OK);
@@ -87,14 +89,14 @@ async fn list_repositories(pool: PgPool) {
 
 #[sqlx::test]
 async fn update_repository(pool: PgPool) {
-    let row = make_repository_row("repo-upd", "user-1");
+    let row = make_repository_row("repo-upd", USER_1);
     repository_dao::insert(&pool, &row).await.unwrap();
 
     let app = build_router(pool);
     let req = authed_json_request(
         "PUT",
         "/api/v1/repositories/repo-upd",
-        "user-1",
+        USER_1,
         serde_json::json!({"name": "updated-name"}),
     );
     let resp = app.oneshot(req).await.unwrap();
@@ -106,17 +108,17 @@ async fn update_repository(pool: PgPool) {
 
 #[sqlx::test]
 async fn delete_repository(pool: PgPool) {
-    let row = make_repository_row("repo-del", "user-1");
+    let row = make_repository_row("repo-del", USER_1);
     repository_dao::insert(&pool, &row).await.unwrap();
 
     let app = build_router(pool.clone());
-    let req = authed_request("DELETE", "/api/v1/repositories/repo-del", "user-1");
+    let req = authed_request("DELETE", "/api/v1/repositories/repo-del", USER_1);
     let resp = app.oneshot(req).await.unwrap();
 
     assert_eq!(resp.status(), StatusCode::NO_CONTENT);
 
     // Verify soft-deleted
-    let found = repository_dao::find_by_id(&pool, "repo-del", &scope_ctx("user-1"))
+    let found = repository_dao::find_by_id(&pool, "repo-del", &scope_ctx(USER_1))
         .await
         .unwrap();
     assert!(found.is_none());

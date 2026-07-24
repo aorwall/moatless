@@ -24,7 +24,10 @@ use common::{make_repository_row, test_app_state};
 
 fn auth(user_id: &str) -> AuthUser {
     AuthUser {
-        user_id: user_id.to_string(),
+        // `AuthUser::user_id` is a `Uuid`; derive a stable one from the symbolic
+        // name. Its value is immaterial here — connections resolve by GitHub org
+        // and run-as falls back to the repo owner, neither keyed on this id.
+        user_id: uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, user_id.as_bytes()),
         login: user_id.to_string(),
         role: None,
         provider: Some("github".to_string()),

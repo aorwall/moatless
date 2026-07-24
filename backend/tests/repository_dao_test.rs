@@ -156,31 +156,37 @@ async fn find_by_name_and_user(pool: PgPool) {
     assert!(not_found.is_none());
 }
 
+// Run-config JSONB columns (servers/env_vars/plugins) moved off `repositories`
+// onto `workspaces`; their round-trip coverage now lives in
+// `workspace_dao_test`. Repositories keep the provider-reachability columns
+// (`access_status`/`access_checked_at`/`access_error`), so this exercises the
+// update + read-back path against those.
 #[sqlx::test]
-async fn update_jsonb_fields(pool: PgPool) {
-    let row = make_repository_row("repo-json", "user-1");
+async fn update_access_fields(pool: PgPool) {
+    let row = make_repository_row("repo-access", "user-1");
     repository_dao::insert(&pool, &row).await.unwrap();
 
-    let servers = serde_json::json!([{"name": "web", "port": 3000}]);
-    let env_vars = serde_json::json!({"NODE_ENV": "test"});
-
-    repository_dao::update(
+    let checked_at = chrono::Utc::now();
+    let updated = repository_dao::update(
         &pool,
-        "repo-json",
+        "repo-access",
         &RepositoryPatch {
-            servers: Some(Some(servers.clone())),
-            env_vars: Some(Some(env_vars.clone())),
+            access_status: Some("not_found".to_string()),
+            access_checked_at: Some(Some(checked_at)),
+            access_error: Some(Some("remote returned 404".to_string())),
             ..Default::default()
         },
     )
     .await
     .unwrap();
+    assert!(updated);
 
-    let found = repository_dao::find_by_id(&pool, "repo-json", &scope_ctx("user-1"))
+    let found = repository_dao::find_by_id(&pool, "repo-access", &scope_ctx("user-1"))
         .await
         .unwrap()
         .unwrap();
 
-    assert_eq!(found.servers.unwrap(), servers);
-    assert_eq!(found.env_vars.unwrap(), env_vars);
+    assert_eq!(found.access_status, "not_found");
+    assert!(found.access_checked_at.is_some());
+    assert_eq!(found.access_error.as_deref(), Some("remote returned 404"));
 }
