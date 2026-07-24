@@ -263,8 +263,9 @@ pub async fn create_task(
         )
         .await?;
 
-    // Reuse the enriched response from the event closure; only re-enrich if the
-    // closure never ran (events disabled) or its enrichment failed.
+    // Reuse the response the event closure produced (enriched, or its
+    // un-enriched fallback). Only re-enrich when the closure never ran because
+    // events are disabled, so nothing was stashed.
     let stashed = enriched.lock().ok().and_then(|mut cell| cell.take());
     let task_response = match stashed {
         Some(resp) => resp,
