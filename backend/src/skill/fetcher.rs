@@ -12,6 +12,12 @@
 //! with `Accept: application/vnd.github.raw+json` to fetch each SKILL.md body.
 //! A 404 on the parent directory is treated as "no skills" and returns an
 //! empty vector.
+//!
+//! Skill entries that are symlinks (e.g. `.claude/skills/foo ->
+//! ../../.agents/skills/foo`) are listed by GitHub with `type: "symlink"`,
+//! and the API refuses to traverse paths through a symlinked directory
+//! (404). Each symlink entry is therefore resolved via its contents object's
+//! `target` field before fetching `SKILL.md` from the real path.
 
 use async_trait::async_trait;
 use futures::future::try_join_all;
@@ -70,6 +76,15 @@ struct ContentEntry {
     name: String,
     #[serde(rename = "type")]
     entry_type: String,
+}
+
+/// Contents API object for a single symlink path
+/// (`Accept: application/vnd.github.object+json`). Only the link target is
+/// needed; directory listings include the field as `null`.
+#[derive(Debug, Deserialize)]
+struct SymlinkObject {
+    #[serde(default)]
+    target: Option<String>,
 }
 
 /// Subset of the Claude Code plugin manifest we need: only the optional
@@ -134,39 +149,119 @@ impl SkillFetcher for GitHubSkillFetcher {
             return Ok(Vec::new());
         };
 
-        let dir_names: Vec<String> = entries
+        let fetches = entries
             .into_iter()
-            .filter(|e| e.entry_type == "dir")
-            .map(|e| e.name)
-            .collect();
-
-        let fetches = dir_names.into_iter().map(|dir_name| {
-            let owner = owner.clone();
-            let repo = repo.clone();
-            let remote_url = remote_url.to_string();
-            let client = self.client.clone();
-            let token = token.map(str::to_string);
-            let skills_prefix = skills_prefix.clone();
-            async move {
-                let file_url = format!(
-                    "https://api.github.com/repos/{owner}/{repo}/contents/{skills_prefix}/{dir_name}/SKILL.md"
-                );
-                let content = fetch_github_raw(
-                    &client,
-                    &file_url,
-                    token.as_deref(),
-                    &remote_url,
-                )
-                .await?;
-                Ok::<Option<FetchedSkillFile>, SkillError>(
-                    content.map(|content| FetchedSkillFile { dir_name, content }),
-                )
-            }
-        });
+            .filter(|e| e.entry_type == "dir" || e.entry_type == "symlink")
+            .map(|entry| {
+                let owner = owner.clone();
+                let repo = repo.clone();
+                let remote_url = remote_url.to_string();
+                let client = self.client.clone();
+                let token = token.map(str::to_string);
+                let skills_prefix = skills_prefix.clone();
+                async move {
+                    let dir_name = entry.name;
+                    let dir_path = if entry.entry_type == "symlink" {
+                        match resolve_symlink_dir(
+                            &client,
+                            &owner,
+                            &repo,
+                            &skills_prefix,
+                            &dir_name,
+                            token.as_deref(),
+                            &remote_url,
+                        )
+                        .await?
+                        {
+                            Some(path) => path,
+                            None => return Ok(None),
+                        }
+                    } else {
+                        format!("{skills_prefix}/{dir_name}")
+                    };
+                    let file_url = format!(
+                        "https://api.github.com/repos/{owner}/{repo}/contents/{dir_path}/SKILL.md"
+                    );
+                    let content = fetch_github_raw(
+                        &client,
+                        &file_url,
+                        token.as_deref(),
+                        &remote_url,
+                    )
+                    .await?;
+                    Ok::<Option<FetchedSkillFile>, SkillError>(
+                        content.map(|content| FetchedSkillFile { dir_name, content }),
+                    )
+                }
+            });
 
         let results: Vec<Option<FetchedSkillFile>> = try_join_all(fetches).await?;
         Ok(results.into_iter().flatten().collect())
     }
+}
+
+/// Resolve a symlinked skill entry to the repo-relative directory it points
+/// at, by reading the symlink object's `target` and resolving it against the
+/// directory containing the symlink. Returns `Ok(None)` when the target is
+/// missing, absolute, or escapes the repo root — the entry is then skipped.
+async fn resolve_symlink_dir(
+    client: &Client,
+    owner: &str,
+    repo: &str,
+    skills_prefix: &str,
+    name: &str,
+    token: Option<&str>,
+    git_url: &str,
+) -> Result<Option<String>, SkillError> {
+    let url = format!("https://api.github.com/repos/{owner}/{repo}/contents/{skills_prefix}/{name}");
+    let Some(link) = send_github_json::<SymlinkObject>(
+        client,
+        &url,
+        "application/vnd.github.object+json",
+        token,
+        git_url,
+    )
+    .await?
+    else {
+        return Ok(None);
+    };
+    let Some(target) = link.target else {
+        return Ok(None);
+    };
+    let resolved = resolve_relative_path(skills_prefix, &target);
+    if resolved.is_none() {
+        warn!(
+            git_url,
+            name, target, "Skipping symlinked skill with unresolvable target"
+        );
+    }
+    Ok(resolved)
+}
+
+/// Resolve a symlink `target` against the directory it lives in, normalizing
+/// `.` and `..` segments into a clean repo-relative path. Returns `None` for
+/// absolute targets or targets that escape the repo root.
+fn resolve_relative_path(base_dir: &str, target: &str) -> Option<String> {
+    if target.starts_with('/') {
+        return None;
+    }
+    let mut stack: Vec<&str> = base_dir
+        .split('/')
+        .filter(|s| !s.is_empty() && *s != ".")
+        .collect();
+    for segment in target.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                stack.pop()?;
+            }
+            other => stack.push(other),
+        }
+    }
+    if stack.is_empty() {
+        return None;
+    }
+    Some(stack.join("/"))
 }
 
 /// Probe `.claude-plugin/plugin.json` and return the repo-relative path at
@@ -387,6 +482,58 @@ mod tests {
 
         let err = normalize_skills_path("custom/../skills").unwrap_err();
         assert!(err.contains("'..'"), "got: {err}");
+    }
+
+    #[test]
+    fn resolve_relative_path_handles_parent_segments() {
+        // The shape used by this repo: .claude/skills/foo -> ../../.agents/skills/foo
+        assert_eq!(
+            resolve_relative_path(".claude/skills", "../../.agents/skills/code-review"),
+            Some(".agents/skills/code-review".to_string())
+        );
+        // Sibling target within the same directory.
+        assert_eq!(
+            resolve_relative_path(".claude/skills", "other-skill"),
+            Some(".claude/skills/other-skill".to_string())
+        );
+        // `.` segments and duplicate slashes are normalized away.
+        assert_eq!(
+            resolve_relative_path(".claude/skills", ".//../skills-lib/./foo"),
+            Some(".claude/skills-lib/foo".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_relative_path_rejects_escapes() {
+        // Escapes the repo root.
+        assert_eq!(
+            resolve_relative_path(".claude/skills", "../../../outside"),
+            None
+        );
+        // Absolute targets are not repo-relative.
+        assert_eq!(resolve_relative_path(".claude/skills", "/etc/passwd"), None);
+        // Resolving to the repo root itself is not a skill directory.
+        assert_eq!(resolve_relative_path(".claude/skills", "../.."), None);
+    }
+
+    #[test]
+    fn symlink_object_deserialises_target() {
+        let json = r#"{
+            "name": "code-review",
+            "path": ".claude/skills/code-review",
+            "type": "symlink",
+            "target": "../../.agents/skills/code-review"
+        }"#;
+        let link: SymlinkObject = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            link.target.as_deref(),
+            Some("../../.agents/skills/code-review")
+        );
+
+        // Directory objects carry `"target": null` — must not fail to parse.
+        let dir = r#"{"name": "skills", "type": "dir", "target": null}"#;
+        let link: SymlinkObject = serde_json::from_str(dir).unwrap();
+        assert!(link.target.is_none());
     }
 
     #[test]
