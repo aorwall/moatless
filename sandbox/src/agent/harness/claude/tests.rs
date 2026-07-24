@@ -24,8 +24,6 @@ fn process() -> ClaudeProcess {
     ClaudeProcess::new(ClaudeConfig {
         config: Arc::new(crate::config::test_support::minimal_config()),
         agent_state: Arc::new(AgentState::new()),
-        env: None,
-        system_prompt: None,
         agent_type: Some("claude-code".to_string()),
     })
 }
@@ -341,19 +339,13 @@ async fn e2e_claude_subprocess_turn_through_the_harness() {
     let cfg = ClaudeConfig {
         config: Arc::new(config),
         agent_state: Arc::new(AgentState::new()),
-        env: (!env.is_empty()).then_some(env),
-        system_prompt: None,
         agent_type: Some("claude-code".to_string()),
     };
 
     let mut harness = Harness::claude(cfg);
-    harness
-        .submit(Input::text(
-            "in-1",
-            "What is 2+2? Reply with only the number.",
-        ))
-        .await
-        .expect("submit input");
+    let mut input = Input::text("in-1", "What is 2+2? Reply with only the number.");
+    input.env = (!env.is_empty()).then_some(env);
+    harness.submit(input).await.expect("submit input");
 
     let (mut started, mut accepted, mut sources) = (false, false, 0usize);
     let mut outcome = None;
@@ -413,22 +405,26 @@ async fn e2e_persistent_claude_two_turns_share_a_session() {
         env.insert("ANTHROPIC_API_KEY".to_string(), key);
     }
 
+    let env = (!env.is_empty()).then_some(env);
+
     let cfg = ClaudeConfig {
         config: Arc::new(config),
         agent_state: Arc::new(AgentState::new()),
-        env: (!env.is_empty()).then_some(env),
-        system_prompt: None,
         agent_type: Some("claude-code".to_string()),
     };
 
     let mut harness = Harness::claude_persistent(cfg);
 
     // Runs one Turn and returns (session, outcome) for it.
-    async fn run_turn(harness: &mut Harness, id: &str, text: &str) -> (Option<SessionId>, Option<Outcome>) {
-        harness
-            .submit(Input::text(id, text))
-            .await
-            .expect("submit input");
+    async fn run_turn(
+        harness: &mut Harness,
+        env: &Option<HashMap<String, String>>,
+        id: &str,
+        text: &str,
+    ) -> (Option<SessionId>, Option<Outcome>) {
+        let mut input = Input::text(id, text);
+        input.env = env.clone();
+        harness.submit(input).await.expect("submit input");
         let (mut session, mut outcome) = (None, None);
         while let Some(signal) = harness.next_signal().await {
             match signal {
@@ -446,8 +442,13 @@ async fn e2e_persistent_claude_two_turns_share_a_session() {
         (session, outcome)
     }
 
-    let (first_session, first_outcome) =
-        run_turn(&mut harness, "in-1", "What is 2+2? Reply with only the number.").await;
+    let (first_session, first_outcome) = run_turn(
+        &mut harness,
+        &env,
+        "in-1",
+        "What is 2+2? Reply with only the number.",
+    )
+    .await;
     assert!(
         matches!(first_outcome, Some(Outcome::Completed)),
         "first Turn should complete, got {first_outcome:?}"
@@ -455,7 +456,7 @@ async fn e2e_persistent_claude_two_turns_share_a_session() {
     let first_session = first_session.expect("first Turn reports a Session");
 
     let (second_session, second_outcome) =
-        run_turn(&mut harness, "in-2", "And what is that number times 3?").await;
+        run_turn(&mut harness, &env, "in-2", "And what is that number times 3?").await;
     assert!(
         matches!(second_outcome, Some(Outcome::Completed)),
         "second Turn should complete, got {second_outcome:?}"

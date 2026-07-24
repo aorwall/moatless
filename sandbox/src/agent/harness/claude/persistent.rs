@@ -139,7 +139,7 @@ impl ClaudePersistentProcess {
         let request = AgentRunRequest {
             content: Vec::new(),
             model: input.model.clone(),
-            system_prompt: self.cfg.system_prompt.clone(),
+            system_prompt: input.system_prompt.clone(),
             resume,
             agent_type: self.cfg.agent_type.clone(),
             agent_mode: input.mode.clone(),
@@ -150,7 +150,7 @@ impl ClaudePersistentProcess {
             &request,
             self.cancel_token.clone(),
             Arc::clone(&self.cfg.agent_state),
-            self.cfg.env.clone(),
+            input.env.clone(),
         );
 
         let handle = query_tmux_streaming(options)

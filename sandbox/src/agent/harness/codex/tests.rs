@@ -22,8 +22,6 @@ use super::{CodexConfig, CodexProcess};
 fn config() -> CodexConfig {
     CodexConfig {
         config: Arc::new(crate::config::test_support::minimal_config()),
-        env: None,
-        system_prompt: None,
         credential_failures: CredentialFailureDetector::default(),
     }
 }
@@ -541,8 +539,6 @@ async fn e2e_codex_turn_through_the_harness() {
 
     let cfg = CodexConfig {
         config: Arc::new(config),
-        env: None,
-        system_prompt: None,
         credential_failures: CredentialFailureDetector::default(),
     };
 

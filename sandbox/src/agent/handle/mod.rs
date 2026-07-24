@@ -83,16 +83,14 @@ pub(crate) fn resolve_agent_harness(raw: &str) -> Result<&'static str, String> {
 /// unsupported type is an invalid-configuration failure surfaced at startup,
 /// never a silent default.
 ///
-/// Turn-independent `env` and `system_prompt` are resolved by the caller and
-/// cloned into each execution; all per-Turn configuration rides on the
-/// submitted `Input`, so the harness itself stays fixed.
+/// All per-Turn configuration — including the coordinator-resolved `env` and
+/// `system_prompt` — rides on the submitted `Input`, so the harness itself
+/// stays fixed for the Sandbox lifetime.
 pub fn build_harness(
     config: &Arc<Config>,
     agent_state: &Arc<AgentState>,
     credential_failures: &CredentialFailureDetector,
     agent_type: &str,
-    env: Option<HashMap<String, String>>,
-    system_prompt: Option<String>,
 ) -> Result<Harness, HarnessError> {
     let harness = resolve_agent_harness(agent_type).map_err(|diagnostic| {
         HarnessError::new(
@@ -106,8 +104,6 @@ pub fn build_harness(
     if harness == AGENT_TYPE_CODEX {
         return Ok(Harness::codex(CodexConfig {
             config: Arc::clone(config),
-            env,
-            system_prompt,
             credential_failures: credential_failures.clone(),
         }));
     }
@@ -115,8 +111,6 @@ pub fn build_harness(
     let claude = ClaudeConfig {
         config: Arc::clone(config),
         agent_state: Arc::clone(agent_state),
-        env,
-        system_prompt,
         agent_type: Some(agent_type.to_string()),
     };
     Ok(if config.use_tmux {
@@ -388,7 +382,7 @@ mod tests {
     async fn build_harness_rejects_unsupported_type_as_invalid_configuration() {
         let (config, agent_state, failures) = harness_inputs(false);
         // `Harness` has no `Debug`, so match rather than `expect_err`.
-        let err = match build_harness(&config, &agent_state, &failures, "gpt-9000", None, None) {
+        let err = match build_harness(&config, &agent_state, &failures, "gpt-9000") {
             Ok(_) => panic!("unsupported harness must fail"),
             Err(err) => err,
         };
@@ -408,7 +402,7 @@ mod tests {
             ("claude-code-cli", false),
         ] {
             let (config, agent_state, failures) = harness_inputs(use_tmux);
-            build_harness(&config, &agent_state, &failures, agent_type, None, None)
+            build_harness(&config, &agent_state, &failures, agent_type)
                 .unwrap_or_else(|_| panic!("{agent_type} (tmux={use_tmux}) should construct"));
         }
     }

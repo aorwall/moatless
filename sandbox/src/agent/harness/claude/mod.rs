@@ -23,7 +23,7 @@
 //!   reports [`ErrorClass::UnavailableSession`] with [`SessionImpact::Lost`] and
 //!   lets the coordinator drive the context-loss recovery.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use claude_agent_sdk::{query, QueryHandle, SdkMessage};
@@ -50,16 +50,14 @@ pub(crate) use persistent::ClaudePersistentProcess;
 #[cfg(test)]
 mod tests;
 
-/// The Turn-independent inputs a Claude subprocess needs. Per-Turn configuration
-/// (prompt, model, mode, resume) rides on the [`Input`]; credential and system
-/// prompt resolution is the coordinator's job, so a resolved `env` and
-/// `system_prompt` are passed in rather than fetched here.
+/// The Turn-independent inputs a Claude subprocess needs. All per-Turn
+/// configuration — prompt, model, mode, resume, and the coordinator-resolved
+/// `env` / `system_prompt` — rides on the [`Input`], so this config stays fixed
+/// for the harness lifetime.
 #[derive(Clone)]
 pub struct ClaudeConfig {
     pub config: Arc<Config>,
     pub agent_state: Arc<AgentState>,
-    pub env: Option<HashMap<String, String>>,
-    pub system_prompt: Option<String>,
     pub agent_type: Option<String>,
 }
 
@@ -184,7 +182,7 @@ impl AgentProcess for ClaudeProcess {
         let request = AgentRunRequest {
             content: Vec::new(),
             model: input.model.clone(),
-            system_prompt: self.cfg.system_prompt.clone(),
+            system_prompt: input.system_prompt.clone(),
             resume,
             agent_type: self.cfg.agent_type.clone(),
             agent_mode: input.mode.clone(),
@@ -194,7 +192,7 @@ impl AgentProcess for ClaudeProcess {
             &request,
             self.cancel_token.clone(),
             Arc::clone(&self.cfg.agent_state),
-            self.cfg.env.clone(),
+            input.env.clone(),
         );
 
         match query(&input.text, options).await {

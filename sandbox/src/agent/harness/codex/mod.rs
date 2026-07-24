@@ -21,7 +21,7 @@
 //!   reports [`ErrorClass::UnavailableSession`] with [`SessionImpact::Lost`] and
 //!   lets the coordinator drive recovery.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use crate::agent::codex_exec::{self, CodexCliSession, CodexExecEvent, ThreadItemDetails};
@@ -42,14 +42,12 @@ mod normalize;
 mod tests;
 
 /// The Turn-independent inputs a Codex subprocess needs. Per-Turn configuration
-/// (prompt, model, resume) rides on the [`Input`]; credential and system-prompt
-/// resolution is the coordinator's job, so a resolved `env`, `system_prompt`, and
-/// shared `credential_failures` detector are passed in rather than fetched here.
+/// (prompt, model, resume, and the coordinator-resolved `env` / `system_prompt`)
+/// rides on the [`Input`]; only the shared, Turn-independent detector is fixed
+/// here.
 #[derive(Clone)]
 pub struct CodexConfig {
     pub config: Arc<Config>,
-    pub env: Option<HashMap<String, String>>,
-    pub system_prompt: Option<String>,
     /// Shared stderr-marker detector. Codex surfaces a refresh-token race on
     /// stderr; the detector flips a flag the coordinator polls to drive a
     /// credential pull + retry, keeping credential recovery behind the harness.
@@ -191,7 +189,7 @@ impl AgentProcess for CodexProcess {
             let request = AgentRunRequest {
                 content: Vec::new(),
                 model: input.model.clone(),
-                system_prompt: self.cfg.system_prompt.clone(),
+                system_prompt: input.system_prompt.clone(),
                 resume,
                 agent_type: Some("codex".to_string()),
                 agent_mode: input.mode.clone(),
@@ -202,7 +200,7 @@ impl AgentProcess for CodexProcess {
                 &input.text,
                 &self.cfg.config,
                 &request,
-                self.cfg.env.clone(),
+                input.env.clone(),
                 self.cfg.credential_failures.clone(),
             )
             .await

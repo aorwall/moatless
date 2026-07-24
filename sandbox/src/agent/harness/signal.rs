@@ -23,6 +23,8 @@
 //!   → ExecutionFinished(outcome)
 //! ```
 
+use std::collections::HashMap;
+
 use crate::agent::types::ResumeSession;
 
 use super::error::HarnessError;
@@ -41,6 +43,11 @@ pub struct SessionId(pub String);
 /// Input submitted to the harness. Turn configuration (model, mode, resume,
 /// fresh start) rides along, but it configures the Turn — it never selects the
 /// harness implementation, which is fixed at construction (ADR-0004).
+///
+/// Credential (`env`) and `system_prompt` resolution is the coordinator's job,
+/// and both can change between Turns (credential rotation, prompt refresh), so
+/// they ride on each Input rather than being baked into the construction-fixed
+/// harness config.
 #[derive(Debug, Clone)]
 pub struct Input {
     pub id: InputId,
@@ -50,6 +57,11 @@ pub struct Input {
     pub resume: Option<ResumeSession>,
     /// Begin a new Session instead of resuming or injecting into a running one.
     pub start_fresh: bool,
+    /// Resolved subprocess environment for this Turn (credentials the coordinator
+    /// refreshed before submit).
+    pub env: Option<HashMap<String, String>>,
+    /// Resolved append-system-prompt for this Turn.
+    pub system_prompt: Option<String>,
 }
 
 impl Input {
@@ -62,6 +74,8 @@ impl Input {
             mode: None,
             resume: None,
             start_fresh: false,
+            env: None,
+            system_prompt: None,
         }
     }
 }
