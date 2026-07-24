@@ -295,15 +295,16 @@ async fn create_scheduled_task(
     config: &TriggerContext,
     msg: &InboundMessage,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    let task_id =
-        crate::triggers::inbound::create_task_for_external_message(state, config, msg).await?;
+    // Provisioning now happens inside the creation service. Preserve the
+    // `provision_failed` metric using the provision outcome it reports back.
+    let outcome =
+        crate::triggers::inbound::create_task_for_external_message(state, config, msg, None).await?;
 
-    if let Err(e) = state.sandbox.start(&task_id).await {
+    if outcome.provision == crate::task::creation::ProvisionOutcome::Failed {
         record_job("error", "provision_failed", &config.id);
-        warn!(task_id = %task_id, error = %e, "Failed to start sandbox for scheduled task");
     }
 
-    Ok(task_id)
+    Ok(outcome.task.task_id)
 }
 
 fn route_to_config(route: &TaskRoute, job: &ScheduledJob) -> TriggerContext {

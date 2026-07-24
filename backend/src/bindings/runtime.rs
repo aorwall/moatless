@@ -239,13 +239,12 @@ pub async fn route_inbound_message(
                 }),
             });
         let config = trigger_context(rule, provider_label);
-        let task_id =
-            inbound::create_task_for_external_message(state, &config, &msg).await?;
-        if let Some(ref r) = related {
-            crate::task::relations::record_related_to(state.task_relations.as_ref(), &task_id, r)
-                .await;
-        }
-        provision_task(state, &task_id).await;
+        // The creation service records the `related_to` relation and provisions
+        // the sandbox as part of the owned sequence.
+        let task_id = inbound::create_task_for_external_message(state, &config, &msg, related)
+            .await?
+            .task
+            .task_id;
         if rule.routing_mode == RoutingMode::Ongoing {
             update_rule_ongoing_task(state, &rule.id, &task_id).await?;
         }
@@ -578,12 +577,6 @@ fn should_filter_self_echo(binding: &TaskBinding, user_id: &str) -> bool {
         .get("filter_user_id")
         .and_then(serde_json::Value::as_str)
         .is_some_and(|filter| filter == user_id)
-}
-
-async fn provision_task(state: &AppState, task_id: &str) {
-    if let Err(e) = state.sandbox.start(task_id).await {
-        warn!(task_id, error = %e, "Failed to start sandbox for external task");
-    }
 }
 
 #[cfg(test)]

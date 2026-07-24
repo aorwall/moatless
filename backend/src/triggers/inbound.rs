@@ -1,128 +1,99 @@
 //! Inbound message processing — unified message → task flow.
 
-use tracing::{info, warn};
-
 use crate::adapters::models::TriggerContext;
 use crate::shared_models::AgentType;
 use crate::state::AppState;
-use crate::task::models::{Task, TaskStatus, Visibility};
+use crate::task::creation::{FirstMessage, NewTaskRequest, TaskCreationOutcome};
+use crate::task::models::Visibility;
+use crate::task::relations::RelatedTask;
 
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::InboundMessage;
 
-/// Create a new task from a external message.
+/// Create a new task from an external message.
+///
+/// Translates the trigger context into a [`NewTaskRequest`] and hands the whole
+/// create-then-provision sequence (short id, preflight, insert, tags, relations,
+/// provision, task event) to [`TaskCreationService`]. No first message is passed
+/// — the bindings runtime and schedule runner deliver it separately. `related_to`
+/// carries the optional peer relation the bindings path computes; the schedule
+/// runner passes `None`.
+///
+/// [`TaskCreationService`]: crate::task::creation::TaskCreationService
 pub(crate) async fn create_task_for_external_message(
     state: &AppState,
     config: &TriggerContext,
     msg: &InboundMessage,
-) -> Result<String, AdapterError> {
-    let task_id = uuid::Uuid::new_v4().to_string();
-    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    related_to: Option<RelatedTask>,
+) -> Result<TaskCreationOutcome, AdapterError> {
+    let append_system_prompt = {
+        let mut parts = Vec::new();
+        if let Some(ref tpl) = config.prompt_template {
+            parts.push(tpl.to_string());
+        }
+        // Append provider-specific reply instructions (e.g. Slack mention syntax).
+        // The universal `moat messages reply --message <id>` guidance lives in
+        // the base sandbox-tools prompt — no per-adapter copy needed.
+        if let Some(providers) = state.adapters.as_ref() {
+            if let Some(provider) = providers.get_by_name(&config.provider) {
+                if let Some(extra) = provider.reply_instructions() {
+                    parts.push(extra);
+                }
+            }
+        }
+        if parts.is_empty() {
+            None
+        } else {
+            Some(parts.join("\n\n"))
+        }
+    };
 
-    // Generate short_id
-    let short_id = generate_short_id(state).await?;
-
-    let row = Task {
-        task_id: task_id.clone(),
-        short_id: Some(short_id),
-        created_at: now.clone(),
-        last_message_at: now,
-        agent_type: AgentType(config.agent_type.clone()),
+    let req = NewTaskRequest {
         repository_id: config.repository_id.clone(),
-        status: TaskStatus::Open,
-        total_cost_usd: 0.0,
-        site_url: None,
-        template_id: None,
-        vibe: None,
+        agent_type: AgentType(config.agent_type.clone()),
         name: config.task_name.clone(),
         description: Some(truncate(&msg.text, 200)),
-        site_id: None,
-        site_provider: None,
         branch: None, // Will use repo default
         created_by: Some(config.effective_user_id().to_string()),
+        headless: true,
         visibility: Visibility::Private,
         scope: config.scope,
         team_id: config.team_id.clone(),
         owner_user_id: (config.scope == moatless_backend_core::scope::Scope::User)
             .then(|| config.effective_user_id().to_string()),
-        created_at_db: None,
-        updated_at: None,
-        append_system_prompt: {
-            let mut parts = Vec::new();
-            if let Some(ref tpl) = config.prompt_template {
-                parts.push(tpl.to_string());
-            }
-            // Append provider-specific reply instructions (e.g. Slack mention syntax).
-            // The universal `moat messages reply --message <id>` guidance lives in
-            // the base sandbox-tools prompt — no per-adapter copy needed.
-            if let Some(providers) = state.adapters.as_ref() {
-                if let Some(provider) = providers.get_by_name(&config.provider) {
-                    if let Some(extra) = provider.reply_instructions() {
-                        parts.push(extra);
-                    }
-                }
-            }
-            if parts.is_empty() {
-                None
-            } else {
-                Some(parts.join("\n\n"))
-            }
-        },
-        headless: true,
+        trigger_id: Some(config.id.clone()),
+        workspace_id: None,
+        template_id: None,
+        vibe: None,
+        append_system_prompt,
         ttl_minutes: crate::task::models::DEFAULT_TTL_MINUTES,
         inactive_ttl_days: config
             .inactive_ttl_days
             .unwrap_or(crate::task::models::DEFAULT_INACTIVE_TTL_DAYS),
-        trigger_id: Some(config.id.clone()),
-        workspace_id: None,
-        disabled_servers: None,
+        tag_ids: config.tag_ids.clone(),
+        parent: None,
+        related_to,
+        // Bindings runtime / schedule runner deliver the first message themselves.
+        first_message: None,
+        event_subtype: moatless_events::TaskSubType::Open,
+        repository: None,
     };
 
-    state
-        .tasks
-        .insert_task(&row)
+    let provider = config.provider.clone();
+    let source_id = config.source_id.clone();
+    let outcome = state
+        .task_creation
+        .create(
+            req,
+            move |_task| async move {
+                serde_json::json!({ "adapter": provider, "source_id": source_id })
+            },
+            |_task_id, _fm: FirstMessage| async move {},
+        )
         .await
         .map_err(|e| AdapterError::Internal(format!("Failed to create task: {e}")))?;
 
-    // Assign trigger tags to the task
-    if !config.tag_ids.is_empty() {
-        if let Err(e) = state.tags.add_task_tags(&task_id, &config.tag_ids).await {
-            warn!(task_id = %task_id, error = %e, "Failed to assign trigger tags to task");
-        }
-    }
-
-    // Emit task event
-    if let Some(ref events) = state.events {
-        events
-            .publish_task_event(
-                &task_id,
-                moatless_events::TaskSubType::Open,
-                Some("claude-code"),
-                serde_json::json!({"adapter": config.provider, "source_id": config.source_id}),
-            )
-            .await;
-    }
-
-    info!(task_id = %task_id, trigger_id = %config.id, "Created task from external message");
-    Ok(task_id)
-}
-
-/// Generate a unique short ID.
-async fn generate_short_id(state: &AppState) -> Result<String, AdapterError> {
-    for _ in 0..10 {
-        let id = nanoid::nanoid!(8, &nanoid::alphabet::SAFE);
-        if !state
-            .tasks
-            .exists_by_short_id(&id)
-            .await
-            .map_err(|e| AdapterError::Internal(format!("Short ID check failed: {e}")))?
-        {
-            return Ok(id);
-        }
-    }
-    Err(AdapterError::Internal(
-        "Failed to generate unique short ID".to_string(),
-    ))
+    Ok(outcome)
 }
 
 /// Truncate a string to a max length, appending "..." if truncated.
