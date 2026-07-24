@@ -1,10 +1,10 @@
 import {
   AdapterKind,
-  type CreateTriggerRequest,
+  type CreateLoopRequest,
+  type Loop,
+  LoopKind,
   RoutingMode,
-  TriggerKind,
-  type TriggerResponse,
-  type UpdateTriggerRequest,
+  type UpdateLoopRequest,
 } from '@moatless/api-client'
 import { Link } from '@tanstack/react-router'
 import { Loader2 } from 'lucide-react'
@@ -32,16 +32,16 @@ import { Textarea } from '@/lib/components/ui/textarea'
 import { getErrorMessage } from '@/lib/utils/error'
 
 type JsonObject = Record<string, unknown>
-type TriggerSource = TriggerResponse['source']
+type TriggerSource = Loop['source']
 
 interface TriggerFormProps {
-  trigger?: TriggerResponse | null
+  trigger?: Loop | null
   onSuccess?: () => void
   onCancel?: () => void
 }
 
 interface TriggerFormState {
-  kind: TriggerKind
+  kind: LoopKind
   name: string
   active: boolean
   repositoryId: string
@@ -136,7 +136,7 @@ function defaultAdapter(adapters: string[]): AdapterKind {
   return AdapterKind.slack
 }
 
-function makeRuleFields(rule: TriggerResponse['rule'] | undefined) {
+function makeRuleFields(rule: Loop['rule'] | undefined) {
   return {
     repositoryId: rule?.repositoryId ?? '',
     routingMode: rule?.routingMode ?? RoutingMode.by_subject,
@@ -174,12 +174,9 @@ function makeScheduleFields(source: TriggerSource | undefined) {
   }
 }
 
-function makeInitialForm(
-  trigger: TriggerResponse | null | undefined,
-  adapters: string[],
-): TriggerFormState {
+function makeInitialForm(trigger: Loop | null | undefined, adapters: string[]): TriggerFormState {
   return {
-    kind: trigger?.kind ?? TriggerKind.adapter_event,
+    kind: trigger?.kind ?? LoopKind.adapter_event,
     name: trigger?.name ?? '',
     active: trigger?.active ?? true,
     ...makeRuleFields(trigger?.rule),
@@ -192,7 +189,7 @@ function validateForm(form: TriggerFormState): string | null {
   if (!form.repositoryId) {
     return 'Select a repository'
   }
-  if (form.kind === TriggerKind.adapter_event) {
+  if (form.kind === LoopKind.adapter_event) {
     if (!form.connectionId) {
       return 'Select a connection'
     }
@@ -200,7 +197,7 @@ function validateForm(form: TriggerFormState): string | null {
       return 'Enter a source matcher'
     }
   }
-  if (form.kind === TriggerKind.schedule) {
+  if (form.kind === LoopKind.schedule) {
     if (!form.cronExpression.trim()) {
       return 'Enter a cron expression'
     }
@@ -211,7 +208,7 @@ function validateForm(form: TriggerFormState): string | null {
   return null
 }
 
-function buildRule(form: TriggerFormState): CreateTriggerRequest['rule'] {
+function buildRule(form: TriggerFormState): CreateLoopRequest['rule'] {
   return {
     repositoryId: form.repositoryId,
     routingMode: form.routingMode,
@@ -225,7 +222,7 @@ function buildRule(form: TriggerFormState): CreateTriggerRequest['rule'] {
 
 function buildAdapterUpdateSource(
   form: TriggerFormState,
-): NonNullable<UpdateTriggerRequest['source']> {
+): NonNullable<UpdateLoopRequest['source']> {
   return {
     connectionId: form.connectionId,
     sourceMatcher: form.sourceMatcher.trim(),
@@ -238,7 +235,7 @@ function buildAdapterUpdateSource(
   }
 }
 
-function buildAdapterCreateSource(form: TriggerFormState): CreateTriggerRequest['source'] {
+function buildAdapterCreateSource(form: TriggerFormState): CreateLoopRequest['source'] {
   return {
     adapterKind: form.adapter,
     ...buildAdapterUpdateSource(form),
@@ -247,7 +244,7 @@ function buildAdapterCreateSource(form: TriggerFormState): CreateTriggerRequest[
 
 function buildScheduleUpdateSource(
   form: TriggerFormState,
-): NonNullable<UpdateTriggerRequest['source']> {
+): NonNullable<UpdateLoopRequest['source']> {
   return {
     cronExpression: form.cronExpression.trim(),
     timezone: form.timezone.trim() || 'UTC',
@@ -255,14 +252,14 @@ function buildScheduleUpdateSource(
   }
 }
 
-function buildUpdateSource(form: TriggerFormState): NonNullable<UpdateTriggerRequest['source']> {
-  return form.kind === TriggerKind.adapter_event
+function buildUpdateSource(form: TriggerFormState): NonNullable<UpdateLoopRequest['source']> {
+  return form.kind === LoopKind.adapter_event
     ? buildAdapterUpdateSource(form)
     : buildScheduleUpdateSource(form)
 }
 
-function buildCreateSource(form: TriggerFormState): CreateTriggerRequest['source'] {
-  return form.kind === TriggerKind.adapter_event
+function buildCreateSource(form: TriggerFormState): CreateLoopRequest['source'] {
+  return form.kind === LoopKind.adapter_event
     ? buildAdapterCreateSource(form)
     : {
         cronExpression: form.cronExpression.trim(),
@@ -361,9 +358,9 @@ function TaskTriggerFormFields({
   const submitDisabled =
     isPending ||
     !form.repositoryId ||
-    (form.kind === TriggerKind.adapter_event &&
+    (form.kind === LoopKind.adapter_event &&
       (!(form.connectionId && form.sourceMatcher.trim()) || connectionItems.length === 0)) ||
-    (form.kind === TriggerKind.schedule &&
+    (form.kind === LoopKind.schedule &&
       !(form.cronExpression.trim() && form.messageTemplate.trim()))
 
   return (
@@ -373,15 +370,15 @@ function TaskTriggerFormFields({
           <Label>Kind</Label>
           <Select
             value={form.kind}
-            onValueChange={(kind) => setForm((prev) => ({ ...prev, kind: kind as TriggerKind }))}
+            onValueChange={(kind) => setForm((prev) => ({ ...prev, kind: kind as LoopKind }))}
             disabled={isEditing}
           >
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={TriggerKind.adapter_event}>Adapter Event</SelectItem>
-              <SelectItem value={TriggerKind.schedule}>Schedule</SelectItem>
+              <SelectItem value={LoopKind.adapter_event}>Adapter Event</SelectItem>
+              <SelectItem value={LoopKind.schedule}>Schedule</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -395,7 +392,7 @@ function TaskTriggerFormFields({
         </div>
       </div>
 
-      {form.kind === TriggerKind.adapter_event ? (
+      {form.kind === LoopKind.adapter_event ? (
         <>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
@@ -592,7 +589,7 @@ function TaskTriggerFormFields({
         />
       </div>
 
-      {form.kind === TriggerKind.adapter_event && (
+      {form.kind === LoopKind.adapter_event && (
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label>Event Filter JSON</Label>
@@ -626,7 +623,7 @@ function TaskTriggerFormFields({
             onCheckedChange={(active) => setForm((prev) => ({ ...prev, active }))}
           />
         </div>
-        {form.kind === TriggerKind.adapter_event && (
+        {form.kind === LoopKind.adapter_event && (
           <>
             <div className="flex items-center justify-between gap-3">
               <span className="text-sm font-medium">Direct Send</span>

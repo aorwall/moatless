@@ -2,11 +2,11 @@ import {
   type AdapterConnectionResponse,
   AdapterKind,
   type CreateAdapterConnectionRequest,
-  type CreateTriggerRequest,
+  type CreateLoopRequest,
+  type Loop,
+  LoopKind,
   RoutingMode,
   Scope,
-  TriggerKind,
-  type TriggerResponse,
 } from '@moatless/api-client'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { integrationsApi } from '../integrations.api'
@@ -75,8 +75,8 @@ describe('integrationsApi', () => {
   })
 
   it('uses generated unified trigger handlers', async () => {
-    const triggerRequest: CreateTriggerRequest = {
-      kind: TriggerKind.adapter_event,
+    const triggerRequest: CreateLoopRequest = {
+      kind: LoopKind.adapter_event,
       active: true,
       rule: {
         repositoryId: 'repo-1',
@@ -94,9 +94,9 @@ describe('integrationsApi', () => {
         adapterConfig: { trigger: 'mention_only' },
       },
     }
-    const triggerResponse: TriggerResponse = {
+    const triggerResponse: Loop = {
       id: 'trigger-1',
-      kind: TriggerKind.adapter_event,
+      kind: LoopKind.adapter_event,
       name: null,
       active: true,
       createdBy: 'user-1',

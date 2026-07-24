@@ -1,10 +1,10 @@
 import type {
   AdapterConnectionResponse,
   CreateAdapterConnectionRequest,
-  CreateTriggerRequest,
-  TriggerRecentTaskItem,
-  TriggerResponse,
-  UpdateTriggerRequest,
+  CreateLoopRequest,
+  Loop,
+  LoopRecentTaskItem,
+  UpdateLoopRequest,
 } from '@moatless/api-client'
 import type { UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -41,9 +41,7 @@ export function useCreateIntegrationConnection() {
   })
 }
 
-export function useTriggers(
-  options?: Omit<UseQueryOptions<TriggerResponse[]>, 'queryKey' | 'queryFn'>,
-) {
+export function useTriggers(options?: Omit<UseQueryOptions<Loop[]>, 'queryKey' | 'queryFn'>) {
   return useQuery({
     queryKey: queryKeys.triggers.list(),
     queryFn: () => integrationsApi.listTriggers(),
@@ -55,7 +53,7 @@ export function useCreateTrigger() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (request: CreateTriggerRequest) => integrationsApi.createTrigger(request),
+    mutationFn: (request: CreateLoopRequest) => integrationsApi.createTrigger(request),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.triggers.all() })
     },
@@ -66,7 +64,7 @@ export function useUpdateTrigger() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ id, request }: { id: string; request: UpdateTriggerRequest }) =>
+    mutationFn: ({ id, request }: { id: string; request: UpdateLoopRequest }) =>
       integrationsApi.updateTrigger(id, request),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.triggers.all() })
@@ -104,7 +102,7 @@ export function useTrigger(triggerId: string) {
 }
 
 export function useTriggerRecentTasks(triggerId: string, opts?: { limit?: number }) {
-  return useQuery<TriggerRecentTaskItem[]>({
+  return useQuery<LoopRecentTaskItem[]>({
     queryKey: queryKeys.triggers.recentTasks(triggerId),
     queryFn: () => integrationsApi.listTriggerRecentTasks(triggerId, { limit: opts?.limit ?? 10 }),
     enabled: !!triggerId,

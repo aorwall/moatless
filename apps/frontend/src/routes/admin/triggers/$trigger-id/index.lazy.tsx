@@ -1,8 +1,4 @@
-import type {
-  AdapterConnectionResponse,
-  TriggerRecentTaskItem,
-  TriggerResponse,
-} from '@moatless/api-client'
+import type { AdapterConnectionResponse, Loop, LoopRecentTaskItem } from '@moatless/api-client'
 import { createLazyFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { Loader2, Trash2 } from 'lucide-react'
 import { useState } from 'react'
@@ -65,7 +61,7 @@ function SourceInfoSection({
   trigger,
   connection,
 }: {
-  trigger: TriggerResponse
+  trigger: Loop
   connection: AdapterConnectionResponse | undefined
 }) {
   const source = trigger.source
@@ -104,7 +100,7 @@ function SourceInfoSection({
   )
 }
 
-function RuleInfoSection({ trigger }: { trigger: TriggerResponse }) {
+function RuleInfoSection({ trigger }: { trigger: Loop }) {
   return (
     <div className="rounded-md border p-4">
       <h2 className="mb-4 text-sm font-semibold">Rule</h2>
@@ -125,7 +121,7 @@ function RuleInfoSection({ trigger }: { trigger: TriggerResponse }) {
   )
 }
 
-function RecentTasksSection({ items }: { items: TriggerRecentTaskItem[] }) {
+function RecentTasksSection({ items }: { items: LoopRecentTaskItem[] }) {
   if (items.length === 0) {
     return <p className="text-sm text-muted-foreground">No tasks created yet.</p>
   }

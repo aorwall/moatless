@@ -10,9 +10,9 @@ import type { RoutingMode } from './routingMode';
 export interface LoopConfig {
   agentType: string;
   /**
-   * Per-Loop inactivity TTL in days. `None` means "inherit the global
+   * Per-trigger inactivity TTL in days. `None` means "inherit the global
 default" (`TASK_INACTIVE_TIMEOUT_DAYS`). Flows into `tasks.inactive_ttl_days`
-when this Loop spawns a task.
+when this trigger spawns a task.
    * @nullable
    */
   inactiveTtlDays?: number | null;

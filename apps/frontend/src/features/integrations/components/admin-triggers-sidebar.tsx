@@ -1,4 +1,4 @@
-import type { AdapterConnectionResponse, TriggerResponse } from '@moatless/api-client'
+import type { AdapterConnectionResponse, Loop } from '@moatless/api-client'
 import { Link } from '@tanstack/react-router'
 import { Bell, Plus } from 'lucide-react'
 import { useState } from 'react'
@@ -17,16 +17,11 @@ import { Button } from '@/lib/components/ui/button'
 import { ListDetailSidebar } from '@/lib/components/ui/list-detail-sidebar'
 import { useListFilter } from '@/lib/hooks/use-list-filter'
 
-const getSearchText = (trigger: TriggerResponse) => [
-  getSourceLabel(trigger),
-  trigger.name,
-  trigger.kind,
-]
-const sortByLabel = (a: TriggerResponse, b: TriggerResponse) =>
-  getSourceLabel(a).localeCompare(getSourceLabel(b))
+const getSearchText = (trigger: Loop) => [getSourceLabel(trigger), trigger.name, trigger.kind]
+const sortByLabel = (a: Loop, b: Loop) => getSourceLabel(a).localeCompare(getSourceLabel(b))
 
 function sourceSubtitle(
-  trigger: TriggerResponse,
+  trigger: Loop,
   connectionsById: Map<string, AdapterConnectionResponse>,
 ): string {
   const source = trigger.source

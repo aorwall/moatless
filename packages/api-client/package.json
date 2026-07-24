@@ -23,7 +23,7 @@
     "./sandbox/tags/tags": "./src/sandbox/tags/tags.ts",
     "./sandbox/tasks/tasks": "./src/sandbox/tasks/tasks.ts",
     "./sandbox/teams/teams": "./src/sandbox/teams/teams.ts",
-    "./sandbox/triggers/triggers": "./src/sandbox/triggers/triggers.ts",
+    "./sandbox/loops/loops": "./src/sandbox/loops/loops.ts",
     "./sandbox/users/users": "./src/sandbox/users/users.ts",
     "./sandbox/workspaces/workspaces": "./src/sandbox/workspaces/workspaces.ts",
     "./sandbox/model": "./src/sandbox/model/index.ts"

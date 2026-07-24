@@ -2794,6 +2794,213 @@
         }
       }
     },
+    "/api/v1/loops": {
+      "get": {
+        "tags": [
+          "loops"
+        ],
+        "operationId": "list_loops",
+        "responses": {
+          "200": {
+            "description": "Triggers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Loop"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "loops"
+        ],
+        "operationId": "create_loop",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLoopRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Trigger created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Loop"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/loops/{id}": {
+      "get": {
+        "tags": [
+          "loops"
+        ],
+        "operationId": "get_loop",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Trigger id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Trigger",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Loop"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "loops"
+        ],
+        "operationId": "update_loop",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateLoopRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Trigger updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Loop"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "loops"
+        ],
+        "operationId": "delete_loop",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Trigger id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Trigger deleted"
+          },
+          "404": {
+            "description": "Trigger not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/loops/{id}/tasks": {
+      "get": {
+        "tags": [
+          "loops"
+        ],
+        "operationId": "list_loop_recent_tasks",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Trigger id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Max items, default 10, cap 50",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LoopRecentTaskItem"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/messages/{message_id}/reactions": {
       "post": {
         "tags": [
@@ -6349,213 +6556,6 @@
         }
       }
     },
-    "/api/v1/triggers": {
-      "get": {
-        "tags": [
-          "triggers"
-        ],
-        "operationId": "list_triggers",
-        "responses": {
-          "200": {
-            "description": "Triggers",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/TriggerResponse"
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "triggers"
-        ],
-        "operationId": "create_trigger",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateTriggerRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Trigger created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TriggerResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/triggers/{id}": {
-      "get": {
-        "tags": [
-          "triggers"
-        ],
-        "operationId": "get_trigger",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Trigger id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Trigger",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TriggerResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      },
-      "put": {
-        "tags": [
-          "triggers"
-        ],
-        "operationId": "update_trigger",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateTriggerRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Trigger updated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TriggerResponse"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "triggers"
-        ],
-        "operationId": "delete_trigger",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Trigger id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Trigger deleted"
-          },
-          "404": {
-            "description": "Trigger not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/triggers/{id}/tasks": {
-      "get": {
-        "tags": [
-          "triggers"
-        ],
-        "operationId": "list_trigger_recent_tasks",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Trigger id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "description": "Max items, default 10, cap 50",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "format": "int32",
-              "minimum": 0
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/TriggerRecentTaskItem"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/uploads": {
       "post": {
         "tags": [
@@ -7760,53 +7760,6 @@
           },
           "updatedAt": {
             "type": "string"
-          }
-        }
-      },
-      "AdapterEventTriggerSource": {
-        "type": "object",
-        "required": [
-          "adapterKind",
-          "connectionId",
-          "sourceMatcher",
-          "eventFilter",
-          "allowDirectSend",
-          "closeTaskOnClose",
-          "notifyOnSuccess"
-        ],
-        "properties": {
-          "adapterConfig": {
-            "type": [
-              "object",
-              "null"
-            ]
-          },
-          "adapterKind": {
-            "$ref": "#/components/schemas/AdapterKind"
-          },
-          "allowDirectSend": {
-            "type": "boolean"
-          },
-          "closeTaskOnClose": {
-            "type": "boolean"
-          },
-          "connectionId": {
-            "type": "string"
-          },
-          "eventFilter": {
-            "type": "object"
-          },
-          "notifyOnSuccess": {
-            "type": "boolean"
-          },
-          "sourceMatcher": {
-            "type": "string"
-          },
-          "sourceName": {
-            "type": [
-              "string",
-              "null"
-            ]
           }
         }
       },
@@ -9089,61 +9042,6 @@
           }
         }
       },
-      "CreateAdapterEventTriggerSource": {
-        "type": "object",
-        "required": [
-          "adapterKind",
-          "connectionId",
-          "sourceMatcher"
-        ],
-        "properties": {
-          "adapterConfig": {
-            "type": [
-              "object",
-              "null"
-            ]
-          },
-          "adapterKind": {
-            "$ref": "#/components/schemas/AdapterKind"
-          },
-          "allowDirectSend": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "closeTaskOnClose": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "connectionId": {
-            "type": "string"
-          },
-          "eventFilter": {
-            "type": [
-              "object",
-              "null"
-            ]
-          },
-          "notifyOnSuccess": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "sourceMatcher": {
-            "type": "string"
-          },
-          "sourceName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
       "CreateApiKeyRequest": {
         "type": "object",
         "description": "Body for POST /api/v1/auth/api-keys.",
@@ -9206,6 +9104,127 @@
           }
         }
       },
+      "CreateLoopConfig": {
+        "type": "object",
+        "required": [
+          "repositoryId",
+          "routingMode"
+        ],
+        "properties": {
+          "agentType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "inactiveTtlDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "ongoingTaskId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "prompt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "repositoryId": {
+            "type": "string"
+          },
+          "routingMode": {
+            "$ref": "#/components/schemas/RoutingMode"
+          },
+          "runAsUserId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tagIds": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "taskName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CreateLoopRequest": {
+        "type": "object",
+        "required": [
+          "kind",
+          "rule",
+          "source"
+        ],
+        "properties": {
+          "active": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/LoopKind"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rule": {
+            "$ref": "#/components/schemas/CreateLoopConfig"
+          },
+          "scope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "source": {
+            "$ref": "#/components/schemas/CreateLoopSource"
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CreateLoopSource": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/CreateSubscription"
+          },
+          {
+            "$ref": "#/components/schemas/CreateSchedule"
+          },
+          {
+            "$ref": "#/components/schemas/ManualSource"
+          }
+        ]
+      },
       "CreateRepositoryRequest": {
         "type": "object",
         "description": "A repository is a connection to a git repo. Run-configuration lives on the\nworkspace, not here.",
@@ -9266,7 +9285,7 @@
           }
         }
       },
-      "CreateScheduleTriggerSource": {
+      "CreateSchedule": {
         "type": "object",
         "required": [
           "cronExpression",
@@ -9280,6 +9299,61 @@
             "type": "string"
           },
           "timezone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CreateSubscription": {
+        "type": "object",
+        "required": [
+          "adapterKind",
+          "connectionId",
+          "sourceMatcher"
+        ],
+        "properties": {
+          "adapterConfig": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "adapterKind": {
+            "$ref": "#/components/schemas/AdapterKind"
+          },
+          "allowDirectSend": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "closeTaskOnClose": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "connectionId": {
+            "type": "string"
+          },
+          "eventFilter": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "notifyOnSuccess": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "sourceMatcher": {
+            "type": "string"
+          },
+          "sourceName": {
             "type": [
               "string",
               "null"
@@ -9466,127 +9540,6 @@
             "type": "string"
           }
         }
-      },
-      "CreateTriggerRequest": {
-        "type": "object",
-        "required": [
-          "kind",
-          "rule",
-          "source"
-        ],
-        "properties": {
-          "active": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "kind": {
-            "$ref": "#/components/schemas/TriggerKind"
-          },
-          "name": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "rule": {
-            "$ref": "#/components/schemas/CreateTriggerRule"
-          },
-          "scope": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/Scope"
-              }
-            ]
-          },
-          "source": {
-            "$ref": "#/components/schemas/CreateTriggerSource"
-          },
-          "teamId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
-      "CreateTriggerRule": {
-        "type": "object",
-        "required": [
-          "repositoryId",
-          "routingMode"
-        ],
-        "properties": {
-          "agentType": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "inactiveTtlDays": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32"
-          },
-          "ongoingTaskId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "prompt": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "repositoryId": {
-            "type": "string"
-          },
-          "routingMode": {
-            "$ref": "#/components/schemas/RoutingMode"
-          },
-          "runAsUserId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "tagIds": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
-          "taskName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
-      "CreateTriggerSource": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/CreateAdapterEventTriggerSource"
-          },
-          {
-            "$ref": "#/components/schemas/CreateScheduleTriggerSource"
-          },
-          {
-            "$ref": "#/components/schemas/ManualTriggerSource"
-          }
-        ]
       },
       "CreateUserRequest": {
         "type": "object",
@@ -11053,6 +11006,197 @@
           }
         }
       },
+      "Loop": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "active",
+          "scope",
+          "createdBy",
+          "createdAt",
+          "updatedAt",
+          "rule",
+          "source"
+        ],
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/LoopKind"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ownerUserId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rule": {
+            "$ref": "#/components/schemas/LoopConfig"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "source": {
+            "$ref": "#/components/schemas/LoopSource"
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      },
+      "LoopConfig": {
+        "type": "object",
+        "required": [
+          "repositoryId",
+          "routingMode",
+          "tagIds",
+          "agentType"
+        ],
+        "properties": {
+          "agentType": {
+            "type": "string"
+          },
+          "inactiveTtlDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Per-trigger inactivity TTL in days. `None` means \"inherit the global\ndefault\" (`TASK_INACTIVE_TIMEOUT_DAYS`). Flows into `tasks.inactive_ttl_days`\nwhen this trigger spawns a task."
+          },
+          "ongoingTaskId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "prompt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "repositoryId": {
+            "type": "string"
+          },
+          "routingMode": {
+            "$ref": "#/components/schemas/RoutingMode"
+          },
+          "runAsUserId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tagIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "taskName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "LoopKind": {
+        "type": "string",
+        "enum": [
+          "adapter_event",
+          "schedule",
+          "manual"
+        ]
+      },
+      "LoopRecentTaskItem": {
+        "type": "object",
+        "required": [
+          "task"
+        ],
+        "properties": {
+          "binding": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TaskBindingResponse",
+                "description": "`None` for schedule triggers (no return-channel binding) and for\nadapter-event tasks that lost their original binding."
+              }
+            ]
+          },
+          "task": {
+            "$ref": "#/components/schemas/LoopRecentTaskSummary"
+          }
+        }
+      },
+      "LoopRecentTaskSummary": {
+        "type": "object",
+        "required": [
+          "taskId",
+          "title",
+          "status",
+          "createdAt"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "shortId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/TaskStatus"
+          },
+          "taskId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "LoopSource": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Subscription"
+          },
+          {
+            "$ref": "#/components/schemas/Schedule"
+          },
+          {
+            "$ref": "#/components/schemas/ManualSource"
+          }
+        ]
+      },
       "LoopSyncSkip": {
         "type": "object",
         "description": "One loop that was skipped during a sync, with a human-readable reason\n(e.g. \"no github connection for org acme\").",
@@ -11108,7 +11252,7 @@
           }
         }
       },
-      "ManualTriggerSource": {
+      "ManualSource": {
         "type": "object"
       },
       "MessageContextInput": {
@@ -12370,7 +12514,7 @@
           }
         }
       },
-      "ScheduleTriggerSource": {
+      "Schedule": {
         "type": "object",
         "required": [
           "cronExpression",
@@ -13400,6 +13544,53 @@
           }
         }
       },
+      "Subscription": {
+        "type": "object",
+        "required": [
+          "adapterKind",
+          "connectionId",
+          "sourceMatcher",
+          "eventFilter",
+          "allowDirectSend",
+          "closeTaskOnClose",
+          "notifyOnSuccess"
+        ],
+        "properties": {
+          "adapterConfig": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "adapterKind": {
+            "$ref": "#/components/schemas/AdapterKind"
+          },
+          "allowDirectSend": {
+            "type": "boolean"
+          },
+          "closeTaskOnClose": {
+            "type": "boolean"
+          },
+          "connectionId": {
+            "type": "string"
+          },
+          "eventFilter": {
+            "type": "object"
+          },
+          "notifyOnSuccess": {
+            "type": "boolean"
+          },
+          "sourceMatcher": {
+            "type": "string"
+          },
+          "sourceName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "SyncConfigResponse": {
         "type": "object",
         "description": "Response for `POST /api/v1/repositories/{id}/sync-config`.\n\nWraps the updated repository plus the loop reconciliation summary.",
@@ -14287,197 +14478,6 @@
           }
         }
       },
-      "TriggerKind": {
-        "type": "string",
-        "enum": [
-          "adapter_event",
-          "schedule",
-          "manual"
-        ]
-      },
-      "TriggerRecentTaskItem": {
-        "type": "object",
-        "required": [
-          "task"
-        ],
-        "properties": {
-          "binding": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/TaskBindingResponse",
-                "description": "`None` for schedule triggers (no return-channel binding) and for\nadapter-event tasks that lost their original binding."
-              }
-            ]
-          },
-          "task": {
-            "$ref": "#/components/schemas/TriggerRecentTaskSummary"
-          }
-        }
-      },
-      "TriggerRecentTaskSummary": {
-        "type": "object",
-        "required": [
-          "taskId",
-          "title",
-          "status",
-          "createdAt"
-        ],
-        "properties": {
-          "createdAt": {
-            "type": "string"
-          },
-          "shortId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "status": {
-            "$ref": "#/components/schemas/TaskStatus"
-          },
-          "taskId": {
-            "type": "string"
-          },
-          "title": {
-            "type": "string"
-          }
-        }
-      },
-      "TriggerResponse": {
-        "type": "object",
-        "required": [
-          "id",
-          "kind",
-          "active",
-          "scope",
-          "createdBy",
-          "createdAt",
-          "updatedAt",
-          "rule",
-          "source"
-        ],
-        "properties": {
-          "active": {
-            "type": "boolean"
-          },
-          "createdAt": {
-            "type": "string"
-          },
-          "createdBy": {
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          },
-          "kind": {
-            "$ref": "#/components/schemas/TriggerKind"
-          },
-          "name": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "ownerUserId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "rule": {
-            "$ref": "#/components/schemas/TriggerRule"
-          },
-          "scope": {
-            "$ref": "#/components/schemas/Scope"
-          },
-          "source": {
-            "$ref": "#/components/schemas/TriggerSource"
-          },
-          "teamId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "updatedAt": {
-            "type": "string"
-          }
-        }
-      },
-      "TriggerRule": {
-        "type": "object",
-        "required": [
-          "repositoryId",
-          "routingMode",
-          "tagIds",
-          "agentType"
-        ],
-        "properties": {
-          "agentType": {
-            "type": "string"
-          },
-          "inactiveTtlDays": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "description": "Per-trigger inactivity TTL in days. `None` means \"inherit the global\ndefault\" (`TASK_INACTIVE_TIMEOUT_DAYS`). Flows into `tasks.inactive_ttl_days`\nwhen this trigger spawns a task."
-          },
-          "ongoingTaskId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "prompt": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "repositoryId": {
-            "type": "string"
-          },
-          "routingMode": {
-            "$ref": "#/components/schemas/RoutingMode"
-          },
-          "runAsUserId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "tagIds": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "taskName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
-      "TriggerSource": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/AdapterEventTriggerSource"
-          },
-          {
-            "$ref": "#/components/schemas/ScheduleTriggerSource"
-          },
-          {
-            "$ref": "#/components/schemas/ManualTriggerSource"
-          }
-        ]
-      },
       "UiContentBlock": {
         "type": "object",
         "description": "Content block within a message.",
@@ -14815,240 +14815,7 @@
           }
         }
       },
-      "UpdateAdapterEventTriggerSource": {
-        "type": "object",
-        "properties": {
-          "adapterConfig": {
-            "type": [
-              "object",
-              "null"
-            ]
-          },
-          "allowDirectSend": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "closeTaskOnClose": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "connectionId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "eventFilter": {
-            "type": [
-              "object",
-              "null"
-            ]
-          },
-          "notifyOnSuccess": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "sourceMatcher": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "sourceName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        },
-        "additionalProperties": false
-      },
-      "UpdateRepositoryRequest": {
-        "type": "object",
-        "properties": {
-          "defaultBranch": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "description": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "name": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "remoteUrl": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "scope": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/Scope",
-                "description": "Change the repository's access scope (`global`, `team`, or `user`).\nRe-submitting `user` preserves the repository's existing immutable\nowner and team. An ownerless repository cannot move to `user`.\nTeam/global targets are resolved from `team_id` and clear the owner."
-              }
-            ]
-          },
-          "teamId": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Target team when moving to `team` scope. Ignored for `global`/`user`."
-          }
-        }
-      },
-      "UpdateScheduleTriggerSource": {
-        "type": "object",
-        "properties": {
-          "cronExpression": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "messageTemplate": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "timezone": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        },
-        "additionalProperties": false
-      },
-      "UpdateTaskMetadataRequest": {
-        "type": "object",
-        "properties": {
-          "description": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "name": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
-      "UpdateTaskTtlRequest": {
-        "type": "object",
-        "properties": {
-          "inactiveTtlDays": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "description": "New inactivity TTL in days. Must be `>= 0`. `0` disables auto-close for\nthis task (it stays Open until closed explicitly). Omit to leave the\ncurrent inactivity TTL unchanged."
-          },
-          "ttlMinutes": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "description": "New idle TTL in minutes. Must be `>= 0`. `0` disables the idle reaper\nfor this task (sandbox stays alive until explicitly stopped). Omit to\nleave the current idle TTL unchanged."
-          }
-        }
-      },
-      "UpdateTeamRequest": {
-        "type": "object",
-        "required": [
-          "name"
-        ],
-        "properties": {
-          "description": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "name": {
-            "type": "string"
-          }
-        }
-      },
-      "UpdateTriggerRequest": {
-        "type": "object",
-        "properties": {
-          "active": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "name": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "rule": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/UpdateTriggerRule"
-              }
-            ]
-          },
-          "scope": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/Scope"
-              }
-            ]
-          },
-          "source": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/UpdateTriggerSource"
-              }
-            ]
-          },
-          "teamId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
-      "UpdateTriggerRule": {
+      "UpdateLoopConfig": {
         "type": "object",
         "properties": {
           "agentType": {
@@ -15115,18 +14882,251 @@
           }
         }
       },
-      "UpdateTriggerSource": {
+      "UpdateLoopRequest": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rule": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/UpdateLoopConfig"
+              }
+            ]
+          },
+          "scope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "source": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/UpdateLoopSource"
+              }
+            ]
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "UpdateLoopSource": {
         "oneOf": [
           {
-            "$ref": "#/components/schemas/UpdateAdapterEventTriggerSource"
+            "$ref": "#/components/schemas/UpdateSubscription"
           },
           {
-            "$ref": "#/components/schemas/UpdateScheduleTriggerSource"
+            "$ref": "#/components/schemas/UpdateSchedule"
           },
           {
-            "$ref": "#/components/schemas/ManualTriggerSource"
+            "$ref": "#/components/schemas/ManualSource"
           }
         ]
+      },
+      "UpdateRepositoryRequest": {
+        "type": "object",
+        "properties": {
+          "defaultBranch": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "remoteUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Scope",
+                "description": "Change the repository's access scope (`global`, `team`, or `user`).\nRe-submitting `user` preserves the repository's existing immutable\nowner and team. An ownerless repository cannot move to `user`.\nTeam/global targets are resolved from `team_id` and clear the owner."
+              }
+            ]
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Target team when moving to `team` scope. Ignored for `global`/`user`."
+          }
+        }
+      },
+      "UpdateSchedule": {
+        "type": "object",
+        "properties": {
+          "cronExpression": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "messageTemplate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timezone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "UpdateSubscription": {
+        "type": "object",
+        "properties": {
+          "adapterConfig": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "allowDirectSend": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "closeTaskOnClose": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "connectionId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "eventFilter": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "notifyOnSuccess": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "sourceMatcher": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sourceName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "UpdateTaskMetadataRequest": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "UpdateTaskTtlRequest": {
+        "type": "object",
+        "properties": {
+          "inactiveTtlDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "New inactivity TTL in days. Must be `>= 0`. `0` disables auto-close for\nthis task (it stays Open until closed explicitly). Omit to leave the\ncurrent inactivity TTL unchanged."
+          },
+          "ttlMinutes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "New idle TTL in minutes. Must be `>= 0`. `0` disables the idle reaper\nfor this task (sandbox stays alive until explicitly stopped). Omit to\nleave the current idle TTL unchanged."
+          }
+        }
+      },
+      "UpdateTeamRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          }
+        }
       },
       "UpdateUserRequest": {
         "type": "object",
@@ -15965,10 +15965,6 @@
       "description": "Adapter connections and webhooks"
     },
     {
-      "name": "triggers",
-      "description": "Work triggers"
-    },
-    {
       "name": "task-bindings",
       "description": "Task-to-external-subject bindings"
     },
@@ -15983,6 +15979,10 @@
     {
       "name": "github",
       "description": "GitHub PR/issue mutations proxied for sandbox agents"
+    },
+    {
+      "name": "loops",
+      "description": "Loops — standing definitions of recurring agent work"
     },
     {
       "name": "teams",

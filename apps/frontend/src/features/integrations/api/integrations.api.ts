@@ -1,10 +1,10 @@
 import type {
   AdapterConnectionResponse,
   CreateAdapterConnectionRequest,
-  CreateTriggerRequest,
-  TriggerRecentTaskItem,
-  TriggerResponse,
-  UpdateTriggerRequest,
+  CreateLoopRequest,
+  Loop,
+  LoopRecentTaskItem,
+  UpdateLoopRequest,
 } from '@moatless/api-client'
 import { unwrapResponse } from '@moatless/api-client/custom-instance'
 import {
@@ -13,13 +13,13 @@ import {
   listAdapters as listAdaptersHandler,
 } from '@moatless/api-client/sandbox/adapters/adapters'
 import {
-  createTrigger as createTriggerHandler,
-  deleteTrigger as deleteTriggerHandler,
-  getTrigger as getTriggerHandler,
-  listTriggerRecentTasks as listTriggerRecentTasksHandler,
-  listTriggers as listTriggersHandler,
-  updateTrigger as updateTriggerHandler,
-} from '@moatless/api-client/sandbox/triggers/triggers'
+  createLoop as createTriggerHandler,
+  deleteLoop as deleteTriggerHandler,
+  getLoop as getTriggerHandler,
+  listLoopRecentTasks as listTriggerRecentTasksHandler,
+  listLoops as listTriggersHandler,
+  updateLoop as updateTriggerHandler,
+} from '@moatless/api-client/sandbox/loops/loops'
 
 export const integrationsApi = {
   async listAdapters(): Promise<string[]> {
@@ -36,30 +36,30 @@ export const integrationsApi = {
     return await unwrapResponse<AdapterConnectionResponse>(createAdapterConnectionHandler(request))
   },
 
-  async listTriggers(): Promise<TriggerResponse[]> {
-    return await unwrapResponse<TriggerResponse[]>(listTriggersHandler())
+  async listTriggers(): Promise<Loop[]> {
+    return await unwrapResponse<Loop[]>(listTriggersHandler())
   },
 
-  async createTrigger(request: CreateTriggerRequest): Promise<TriggerResponse> {
-    return await unwrapResponse<TriggerResponse>(createTriggerHandler(request))
+  async createTrigger(request: CreateLoopRequest): Promise<Loop> {
+    return await unwrapResponse<Loop>(createTriggerHandler(request))
   },
 
-  async updateTrigger(id: string, request: UpdateTriggerRequest): Promise<TriggerResponse> {
-    return await unwrapResponse<TriggerResponse>(updateTriggerHandler(id, request))
+  async updateTrigger(id: string, request: UpdateLoopRequest): Promise<Loop> {
+    return await unwrapResponse<Loop>(updateTriggerHandler(id, request))
   },
 
   async deleteTrigger(id: string): Promise<void> {
     await unwrapResponse<void>(deleteTriggerHandler(id))
   },
 
-  async getTrigger(id: string): Promise<TriggerResponse> {
-    return await unwrapResponse<TriggerResponse>(getTriggerHandler(id))
+  async getTrigger(id: string): Promise<Loop> {
+    return await unwrapResponse<Loop>(getTriggerHandler(id))
   },
 
   async listTriggerRecentTasks(
     id: string,
     params?: { limit?: number },
-  ): Promise<TriggerRecentTaskItem[]> {
-    return await unwrapResponse<TriggerRecentTaskItem[]>(listTriggerRecentTasksHandler(id, params))
+  ): Promise<LoopRecentTaskItem[]> {
+    return await unwrapResponse<LoopRecentTaskItem[]>(listTriggerRecentTasksHandler(id, params))
   },
 }
