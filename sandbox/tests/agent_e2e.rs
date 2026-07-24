@@ -334,7 +334,7 @@ async fn test_ask_user_question_flow() {
         // Spawn a task to resolve the prompt
         let state_for_resolver = agent_state.clone();
         let resolver = tokio::spawn(async move {
-            let found = wait_for_pending_prompt(&state_for_resolver, Duration::from_secs(60)).await;
+            let found = wait_for_pending_prompt(&state_for_resolver, Duration::from_mins(1)).await;
             assert!(found, "Timed out waiting for pending prompt");
 
             // Verify it's AskUserQuestion
@@ -430,7 +430,7 @@ async fn test_exit_plan_mode_flow() {
         // Spawn a task to approve the plan
         let state_for_resolver = agent_state.clone();
         let resolver = tokio::spawn(async move {
-            let found = wait_for_pending_prompt(&state_for_resolver, Duration::from_secs(60)).await;
+            let found = wait_for_pending_prompt(&state_for_resolver, Duration::from_mins(1)).await;
             assert!(found, "Timed out waiting for pending prompt (ExitPlanMode)");
 
             let tool_name = state_for_resolver
@@ -531,7 +531,7 @@ async fn test_cancel_during_pending_prompt() {
         let state_for_canceller = agent_state.clone();
         let canceller = tokio::spawn(async move {
             let found =
-                wait_for_pending_prompt(&state_for_canceller, Duration::from_secs(60)).await;
+                wait_for_pending_prompt(&state_for_canceller, Duration::from_mins(1)).await;
             assert!(found, "Timed out waiting for pending prompt before cancel");
 
             eprintln!("Pending prompt detected, cancelling agent...");
