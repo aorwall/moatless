@@ -244,7 +244,7 @@ impl Lifecycle {
             super::marker::edge_suppression_active(
                 &marker,
                 self.clock.now(),
-                super::marker::EDGE_MARKER_STALE_AFTER,
+                super::marker::EDGE_SUPPRESSION_STALE_AFTER,
             )
         });
         Ok(super::classify::classify_with_correlation(

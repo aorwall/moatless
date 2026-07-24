@@ -22,6 +22,12 @@ use crate::sandbox::lifecycle::runtime::{
 };
 use crate::sandbox::models::{ProvisionPlan, ServerConfig};
 
+pub(crate) const CREATED_BY_LABEL: &str = "created-by";
+pub(crate) const CREATED_BY_VALUE: &str = "moatless";
+pub(crate) const SERVICE_LABEL: &str = "moatless.service";
+pub(crate) const SANDBOX_SERVICE: &str = "sandbox";
+pub(crate) const SERVER_SERVICE: &str = "server";
+
 /// Build a complete `bollard::container::Config` for a sandbox container.
 ///
 /// The sandbox container runs all servers inside it (unlike K8s which uses
@@ -107,8 +113,8 @@ pub fn build_container_config(
 
     // ── Labels ─────────────────────────────────────────────────────
     let mut labels = HashMap::new();
-    labels.insert("created-by".to_string(), "moatless".to_string());
-    labels.insert("moatless.service".to_string(), "sandbox".to_string());
+    labels.insert(CREATED_BY_LABEL.to_string(), CREATED_BY_VALUE.to_string());
+    labels.insert(SERVICE_LABEL.to_string(), SANDBOX_SERVICE.to_string());
     labels.insert("moatless.io/task-id".to_string(), task_id.to_string());
     labels.insert(
         "app.kubernetes.io/managed-by".to_string(),
@@ -368,7 +374,7 @@ pub fn build_server_container_config(
     // ── Labels ─────────────────────────────────────────────────────
     let mut labels = HashMap::new();
     labels.insert("created-by".to_string(), "moatless".to_string());
-    labels.insert("moatless.service".to_string(), "server".to_string());
+    labels.insert(SERVICE_LABEL.to_string(), SERVER_SERVICE.to_string());
     labels.insert("moatless.io/task-id".to_string(), task_id.to_string());
     labels.insert("moatless.io/server-name".to_string(), server.name.clone());
     labels.insert(
@@ -799,7 +805,7 @@ mod tests {
         let server = test_server_config();
         let cc = build_server_container_config(&config, "task-1", &server, TEST_SANDBOX_IMAGE);
         let labels = cc.labels.unwrap();
-        assert_eq!(labels.get("moatless.service").unwrap(), "server");
+        assert_eq!(labels.get(SERVICE_LABEL).unwrap(), SERVER_SERVICE);
         assert_eq!(labels.get("moatless.io/task-id").unwrap(), "task-1");
         assert_eq!(labels.get("moatless.io/server-name").unwrap(), "preview");
     }

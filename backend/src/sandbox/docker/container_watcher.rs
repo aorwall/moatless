@@ -14,13 +14,18 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
 use super::client::DockerClient;
+use super::container_builder::{
+    CREATED_BY_LABEL, CREATED_BY_VALUE, SANDBOX_SERVICE, SERVICE_LABEL,
+};
 use crate::events::EventPublisher;
-use crate::sandbox::lifecycle::classify::{Observation, ObservedTransition};
-use crate::sandbox::lifecycle::events::{self, EventFact};
+use crate::sandbox::lifecycle::classify::ObservedTransition;
 use crate::sandbox::lifecycle::runtime::{
     generation_from_label, OPERATION_GENERATION_LABEL,
 };
-use crate::sandbox::lifecycle::{Lifecycle, OperationGeneration};
+use crate::sandbox::lifecycle::watcher::{
+    classify_observation, publish_sandbox_observation,
+};
+use crate::sandbox::lifecycle::Lifecycle;
 
 /// Spawn a background task that watches Docker container events and publishes
 /// lifecycle events to the event system.
@@ -95,32 +100,24 @@ async fn handle_docker_event(
     client: &DockerClient,
     lifecycle: Option<&Arc<Lifecycle>>,
 ) {
-    let action = event.action.as_deref().unwrap_or("");
-    let Some(actor) = &event.actor else {
+    let Some(event) = sandbox_event(event) else {
+        debug!("Ignoring non-sandbox Docker container event");
         return;
     };
-
-    let attributes = actor.attributes.as_ref();
-    if !is_sandbox_actor(attributes) {
-        debug!(action, "Ignoring non-sandbox Docker container event");
-        return;
-    }
+    let action = event.action;
+    let attributes = event.attributes;
 
     // Extract task_id from container labels
-    let task_id = attributes
-        .and_then(|attrs| attrs.get("moatless.io/task-id"))
-        .map(String::as_str);
+    let task_id = attributes.get("moatless.io/task-id").map(String::as_str);
 
     let Some(task_id) = task_id else {
         debug!(action, "Docker event has no task-id label, skipping");
         return;
     };
 
-    let container_name = attributes
-        .and_then(|attrs| attrs.get("name"))
-        .map_or("unknown", String::as_str);
-    let operation_generation = attributes
-        .and_then(|attrs| generation_from_label(attrs.get(OPERATION_GENERATION_LABEL)));
+    let container_name = attributes.get("name").map_or("unknown", String::as_str);
+    let operation_generation =
+        generation_from_label(attributes.get(OPERATION_GENERATION_LABEL));
 
     debug!(
         task_id,
@@ -143,46 +140,14 @@ async fn handle_docker_event(
                     message: "Running".to_string(),
                     ..Default::default()
                 };
-                if let Some(generation) = decision.event_generation {
-                    match serde_json::to_value(&payload) {
-                        Ok(payload) => {
-                            event_publisher
-                                .publish_raw_event_with_id(
-                                    &events::event_id(task_id, generation, EventFact::Ready),
-                                    task_id,
-                                    "sandbox",
-                                    moatless_events::SandboxStatus::Ready.as_str(),
-                                    None,
-                                    None,
-                                    payload,
-                                    false,
-                                )
-                                .await;
-                        }
-                        Err(e) => {
-                            warn!(
-                                task_id,
-                                error = %e,
-                                "Failed to serialize deterministic Docker Ready observation"
-                            );
-                            event_publisher
-                                .publish_sandbox_event(
-                                    task_id,
-                                    moatless_events::SandboxStatus::Ready,
-                                    "Running",
-                                )
-                                .await;
-                        }
-                    }
-                } else {
-                    event_publisher
-                        .publish_sandbox_event(
-                            task_id,
-                            moatless_events::SandboxStatus::Ready,
-                            "Running",
-                        )
-                        .await;
-                }
+                publish_sandbox_observation(
+                    event_publisher.as_ref(),
+                    task_id,
+                    moatless_events::SandboxStatus::Ready,
+                    &payload,
+                    decision.event_generation,
+                )
+                .await;
             }
         }
         "die" | "stop" => {
@@ -227,10 +192,11 @@ async fn handle_docker_event(
             .await
             .publishes
             {
-                let (status, message) = if transition == ObservedTransition::Crash {
-                    (moatless_events::SandboxStatus::Error, "Container crashed")
-                } else {
-                    (moatless_events::SandboxStatus::Stopped, "Stopped")
+                let (status, message) = match transition {
+                    ObservedTransition::Crash | ObservedTransition::NonZeroStop => {
+                        (moatless_events::SandboxStatus::Error, "Container crashed")
+                    }
+                    _ => (moatless_events::SandboxStatus::Stopped, "Stopped"),
                 };
                 event_publisher
                     .publish_sandbox_event(task_id, status, message)
@@ -290,7 +256,7 @@ fn stopped_transition(
         .and_then(|state| state.exit_code)
         .is_some_and(|code| code != 0)
     {
-        ObservedTransition::Crash
+        ObservedTransition::NonZeroStop
     } else {
         ObservedTransition::CleanStop
     }
@@ -302,8 +268,8 @@ fn event_filters() -> HashMap<String, Vec<String>> {
         (
             "label".to_string(),
             vec![
-                "created-by=moatless".to_string(),
-                "moatless.service=sandbox".to_string(),
+                format!("{CREATED_BY_LABEL}={CREATED_BY_VALUE}"),
+                format!("{SERVICE_LABEL}={SANDBOX_SERVICE}"),
             ],
         ),
         (
@@ -319,49 +285,16 @@ fn event_filters() -> HashMap<String, Vec<String>> {
     ])
 }
 
-fn is_sandbox_actor(attributes: Option<&HashMap<String, String>>) -> bool {
-    attributes
-        .and_then(|attrs| attrs.get("moatless.service"))
-        .is_some_and(|service| service == "sandbox")
+struct SandboxEvent<'a> {
+    action: &'a str,
+    attributes: &'a HashMap<String, String>,
 }
 
-struct PublishDecision {
-    publishes: bool,
-    event_generation: Option<OperationGeneration>,
-}
-
-async fn classify_observation(
-    lifecycle: Option<&Arc<Lifecycle>>,
-    task_id: &str,
-    transition: ObservedTransition,
-    generation: Option<OperationGeneration>,
-) -> PublishDecision {
-    let Some(lifecycle) = lifecycle else {
-        return PublishDecision {
-            publishes: true,
-            event_generation: generation,
-        };
-    };
-    match lifecycle
-        .classify_observation(task_id, Observation::new(transition, generation))
-        .await
-    {
-        Ok(result) => PublishDecision {
-            publishes: result.classification.publishes(),
-            event_generation: result.event_generation,
-        },
-        Err(e) => {
-            warn!(
-                task_id,
-                error = %e,
-                "Failed to classify Docker observation; publishing fail-open"
-            );
-            PublishDecision {
-                publishes: true,
-                event_generation: generation,
-            }
-        }
-    }
+fn sandbox_event(event: &bollard::models::EventMessage) -> Option<SandboxEvent<'_>> {
+    let action = event.action.as_deref().unwrap_or("");
+    let attributes = event.actor.as_ref()?.attributes.as_ref()?;
+    (attributes.get(SERVICE_LABEL).map(String::as_str) == Some(SANDBOX_SERVICE))
+        .then_some(SandboxEvent { action, attributes })
 }
 
 #[cfg(test)]
@@ -369,32 +302,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn docker_watch_filters_to_sandbox_service() {
-        let filters = event_filters();
-        assert_eq!(
-            filters.get("label"),
-            Some(&vec![
-                "created-by=moatless".to_string(),
-                "moatless.service=sandbox".to_string(),
-            ])
-        );
+    fn server_labeled_event_is_rejected_before_classification() {
+        let event = bollard::models::EventMessage {
+            action: Some("die".to_string()),
+            actor: Some(bollard::models::EventActor {
+                attributes: Some(HashMap::from([
+                    (SERVICE_LABEL.to_string(), "server".to_string()),
+                    ("moatless.io/task-id".to_string(), "t1".to_string()),
+                ])),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert!(sandbox_event(&event).is_none());
     }
 
     #[test]
-    fn server_container_never_enters_sandbox_classifier() {
-        let server = HashMap::from([
-            ("moatless.service".to_string(), "server".to_string()),
-            ("moatless.io/task-id".to_string(), "t1".to_string()),
-        ]);
-        let sandbox =
-            HashMap::from([("moatless.service".to_string(), "sandbox".to_string())]);
-        assert!(!is_sandbox_actor(Some(&server)));
-        assert!(is_sandbox_actor(Some(&sandbox)));
-        assert!(!is_sandbox_actor(None));
-    }
-
-    #[test]
-    fn nonzero_exit_is_a_crash_even_when_crash_loop_detection_is_disabled() {
+    fn nonzero_exit_remains_correlatable_until_classification() {
         let inspected = bollard::models::ContainerInspectResponse {
             state: Some(bollard::models::ContainerState {
                 exit_code: Some(137),
@@ -404,7 +328,7 @@ mod tests {
         };
         assert_eq!(
             stopped_transition(&inspected),
-            ObservedTransition::Crash
+            ObservedTransition::NonZeroStop
         );
     }
 }

@@ -423,12 +423,19 @@ pub async fn find_deployment(
     Ok(list.items.into_iter().next())
 }
 
-/// Coarse desired/ready replica state for every labeled sandbox Deployment, in
-/// one LIST — the reconciler's per-tick fleet observation. Each entry is
-/// `(task_id, desired_replicas, ready_replicas, operation_generation)`.
+/// Coarse state for one labeled sandbox Deployment.
+pub struct SandboxDeploymentState {
+    pub task_id: String,
+    pub desired_replicas: i32,
+    pub ready_replicas: i32,
+    pub operation_generation: Option<OperationGeneration>,
+}
+
+/// Coarse desired/ready replica state for every labeled sandbox Deployment in
+/// one LIST — the reconciler's per-tick fleet observation.
 pub async fn list_sandbox_deployment_states(
     k8s: &K8sClient,
-) -> Result<Vec<(String, i32, i32, Option<OperationGeneration>)>, kube::Error> {
+) -> Result<Vec<SandboxDeploymentState>, kube::Error> {
     let deployments: Api<Deployment> = Api::namespaced(k8s.client.clone(), k8s.namespace());
     let lp = ListParams::default().labels("moatless.io/task-id");
     let list = deployments.list(&lp).await?;
@@ -451,7 +458,12 @@ pub async fn list_sandbox_deployment_states(
                 .and_then(|spec| spec.template.metadata.as_ref())
                 .and_then(|metadata| metadata.labels.as_ref())
                 .and_then(|labels| generation_from_label(labels.get(OPERATION_GENERATION_LABEL)));
-            Some((task_id, desired, ready, generation))
+            Some(SandboxDeploymentState {
+                task_id,
+                desired_replicas: desired,
+                ready_replicas: ready,
+                operation_generation: generation,
+            })
         })
         .collect())
 }

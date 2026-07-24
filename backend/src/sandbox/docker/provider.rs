@@ -68,14 +68,45 @@ impl SandboxProvider for DockerSandboxProvider {
             ExistingContainerResult::Exists { current_image } => {
                 let expected = container_builder::resolve_sandbox_image(&self.config, plan);
                 if current_image.as_deref() == Some(expected.as_str()) {
-                    // Tag unchanged — fast path: start the existing container.
-                    info!(task_id = %task_id, image = %expected, "Starting existing stopped container (image unchanged)");
+                    // Docker labels are immutable, so a new Start generation
+                    // must replace even an image-compatible stopped container.
+                    info!(task_id = %task_id, image = %expected, "Recreating stopped container for the current generation");
+                    let inspected = self
+                        .client
+                        .docker
+                        .inspect_container(&container_name, None)
+                        .await
+                        .map_err(|e| {
+                            SandboxError::DockerError(format!(
+                                "Failed to inspect stopped container before recreation: {e}"
+                            ))
+                        })?;
+                    let container_config = recreate_config(inspected, ctx)?;
+                    self.force_remove_container(&container_name, task_id).await?;
+                    self.client
+                        .docker
+                        .create_container(
+                            Some(
+                                CreateContainerOptionsBuilder::new()
+                                    .name(&container_name)
+                                    .build(),
+                            ),
+                            container_config,
+                        )
+                        .await
+                        .map_err(|e| {
+                            SandboxError::DockerError(format!(
+                                "Failed to recreate stopped container: {e}"
+                            ))
+                        })?;
                     self.client
                         .docker
                         .start_container(&container_name, None::<StartContainerOptions>)
                         .await
                         .map_err(|e| {
-                            SandboxError::DockerError(format!("Failed to start container: {e}"))
+                            SandboxError::DockerError(format!(
+                                "Failed to start recreated container: {e}"
+                            ))
                         })?;
 
                     return Ok(ProvisionResponse {
@@ -632,7 +663,11 @@ impl DockerSandboxProvider {
             "label".to_string(),
             vec![
                 format!("moatless.io/task-id={task_id}"),
-                "moatless.service=server".to_string(),
+                format!(
+                    "{}={}",
+                    container_builder::SERVICE_LABEL,
+                    container_builder::SERVER_SERVICE
+                ),
             ],
         );
 

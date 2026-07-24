@@ -35,10 +35,12 @@ use super::pod_status::{
     DEFAULT_SERVER_READINESS_TIMEOUT_SECS,
 };
 use crate::events::EventPublisher;
-use crate::sandbox::lifecycle::classify::{Observation, ObservedTransition};
-use crate::sandbox::lifecycle::events::{self, EventFact};
+use crate::sandbox::lifecycle::classify::ObservedTransition;
 use crate::sandbox::lifecycle::runtime::{
     generation_from_label, OPERATION_GENERATION_LABEL,
+};
+use crate::sandbox::lifecycle::watcher::{
+    classify_observation, publish_sandbox_observation,
 };
 use crate::sandbox::lifecycle::OperationGeneration;
 use crate::sandbox::lifecycle::Lifecycle;
@@ -1148,7 +1150,7 @@ async fn process_watcher_event(
                     return;
                 };
 
-                let publish_sandbox_observation = classify_observation(
+                let decision = classify_observation(
                     deps.lifecycle.as_ref(),
                     &task_id,
                     if sandbox_status == SandboxStatus::Stopped {
@@ -1160,7 +1162,7 @@ async fn process_watcher_event(
                 )
                 .await
                 .publishes;
-                if !publish_sandbox_observation {
+                if !decision {
                     debug!(
                         task_id = %task_id,
                         pod_name = %pod_name,
@@ -1206,7 +1208,7 @@ async fn process_watcher_event(
                 } else {
                     "Removed"
                 };
-                if publish_sandbox_observation {
+                if decision {
                     event_publisher
                         .publish_sandbox_event_with_payload(
                             &task_id,
@@ -1443,98 +1445,19 @@ fn lifecycle_observed_transition(
     status: SandboxStatus,
     lifecycle_event: &str,
 ) -> Option<ObservedTransition> {
+    if lifecycle_event == CONTAINER_OOM_KILLED {
+        return Some(ObservedTransition::OomKilled);
+    }
+    if lifecycle_event == POD_EVICTED {
+        return Some(ObservedTransition::Evicted);
+    }
     match status {
         SandboxStatus::Ready => Some(ObservedTransition::Ready),
         SandboxStatus::Stopped => Some(ObservedTransition::CleanStop),
         SandboxStatus::Removed => Some(ObservedTransition::Deleted),
-        SandboxStatus::Error if lifecycle_event.contains("oom") => {
-            Some(ObservedTransition::OomKilled)
-        }
-        SandboxStatus::Error if lifecycle_event.contains("evict") => {
-            Some(ObservedTransition::Evicted)
-        }
         SandboxStatus::Error => Some(ObservedTransition::Crash),
         _ => None,
     }
-}
-
-struct PublishDecision {
-    publishes: bool,
-    event_generation: Option<OperationGeneration>,
-}
-
-async fn classify_observation(
-    lifecycle: Option<&Arc<Lifecycle>>,
-    task_id: &str,
-    transition: ObservedTransition,
-    generation: Option<OperationGeneration>,
-) -> PublishDecision {
-    let Some(lifecycle) = lifecycle else {
-        return PublishDecision {
-            publishes: true,
-            event_generation: generation,
-        };
-    };
-    match lifecycle
-        .classify_observation(task_id, Observation::new(transition, generation))
-        .await
-    {
-        Ok(result) => PublishDecision {
-            publishes: result.classification.publishes(),
-            event_generation: result.event_generation,
-        },
-        Err(e) => {
-            warn!(
-                task_id,
-                error = %e,
-                "Failed to classify pod observation; publishing fail-open"
-            );
-            PublishDecision {
-                publishes: true,
-                event_generation: generation,
-            }
-        }
-    }
-}
-
-async fn publish_sandbox_observation(
-    event_publisher: &dyn EventPublisher,
-    task_id: &str,
-    status: SandboxStatus,
-    payload: &SandboxEventPayload,
-    generation: Option<OperationGeneration>,
-) {
-    if status == SandboxStatus::Ready {
-        if let Some(generation) = generation {
-            match serde_json::to_value(payload) {
-                Ok(payload) => {
-                    event_publisher
-                        .publish_raw_event_with_id(
-                            &events::event_id(task_id, generation, EventFact::Ready),
-                            task_id,
-                            "sandbox",
-                            SandboxStatus::Ready.as_str(),
-                            None,
-                            None,
-                            payload,
-                            false,
-                        )
-                        .await;
-                    return;
-                }
-                Err(e) => {
-                    warn!(
-                        task_id,
-                        error = %e,
-                        "Failed to serialize deterministic Ready observation; using typed publish"
-                    );
-                }
-            }
-        }
-    }
-    event_publisher
-        .publish_sandbox_event_with_payload(task_id, status, payload)
-        .await;
 }
 
 /// Build the observed state from a pod's current status.
@@ -2323,6 +2246,8 @@ const HIGH_FREQUENCY_LIFECYCLE_SUB_TYPES: &[&str] = &[
     "container_crash_loop",
     "container_terminated",
 ];
+const CONTAINER_OOM_KILLED: &str = "container_oom_killed";
+const POD_EVICTED: &str = "pod_evicted";
 
 /// Whether a lifecycle publish should be suppressed: high-frequency container
 /// sub_type AND the sandbox status it maps to matches the last one published
@@ -2914,11 +2839,11 @@ mod tests {
             Some(ObservedTransition::Deleted)
         );
         assert_eq!(
-            lifecycle_observed_transition(SandboxStatus::Error, "pod_oom_killed"),
+            lifecycle_observed_transition(SandboxStatus::Error, CONTAINER_OOM_KILLED),
             Some(ObservedTransition::OomKilled)
         );
         assert_eq!(
-            lifecycle_observed_transition(SandboxStatus::Error, "pod_evicted"),
+            lifecycle_observed_transition(SandboxStatus::Error, POD_EVICTED),
             Some(ObservedTransition::Evicted)
         );
         assert_eq!(

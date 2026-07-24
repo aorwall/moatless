@@ -49,15 +49,16 @@ every provider mutation; replacement pod templates and sandbox containers carry
 under its existing `Recreate` strategy, while Docker restart strictly
 inspect/remove/recreates the sandbox container because live labels are
 immutable. Both watchers carry the observed generation through the four-case
-classifier; Ready convergence uses the active marker generation so a reused
-Docker container does not reuse its original Ready event ID. Docker filters and
-defensively rejects subordinate server-container events. The reconciler
-acknowledges matching replacement generations and
-durably commits a deterministic `Error` fact before clearing a stale abandoned
-edge. Every marker clear compares the acknowledged generation, so a late
-completion cannot erase a newer operation's marker. The reaper's previous
-desired-vs-actual recovery pass and its dark configuration have been deleted;
-the reconciler is the only recovery owner.
+classifier; Ready convergence uses the generation stamped on its runtime
+resource. Docker recreates stopped containers for a new Start because labels
+are immutable, filters subordinate server-container events, and defensively
+rejects them before classification. The reconciler acknowledges matching
+replacement generations and durably commits a deterministic `Error` fact
+before clearing an abandoned edge. Suppression expires before abandonment,
+and a matching replacement that is still starting keeps its marker. Every
+marker clear compares the acknowledged generation, so a late completion cannot
+erase a newer operation's marker. The reconciler is the only desired-vs-actual
+recovery owner.
 Steps 3–4 (retire `SandboxProvider`, then delete shallow paths) remain pending.
 
 ### Provider abstraction

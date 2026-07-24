@@ -43,6 +43,7 @@ pub(crate) mod wake;
 // Watcher four-case classification and reconciler-owned marker acknowledgement.
 pub(crate) mod classify;
 pub(crate) mod marker;
+pub(crate) mod watcher;
 
 pub(crate) mod error;
 pub(crate) mod events;

@@ -332,10 +332,17 @@ impl Reconciler {
                 if !super::marker::is_stale(
                     &marker,
                     now,
-                    super::marker::EDGE_MARKER_STALE_AFTER,
+                    super::marker::EDGE_ABANDON_AFTER,
                 ) {
                     // Caller-owned edges are never replayed. Give the fresh
                     // replacement time to appear before level recovery acts.
+                    return;
+                }
+                if observed.status == SandboxObservedStatus::Starting
+                    && observed.generation == Some(marker.generation)
+                {
+                    // The replacement generation is still advancing. Its age
+                    // cannot by itself prove that the edge was abandoned.
                     return;
                 }
                 if let Err(e) = self
@@ -1076,7 +1083,7 @@ mod db_tests {
                     marker: CorrelationMarker::new(
                         OperationKind::Restart,
                         OperationGeneration(9),
-                        Utc::now() - chrono::Duration::minutes(10),
+                        Utc::now() - chrono::Duration::minutes(20),
                     ),
                 },
             )
@@ -1108,5 +1115,91 @@ mod db_tests {
         assert!(is_error);
         assert_eq!(runtime.calls(), (0, 0, 0));
         assert_eq!(*sink.facts.lock().unwrap(), vec![EventFact::Error]);
+    }
+
+    #[sqlx::test]
+    async fn edge_between_suppression_and_abandonment_bounds_is_retained(pool: PgPool) {
+        seed(&pool, "t1", "open", "running").await;
+        let store = PgLifecycleStore::new(pool.clone());
+        store
+            .persist_intent(
+                "t1",
+                &IntentWrite {
+                    desired_state: SandboxDesiredState::Running,
+                    stop_reason: None,
+                    retention: None,
+                    marker: CorrelationMarker::new(
+                        OperationKind::Restart,
+                        OperationGeneration(10),
+                        Utc::now() - chrono::Duration::minutes(10),
+                    ),
+                },
+            )
+            .await
+            .unwrap();
+        let runtime = Arc::new(RecordingRuntime::new());
+        let (rec, sink) = build(
+            pool.clone(),
+            pool.clone(),
+            runtime.clone(),
+            observer_with_generation("t1", SandboxObservedStatus::Starting, None),
+            Duration::ZERO,
+        );
+
+        rec.reconcile_once().await;
+
+        let marker: Option<String> =
+            sqlx::query_scalar("SELECT operation_kind FROM sandboxes WHERE task_id = 't1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(marker.as_deref(), Some("restart"));
+        assert!(sink.facts.lock().unwrap().is_empty());
+        assert_eq!(runtime.calls(), (0, 0, 0));
+    }
+
+    #[sqlx::test]
+    async fn old_edge_with_matching_replacement_still_starting_is_retained(pool: PgPool) {
+        seed(&pool, "t1", "open", "running").await;
+        let store = PgLifecycleStore::new(pool.clone());
+        store
+            .persist_intent(
+                "t1",
+                &IntentWrite {
+                    desired_state: SandboxDesiredState::Running,
+                    stop_reason: None,
+                    retention: None,
+                    marker: CorrelationMarker::new(
+                        OperationKind::Redeploy,
+                        OperationGeneration(11),
+                        Utc::now() - chrono::Duration::minutes(20),
+                    ),
+                },
+            )
+            .await
+            .unwrap();
+        let runtime = Arc::new(RecordingRuntime::new());
+        let (rec, sink) = build(
+            pool.clone(),
+            pool.clone(),
+            runtime.clone(),
+            observer_with_generation(
+                "t1",
+                SandboxObservedStatus::Starting,
+                Some(OperationGeneration(11)),
+            ),
+            Duration::ZERO,
+        );
+
+        rec.reconcile_once().await;
+
+        let marker: Option<String> =
+            sqlx::query_scalar("SELECT operation_kind FROM sandboxes WHERE task_id = 't1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(marker.as_deref(), Some("redeploy"));
+        assert!(sink.facts.lock().unwrap().is_empty());
+        assert_eq!(runtime.calls(), (0, 0, 0));
     }
 }

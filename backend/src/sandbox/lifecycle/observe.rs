@@ -12,6 +12,7 @@ use async_trait::async_trait;
 
 use crate::config::SandboxProviderType;
 use crate::sandbox::docker::client::DockerClient;
+use crate::sandbox::docker::container_builder::{SANDBOX_SERVICE, SERVICE_LABEL};
 use crate::sandbox::docker::naming::generate_container_name;
 use crate::sandbox::k8s::client::K8sClient;
 use crate::sandbox::provider::SandboxProvider;
@@ -57,17 +58,20 @@ impl FleetObserver for K8sFleetObserver {
             .map_err(|e| ObserveError::with_source("list sandbox deployments", e))?;
         Ok(states
             .into_iter()
-            .map(|(task_id, desired, ready, generation)| {
+            .map(|state| {
                 // A Deployment scaled to zero is Stopped; otherwise ready replicas
                 // decide Ready vs. still-Starting.
-                let status = if desired == 0 {
+                let status = if state.desired_replicas == 0 {
                     SandboxObservedStatus::Stopped
-                } else if ready > 0 {
+                } else if state.ready_replicas > 0 {
                     SandboxObservedStatus::Ready
                 } else {
                     SandboxObservedStatus::Starting
                 };
-                (task_id, RuntimeObservation::new(status, generation))
+                (
+                    state.task_id,
+                    RuntimeObservation::new(status, state.operation_generation),
+                )
             })
             .collect())
     }
@@ -119,7 +123,7 @@ impl FleetObserver for DockerFleetObserver {
         let mut filters = HashMap::new();
         filters.insert(
             "label".to_string(),
-            vec!["moatless.service=sandbox".to_string()],
+            vec![format!("{SERVICE_LABEL}={SANDBOX_SERVICE}")],
         );
         let containers = self
             .docker
