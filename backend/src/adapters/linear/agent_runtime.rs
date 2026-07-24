@@ -21,9 +21,7 @@ use crate::adapters::models::{
 };
 use crate::bindings::dao::PgTaskBindingRepository;
 use crate::sandbox::lifecycle::ArchiveRetention;
-use crate::shared_models::AgentType;
 use crate::state::AppState;
-use crate::task::creation::NewTaskRequest;
 use crate::task::dao::TaskPatch;
 use crate::task::models::{TaskStatus, Visibility};
 
@@ -691,33 +689,19 @@ async fn provision_issue_task(
         "project_id": issue.resolved_project_id(),
         "issue_url": issue.url,
     });
-    let now = Utc::now();
-    let binding = TaskBinding {
-        id: format!("ts_{}", uuid::Uuid::new_v4()),
-        task_id: task_id.clone(),
-        provider: ADAPTER.to_string(),
-        subject_kind: super::SUBJECT_KIND_ISSUE.to_string(),
-        subject_key: issue.id.clone(),
-        connection_id: connection.id.clone(),
-        trigger_id: Some(rule.id.clone()),
+    let binding = crate::bindings::runtime::upsert_binding(
+        state,
+        connection,
+        Some(rule),
+        &task_id,
+        ADAPTER,
+        super::SUBJECT_KIND_ISSUE,
+        &issue.id,
         destination_config,
-        metadata: serde_json::json!({}),
-        last_external_event_id: None,
-        origin: ADAPTER_EVENT_BINDING_ORIGIN.to_string(),
-        created_at: now,
-        last_event_at: now,
-        external_status: None,
-        external_state_kind: None,
-        external_status_raw: None,
-        external_review_decision: None,
-        external_mergeable_state: None,
-        external_status_updated_at: None,
-        active: true,
-        deactivated_at: None,
-    };
-    PgTaskBindingRepository(state.db.clone())
-        .upsert(&binding)
-        .await?;
+        ADAPTER_EVENT_BINDING_ORIGIN,
+        None,
+    )
+    .await?;
 
     // Link the Moatless task back onto the Linear issue.
     let task_url = task_url(state, &task_id);
@@ -1291,34 +1275,19 @@ async fn provision_session_task(
         "team_id": team_id,
         "issue_url": issue.url,
     });
-    let now = Utc::now();
-    let binding = TaskBinding {
-        id: format!("ts_{}", uuid::Uuid::new_v4()),
-        task_id: task_id.clone(),
-        provider: ADAPTER.to_string(),
-        subject_kind: SUBJECT_KIND.to_string(),
-        subject_key: session.id.clone(),
-        connection_id: connection.id.clone(),
-        trigger_id: Some(rule.id.clone()),
+    let binding = crate::bindings::runtime::upsert_binding(
+        state,
+        connection,
+        Some(rule),
+        &task_id,
+        ADAPTER,
+        SUBJECT_KIND,
+        &session.id,
         destination_config,
-        metadata: serde_json::json!({}),
-        last_external_event_id: None,
-        origin: ADAPTER_EVENT_BINDING_ORIGIN.to_string(),
-        created_at: now,
-        last_event_at: now,
-        external_status: None,
-        external_state_kind: None,
-        external_status_raw: None,
-        external_review_decision: None,
-        external_mergeable_state: None,
-        external_status_updated_at: None,
-        active: true,
-        deactivated_at: None,
-    };
-
-    PgTaskBindingRepository(state.db.clone())
-        .upsert(&binding)
-        .await?;
+        ADAPTER_EVENT_BINDING_ORIGIN,
+        None,
+    )
+    .await?;
 
     // Update the session with an externalUrl pointing at the moatless task.
     let task_url = task_url(state, &task_id);
@@ -1467,90 +1436,44 @@ async fn insert_event_task(
     title: &str,
     preview: &str,
 ) -> Result<String, AdapterError> {
-    let append_system_prompt = {
-        let mut parts = Vec::new();
-        if let Some(ref tpl) = rule.prompt_template {
-            parts.push(tpl.to_string());
+    // Compose the shared spine's single task-creation entry point. Linear adds
+    // no origin prelude; its only per-path inputs are the `{identifier} — {title}`
+    // name fallback, public visibility (so issue collaborators can open the
+    // task), and the `source_matcher` event metadata. The inbound prompt is
+    // delivered by the caller through the binding, so no first message is passed.
+    //
+    // Preflight, insert, tags, provisioning, and the `Open` event all run inside
+    // the creation service. On preflight failure it records the task as errored
+    // (with a `SandboxStatus::Error` event) and returns an error; here we surface
+    // it as `AccessDenied` so callers can post the reason back to Linear — the
+    // service's error event alone stays invisible there because no turn gate is
+    // open for a task that never got a binding.
+    let config = crate::bindings::runtime::trigger_context(rule, ADAPTER_LABEL);
+    let outcome = crate::loops::firing::inbound::create_task_from_loop(
+        state,
+        &config,
+        crate::loops::firing::inbound::CreateTaskParams {
+            name: rule
+                .task_name
+                .clone()
+                .or_else(|| Some(format!("{identifier} — {title}"))),
+            description: crate::bindings::outbound::truncate_text(preview, 200),
+            visibility: Visibility::Public,
+            origin_prelude: None,
+            related_to: None,
+            event_metadata: serde_json::json!({
+                "adapter": ADAPTER_LABEL,
+                "source_matcher": rule.source_matcher,
+            }),
+        },
+    )
+    .await
+    .map_err(|e| match e {
+        crate::task::creation::TaskCreationError::Preflight(msg) => {
+            AdapterError::AccessDenied(msg)
         }
-        if let Some(providers) = state.adapters.as_ref() {
-            if let Some(provider) = providers.get_by_name(ADAPTER_LABEL) {
-                if let Some(extra) = provider.reply_instructions() {
-                    parts.push(extra);
-                }
-            }
-        }
-        if parts.is_empty() {
-            None
-        } else {
-            Some(parts.join("\n\n"))
-        }
-    };
-
-    let request = NewTaskRequest {
-        repository_id: rule.repository_id.clone(),
-        agent_type: AgentType(rule.agent_type.clone()),
-        name: rule
-            .task_name
-            .clone()
-            .or_else(|| Some(format!("{identifier} — {title}"))),
-        description: Some(crate::bindings::outbound::truncate_text(preview, 200)),
-        branch: None,
-        created_by: Some(rule.effective_user_id().to_string()),
-        headless: true,
-        // Tasks auto-created from a Linear webhook default to public so the
-        // people collaborating on the Linear issue can open the task.
-        visibility: Visibility::Public,
-        scope: rule.scope,
-        team_id: rule.team_id.clone(),
-        owner_user_id: (rule.scope == moatless_backend_core::scope::Scope::User)
-            .then(|| rule.effective_user_id().to_string()),
-        trigger_id: Some(rule.id.clone()),
-        workspace_id: None,
-        template_id: None,
-        vibe: None,
-        append_system_prompt,
-        ttl_minutes: crate::task::models::DEFAULT_TTL_MINUTES,
-        inactive_ttl_days: rule
-            .inactive_ttl_days
-            .unwrap_or(crate::task::models::DEFAULT_INACTIVE_TTL_DAYS),
-        tag_ids: rule.tag_ids.clone(),
-        parent: None,
-        related_to: None,
-        // Adapters deliver the inbound prompt themselves through the binding
-        // (`send_message_flow`), so the service sends no first message.
-        first_message: None,
-        event_subtype: moatless_events::TaskSubType::Open,
-        repository: None,
-    };
-
-    // Preflight, insert, tags, provisioning, and the `Open` event all run
-    // inside the creation service. On preflight failure it records the task as
-    // errored (with a `SandboxStatus::Error` event) and returns an error, which
-    // propagates here so the caller skips the binding/message steps for the
-    // dead task. Preflight is surfaced as `AccessDenied` (a repo-token access
-    // failure) so callers can post the reason back to Linear — the service's
-    // error event alone stays invisible there because no turn gate is open for
-    // a task that never got a binding.
-    let source_matcher = rule.source_matcher.clone();
-    let outcome = state
-        .task_creation
-        .create(
-            request,
-            move |_task| async move {
-                serde_json::json!({
-                    "adapter": ADAPTER_LABEL,
-                    "source_matcher": source_matcher,
-                })
-            },
-            |_task_id, _first_message| async move {},
-        )
-        .await
-        .map_err(|e| match e {
-            crate::task::creation::TaskCreationError::Preflight(msg) => {
-                AdapterError::AccessDenied(msg)
-            }
-            other => AdapterError::Internal(format!("Failed to create task: {other}")),
-        })?;
+        other => AdapterError::Internal(format!("Failed to create task: {other}")),
+    })?;
 
     Ok(outcome.task.task_id)
 }

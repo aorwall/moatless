@@ -14,9 +14,8 @@ use crate::adapters::models::{
 use crate::adapters::AdapterKind;
 use crate::bindings::dao::PgTaskBindingRepository;
 use crate::sandbox::lifecycle::ArchiveRetention;
-use crate::shared_models::AgentType;
 use crate::state::AppState;
-use crate::task::creation::{NewTaskRequest, TaskCreationError};
+use crate::task::creation::TaskCreationError;
 use crate::task::dao::TaskPatch;
 use crate::task::models::{TaskStatus, Visibility};
 
@@ -821,6 +820,11 @@ async fn build_close_inbound_message(
     }
 }
 
+/// Upsert a `github_pr` binding through the shared spine. Parses the PR
+/// coordinates out of `thread_properties` into the `{owner, repo, pr_number}`
+/// destination config, then delegates the row build + persistence to
+/// [`crate::bindings::runtime::upsert_binding`]. PR bindings never seed a
+/// cursor, so `last_external_event_id` is always `None`.
 pub async fn upsert_binding(
     state: &AppState,
     connection: &AdapterConnection,
@@ -831,48 +835,25 @@ pub async fn upsert_binding(
     origin: &str,
 ) -> Result<TaskBinding, AdapterError> {
     let (owner, repo, pr_number) = parse_pr_destination_config(thread_properties)?;
-    let now = Utc::now();
-
-    let filter_uid = thread_properties
-        .get("filter_user_id")
-        .cloned()
-        .unwrap_or(serde_json::Value::Null);
-
     let destination_config = serde_json::json!({
         "owner": owner,
         "repo": repo,
         "pr_number": pr_number,
     });
 
-    let binding = TaskBinding {
-        id: format!("ts_{}", uuid::Uuid::new_v4()),
-        task_id: task_id.to_string(),
-        provider: ADAPTER.to_string(),
-        subject_kind: SUBJECT_KIND.to_string(),
-        subject_key: subject_key.to_string(),
-        connection_id: connection.id.clone(),
-        trigger_id: rule.map(|r| r.id.clone()),
+    crate::bindings::runtime::upsert_binding(
+        state,
+        connection,
+        rule,
+        task_id,
+        ADAPTER,
+        SUBJECT_KIND,
+        subject_key,
         destination_config,
-        metadata: serde_json::json!({
-            "filter_user_id": filter_uid,
-        }),
-        last_external_event_id: None,
-        origin: origin.to_string(),
-        created_at: now,
-        last_event_at: now,
-        external_status: None,
-        external_state_kind: None,
-        external_status_raw: None,
-        external_review_decision: None,
-        external_mergeable_state: None,
-        external_status_updated_at: None,
-        active: true,
-        deactivated_at: None,
-    };
-
-    Ok(PgTaskBindingRepository(state.db.clone())
-        .upsert(&binding)
-        .await?)
+        origin,
+        None,
+    )
+    .await
 }
 
 /// Translate a GitHub PR provider event into a [`NewTaskRequest`] and hand it to
@@ -892,73 +873,29 @@ async fn create_provider_event_task(
     rule: &SubscriptionMatch,
     msg: &InboundMessage,
 ) -> Result<String, TaskCreationError> {
-    // Always provide the PR origin context so loop/trigger prompts don't have to
-    // repeat it, then append the trigger's template and any adapter reply
-    // guidance. `parts` always contains at least PR_ORIGIN_CONTEXT.
-    let append_system_prompt = {
-        let mut parts = vec![PR_ORIGIN_CONTEXT.to_string()];
-        if let Some(ref tpl) = rule.prompt_template {
-            parts.push(tpl.to_string());
-        }
-        if let Some(providers) = state.adapters.as_ref() {
-            if let Some(provider) = providers.get_by_name(ADAPTER_LABEL) {
-                if let Some(extra) = provider.reply_instructions() {
-                    parts.push(extra);
-                }
-            }
-        }
-        Some(parts.join("\n\n"))
-    };
-
-    let req = NewTaskRequest {
-        repository_id: rule.repository_id.clone(),
-        agent_type: AgentType(rule.agent_type.clone()),
-        name: rule.task_name.clone(),
-        description: Some(crate::bindings::outbound::truncate_text(&msg.text, 200)),
-        branch: None,
-        created_by: Some(rule.effective_user_id().to_string()),
-        headless: true,
-        // Tasks auto-created from a GitHub PR webhook default to public so the
-        // people collaborating in the PR thread can open the task.
-        visibility: Visibility::Public,
-        scope: rule.scope,
-        team_id: rule.team_id.clone(),
-        owner_user_id: (rule.scope == moatless_backend_core::scope::Scope::User)
-            .then(|| rule.effective_user_id().to_string()),
-        trigger_id: Some(rule.id.clone()),
-        workspace_id: None,
-        template_id: None,
-        vibe: None,
-        append_system_prompt,
-        ttl_minutes: crate::task::models::DEFAULT_TTL_MINUTES,
-        inactive_ttl_days: rule
-            .inactive_ttl_days
-            .unwrap_or(crate::task::models::DEFAULT_INACTIVE_TTL_DAYS),
-        tag_ids: rule.tag_ids.clone(),
-        parent: None,
-        // `related_to` is recorded by the caller after creation succeeds.
-        related_to: None,
-        // First message is delivered by the caller through the binding.
-        first_message: None,
-        event_subtype: moatless_events::TaskSubType::Open,
-        // Let the service fetch the repo so preflight runs against it.
-        repository: None,
-    };
-
-    let source_matcher = rule.source_matcher.clone();
-    let outcome = state
-        .task_creation
-        .create(
-            req,
-            move |_task| async move {
-                serde_json::json!({
-                    "adapter": ADAPTER_LABEL,
-                    "source_matcher": source_matcher,
-                })
-            },
-            |_task_id, _first_message| async {},
-        )
-        .await?;
+    // Compose the shared spine's single task-creation entry point. The only
+    // GitHub-specific inputs are the `PR_ORIGIN_CONTEXT` prelude, public
+    // visibility (so PR collaborators can open the task), and the
+    // `source_matcher` event metadata; `related_to` is recorded by the caller
+    // after creation succeeds, and the first message is delivered through the
+    // binding.
+    let config = crate::bindings::runtime::trigger_context(rule, ADAPTER_LABEL);
+    let outcome = crate::loops::firing::inbound::create_task_from_loop(
+        state,
+        &config,
+        crate::loops::firing::inbound::CreateTaskParams {
+            name: rule.task_name.clone(),
+            description: crate::bindings::outbound::truncate_text(&msg.text, 200),
+            visibility: Visibility::Public,
+            origin_prelude: Some(PR_ORIGIN_CONTEXT),
+            related_to: None,
+            event_metadata: serde_json::json!({
+                "adapter": ADAPTER_LABEL,
+                "source_matcher": rule.source_matcher,
+            }),
+        },
+    )
+    .await?;
 
     let task_id = outcome.task.task_id;
     info!(task_id = %task_id, rule_id = %rule.id, "Created task from GitHub PR provider event");
