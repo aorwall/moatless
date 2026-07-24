@@ -141,12 +141,12 @@ const LIFECYCLE_LOCK_ATTEMPTS: u32 = 3;
 pub fn build_lifecycle(
     pool: DbPool,
     lock_pool: DbPool,
+    plan: ProvisionDeps,
     runtime: Arc<dyn SandboxRuntime>,
     connector: Arc<dyn SandboxConnector>,
     default_sandbox_image: String,
     events: Option<Arc<dyn EventPublisher>>,
 ) -> Arc<Lifecycle> {
-    let plan = ProvisionDeps::from_pool(&pool);
     let store = Arc::new(PgLifecycleStore::new(pool.clone()));
     Arc::new(
         Lifecycle::new(

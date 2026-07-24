@@ -639,6 +639,7 @@ mod db_tests {
             &self,
             _task_id: &str,
             _generation: OperationGeneration,
+            _observed: ObservedStatus,
             _diagnostics: &super::super::outcome::Diagnostics,
         ) {
         }

@@ -388,7 +388,7 @@ pub fn build_k8s_sandbox_adapter(
     config: &Config,
     k8s: K8sClient,
     s3: Option<Arc<aws_sdk_s3::Client>>,
-    db_pool: Option<&DbPool>,
+    plan: Option<crate::sandbox::lifecycle::ProvisionDeps>,
 ) -> Arc<crate::sandbox::k8s::provider::K8sSandboxAdapter> {
     use crate::sandbox::k8s::provider::K8sSandboxAdapter;
     use crate::sandbox::k8s::status_resolver::StatusResolver;
@@ -399,7 +399,7 @@ pub fn build_k8s_sandbox_adapter(
         config: Arc::new(config.clone()),
         k8s,
         status_resolver,
-        plan: db_pool.map(crate::sandbox::lifecycle::ProvisionDeps::from_pool),
+        plan,
         s3,
     })
 }
@@ -408,7 +408,8 @@ pub fn build_k8s_sandbox_adapter(
 pub fn build_docker_sandbox_adapter(
     config: &Config,
     client: crate::sandbox::docker::client::DockerClient,
-    db_pool: Option<&DbPool>,
+    s3: Option<Arc<aws_sdk_s3::Client>>,
+    plan: Option<crate::sandbox::lifecycle::ProvisionDeps>,
 ) -> Arc<crate::sandbox::docker::provider::DockerSandboxAdapter> {
     use crate::sandbox::docker::provider::DockerSandboxAdapter;
     use crate::sandbox::docker::status_resolver::DockerStatusResolver;
@@ -419,7 +420,8 @@ pub fn build_docker_sandbox_adapter(
         config: Arc::new(config.clone()),
         client,
         status_resolver,
-        plan: db_pool.map(crate::sandbox::lifecycle::ProvisionDeps::from_pool),
+        plan,
+        s3,
     })
 }
 

@@ -136,24 +136,22 @@ pub async fn sandbox_status_handler(
             // the per-repo `docker_image` override, else the configured default.
             resp.sandbox_desired_state = Some(desired_state);
 
-            let lifecycle = match require_lifecycle(&state) {
-                Ok(lifecycle) => lifecycle,
-                Err(e) => return e.into_response(),
-            };
-            match lifecycle.expected_sandbox_image(&task_id).await {
-                Ok(latest) => {
-                    resp.image_up_to_date = resp
-                        .current_sandbox_image
-                        .as_ref()
-                        .map(|current| current == &latest);
-                    resp.latest_sandbox_image = Some(latest);
-                }
-                Err(e) => {
-                    warn!(
-                        task_id,
-                        error = %e,
-                        "Failed to resolve expected sandbox image for status"
-                    );
+            if let Some(lifecycle) = state.lifecycle.as_deref() {
+                match lifecycle.expected_sandbox_image(&task_id).await {
+                    Ok(latest) => {
+                        resp.image_up_to_date = resp
+                            .current_sandbox_image
+                            .as_ref()
+                            .map(|current| current == &latest);
+                        resp.latest_sandbox_image = Some(latest);
+                    }
+                    Err(e) => {
+                        warn!(
+                            task_id,
+                            error = %e,
+                            "Failed to resolve expected sandbox image for status"
+                        );
+                    }
                 }
             }
 

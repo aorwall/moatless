@@ -76,11 +76,14 @@ events. Successful storage/server degradations travel in outcome diagnostics
 and lifecycle republishes them.
 
 `access.rs` holds two narrow read/interior seams. `SandboxObserver` provides
-live status, raw container status, and server logs. `SandboxConnector` is the
+live status and server logs. `SandboxConnector` is the
 only task-addressed `SandboxClient` construction path, owning Kubernetes
 service-name and Docker raw-URL addressing. The same concrete adapter
 implements all three seams, but consumers receive only the capability they
 need.
+Startup constructs one shared `ProvisionDeps` repository bundle and gives it
+to lifecycle plus the selected adapter, so plan construction and expected-image
+reads share the same dependency graph.
 
 ### Request flow
 ```
@@ -93,6 +96,10 @@ HTTP → routes.rs (Axum OpenApiRouter)
 `SandboxApiState` contains only the observer, connector, lifecycle handle, and
 task/team authorization repositories. File handlers ask the connector for a
 ready client, then invoke file methods directly.
+Both native adapters enforce observed absence before strict success and surface
+lingering resources as `RuntimeError::NotAbsent`. `DeleteArchives` removes the
+task's transcript and workspace prefixes through the configured S3 client in
+both runtime modes, only after runtime absence succeeds.
 
 ### K8s resources per sandbox
 Provisioning creates (all labeled `moatless.io/task-id={task_id}`): a **Deployment** (enables stop = scale to 0 / start = scale to 1 without re-provisioning), its **Pod**, a ClusterIP **Service**, an optional **PVC**, and optional **IngressRoute** (Traefik CRD, one per server port, pattern `{task_id}--{port}.{proxy_domain}`). Deployment/Service names are deterministic: `moatless-ws-{sanitized_task_id}` (`k8s/naming.rs`, 63-char cap).

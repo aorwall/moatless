@@ -20,7 +20,7 @@ use super::runtime::map_sandbox_error;
 
 /// Repositories needed to assemble fresh runtime plans and status config.
 #[derive(Clone)]
-pub(crate) struct ProvisionDeps {
+pub struct ProvisionDeps {
     tasks: Arc<dyn TaskRepository>,
     repos: Arc<dyn RepoRepository>,
     provider_tokens: Arc<dyn ProviderTokenRepository>,
@@ -29,7 +29,7 @@ pub(crate) struct ProvisionDeps {
 }
 
 impl ProvisionDeps {
-    pub(crate) fn from_pool(pool: &DbPool) -> Self {
+    pub fn from_pool(pool: &DbPool) -> Self {
         Self {
             tasks: Arc::new(crate::task::dao::PgTaskRepository(pool.clone())),
             repos: Arc::new(crate::repository::dao::PgRepoRepository(pool.clone())),

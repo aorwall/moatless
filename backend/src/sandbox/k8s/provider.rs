@@ -47,7 +47,31 @@ pub struct K8sSandboxAdapter {
     pub s3: Option<Arc<aws_sdk_s3::Client>>,
 }
 
+async fn wait_absent<F>(
+    resource: &str,
+    wait: F,
+) -> Result<(), crate::sandbox::lifecycle::RuntimeError>
+where
+    F: std::future::Future<Output = Result<(), SandboxError>>,
+{
+    wait.await.map_err(|error| {
+        crate::sandbox::lifecycle::RuntimeError::NotAbsent(format!(
+            "{resource}: {error}"
+        ))
+    })
+}
+
 impl K8sSandboxAdapter {
+    fn require_plan(
+        &self,
+    ) -> Result<&ProvisionDeps, crate::sandbox::lifecycle::RuntimeError> {
+        self.plan.as_ref().ok_or_else(|| {
+            crate::sandbox::lifecycle::RuntimeError::Infrastructure(
+                "sandbox plan repositories unavailable".to_string(),
+            )
+        })
+    }
+
     async fn ensure_running_with_request(
         &self,
         task_id: &str,
@@ -247,11 +271,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
         task_id: &str,
         ctx: RuntimeOperationContext,
     ) -> Result<RuntimeOutcome, crate::sandbox::lifecycle::RuntimeError> {
-        let plan = self.plan.as_ref().ok_or_else(|| {
-            crate::sandbox::lifecycle::RuntimeError::Infrastructure(
-                "sandbox plan repositories unavailable".to_string(),
-            )
-        })?;
+        let plan = self.require_plan()?;
         let request = plan.build_request(task_id).await?;
         self.ensure_running_with_request(task_id, &request, ctx)
             .await
@@ -325,11 +345,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
         ctx: RuntimeOperationContext,
     ) -> Result<RuntimeOutcome, crate::sandbox::lifecycle::RuntimeError> {
         info!(task_id = %task_id, "Redeploying sandbox (deleting Deployment/Service/IngressRoutes, preserving PVC)");
-        let plan = self.plan.as_ref().ok_or_else(|| {
-            crate::sandbox::lifecycle::RuntimeError::Infrastructure(
-                "sandbox plan repositories unavailable".to_string(),
-            )
-        })?;
+        let plan = self.require_plan()?;
         let request = plan.build_request(task_id).await?;
 
         // 1. Delete Deployment (cascades to pods + ReplicaSets). Fail hard on
@@ -343,12 +359,16 @@ impl SandboxRuntime for K8sSandboxAdapter {
         // 1b. Wait for the old pod to fully terminate before reprovisioning, so
         //     the new pod doesn't race the ReadWriteOnce PVC still attached to
         //     the terminating pod's node ("Multi-Attach" stall).
-        deployment::wait_for_all_pods_deleted(&self.k8s, task_id)
-            .await
-            .map_err(map_sandbox_error)?;
-        deployment::wait_for_deployment_deleted(&self.k8s, task_id)
-            .await
-            .map_err(map_sandbox_error)?;
+        wait_absent(
+            "pods",
+            deployment::wait_for_all_pods_deleted(&self.k8s, task_id),
+        )
+        .await?;
+        wait_absent(
+            "Deployment",
+            deployment::wait_for_deployment_deleted(&self.k8s, task_id),
+        )
+        .await?;
         // 2. Delete Service + IngressRoutes and observe absence before
         // rebuilding, so 409 reuse cannot preserve stale routing configuration.
         service::delete_sandbox_service(&self.k8s, task_id)
@@ -357,12 +377,16 @@ impl SandboxRuntime for K8sSandboxAdapter {
         ingress::delete_task_ingress_routes(&self.k8s, task_id)
             .await
             .map_err(|error| map_sandbox_error(SandboxError::KubeError(error)))?;
-        service::wait_for_sandbox_service_deleted(&self.k8s, task_id)
-            .await
-            .map_err(map_sandbox_error)?;
-        ingress::wait_for_task_ingress_routes_deleted(&self.k8s, task_id)
-            .await
-            .map_err(map_sandbox_error)?;
+        wait_absent(
+            "Service",
+            service::wait_for_sandbox_service_deleted(&self.k8s, task_id),
+        )
+        .await?;
+        wait_absent(
+            "IngressRoutes",
+            ingress::wait_for_task_ingress_routes_deleted(&self.k8s, task_id),
+        )
+        .await?;
         // 3. PVC is intentionally NOT deleted — workspace data is preserved
 
         // 4. Reprovision with fresh config (provision handles PVC reuse)
@@ -393,44 +417,63 @@ impl SandboxRuntime for K8sSandboxAdapter {
         // so the caller retries and the `Removed` completion is withheld. Removal
         // is strict — it reports success only once every resource is observed
         // absent (pods drained, PVC gone) and every owed S3 archive is deleted.
-        let mut first_err: Option<SandboxError> = None;
+        let mut first_err: Option<crate::sandbox::lifecycle::RuntimeError> = None;
 
         if let Err(e) = deployment::delete_deployment(&self.k8s, task_id).await {
             warn!(task_id = %task_id, error = %e, "Failed to delete Deployment");
-            first_err.get_or_insert(SandboxError::KubeError(e));
+            first_err.get_or_insert(map_sandbox_error(SandboxError::KubeError(e)));
         }
         if let Err(e) = service::delete_sandbox_service(&self.k8s, task_id).await {
             warn!(task_id = %task_id, error = %e, "Failed to delete Service");
-            first_err.get_or_insert(SandboxError::KubeError(e));
+            first_err.get_or_insert(map_sandbox_error(SandboxError::KubeError(e)));
         }
         if let Err(e) = ingress::delete_task_ingress_routes(&self.k8s, task_id).await {
             warn!(task_id = %task_id, error = %e, "Failed to delete IngressRoutes");
-            first_err.get_or_insert(SandboxError::KubeError(e));
+            first_err.get_or_insert(map_sandbox_error(SandboxError::KubeError(e)));
         }
 
         // Observe every runtime resource absent before deleting archives or
         // publishing Removed. Skip waits when a delete failed; the caller
         // retries the whole cleanup.
         if first_err.is_none() {
-            if let Err(e) = deployment::wait_for_deployment_deleted(&self.k8s, task_id).await {
+            if let Err(e) = wait_absent(
+                "Deployment",
+                deployment::wait_for_deployment_deleted(&self.k8s, task_id),
+            )
+            .await
+            {
                 warn!(task_id = %task_id, error = %e, "Deployment did not vanish after delete");
                 first_err.get_or_insert(e);
             }
         }
         if first_err.is_none() {
-            if let Err(e) = deployment::wait_for_all_pods_deleted(&self.k8s, task_id).await {
+            if let Err(e) = wait_absent(
+                "pods",
+                deployment::wait_for_all_pods_deleted(&self.k8s, task_id),
+            )
+            .await
+            {
                 warn!(task_id = %task_id, error = %e, "Pods did not terminate before PVC delete");
                 first_err.get_or_insert(e);
             }
         }
         if first_err.is_none() {
-            if let Err(e) = service::wait_for_sandbox_service_deleted(&self.k8s, task_id).await {
+            if let Err(e) = wait_absent(
+                "Service",
+                service::wait_for_sandbox_service_deleted(&self.k8s, task_id),
+            )
+            .await
+            {
                 warn!(task_id = %task_id, error = %e, "Service did not vanish after delete");
                 first_err.get_or_insert(e);
             }
         }
         if first_err.is_none() {
-            if let Err(e) = ingress::wait_for_task_ingress_routes_deleted(&self.k8s, task_id).await
+            if let Err(e) = wait_absent(
+                "IngressRoutes",
+                ingress::wait_for_task_ingress_routes_deleted(&self.k8s, task_id),
+            )
+            .await
             {
                 warn!(task_id = %task_id, error = %e, "IngressRoutes did not vanish after delete");
                 first_err.get_or_insert(e);
@@ -438,12 +481,14 @@ impl SandboxRuntime for K8sSandboxAdapter {
         }
         if let Err(e) = pvc::delete_task_pvc(&self.k8s, task_id).await {
             warn!(task_id = %task_id, error = %e, "Failed to delete PVC");
-            first_err.get_or_insert(SandboxError::KubeError(e));
+            first_err.get_or_insert(map_sandbox_error(SandboxError::KubeError(e)));
         }
         // Strict absence: a delete request returns before reclaim completes, so
         // await the PVC actually vanishing before reporting success.
         if first_err.is_none() {
-            if let Err(e) = pvc::wait_for_pvc_deleted(&self.k8s, task_id).await {
+            if let Err(e) =
+                wait_absent("PVC", pvc::wait_for_pvc_deleted(&self.k8s, task_id)).await
+            {
                 warn!(task_id = %task_id, error = %e, "PVC did not vanish after delete");
                 first_err.get_or_insert(e);
             }
@@ -456,7 +501,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
             // picks them back up transparently. K8s resources (incl. PVC) are
             // still gone — only the S3-backed state survives.
             info!(task_id = %task_id, "Retaining S3 archives on close (revivable)");
-        } else {
+        } else if first_err.is_none() {
             // Delete this task's transcript and `s3`-backend workspace archives
             // (`<prefix>/<task_id>/...`). These live in the uploads bucket, not
             // the PVC, so the per-task PVC delete above doesn't cover them. The
@@ -465,11 +510,11 @@ impl SandboxRuntime for K8sSandboxAdapter {
             // empty (`ebs`/`ephemeral` tasks).
             if let Err(e) = self.delete_task_transcripts(task_id).await {
                 warn!(task_id = %task_id, error = %e, "Failed to delete task transcripts from S3");
-                first_err.get_or_insert(e);
+                first_err.get_or_insert(map_sandbox_error(e));
             }
             if let Err(e) = self.delete_task_sandbox(task_id).await {
                 warn!(task_id = %task_id, error = %e, "Failed to delete task workspace from S3");
-                first_err.get_or_insert(e);
+                first_err.get_or_insert(map_sandbox_error(e));
             }
         }
 
@@ -477,7 +522,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
         // withholds lifecycle's `Removed` completion (its sole publisher), so
         // resources or archives that linger get another reconciler pass.
         if let Some(e) = first_err {
-            return Err(map_sandbox_error(e));
+            return Err(e);
         }
 
         let effect = if had_runtime || !retention.retains() {
@@ -523,13 +568,6 @@ impl SandboxObserver for K8sSandboxAdapter {
             .status_resolver
             .resolve_live_status(task_id, task_status, desired_state, self)
             .await)
-    }
-
-    async fn container_statuses(
-        &self,
-        task_id: &str,
-    ) -> Result<Vec<ContainerObservedStatus>, SandboxError> {
-        Ok(pod_reader::fetch_server_container_statuses(&self.k8s, task_id).await)
     }
 
     async fn server_logs(

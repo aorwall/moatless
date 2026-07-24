@@ -41,9 +41,20 @@ pub struct DockerSandboxAdapter {
     pub client: DockerClient,
     pub status_resolver: DockerStatusResolver,
     pub(crate) plan: Option<ProvisionDeps>,
+    pub s3: Option<Arc<aws_sdk_s3::Client>>,
 }
 
 impl DockerSandboxAdapter {
+    fn require_plan(
+        &self,
+    ) -> Result<&ProvisionDeps, crate::sandbox::lifecycle::RuntimeError> {
+        self.plan.as_ref().ok_or_else(|| {
+            crate::sandbox::lifecycle::RuntimeError::Infrastructure(
+                "sandbox plan repositories unavailable".to_string(),
+            )
+        })
+    }
+
     async fn ensure_running_with_request(
         &self,
         task_id: &str,
@@ -314,11 +325,7 @@ impl SandboxRuntime for DockerSandboxAdapter {
         task_id: &str,
         ctx: RuntimeOperationContext,
     ) -> Result<RuntimeOutcome, crate::sandbox::lifecycle::RuntimeError> {
-        let plan = self.plan.as_ref().ok_or_else(|| {
-            crate::sandbox::lifecycle::RuntimeError::Infrastructure(
-                "sandbox plan repositories unavailable".to_string(),
-            )
-        })?;
+        let plan = self.require_plan()?;
         let request = plan.build_request(task_id).await?;
         self.ensure_running_with_request(task_id, &request, ctx)
             .await
@@ -336,8 +343,19 @@ impl SandboxRuntime for DockerSandboxAdapter {
         self.stop_server_containers(task_id).await;
 
         let container_name = generate_container_name(task_id);
-        let effect = match self.check_existing_container(&container_name).await {
-            ExistingContainerResult::Running => {
+        let effect = match self
+            .client
+            .docker
+            .inspect_container(&container_name, None)
+            .await
+        {
+            Ok(inspected)
+                if inspected
+                    .state
+                    .as_ref()
+                    .and_then(|state| state.running)
+                    .unwrap_or(false) =>
+            {
                 self.client
                     .docker
                     .stop_container(
@@ -352,8 +370,14 @@ impl SandboxRuntime for DockerSandboxAdapter {
                     })?;
                 RuntimeEffect::Applied
             }
-            ExistingContainerResult::Exists { .. } | ExistingContainerResult::NotFound => {
-                RuntimeEffect::NoOp
+            Ok(_) => RuntimeEffect::NoOp,
+            Err(bollard::errors::Error::DockerResponseServerError {
+                status_code: 404, ..
+            }) => RuntimeEffect::NoOp,
+            Err(e) => {
+                return Err(map_sandbox_error(SandboxError::DockerError(format!(
+                    "Failed to inspect container before stop: {e}"
+                ))));
             }
         };
 
@@ -390,9 +414,8 @@ impl SandboxRuntime for DockerSandboxAdapter {
         self.force_remove_container(&container_name, task_id)
             .await
             .map_err(map_sandbox_error)?;
-        self.ensure_container_absent(&container_name, task_id)
-            .await
-            .map_err(map_sandbox_error)?;
+        self.ensure_container_absent_runtime(&container_name, task_id)
+            .await?;
         self.client
             .docker
             .create_container(
@@ -432,11 +455,7 @@ impl SandboxRuntime for DockerSandboxAdapter {
         ctx: RuntimeOperationContext,
     ) -> Result<RuntimeOutcome, crate::sandbox::lifecycle::RuntimeError> {
         info!(task_id = %task_id, "Redeploying Docker sandbox (remove containers, reprovision)");
-        let plan = self.plan.as_ref().ok_or_else(|| {
-            crate::sandbox::lifecycle::RuntimeError::Infrastructure(
-                "sandbox plan repositories unavailable".to_string(),
-            )
-        })?;
+        let plan = self.require_plan()?;
         let request = plan.build_request(task_id).await?;
 
         // A redeploy must cross a clean edge: stale subordinate containers can
@@ -451,9 +470,8 @@ impl SandboxRuntime for DockerSandboxAdapter {
         self.force_remove_container(&container_name, task_id)
             .await
             .map_err(map_sandbox_error)?;
-        self.ensure_container_absent(&container_name, task_id)
-            .await
-            .map_err(map_sandbox_error)?;
+        self.ensure_container_absent_runtime(&container_name, task_id)
+            .await?;
 
         // Reprovision with fresh config (workspace dirs on host are preserved)
         self.ensure_running_with_request(task_id, &request, ctx)
@@ -464,12 +482,9 @@ impl SandboxRuntime for DockerSandboxAdapter {
     async fn remove(
         &self,
         task_id: &str,
-        _retention: ArchiveRetention,
+        retention: ArchiveRetention,
         _ctx: RuntimeOperationContext,
     ) -> Result<RuntimeOutcome, crate::sandbox::lifecycle::RuntimeError> {
-        // Docker mode has no S3-backed storage sync, so `retain_storage` is a
-        // no-op here — there is nothing to preserve or delete beyond the
-        // containers themselves.
         info!(task_id = %task_id, "Cleaning up Docker sandbox");
         let container_name = generate_container_name(task_id);
         let server_containers = self
@@ -492,9 +507,8 @@ impl SandboxRuntime for DockerSandboxAdapter {
         self.force_remove_container(&container_name, task_id)
             .await
             .map_err(map_sandbox_error)?;
-        self.ensure_container_absent(&container_name, task_id)
-            .await
-            .map_err(map_sandbox_error)?;
+        self.ensure_container_absent_runtime(&container_name, task_id)
+            .await?;
         if !self
             .list_server_container_names(task_id)
             .await
@@ -504,6 +518,12 @@ impl SandboxRuntime for DockerSandboxAdapter {
             return Err(crate::sandbox::lifecycle::RuntimeError::Infrastructure(
                 format!("Docker resources for task {task_id} remain after removal"),
             ));
+        }
+        if !retention.retains() {
+            self.delete_archive_prefix(task_id, &self.config.s3.transcript_prefix, "transcripts")
+                .await?;
+            self.delete_archive_prefix(task_id, &self.config.s3.workspace_prefix, "workspace")
+                .await?;
         }
 
         Ok(RuntimeOutcome {
@@ -548,13 +568,6 @@ impl SandboxObserver for DockerSandboxAdapter {
             .status_resolver
             .resolve_live_status(task_id, task_status, desired_state, self)
             .await)
-    }
-
-    async fn container_statuses(
-        &self,
-        _task_id: &str,
-    ) -> Result<Vec<ContainerObservedStatus>, SandboxError> {
-        Ok(Vec::new())
     }
 
     async fn server_logs(
@@ -925,6 +938,45 @@ impl DockerSandboxAdapter {
         } else {
             Ok(())
         }
+    }
+
+    async fn ensure_container_absent_runtime(
+        &self,
+        container_name: &str,
+        task_id: &str,
+    ) -> Result<(), crate::sandbox::lifecycle::RuntimeError> {
+        if self
+            .container_exists(container_name)
+            .await
+            .map_err(map_sandbox_error)?
+        {
+            Err(crate::sandbox::lifecycle::RuntimeError::NotAbsent(
+                format!("container {container_name} for task {task_id}"),
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    async fn delete_archive_prefix(
+        &self,
+        task_id: &str,
+        root: &str,
+        kind: &str,
+    ) -> Result<(), crate::sandbox::lifecycle::RuntimeError> {
+        let (Some(s3), Some(bucket)) = (self.s3.as_ref(), self.config.s3.bucket_name.as_deref())
+        else {
+            return Ok(());
+        };
+        let prefix = format!("{}/{task_id}/", root.trim_end_matches('/'));
+        crate::file_storage::s3::delete_objects_by_prefix(s3, bucket, &prefix)
+            .await
+            .map_err(|e| {
+                crate::sandbox::lifecycle::RuntimeError::Infrastructure(format!(
+                    "delete {kind} archive for {task_id}: {e}"
+                ))
+            })?;
+        Ok(())
     }
 
     /// Check if an existing container exists and its state.

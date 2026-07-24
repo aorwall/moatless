@@ -12,7 +12,6 @@ use futures::stream::BoxStream;
 use super::client::SandboxClient;
 use super::error::SandboxError;
 use super::live_status::LiveStatus;
-use super::models::ContainerObservedStatus;
 use super::schemas::SandboxStatusFullResponse;
 use crate::task::models::{SandboxDesiredState, TaskStatus};
 
@@ -32,11 +31,6 @@ pub trait SandboxObserver: Send + Sync {
         task_status: TaskStatus,
         desired_state: SandboxDesiredState,
     ) -> Result<LiveStatus, SandboxError>;
-
-    async fn container_statuses(
-        &self,
-        task_id: &str,
-    ) -> Result<Vec<ContainerObservedStatus>, SandboxError>;
 
     async fn server_logs(
         &self,

@@ -16,7 +16,7 @@ use crate::events::EventPublisher;
 use super::events::LifecycleEvent;
 use super::orchestrator::LifecycleEventSink;
 use super::outcome::Diagnostics;
-use super::types::OperationGeneration;
+use super::types::{ObservedStatus, OperationGeneration};
 
 /// Publishes lifecycle events through the existing Redis outbox path.
 ///
@@ -65,6 +65,7 @@ impl LifecycleEventSink for OutboxEventSink {
         &self,
         task_id: &str,
         generation: OperationGeneration,
+        observed: ObservedStatus,
         diagnostics: &Diagnostics,
     ) {
         let Some(publisher) = &self.publisher else {
@@ -84,7 +85,7 @@ impl LifecycleEventSink for OutboxEventSink {
                             &format!("sandbox:{task_id}:{generation}:degradation:{index}"),
                             task_id,
                             "sandbox",
-                            SandboxStatus::Initializing.as_str(),
+                            observed_status(observed).as_str(),
                             None,
                             None,
                             payload,
@@ -132,5 +133,36 @@ impl LifecycleEventSink for OutboxEventSink {
                 }
             }
         }
+    }
+}
+
+fn observed_status(observed: ObservedStatus) -> SandboxStatus {
+    match observed {
+        ObservedStatus::Ready => SandboxStatus::Ready,
+        ObservedStatus::Starting => SandboxStatus::Initializing,
+        ObservedStatus::Stopped => SandboxStatus::Stopped,
+        ObservedStatus::Removed => SandboxStatus::Removed,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn degradation_status_tracks_the_runtime_observation() {
+        assert_eq!(observed_status(ObservedStatus::Ready), SandboxStatus::Ready);
+        assert_eq!(
+            observed_status(ObservedStatus::Starting),
+            SandboxStatus::Initializing
+        );
+        assert_eq!(
+            observed_status(ObservedStatus::Stopped),
+            SandboxStatus::Stopped
+        );
+        assert_eq!(
+            observed_status(ObservedStatus::Removed),
+            SandboxStatus::Removed
+        );
     }
 }

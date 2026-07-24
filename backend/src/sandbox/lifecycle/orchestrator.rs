@@ -159,6 +159,7 @@ pub trait LifecycleEventSink: Send + Sync {
         &self,
         task_id: &str,
         generation: OperationGeneration,
+        observed: ObservedStatus,
         diagnostics: &super::outcome::Diagnostics,
     );
 }
@@ -740,7 +741,12 @@ impl Lifecycle {
         }
         if !outcome.diagnostics.is_empty() {
             self.events
-                .publish_diagnostics(task_id, run.generation, &outcome.diagnostics)
+                .publish_diagnostics(
+                    task_id,
+                    run.generation,
+                    outcome.observed,
+                    &outcome.diagnostics,
+                )
                 .await;
         }
 
@@ -999,6 +1005,7 @@ mod tests {
             &self,
             _task_id: &str,
             _generation: OperationGeneration,
+            _observed: ObservedStatus,
             diagnostics: &super::super::outcome::Diagnostics,
         ) {
             self.diagnostics

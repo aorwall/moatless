@@ -101,4 +101,4 @@ pub(crate) use agent_stop::GrpcAgentStop;
 pub(crate) use dao::PgLifecycleStore;
 pub(crate) use event_sink::OutboxEventSink;
 pub(crate) use lock::PgLifecycleLock;
-pub(crate) use plan::ProvisionDeps;
+pub use plan::ProvisionDeps;

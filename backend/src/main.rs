@@ -86,6 +86,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cancel = CancellationToken::new();
     let sse_state = startup::init_sse(&config, db_pool.as_ref(), cancel.clone()).await?;
     let s3_client = startup::init_s3(&config).await;
+    let provision_deps = db_pool
+        .as_ref()
+        .map(moatless_vibe_backend::sandbox::lifecycle::ProvisionDeps::from_pool);
     startup::install_shutdown_handler(cancel.clone());
     // Build the configured runtime/observer/connector adapter once.
     let sandbox_runtime: Arc<dyn sandbox::lifecycle::SandboxRuntime>;
@@ -109,7 +112,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &config,
                 k8s.clone(),
                 s3_client.clone().map(std::sync::Arc::new),
-                db_pool.as_ref(),
+                provision_deps.clone(),
             );
             sandbox_runtime = adapter.clone();
             sandbox_observer = adapter.clone();
@@ -136,7 +139,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let adapter = startup::build_docker_sandbox_adapter(
                 &config,
                 docker_client.clone(),
-                db_pool.as_ref(),
+                s3_client.clone().map(std::sync::Arc::new),
+                provision_deps.clone(),
             );
             sandbox_runtime = adapter.clone();
             sandbox_observer = adapter.clone();
@@ -209,6 +213,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Some(moatless_vibe_backend::state::build_lifecycle(
                     pool.clone(),
                     lock_pool,
+                    provision_deps
+                        .clone()
+                        .ok_or("provision dependencies missing with database pool")?,
                     sandbox_runtime.clone(),
                     sandbox_connector.clone(),
                     default_sandbox_image.clone(),

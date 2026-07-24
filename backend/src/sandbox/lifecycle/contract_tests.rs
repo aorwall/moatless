@@ -169,6 +169,7 @@ impl LifecycleEventSink for CollectSink {
         &self,
         _task_id: &str,
         _generation: super::OperationGeneration,
+        _observed: ObservedStatus,
         _diagnostics: &super::Diagnostics,
     ) {
     }
