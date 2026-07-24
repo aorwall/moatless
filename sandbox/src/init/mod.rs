@@ -135,30 +135,11 @@ pub async fn run_init(state: SandboxState) {
         }
     };
 
-    // Mark as ready — health endpoint now returns 200
-    *state.init_phase.write().await = InitPhase::Ready;
-
-    publish_sandbox_event(
-        &state,
-        "SandboxReady",
-        "Core initialization complete, starting workspace setup",
-        false,
-    )
-    .await;
-
-    info!(task_id = %state.config.task_id, "Core init complete — health is now ready");
-
-    // Replay an interrupted run only when no new user message supersedes it.
-    // Session state was already restored to disk in `run_core_init` (before
-    // Ready), so a resumed run sees its `--resume` history.
-    recover_interrupted_run_unless_pending(&state, workspace_origin).await;
-
-    // Fetch any messages that arrived during initialization.
-    // Spawned (not awaited) so it doesn't block Phase 2 workspace setup.
-    let startup_state = state.clone();
-    tokio::spawn(async move {
-        crate::agent::dispatcher::dispatch_pending_messages(startup_state).await;
-    });
+    // Decide interrupted-Run vs pending-Message precedence, open the readiness
+    // gate, and perform the one authoritative pending dispatch — in that order.
+    // Ordering is the invariant: the precedence probe must run while external
+    // dispatch is still gated (see `open_for_work`).
+    open_for_work(&state, workspace_origin).await;
 
     // Phase 2: Workspace setup — runs after health is 200
     run_workspace_setup(&state).await;
@@ -224,6 +205,42 @@ pub async fn run_init(state: SandboxState) {
     // back to the backend so subsequent tasks (and pod restarts) see the new
     // refresh_token instead of the now-invalidated stored copy.
     spawn_codex_auth_watcher(&state).await;
+}
+
+/// Cross the boundary from "restored but private" to "open for work", in the one
+/// order that closes the startup precedence race:
+///
+/// 1. **Decide precedence while dispatch is still gated.** Session state was
+///    restored to disk in `run_core_init` (before Ready). We probe for a pending
+///    Message and, only when none is waiting, enqueue the interrupted-Run replay.
+///    External gRPC dispatch is still a no-op here because init is not yet Ready.
+/// 2. **Open the gate.** Flip `InitPhase::Ready` (health now returns 200) and
+///    announce `SandboxReady`.
+/// 3. **Dispatch once, authoritatively.** Drain any pending Message — a no-op if
+///    step 1 already enqueued a Recover, otherwise the Message that superseded it.
+///
+/// Doing step 1 before step 2 is what prevents a backend notification that races
+/// init from fetching, submitting, and acknowledging the newer pending Message in
+/// the window before the probe — which would leave the probe seeing no pending
+/// row and enqueueing a now-stale Recover behind the Message.
+pub(crate) async fn open_for_work(state: &SandboxState, workspace_origin: WorkspaceOrigin) {
+    recover_interrupted_run_unless_pending(state, workspace_origin).await;
+
+    *state.init_phase.write().await = InitPhase::Ready;
+    publish_sandbox_event(
+        state,
+        "SandboxReady",
+        "Core initialization complete, starting workspace setup",
+        false,
+    )
+    .await;
+    info!(task_id = %state.config.task_id, "Core init complete — health is now ready");
+
+    // Spawned (not awaited) so it doesn't block Phase 2 workspace setup.
+    let startup_state = state.clone();
+    tokio::spawn(async move {
+        crate::agent::dispatcher::dispatch_pending_messages(startup_state).await;
+    });
 }
 
 /// How the workspace came to exist on this start — determines what (if anything)
@@ -297,9 +314,10 @@ fn workspace_recloned_note(workspace_dir: &str) -> String {
 /// Interrupted-run precedence gate: probe for pending user messages first, and
 /// replay the interrupted run **only** when none are waiting. A fresh user
 /// message supersedes the interrupted turn — `dispatch_pending_messages` resumes
-/// the prior session with the new text as the prompt instead. A probe error is
-/// treated as "no pending" so a transient backend blip can't strand an
-/// interrupted run.
+/// the prior session with the new text as the prompt instead. A probe error
+/// **fails closed** — treated as "pending present", skipping the replay — so an
+/// unknown probe result can't resume the stale Run only to have a newer Message
+/// dispatched concurrently once the backend recovers.
 ///
 /// `pub(crate)` so the Sandbox-replacement lifecycle can be exercised in-crate
 /// with an in-memory backend without driving the whole of `run_init`.

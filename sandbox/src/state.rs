@@ -81,7 +81,7 @@ impl SandboxState {
     /// init (the gRPC server accepts calls before `run_init` completes) can never
     /// drive the harness before restoration — `run_init` performs the
     /// authoritative pending dispatch itself once Ready.
-    pub async fn is_ready(&self) -> bool {
+    pub(crate) async fn is_ready(&self) -> bool {
         matches!(*self.init_phase.read().await, InitPhase::Ready)
     }
 }

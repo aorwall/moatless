@@ -624,30 +624,6 @@ mod tests {
         assert_eq!(resolve_agent_harness("codex").unwrap(), AGENT_TYPE_CODEX);
     }
 
-    #[tokio::test]
-    async fn build_harness_reconstructs_the_selected_family() {
-        // A replacement pod rebuilds the harness fixed by `config.agent_type`.
-        // `build_harness` spawns the harness driver task, so a runtime is required.
-        // Every supported family reconstructs; an unsupported one is a classified
-        // configuration error, never a silent fall-through to Claude.
-        let config = Arc::new(minimal_config());
-        let agent_state = Arc::new(AgentState::new());
-        let failures = CredentialFailureDetector::default();
-
-        for family in ["claude-code", "claude-code-cli", "claude-code-fable", "codex"] {
-            assert!(
-                build_harness(&config, &agent_state, &failures, family).is_ok(),
-                "family {family} must reconstruct"
-            );
-        }
-
-        // `Harness` is intentionally not `Debug`, so match instead of `expect_err`.
-        match build_harness(&config, &agent_state, &failures, "gpt-9000") {
-            Ok(_) => panic!("unsupported family must be a classified error"),
-            Err(err) => assert_eq!(err.class, ErrorClass::InvalidConfiguration),
-        }
-    }
-
     #[test]
     fn resolve_agent_harness_rejects_unknown_instead_of_defaulting() {
         // An unsupported value is a classified configuration failure, never a

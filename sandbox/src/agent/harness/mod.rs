@@ -117,6 +117,32 @@ impl Harness {
         }
     }
 
+    /// Like [`Harness::scripted`] but every execution records the full `Input` it
+    /// accepts into the shared `recorder`, so a lifecycle test can prove which
+    /// input the harness received (text + resume), not merely that a command was
+    /// enqueued. The same `script` runs for each execution.
+    #[cfg(test)]
+    pub(crate) fn scripted_recording(
+        script: Script,
+        recorder: scripted::InputRecorder,
+    ) -> Self {
+        let (submit_tx, submit_rx) = mpsc::channel(SUBMIT_CAPACITY);
+        let (cancel_tx, cancel_rx) = mpsc::channel(1);
+        let (signal_tx, signal_rx) = mpsc::channel(SIGNAL_CAPACITY);
+
+        let factory =
+            move || scripted::ScriptedProcess::new_recording(script.clone(), recorder.clone());
+        supervise(tokio::spawn(driver::run(
+            factory, submit_rx, cancel_rx, signal_tx,
+        )));
+
+        Self {
+            submit_tx,
+            cancel_tx,
+            signal_rx,
+        }
+    }
+
     /// Construct a one-shot harness whose executions run `scripts` in order — one
     /// script per execution, so a test can model a first execution that rejects
     /// (e.g. a failed resume) followed by a second that succeeds (the recovery

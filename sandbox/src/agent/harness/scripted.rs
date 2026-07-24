@@ -7,8 +7,9 @@
 //! tests construct a [`Script`] and pass it to [`super::Harness::scripted`].
 
 use std::collections::VecDeque;
+use std::sync::Arc;
 
-use tokio::sync::Notify;
+use tokio::sync::{Mutex, Notify};
 
 use super::error::HarnessError;
 use super::process::{AgentProcess, ProcessEvent, ProcessTermination};
@@ -81,6 +82,12 @@ impl Script {
     }
 }
 
+/// A shared sink of the full `Input`s a scripted process accepted, in submit
+/// order. Lets a lifecycle test assert exactly which `Input` (text + resume) the
+/// harness received — proving harness acceptance, not just enqueue shape.
+#[cfg(test)]
+pub(crate) type InputRecorder = Arc<Mutex<Vec<Input>>>;
+
 pub(crate) struct ScriptedProcess {
     submit_error: Option<HarnessError>,
     steps: VecDeque<Step>,
@@ -89,6 +96,8 @@ pub(crate) struct ScriptedProcess {
     /// Submitted inputs not yet consumed by an `AcceptInput`, in submit order.
     inputs: VecDeque<InputId>,
     submit_notify: Notify,
+    /// When set, every accepted `Input` is appended here (full payload).
+    recorder: Option<Arc<Mutex<Vec<Input>>>>,
 }
 
 impl ScriptedProcess {
@@ -100,6 +109,17 @@ impl ScriptedProcess {
             cancel_notify: Notify::new(),
             inputs: VecDeque::new(),
             submit_notify: Notify::new(),
+            recorder: None,
+        }
+    }
+
+    /// Like [`ScriptedProcess::new`] but records every accepted `Input` into a
+    /// shared sink, so a test can observe what the harness received.
+    #[cfg(test)]
+    pub(crate) fn new_recording(script: Script, recorder: InputRecorder) -> Self {
+        Self {
+            recorder: Some(recorder),
+            ..Self::new(script)
         }
     }
 }
@@ -110,6 +130,9 @@ impl AgentProcess for ScriptedProcess {
         match self.submit_error.take() {
             Some(error) => Err(error),
             None => {
+                if let Some(recorder) = &self.recorder {
+                    recorder.lock().await.push(input.clone());
+                }
                 self.inputs.push_back(input.id);
                 self.submit_notify.notify_one();
                 Ok(())
