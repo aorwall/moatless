@@ -23,8 +23,9 @@ use crate::bindings::dao::PgTaskBindingRepository;
 use crate::sandbox::lifecycle::ArchiveRetention;
 use crate::shared_models::AgentType;
 use crate::state::AppState;
+use crate::task::creation::NewTaskRequest;
 use crate::task::dao::TaskPatch;
-use crate::task::models::{Task, TaskStatus, Visibility};
+use crate::task::models::{TaskStatus, Visibility};
 use crate::triggers::rule_dao::PgTaskTriggerRouteRepository;
 
 use super::agent_api::{default_http_client, ActivityKind, LinearAgentApi};
@@ -663,10 +664,9 @@ async fn provision_issue_task(
     }
 
     let task_id = create_issue_event_task(state, rule, issue).await?;
-    // Open the Linear turn gate before provisioning so sandbox/agent events on
-    // this task surface in Linear's UI.
+    // Open the Linear turn gate so sandbox/agent events on this task surface in
+    // Linear's UI. Provisioning already ran inside the creation service.
     state.linear_active_turns.open(&task_id);
-    provision_task(state, &task_id).await;
 
     let team_id = issue.resolved_team_id().unwrap_or_default().to_string();
     let destination_config = serde_json::json!({
@@ -1233,15 +1233,16 @@ async fn provision_session_task(
         }
     };
 
-    // Create the task first, then the binding.
+    // Create the task (short-id, preflight, insert, tags, provision, and the
+    // `Open` event all run inside the service), then the peer relation and the
+    // binding.
     let task_id = create_provider_event_task(state, rule, session).await?;
     if let Some(ref r) = related {
         crate::task::relations::record_related_to(state.task_relations.as_ref(), &task_id, r).await;
     }
-    // Open the Linear turn gate before provisioning so subsequent sandbox
-    // lifecycle / agent events on this task surface in Linear's UI.
+    // Open the Linear turn gate so subsequent sandbox lifecycle / agent events
+    // on this task surface in Linear's UI.
     state.linear_active_turns.open(&task_id);
-    provision_task(state, &task_id).await;
 
     let team_id = issue
         .team_id
@@ -1431,31 +1432,36 @@ async fn insert_event_task(
     title: &str,
     preview: &str,
 ) -> Result<String, AdapterError> {
-    let task_id = uuid::Uuid::new_v4().to_string();
-    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    let short_id = generate_short_id(state).await?;
+    let append_system_prompt = {
+        let mut parts = Vec::new();
+        if let Some(ref tpl) = rule.prompt_template {
+            parts.push(tpl.to_string());
+        }
+        if let Some(providers) = state.adapters.as_ref() {
+            if let Some(provider) = providers.get_by_name(ADAPTER_LABEL) {
+                if let Some(extra) = provider.reply_instructions() {
+                    parts.push(extra);
+                }
+            }
+        }
+        if parts.is_empty() {
+            None
+        } else {
+            Some(parts.join("\n\n"))
+        }
+    };
 
-    let row = Task {
-        task_id: task_id.clone(),
-        short_id: Some(short_id),
-        created_at: now.clone(),
-        last_message_at: now,
-        agent_type: AgentType(rule.agent_type.clone()),
+    let request = NewTaskRequest {
         repository_id: rule.repository_id.clone(),
-        status: TaskStatus::Open,
-        total_cost_usd: 0.0,
-        site_url: None,
-        template_id: None,
-        vibe: None,
+        agent_type: AgentType(rule.agent_type.clone()),
         name: rule
             .task_name
             .clone()
             .or_else(|| Some(format!("{identifier} — {title}"))),
         description: Some(truncate(preview, 200)),
-        site_id: None,
-        site_provider: None,
         branch: None,
         created_by: Some(rule.effective_user_id().to_string()),
+        headless: true,
         // Tasks auto-created from a Linear webhook default to public so the
         // people collaborating on the Linear issue can open the task.
         visibility: Visibility::Public,
@@ -1463,86 +1469,47 @@ async fn insert_event_task(
         team_id: rule.team_id.clone(),
         owner_user_id: (rule.scope == moatless_backend_core::scope::Scope::User)
             .then(|| rule.effective_user_id().to_string()),
-        created_at_db: None,
-        updated_at: None,
-        append_system_prompt: {
-            let mut parts = Vec::new();
-            if let Some(ref tpl) = rule.prompt_template {
-                parts.push(tpl.to_string());
-            }
-            if let Some(providers) = state.adapters.as_ref() {
-                if let Some(provider) = providers.get_by_name(ADAPTER_LABEL) {
-                    if let Some(extra) = provider.reply_instructions() {
-                        parts.push(extra);
-                    }
-                }
-            }
-            if parts.is_empty() {
-                None
-            } else {
-                Some(parts.join("\n\n"))
-            }
-        },
-        headless: true,
+        trigger_id: Some(rule.id.clone()),
+        workspace_id: None,
+        template_id: None,
+        vibe: None,
+        append_system_prompt,
         ttl_minutes: crate::task::models::DEFAULT_TTL_MINUTES,
         inactive_ttl_days: rule
             .inactive_ttl_days
             .unwrap_or(crate::task::models::DEFAULT_INACTIVE_TTL_DAYS),
-        trigger_id: Some(rule.id.clone()),
-        workspace_id: None,
-        disabled_servers: None,
+        tag_ids: rule.tag_ids.clone(),
+        parent: None,
+        related_to: None,
+        // Adapters deliver the inbound prompt themselves through the binding
+        // (`send_message_flow`), so the service sends no first message.
+        first_message: None,
+        event_subtype: moatless_events::TaskSubType::Open,
+        repository: None,
     };
 
-    state
-        .tasks
-        .insert_task(&row)
+    // Preflight, insert, tags, provisioning, and the `Open` event all run
+    // inside the creation service. On preflight failure it records the task as
+    // errored (with a `SandboxStatus::Error` event) and returns an error, which
+    // propagates here so the caller skips the binding/message steps for the
+    // dead task.
+    let source_matcher = rule.source_matcher.clone();
+    let outcome = state
+        .task_creation
+        .create(
+            request,
+            move |_task| async move {
+                serde_json::json!({
+                    "adapter": ADAPTER_LABEL,
+                    "source_matcher": source_matcher,
+                })
+            },
+            |_task_id, _first_message| async move {},
+        )
         .await
         .map_err(|e| AdapterError::Internal(format!("Failed to create task: {e}")))?;
 
-    if !rule.tag_ids.is_empty() {
-        if let Err(e) = state.tags.add_task_tags(&task_id, &rule.tag_ids).await {
-            warn!(task_id = %task_id, error = %e, "Failed to assign trigger tags");
-        }
-    }
-
-    if let Some(ref events) = state.events {
-        events
-            .publish_task_event(
-                &task_id,
-                moatless_events::TaskSubType::Open,
-                Some("claude-code"),
-                serde_json::json!({
-                    "adapter": ADAPTER_LABEL,
-                    "source_matcher": rule.source_matcher,
-                }),
-            )
-            .await;
-    }
-
-    Ok(task_id)
-}
-
-async fn provision_task(state: &AppState, task_id: &str) {
-    if let Err(e) = state.sandbox.start(task_id).await {
-        warn!(task_id = %task_id, error = %e, "Failed to start sandbox for Linear task");
-    }
-}
-
-async fn generate_short_id(state: &AppState) -> Result<String, AdapterError> {
-    for _ in 0..10 {
-        let id = nanoid::nanoid!(8, &nanoid::alphabet::SAFE);
-        if !state
-            .tasks
-            .exists_by_short_id(&id)
-            .await
-            .map_err(|e| AdapterError::Internal(format!("Short ID check failed: {e}")))?
-        {
-            return Ok(id);
-        }
-    }
-    Err(AdapterError::Internal(
-        "Failed to generate unique short ID".to_string(),
-    ))
+    Ok(outcome.task.task_id)
 }
 
 fn truncate(s: &str, max: usize) -> String {
