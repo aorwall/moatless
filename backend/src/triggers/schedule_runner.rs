@@ -297,8 +297,25 @@ async fn create_scheduled_task(
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     // Provisioning now happens inside the creation service. Preserve the
     // `provision_failed` metric using the provision outcome it reports back.
-    let outcome =
-        crate::triggers::inbound::create_task_for_external_message(state, config, msg, None).await?;
+    let outcome = match crate::triggers::inbound::create_task_for_external_message(
+        state, config, msg, None,
+    )
+    .await
+    {
+        Ok(outcome) => outcome,
+        // Permanent failure (e.g. a bad GitHub token). The service already
+        // persisted the task as errored + published a `SandboxStatus::Error`
+        // event. Record a distinct metric so a broken token is separable from a
+        // transient blip in the generic `execution_failed` counter; the per-tick
+        // cron retry is inherent and left to trigger auto-disable (a separate
+        // ticket).
+        Err(e @ crate::task::creation::TaskCreationError::Preflight(_)) => {
+            warn!(trigger_id = %config.id, error = %e, "Scheduled task preflight failed");
+            record_job("error", "preflight_failed", &config.id);
+            return Err(Box::new(e));
+        }
+        Err(e) => return Err(Box::new(e)),
+    };
 
     if outcome.provision == crate::task::creation::ProvisionOutcome::Failed {
         record_job("error", "provision_failed", &config.id);

@@ -3,11 +3,12 @@
 use crate::adapters::models::TriggerContext;
 use crate::shared_models::AgentType;
 use crate::state::AppState;
-use crate::task::creation::{FirstMessage, NewTaskRequest, TaskCreationOutcome};
+use crate::task::creation::{
+    FirstMessage, NewTaskRequest, TaskCreationError, TaskCreationOutcome,
+};
 use crate::task::models::Visibility;
 use crate::task::relations::RelatedTask;
 
-use crate::adapters::error::AdapterError;
 use crate::adapters::models::InboundMessage;
 
 /// Create a new task from an external message.
@@ -19,13 +20,18 @@ use crate::adapters::models::InboundMessage;
 /// carries the optional peer relation the bindings path computes; the schedule
 /// runner passes `None`.
 ///
+/// Surfaces the service's typed [`TaskCreationError`] verbatim so callers can
+/// tell a permanent [`TaskCreationError::Preflight`] failure (a bad GitHub
+/// token — retrying just inserts more errored rows) apart from a transient one
+/// (`Db` / `ShortId` / `RepoNotFound`) worth retrying.
+///
 /// [`TaskCreationService`]: crate::task::creation::TaskCreationService
 pub(crate) async fn create_task_for_external_message(
     state: &AppState,
     config: &TriggerContext,
     msg: &InboundMessage,
     related_to: Option<RelatedTask>,
-) -> Result<TaskCreationOutcome, AdapterError> {
+) -> Result<TaskCreationOutcome, TaskCreationError> {
     let append_system_prompt = {
         let mut parts = Vec::new();
         if let Some(ref tpl) = config.prompt_template {
@@ -90,8 +96,7 @@ pub(crate) async fn create_task_for_external_message(
             },
             |_task_id, _fm: FirstMessage| async move {},
         )
-        .await
-        .map_err(|e| AdapterError::Internal(format!("Failed to create task: {e}")))?;
+        .await?;
 
     Ok(outcome)
 }

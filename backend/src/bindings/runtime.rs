@@ -13,6 +13,7 @@ use crate::adapters::models::{
 use crate::bindings::dao::PgTaskBindingRepository;
 use crate::bindings::metrics::record_inbound;
 use crate::state::AppState;
+use crate::task::creation::TaskCreationError;
 use crate::task::models::TaskStatus;
 use crate::triggers::inbound;
 use crate::triggers::rule_dao::PgTaskTriggerRouteRepository;
@@ -241,31 +242,45 @@ pub async fn route_inbound_message(
         let config = trigger_context(rule, provider_label);
         // The creation service records the `related_to` relation and provisions
         // the sandbox as part of the owned sequence.
-        let task_id = inbound::create_task_for_external_message(state, &config, &msg, related)
-            .await?
-            .task
-            .task_id;
-        if rule.routing_mode == RoutingMode::Ongoing {
-            update_rule_ongoing_task(state, &rule.id, &task_id).await?;
+        match inbound::create_task_for_external_message(state, &config, &msg, related).await {
+            Ok(outcome) => {
+                let task_id = outcome.task.task_id;
+                if rule.routing_mode == RoutingMode::Ongoing {
+                    update_rule_ongoing_task(state, &rule.id, &task_id).await?;
+                }
+                // Seed the cursor as None so `fetch_context` retrieves the full
+                // prior thread on the first delivery; `touch_cursor` advances it
+                // afterward.
+                let sub = upsert_binding(
+                    state,
+                    connection,
+                    Some(rule),
+                    &task_id,
+                    provider_label,
+                    subject_kind,
+                    subject_key,
+                    destination_config.clone(),
+                    ORIGIN_ADAPTER_EVENT,
+                    None,
+                )
+                .await?;
+                bindings.push(sub);
+                is_new_task = true;
+                info!(task_id = %task_id, rule_id = %rule.id, provider = provider_label, "Created task from provider event");
+            }
+            // Permanent failure (e.g. a bad GitHub token). The service already
+            // persisted the task as errored + published a `SandboxStatus::Error`
+            // event. Skip the new-task binding and its delivery, but fall through
+            // to existing-binding delivery and return `Ok` — returning a 5xx here
+            // makes sources like Slack redeliver, and every redelivery inserts
+            // another errored row.
+            Err(TaskCreationError::Preflight(reason)) => {
+                warn!(rule_id = %rule.id, provider = provider_label, reason = %reason, "Skipping task creation from provider event: preflight failed");
+            }
+            // Transient failure (Db / ShortId / RepoNotFound) — propagate so the
+            // source retries, exactly as before this migration.
+            Err(e) => return Err(AdapterError::Internal(format!("Failed to create task: {e}"))),
         }
-        // Seed the cursor as None so `fetch_context` retrieves the full prior
-        // thread on the first delivery; `touch_cursor` advances it afterward.
-        let sub = upsert_binding(
-            state,
-            connection,
-            Some(rule),
-            &task_id,
-            provider_label,
-            subject_kind,
-            subject_key,
-            destination_config.clone(),
-            ORIGIN_ADAPTER_EVENT,
-            None,
-        )
-        .await?;
-        bindings.push(sub);
-        is_new_task = true;
-        info!(task_id = %task_id, rule_id = %rule.id, provider = provider_label, "Created task from provider event");
     }
 
     let mut delivered_task_id = None;
