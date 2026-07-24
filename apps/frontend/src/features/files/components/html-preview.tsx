@@ -1,3 +1,5 @@
+import { HTML_PREVIEW_SANDBOX, IFRAME_ALLOW } from '@/lib/iframe-permissions'
+
 interface HtmlPreviewProps {
   content: string
   filePath?: string
@@ -6,13 +8,14 @@ interface HtmlPreviewProps {
 export function HtmlPreview({ content, filePath }: HtmlPreviewProps) {
   return (
     <iframe
-      // Fully sandboxed: an empty `sandbox` applies every restriction, so the
-      // preview renders HTML/CSS but cannot run scripts or submit forms.
-      // Workspace files are untrusted, so previewing one must never execute
-      // code in the user's browser. (Passive subresources such as external
-      // <img>/<link> are still fetched by the browser; the sandbox does not
-      // block those.)
-      sandbox=""
+      // Workspace files are untrusted. The sandbox lets the preview run
+      // scripts/forms and use device features, but deliberately omits
+      // `allow-same-origin`: a `srcDoc` frame inherits our origin, so granting
+      // it would let the file execute code as the app itself. Without that
+      // token the frame gets a unique opaque origin and cannot reach the
+      // parent's cookies, storage, or DOM.
+      sandbox={HTML_PREVIEW_SANDBOX}
+      allow={IFRAME_ALLOW}
       srcDoc={content}
       title={filePath ? `Preview of ${filePath}` : 'HTML preview'}
       className="w-full h-full border-0 bg-white"

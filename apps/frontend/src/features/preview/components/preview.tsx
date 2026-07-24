@@ -1,6 +1,7 @@
 import { Server } from 'lucide-react'
 import { type RefObject, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { useSandboxRetry } from '@/lib/api/task-sandbox-queries'
+import { IFRAME_ALLOW, LIVE_PREVIEW_SANDBOX } from '@/lib/iframe-permissions'
 import { StackedConsoleSplit } from '@/lib/layout/stacked-console-split'
 import { cn } from '@/lib/utils'
 import { useConsoleLogs } from '../hooks/use-console-logs'
@@ -33,7 +34,8 @@ function PreviewIframe({ iframeRef, src, onLoad }: PreviewIframeProps) {
       ref={iframeRef}
       src={src}
       title="Application Preview"
-      sandbox="allow-scripts allow-forms allow-popups allow-modals allow-storage-access-by-user-activation"
+      sandbox={LIVE_PREVIEW_SANDBOX}
+      allow={IFRAME_ALLOW}
       onLoad={() => {
         setIsLoaded(true)
         onLoad()
