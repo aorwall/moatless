@@ -17,10 +17,10 @@
 mod common;
 
 use chrono::Utc;
-use moatless_vibe_backend::channel::dao::bindings::PgTaskBindingRepository;
-use moatless_vibe_backend::channel::dao::connections::PgProviderConnectionRepository;
-use moatless_vibe_backend::channel::dao::trigger_routes::PgTaskTriggerRouteRepository;
-use moatless_vibe_backend::channel::models::{ProviderConnection, RoutingMode, TaskTriggerRoute};
+use moatless_vibe_backend::adapters::dao::PgAdapterConnectionRepository;
+use moatless_vibe_backend::adapters::models::{AdapterConnection, RoutingMode, TaskTriggerRoute};
+use moatless_vibe_backend::bindings::dao::PgTaskBindingRepository;
+use moatless_vibe_backend::triggers::rule_dao::PgTaskTriggerRouteRepository;
 use moatless_vibe_backend::event_handler::agent_handlers::handle_agent_message;
 use moatless_vibe_backend::event_handler::models::AgentEvent;
 use moatless_vibe_backend::repository::dao as repository_dao;
@@ -32,7 +32,7 @@ use common::{make_repository_row, make_task_row, test_app_state};
 
 async fn seed_github_trigger(pool: &PgPool, owner: &str, repo: &str, repository_id: &str) {
     let now = Utc::now();
-    let connection = ProviderConnection {
+    let connection = AdapterConnection {
         id: format!("pc_{owner}"),
         provider: "github".to_string(),
         connection_kind: "org_webhook".to_string(),
@@ -43,10 +43,11 @@ async fn seed_github_trigger(pool: &PgPool, owner: &str, repo: &str, repository_
         created_by: "user-1".to_string(),
         scope: Scope::User,
         team_id: None,
+        owner_user_id: None,
         created_at: now,
         updated_at: now,
     };
-    PgProviderConnectionRepository(pool.clone())
+    PgAdapterConnectionRepository(pool.clone())
         .upsert(&connection)
         .await
         .unwrap();
@@ -65,6 +66,7 @@ async fn seed_github_trigger(pool: &PgPool, owner: &str, repo: &str, repository_
         tag_ids: vec![],
         run_as_user_id: None,
         agent_type: "claude-code".to_string(),
+        inactive_ttl_days: None,
         allow_direct_send: false,
         provider_config: None,
         ongoing_task_id: None,
@@ -74,6 +76,7 @@ async fn seed_github_trigger(pool: &PgPool, owner: &str, repo: &str, repository_
         created_by: "user-1".to_string(),
         scope: Scope::User,
         team_id: None,
+        owner_user_id: None,
         created_at: now,
         updated_at: now,
     };
@@ -170,7 +173,7 @@ async fn gh_pr_create_auto_connects_task_binding(pool: PgPool) {
 
     // 3. Verify a task_bindings row was created for this task pointing at
     //    the seeded org connection and repo trigger.
-    let connection = PgProviderConnectionRepository(pool.clone())
+    let connection = PgAdapterConnectionRepository(pool.clone())
         .find_by_scope_value("github", "foo")
         .await
         .unwrap()
@@ -202,12 +205,12 @@ async fn gh_pr_create_auto_connects_task_binding(pool: PgPool) {
         .find(|m| m.uuid == "asst-uuid-1")
         .expect("assistant row present");
     assert_eq!(
-        assistant_row.channel_external_id.as_deref(),
+        assistant_row.external_event_id.as_deref(),
         Some("github:pr:opened:99"),
     );
-    assert_eq!(assistant_row.channel_provider.as_deref(), Some("github_pr"));
+    assert_eq!(assistant_row.external_adapter.as_deref(), Some("github_pr"));
     assert_eq!(
-        assistant_row.channel_source_name.as_deref(),
+        assistant_row.external_source_name.as_deref(),
         Some("foo/bar")
     );
 }
@@ -255,7 +258,7 @@ async fn gh_pr_comment_tags_tool_result_with_external_id(pool: PgPool) {
     // The parent assistant tool_use row should now carry the prefixed comment id.
     let has = state
         .messages
-        .has_channel_external_id(task_id, "github:ic:555")
+        .has_external_event_id(task_id, "github:ic:555")
         .await
         .unwrap();
     assert!(
@@ -271,12 +274,12 @@ async fn gh_pr_comment_tags_tool_result_with_external_id(pool: PgPool) {
         .find(|m| m.uuid == "asst-uuid-c1")
         .expect("assistant row present");
     assert_eq!(
-        assistant_row.channel_external_id.as_deref(),
+        assistant_row.external_event_id.as_deref(),
         Some("github:ic:555"),
     );
-    assert_eq!(assistant_row.channel_provider.as_deref(), Some("github_pr"));
+    assert_eq!(assistant_row.external_adapter.as_deref(), Some("github_pr"));
     assert_eq!(
-        assistant_row.channel_source_name.as_deref(),
+        assistant_row.external_source_name.as_deref(),
         Some("foo/bar")
     );
     // The hidden System tool_result row must remain untagged.
@@ -284,5 +287,5 @@ async fn gh_pr_comment_tags_tool_result_with_external_id(pool: PgPool) {
         .iter()
         .find(|m| m.uuid == result_uuid)
         .expect("tool_result row present");
-    assert!(result_row.channel_external_id.is_none());
+    assert!(result_row.external_event_id.is_none());
 }

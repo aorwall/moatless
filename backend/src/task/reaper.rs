@@ -1280,7 +1280,7 @@ mod tests {
             ..Default::default()
         };
         let unlabeled = ObjectMeta::default();
-        let metas = vec![labeled("a"), labeled("a"), labeled("b"), unlabeled];
+        let metas = [labeled("a"), labeled("a"), labeled("b"), unlabeled];
         collect_ids_from_meta(&mut ids, metas.iter());
         assert_eq!(ids.len(), 2);
         assert!(ids.contains("a"));

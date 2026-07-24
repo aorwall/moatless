@@ -128,10 +128,10 @@ async fn get_tags_for_tasks_batch(pool: PgPool) {
     let x_id = &tags.iter().find(|t| t.name == "x").unwrap().tag_id;
     let y_id = &tags.iter().find(|t| t.name == "y").unwrap().tag_id;
 
-    tag_dao::set_task_tags(&pool, "task-batch-1", &[x_id.clone()])
+    tag_dao::set_task_tags(&pool, "task-batch-1", std::slice::from_ref(x_id))
         .await
         .unwrap();
-    tag_dao::set_task_tags(&pool, "task-batch-2", &[y_id.clone()])
+    tag_dao::set_task_tags(&pool, "task-batch-2", std::slice::from_ref(y_id))
         .await
         .unwrap();
 
