@@ -269,8 +269,11 @@ async fn drive_persistent_event(
             Ok(true)
         }
         Some(ProcessEvent::ExecutionEnded { termination }) => {
-            // Terminal for the current execution; the process persists.
-            flush_early(signal_tx, state.active, true, &mut state.early).await?;
+            // Terminal for the current execution; the process persists. Release
+            // buffered source only if the input was actually accepted — a terminal
+            // never synthesizes acceptance, so unanchored blocks are dropped.
+            flush_early(signal_tx, state.active, state.accepted, &mut state.early).await?;
+            state.early.clear();
             emit_terminal(signal_tx, state.cancel_requested, Some(termination)).await?;
             state.active = false;
             state.accepted = false;
@@ -279,14 +282,14 @@ async fn drive_persistent_event(
             Ok(true)
         }
         Some(ProcessEvent::Terminated { termination }) => {
-            flush_early(signal_tx, state.active, true, &mut state.early).await?;
+            flush_early(signal_tx, state.active, state.accepted, &mut state.early).await?;
             if state.active {
                 emit_terminal(signal_tx, state.cancel_requested, Some(termination)).await?;
             }
             Ok(false)
         }
         None => {
-            flush_early(signal_tx, state.active, true, &mut state.early).await?;
+            flush_early(signal_tx, state.active, state.accepted, &mut state.early).await?;
             if state.active {
                 // EOF mid-execution: an unexpected exit.
                 emit_terminal(signal_tx, state.cancel_requested, None).await?;
@@ -460,7 +463,9 @@ async fn run_execution<P: AgentProcess>(
                     // as the terminal, the latter is ignored.
                     Some(ProcessEvent::ExecutionEnded { termination })
                     | Some(ProcessEvent::Terminated { termination }) => {
-                        flush_early(signal_tx, started, true, &mut early).await?;
+                        // Release buffered source only if acceptance was actually
+                        // emitted; a terminal never synthesizes it.
+                        flush_early(signal_tx, started, accepted, &mut early).await?;
                         return finalize(
                             signal_tx,
                             started,
@@ -473,7 +478,7 @@ async fn run_execution<P: AgentProcess>(
                     Some(ProcessEvent::InternalStart { .. }) => {}
                     None => {
                         // EOF with no prior Terminated: an unexpected exit.
-                        flush_early(signal_tx, started, true, &mut early).await?;
+                        flush_early(signal_tx, started, accepted, &mut early).await?;
                         return finalize(signal_tx, started, cancel_requested, None, &input_id)
                             .await;
                     }
@@ -485,8 +490,9 @@ async fn run_execution<P: AgentProcess>(
 
 /// Release buffered source events once the execution has both started and had
 /// its input accepted. A no-op until then, so `Source` never precedes
-/// `InputAccepted`. On termination the caller forces the gate open so buffered
-/// output is not lost even if acceptance never arrived.
+/// `InputAccepted` — including at a terminal, which never synthesizes acceptance:
+/// buffered blocks with no real `InputAccepted` are dropped rather than emitted
+/// out of contract order.
 async fn flush_early(
     signal_tx: &mpsc::Sender<Signal>,
     started: bool,

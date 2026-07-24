@@ -173,10 +173,21 @@ impl Coordinator {
                 // delivery order.
                 self.pending_inputs.remove(&input);
                 if let Some(ack) = self.pending_acks.remove(&input) {
-                    let _ = ack.send(RunAck {
+                    let run_ack = RunAck {
                         session_id: self.session_id.clone(),
                         run_id: self.run_id.clone(),
-                    });
+                    };
+                    // A closed receiver means the dispatcher gave up waiting for
+                    // this batch (e.g. it timed out and will redispatch). The
+                    // acknowledgement-after-acceptance invariant still held; log
+                    // the drop with the input/Run identity so it stays diagnosable.
+                    if ack.send(run_ack).is_err() {
+                        tracing::warn!(
+                            input = %input.0,
+                            run_id = %self.run_id,
+                            "acceptance ack dropped: receiver closed before delivery"
+                        );
+                    }
                 }
             }
             Signal::Source(event) => {

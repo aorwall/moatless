@@ -122,6 +122,44 @@ async fn no_source_event_before_execution_start() {
 }
 
 #[tokio::test]
+async fn terminal_before_acceptance_drops_buffered_source() {
+    // The execution starts and buffers a block, then terminates without its input
+    // ever being accepted. A terminal never synthesizes acceptance, so the
+    // buffered block is dropped rather than emitted out of contract order: no
+    // InputAccepted and no Source appear.
+    let script = Script::new(vec![
+        Step::SessionReady(SessionId("sess-1".into())),
+        Step::Block(assistant_block("s1", "m1", "sess-1", "never-anchored")),
+        Step::Completed,
+    ]);
+    let mut harness = Harness::scripted(script);
+    harness
+        .submit(Input::text("in-1", "hi"))
+        .await
+        .expect("submit");
+
+    let signals = drain_to_terminal(&mut harness).await;
+
+    assert!(matches!(signals[0], Signal::ExecutionStarted { .. }));
+    assert!(
+        !signals
+            .iter()
+            .any(|s| matches!(s, Signal::InputAccepted { .. })),
+        "no acceptance was emitted, so none must be synthesized: {signals:?}"
+    );
+    assert!(
+        !signals.iter().any(|s| matches!(s, Signal::Source(_))),
+        "unanchored buffered source must be dropped, not emitted: {signals:?}"
+    );
+    assert!(matches!(
+        signals.last().expect("terminal"),
+        Signal::ExecutionFinished {
+            outcome: Outcome::Completed
+        }
+    ));
+}
+
+#[tokio::test]
 async fn pre_start_submit_failure_rejects_input() {
     let mut harness = Harness::scripted(Script::rejecting(HarnessError::new(
         FailureStage::Startup,

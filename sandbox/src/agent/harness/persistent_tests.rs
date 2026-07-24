@@ -56,7 +56,10 @@ async fn injection_accepts_into_active_execution_without_new_start() {
         Step::ExecutionEnded,
     ]);
     let mut harness = Harness::scripted_persistent(script);
-    harness.submit(Input::text("in-1", "hi")).await.expect("submit");
+    harness
+        .submit(Input::text("in-1", "hi"))
+        .await
+        .expect("submit");
 
     // The execution opens and streams its first block, then blocks on injection.
     let started = harness.next_signal().await.expect("started");
@@ -64,11 +67,18 @@ async fn injection_accepts_into_active_execution_without_new_start() {
         started,
         Signal::ExecutionStarted { cause: Cause::Input(ref id), .. } if id.0 == "in-1"
     ));
-    assert!(matches!(harness.next_signal().await, Some(Signal::InputAccepted { ref input }) if input.0 == "in-1"));
-    assert!(matches!(harness.next_signal().await, Some(Signal::Source(ref e)) if e.source_id.0 == "s1"));
+    assert!(
+        matches!(harness.next_signal().await, Some(Signal::InputAccepted { ref input }) if input.0 == "in-1")
+    );
+    assert!(
+        matches!(harness.next_signal().await, Some(Signal::Source(ref e)) if e.source_id.0 == "s1")
+    );
 
     // Inject a second input mid-execution.
-    harness.submit(Input::text("in-2", "more")).await.expect("submit");
+    harness
+        .submit(Input::text("in-2", "more"))
+        .await
+        .expect("submit");
 
     let rest = drain_to_terminal(&mut harness).await;
     // Acceptance of the injected input, no new start, then its source and the
@@ -77,13 +87,55 @@ async fn injection_accepts_into_active_execution_without_new_start() {
     assert!(matches!(rest[1], Signal::Source(ref e) if e.source_id.0 == "s2"));
     assert!(matches!(
         rest[2],
-        Signal::ExecutionFinished { outcome: Outcome::Completed }
+        Signal::ExecutionFinished {
+            outcome: Outcome::Completed
+        }
     ));
     assert!(
-        !rest.iter().any(|s| matches!(s, Signal::ExecutionStarted { .. })),
+        !rest
+            .iter()
+            .any(|s| matches!(s, Signal::ExecutionStarted { .. })),
         "injection must not open a new execution"
     );
     assert_eq!(rest.len(), 3);
+}
+
+#[tokio::test]
+async fn terminal_before_acceptance_drops_buffered_source() {
+    // A persistent execution starts and buffers a block, then reaches its Turn
+    // boundary without the opening input ever being accepted. The terminal must
+    // not synthesize acceptance, so the buffered block is dropped: no
+    // InputAccepted and no Source appear.
+    let script = Script::new(vec![
+        Step::SessionReady(SessionId("sess-1".into())),
+        Step::Block(assistant_block("s1", "sess-1", "never-anchored")),
+        Step::ExecutionEnded,
+    ]);
+    let mut harness = Harness::scripted_persistent(script);
+    harness
+        .submit(Input::text("in-1", "hi"))
+        .await
+        .expect("submit");
+
+    let signals = drain_to_terminal(&mut harness).await;
+
+    assert!(matches!(signals[0], Signal::ExecutionStarted { .. }));
+    assert!(
+        !signals
+            .iter()
+            .any(|s| matches!(s, Signal::InputAccepted { .. })),
+        "no acceptance was emitted, so none must be synthesized: {signals:?}"
+    );
+    assert!(
+        !signals.iter().any(|s| matches!(s, Signal::Source(_))),
+        "unanchored buffered source must be dropped, not emitted: {signals:?}"
+    );
+    assert!(matches!(
+        signals.last().expect("terminal"),
+        Signal::ExecutionFinished {
+            outcome: Outcome::Completed
+        }
+    ));
 }
 
 #[tokio::test]
@@ -102,7 +154,10 @@ async fn incompatible_input_opens_replacement_execution_on_the_intended_session(
         Step::ExecutionEnded,
     ]);
     let mut harness = Harness::scripted_persistent(script);
-    harness.submit(Input::text("in-1", "hi")).await.expect("submit");
+    harness
+        .submit(Input::text("in-1", "hi"))
+        .await
+        .expect("submit");
 
     // First execution up to its streamed block, while it is still awaiting the
     // next input.
@@ -111,15 +166,25 @@ async fn incompatible_input_opens_replacement_execution_on_the_intended_session(
         started,
         Signal::ExecutionStarted { cause: Cause::Input(ref id), ref session } if id.0 == "in-1" && session.0 == "sess-1"
     ));
-    assert!(matches!(harness.next_signal().await, Some(Signal::InputAccepted { ref input }) if input.0 == "in-1"));
-    assert!(matches!(harness.next_signal().await, Some(Signal::Source(_))));
+    assert!(
+        matches!(harness.next_signal().await, Some(Signal::InputAccepted { ref input }) if input.0 == "in-1")
+    );
+    assert!(matches!(
+        harness.next_signal().await,
+        Some(Signal::Source(_))
+    ));
 
     // The incompatible input arrives; the first execution completes before the
     // replacement starts.
-    harness.submit(Input::text("in-2", "switch")).await.expect("submit");
+    harness
+        .submit(Input::text("in-2", "switch"))
+        .await
+        .expect("submit");
     assert!(matches!(
         harness.next_signal().await,
-        Some(Signal::ExecutionFinished { outcome: Outcome::Completed })
+        Some(Signal::ExecutionFinished {
+            outcome: Outcome::Completed
+        })
     ));
 
     let second = drain_to_terminal(&mut harness).await;
@@ -131,7 +196,9 @@ async fn incompatible_input_opens_replacement_execution_on_the_intended_session(
     assert!(matches!(second[2], Signal::Source(ref e) if e.session.0 == "sess-2"));
     assert!(matches!(
         second[3],
-        Signal::ExecutionFinished { outcome: Outcome::Completed }
+        Signal::ExecutionFinished {
+            outcome: Outcome::Completed
+        }
     ));
 }
 
@@ -154,10 +221,14 @@ async fn internal_execution_starts_without_input_or_acknowledgement() {
     assert!(matches!(signals[1], Signal::Source(ref e) if e.source_id.0 == "s1"));
     assert!(matches!(
         signals[2],
-        Signal::ExecutionFinished { outcome: Outcome::Completed }
+        Signal::ExecutionFinished {
+            outcome: Outcome::Completed
+        }
     ));
     assert!(
-        !signals.iter().any(|s| matches!(s, Signal::InputAccepted { .. })),
+        !signals
+            .iter()
+            .any(|s| matches!(s, Signal::InputAccepted { .. })),
         "an internal execution acknowledges no pending Message"
     );
 }
@@ -178,22 +249,39 @@ async fn cancellation_ends_execution_and_process_persists_for_the_next() {
         Step::ExecutionEnded,
     ]);
     let mut harness = Harness::scripted_persistent(script);
-    harness.submit(Input::text("in-1", "hi")).await.expect("submit");
+    harness
+        .submit(Input::text("in-1", "hi"))
+        .await
+        .expect("submit");
 
-    assert!(matches!(harness.next_signal().await, Some(Signal::ExecutionStarted { .. })));
-    assert!(matches!(harness.next_signal().await, Some(Signal::InputAccepted { .. })));
-    assert!(matches!(harness.next_signal().await, Some(Signal::Source(_))));
+    assert!(matches!(
+        harness.next_signal().await,
+        Some(Signal::ExecutionStarted { .. })
+    ));
+    assert!(matches!(
+        harness.next_signal().await,
+        Some(Signal::InputAccepted { .. })
+    ));
+    assert!(matches!(
+        harness.next_signal().await,
+        Some(Signal::Source(_))
+    ));
 
     harness.cancel();
     harness.cancel(); // idempotent
     let terminal = harness.next_signal().await.expect("terminal");
     assert!(matches!(
         terminal,
-        Signal::ExecutionFinished { outcome: Outcome::Cancelled }
+        Signal::ExecutionFinished {
+            outcome: Outcome::Cancelled
+        }
     ));
 
     // The process persisted: a later input runs a fresh execution.
-    harness.submit(Input::text("in-2", "again")).await.expect("submit");
+    harness
+        .submit(Input::text("in-2", "again"))
+        .await
+        .expect("submit");
     let second = drain_to_terminal(&mut harness).await;
     assert!(matches!(
         second[0],
@@ -201,7 +289,9 @@ async fn cancellation_ends_execution_and_process_persists_for_the_next() {
     ));
     assert!(matches!(
         second.last(),
-        Some(Signal::ExecutionFinished { outcome: Outcome::Completed })
+        Some(Signal::ExecutionFinished {
+            outcome: Outcome::Completed
+        })
     ));
 }
 
@@ -222,19 +312,35 @@ async fn queued_input_opens_the_next_execution_and_is_acked_against_it() {
         Step::ExecutionEnded,
     ]);
     let mut harness = Harness::scripted_persistent(script);
-    harness.submit(Input::text("in-1", "hi")).await.expect("submit");
+    harness
+        .submit(Input::text("in-1", "hi"))
+        .await
+        .expect("submit");
 
     // First execution up to its streamed block, then queue the second input.
-    assert!(matches!(harness.next_signal().await, Some(Signal::ExecutionStarted { .. })));
-    assert!(matches!(harness.next_signal().await, Some(Signal::InputAccepted { ref input }) if input.0 == "in-1"));
-    assert!(matches!(harness.next_signal().await, Some(Signal::Source(_))));
-    harness.submit(Input::text("in-2", "queued")).await.expect("submit");
+    assert!(matches!(
+        harness.next_signal().await,
+        Some(Signal::ExecutionStarted { .. })
+    ));
+    assert!(
+        matches!(harness.next_signal().await, Some(Signal::InputAccepted { ref input }) if input.0 == "in-1")
+    );
+    assert!(matches!(
+        harness.next_signal().await,
+        Some(Signal::Source(_))
+    ));
+    harness
+        .submit(Input::text("in-2", "queued"))
+        .await
+        .expect("submit");
 
     // First execution finishes; the queued input is not yet acknowledged.
     let first_terminal = harness.next_signal().await.expect("terminal");
     assert!(matches!(
         first_terminal,
-        Signal::ExecutionFinished { outcome: Outcome::Completed }
+        Signal::ExecutionFinished {
+            outcome: Outcome::Completed
+        }
     ));
 
     let second = drain_to_terminal(&mut harness).await;
@@ -245,7 +351,9 @@ async fn queued_input_opens_the_next_execution_and_is_acked_against_it() {
     assert!(matches!(second[1], Signal::InputAccepted { ref input } if input.0 == "in-2"));
     assert!(matches!(
         second.last(),
-        Some(Signal::ExecutionFinished { outcome: Outcome::Completed })
+        Some(Signal::ExecutionFinished {
+            outcome: Outcome::Completed
+        })
     ));
 }
 
@@ -258,11 +366,16 @@ async fn eof_mid_execution_is_a_process_exit() {
         Step::Eof,
     ]);
     let mut harness = Harness::scripted_persistent(script);
-    harness.submit(Input::text("in-1", "hi")).await.expect("submit");
+    harness
+        .submit(Input::text("in-1", "hi"))
+        .await
+        .expect("submit");
 
     let signals = drain_to_terminal(&mut harness).await;
     match signals.last().expect("terminal") {
-        Signal::ExecutionFinished { outcome: Outcome::Failed(err) } => {
+        Signal::ExecutionFinished {
+            outcome: Outcome::Failed(err),
+        } => {
             assert_eq!(err.class, ErrorClass::ProcessExit)
         }
         other => panic!("expected ExecutionFinished(Failed ProcessExit), got {other:?}"),
@@ -282,7 +395,10 @@ async fn started_execution_stream_failure_finishes_failed_once() {
         )),
     ]);
     let mut harness = Harness::scripted_persistent(script);
-    harness.submit(Input::text("in-1", "hi")).await.expect("submit");
+    harness
+        .submit(Input::text("in-1", "hi"))
+        .await
+        .expect("submit");
 
     let signals = drain_to_terminal(&mut harness).await;
     let terminals = signals
@@ -291,7 +407,9 @@ async fn started_execution_stream_failure_finishes_failed_once() {
         .count();
     assert_eq!(terminals, 1, "exactly one terminal");
     match signals.last().expect("terminal") {
-        Signal::ExecutionFinished { outcome: Outcome::Failed(err) } => {
+        Signal::ExecutionFinished {
+            outcome: Outcome::Failed(err),
+        } => {
             assert_eq!(err.class, ErrorClass::NativeProtocol)
         }
         other => panic!("expected ExecutionFinished(Failed), got {other:?}"),

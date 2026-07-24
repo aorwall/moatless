@@ -64,6 +64,22 @@ const SIGNAL_CAPACITY: usize = 64;
 #[error("agent harness is closed")]
 pub struct HarnessClosed;
 
+/// Supervise a spawned driver task so its termination is never silent: an
+/// abnormal end (a panic in the ordering state machine) is logged at `error`
+/// with a diagnostic, a clean stop at `debug`. Without this a panicked driver
+/// would collapse the harness channels — every `submit`/`next_signal` failing —
+/// with no trace of why (Sandbox rule: handle spawned-task success and failure).
+fn supervise(handle: tokio::task::JoinHandle<()>) {
+    tokio::spawn(async move {
+        match handle.await {
+            Ok(()) => tracing::debug!("agent harness driver task ended"),
+            Err(error) => {
+                tracing::error!(%error, "agent harness driver task terminated abnormally");
+            }
+        }
+    });
+}
+
 /// The deep Agent-harness module. Construction fixes the implementation for the
 /// Sandbox lifetime; the type is concrete, so there is no public harness trait.
 pub struct Harness {
@@ -90,7 +106,9 @@ impl Harness {
 
         let mut first = Some(script);
         let factory = move || scripted::ScriptedProcess::new(first.take().unwrap_or_default());
-        tokio::spawn(driver::run(factory, submit_rx, cancel_rx, signal_tx));
+        supervise(tokio::spawn(driver::run(
+            factory, submit_rx, cancel_rx, signal_tx,
+        )));
 
         Self {
             submit_tx,
@@ -112,7 +130,9 @@ impl Harness {
         let mut scripts = std::collections::VecDeque::from(scripts);
         let factory =
             move || scripted::ScriptedProcess::new(scripts.pop_front().unwrap_or_default());
-        tokio::spawn(driver::run(factory, submit_rx, cancel_rx, signal_tx));
+        supervise(tokio::spawn(driver::run(
+            factory, submit_rx, cancel_rx, signal_tx,
+        )));
 
         Self {
             submit_tx,
@@ -131,9 +151,9 @@ impl Harness {
         let (signal_tx, signal_rx) = mpsc::channel(SIGNAL_CAPACITY);
 
         let process = scripted::ScriptedProcess::new(script);
-        tokio::spawn(driver::run_persistent(
+        supervise(tokio::spawn(driver::run_persistent(
             process, submit_rx, cancel_rx, signal_tx,
-        ));
+        )));
 
         Self {
             submit_tx,
@@ -151,7 +171,9 @@ impl Harness {
         let (signal_tx, signal_rx) = mpsc::channel(SIGNAL_CAPACITY);
 
         let factory = move || claude::ClaudeProcess::new(config.clone());
-        tokio::spawn(driver::run(factory, submit_rx, cancel_rx, signal_tx));
+        supervise(tokio::spawn(driver::run(
+            factory, submit_rx, cancel_rx, signal_tx,
+        )));
 
         Self {
             submit_tx,
@@ -171,7 +193,9 @@ impl Harness {
         let (signal_tx, signal_rx) = mpsc::channel(SIGNAL_CAPACITY);
 
         let factory = move || codex::CodexProcess::new(config.clone());
-        tokio::spawn(driver::run(factory, submit_rx, cancel_rx, signal_tx));
+        supervise(tokio::spawn(driver::run(
+            factory, submit_rx, cancel_rx, signal_tx,
+        )));
 
         Self {
             submit_tx,
@@ -191,9 +215,9 @@ impl Harness {
         let (signal_tx, signal_rx) = mpsc::channel(SIGNAL_CAPACITY);
 
         let process = claude::ClaudePersistentProcess::new(config);
-        tokio::spawn(driver::run_persistent(
+        supervise(tokio::spawn(driver::run_persistent(
             process, submit_rx, cancel_rx, signal_tx,
-        ));
+        )));
 
         Self {
             submit_tx,
