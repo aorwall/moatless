@@ -1,10 +1,10 @@
-use cron::Schedule;
+use cron::Schedule as CronSchedule;
 use moatless_api_schemas::adapters::AdapterConnectionResponse;
 use moatless_api_schemas::bindings::{ReplyTargetDescriptor, TaskBindingResponse};
 use moatless_api_schemas::enums::{AdapterKind, Scope};
-use moatless_api_schemas::triggers::{
-    AdapterEventTriggerSource, ManualTriggerSource, ScheduleTriggerSource, TriggerKind,
-    TriggerResponse, TriggerRule, TriggerSource,
+use moatless_api_schemas::loops::{
+    Subscription, ManualSource, Schedule, LoopKind,
+    Loop, LoopConfig, LoopSource,
 };
 use serde::Deserialize;
 
@@ -16,7 +16,7 @@ use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, TaskBinding};
 use crate::extractors::AuthUser;
 use crate::state::AppState;
-use crate::triggers::store::{TriggerRecord, TriggerSourceRow};
+use crate::loops::store::{LoopRecord, LoopSourceRow};
 use moatless_backend_core::scope::{ScopeContext, ScopedResource};
 
 #[derive(Debug, Deserialize)]
@@ -27,8 +27,8 @@ pub struct AdapterFilter {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TriggerFilter {
-    pub kind: Option<TriggerKind>,
+pub struct LoopFilter {
+    pub kind: Option<LoopKind>,
     pub adapter_kind: Option<AdapterKind>,
 }
 
@@ -59,11 +59,11 @@ pub(crate) fn adapter_connection_response(row: &AdapterConnection) -> AdapterCon
     }
 }
 
-pub(crate) fn trigger_response(record: &TriggerRecord) -> TriggerResponse {
-    let kind = TriggerKind::try_from(record.trigger.kind.as_str()).unwrap_or(TriggerKind::Manual);
+pub(crate) fn loop_response(record: &LoopRecord) -> Loop {
+    let kind = LoopKind::try_from(record.trigger.kind.as_str()).unwrap_or(LoopKind::Manual);
     let source = match &record.source {
-        TriggerSourceRow::AdapterEvent(source) => {
-            TriggerSource::AdapterEvent(AdapterEventTriggerSource {
+        LoopSourceRow::AdapterEvent(source) => {
+            LoopSource::AdapterEvent(Subscription {
                 adapter_kind: parse_adapter_kind(&source.adapter_kind),
                 connection_id: source.connection_id.clone(),
                 source_matcher: source.source_matcher.clone(),
@@ -75,7 +75,7 @@ pub(crate) fn trigger_response(record: &TriggerRecord) -> TriggerResponse {
                 notify_on_success: source.notify_on_success,
             })
         }
-        TriggerSourceRow::Schedule(source) => TriggerSource::Schedule(ScheduleTriggerSource {
+        LoopSourceRow::Schedule(source) => LoopSource::Schedule(Schedule {
             cron_expression: source.cron_expression.clone(),
             timezone: source.timezone.clone(),
             message_template: source.message_template.clone(),
@@ -84,10 +84,10 @@ pub(crate) fn trigger_response(record: &TriggerRecord) -> TriggerResponse {
             locked_by: source.locked_by.clone(),
             locked_until: source.locked_until.map(|dt| dt.to_rfc3339()),
         }),
-        TriggerSourceRow::Manual => TriggerSource::Manual(ManualTriggerSource {}),
+        LoopSourceRow::Manual => LoopSource::Manual(ManualSource {}),
     };
 
-    TriggerResponse {
+    Loop {
         id: record.trigger.id.clone(),
         name: record.trigger.name.clone(),
         kind,
@@ -98,7 +98,7 @@ pub(crate) fn trigger_response(record: &TriggerRecord) -> TriggerResponse {
         created_by: record.trigger.created_by.clone(),
         created_at: record.trigger.created_at.to_rfc3339(),
         updated_at: record.trigger.updated_at.to_rfc3339(),
-        rule: TriggerRule {
+        rule: LoopConfig {
             repository_id: record.rule.repository_id.clone(),
             routing_mode: record.rule.routing_mode,
             ongoing_task_id: record.rule.ongoing_task_id.clone(),
@@ -143,7 +143,7 @@ pub(crate) fn binding_descriptor(binding: &TaskBinding) -> ReplyTargetDescriptor
 pub(crate) fn next_fire_at(
     schedule_expr: &str,
 ) -> Result<chrono::DateTime<chrono::Utc>, AdapterError> {
-    let schedule: Schedule = schedule_expr
+    let schedule: CronSchedule = schedule_expr
         .parse()
         .map_err(|e| AdapterError::BadRequest(format!("Invalid cron expression: {e}")))?;
     schedule
@@ -373,11 +373,11 @@ pub(crate) async fn resolve_connection(
     }
 }
 
-pub(crate) async fn load_trigger_for_auth(
+pub(crate) async fn load_loop_for_auth(
     state: &AppState,
     ctx: &ScopeContext,
     id: &str,
-) -> Result<TriggerRecord, AdapterError> {
+) -> Result<LoopRecord, AdapterError> {
     let record = state
         .loops
         .get(id)

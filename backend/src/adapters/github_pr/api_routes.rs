@@ -422,7 +422,7 @@ async fn bind_task_to_pr(
         "repo": repo,
         "pr_number": pr_number,
     });
-    match crate::triggers::listen::connect_github_binding(
+    match crate::loops::firing::listen::connect_github_binding(
         state,
         &source_id,
         task_id,

@@ -36,6 +36,5 @@ pub mod task;
 pub mod task_connections;
 pub mod task_event;
 pub mod team;
-pub mod triggers;
 pub mod user;
 pub mod workspace;

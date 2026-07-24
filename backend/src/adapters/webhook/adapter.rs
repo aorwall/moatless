@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
 use crate::adapters::error::AdapterError;
-use crate::adapters::models::{BindingContext, InboundMessage, OutboundReply, TriggerContext};
+use crate::adapters::models::{BindingContext, InboundMessage, OutboundReply, LoopContext};
 use crate::adapters::{Adapter, AdapterKind};
 use crate::db::DbPool;
 
@@ -45,7 +45,7 @@ impl WebhookAdapter {
     ///
     /// Verifies HMAC signature if `webhook_secret` is configured.
     pub fn parse_inbound(
-        config: &TriggerContext,
+        config: &LoopContext,
         body: &[u8],
         signature: Option<&str>,
     ) -> Result<InboundMessage, AdapterError> {
@@ -140,7 +140,7 @@ impl Adapter for WebhookAdapter {
     async fn send_reply(
         &self,
         thread: &BindingContext,
-        config: &TriggerContext,
+        config: &LoopContext,
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
         let callback_url = config
@@ -203,8 +203,8 @@ mod tests {
     use super::*;
     use crate::adapters::models::RoutingMode;
 
-    fn test_config(provider_config: Option<serde_json::Value>) -> TriggerContext {
-        TriggerContext {
+    fn test_config(provider_config: Option<serde_json::Value>) -> LoopContext {
+        LoopContext {
             id: "cfg-1".into(),
             provider: "webhook".into(),
             source_id: "my-webhook".into(),

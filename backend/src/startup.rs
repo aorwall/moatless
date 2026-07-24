@@ -65,7 +65,7 @@ pub fn spawn_metrics_server(port: u16) {
     let handle = metrics::init_metrics();
     crate::events::describe_event_metrics();
     crate::adapters::metrics::describe_adapter_metrics();
-    crate::triggers::metrics::describe_trigger_metrics();
+    crate::loops::firing::metrics::describe_trigger_metrics();
     crate::bindings::metrics::describe_binding_metrics();
     crate::event_handler::metrics::describe_agent_metrics();
     crate::sandbox::metrics::describe_sandbox_metrics();
@@ -440,6 +440,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     use crate::feature_flags::{FeatureFlagsResponse, SlackConfig};
     use crate::feedback::routes::FeedbackApiDoc;
     use crate::file_storage::routes::FileStorageApiDoc;
+    use crate::loops::http::LoopsApiDoc;
     use crate::message::routes::MessageApiDoc;
     use crate::provider_settings::routes::ProviderSettingsApiDoc;
     use crate::repository::routes::RepositoryApiDoc;
@@ -514,6 +515,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     merged.merge(TagApiDoc::openapi());
     merged.merge(ProviderSettingsApiDoc::openapi());
     merged.merge(AdapterApiDoc::openapi());
+    merged.merge(LoopsApiDoc::openapi());
     merged.merge(TeamApiDoc::openapi());
     merged.merge(EventsApiDoc::openapi());
     merged.merge(TaskEventApiDoc::openapi());

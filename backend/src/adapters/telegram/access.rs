@@ -3,7 +3,7 @@
 use tracing::{debug, info};
 
 use crate::adapters::error::AdapterError;
-use crate::adapters::models::{AccessDecision, SourceAccessPolicy, TriggerContext};
+use crate::adapters::models::{AccessDecision, SourceAccessPolicy, LoopContext};
 use crate::db::DbPool;
 
 use super::api::TelegramApi;
@@ -17,7 +17,7 @@ pub struct DmAccessContext<'a> {
     pub from_username: Option<&'a str>,
     pub from_first_name: Option<&'a str>,
     pub from_last_name: Option<&'a str>,
-    pub config: &'a TriggerContext,
+    pub config: &'a LoopContext,
     pub api: &'a TelegramApi,
     pub chat_id: i64,
     pub db: &'a DbPool,

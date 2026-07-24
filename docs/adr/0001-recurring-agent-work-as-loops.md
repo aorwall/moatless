@@ -24,3 +24,18 @@ The schema carries rename debt: `Trigger`/`TriggerResponse` → Loop;
 `adapter_event_trigger_sources`, and `schedule_trigger_sources` keep their legacy
 names until migrated. `TriggerKind::Manual` disappears — manual creation is not a
 Loop.
+
+### Status: consequences landed (code + API; tables still legacy)
+
+Ticket 03 paid the code/API portion of this debt. The backend Trigger domain was
+merged into one `loops/` module (`store` / `firing` / `sync` / `http`), all
+`Trigger`-named types were renamed (`TriggerResponse` → `Loop`, `TaskTriggerRoute`
+→ `SubscriptionMatch`, `TriggerContext` → `LoopContext`, `ScheduledJob` →
+`Schedule`, `TaskRoute` → `LoopSpawnConfig`, the store rows → `LoopRow` /
+`LoopConfigRow` / `SubscriptionRow` / `ScheduleRow`), and the API schemas moved to
+`crates/api-schemas/src/loops.rs`. The documented HTTP surface is now
+`/api/v1/loops`, with `/api/v1/triggers` kept as an undocumented deprecated alias
+against the same handlers. `manual` is retained as a `LoopKind` value for now.
+Still outstanding: the DB tables (`triggers`, `trigger_rules`,
+`*_trigger_sources`) keep their legacy names behind the store, and the frontend
+UI vocabulary / routes are renamed separately (ticket 04).

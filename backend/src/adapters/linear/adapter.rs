@@ -11,7 +11,7 @@ use tracing::warn;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
     AdapterConnection, BindingContext, InboundMessage, OutboundReply, TaskBinding,
-    TaskTriggerRoute, TriggerContext,
+    SubscriptionMatch, LoopContext,
 };
 use crate::adapters::{Adapter, AdapterKind};
 use crate::db::DbPool;
@@ -167,7 +167,7 @@ impl Adapter for LinearAdapter {
     async fn send_reply(
         &self,
         _thread: &BindingContext,
-        _config: &TriggerContext,
+        _config: &LoopContext,
         _message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
         Err(AdapterError::BadRequest(
@@ -246,7 +246,7 @@ impl Adapter for LinearAdapter {
         &self,
         binding: &TaskBinding,
         connection: &AdapterConnection,
-        _rule: Option<&TaskTriggerRoute>,
+        _rule: Option<&SubscriptionMatch>,
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
         let api = self.agent_api_for_org(&connection.scope_value);

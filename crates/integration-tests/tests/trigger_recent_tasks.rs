@@ -9,9 +9,9 @@ use integration_tests::{
     create_webhook_integration, ensure_template_repo, exec_psql, raw_api, test_client,
 };
 use moatless_api_schemas::enums::RoutingMode;
-use moatless_api_schemas::triggers::{
-    CreateScheduleTriggerSource, CreateTriggerRequest, CreateTriggerRule, CreateTriggerSource,
-    TriggerKind,
+use moatless_api_schemas::loops::{
+    CreateSchedule, CreateLoopRequest, CreateLoopConfig, CreateLoopSource,
+    LoopKind,
 };
 use pretty_assertions::assert_eq;
 
@@ -66,13 +66,13 @@ async fn schedule_trigger_recent_tasks_returns_binding_none() {
     // for it; we stamp the task row directly below.
     let trigger = client
         .api()
-        .create_trigger(&CreateTriggerRequest {
+        .create_trigger(&CreateLoopRequest {
             name: Some(format!("recent-tasks-schedule-{suffix}")),
-            kind: TriggerKind::Schedule,
+            kind: LoopKind::Schedule,
             active: Some(true),
             scope: None,
             team_id: None,
-            rule: CreateTriggerRule {
+            rule: CreateLoopConfig {
                 repository_id: repo_id.clone(),
                 routing_mode: RoutingMode::BySubject,
                 ongoing_task_id: None,
@@ -83,7 +83,7 @@ async fn schedule_trigger_recent_tasks_returns_binding_none() {
                 agent_type: None,
                 inactive_ttl_days: None,
             },
-            source: CreateTriggerSource::Schedule(CreateScheduleTriggerSource {
+            source: CreateLoopSource::Schedule(CreateSchedule {
                 cron_expression: "0 0 * * * * *".into(),
                 timezone: Some("UTC".into()),
                 message_template: format!("scheduled-tick-{suffix}"),

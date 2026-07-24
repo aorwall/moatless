@@ -20,7 +20,7 @@ pub const CONNECTED_THREAD_BINDING_ORIGIN: &str = "connected_thread";
 /// This is synthesized from canonical routes, triggers, bindings, or scheduled
 /// jobs before invoking provider-specific delivery/parsing code.
 #[derive(Debug, Clone)]
-pub struct TriggerContext {
+pub struct LoopContext {
     pub id: String,
     pub provider: String,
     pub source_id: String,
@@ -47,7 +47,7 @@ pub struct TriggerContext {
     pub updated_at: DateTime<Utc>,
 }
 
-impl TriggerContext {
+impl LoopContext {
     /// The user ID to attribute tasks to when the actual sender cannot be resolved.
     /// Falls back to `created_by` when `run_as_user_id` is not set.
     pub fn effective_user_id(&self) -> &str {
@@ -107,7 +107,7 @@ pub struct AdapterConnection {
 
 /// Row from the `trigger_rules` table.
 #[derive(sqlx::FromRow, Debug, Clone)]
-pub struct TaskRoute {
+pub struct LoopSpawnConfig {
     pub id: String,
     pub repository_id: String,
     pub routing_mode: RoutingMode,
@@ -126,7 +126,7 @@ pub struct TaskRoute {
     pub updated_at: DateTime<Utc>,
 }
 
-impl TaskRoute {
+impl LoopSpawnConfig {
     /// The user ID to attribute tasks to when the actual sender cannot be resolved.
     /// Falls back to `created_by` when `run_as_user_id` is not set.
     pub fn effective_user_id(&self) -> &str {
@@ -136,7 +136,7 @@ impl TaskRoute {
 
 /// Canonical adapter-event trigger view backed by triggers, sources, and rules.
 #[derive(sqlx::FromRow, Debug, Clone)]
-pub struct TaskTriggerRoute {
+pub struct SubscriptionMatch {
     pub id: String,
     pub provider: String,
     pub connection_id: String,
@@ -165,7 +165,7 @@ pub struct TaskTriggerRoute {
     pub updated_at: DateTime<Utc>,
 }
 
-impl TaskTriggerRoute {
+impl SubscriptionMatch {
     /// The user ID to attribute tasks to when the actual sender cannot be resolved.
     /// Falls back to `created_by` when `run_as_user_id` is not set.
     pub fn effective_user_id(&self) -> &str {
@@ -238,7 +238,7 @@ pub struct TaskBinding {
 
 /// Row from the `schedule_trigger_sources` table.
 #[derive(sqlx::FromRow, Debug, Clone)]
-pub struct ScheduledJob {
+pub struct Schedule {
     pub id: String,
     pub route_id: String,
     pub schedule_expr: String,

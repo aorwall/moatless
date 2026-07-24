@@ -37,7 +37,7 @@ use crate::tag::dao::{PgTagRepository, TagRepository};
 use crate::sandbox::preflight::{PreflightCredentials, RealGithubValidator};
 use crate::task::creation::{RealPreflight, TaskCreationService};
 use crate::task::dao::{PgTaskRepository, TaskRepository};
-use crate::triggers::store::LoopStore;
+use crate::loops::store::LoopStore;
 use crate::task::reaper::AgentStatusPort;
 use crate::task::relations::{PgTaskRelationRepository, TaskRelationRepository};
 use crate::task_event::dao::{PgTaskEventRepository, TaskEventRepository};

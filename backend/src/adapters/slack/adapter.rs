@@ -10,7 +10,7 @@ use tracing::{debug, info, warn};
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AccessDecision, MessageTrigger};
 use crate::adapters::models::{
-    AdapterConnection, BindingContext, TaskBinding, TaskTriggerRoute, TriggerContext,
+    AdapterConnection, BindingContext, TaskBinding, SubscriptionMatch, LoopContext,
 };
 use crate::adapters::models::{InboundMessage, NewThreadInfo, OutboundReply};
 use crate::adapters::{Adapter, AdapterKind, BindingDestination, DestinationPostResult};
@@ -296,7 +296,7 @@ impl SlackAdapter {
         &self,
         headers: &HeaderMap,
         body: &[u8],
-        config: &TriggerContext,
+        config: &LoopContext,
         db: &DbPool,
         is_tracked_thread: bool,
     ) -> Result<SlackWebhookResult, AdapterError> {
@@ -816,7 +816,7 @@ impl Adapter for SlackAdapter {
 
     fn binding_destination_from_new_thread(
         &self,
-        rule: &TaskTriggerRoute,
+        rule: &SubscriptionMatch,
         new_thread_info: &NewThreadInfo,
     ) -> Result<BindingDestination, AdapterError> {
         let destination = self.binding_destination_from_existing_thread(
@@ -894,7 +894,7 @@ impl Adapter for SlackAdapter {
     async fn send_reply(
         &self,
         thread: &BindingContext,
-        _config: &TriggerContext,
+        _config: &LoopContext,
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
         let channel = thread
@@ -941,12 +941,12 @@ impl Adapter for SlackAdapter {
         &self,
         binding: &TaskBinding,
         _connection: &AdapterConnection,
-        rule: Option<&TaskTriggerRoute>,
+        rule: Option<&SubscriptionMatch>,
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
         let thread = crate::bindings::runtime::binding_context(binding);
         let config = rule.map_or_else(
-            || TriggerContext {
+            || LoopContext {
                 id: binding.trigger_id.clone().unwrap_or_default(),
                 provider: "slack".to_string(),
                 source_id: binding
@@ -1033,7 +1033,7 @@ impl Adapter for SlackAdapter {
 
     async fn send_message(
         &self,
-        config: &TriggerContext,
+        config: &LoopContext,
         message: &OutboundReply,
     ) -> Result<NewThreadInfo, AdapterError> {
         let channel = &config.source_id;
@@ -1101,7 +1101,7 @@ impl Adapter for SlackAdapter {
     async fn fetch_context(
         &self,
         thread: &BindingContext,
-        config: &TriggerContext,
+        config: &LoopContext,
         limit: usize,
         exclude_external_ids: &[String],
     ) -> Result<Option<String>, AdapterError> {
@@ -1179,7 +1179,7 @@ impl Adapter for SlackAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapters::models::{RoutingMode, TaskTriggerRoute};
+    use crate::adapters::models::{RoutingMode, SubscriptionMatch};
     use crate::adapters::Adapter;
     use moatless_backend_core::scope::Scope;
 
@@ -1318,9 +1318,9 @@ mod tests {
         );
     }
 
-    fn test_rule(provider: &str, source_matcher: &str) -> TaskTriggerRoute {
+    fn test_rule(provider: &str, source_matcher: &str) -> SubscriptionMatch {
         let now = chrono::Utc::now();
-        TaskTriggerRoute {
+        SubscriptionMatch {
             id: "tt_test".into(),
             provider: provider.into(),
             connection_id: "pc_test".into(),

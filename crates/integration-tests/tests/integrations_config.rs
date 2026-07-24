@@ -3,10 +3,10 @@
 use chrono::Utc;
 use integration_tests::{create_webhook_integration, ensure_template_repo, test_client};
 use moatless_api_schemas::enums::RoutingMode;
-use moatless_api_schemas::triggers::{
-    CreateScheduleTriggerSource, CreateTriggerRequest, CreateTriggerRule, CreateTriggerSource,
-    TriggerKind, TriggerSource, UpdateScheduleTriggerSource, UpdateTriggerRequest,
-    UpdateTriggerRule, UpdateTriggerSource,
+use moatless_api_schemas::loops::{
+    CreateSchedule, CreateLoopRequest, CreateLoopConfig, CreateLoopSource,
+    LoopKind, LoopSource, UpdateSchedule, UpdateLoopRequest,
+    UpdateLoopConfig, UpdateLoopSource,
 };
 use pretty_assertions::assert_eq;
 
@@ -34,7 +34,7 @@ async fn task_route_trigger_crud_chain() {
     assert_eq!(fixture.trigger.rule.repository_id, repo_id);
     assert_eq!(fixture.trigger.rule.routing_mode, RoutingMode::BySubject);
     assert!(fixture.trigger.active);
-    let TriggerSource::AdapterEvent(source_config) = &fixture.trigger.source else {
+    let LoopSource::AdapterEvent(source_config) = &fixture.trigger.source else {
         panic!("expected adapter-event trigger source");
     };
     assert_eq!(source_config.source_matcher, source);
@@ -52,8 +52,8 @@ async fn task_route_trigger_crud_chain() {
         .api()
         .update_trigger(
             &fixture.trigger.id,
-            &UpdateTriggerRequest {
-                rule: Some(UpdateTriggerRule {
+            &UpdateLoopRequest {
+                rule: Some(UpdateLoopConfig {
                     prompt: Some(Some("Please help: {message}".into())),
                     task_name: Some(Some("Updated webhook task".into())),
                     ..Default::default()
@@ -76,7 +76,7 @@ async fn task_route_trigger_crud_chain() {
         .api()
         .update_trigger(
             &fixture.trigger.id,
-            &UpdateTriggerRequest {
+            &UpdateLoopRequest {
                 active: Some(false),
                 ..Default::default()
             },
@@ -104,13 +104,13 @@ async fn schedule_trigger_crud_and_next_fire_chain() {
 
     let created = client
         .api()
-        .create_trigger(&CreateTriggerRequest {
+        .create_trigger(&CreateLoopRequest {
             name: Some(format!("scheduled-crud-{suffix}")),
-            kind: TriggerKind::Schedule,
+            kind: LoopKind::Schedule,
             active: Some(true),
             scope: None,
             team_id: None,
-            rule: CreateTriggerRule {
+            rule: CreateLoopConfig {
                 repository_id: repo_id.clone(),
                 routing_mode: RoutingMode::BySubject,
                 ongoing_task_id: None,
@@ -121,7 +121,7 @@ async fn schedule_trigger_crud_and_next_fire_chain() {
                 agent_type: Some("codex".into()),
                 inactive_ttl_days: None,
             },
-            source: CreateTriggerSource::Schedule(CreateScheduleTriggerSource {
+            source: CreateLoopSource::Schedule(CreateSchedule {
                 cron_expression: "0/5 * * * * * *".into(),
                 timezone: Some("UTC".into()),
                 message_template: "Scheduled smoke message".into(),
@@ -130,7 +130,7 @@ async fn schedule_trigger_crud_and_next_fire_chain() {
         .await
         .unwrap();
 
-    assert_eq!(created.kind, TriggerKind::Schedule);
+    assert_eq!(created.kind, LoopKind::Schedule);
     assert_eq!(created.rule.repository_id, repo_id);
     assert_eq!(created.rule.routing_mode, RoutingMode::BySubject);
     assert_eq!(
@@ -142,7 +142,7 @@ async fn schedule_trigger_crud_and_next_fire_chain() {
         Some("Scheduled prompt: {message}")
     );
 
-    let TriggerSource::Schedule(created_source) = &created.source else {
+    let LoopSource::Schedule(created_source) = &created.source else {
         panic!("expected schedule trigger source");
     };
     assert_eq!(created_source.cron_expression, "0/5 * * * * * *");
@@ -167,8 +167,8 @@ async fn schedule_trigger_crud_and_next_fire_chain() {
         .api()
         .update_trigger(
             &created.id,
-            &UpdateTriggerRequest {
-                source: Some(UpdateTriggerSource::Schedule(UpdateScheduleTriggerSource {
+            &UpdateLoopRequest {
+                source: Some(UpdateLoopSource::Schedule(UpdateSchedule {
                     cron_expression: Some("0/10 * * * * * *".into()),
                     timezone: Some("Europe/Stockholm".into()),
                     message_template: Some("Updated scheduled smoke message".into()),
@@ -179,7 +179,7 @@ async fn schedule_trigger_crud_and_next_fire_chain() {
         .await
         .unwrap();
 
-    let TriggerSource::Schedule(updated_source) = &updated.source else {
+    let LoopSource::Schedule(updated_source) = &updated.source else {
         panic!("expected schedule trigger source");
     };
     assert_eq!(updated_source.cron_expression, "0/10 * * * * * *");

@@ -47,7 +47,6 @@ pub mod task;
 pub mod task_event;
 pub mod task_turn;
 pub mod team;
-pub mod triggers;
 pub mod workspace;
 
 #[cfg(test)]

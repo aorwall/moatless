@@ -13,7 +13,6 @@ use crate::adapters::models::{OutboundFile, OutboundReply};
 use crate::adapters::Adapters;
 use crate::bindings::dao::PgTaskBindingRepository;
 use crate::bindings::metrics::record_outbound;
-use crate::triggers::rule_dao::PgTaskTriggerRouteRepository;
 
 /// Send a message directly through a task trigger.
 ///
@@ -28,8 +27,8 @@ pub async fn direct_send_to_rule(
     text: &str,
     file_ids: &[String],
 ) -> Result<Option<String>, AdapterError> {
-    let rule = PgTaskTriggerRouteRepository(state.db.clone())
-        .find_by_id(rule_id)
+    let rule = state.loops
+        .find_subscription_by_id(rule_id)
         .await?
         .ok_or_else(|| AdapterError::ConfigNotFound(rule_id.to_string()))?;
 
@@ -252,8 +251,8 @@ pub async fn send_to_binding(
         })?;
 
     let rule = if let Some(ref rule_id) = binding.trigger_id {
-        PgTaskTriggerRouteRepository(state.db.clone())
-            .find_by_id(rule_id)
+        state.loops
+            .find_subscription_by_id(rule_id)
             .await?
     } else {
         None

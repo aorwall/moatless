@@ -7,26 +7,25 @@ use tracing::{debug, info, warn};
 use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
-    AdapterConnection, BindingContext, InboundMessage, RoutingMode, TaskBinding, TaskTriggerRoute,
-    TriggerContext,
+    AdapterConnection, BindingContext, InboundMessage, RoutingMode, TaskBinding, SubscriptionMatch,
+    LoopContext,
 };
 use crate::bindings::dao::PgTaskBindingRepository;
 use crate::bindings::metrics::record_inbound;
 use crate::state::AppState;
 use crate::task::creation::TaskCreationError;
 use crate::task::models::TaskStatus;
-use crate::triggers::inbound;
-use crate::triggers::rule_dao::PgTaskTriggerRouteRepository;
+use crate::loops::firing::inbound;
 
 pub use crate::adapters::models::{
     ADAPTER_EVENT_BINDING_ORIGIN as ORIGIN_ADAPTER_EVENT,
     CONNECTED_THREAD_BINDING_ORIGIN as ORIGIN_CONNECTED_THREAD,
 };
 
-/// Build a synthetic `TriggerContext` from a trigger+route view for provider
+/// Build a synthetic `LoopContext` from a trigger+route view for provider
 /// trait methods that still accept a config-shaped value.
-pub fn trigger_context(rule: &TaskTriggerRoute, provider_label: &str) -> TriggerContext {
-    TriggerContext {
+pub fn trigger_context(rule: &SubscriptionMatch, provider_label: &str) -> LoopContext {
+    LoopContext {
         id: rule.id.clone(),
         provider: provider_label.to_string(),
         source_id: rule.source_matcher.clone(),
@@ -82,7 +81,7 @@ pub async fn resolve_chat_provider_event(
     provider: &str,
     scope_value: &str,
     source_id: &str,
-) -> Result<Option<(AdapterConnection, TaskTriggerRoute)>, AdapterError> {
+) -> Result<Option<(AdapterConnection, SubscriptionMatch)>, AdapterError> {
     let connection_repo = PgAdapterConnectionRepository(state.db.clone());
     // Look up exactly the requested scope_value. We deliberately do not fall
     // back to the "default" connection when scope_value is unknown — that would
@@ -100,11 +99,11 @@ pub async fn resolve_chat_provider_event(
         return Ok(None);
     };
 
-    let rule_repo = PgTaskTriggerRouteRepository(state.db.clone());
+    let rule_repo = state.loops.clone();
     let rule = rule_repo
-        .find_by_source_matcher(provider, source_id)
+        .find_subscription_by_source_matcher(provider, source_id)
         .await?
-        .or(rule_repo.find_wildcard(provider).await?);
+        .or(rule_repo.find_subscription_wildcard(provider).await?);
     let Some(rule) = rule else {
         record_inbound(provider, "ignored", "no_rule_match", "", &connection.id);
         return Ok(None);
@@ -135,7 +134,7 @@ pub async fn resolve_chat_provider_event(
 pub async fn route_inbound_message(
     state: &AppState,
     connection: &AdapterConnection,
-    rule: &TaskTriggerRoute,
+    rule: &SubscriptionMatch,
     msg: InboundMessage,
     provider_label: &str,
     subject_kind: &str,
@@ -284,7 +283,7 @@ pub async fn route_inbound_message(
     }
 
     let mut delivered_task_id = None;
-    let receipts = crate::triggers::receipts::PgEventReceiptRepository(state.db.clone());
+    let receipts = crate::loops::firing::receipts::PgEventReceiptRepository(state.db.clone());
     for binding in bindings {
         if should_filter_self_echo(&binding, &msg.user_id)
             || origin_task_id.as_deref() == Some(binding.task_id.as_str())
@@ -388,7 +387,7 @@ pub fn external_id_aliases(
 
 async fn should_create_binding_task(
     state: &AppState,
-    rule: &TaskTriggerRoute,
+    rule: &SubscriptionMatch,
     bindings: &[TaskBinding],
 ) -> Result<bool, AdapterError> {
     if rule.routing_mode != RoutingMode::Ongoing {
@@ -401,7 +400,7 @@ async fn should_create_binding_task(
     Ok(open_ongoing_task_id(state, rule).await.is_none())
 }
 
-async fn open_ongoing_task_id(state: &AppState, rule: &TaskTriggerRoute) -> Option<String> {
+async fn open_ongoing_task_id(state: &AppState, rule: &SubscriptionMatch) -> Option<String> {
     let task_id = rule.ongoing_task_id.as_deref()?;
     match state.tasks.find_by_id_internal(task_id).await {
         Ok(Some(task)) if task.status == TaskStatus::Open => Some(task.task_id),
@@ -413,7 +412,7 @@ async fn open_ongoing_task_id(state: &AppState, rule: &TaskTriggerRoute) -> Opti
 pub async fn upsert_binding(
     state: &AppState,
     connection: &AdapterConnection,
-    rule: Option<&TaskTriggerRoute>,
+    rule: Option<&SubscriptionMatch>,
     task_id: &str,
     provider: &str,
     subject_kind: &str,
@@ -457,7 +456,7 @@ pub async fn upsert_binding(
 
 async fn deliver_to_binding(
     state: &AppState,
-    rule: &TaskTriggerRoute,
+    rule: &SubscriptionMatch,
     binding: &TaskBinding,
     msg: &InboundMessage,
     provider_label: &str,
@@ -578,8 +577,8 @@ mod tests {
         let shared_files = [
             ("runtime.rs", include_str!("runtime.rs")),
             (
-                "../triggers/listen.rs",
-                include_str!("../triggers/listen.rs"),
+                "../loops/firing/listen.rs",
+                include_str!("../loops/firing/listen.rs"),
             ),
             ("outbound.rs", include_str!("outbound.rs")),
             ("../adapters/mod.rs", include_str!("../adapters/mod.rs")),

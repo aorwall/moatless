@@ -134,10 +134,14 @@ directly and are not part of a Loop.
 _Avoid_: trigger (as a noun / umbrella) — a Loop is *triggered*, but the thing is
 a Loop
 
-The rule that persists a Loop's config (`TaskRoute` / `trigger_rules`) *is* the
-Loop — its fields are Loop fields, so there is no separate "Routing" term beyond
-`Routing mode`. Rename debt: that rule targets a `repository_id`, but a Loop
-should target a Workspace.
+The config that persists a Loop *is* the Loop — its fields are Loop fields, so
+there is no separate "Routing" term beyond `Routing mode`. As of ticket 03 this
+is reflected in code: the whole domain lives in one `loops/` module, the config
+is `LoopConfig` (API) / `LoopSpawnConfig` (runtime), and there are no
+`Trigger`/`TaskRoute`/"rule" nouns left in `backend/src` or `crates/api-schemas`.
+Rename debt still open: the config targets a `repository_id` but a Loop should
+target a Workspace, and the DB tables keep their legacy names (`triggers`,
+`trigger_rules`, `*_trigger_sources`) behind the store.
 
 **Schedule**:
 A Loop's time-based firing condition (cron expression + timezone).

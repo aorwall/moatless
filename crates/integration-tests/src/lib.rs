@@ -12,9 +12,9 @@ use moatless_api_schemas::adapters::{AdapterConnectionResponse, CreateAdapterCon
 use moatless_api_schemas::enums::RepositoryKind;
 use moatless_api_schemas::enums::{AdapterKind, RoutingMode};
 use moatless_api_schemas::repository::CreateRepositoryRequest;
-use moatless_api_schemas::triggers::{
-    CreateAdapterEventTriggerSource, CreateTriggerRequest, CreateTriggerRule, CreateTriggerSource,
-    TriggerKind, TriggerResponse,
+use moatless_api_schemas::loops::{
+    CreateSubscription, CreateLoopRequest, CreateLoopConfig, CreateLoopSource,
+    LoopKind, Loop,
 };
 use moatless_cli::client::MoatClient;
 
@@ -347,7 +347,7 @@ pub async fn ensure_template_repo(client: &MoatClient) -> String {
 /// unified adapter-event trigger with an embedded rule.
 pub struct WebhookIntegrationFixture {
     pub connection: AdapterConnectionResponse,
-    pub trigger: TriggerResponse,
+    pub trigger: Loop,
 }
 
 pub async fn create_webhook_integration(
@@ -374,13 +374,13 @@ pub async fn create_webhook_integration(
 
     let trigger = client
         .api()
-        .create_trigger(&CreateTriggerRequest {
+        .create_trigger(&CreateLoopRequest {
             name: Some(source_matcher.into()),
-            kind: TriggerKind::AdapterEvent,
+            kind: LoopKind::AdapterEvent,
             active: Some(true),
             scope: None,
             team_id: None,
-            rule: CreateTriggerRule {
+            rule: CreateLoopConfig {
                 repository_id: repository_id.into(),
                 routing_mode,
                 ongoing_task_id: None,
@@ -391,7 +391,7 @@ pub async fn create_webhook_integration(
                 agent_type: None,
                 inactive_ttl_days: None,
             },
-            source: CreateTriggerSource::AdapterEvent(CreateAdapterEventTriggerSource {
+            source: CreateLoopSource::AdapterEvent(CreateSubscription {
                 adapter_kind: AdapterKind::Webhook,
                 connection_id: connection.id.clone(),
                 source_matcher: source_matcher.into(),

@@ -30,9 +30,9 @@ use moatless_api_schemas::github::{
     GithubCommentRequest, GithubCreatePrRequest, GithubReplyRequest,
 };
 use moatless_api_schemas::task::CreateTaskRequest;
-use moatless_api_schemas::triggers::{
-    CreateAdapterEventTriggerSource, CreateTriggerRequest, CreateTriggerRule, CreateTriggerSource,
-    TriggerKind,
+use moatless_api_schemas::loops::{
+    CreateSubscription, CreateLoopRequest, CreateLoopConfig, CreateLoopSource,
+    LoopKind,
 };
 use moatless_cli::client::MoatClient;
 use pretty_assertions::assert_eq;
@@ -223,13 +223,13 @@ async fn pr_create_and_comment_bind_task_via_mock_github() {
         .unwrap();
     let trigger = client
         .api()
-        .create_trigger(&CreateTriggerRequest {
+        .create_trigger(&CreateLoopRequest {
             name: Some(format!("github-proxy-{suffix}")),
-            kind: TriggerKind::AdapterEvent,
+            kind: LoopKind::AdapterEvent,
             active: Some(true),
             scope: None,
             team_id: None,
-            rule: CreateTriggerRule {
+            rule: CreateLoopConfig {
                 repository_id: repo_id.clone(),
                 routing_mode: RoutingMode::BySubject,
                 ongoing_task_id: None,
@@ -240,7 +240,7 @@ async fn pr_create_and_comment_bind_task_via_mock_github() {
                 agent_type: None,
                 inactive_ttl_days: None,
             },
-            source: CreateTriggerSource::AdapterEvent(CreateAdapterEventTriggerSource {
+            source: CreateLoopSource::AdapterEvent(CreateSubscription {
                 adapter_kind: AdapterKind::Github,
                 connection_id: connection.id.clone(),
                 source_matcher: format!("{owner}/{gh_repo}"),

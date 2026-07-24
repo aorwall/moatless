@@ -1,6 +1,6 @@
 //! Typed view of GitHub PR task trigger fields used by the webhook parser.
 
-use crate::adapters::models::TaskTriggerRoute;
+use crate::adapters::models::SubscriptionMatch;
 
 /// Senders ignored by default when `provider_config.ignored_senders` is not
 /// set. `linear-code[bot]` is Linear's GitHub App: their servers post
@@ -8,7 +8,7 @@ use crate::adapters::models::TaskTriggerRoute;
 /// Linear issue — pure noise that no bound task ever wants delivered.
 const DEFAULT_IGNORED_SENDERS: &[&str] = &["linear-code[bot]"];
 
-/// Extracted GitHub-specific knobs from an `TaskTriggerRoute`.
+/// Extracted GitHub-specific knobs from an `SubscriptionMatch`.
 #[derive(Debug, Clone)]
 pub struct GithubPrRuleConfig {
     /// Filter which events to process. Empty means all supported events.
@@ -39,9 +39,9 @@ pub struct GithubPrRuleConfig {
 }
 
 impl GithubPrRuleConfig {
-    /// Parse from an `TaskTriggerRoute`'s `event_filter` and `provider_config`
+    /// Parse from an `SubscriptionMatch`'s `event_filter` and `provider_config`
     /// JSONB columns plus scalar boolean columns.
-    pub fn from_rule(rule: &TaskTriggerRoute) -> Self {
+    pub fn from_rule(rule: &SubscriptionMatch) -> Self {
         let events_filter = rule
             .event_filter
             .as_array()
@@ -82,8 +82,8 @@ impl GithubPrRuleConfig {
 /// array replaces the default verbatim (`[]` opts out).
 ///
 /// Shared by webhook ingress (`GithubPrRuleConfig::from_rule`) and the
-/// `fetch_context` comment backfill, which has a `TriggerContext` rather than
-/// a full `TaskTriggerRoute`.
+/// `fetch_context` comment backfill, which has a `LoopContext` rather than
+/// a full `SubscriptionMatch`.
 pub(crate) fn ignored_senders(provider_config: Option<&serde_json::Value>) -> Vec<String> {
     provider_config
         .and_then(|pc| pc.get("ignored_senders"))
@@ -130,7 +130,7 @@ mod tests {
         events_filter: serde_json::Value,
         close_task_on_close: bool,
         notify_on_success: bool,
-    ) -> TaskTriggerRoute {
+    ) -> SubscriptionMatch {
         rule_with_provider_config(events_filter, close_task_on_close, notify_on_success, None)
     }
 
@@ -139,8 +139,8 @@ mod tests {
         close_task_on_close: bool,
         notify_on_success: bool,
         provider_config: Option<serde_json::Value>,
-    ) -> TaskTriggerRoute {
-        TaskTriggerRoute {
+    ) -> SubscriptionMatch {
+        SubscriptionMatch {
             id: "ir_test".into(),
             provider: "github".into(),
             connection_id: "pc_test".into(),

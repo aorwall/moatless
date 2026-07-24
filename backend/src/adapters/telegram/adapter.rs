@@ -7,7 +7,7 @@ use tracing::{debug, info, warn};
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
     AccessDecision, AdapterConnection, BindingContext, InboundMessage, NewThreadInfo,
-    OutboundReply, TaskBinding, TaskTriggerRoute, TriggerContext,
+    OutboundReply, TaskBinding, SubscriptionMatch, LoopContext,
 };
 use crate::adapters::{Adapter, AdapterKind, BindingDestination};
 use crate::db::DbPool;
@@ -54,7 +54,7 @@ impl TelegramAdapter {
     pub async fn parse_update(
         &self,
         body: &[u8],
-        config: &TriggerContext,
+        config: &LoopContext,
         is_private_chat: bool,
         db: &DbPool,
     ) -> Result<TelegramWebhookResult, AdapterError> {
@@ -329,7 +329,7 @@ impl Adapter for TelegramAdapter {
 
     fn binding_destination_from_new_thread(
         &self,
-        rule: &TaskTriggerRoute,
+        rule: &SubscriptionMatch,
         new_thread_info: &NewThreadInfo,
     ) -> Result<BindingDestination, AdapterError> {
         let destination = self.binding_destination_from_existing_thread(
@@ -371,7 +371,7 @@ impl Adapter for TelegramAdapter {
     async fn send_reply(
         &self,
         thread: &BindingContext,
-        _config: &TriggerContext,
+        _config: &LoopContext,
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
         let chat_id = thread
@@ -406,12 +406,12 @@ impl Adapter for TelegramAdapter {
         &self,
         binding: &TaskBinding,
         _connection: &AdapterConnection,
-        rule: Option<&TaskTriggerRoute>,
+        rule: Option<&SubscriptionMatch>,
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
         let thread = crate::bindings::runtime::binding_context(binding);
         let config = rule.map_or_else(
-            || TriggerContext {
+            || LoopContext {
                 id: binding.trigger_id.clone().unwrap_or_default(),
                 provider: "telegram".to_string(),
                 source_id: binding
@@ -446,7 +446,7 @@ impl Adapter for TelegramAdapter {
 
     async fn send_message(
         &self,
-        config: &TriggerContext,
+        config: &LoopContext,
         message: &OutboundReply,
     ) -> Result<NewThreadInfo, AdapterError> {
         let chat_id = &config.source_id;
@@ -475,7 +475,7 @@ impl Adapter for TelegramAdapter {
         &self,
         binding: &TaskBinding,
         _connection: &AdapterConnection,
-        _rule: Option<&TaskTriggerRoute>,
+        _rule: Option<&SubscriptionMatch>,
         target_external_id: &str,
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
@@ -686,7 +686,7 @@ fn strip_bot_mention(text: &str, bot_username: Option<&str>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapters::models::{RoutingMode, TaskTriggerRoute};
+    use crate::adapters::models::{RoutingMode, SubscriptionMatch};
     use crate::adapters::Adapter;
     use moatless_backend_core::scope::Scope;
 
@@ -905,8 +905,8 @@ mod tests {
         assert_eq!(destination.last_external_event_id.as_deref(), Some("77"));
     }
 
-    fn test_config() -> TriggerContext {
-        TriggerContext {
+    fn test_config() -> LoopContext {
+        LoopContext {
             id: "test".into(),
             provider: "telegram".into(),
             source_id: "111".into(),
@@ -931,9 +931,9 @@ mod tests {
         }
     }
 
-    fn test_rule(provider: &str, source_matcher: &str) -> TaskTriggerRoute {
+    fn test_rule(provider: &str, source_matcher: &str) -> SubscriptionMatch {
         let now = chrono::Utc::now();
-        TaskTriggerRoute {
+        SubscriptionMatch {
             id: "tt_test".into(),
             provider: provider.into(),
             connection_id: "pc_test".into(),

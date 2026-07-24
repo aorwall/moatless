@@ -328,7 +328,7 @@ async fn handle_gh_pr_create(
         "pr_number": pr.number,
     });
 
-    match crate::triggers::listen::connect_github_binding(
+    match crate::loops::firing::listen::connect_github_binding(
         state,
         &source_id,
         task_id,

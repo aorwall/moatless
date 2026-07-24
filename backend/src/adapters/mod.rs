@@ -26,7 +26,7 @@ use crate::db::DbPool;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
     AdapterConnection, BindingContext, InboundMessage, NewThreadInfo, OutboundReply, TaskBinding,
-    TaskTriggerRoute, TriggerContext,
+    SubscriptionMatch, LoopContext,
 };
 
 pub use moatless_api_schemas::enums::AdapterKind;
@@ -169,7 +169,7 @@ pub trait Adapter: Send + Sync {
     async fn send_reply(
         &self,
         thread: &BindingContext,
-        config: &TriggerContext,
+        config: &LoopContext,
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError>;
 
@@ -181,7 +181,7 @@ pub trait Adapter: Send + Sync {
         &self,
         binding: &TaskBinding,
         _connection: &AdapterConnection,
-        rule: Option<&TaskTriggerRoute>,
+        rule: Option<&SubscriptionMatch>,
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
         let Some(rule) = rule else {
@@ -203,7 +203,7 @@ pub trait Adapter: Send + Sync {
         &self,
         binding: &TaskBinding,
         connection: &AdapterConnection,
-        rule: Option<&TaskTriggerRoute>,
+        rule: Option<&SubscriptionMatch>,
         _target_external_id: &str,
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
@@ -240,7 +240,7 @@ pub trait Adapter: Send + Sync {
     /// messages (e.g., Slack) must override this.
     async fn send_message(
         &self,
-        _config: &TriggerContext,
+        _config: &LoopContext,
         _message: &OutboundReply,
     ) -> Result<NewThreadInfo, AdapterError> {
         Err(AdapterError::Internal(format!(
@@ -266,7 +266,7 @@ pub trait Adapter: Send + Sync {
     /// Build the binding destination for a newly-created external thread.
     fn binding_destination_from_new_thread(
         &self,
-        _rule: &TaskTriggerRoute,
+        _rule: &SubscriptionMatch,
         _new_thread_info: &NewThreadInfo,
     ) -> Result<BindingDestination, AdapterError> {
         Err(AdapterError::BadRequest(format!(
@@ -362,7 +362,7 @@ pub trait Adapter: Send + Sync {
     async fn fetch_context(
         &self,
         _thread: &BindingContext,
-        _config: &TriggerContext,
+        _config: &LoopContext,
         _limit: usize,
         _exclude_external_ids: &[String],
     ) -> Result<Option<String>, AdapterError> {
@@ -576,7 +576,7 @@ mod tests {
         async fn send_reply(
             &self,
             _thread: &crate::adapters::models::BindingContext,
-            _config: &crate::adapters::models::TriggerContext,
+            _config: &crate::adapters::models::LoopContext,
             _message: &OutboundReply,
         ) -> Result<Option<String>, AdapterError> {
             Ok(None)

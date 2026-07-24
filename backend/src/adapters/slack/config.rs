@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::adapters::models::{MessageTrigger, SourceAccessPolicy, TriggerContext};
+use crate::adapters::models::{MessageTrigger, SourceAccessPolicy, LoopContext};
 
 /// Typed representation of `provider_config` JSONB for Slack channels.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -43,11 +43,11 @@ impl Default for SlackAdapterConfig {
 }
 
 impl SlackAdapterConfig {
-    /// Parse from a `TriggerContext`'s `provider_config` field.
+    /// Parse from a `LoopContext`'s `provider_config` field.
     /// Returns default config if field is absent or unparseable.
     ///
     /// Also supports legacy untyped configs where `trigger` was a plain string.
-    pub fn from_config(config: &TriggerContext) -> Self {
+    pub fn from_config(config: &LoopContext) -> Self {
         config
             .provider_config
             .as_ref()
@@ -110,7 +110,7 @@ mod tests {
 
     #[test]
     fn from_config_with_none_provider_config() {
-        let config = TriggerContext {
+        let config = LoopContext {
             id: "test".into(),
             provider: "slack".into(),
             source_id: "C123".into(),

@@ -7,7 +7,7 @@ use tracing::info;
 
 use crate::adapters::error::AdapterError;
 use crate::db::DbPool;
-use crate::triggers::store::LoopStore;
+use crate::loops::store::LoopStore;
 
 use super::config::TelegramAdapterConfig;
 

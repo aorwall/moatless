@@ -1636,8 +1636,8 @@ async fn resolve_task_bindings(state: &AppState, task_id: &str) -> Vec<TaskBindi
     let mut summaries = Vec::new();
     for binding in &bindings {
         let trigger = if let Some(ref trigger_id) = binding.trigger_id {
-            crate::triggers::rule_dao::PgTaskTriggerRouteRepository(state.db.clone())
-                .find_by_id(trigger_id)
+            state.loops
+                .find_subscription_by_id(trigger_id)
                 .await
                 .ok()
                 .flatten()

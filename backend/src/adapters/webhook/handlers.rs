@@ -26,8 +26,8 @@ pub async fn webhook_inbound(
 
     info!(trigger_id = %trigger_id, "Webhook inbound received");
 
-    let rule = crate::triggers::rule_dao::PgTaskTriggerRouteRepository(state.db.clone())
-        .find_by_id(&trigger_id)
+    let rule = state.loops
+        .find_subscription_by_id(&trigger_id)
         .await?
         .ok_or_else(|| AdapterError::ConfigNotFound(trigger_id.clone()))?;
 

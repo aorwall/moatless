@@ -7,13 +7,12 @@ use axum::{routing::post, Router};
 
 use super::{github_pr, handlers, linear, slack, telegram, webhook};
 use crate::state::AppState;
-use crate::{bindings, triggers};
+use crate::bindings;
 
 #[derive(OpenApi)]
 #[openapi(
     tags(
         (name = "adapters", description = "Adapter connections and webhooks"),
-        (name = "triggers", description = "Work triggers"),
         (name = "task-bindings", description = "Task-to-external-subject bindings"),
         (name = "users", description = "Users"),
         (name = "linear", description = "Linear issue/comment CRUD via workspace OAuth"),
@@ -25,12 +24,6 @@ use crate::{bindings, triggers};
         handlers::create_adapter_connection,
         handlers::adapter_send,
         handlers::send_user_dm,
-        triggers::handlers::list_triggers,
-        triggers::handlers::create_trigger,
-        triggers::handlers::get_trigger,
-        triggers::handlers::update_trigger,
-        triggers::handlers::delete_trigger,
-        triggers::handlers::list_trigger_recent_tasks,
         bindings::handlers::list_task_bindings,
         bindings::handlers::create_task_binding,
         bindings::handlers::send_task_reply,
@@ -66,16 +59,6 @@ pub fn adapter_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenAp
         ))
         .routes(routes!(handlers::adapter_send))
         .routes(routes!(handlers::send_user_dm))
-        .routes(routes!(
-            triggers::handlers::list_triggers,
-            triggers::handlers::create_trigger
-        ))
-        .routes(routes!(triggers::handlers::get_trigger))
-        .routes(routes!(
-            triggers::handlers::update_trigger,
-            triggers::handlers::delete_trigger
-        ))
-        .routes(routes!(triggers::handlers::list_trigger_recent_tasks))
         .routes(routes!(
             bindings::handlers::list_task_bindings,
             bindings::handlers::create_task_binding

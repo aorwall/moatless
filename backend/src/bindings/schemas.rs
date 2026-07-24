@@ -5,13 +5,13 @@
 
 pub use moatless_api_schemas::adapters::*;
 pub use moatless_api_schemas::bindings::*;
-pub use moatless_api_schemas::triggers::*;
+pub use moatless_api_schemas::loops::*;
 
 use crate::adapters::common::parse_adapter_kind;
 
 pub fn task_binding_summary_from_binding(
     binding: &crate::adapters::models::TaskBinding,
-    rule: Option<&crate::adapters::models::TaskTriggerRoute>,
+    rule: Option<&crate::adapters::models::SubscriptionMatch>,
 ) -> TaskBindingSummary {
     let source_id = rule.map_or_else(|| binding.subject_key.clone(), |r| r.source_matcher.clone());
     let external_thread_id = match binding.provider.as_str() {

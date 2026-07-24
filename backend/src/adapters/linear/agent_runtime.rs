@@ -17,7 +17,7 @@ use tracing::{debug, info, warn};
 use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
-    AdapterConnection, TaskBinding, TaskTriggerRoute, ADAPTER_EVENT_BINDING_ORIGIN,
+    AdapterConnection, TaskBinding, SubscriptionMatch, ADAPTER_EVENT_BINDING_ORIGIN,
 };
 use crate::bindings::dao::PgTaskBindingRepository;
 use crate::sandbox::lifecycle::ArchiveRetention;
@@ -26,7 +26,6 @@ use crate::state::AppState;
 use crate::task::creation::NewTaskRequest;
 use crate::task::dao::TaskPatch;
 use crate::task::models::{TaskStatus, Visibility};
-use crate::triggers::rule_dao::PgTaskTriggerRouteRepository;
 
 use super::agent_api::{default_http_client, ActivityKind, LinearAgentApi};
 use super::config::{rules_need_issue_fetch, select_spawn_rule, LinearRuleConfig};
@@ -44,9 +43,9 @@ pub async fn resolve_rules_for_team(
     state: &AppState,
     connection: &AdapterConnection,
     team_id: &str,
-) -> Result<Vec<TaskTriggerRoute>, AdapterError> {
-    let rules = PgTaskTriggerRouteRepository(state.db.clone())
-        .list_by_source_matcher(ADAPTER, team_id)
+) -> Result<Vec<SubscriptionMatch>, AdapterError> {
+    let rules = state.loops
+        .list_subscriptions_by_source_matcher(ADAPTER, team_id)
         .await?;
     Ok(rules
         .into_iter()
@@ -74,7 +73,7 @@ pub async fn handle_session_created(
     state: &AppState,
     api: &LinearAgentApi,
     connection: &AdapterConnection,
-    rules: &[TaskTriggerRoute],
+    rules: &[SubscriptionMatch],
     session: &AgentSession,
 ) -> Result<(), AdapterError> {
     let issue = session
@@ -170,10 +169,10 @@ pub async fn handle_session_created(
 /// which the selector routes to the unscoped catch-all / oldest rule.
 async fn select_session_spawn_rule(
     api: &LinearAgentApi,
-    rules: &[TaskTriggerRoute],
+    rules: &[SubscriptionMatch],
     issue_id: &str,
     issue_identifier: &str,
-) -> Option<TaskTriggerRoute> {
+) -> Option<SubscriptionMatch> {
     if !rules_need_issue_fetch(rules) {
         return rules.first().cloned();
     }
@@ -493,7 +492,7 @@ pub async fn handle_issue_update(
     state: &AppState,
     api: &LinearAgentApi,
     connection: &AdapterConnection,
-    rules: &[TaskTriggerRoute],
+    rules: &[SubscriptionMatch],
     envelope_updated_from: Option<&serde_json::Value>,
     issue: &IssuePayload,
 ) -> Result<(), AdapterError> {
@@ -549,11 +548,11 @@ async fn create_tasks_for_status_entry(
     state: &AppState,
     api: &LinearAgentApi,
     connection: &AdapterConnection,
-    rules: &[TaskTriggerRoute],
+    rules: &[SubscriptionMatch],
     issue: &IssuePayload,
 ) {
     let state_name = issue.state_name();
-    let candidates: Vec<(&TaskTriggerRoute, LinearRuleConfig)> = rules
+    let candidates: Vec<(&SubscriptionMatch, LinearRuleConfig)> = rules
         .iter()
         .map(|r| (r, LinearRuleConfig::from_rule(r)))
         .filter(|(_, cfg)| cfg.creates_on_status(state_name))
@@ -645,7 +644,7 @@ async fn provision_issue_task(
     state: &AppState,
     api: &LinearAgentApi,
     connection: &AdapterConnection,
-    rule: &TaskTriggerRoute,
+    rule: &SubscriptionMatch,
     cfg: &LinearRuleConfig,
     issue: &IssuePayload,
 ) -> Result<(), AdapterError> {
@@ -1015,7 +1014,7 @@ async fn close_active_bindings_for_issue(
     state: &AppState,
     api: &LinearAgentApi,
     connection: &AdapterConnection,
-    rule: &TaskTriggerRoute,
+    rule: &SubscriptionMatch,
     issue: &IssuePayload,
 ) -> Result<(), AdapterError> {
     let binding_repo = PgTaskBindingRepository(state.db.clone());
@@ -1185,7 +1184,7 @@ async fn provision_session_task(
     state: &AppState,
     api: &LinearAgentApi,
     connection: &AdapterConnection,
-    rule: &TaskTriggerRoute,
+    rule: &SubscriptionMatch,
     session: &AgentSession,
 ) -> Result<(), AdapterError> {
     let issue = session
@@ -1434,7 +1433,7 @@ fn issue_read_block(identifier: &str, title: &str, url: Option<&str>) -> String 
 
 async fn create_provider_event_task(
     state: &AppState,
-    rule: &TaskTriggerRoute,
+    rule: &SubscriptionMatch,
     session: &AgentSession,
 ) -> Result<String, AdapterError> {
     let issue = session
@@ -1450,7 +1449,7 @@ async fn create_provider_event_task(
 /// Create a task from an `Issue.update` status-entry match.
 async fn create_issue_event_task(
     state: &AppState,
-    rule: &TaskTriggerRoute,
+    rule: &SubscriptionMatch,
     issue: &IssuePayload,
 ) -> Result<String, AdapterError> {
     let preview = build_issue_inbound_text(issue);
@@ -1463,7 +1462,7 @@ async fn create_issue_event_task(
 /// binding, and inbound-message delivery.
 async fn insert_event_task(
     state: &AppState,
-    rule: &TaskTriggerRoute,
+    rule: &SubscriptionMatch,
     identifier: &str,
     title: &str,
     preview: &str,
@@ -1595,10 +1594,10 @@ async fn rule_for_binding(
     state: &AppState,
     _connection: &AdapterConnection,
     binding: &TaskBinding,
-) -> Result<Option<TaskTriggerRoute>, AdapterError> {
+) -> Result<Option<SubscriptionMatch>, AdapterError> {
     if let Some(ref trigger_id) = binding.trigger_id {
-        Ok(PgTaskTriggerRouteRepository(state.db.clone())
-            .find_by_id(trigger_id)
+        Ok(state.loops
+            .find_subscription_by_id(trigger_id)
             .await?)
     } else {
         Ok(None)

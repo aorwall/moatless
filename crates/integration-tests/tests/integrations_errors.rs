@@ -6,7 +6,7 @@
 use integration_tests::{create_webhook_integration, ensure_template_repo, raw_api, test_client};
 use moatless_api_schemas::adapters::CreateAdapterConnectionRequest;
 use moatless_api_schemas::enums::{AdapterKind, RoutingMode};
-use moatless_api_schemas::triggers::UpdateTriggerRequest;
+use moatless_api_schemas::loops::UpdateLoopRequest;
 use moatless_cli::client::MoatClient;
 use pretty_assertions::assert_eq;
 
@@ -62,7 +62,7 @@ async fn webhook_inactive_config() {
         create_webhook_trigger(&client, &repo_id, &format!("inactive-{suffix}"), None).await;
 
     // Deactivate
-    let update = UpdateTriggerRequest {
+    let update = UpdateLoopRequest {
         active: Some(false),
         ..Default::default()
     };

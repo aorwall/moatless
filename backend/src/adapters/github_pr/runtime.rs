@@ -8,7 +8,7 @@ use tracing::{debug, info, warn};
 use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
-    AdapterConnection, InboundMessage, TaskBinding, TaskTriggerRoute, ADAPTER_EVENT_BINDING_ORIGIN,
+    AdapterConnection, InboundMessage, TaskBinding, SubscriptionMatch, ADAPTER_EVENT_BINDING_ORIGIN,
     CONNECTED_THREAD_BINDING_ORIGIN,
 };
 use crate::adapters::AdapterKind;
@@ -19,7 +19,6 @@ use crate::state::AppState;
 use crate::task::creation::{NewTaskRequest, TaskCreationError};
 use crate::task::dao::TaskPatch;
 use crate::task::models::{TaskStatus, Visibility};
-use crate::triggers::rule_dao::PgTaskTriggerRouteRepository;
 
 use super::adapter::{resolve_user_or_fallback, PrCloseInfo};
 
@@ -51,7 +50,7 @@ pub async fn resolve_provider_event(
     state: &AppState,
     org: &str,
     repo_full_name: &str,
-) -> Result<Option<(AdapterConnection, Option<TaskTriggerRoute>)>, AdapterError> {
+) -> Result<Option<(AdapterConnection, Option<SubscriptionMatch>)>, AdapterError> {
     let connection = PgAdapterConnectionRepository(state.db.clone())
         .find_by_scope_value(ADAPTER, org)
         .await?;
@@ -59,8 +58,8 @@ pub async fn resolve_provider_event(
         return Ok(None);
     };
 
-    let rule = PgTaskTriggerRouteRepository(state.db.clone())
-        .find_by_source_matcher(ADAPTER, repo_full_name)
+    let rule = state.loops
+        .find_subscription_by_source_matcher(ADAPTER, repo_full_name)
         .await?
         .filter(|rule| {
             let same_connection = rule.connection_id == connection.id;
@@ -83,16 +82,16 @@ pub async fn resolve_provider_event(
 /// PR a task already connected to is still parsed into an `InboundMessage`.
 ///
 /// It is NEVER persisted and NEVER drives task creation — the real
-/// `Option<&TaskTriggerRoute>` gates that in [`route_inbound_message`]. An
+/// `Option<&SubscriptionMatch>` gates that in [`route_inbound_message`]. An
 /// empty `event_filter` lets all supported event types through (including
 /// `check_run` failures); `source_matcher` is the repo so message source
 /// labels stay correct.
 pub fn connection_only_rule(
     connection: &AdapterConnection,
     repo_full_name: &str,
-) -> TaskTriggerRoute {
+) -> SubscriptionMatch {
     let now = Utc::now();
-    TaskTriggerRoute {
+    SubscriptionMatch {
         id: format!("virtual:{}", connection.id),
         provider: ADAPTER.to_string(),
         connection_id: connection.id.clone(),
@@ -126,7 +125,7 @@ pub fn connection_only_rule(
 pub async fn route_inbound_message(
     state: &AppState,
     connection: &AdapterConnection,
-    rule: Option<&TaskTriggerRoute>,
+    rule: Option<&SubscriptionMatch>,
     msg: InboundMessage,
 ) -> Result<(), AdapterError> {
     if let Some(rule) = rule {
@@ -447,7 +446,7 @@ pub async fn route_inbound_message(
         delivery_targets.retain(|(b, _)| author_only_target(&b.origin, has_author));
     }
 
-    let receipts = crate::triggers::receipts::PgEventReceiptRepository(state.db.clone());
+    let receipts = crate::loops::firing::receipts::PgEventReceiptRepository(state.db.clone());
     for (binding, is_new_task) in delivery_targets {
         if let Some(external_event_id) = msg.external_event_id.as_deref() {
             let is_first_delivery = receipts
@@ -492,7 +491,7 @@ pub async fn route_inbound_message(
 pub async fn record_merge_state_and_notify(
     state: &AppState,
     connection: &AdapterConnection,
-    rule: &TaskTriggerRoute,
+    rule: &SubscriptionMatch,
     subject_key: &str,
     mergeable: super::signals::MergeableState,
     pr_is_open: bool,
@@ -568,7 +567,7 @@ pub async fn record_merge_state_and_notify(
 pub async fn deliver_post_merge_ci(
     state: &AppState,
     connection: &AdapterConnection,
-    rule: &TaskTriggerRoute,
+    rule: &SubscriptionMatch,
     subject_key: &str,
     notice: &InboundMessage,
 ) {
@@ -628,7 +627,7 @@ pub async fn deliver_post_merge_ci(
 pub async fn close_tasks_for_pr(
     state: &AppState,
     connection: &AdapterConnection,
-    rule: &TaskTriggerRoute,
+    rule: &SubscriptionMatch,
     info: &PrCloseInfo,
 ) -> Result<(), AdapterError> {
     let (owner, repo) = rule.source_matcher.split_once('/').ok_or_else(|| {
@@ -778,7 +777,7 @@ async fn build_close_inbound_message(
     state: &AppState,
     owner: &str,
     repo: &str,
-    rule: &TaskTriggerRoute,
+    rule: &SubscriptionMatch,
     info: &PrCloseInfo,
 ) -> InboundMessage {
     let status = if info.merged {
@@ -825,7 +824,7 @@ async fn build_close_inbound_message(
 pub async fn upsert_binding(
     state: &AppState,
     connection: &AdapterConnection,
-    rule: Option<&TaskTriggerRoute>,
+    rule: Option<&SubscriptionMatch>,
     task_id: &str,
     subject_key: &str,
     thread_properties: &serde_json::Value,
@@ -890,7 +889,7 @@ pub async fn upsert_binding(
 /// should surface as a 5xx so GitHub retries.
 async fn create_provider_event_task(
     state: &AppState,
-    rule: &TaskTriggerRoute,
+    rule: &SubscriptionMatch,
     msg: &InboundMessage,
 ) -> Result<String, TaskCreationError> {
     // Always provide the PR origin context so loop/trigger prompts don't have to
@@ -968,7 +967,7 @@ async fn create_provider_event_task(
 
 async fn deliver_to_binding(
     state: &AppState,
-    rule: Option<&TaskTriggerRoute>,
+    rule: Option<&SubscriptionMatch>,
     _connection: &AdapterConnection,
     binding: &TaskBinding,
     msg: &InboundMessage,

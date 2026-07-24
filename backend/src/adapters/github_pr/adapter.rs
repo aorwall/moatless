@@ -10,7 +10,7 @@ use tracing::{debug, info, warn};
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
     AdapterConnection, BindingContext, InboundMessage, OutboundReply, TaskBinding,
-    TaskTriggerRoute, TriggerContext,
+    SubscriptionMatch, LoopContext,
 };
 use crate::adapters::{Adapter, AdapterKind, BindingDestination};
 use crate::auth::credentials::resolve_user_github_token;
@@ -245,7 +245,7 @@ pub struct PrCloseInfo {
 
 /// Context passed through event handlers to avoid too many function arguments.
 struct EventContext<'a> {
-    rule: &'a TaskTriggerRoute,
+    rule: &'a SubscriptionMatch,
     owner: &'a str,
     repo: &'a str,
     sender_login: &'a str,
@@ -441,7 +441,7 @@ impl GithubPrAdapter {
     fn outbound_user_id(
         author_user_id: Option<&str>,
         binding: &TaskBinding,
-        rule: Option<&TaskTriggerRoute>,
+        rule: Option<&SubscriptionMatch>,
     ) -> Option<String> {
         author_user_id
             .filter(|s| !s.is_empty())
@@ -504,7 +504,7 @@ impl GithubPrAdapter {
         delivery_id: &str,
         event_type: &str,
         payload: &serde_json::Value,
-        rule: &TaskTriggerRoute,
+        rule: &SubscriptionMatch,
         db: &DbPool,
     ) -> Result<GithubPrWebhookResult, AdapterError> {
         let rule_config = GithubPrRuleConfig::from_rule(rule);
@@ -1387,7 +1387,7 @@ impl GithubPrAdapter {
     async fn resolve_user_or_fallback(
         &self,
         github_login: &str,
-        rule: &TaskTriggerRoute,
+        rule: &SubscriptionMatch,
         db: &DbPool,
     ) -> String {
         resolve_user_or_fallback(github_login, rule, db).await
@@ -1401,7 +1401,7 @@ impl GithubPrAdapter {
 /// (e.g. `runtime::close_tasks_for_pr`) can use the same lookup.
 pub(crate) async fn resolve_user_or_fallback(
     github_login: &str,
-    rule: &TaskTriggerRoute,
+    rule: &SubscriptionMatch,
     db: &DbPool,
 ) -> String {
     let row = sqlx::query_scalar::<_, String>(
@@ -1562,7 +1562,7 @@ impl Adapter for GithubPrAdapter {
     async fn send_reply(
         &self,
         _thread: &BindingContext,
-        _config: &TriggerContext,
+        _config: &LoopContext,
         _message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
         Err(AdapterError::BadRequest(
@@ -1576,7 +1576,7 @@ impl Adapter for GithubPrAdapter {
         &self,
         binding: &TaskBinding,
         _connection: &AdapterConnection,
-        rule: Option<&TaskTriggerRoute>,
+        rule: Option<&SubscriptionMatch>,
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
         let (owner, repo, pr_number) = Self::parse_binding_target(binding)?;
@@ -1606,7 +1606,7 @@ impl Adapter for GithubPrAdapter {
         &self,
         binding: &TaskBinding,
         connection: &AdapterConnection,
-        rule: Option<&TaskTriggerRoute>,
+        rule: Option<&SubscriptionMatch>,
         target_external_id: &str,
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
@@ -1775,7 +1775,7 @@ fn merge_conflict_pr_number(event_type: &str, payload: &serde_json::Value) -> Op
 async fn check_pr_merge_conflict(
     state: AppState,
     connection: AdapterConnection,
-    rule_for_parse: TaskTriggerRoute,
+    rule_for_parse: SubscriptionMatch,
     owner: String,
     repo: String,
     pr_number: u64,
@@ -2000,7 +2000,7 @@ fn post_merge_ci_text(run: &PostMergeRun, owner: &str, repo: &str, pr_number: u6
 async fn check_post_merge_ci(
     state: AppState,
     connection: AdapterConnection,
-    rule_for_parse: TaskTriggerRoute,
+    rule_for_parse: SubscriptionMatch,
     owner: String,
     repo: String,
     run: PostMergeRun,
@@ -2821,11 +2821,11 @@ mod tests {
         Arc::new(GitHubAppRegistry::default())
     }
 
-    fn fake_rule() -> TaskTriggerRoute {
+    fn fake_rule() -> SubscriptionMatch {
         use crate::adapters::models::RoutingMode;
         use chrono::Utc;
         use moatless_backend_core::scope::Scope;
-        TaskTriggerRoute {
+        SubscriptionMatch {
             id: "ir_test".into(),
             provider: "github".into(),
             connection_id: "pc_test".into(),

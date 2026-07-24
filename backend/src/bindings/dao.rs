@@ -85,10 +85,10 @@ pub trait TaskBindingRepository: Send + Sync {
 
 pub struct PgTaskBindingRepository(pub DbPool);
 
-/// Flat row returned by `find_recent_for_trigger`. Binding columns are
+/// Flat row returned by `find_recent_for_loop`. Binding columns are
 /// optional — schedule triggers spawn tasks without a binding.
 #[derive(sqlx::FromRow, Debug)]
-pub struct TriggerRecentTaskRow {
+pub struct LoopRecentTaskRow {
     pub task_id: String,
     pub short_id: Option<String>,
     pub title: Option<String>,
@@ -490,12 +490,12 @@ impl PgTaskBindingRepository {
     /// triggers yield NULL binding columns. Tasks scoped via `trigger_id`
     /// inherit the trigger's scope by construction, so no additional
     /// task-level scope predicate is needed.
-    pub async fn find_recent_for_trigger(
+    pub async fn find_recent_for_loop(
         &self,
         trigger_id: &str,
         limit: i64,
-    ) -> Result<Vec<TriggerRecentTaskRow>, sqlx::Error> {
-        sqlx::query_as::<_, TriggerRecentTaskRow>(
+    ) -> Result<Vec<LoopRecentTaskRow>, sqlx::Error> {
+        sqlx::query_as::<_, LoopRecentTaskRow>(
             r#"SELECT t.task_id, t.short_id, t.name AS title, t.status,
                       t.created_at AS task_created_at,
                       tb.id AS binding_id, tb.adapter_kind AS provider, tb.subject_kind, tb.subject_key,

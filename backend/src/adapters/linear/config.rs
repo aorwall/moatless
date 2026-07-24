@@ -1,10 +1,10 @@
 //! Typed view of Linear task trigger fields used by the webhook parser.
 //!
-//! Each `TaskTriggerRoute` is a "listener" with its own filter. Several rules can
+//! Each `SubscriptionMatch` is a "listener" with its own filter. Several rules can
 //! share a single Linear team UUID (multi-rule support is what migration
 //! `0036` enables) — each one is evaluated independently.
 
-use crate::adapters::models::TaskTriggerRoute;
+use crate::adapters::models::SubscriptionMatch;
 
 /// Default workflow state names whose ENTRY fires task creation.
 const DEFAULT_TRIGGER_STATES: &[&str] = &["Todo", "In Progress"];
@@ -15,7 +15,7 @@ const DEFAULT_TRIGGER_STATES: &[&str] = &["Todo", "In Progress"];
 /// workspace that renames "Done" to "Shipped" still closes correctly.
 const DEFAULT_TERMINAL_STATES: &[&str] = &["completed", "canceled"];
 
-/// Extracted Linear-specific knobs from an `TaskTriggerRoute`.
+/// Extracted Linear-specific knobs from an `SubscriptionMatch`.
 #[derive(Debug, Clone)]
 pub struct LinearRuleConfig {
     /// Required labels — issue must carry every label here to trigger.
@@ -50,12 +50,12 @@ pub struct LinearRuleConfig {
 }
 
 impl LinearRuleConfig {
-    /// Parse from an `TaskTriggerRoute`'s `provider_config` JSONB column plus
+    /// Parse from an `SubscriptionMatch`'s `provider_config` JSONB column plus
     /// the scalar `close_task_on_close` column. We use `provider_config` (not
     /// `event_filter`) because Linear's filter is an OBJECT — `event_filter`
     /// is typed as `Vec<String>` in the public request DTO, suitable for
     /// GitHub's webhook-event-type list but not for Linear's nested knobs.
-    pub fn from_rule(rule: &TaskTriggerRoute) -> Self {
+    pub fn from_rule(rule: &SubscriptionMatch) -> Self {
         // `provider_config` may be null when no Linear-specific config was
         // supplied — fall back to an empty object so default state lists kick
         // in below.
@@ -164,10 +164,10 @@ fn string_list(value: &serde_json::Value, key: &str) -> Option<Vec<String>> {
 /// the caller as `(None, &[])`, which naturally degrades through Tier 2/3 — no
 /// special-casing needed here.
 pub fn select_spawn_rule<'a>(
-    rules: &'a [TaskTriggerRoute],
+    rules: &'a [SubscriptionMatch],
     project_id: Option<&str>,
     labels: &[String],
-) -> Option<&'a TaskTriggerRoute> {
+) -> Option<&'a SubscriptionMatch> {
     // Tier 1 — first project-scoped rule that admits this issue's project + labels.
     if let Some(scoped) = rules.iter().find(|r| {
         let cfg = LinearRuleConfig::from_rule(r);
@@ -194,7 +194,7 @@ pub fn select_spawn_rule<'a>(
 /// non-empty). When every rule is unscoped, [`select_spawn_rule`] can't be
 /// influenced by the project/labels, so the caller skips the extra API round-trip
 /// entirely — all-unscoped teams pay nothing, preserving the pre-scoping path.
-pub fn rules_need_issue_fetch(rules: &[TaskTriggerRoute]) -> bool {
+pub fn rules_need_issue_fetch(rules: &[SubscriptionMatch]) -> bool {
     rules
         .iter()
         .any(|r| !LinearRuleConfig::from_rule(r).project_ids.is_empty())
@@ -210,8 +210,8 @@ mod tests {
     fn rule_with(
         provider_config: serde_json::Value,
         close_task_on_close: bool,
-    ) -> TaskTriggerRoute {
-        TaskTriggerRoute {
+    ) -> SubscriptionMatch {
+        SubscriptionMatch {
             id: "ir_test".into(),
             provider: "linear".into(),
             connection_id: "pc_test".into(),
@@ -404,19 +404,19 @@ mod tests {
     // ---- select_spawn_rule / rules_need_issue_fetch ----------------------
 
     /// A project-scoped rule (`project_ids = ["vuln"]`).
-    fn scoped_rule() -> TaskTriggerRoute {
+    fn scoped_rule() -> SubscriptionMatch {
         rule_with(serde_json::json!({ "project_ids": ["vuln"] }), false)
     }
 
     /// The unscoped catch-all (empty `project_ids`), e.g. soap-specs.
-    fn unscoped_rule() -> TaskTriggerRoute {
+    fn unscoped_rule() -> SubscriptionMatch {
         rule_with(serde_json::json!({}), false)
     }
 
     /// Parsed `project_ids` of the picked rule — used to assert which rule the
     /// selector returned (the `rule_with` helper gives every rule the same id,
     /// so we distinguish by parsed config rather than identity).
-    fn picked_projects(rule: &TaskTriggerRoute) -> Vec<String> {
+    fn picked_projects(rule: &SubscriptionMatch) -> Vec<String> {
         LinearRuleConfig::from_rule(rule).project_ids
     }
 

@@ -10,7 +10,7 @@ use moatless_api_schemas::message::{
 };
 
 use crate::adapters::common::{
-    ensure_task_access, load_adapter_connection_for_auth, load_trigger_for_auth,
+    ensure_task_access, load_adapter_connection_for_auth, load_loop_for_auth,
     task_binding_response,
 };
 use crate::adapters::dao::PgAdapterConnectionRepository;
@@ -24,7 +24,6 @@ use crate::message::models::{
     ContentBlockType, MessageRole, MessageType, TaskMessage, TaskMessageContentBlock,
 };
 use crate::state::AppState;
-use crate::triggers::rule_dao::PgTaskTriggerRouteRepository;
 use moatless_backend_core::scope::ScopeContext;
 
 #[utoipa::path(
@@ -70,8 +69,8 @@ pub async fn create_task_binding(
         )));
     }
     if let Some(trigger_id) = req.trigger_id.as_deref() {
-        let trigger = load_trigger_for_auth(&state, &ctx, trigger_id).await?;
-        let crate::triggers::dao::TriggerSourceRow::AdapterEvent(source) = trigger.source else {
+        let trigger = load_loop_for_auth(&state, &ctx, trigger_id).await?;
+        let crate::loops::store::LoopSourceRow::AdapterEvent(source) = trigger.source else {
             return Err(AdapterError::BadRequest(format!(
                 "Trigger {trigger_id} is not an adapter-event trigger"
             )));
@@ -283,8 +282,8 @@ pub async fn reply_to_message(
             ))
         })?;
     let rule = if let Some(ref rule_id) = binding.trigger_id {
-        PgTaskTriggerRouteRepository(state.db.clone())
-            .find_by_id(rule_id)
+        state.loops
+            .find_subscription_by_id(rule_id)
             .await?
     } else {
         None

@@ -6,11 +6,11 @@ use clap::Subcommand;
 use moatless_api_schemas::adapters::CreateAdapterConnectionRequest;
 use moatless_api_schemas::bindings::CreateTaskBindingRequest;
 use moatless_api_schemas::enums::{AdapterKind, RoutingMode, Scope};
-use moatless_api_schemas::triggers::{
-    CreateAdapterEventTriggerSource, CreateScheduleTriggerSource, CreateTriggerRequest,
-    CreateTriggerRule, CreateTriggerSource, TriggerKind, TriggerSource,
-    UpdateAdapterEventTriggerSource, UpdateScheduleTriggerSource, UpdateTriggerRequest,
-    UpdateTriggerRule, UpdateTriggerSource,
+use moatless_api_schemas::loops::{
+    CreateSubscription, CreateSchedule, CreateLoopRequest,
+    CreateLoopConfig, CreateLoopSource, LoopKind, LoopSource,
+    UpdateSubscription, UpdateSchedule, UpdateLoopRequest,
+    UpdateLoopConfig, UpdateLoopSource,
 };
 
 use crate::client::{ClientError, MoatClient};
@@ -419,7 +419,7 @@ pub async fn run_triggers(
             let items = client
                 .api()
                 .list_triggers(
-                    kind.as_ref().map(TriggerKind::as_str),
+                    kind.as_ref().map(LoopKind::as_str),
                     adapter.as_ref().map(AdapterKind::as_str),
                 )
                 .await?;
@@ -444,14 +444,14 @@ pub async fn run_triggers(
         } => {
             let base = parse_json_opt(adapter_config.as_deref())?;
             let adapter_config = apply_config_ops(base, config_set, config_append, config_unset)?;
-            let req = CreateTriggerRequest {
+            let req = CreateLoopRequest {
                 name,
-                kind: TriggerKind::AdapterEvent,
+                kind: LoopKind::AdapterEvent,
                 active: None,
                 scope: None,
                 team_id,
                 rule: create_rule(rule)?,
-                source: CreateTriggerSource::AdapterEvent(CreateAdapterEventTriggerSource {
+                source: CreateLoopSource::AdapterEvent(CreateSubscription {
                     adapter_kind: parse_adapter_kind(&adapter)?,
                     connection_id,
                     source_matcher,
@@ -474,14 +474,14 @@ pub async fn run_triggers(
             name,
             team_id,
         } => {
-            let req = CreateTriggerRequest {
+            let req = CreateLoopRequest {
                 name,
-                kind: TriggerKind::Schedule,
+                kind: LoopKind::Schedule,
                 active: None,
                 scope: None,
                 team_id,
                 rule: create_rule(rule)?,
-                source: CreateTriggerSource::Schedule(CreateScheduleTriggerSource {
+                source: CreateLoopSource::Schedule(CreateSchedule {
                     cron_expression,
                     timezone,
                     message_template,
@@ -576,7 +576,7 @@ pub async fn run_triggers(
                 timezone,
                 message_template,
             )?;
-            let req = UpdateTriggerRequest {
+            let req = UpdateLoopRequest {
                 name: fold_clearable(name, clear_name, "name")?,
                 active,
                 scope,
@@ -642,8 +642,8 @@ pub async fn run_bindings(
     Ok(())
 }
 
-fn create_rule(args: CreateRuleArgs) -> Result<CreateTriggerRule, ClientError> {
-    Ok(CreateTriggerRule {
+fn create_rule(args: CreateRuleArgs) -> Result<CreateLoopConfig, ClientError> {
+    Ok(CreateLoopConfig {
         repository_id: args.repository_id,
         routing_mode: parse_routing_mode(&args.routing_mode)?,
         ongoing_task_id: None,
@@ -675,9 +675,9 @@ fn update_rule(
     agent_type: Option<String>,
     inactive_ttl_days: Option<i32>,
     clear_inactive_ttl_days: bool,
-) -> Result<Option<UpdateTriggerRule>, ClientError> {
+) -> Result<Option<UpdateLoopConfig>, ClientError> {
     let tag_ids = fold_tag_ids(tag_ids, clear_tags)?;
-    let rule = UpdateTriggerRule {
+    let rule = UpdateLoopConfig {
         repository_id,
         routing_mode,
         ongoing_task_id: fold_clearable(ongoing_task_id, clear_ongoing_task_id, "ongoing-task-id")?,
@@ -722,8 +722,8 @@ fn update_source(
     cron_expression: Option<String>,
     timezone: Option<String>,
     message_template: Option<String>,
-) -> Result<Option<UpdateTriggerSource>, ClientError> {
-    let adapter_source = UpdateAdapterEventTriggerSource {
+) -> Result<Option<UpdateLoopSource>, ClientError> {
+    let adapter_source = UpdateSubscription {
         connection_id,
         source_matcher,
         source_name: fold_clearable(source_name, clear_source_name, "source-name")?,
@@ -742,7 +742,7 @@ fn update_source(
         || adapter_source.close_task_on_close.is_some()
         || adapter_source.notify_on_success.is_some();
 
-    let schedule_source = UpdateScheduleTriggerSource {
+    let schedule_source = UpdateSchedule {
         cron_expression,
         timezone,
         message_template,
@@ -753,8 +753,8 @@ fn update_source(
 
     match (has_adapter_source, has_schedule_source) {
         (false, false) => Ok(None),
-        (true, false) => Ok(Some(UpdateTriggerSource::AdapterEvent(adapter_source))),
-        (false, true) => Ok(Some(UpdateTriggerSource::Schedule(schedule_source))),
+        (true, false) => Ok(Some(UpdateLoopSource::AdapterEvent(adapter_source))),
+        (false, true) => Ok(Some(UpdateLoopSource::Schedule(schedule_source))),
         (true, true) => Err(ClientError::Other(
             "Adapter-event and schedule source fields cannot be updated in the same command"
                 .to_string(),
@@ -793,8 +793,8 @@ fn parse_adapter_kind(value: &str) -> Result<AdapterKind, ClientError> {
     })
 }
 
-fn parse_trigger_kind(value: &str) -> Result<TriggerKind, ClientError> {
-    TriggerKind::try_from(value).map_err(ClientError::Other)
+fn parse_trigger_kind(value: &str) -> Result<LoopKind, ClientError> {
+    LoopKind::try_from(value).map_err(ClientError::Other)
 }
 
 fn parse_routing_mode(value: &str) -> Result<RoutingMode, ClientError> {
@@ -912,7 +912,7 @@ async fn fetch_current_adapter_config(
 ) -> Result<Option<serde_json::Value>, ClientError> {
     let trigger = client.api().get_trigger(id).await?;
     match trigger.source {
-        TriggerSource::AdapterEvent(source) => Ok(source.adapter_config),
+        LoopSource::AdapterEvent(source) => Ok(source.adapter_config),
         _ => Err(ClientError::Other(format!(
             "Trigger {id} is not an adapter-event trigger; --set/--append/--unset only apply to adapter_config"
         ))),

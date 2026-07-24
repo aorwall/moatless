@@ -22,8 +22,8 @@ use moatless_vibe_backend::sse::routes::sse_router;
 use moatless_vibe_backend::startup;
 use moatless_vibe_backend::state::AppState;
 use moatless_vibe_backend::{
-    adapters, feedback, file_storage, message, plugin_repo, provider_settings, repository, secret,
-    skill, tag, task, task_event, team, triggers, workspace,
+    adapters, feedback, file_storage, loops, message, plugin_repo, provider_settings, repository,
+    secret, skill, tag, task, task_event, team, workspace,
 };
 
 #[tokio::main]
@@ -338,6 +338,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             tag::routes::tag_router(app_state.clone()),
             provider_settings::routes::provider_settings_router(app_state.clone()),
             adapters::routes::adapter_router(app_state.clone()),
+            loops::http::loops_router(app_state.clone()),
             team::routes::team_router(app_state.clone()),
             task_event::routes::task_event_router(app_state.clone()),
             plugin_repo::routes::plugin_repo_router(app_state.clone()),
@@ -473,7 +474,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Schedule runner and long-polling adapters (when configured).
         if let Some(ref adapter_registry) = app_state.adapters {
-            triggers::schedule_runner::spawn_cron_scheduler(
+            loops::firing::schedule_runner::spawn_cron_scheduler(
                 app_state.clone(),
                 cron_leader,
                 cancel.clone(),
