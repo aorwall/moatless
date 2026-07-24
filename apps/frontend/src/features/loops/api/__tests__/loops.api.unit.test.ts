@@ -3,8 +3,10 @@ import {
   type CreateLoopRequest,
   type Loop,
   LoopKind,
+  type LoopRecentTaskItem,
   RoutingMode,
   Scope,
+  TaskStatus,
 } from '@moatless/api-client'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { loopsApi } from '../loops.api'
@@ -96,5 +98,25 @@ describe('loopsApi', () => {
 
     expect(mockCreateLoop).toHaveBeenCalledWith(loopRequest)
     expect(mockUpdateLoop).toHaveBeenCalledWith('loop-1', { active: false })
+  })
+
+  it('lists recent tasks with the requested limit', async () => {
+    const recentTask: LoopRecentTaskItem = {
+      task: {
+        taskId: 'task-1',
+        shortId: 'abc123',
+        title: 'Triage inbound message',
+        status: TaskStatus.open,
+        createdAt: '2026-05-07T12:00:00Z',
+      },
+      binding: null,
+    }
+
+    mockListLoopRecentTasks.mockResolvedValue([recentTask])
+
+    await expect(loopsApi.listLoopRecentTasks('loop-1', { limit: 5 })).resolves.toEqual([
+      recentTask,
+    ])
+    expect(mockListLoopRecentTasks).toHaveBeenCalledWith('loop-1', { limit: 5 })
   })
 })
