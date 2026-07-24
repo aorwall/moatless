@@ -56,7 +56,7 @@ describe('useSyncRepositoryConfig', () => {
       queryKey: queryKeys.workspaces.all(),
     })
     expect(invalidateQueries).toHaveBeenCalledWith({
-      queryKey: queryKeys.triggers.all(),
+      queryKey: queryKeys.loops.all(),
     })
   })
 })

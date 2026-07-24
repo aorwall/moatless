@@ -1,6 +1,5 @@
 import { Link } from '@tanstack/react-router'
 import {
-  Bell,
   Boxes,
   Building2,
   FolderGit2,
@@ -8,6 +7,7 @@ import {
   Link2,
   Package,
   Plug,
+  Repeat,
   Users,
 } from 'lucide-react'
 import type { ComponentType, SVGProps } from 'react'
@@ -47,7 +47,7 @@ const ADMIN_NAV: AdminNavGroup[] = [
   },
   {
     label: 'Automation',
-    items: [{ label: 'Triggers', to: '/admin/triggers', icon: Bell }],
+    items: [{ label: 'Loops', to: '/admin/loops', icon: Repeat }],
   },
   {
     label: 'System',

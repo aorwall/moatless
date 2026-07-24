@@ -1,7 +1,7 @@
 import { createLazyFileRoute } from '@tanstack/react-router'
 import { Loader2 } from 'lucide-react'
 import { useIntegrationConnections } from '@/features/integrations/hooks/use-integrations'
-import { getAdapterLabel } from '@/features/integrations/utils/trigger-display'
+import { getAdapterLabel } from '@/features/integrations/utils/adapter-display'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/components/ui/card'
 import { DetailHeader } from '@/lib/components/ui/detail-header'
 import { DetailItem } from '@/lib/components/ui/detail-item'

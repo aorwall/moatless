@@ -21,16 +21,19 @@ import { Route as TasksIndexRouteImport } from './routes/tasks/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as AuthCallbackRouteImport } from './routes/auth/callback'
 import { Route as TasksTaskIdIndexRouteImport } from './routes/tasks/$task-id/index'
+import { Route as AdminTriggersIndexRouteImport } from './routes/admin/triggers/index'
 import { Route as TasksTaskIdKioskRouteImport } from './routes/tasks/$task-id/kiosk'
 import { Route as TasksTaskIdFileRouteImport } from './routes/tasks/$task-id/file'
 import { Route as OauthGithubCallbackRouteImport } from './routes/oauth/github/callback'
+import { Route as AdminTriggersNewRouteImport } from './routes/admin/triggers/new'
+import { Route as AdminTriggersTriggerIdIndexRouteImport } from './routes/admin/triggers/$trigger-id/index'
+import { Route as AdminTriggersTriggerIdEditRouteImport } from './routes/admin/triggers/$trigger-id/edit'
 
 const SecretsLazyRouteImport = createFileRoute('/secrets')()
 const SandboxLazyRouteImport = createFileRoute('/sandbox')()
 const SandboxIndexLazyRouteImport = createFileRoute('/sandbox/')()
 const AdminWorkspacesLazyRouteImport = createFileRoute('/admin/workspaces')()
 const AdminUsersLazyRouteImport = createFileRoute('/admin/users')()
-const AdminTriggersLazyRouteImport = createFileRoute('/admin/triggers')()
 const AdminTeamsLazyRouteImport = createFileRoute('/admin/teams')()
 const AdminRepositoriesLazyRouteImport = createFileRoute(
   '/admin/repositories',
@@ -38,12 +41,12 @@ const AdminRepositoriesLazyRouteImport = createFileRoute(
 const AdminMarketplacesLazyRouteImport = createFileRoute(
   '/admin/marketplaces',
 )()
+const AdminLoopsLazyRouteImport = createFileRoute('/admin/loops')()
 const SandboxTaskIdIndexLazyRouteImport =
   createFileRoute('/sandbox/$task-id/')()
 const AdminWorkspacesIndexLazyRouteImport =
   createFileRoute('/admin/workspaces/')()
 const AdminUsersIndexLazyRouteImport = createFileRoute('/admin/users/')()
-const AdminTriggersIndexLazyRouteImport = createFileRoute('/admin/triggers/')()
 const AdminTeamsIndexLazyRouteImport = createFileRoute('/admin/teams/')()
 const AdminTaskConnectionsIndexLazyRouteImport = createFileRoute(
   '/admin/task-connections/',
@@ -55,8 +58,8 @@ const AdminRepositoriesIndexLazyRouteImport = createFileRoute(
 const AdminMarketplacesIndexLazyRouteImport = createFileRoute(
   '/admin/marketplaces/',
 )()
+const AdminLoopsIndexLazyRouteImport = createFileRoute('/admin/loops/')()
 const AdminUsersLoginLazyRouteImport = createFileRoute('/admin/users/$login')()
-const AdminTriggersNewLazyRouteImport = createFileRoute('/admin/triggers/new')()
 const AdminTeamsNewLazyRouteImport = createFileRoute('/admin/teams/new')()
 const AdminRepositoriesNewLazyRouteImport = createFileRoute(
   '/admin/repositories/new',
@@ -64,6 +67,7 @@ const AdminRepositoriesNewLazyRouteImport = createFileRoute(
 const AdminMarketplacesNewLazyRouteImport = createFileRoute(
   '/admin/marketplaces/new',
 )()
+const AdminLoopsNewLazyRouteImport = createFileRoute('/admin/loops/new')()
 const AdminIntegrationsGithubLazyRouteImport = createFileRoute(
   '/admin/integrations/github',
 )()
@@ -72,9 +76,6 @@ const AdminIntegrationsConnectionsLazyRouteImport = createFileRoute(
 )()
 const AdminWorkspacesWorkspaceIdIndexLazyRouteImport = createFileRoute(
   '/admin/workspaces/$workspaceId/',
-)()
-const AdminTriggersTriggerIdIndexLazyRouteImport = createFileRoute(
-  '/admin/triggers/$trigger-id/',
 )()
 const AdminTeamsTeamIdIndexLazyRouteImport = createFileRoute(
   '/admin/teams/$teamId/',
@@ -85,11 +86,14 @@ const AdminRepositoriesRepositoryIdIndexLazyRouteImport = createFileRoute(
 const AdminMarketplacesMarketplaceIdIndexLazyRouteImport = createFileRoute(
   '/admin/marketplaces/$marketplace-id/',
 )()
+const AdminLoopsLoopIdIndexLazyRouteImport = createFileRoute(
+  '/admin/loops/$loop-id/',
+)()
 const AdminIntegrationsConnectionsIndexLazyRouteImport = createFileRoute(
   '/admin/integrations/connections/',
 )()
-const AdminTriggersTriggerIdEditLazyRouteImport = createFileRoute(
-  '/admin/triggers/$trigger-id/edit',
+const AdminLoopsLoopIdEditLazyRouteImport = createFileRoute(
+  '/admin/loops/$loop-id/edit',
 )()
 const AdminIntegrationsConnectionsConnectionIdIndexLazyRouteImport =
   createFileRoute('/admin/integrations/connections/$connection-id/')()
@@ -161,13 +165,6 @@ const AdminUsersLazyRoute = AdminUsersLazyRouteImport.update({
   path: '/users',
   getParentRoute: () => AdminRoute,
 } as any).lazy(() => import('./routes/admin/users.lazy').then((d) => d.Route))
-const AdminTriggersLazyRoute = AdminTriggersLazyRouteImport.update({
-  id: '/triggers',
-  path: '/triggers',
-  getParentRoute: () => AdminRoute,
-} as any).lazy(() =>
-  import('./routes/admin/triggers.lazy').then((d) => d.Route),
-)
 const AdminTeamsLazyRoute = AdminTeamsLazyRouteImport.update({
   id: '/teams',
   path: '/teams',
@@ -187,6 +184,11 @@ const AdminMarketplacesLazyRoute = AdminMarketplacesLazyRouteImport.update({
 } as any).lazy(() =>
   import('./routes/admin/marketplaces.lazy').then((d) => d.Route),
 )
+const AdminLoopsLazyRoute = AdminLoopsLazyRouteImport.update({
+  id: '/loops',
+  path: '/loops',
+  getParentRoute: () => AdminRoute,
+} as any).lazy(() => import('./routes/admin/loops.lazy').then((d) => d.Route))
 const AuthCallbackRoute = AuthCallbackRouteImport.update({
   id: '/auth/callback',
   path: '/auth/callback',
@@ -213,13 +215,6 @@ const AdminUsersIndexLazyRoute = AdminUsersIndexLazyRouteImport.update({
   getParentRoute: () => AdminUsersLazyRoute,
 } as any).lazy(() =>
   import('./routes/admin/users/index.lazy').then((d) => d.Route),
-)
-const AdminTriggersIndexLazyRoute = AdminTriggersIndexLazyRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => AdminTriggersLazyRoute,
-} as any).lazy(() =>
-  import('./routes/admin/triggers/index.lazy').then((d) => d.Route),
 )
 const AdminTeamsIndexLazyRoute = AdminTeamsIndexLazyRouteImport.update({
   id: '/',
@@ -259,10 +254,22 @@ const AdminMarketplacesIndexLazyRoute =
   } as any).lazy(() =>
     import('./routes/admin/marketplaces/index.lazy').then((d) => d.Route),
   )
+const AdminLoopsIndexLazyRoute = AdminLoopsIndexLazyRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AdminLoopsLazyRoute,
+} as any).lazy(() =>
+  import('./routes/admin/loops/index.lazy').then((d) => d.Route),
+)
 const TasksTaskIdIndexRoute = TasksTaskIdIndexRouteImport.update({
   id: '/$task-id/',
   path: '/$task-id/',
   getParentRoute: () => TasksRoute,
+} as any)
+const AdminTriggersIndexRoute = AdminTriggersIndexRouteImport.update({
+  id: '/triggers/',
+  path: '/triggers/',
+  getParentRoute: () => AdminRoute,
 } as any)
 const AdminUsersLoginLazyRoute = AdminUsersLoginLazyRouteImport.update({
   id: '/$login',
@@ -270,13 +277,6 @@ const AdminUsersLoginLazyRoute = AdminUsersLoginLazyRouteImport.update({
   getParentRoute: () => AdminUsersLazyRoute,
 } as any).lazy(() =>
   import('./routes/admin/users/$login.lazy').then((d) => d.Route),
-)
-const AdminTriggersNewLazyRoute = AdminTriggersNewLazyRouteImport.update({
-  id: '/new',
-  path: '/new',
-  getParentRoute: () => AdminTriggersLazyRoute,
-} as any).lazy(() =>
-  import('./routes/admin/triggers/new.lazy').then((d) => d.Route),
 )
 const AdminTeamsNewLazyRoute = AdminTeamsNewLazyRouteImport.update({
   id: '/new',
@@ -301,6 +301,13 @@ const AdminMarketplacesNewLazyRoute =
   } as any).lazy(() =>
     import('./routes/admin/marketplaces/new.lazy').then((d) => d.Route),
   )
+const AdminLoopsNewLazyRoute = AdminLoopsNewLazyRouteImport.update({
+  id: '/new',
+  path: '/new',
+  getParentRoute: () => AdminLoopsLazyRoute,
+} as any).lazy(() =>
+  import('./routes/admin/loops/new.lazy').then((d) => d.Route),
+)
 const AdminIntegrationsGithubLazyRoute =
   AdminIntegrationsGithubLazyRouteImport.update({
     id: '/integrations/github',
@@ -332,6 +339,11 @@ const OauthGithubCallbackRoute = OauthGithubCallbackRouteImport.update({
   path: '/oauth/github/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminTriggersNewRoute = AdminTriggersNewRouteImport.update({
+  id: '/triggers/new',
+  path: '/triggers/new',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminWorkspacesWorkspaceIdIndexLazyRoute =
   AdminWorkspacesWorkspaceIdIndexLazyRouteImport.update({
     id: '/$workspaceId/',
@@ -339,16 +351,6 @@ const AdminWorkspacesWorkspaceIdIndexLazyRoute =
     getParentRoute: () => AdminWorkspacesLazyRoute,
   } as any).lazy(() =>
     import('./routes/admin/workspaces/$workspaceId/index.lazy').then(
-      (d) => d.Route,
-    ),
-  )
-const AdminTriggersTriggerIdIndexLazyRoute =
-  AdminTriggersTriggerIdIndexLazyRouteImport.update({
-    id: '/$trigger-id/',
-    path: '/$trigger-id/',
-    getParentRoute: () => AdminTriggersLazyRoute,
-  } as any).lazy(() =>
-    import('./routes/admin/triggers/$trigger-id/index.lazy').then(
       (d) => d.Route,
     ),
   )
@@ -380,6 +382,14 @@ const AdminMarketplacesMarketplaceIdIndexLazyRoute =
       (d) => d.Route,
     ),
   )
+const AdminLoopsLoopIdIndexLazyRoute =
+  AdminLoopsLoopIdIndexLazyRouteImport.update({
+    id: '/$loop-id/',
+    path: '/$loop-id/',
+    getParentRoute: () => AdminLoopsLazyRoute,
+  } as any).lazy(() =>
+    import('./routes/admin/loops/$loop-id/index.lazy').then((d) => d.Route),
+  )
 const AdminIntegrationsConnectionsIndexLazyRoute =
   AdminIntegrationsConnectionsIndexLazyRouteImport.update({
     id: '/',
@@ -390,25 +400,35 @@ const AdminIntegrationsConnectionsIndexLazyRoute =
       (d) => d.Route,
     ),
   )
-const AdminTriggersTriggerIdEditLazyRoute =
-  AdminTriggersTriggerIdEditLazyRouteImport.update({
-    id: '/$trigger-id/edit',
-    path: '/$trigger-id/edit',
-    getParentRoute: () => AdminTriggersLazyRoute,
+const AdminTriggersTriggerIdIndexRoute =
+  AdminTriggersTriggerIdIndexRouteImport.update({
+    id: '/triggers/$trigger-id/',
+    path: '/triggers/$trigger-id/',
+    getParentRoute: () => AdminRoute,
+  } as any)
+const AdminLoopsLoopIdEditLazyRoute =
+  AdminLoopsLoopIdEditLazyRouteImport.update({
+    id: '/$loop-id/edit',
+    path: '/$loop-id/edit',
+    getParentRoute: () => AdminLoopsLazyRoute,
   } as any).lazy(() =>
-    import('./routes/admin/triggers/$trigger-id/edit.lazy').then(
-      (d) => d.Route,
-    ),
+    import('./routes/admin/loops/$loop-id/edit.lazy').then((d) => d.Route),
   )
+const AdminTriggersTriggerIdEditRoute =
+  AdminTriggersTriggerIdEditRouteImport.update({
+    id: '/triggers/$trigger-id/edit',
+    path: '/triggers/$trigger-id/edit',
+    getParentRoute: () => AdminRoute,
+  } as any)
 const AdminIntegrationsConnectionsConnectionIdIndexLazyRoute =
   AdminIntegrationsConnectionsConnectionIdIndexLazyRouteImport.update({
     id: '/$connection-id/',
     path: '/$connection-id/',
     getParentRoute: () => AdminIntegrationsConnectionsLazyRoute,
   } as any).lazy(() =>
-    import('./routes/admin/integrations/connections/$connection-id/index.lazy').then(
-      (d) => d.Route,
-    ),
+    import(
+      './routes/admin/integrations/connections/$connection-id/index.lazy'
+    ).then((d) => d.Route),
   )
 
 export interface FileRoutesByFullPath {
@@ -421,41 +441,45 @@ export interface FileRoutesByFullPath {
   '/sandbox': typeof SandboxLazyRouteWithChildren
   '/secrets': typeof SecretsLazyRoute
   '/auth/callback': typeof AuthCallbackRoute
+  '/admin/loops': typeof AdminLoopsLazyRouteWithChildren
   '/admin/marketplaces': typeof AdminMarketplacesLazyRouteWithChildren
   '/admin/repositories': typeof AdminRepositoriesLazyRouteWithChildren
   '/admin/teams': typeof AdminTeamsLazyRouteWithChildren
-  '/admin/triggers': typeof AdminTriggersLazyRouteWithChildren
   '/admin/users': typeof AdminUsersLazyRouteWithChildren
   '/admin/workspaces': typeof AdminWorkspacesLazyRouteWithChildren
   '/admin/': typeof AdminIndexRoute
   '/tasks/': typeof TasksIndexRoute
   '/sandbox/': typeof SandboxIndexLazyRoute
+  '/admin/triggers/new': typeof AdminTriggersNewRoute
   '/oauth/github/callback': typeof OauthGithubCallbackRoute
   '/tasks/$task-id/file': typeof TasksTaskIdFileRoute
   '/tasks/$task-id/kiosk': typeof TasksTaskIdKioskRoute
   '/admin/integrations/connections': typeof AdminIntegrationsConnectionsLazyRouteWithChildren
   '/admin/integrations/github': typeof AdminIntegrationsGithubLazyRoute
+  '/admin/loops/new': typeof AdminLoopsNewLazyRoute
   '/admin/marketplaces/new': typeof AdminMarketplacesNewLazyRoute
   '/admin/repositories/new': typeof AdminRepositoriesNewLazyRoute
   '/admin/teams/new': typeof AdminTeamsNewLazyRoute
-  '/admin/triggers/new': typeof AdminTriggersNewLazyRoute
   '/admin/users/$login': typeof AdminUsersLoginLazyRoute
+  '/admin/triggers': typeof AdminTriggersIndexRoute
   '/tasks/$task-id': typeof TasksTaskIdIndexRoute
+  '/admin/loops/': typeof AdminLoopsIndexLazyRoute
   '/admin/marketplaces/': typeof AdminMarketplacesIndexLazyRoute
   '/admin/repositories/': typeof AdminRepositoriesIndexLazyRoute
   '/admin/secrets': typeof AdminSecretsIndexLazyRoute
   '/admin/task-connections': typeof AdminTaskConnectionsIndexLazyRoute
   '/admin/teams/': typeof AdminTeamsIndexLazyRoute
-  '/admin/triggers/': typeof AdminTriggersIndexLazyRoute
   '/admin/users/': typeof AdminUsersIndexLazyRoute
   '/admin/workspaces/': typeof AdminWorkspacesIndexLazyRoute
   '/sandbox/$task-id': typeof SandboxTaskIdIndexLazyRoute
-  '/admin/triggers/$trigger-id/edit': typeof AdminTriggersTriggerIdEditLazyRoute
+  '/admin/triggers/$trigger-id/edit': typeof AdminTriggersTriggerIdEditRoute
+  '/admin/loops/$loop-id/edit': typeof AdminLoopsLoopIdEditLazyRoute
+  '/admin/triggers/$trigger-id': typeof AdminTriggersTriggerIdIndexRoute
   '/admin/integrations/connections/': typeof AdminIntegrationsConnectionsIndexLazyRoute
+  '/admin/loops/$loop-id': typeof AdminLoopsLoopIdIndexLazyRoute
   '/admin/marketplaces/$marketplace-id': typeof AdminMarketplacesMarketplaceIdIndexLazyRoute
   '/admin/repositories/$repositoryId': typeof AdminRepositoriesRepositoryIdIndexLazyRoute
   '/admin/teams/$teamId': typeof AdminTeamsTeamIdIndexLazyRoute
-  '/admin/triggers/$trigger-id': typeof AdminTriggersTriggerIdIndexLazyRoute
   '/admin/workspaces/$workspaceId': typeof AdminWorkspacesWorkspaceIdIndexLazyRoute
   '/admin/integrations/connections/$connection-id': typeof AdminIntegrationsConnectionsConnectionIdIndexLazyRoute
 }
@@ -469,31 +493,35 @@ export interface FileRoutesByTo {
   '/admin': typeof AdminIndexRoute
   '/tasks': typeof TasksIndexRoute
   '/sandbox': typeof SandboxIndexLazyRoute
+  '/admin/triggers/new': typeof AdminTriggersNewRoute
   '/oauth/github/callback': typeof OauthGithubCallbackRoute
   '/tasks/$task-id/file': typeof TasksTaskIdFileRoute
   '/tasks/$task-id/kiosk': typeof TasksTaskIdKioskRoute
   '/admin/integrations/github': typeof AdminIntegrationsGithubLazyRoute
+  '/admin/loops/new': typeof AdminLoopsNewLazyRoute
   '/admin/marketplaces/new': typeof AdminMarketplacesNewLazyRoute
   '/admin/repositories/new': typeof AdminRepositoriesNewLazyRoute
   '/admin/teams/new': typeof AdminTeamsNewLazyRoute
-  '/admin/triggers/new': typeof AdminTriggersNewLazyRoute
   '/admin/users/$login': typeof AdminUsersLoginLazyRoute
+  '/admin/triggers': typeof AdminTriggersIndexRoute
   '/tasks/$task-id': typeof TasksTaskIdIndexRoute
+  '/admin/loops': typeof AdminLoopsIndexLazyRoute
   '/admin/marketplaces': typeof AdminMarketplacesIndexLazyRoute
   '/admin/repositories': typeof AdminRepositoriesIndexLazyRoute
   '/admin/secrets': typeof AdminSecretsIndexLazyRoute
   '/admin/task-connections': typeof AdminTaskConnectionsIndexLazyRoute
   '/admin/teams': typeof AdminTeamsIndexLazyRoute
-  '/admin/triggers': typeof AdminTriggersIndexLazyRoute
   '/admin/users': typeof AdminUsersIndexLazyRoute
   '/admin/workspaces': typeof AdminWorkspacesIndexLazyRoute
   '/sandbox/$task-id': typeof SandboxTaskIdIndexLazyRoute
-  '/admin/triggers/$trigger-id/edit': typeof AdminTriggersTriggerIdEditLazyRoute
+  '/admin/triggers/$trigger-id/edit': typeof AdminTriggersTriggerIdEditRoute
+  '/admin/loops/$loop-id/edit': typeof AdminLoopsLoopIdEditLazyRoute
+  '/admin/triggers/$trigger-id': typeof AdminTriggersTriggerIdIndexRoute
   '/admin/integrations/connections': typeof AdminIntegrationsConnectionsIndexLazyRoute
+  '/admin/loops/$loop-id': typeof AdminLoopsLoopIdIndexLazyRoute
   '/admin/marketplaces/$marketplace-id': typeof AdminMarketplacesMarketplaceIdIndexLazyRoute
   '/admin/repositories/$repositoryId': typeof AdminRepositoriesRepositoryIdIndexLazyRoute
   '/admin/teams/$teamId': typeof AdminTeamsTeamIdIndexLazyRoute
-  '/admin/triggers/$trigger-id': typeof AdminTriggersTriggerIdIndexLazyRoute
   '/admin/workspaces/$workspaceId': typeof AdminWorkspacesWorkspaceIdIndexLazyRoute
   '/admin/integrations/connections/$connection-id': typeof AdminIntegrationsConnectionsConnectionIdIndexLazyRoute
 }
@@ -508,41 +536,45 @@ export interface FileRoutesById {
   '/sandbox': typeof SandboxLazyRouteWithChildren
   '/secrets': typeof SecretsLazyRoute
   '/auth/callback': typeof AuthCallbackRoute
+  '/admin/loops': typeof AdminLoopsLazyRouteWithChildren
   '/admin/marketplaces': typeof AdminMarketplacesLazyRouteWithChildren
   '/admin/repositories': typeof AdminRepositoriesLazyRouteWithChildren
   '/admin/teams': typeof AdminTeamsLazyRouteWithChildren
-  '/admin/triggers': typeof AdminTriggersLazyRouteWithChildren
   '/admin/users': typeof AdminUsersLazyRouteWithChildren
   '/admin/workspaces': typeof AdminWorkspacesLazyRouteWithChildren
   '/admin/': typeof AdminIndexRoute
   '/tasks/': typeof TasksIndexRoute
   '/sandbox/': typeof SandboxIndexLazyRoute
+  '/admin/triggers/new': typeof AdminTriggersNewRoute
   '/oauth/github/callback': typeof OauthGithubCallbackRoute
   '/tasks/$task-id/file': typeof TasksTaskIdFileRoute
   '/tasks/$task-id/kiosk': typeof TasksTaskIdKioskRoute
   '/admin/integrations/connections': typeof AdminIntegrationsConnectionsLazyRouteWithChildren
   '/admin/integrations/github': typeof AdminIntegrationsGithubLazyRoute
+  '/admin/loops/new': typeof AdminLoopsNewLazyRoute
   '/admin/marketplaces/new': typeof AdminMarketplacesNewLazyRoute
   '/admin/repositories/new': typeof AdminRepositoriesNewLazyRoute
   '/admin/teams/new': typeof AdminTeamsNewLazyRoute
-  '/admin/triggers/new': typeof AdminTriggersNewLazyRoute
   '/admin/users/$login': typeof AdminUsersLoginLazyRoute
+  '/admin/triggers/': typeof AdminTriggersIndexRoute
   '/tasks/$task-id/': typeof TasksTaskIdIndexRoute
+  '/admin/loops/': typeof AdminLoopsIndexLazyRoute
   '/admin/marketplaces/': typeof AdminMarketplacesIndexLazyRoute
   '/admin/repositories/': typeof AdminRepositoriesIndexLazyRoute
   '/admin/secrets/': typeof AdminSecretsIndexLazyRoute
   '/admin/task-connections/': typeof AdminTaskConnectionsIndexLazyRoute
   '/admin/teams/': typeof AdminTeamsIndexLazyRoute
-  '/admin/triggers/': typeof AdminTriggersIndexLazyRoute
   '/admin/users/': typeof AdminUsersIndexLazyRoute
   '/admin/workspaces/': typeof AdminWorkspacesIndexLazyRoute
   '/sandbox/$task-id/': typeof SandboxTaskIdIndexLazyRoute
-  '/admin/triggers/$trigger-id/edit': typeof AdminTriggersTriggerIdEditLazyRoute
+  '/admin/triggers/$trigger-id/edit': typeof AdminTriggersTriggerIdEditRoute
+  '/admin/loops/$loop-id/edit': typeof AdminLoopsLoopIdEditLazyRoute
+  '/admin/triggers/$trigger-id/': typeof AdminTriggersTriggerIdIndexRoute
   '/admin/integrations/connections/': typeof AdminIntegrationsConnectionsIndexLazyRoute
+  '/admin/loops/$loop-id/': typeof AdminLoopsLoopIdIndexLazyRoute
   '/admin/marketplaces/$marketplace-id/': typeof AdminMarketplacesMarketplaceIdIndexLazyRoute
   '/admin/repositories/$repositoryId/': typeof AdminRepositoriesRepositoryIdIndexLazyRoute
   '/admin/teams/$teamId/': typeof AdminTeamsTeamIdIndexLazyRoute
-  '/admin/triggers/$trigger-id/': typeof AdminTriggersTriggerIdIndexLazyRoute
   '/admin/workspaces/$workspaceId/': typeof AdminWorkspacesWorkspaceIdIndexLazyRoute
   '/admin/integrations/connections/$connection-id/': typeof AdminIntegrationsConnectionsConnectionIdIndexLazyRoute
 }
@@ -558,41 +590,45 @@ export interface FileRouteTypes {
     | '/sandbox'
     | '/secrets'
     | '/auth/callback'
+    | '/admin/loops'
     | '/admin/marketplaces'
     | '/admin/repositories'
     | '/admin/teams'
-    | '/admin/triggers'
     | '/admin/users'
     | '/admin/workspaces'
     | '/admin/'
     | '/tasks/'
     | '/sandbox/'
+    | '/admin/triggers/new'
     | '/oauth/github/callback'
     | '/tasks/$task-id/file'
     | '/tasks/$task-id/kiosk'
     | '/admin/integrations/connections'
     | '/admin/integrations/github'
+    | '/admin/loops/new'
     | '/admin/marketplaces/new'
     | '/admin/repositories/new'
     | '/admin/teams/new'
-    | '/admin/triggers/new'
     | '/admin/users/$login'
+    | '/admin/triggers'
     | '/tasks/$task-id'
+    | '/admin/loops/'
     | '/admin/marketplaces/'
     | '/admin/repositories/'
     | '/admin/secrets'
     | '/admin/task-connections'
     | '/admin/teams/'
-    | '/admin/triggers/'
     | '/admin/users/'
     | '/admin/workspaces/'
     | '/sandbox/$task-id'
     | '/admin/triggers/$trigger-id/edit'
+    | '/admin/loops/$loop-id/edit'
+    | '/admin/triggers/$trigger-id'
     | '/admin/integrations/connections/'
+    | '/admin/loops/$loop-id'
     | '/admin/marketplaces/$marketplace-id'
     | '/admin/repositories/$repositoryId'
     | '/admin/teams/$teamId'
-    | '/admin/triggers/$trigger-id'
     | '/admin/workspaces/$workspaceId'
     | '/admin/integrations/connections/$connection-id'
   fileRoutesByTo: FileRoutesByTo
@@ -606,31 +642,35 @@ export interface FileRouteTypes {
     | '/admin'
     | '/tasks'
     | '/sandbox'
+    | '/admin/triggers/new'
     | '/oauth/github/callback'
     | '/tasks/$task-id/file'
     | '/tasks/$task-id/kiosk'
     | '/admin/integrations/github'
+    | '/admin/loops/new'
     | '/admin/marketplaces/new'
     | '/admin/repositories/new'
     | '/admin/teams/new'
-    | '/admin/triggers/new'
     | '/admin/users/$login'
+    | '/admin/triggers'
     | '/tasks/$task-id'
+    | '/admin/loops'
     | '/admin/marketplaces'
     | '/admin/repositories'
     | '/admin/secrets'
     | '/admin/task-connections'
     | '/admin/teams'
-    | '/admin/triggers'
     | '/admin/users'
     | '/admin/workspaces'
     | '/sandbox/$task-id'
     | '/admin/triggers/$trigger-id/edit'
+    | '/admin/loops/$loop-id/edit'
+    | '/admin/triggers/$trigger-id'
     | '/admin/integrations/connections'
+    | '/admin/loops/$loop-id'
     | '/admin/marketplaces/$marketplace-id'
     | '/admin/repositories/$repositoryId'
     | '/admin/teams/$teamId'
-    | '/admin/triggers/$trigger-id'
     | '/admin/workspaces/$workspaceId'
     | '/admin/integrations/connections/$connection-id'
   id:
@@ -644,41 +684,45 @@ export interface FileRouteTypes {
     | '/sandbox'
     | '/secrets'
     | '/auth/callback'
+    | '/admin/loops'
     | '/admin/marketplaces'
     | '/admin/repositories'
     | '/admin/teams'
-    | '/admin/triggers'
     | '/admin/users'
     | '/admin/workspaces'
     | '/admin/'
     | '/tasks/'
     | '/sandbox/'
+    | '/admin/triggers/new'
     | '/oauth/github/callback'
     | '/tasks/$task-id/file'
     | '/tasks/$task-id/kiosk'
     | '/admin/integrations/connections'
     | '/admin/integrations/github'
+    | '/admin/loops/new'
     | '/admin/marketplaces/new'
     | '/admin/repositories/new'
     | '/admin/teams/new'
-    | '/admin/triggers/new'
     | '/admin/users/$login'
+    | '/admin/triggers/'
     | '/tasks/$task-id/'
+    | '/admin/loops/'
     | '/admin/marketplaces/'
     | '/admin/repositories/'
     | '/admin/secrets/'
     | '/admin/task-connections/'
     | '/admin/teams/'
-    | '/admin/triggers/'
     | '/admin/users/'
     | '/admin/workspaces/'
     | '/sandbox/$task-id/'
     | '/admin/triggers/$trigger-id/edit'
+    | '/admin/loops/$loop-id/edit'
+    | '/admin/triggers/$trigger-id/'
     | '/admin/integrations/connections/'
+    | '/admin/loops/$loop-id/'
     | '/admin/marketplaces/$marketplace-id/'
     | '/admin/repositories/$repositoryId/'
     | '/admin/teams/$teamId/'
-    | '/admin/triggers/$trigger-id/'
     | '/admin/workspaces/$workspaceId/'
     | '/admin/integrations/connections/$connection-id/'
   fileRoutesById: FileRoutesById
@@ -789,13 +833,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminUsersLazyRouteImport
       parentRoute: typeof AdminRoute
     }
-    '/admin/triggers': {
-      id: '/admin/triggers'
-      path: '/triggers'
-      fullPath: '/admin/triggers'
-      preLoaderRoute: typeof AdminTriggersLazyRouteImport
-      parentRoute: typeof AdminRoute
-    }
     '/admin/teams': {
       id: '/admin/teams'
       path: '/teams'
@@ -815,6 +852,13 @@ declare module '@tanstack/react-router' {
       path: '/marketplaces'
       fullPath: '/admin/marketplaces'
       preLoaderRoute: typeof AdminMarketplacesLazyRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/loops': {
+      id: '/admin/loops'
+      path: '/loops'
+      fullPath: '/admin/loops'
+      preLoaderRoute: typeof AdminLoopsLazyRouteImport
       parentRoute: typeof AdminRoute
     }
     '/auth/callback': {
@@ -844,13 +888,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/admin/users/'
       preLoaderRoute: typeof AdminUsersIndexLazyRouteImport
       parentRoute: typeof AdminUsersLazyRoute
-    }
-    '/admin/triggers/': {
-      id: '/admin/triggers/'
-      path: '/'
-      fullPath: '/admin/triggers/'
-      preLoaderRoute: typeof AdminTriggersIndexLazyRouteImport
-      parentRoute: typeof AdminTriggersLazyRoute
     }
     '/admin/teams/': {
       id: '/admin/teams/'
@@ -887,6 +924,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminMarketplacesIndexLazyRouteImport
       parentRoute: typeof AdminMarketplacesLazyRoute
     }
+    '/admin/loops/': {
+      id: '/admin/loops/'
+      path: '/'
+      fullPath: '/admin/loops/'
+      preLoaderRoute: typeof AdminLoopsIndexLazyRouteImport
+      parentRoute: typeof AdminLoopsLazyRoute
+    }
     '/tasks/$task-id/': {
       id: '/tasks/$task-id/'
       path: '/$task-id'
@@ -894,19 +938,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TasksTaskIdIndexRouteImport
       parentRoute: typeof TasksRoute
     }
+    '/admin/triggers/': {
+      id: '/admin/triggers/'
+      path: '/triggers'
+      fullPath: '/admin/triggers'
+      preLoaderRoute: typeof AdminTriggersIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/users/$login': {
       id: '/admin/users/$login'
       path: '/$login'
       fullPath: '/admin/users/$login'
       preLoaderRoute: typeof AdminUsersLoginLazyRouteImport
       parentRoute: typeof AdminUsersLazyRoute
-    }
-    '/admin/triggers/new': {
-      id: '/admin/triggers/new'
-      path: '/new'
-      fullPath: '/admin/triggers/new'
-      preLoaderRoute: typeof AdminTriggersNewLazyRouteImport
-      parentRoute: typeof AdminTriggersLazyRoute
     }
     '/admin/teams/new': {
       id: '/admin/teams/new'
@@ -928,6 +972,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/admin/marketplaces/new'
       preLoaderRoute: typeof AdminMarketplacesNewLazyRouteImport
       parentRoute: typeof AdminMarketplacesLazyRoute
+    }
+    '/admin/loops/new': {
+      id: '/admin/loops/new'
+      path: '/new'
+      fullPath: '/admin/loops/new'
+      preLoaderRoute: typeof AdminLoopsNewLazyRouteImport
+      parentRoute: typeof AdminLoopsLazyRoute
     }
     '/admin/integrations/github': {
       id: '/admin/integrations/github'
@@ -964,19 +1015,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OauthGithubCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/triggers/new': {
+      id: '/admin/triggers/new'
+      path: '/triggers/new'
+      fullPath: '/admin/triggers/new'
+      preLoaderRoute: typeof AdminTriggersNewRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/workspaces/$workspaceId/': {
       id: '/admin/workspaces/$workspaceId/'
       path: '/$workspaceId'
       fullPath: '/admin/workspaces/$workspaceId'
       preLoaderRoute: typeof AdminWorkspacesWorkspaceIdIndexLazyRouteImport
       parentRoute: typeof AdminWorkspacesLazyRoute
-    }
-    '/admin/triggers/$trigger-id/': {
-      id: '/admin/triggers/$trigger-id/'
-      path: '/$trigger-id'
-      fullPath: '/admin/triggers/$trigger-id'
-      preLoaderRoute: typeof AdminTriggersTriggerIdIndexLazyRouteImport
-      parentRoute: typeof AdminTriggersLazyRoute
     }
     '/admin/teams/$teamId/': {
       id: '/admin/teams/$teamId/'
@@ -999,6 +1050,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminMarketplacesMarketplaceIdIndexLazyRouteImport
       parentRoute: typeof AdminMarketplacesLazyRoute
     }
+    '/admin/loops/$loop-id/': {
+      id: '/admin/loops/$loop-id/'
+      path: '/$loop-id'
+      fullPath: '/admin/loops/$loop-id'
+      preLoaderRoute: typeof AdminLoopsLoopIdIndexLazyRouteImport
+      parentRoute: typeof AdminLoopsLazyRoute
+    }
     '/admin/integrations/connections/': {
       id: '/admin/integrations/connections/'
       path: '/'
@@ -1006,12 +1064,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminIntegrationsConnectionsIndexLazyRouteImport
       parentRoute: typeof AdminIntegrationsConnectionsLazyRoute
     }
+    '/admin/triggers/$trigger-id/': {
+      id: '/admin/triggers/$trigger-id/'
+      path: '/triggers/$trigger-id'
+      fullPath: '/admin/triggers/$trigger-id'
+      preLoaderRoute: typeof AdminTriggersTriggerIdIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/loops/$loop-id/edit': {
+      id: '/admin/loops/$loop-id/edit'
+      path: '/$loop-id/edit'
+      fullPath: '/admin/loops/$loop-id/edit'
+      preLoaderRoute: typeof AdminLoopsLoopIdEditLazyRouteImport
+      parentRoute: typeof AdminLoopsLazyRoute
+    }
     '/admin/triggers/$trigger-id/edit': {
       id: '/admin/triggers/$trigger-id/edit'
-      path: '/$trigger-id/edit'
+      path: '/triggers/$trigger-id/edit'
       fullPath: '/admin/triggers/$trigger-id/edit'
-      preLoaderRoute: typeof AdminTriggersTriggerIdEditLazyRouteImport
-      parentRoute: typeof AdminTriggersLazyRoute
+      preLoaderRoute: typeof AdminTriggersTriggerIdEditRouteImport
+      parentRoute: typeof AdminRoute
     }
     '/admin/integrations/connections/$connection-id/': {
       id: '/admin/integrations/connections/$connection-id/'
@@ -1022,6 +1094,24 @@ declare module '@tanstack/react-router' {
     }
   }
 }
+
+interface AdminLoopsLazyRouteChildren {
+  AdminLoopsNewLazyRoute: typeof AdminLoopsNewLazyRoute
+  AdminLoopsIndexLazyRoute: typeof AdminLoopsIndexLazyRoute
+  AdminLoopsLoopIdEditLazyRoute: typeof AdminLoopsLoopIdEditLazyRoute
+  AdminLoopsLoopIdIndexLazyRoute: typeof AdminLoopsLoopIdIndexLazyRoute
+}
+
+const AdminLoopsLazyRouteChildren: AdminLoopsLazyRouteChildren = {
+  AdminLoopsNewLazyRoute: AdminLoopsNewLazyRoute,
+  AdminLoopsIndexLazyRoute: AdminLoopsIndexLazyRoute,
+  AdminLoopsLoopIdEditLazyRoute: AdminLoopsLoopIdEditLazyRoute,
+  AdminLoopsLoopIdIndexLazyRoute: AdminLoopsLoopIdIndexLazyRoute,
+}
+
+const AdminLoopsLazyRouteWithChildren = AdminLoopsLazyRoute._addFileChildren(
+  AdminLoopsLazyRouteChildren,
+)
 
 interface AdminMarketplacesLazyRouteChildren {
   AdminMarketplacesNewLazyRoute: typeof AdminMarketplacesNewLazyRoute
@@ -1075,23 +1165,6 @@ const AdminTeamsLazyRouteWithChildren = AdminTeamsLazyRoute._addFileChildren(
   AdminTeamsLazyRouteChildren,
 )
 
-interface AdminTriggersLazyRouteChildren {
-  AdminTriggersNewLazyRoute: typeof AdminTriggersNewLazyRoute
-  AdminTriggersIndexLazyRoute: typeof AdminTriggersIndexLazyRoute
-  AdminTriggersTriggerIdEditLazyRoute: typeof AdminTriggersTriggerIdEditLazyRoute
-  AdminTriggersTriggerIdIndexLazyRoute: typeof AdminTriggersTriggerIdIndexLazyRoute
-}
-
-const AdminTriggersLazyRouteChildren: AdminTriggersLazyRouteChildren = {
-  AdminTriggersNewLazyRoute: AdminTriggersNewLazyRoute,
-  AdminTriggersIndexLazyRoute: AdminTriggersIndexLazyRoute,
-  AdminTriggersTriggerIdEditLazyRoute: AdminTriggersTriggerIdEditLazyRoute,
-  AdminTriggersTriggerIdIndexLazyRoute: AdminTriggersTriggerIdIndexLazyRoute,
-}
-
-const AdminTriggersLazyRouteWithChildren =
-  AdminTriggersLazyRoute._addFileChildren(AdminTriggersLazyRouteChildren)
-
 interface AdminUsersLazyRouteChildren {
   AdminUsersLoginLazyRoute: typeof AdminUsersLoginLazyRoute
   AdminUsersIndexLazyRoute: typeof AdminUsersIndexLazyRoute
@@ -1139,32 +1212,40 @@ const AdminIntegrationsConnectionsLazyRouteWithChildren =
   )
 
 interface AdminRouteChildren {
+  AdminLoopsLazyRoute: typeof AdminLoopsLazyRouteWithChildren
   AdminMarketplacesLazyRoute: typeof AdminMarketplacesLazyRouteWithChildren
   AdminRepositoriesLazyRoute: typeof AdminRepositoriesLazyRouteWithChildren
   AdminTeamsLazyRoute: typeof AdminTeamsLazyRouteWithChildren
-  AdminTriggersLazyRoute: typeof AdminTriggersLazyRouteWithChildren
   AdminUsersLazyRoute: typeof AdminUsersLazyRouteWithChildren
   AdminWorkspacesLazyRoute: typeof AdminWorkspacesLazyRouteWithChildren
   AdminIndexRoute: typeof AdminIndexRoute
+  AdminTriggersNewRoute: typeof AdminTriggersNewRoute
   AdminIntegrationsConnectionsLazyRoute: typeof AdminIntegrationsConnectionsLazyRouteWithChildren
   AdminIntegrationsGithubLazyRoute: typeof AdminIntegrationsGithubLazyRoute
+  AdminTriggersIndexRoute: typeof AdminTriggersIndexRoute
   AdminSecretsIndexLazyRoute: typeof AdminSecretsIndexLazyRoute
   AdminTaskConnectionsIndexLazyRoute: typeof AdminTaskConnectionsIndexLazyRoute
+  AdminTriggersTriggerIdEditRoute: typeof AdminTriggersTriggerIdEditRoute
+  AdminTriggersTriggerIdIndexRoute: typeof AdminTriggersTriggerIdIndexRoute
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
+  AdminLoopsLazyRoute: AdminLoopsLazyRouteWithChildren,
   AdminMarketplacesLazyRoute: AdminMarketplacesLazyRouteWithChildren,
   AdminRepositoriesLazyRoute: AdminRepositoriesLazyRouteWithChildren,
   AdminTeamsLazyRoute: AdminTeamsLazyRouteWithChildren,
-  AdminTriggersLazyRoute: AdminTriggersLazyRouteWithChildren,
   AdminUsersLazyRoute: AdminUsersLazyRouteWithChildren,
   AdminWorkspacesLazyRoute: AdminWorkspacesLazyRouteWithChildren,
   AdminIndexRoute: AdminIndexRoute,
+  AdminTriggersNewRoute: AdminTriggersNewRoute,
   AdminIntegrationsConnectionsLazyRoute:
     AdminIntegrationsConnectionsLazyRouteWithChildren,
   AdminIntegrationsGithubLazyRoute: AdminIntegrationsGithubLazyRoute,
+  AdminTriggersIndexRoute: AdminTriggersIndexRoute,
   AdminSecretsIndexLazyRoute: AdminSecretsIndexLazyRoute,
   AdminTaskConnectionsIndexLazyRoute: AdminTaskConnectionsIndexLazyRoute,
+  AdminTriggersTriggerIdEditRoute: AdminTriggersTriggerIdEditRoute,
+  AdminTriggersTriggerIdIndexRoute: AdminTriggersTriggerIdIndexRoute,
 }
 
 const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)

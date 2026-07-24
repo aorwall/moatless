@@ -157,7 +157,7 @@ export function useSyncRepositoryConfig(
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.repositories.all() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.all() }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.triggers.all() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.loops.all() }),
       ])
       await options?.onSuccess?.(data, repoId, onMutateResult, mutationContext)
     },

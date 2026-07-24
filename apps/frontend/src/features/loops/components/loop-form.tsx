@@ -11,11 +11,16 @@ import { Loader2 } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import {
-  useCreateTrigger,
   useIntegrationAdapters,
   useIntegrationConnections,
-  useUpdateTrigger,
 } from '@/features/integrations/hooks/use-integrations'
+import { useCreateLoop, useUpdateLoop } from '@/features/loops/hooks/use-loops'
+import {
+  getAdapterLabel,
+  isAdapterEventSource,
+  isScheduleSource,
+  type LoopSource,
+} from '@/features/loops/utils/loop-display'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { Button } from '@/lib/components/ui/button'
 import { Input } from '@/lib/components/ui/input'
@@ -32,15 +37,14 @@ import { Textarea } from '@/lib/components/ui/textarea'
 import { getErrorMessage } from '@/lib/utils/error'
 
 type JsonObject = Record<string, unknown>
-type TriggerSource = Loop['source']
 
-interface TriggerFormProps {
-  trigger?: Loop | null
+interface LoopFormProps {
+  loop?: Loop | null
   onSuccess?: () => void
   onCancel?: () => void
 }
 
-interface TriggerFormState {
+interface LoopFormState {
   kind: LoopKind
   name: string
   active: boolean
@@ -65,21 +69,9 @@ interface TriggerFormState {
   messageTemplate: string
 }
 
-const ADAPTER_LABELS: Record<string, string> = {
-  slack: 'Slack',
-  telegram: 'Telegram',
-  github: 'GitHub',
-  linear: 'Linear',
-  webhook: 'Webhook',
-}
-
 const ROUTING_MODE_LABELS: Record<string, string> = {
   by_subject: 'By Subject',
   ongoing: 'Ongoing',
-}
-
-function getAdapterLabel(adapter: string): string {
-  return ADAPTER_LABELS[adapter] ?? adapter
 }
 
 function getRoutingModeLabel(mode: string): string {
@@ -109,18 +101,6 @@ function stringifyJsonObject(value: JsonObject | null | undefined): string {
   return JSON.stringify(value ?? {}, null, 2)
 }
 
-function isAdapterEventSource(
-  source: TriggerSource,
-): source is Extract<TriggerSource, { adapterKind: AdapterKind }> {
-  return 'adapterKind' in source
-}
-
-function isScheduleSource(
-  source: TriggerSource,
-): source is Extract<TriggerSource, { cronExpression: string }> {
-  return 'cronExpression' in source
-}
-
 function parseTags(value: string): string[] {
   return value
     .split(',')
@@ -148,7 +128,7 @@ function makeRuleFields(rule: Loop['rule'] | undefined) {
   }
 }
 
-function makeAdapterFields(source: TriggerSource | undefined, adapters: string[]) {
+function makeAdapterFields(source: LoopSource | undefined, adapters: string[]) {
   const adapterSource = source && isAdapterEventSource(source) ? source : null
 
   return {
@@ -164,7 +144,7 @@ function makeAdapterFields(source: TriggerSource | undefined, adapters: string[]
   }
 }
 
-function makeScheduleFields(source: TriggerSource | undefined) {
+function makeScheduleFields(source: LoopSource | undefined) {
   const scheduleSource = source && isScheduleSource(source) ? source : null
 
   return {
@@ -174,18 +154,18 @@ function makeScheduleFields(source: TriggerSource | undefined) {
   }
 }
 
-function makeInitialForm(trigger: Loop | null | undefined, adapters: string[]): TriggerFormState {
+function makeInitialForm(loop: Loop | null | undefined, adapters: string[]): LoopFormState {
   return {
-    kind: trigger?.kind ?? LoopKind.adapter_event,
-    name: trigger?.name ?? '',
-    active: trigger?.active ?? true,
-    ...makeRuleFields(trigger?.rule),
-    ...makeAdapterFields(trigger?.source, adapters),
-    ...makeScheduleFields(trigger?.source),
+    kind: loop?.kind ?? LoopKind.adapter_event,
+    name: loop?.name ?? '',
+    active: loop?.active ?? true,
+    ...makeRuleFields(loop?.rule),
+    ...makeAdapterFields(loop?.source, adapters),
+    ...makeScheduleFields(loop?.source),
   }
 }
 
-function validateForm(form: TriggerFormState): string | null {
+function validateForm(form: LoopFormState): string | null {
   if (!form.repositoryId) {
     return 'Select a repository'
   }
@@ -208,7 +188,7 @@ function validateForm(form: TriggerFormState): string | null {
   return null
 }
 
-function buildRule(form: TriggerFormState): CreateLoopRequest['rule'] {
+function buildRule(form: LoopFormState): CreateLoopRequest['rule'] {
   return {
     repositoryId: form.repositoryId,
     routingMode: form.routingMode,
@@ -220,9 +200,7 @@ function buildRule(form: TriggerFormState): CreateLoopRequest['rule'] {
   }
 }
 
-function buildAdapterUpdateSource(
-  form: TriggerFormState,
-): NonNullable<UpdateLoopRequest['source']> {
+function buildAdapterUpdateSource(form: LoopFormState): NonNullable<UpdateLoopRequest['source']> {
   return {
     connectionId: form.connectionId,
     sourceMatcher: form.sourceMatcher.trim(),
@@ -235,16 +213,14 @@ function buildAdapterUpdateSource(
   }
 }
 
-function buildAdapterCreateSource(form: TriggerFormState): CreateLoopRequest['source'] {
+function buildAdapterCreateSource(form: LoopFormState): CreateLoopRequest['source'] {
   return {
     adapterKind: form.adapter,
     ...buildAdapterUpdateSource(form),
   }
 }
 
-function buildScheduleUpdateSource(
-  form: TriggerFormState,
-): NonNullable<UpdateLoopRequest['source']> {
+function buildScheduleUpdateSource(form: LoopFormState): NonNullable<UpdateLoopRequest['source']> {
   return {
     cronExpression: form.cronExpression.trim(),
     timezone: form.timezone.trim() || 'UTC',
@@ -252,13 +228,13 @@ function buildScheduleUpdateSource(
   }
 }
 
-function buildUpdateSource(form: TriggerFormState): NonNullable<UpdateLoopRequest['source']> {
+function buildUpdateSource(form: LoopFormState): NonNullable<UpdateLoopRequest['source']> {
   return form.kind === LoopKind.adapter_event
     ? buildAdapterUpdateSource(form)
     : buildScheduleUpdateSource(form)
 }
 
-function buildCreateSource(form: TriggerFormState): CreateLoopRequest['source'] {
+function buildCreateSource(form: LoopFormState): CreateLoopRequest['source'] {
   return form.kind === LoopKind.adapter_event
     ? buildAdapterCreateSource(form)
     : {
@@ -268,7 +244,7 @@ function buildCreateSource(form: TriggerFormState): CreateLoopRequest['source'] 
       }
 }
 
-export function TaskTriggerForm(props: TriggerFormProps) {
+export function LoopForm(props: LoopFormProps) {
   const { data: adapters, isLoading, error } = useIntegrationAdapters()
 
   if (isLoading) {
@@ -288,29 +264,29 @@ export function TaskTriggerForm(props: TriggerFormProps) {
   }
 
   return (
-    <TaskTriggerFormFields
-      key={`${props.trigger?.id ?? 'new'}:${adapters.join(',')}`}
+    <LoopFormFields
+      key={`${props.loop?.id ?? 'new'}:${adapters.join(',')}`}
       {...props}
       adapters={adapters}
     />
   )
 }
 
-function TaskTriggerFormFields({
-  trigger,
+function LoopFormFields({
+  loop,
   onSuccess,
   onCancel,
   adapters,
-}: TriggerFormProps & { adapters: string[] }) {
+}: LoopFormProps & { adapters: string[] }) {
   const { data: connections } = useIntegrationConnections()
   const { data: repositories } = useRepositoriesList()
   const adapterItems = adapters
-  const isEditing = !!trigger
-  const createTrigger = useCreateTrigger()
-  const updateTrigger = useUpdateTrigger()
-  const isPending = createTrigger.isPending || updateTrigger.isPending
+  const isEditing = !!loop
+  const createLoop = useCreateLoop()
+  const updateLoop = useUpdateLoop()
+  const isPending = createLoop.isPending || updateLoop.isPending
 
-  const [form, setForm] = useState<TriggerFormState>(() => makeInitialForm(trigger, adapterItems))
+  const [form, setForm] = useState<LoopFormState>(() => makeInitialForm(loop, adapterItems))
 
   const connectionItems = (connections ?? []).filter(
     (connection) => connection.adapterKind === form.adapter,
@@ -326,9 +302,9 @@ function TaskTriggerFormFields({
     try {
       const name = form.name.trim() || null
 
-      if (isEditing && trigger) {
-        await updateTrigger.mutateAsync({
-          id: trigger.id,
+      if (isEditing && loop) {
+        await updateLoop.mutateAsync({
+          id: loop.id,
           request: {
             name,
             active: form.active,
@@ -336,20 +312,20 @@ function TaskTriggerFormFields({
             source: buildUpdateSource(form),
           },
         })
-        toast.success('Trigger updated')
+        toast.success('Loop updated')
       } else {
-        await createTrigger.mutateAsync({
+        await createLoop.mutateAsync({
           name,
           kind: form.kind,
           active: form.active,
           rule: buildRule(form),
           source: buildCreateSource(form),
         })
-        toast.success('Trigger created')
+        toast.success('Loop created')
       }
       onSuccess?.()
     } catch (error) {
-      toast.error(isEditing ? 'Failed to update trigger' : 'Failed to create trigger', {
+      toast.error(isEditing ? 'Failed to update loop' : 'Failed to create loop', {
         description: getErrorMessage(error),
       })
     }
@@ -377,7 +353,7 @@ function TaskTriggerFormFields({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={LoopKind.adapter_event}>Adapter Event</SelectItem>
+              <SelectItem value={LoopKind.adapter_event}>Subscription</SelectItem>
               <SelectItem value={LoopKind.schedule}>Schedule</SelectItem>
             </SelectContent>
           </Select>

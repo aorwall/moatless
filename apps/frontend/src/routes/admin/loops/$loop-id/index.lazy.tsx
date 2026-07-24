@@ -3,19 +3,19 @@ import { createLazyFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { Loader2, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
+import { useIntegrationConnections } from '@/features/integrations/hooks/use-integrations'
 import {
-  useDeleteTrigger,
-  useIntegrationConnections,
-  useTrigger,
-  useTriggerRecentTasks,
-  useUpdateTrigger,
-} from '@/features/integrations/hooks/use-integrations'
+  useDeleteLoop,
+  useLoop,
+  useLoopRecentTasks,
+  useUpdateLoop,
+} from '@/features/loops/hooks/use-loops'
 import {
   getAdapterLabel,
   getSourceLabel,
   isAdapterEventSource,
   isScheduleSource,
-} from '@/features/integrations/utils/trigger-display'
+} from '@/features/loops/utils/loop-display'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -53,18 +53,18 @@ function formatTimestamp(value: string | null | undefined): string {
   return date.toLocaleString()
 }
 
-export const Route = createLazyFileRoute('/admin/triggers/$trigger-id/')({
-  component: TriggerDetailPage,
+export const Route = createLazyFileRoute('/admin/loops/$loop-id/')({
+  component: LoopDetailPage,
 })
 
 function SourceInfoSection({
-  trigger,
+  loop,
   connection,
 }: {
-  trigger: Loop
+  loop: Loop
   connection: AdapterConnectionResponse | undefined
 }) {
-  const source = trigger.source
+  const source = loop.source
 
   return (
     <div className="rounded-md border p-4">
@@ -94,27 +94,27 @@ function SourceInfoSection({
           </div>
         </dl>
       ) : (
-        <p className="text-sm text-muted-foreground">Manual trigger</p>
+        <p className="text-sm text-muted-foreground">Manual loop</p>
       )}
     </div>
   )
 }
 
-function RuleInfoSection({ trigger }: { trigger: Loop }) {
+function RuleInfoSection({ loop }: { loop: Loop }) {
   return (
     <div className="rounded-md border p-4">
       <h2 className="mb-4 text-sm font-semibold">Rule</h2>
       <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <DetailItem label="Repository ID" value={trigger.rule.repositoryId} />
-        <DetailItem label="Routing mode" value={trigger.rule.routingMode} />
-        <DetailItem label="Ongoing task ID" value={trigger.rule.ongoingTaskId ?? '-'} />
-        <DetailItem label="Task name" value={trigger.rule.taskName ?? '-'} />
-        <DetailItem label="Run as user ID" value={trigger.rule.runAsUserId ?? '-'} />
-        <DetailItem label="Agent type" value={trigger.rule.agentType} />
-        <DetailItem label="Tags count" value={String(trigger.rule.tagIds.length)} />
+        <DetailItem label="Repository ID" value={loop.rule.repositoryId} />
+        <DetailItem label="Routing mode" value={loop.rule.routingMode} />
+        <DetailItem label="Ongoing task ID" value={loop.rule.ongoingTaskId ?? '-'} />
+        <DetailItem label="Task name" value={loop.rule.taskName ?? '-'} />
+        <DetailItem label="Run as user ID" value={loop.rule.runAsUserId ?? '-'} />
+        <DetailItem label="Agent type" value={loop.rule.agentType} />
+        <DetailItem label="Tags count" value={String(loop.rule.tagIds.length)} />
         <div className="sm:col-span-2">
           <dt className="text-xs font-medium text-muted-foreground">Prompt</dt>
-          <dd className="mt-1 whitespace-pre-wrap text-sm">{trigger.rule.prompt ?? '-'}</dd>
+          <dd className="mt-1 whitespace-pre-wrap text-sm">{loop.rule.prompt ?? '-'}</dd>
         </div>
       </dl>
     </div>
@@ -161,20 +161,20 @@ function RecentTasksSection({ items }: { items: LoopRecentTaskItem[] }) {
   )
 }
 
-function TriggerDetailPage() {
+function LoopDetailPage() {
   const params = Route.useParams()
-  const triggerId = params['trigger-id']
+  const loopId = params['loop-id']
   const navigate = useNavigate()
-  const { data: trigger, isLoading: triggerLoading } = useTrigger(triggerId)
+  const { data: loop, isLoading: loopLoading } = useLoop(loopId)
   const { data: connections } = useIntegrationConnections()
-  const { data: recentTasks, isLoading: tasksLoading } = useTriggerRecentTasks(triggerId, {
+  const { data: recentTasks, isLoading: tasksLoading } = useLoopRecentTasks(loopId, {
     limit: 10,
   })
-  const updateTrigger = useUpdateTrigger()
-  const deleteTrigger = useDeleteTrigger()
+  const updateLoop = useUpdateLoop()
+  const deleteLoop = useDeleteLoop()
   const [confirmDelete, setConfirmDelete] = useState(false)
 
-  if (triggerLoading) {
+  if (loopLoading) {
     return (
       <div className="flex h-full items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -182,23 +182,21 @@ function TriggerDetailPage() {
     )
   }
 
-  if (!trigger) {
-    return (
-      <DetailNotFound title="Trigger not found" description="This trigger may have been deleted." />
-    )
+  if (!loop) {
+    return <DetailNotFound title="Loop not found" description="This loop may have been deleted." />
   }
 
-  const source = trigger.source
+  const source = loop.source
   const connection = isAdapterEventSource(source)
     ? connections?.find((item) => item.id === source.connectionId)
     : undefined
 
   const handleToggleActive = () => {
-    updateTrigger.mutate(
-      { id: trigger.id, request: { active: !trigger.active } },
+    updateLoop.mutate(
+      { id: loop.id, request: { active: !loop.active } },
       {
         onError: (mutationError) =>
-          toast.error('Failed to update trigger', {
+          toast.error('Failed to update loop', {
             description: getErrorMessage(mutationError),
           }),
       },
@@ -206,14 +204,14 @@ function TriggerDetailPage() {
   }
 
   const handleDelete = () => {
-    deleteTrigger.mutate(trigger.id, {
+    deleteLoop.mutate(loop.id, {
       onSuccess: async () => {
-        toast.success('Trigger deleted')
+        toast.success('Loop deleted')
         setConfirmDelete(false)
-        await navigate({ to: '/admin/triggers' })
+        await navigate({ to: '/admin/loops' })
       },
       onError: (mutationError) => {
-        toast.error('Failed to delete trigger', { description: getErrorMessage(mutationError) })
+        toast.error('Failed to delete loop', { description: getErrorMessage(mutationError) })
       },
     })
   }
@@ -221,26 +219,26 @@ function TriggerDetailPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-6">
       <DetailHeader
-        title={getSourceLabel(trigger)}
-        subtitle={`${trigger.kind} trigger`}
+        title={getSourceLabel(loop)}
+        subtitle={`${loop.kind} loop`}
         badges={
-          <Badge variant={trigger.active ? 'default' : 'secondary'}>
-            {trigger.active ? 'Active' : 'Inactive'}
+          <Badge variant={loop.active ? 'default' : 'secondary'}>
+            {loop.active ? 'Active' : 'Inactive'}
           </Badge>
         }
         actions={
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-2">
               <Switch
-                checked={trigger.active}
+                checked={loop.active}
                 onCheckedChange={handleToggleActive}
-                disabled={updateTrigger.isPending}
+                disabled={updateLoop.isPending}
                 aria-label="Toggle active"
               />
               <span className="text-sm text-muted-foreground">Active</span>
             </div>
             <Button asChild variant="outline">
-              <Link to="/admin/triggers/$trigger-id/edit" params={{ 'trigger-id': trigger.id }}>
+              <Link to="/admin/loops/$loop-id/edit" params={{ 'loop-id': loop.id }}>
                 Edit
               </Link>
             </Button>
@@ -258,16 +256,16 @@ function TriggerDetailPage() {
       />
 
       <div className="rounded-md border p-4">
-        <h2 className="mb-4 text-sm font-semibold">Trigger</h2>
+        <h2 className="mb-4 text-sm font-semibold">Loop</h2>
         <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <DetailItem label="Kind" value={trigger.kind} />
-          <DetailItem label="Name" value={trigger.name ?? '-'} />
-          <DetailItem label="Scope" value={trigger.scope} />
-          <DetailItem label="Created" value={formatTimestamp(trigger.createdAt)} />
+          <DetailItem label="Kind" value={loop.kind} />
+          <DetailItem label="Name" value={loop.name ?? '-'} />
+          <DetailItem label="Scope" value={loop.scope} />
+          <DetailItem label="Created" value={formatTimestamp(loop.createdAt)} />
         </dl>
       </div>
-      <SourceInfoSection trigger={trigger} connection={connection} />
-      <RuleInfoSection trigger={trigger} />
+      <SourceInfoSection loop={loop} connection={connection} />
+      <RuleInfoSection loop={loop} />
       <div className="rounded-md border p-4">
         <h2 className="mb-4 text-sm font-semibold">Recent Tasks</h2>
         {tasksLoading ? (
@@ -282,9 +280,9 @@ function TriggerDetailPage() {
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Trigger</AlertDialogTitle>
+            <AlertDialogTitle>Delete Loop</AlertDialogTitle>
             <AlertDialogDescription>
-              Delete trigger "{getSourceLabel(trigger)}"? This cannot be undone.
+              Delete loop "{getSourceLabel(loop)}"? This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -293,7 +291,7 @@ function TriggerDetailPage() {
               onClick={handleDelete}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {deleteTrigger.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              {deleteLoop.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>

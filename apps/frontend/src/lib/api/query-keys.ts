@@ -107,11 +107,11 @@ export const queryKeys = {
     connectionsList: () => [...queryKeys.integrations.connections(), 'list'] as const,
   },
 
-  triggers: {
-    all: () => [...queryKeys.all, 'triggers'] as const,
-    list: () => [...queryKeys.triggers.all(), 'list'] as const,
-    detail: (id: string) => [...queryKeys.triggers.all(), 'detail', id] as const,
-    recentTasks: (id: string) => [...queryKeys.triggers.detail(id), 'recent-tasks'] as const,
+  loops: {
+    all: () => [...queryKeys.all, 'loops'] as const,
+    list: () => [...queryKeys.loops.all(), 'list'] as const,
+    detail: (id: string) => [...queryKeys.loops.all(), 'detail', id] as const,
+    recentTasks: (id: string) => [...queryKeys.loops.detail(id), 'recent-tasks'] as const,
   },
 
   admin: {
