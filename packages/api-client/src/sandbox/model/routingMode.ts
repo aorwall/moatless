@@ -7,7 +7,7 @@
  */
 
 /**
- * Trigger routing mode for message-to-task mapping.
+ * Loop routing mode for message-to-task mapping.
  */
 export type RoutingMode = typeof RoutingMode[keyof typeof RoutingMode];
 

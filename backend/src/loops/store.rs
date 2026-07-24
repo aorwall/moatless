@@ -853,6 +853,17 @@ impl LoopStore {
             (id, true)
         };
 
+        // `ongoing_task_id` is mutable runtime state (the live task an Ongoing
+        // loop keeps feeding), set by firing rather than the repo declaration.
+        // Preserve it across re-syncs — the old ON CONFLICT DO UPDATE left this
+        // column untouched, so read it back before the delete-then-insert.
+        let ongoing_task_id: Option<String> =
+            sqlx::query_scalar("SELECT ongoing_task_id FROM trigger_rules WHERE trigger_id = $1")
+                .bind(&trigger_id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .flatten();
+
         // Replace the rule + source rows so both the update path and a kind
         // switch (github_pr <-> schedule) reduce to a clean delete-then-insert
         // through the shared helpers.
@@ -875,7 +886,7 @@ impl LoopStore {
             &NewLoopConfig {
                 repository_id: input.source_repository_id.clone(),
                 routing_mode: input.routing_mode,
-                ongoing_task_id: None,
+                ongoing_task_id,
                 prompt: input.prompt.clone(),
                 task_name: None,
                 tag_ids: input.tag_ids.clone(),

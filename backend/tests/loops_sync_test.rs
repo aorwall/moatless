@@ -424,3 +424,54 @@ async fn slack_loop_without_connection_is_skipped(pool: PgPool) {
     .unwrap();
     assert_eq!(count, 0, "no trigger created for skipped loop");
 }
+
+/// Re-syncing a managed loop must not wipe `ongoing_task_id` — that column is
+/// mutable runtime state set by firing, not by the repo declaration. Regression
+/// guard for the delete-then-insert reconcile path in `upsert_managed_loop`.
+#[sqlx::test]
+async fn resync_preserves_ongoing_task_id(pool: PgPool) {
+    let repo = make_repository_row("repo-ongoing", "user-1");
+    seed_team(&pool, "user-1").await;
+    repository_dao::insert(&pool, &repo).await.unwrap();
+    insert_github_connection(&pool, "test").await;
+
+    let state = test_app_state(pool.clone());
+    let auth = auth("user-1");
+
+    // First sync creates the managed loop.
+    let loops = vec![parse_loop(GITHUB_LOOP, "java-review").unwrap()];
+    let summary = sync_loops(&state, &repo, &auth, loops).await.unwrap();
+    assert_eq!(summary.created, 1);
+
+    // Simulate a firing linking an ongoing task to the loop's rule row.
+    let trigger_id: String = sqlx::query_scalar(
+        "SELECT id FROM triggers \
+         WHERE source_repository_id = $1 AND loop_name = 'java-review' AND managed_by = 'repo_loop'",
+    )
+    .bind(&repo.id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE trigger_rules SET ongoing_task_id = 'task-ongoing-1' WHERE trigger_id = $1")
+        .bind(&trigger_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    // Re-sync the same loop; the reconciler must preserve the runtime link.
+    let loops = vec![parse_loop(GITHUB_LOOP, "java-review").unwrap()];
+    let summary = sync_loops(&state, &repo, &auth, loops).await.unwrap();
+    assert_eq!(summary.updated, 1, "loop updated in place");
+
+    let ongoing: Option<String> =
+        sqlx::query_scalar("SELECT ongoing_task_id FROM trigger_rules WHERE trigger_id = $1")
+            .bind(&trigger_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        ongoing.as_deref(),
+        Some("task-ongoing-1"),
+        "re-sync must preserve the ongoing task link"
+    );
+}

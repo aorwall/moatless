@@ -12220,7 +12220,7 @@
       },
       "RoutingMode": {
         "type": "string",
-        "description": "Trigger routing mode for message-to-task mapping.",
+        "description": "Loop routing mode for message-to-task mapping.",
         "enum": [
           "ongoing",
           "by_subject"
