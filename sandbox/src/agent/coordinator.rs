@@ -25,12 +25,20 @@
 //!   invariant — the harness refuses to start fresh; the coordinator decides to,
 //!   explicitly and once.
 //!
-//! What this module deliberately does **not** yet own — those remain on the
-//! legacy actor until it adopts this coordinator (the one migration-compat path,
-//! removed in the final ticket): retry policy, credential recovery, wakeup and
-//! background-watch scheduling, the circuit breaker, and `AgentState` status
-//! transitions. Keeping this seam mapping small and independently tested is the
-//! first, reversible step of that cutover.
+//! The harness-neutral [`Coordinator`] above owns only the seam mapping. The
+//! production lifecycle policy that the legacy actor used to own now lives in
+//! [`CoordinatorService`] (also in this module): transient-error **retry** with
+//! backoff (same Run id), the consecutive-error **circuit breaker**, **wakeup
+//! and background-watch scheduling** (armed from Source blocks at turn end), and
+//! **`AgentState` status transitions**. Both are driven for every AGENT_TYPE pod
+//! by `handle::spawn_agent`; the legacy `actor::agent_loop` remains only for pods
+//! with no `AGENT_TYPE` set — the one migration-compat path, removed in the final
+//! ticket.
+//!
+//! The one lifecycle concern still deferred to the legacy actor is
+//! **credential-recovery retry** (re-authenticating and re-driving after an
+//! auth-class failure); the service refreshes credentials per Turn but does not
+//! yet own that recovery loop.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -50,6 +58,7 @@ use crate::events::GrpcEventPublisher;
 use crate::init::credentials::filter_agent_credentials;
 
 use super::agent_state::AgentState;
+use super::background_watch_job::BackgroundWatchJob;
 use super::handle::{
     resolve_agent_harness,
     retry::{compute_backoff, is_retryable_harness_error, MAX_RETRIES},
@@ -60,6 +69,8 @@ use super::harness::{
     Activity, ErrorClass, Harness, HarnessClosed, HarnessError, Input, InputId, Outcome, Rejection,
     Role, SessionImpact, Signal, SourceEvent,
 };
+use super::scheduled_job::{JobKind, ScheduledJobRegistry};
+use super::wakeup_job::WakeupJob;
 
 /// How often a rate-limited liveness [`Signal::Activity`] is republished. The
 /// reaper's idle floor only needs minute-level granularity against a TTL of tens
@@ -462,6 +473,22 @@ fn new_run_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
+/// Extract a [`WakeupJob`] from a canonical Source block when it is a
+/// `ScheduleWakeup` tool_use. The harness serializes tool_use blocks verbatim as
+/// `{"type":"tool_use","id":..,"name":"ScheduleWakeup","input":{..}}`, so this is
+/// the JSON analog of the legacy `handle::claude::extract_wakeup_job`.
+fn extract_wakeup_from_block(block: &Value) -> Option<WakeupJob> {
+    if block.get("type").and_then(Value::as_str) != Some("tool_use") {
+        return None;
+    }
+    if block.get("name").and_then(Value::as_str) != Some("ScheduleWakeup") {
+        return None;
+    }
+    let id = block.get("id").and_then(Value::as_str)?;
+    let input = block.get("input")?;
+    WakeupJob::from_tool_use(id, input)
+}
+
 /// Wrap one native block into the per-block `agent.message` payload the backend
 /// assembler consumes (ADR-0002): the single-block `content` array plus the
 /// `blockIndex` and `uuid` it merges on, and the `session_id` /
@@ -555,6 +582,15 @@ pub(crate) struct CoordinatorService {
     // ── Circuit breaker ──────────────────────────────────────────────────────
     /// Consecutive terminal failures without a successful idle transition.
     consecutive_errors: u32,
+
+    // ── Scheduled jobs ───────────────────────────────────────────────────────
+    /// Registry the self-scheduling jobs (ScheduleWakeup, background-completion
+    /// watch) register into. Their injector re-enters this service's command
+    /// channel via the pod's `AgentHandle`.
+    scheduled_jobs: Arc<ScheduledJobRegistry>,
+    /// The latest `ScheduleWakeup` tool_use seen in the in-flight Turn's Source
+    /// blocks, armed at turn end (latest-wins). Subprocess mode only.
+    pending_wakeup: Option<WakeupJob>,
 }
 
 impl CoordinatorService {
@@ -565,6 +601,7 @@ impl CoordinatorService {
         credentials: Arc<RwLock<HashMap<String, String>>>,
         backend_client: Arc<dyn BackendClient>,
         system_prompt_cache: Arc<RwLock<Option<String>>>,
+        scheduled_jobs: Arc<ScheduledJobRegistry>,
     ) -> Self {
         Self {
             coordinator,
@@ -582,6 +619,8 @@ impl CoordinatorService {
             retry_attempt: 0,
             retry_at: None,
             consecutive_errors: 0,
+            scheduled_jobs,
+            pending_wakeup: None,
         }
     }
 
@@ -643,6 +682,18 @@ impl CoordinatorService {
                             _ => None,
                         };
 
+                        // Observe `ScheduleWakeup` tool_use in Source blocks and
+                        // buffer it (latest-wins), to be armed at turn end. In
+                        // tmux mode the CLI owns its own wakeup timer, so we never
+                        // buffer one there (mirrors the legacy subprocess-only path).
+                        if !self.config.use_tmux {
+                            if let Signal::Source(ref event) = signal {
+                                if let Some(job) = extract_wakeup_from_block(&event.block) {
+                                    self.pending_wakeup = Some(job);
+                                }
+                            }
+                        }
+
                         // Decide retry BEFORE the coordinator publishes: a
                         // transient failure we will re-drive must suppress the
                         // coordinator's terminal `error` event so the user sees
@@ -676,14 +727,28 @@ impl CoordinatorService {
 
                         if let Some(outcome) = outcome_ref {
                             match outcome {
-                                Outcome::Completed | Outcome::Cancelled => {
+                                Outcome::Completed => {
                                     // Successful completion resets retry and breaker state.
                                     self.retry_attempt = 0;
                                     self.retry_at = None;
                                     self.consecutive_errors = 0;
                                     self.agent_state.set_idle().await;
+                                    // Arm any self-scheduled jobs the completed Turn requested.
+                                    self.arm_scheduled_jobs(&task_id).await;
+                                }
+                                Outcome::Cancelled => {
+                                    self.retry_attempt = 0;
+                                    self.retry_at = None;
+                                    self.consecutive_errors = 0;
+                                    // A cancelled Turn arms nothing; drop any buffered wakeup.
+                                    self.pending_wakeup = None;
+                                    self.agent_state.set_idle().await;
                                 }
                                 Outcome::Failed(err) => {
+                                    // A failed Turn arms no wakeup (matches the legacy
+                                    // "ignore ScheduleWakeup on error" path); a retry
+                                    // re-emits the block if it recurs.
+                                    self.pending_wakeup = None;
                                     // Check whether this is a retryable transient error
                                     // that still has budget remaining — mirroring
                                     // actor.rs:457-499 exactly.
@@ -900,6 +965,8 @@ impl CoordinatorService {
                         Some(AgentCommand::Stop) | None => {
                             info!(task_id = %task_id, "CoordinatorService stopping");
                             self.coordinator.cancel();
+                            self.pending_wakeup = None;
+                            self.scheduled_jobs.cancel_all().await;
                             self.run_cancel.cancel();
                             self.agent_state.set_stopped().await;
                             self.coordinator
@@ -919,6 +986,70 @@ impl CoordinatorService {
         }
 
         info!(task_id = %task_id, "CoordinatorService exited");
+    }
+
+    /// Arm the self-scheduled jobs a just-completed Turn requested: a buffered
+    /// `ScheduleWakeup` (latest-wins) and a background-completion watch when
+    /// long-running processes outlived the Turn. Both register against
+    /// `run_cancel`, so a `Stop` cancels them. Mirrors the legacy actor's
+    /// turn-end arming (subprocess-mode only for the background watch).
+    async fn arm_scheduled_jobs(&mut self, task_id: &str) {
+        let run_id = self.coordinator.current_run_id().to_string();
+
+        // Wakeup: the latest `ScheduleWakeup` in the Turn replaces any prior one.
+        if let Some(job) = self.pending_wakeup.take() {
+            let reason = job.reason().to_string();
+            info!(reason = %reason, wakeup_at = ?job.wakeup_at(), "Scheduling wakeup");
+            self.scheduled_jobs.cancel_by_kind(JobKind::Wakeup).await;
+            let registered = self
+                .scheduled_jobs
+                .register(Box::new(job), self.run_cancel.clone())
+                .await;
+            if registered {
+                self.coordinator
+                    .events
+                    .for_run(&run_id)
+                    .publish_agent_event(
+                        task_id,
+                        AgentSubType::Scheduled,
+                        json!({ "reason": reason }),
+                    )
+                    .await;
+            }
+        }
+
+        // Background-completion watch: subprocess mode only, and never while a
+        // retry is pending (the Turn is not truly done). `arm` reads `/proc`, so
+        // it runs on a blocking thread.
+        if !self.config.use_tmux && self.retry_at.is_none() {
+            let sandbox_pid = std::process::id();
+            let armed = tokio::task::spawn_blocking(move || BackgroundWatchJob::arm(sandbox_pid))
+                .await
+                .ok()
+                .flatten();
+            if let Some(job) = armed {
+                let count = job.process_count();
+                self.scheduled_jobs
+                    .cancel_by_kind(JobKind::BackgroundWatch)
+                    .await;
+                let registered = self
+                    .scheduled_jobs
+                    .register(Box::new(job), self.run_cancel.clone())
+                    .await;
+                if registered {
+                    info!(count, "Armed background-completion watch after turn end");
+                    self.coordinator
+                        .events
+                        .for_run(&run_id)
+                        .publish_agent_event(
+                            task_id,
+                            AgentSubType::Scheduled,
+                            json!({ "reason": "background_watch", "processCount": count }),
+                        )
+                        .await;
+                }
+            }
+        }
     }
 
     /// Build a harness [`Input`] for a single Turn, resolving credentials,

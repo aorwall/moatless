@@ -337,6 +337,7 @@ pub fn spawn_agent(
                     Arc::clone(&credentials),
                     Arc::clone(&backend_client),
                     Arc::clone(&system_prompt_cache),
+                    Arc::clone(&scheduled_jobs),
                 );
                 tokio::spawn(service.run(command_rx, heartbeat));
             }

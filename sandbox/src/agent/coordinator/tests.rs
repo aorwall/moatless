@@ -527,6 +527,7 @@ use tokio::sync::{mpsc, RwLock};
 use crate::agent::agent_state::AgentState;
 use crate::agent::handle::AgentCommand;
 use crate::agent::heartbeat::Heartbeat;
+use crate::agent::scheduled_job::{JobInjector, LateInjector, ScheduledJobRegistry};
 use crate::config::{test_support::minimal_config, Config};
 
 use super::CoordinatorService;
@@ -569,11 +570,24 @@ fn service_with_harness(
             received: Arc::new(Mutex::new(Vec::new())),
         }),
         Arc::new(RwLock::new(None)),
+        Arc::new(ScheduledJobRegistry::new(Arc::new(LateInjector::new()))),
     );
     let (tx, rx) = mpsc::unbounded_channel::<AgentCommand>();
     let heartbeat = Heartbeat::new();
     tokio::spawn(service.run(rx, heartbeat));
     (tx, received, events)
+}
+
+/// A job injector that records every injected prompt, for asserting that a
+/// fired `ScheduleWakeup` re-enters the service.
+struct CapturingInjector {
+    injected: Arc<Mutex<Vec<String>>>,
+}
+
+impl JobInjector for CapturingInjector {
+    fn inject(&self, text: String) {
+        self.injected.lock().expect("lock").push(text);
+    }
 }
 
 /// Like `recording_publisher` but accepts an external cancel token so the
@@ -809,6 +823,92 @@ async fn coordinator_service_retryable_failure_retries_then_completes() {
         1,
         "retry must preserve a single Run id; saw {run_ids:?}"
     );
+
+    cancel.cancel();
+}
+
+/// A `ScheduleWakeup` tool_use in a completed Turn's Source blocks arms a wakeup
+/// job on the AGENT_TYPE path; once its (zero) delay elapses the job injects the
+/// scheduled prompt back into the service — the harness-path equivalent of the
+/// legacy actor's self-scheduling.
+#[tokio::test]
+async fn coordinator_service_arms_and_fires_scheduled_wakeup() {
+    let cancel = CancellationToken::new();
+    let config = {
+        let mut c = minimal_config();
+        c.agent_type = Some("claude-code".to_string());
+        Arc::new(c)
+    };
+    let agent_state = Arc::new(AgentState::new());
+
+    // A registry whose injector records what a fired job re-enters.
+    let injected = Arc::new(Mutex::new(Vec::<String>::new()));
+    let registry = Arc::new(ScheduledJobRegistry::new(Arc::new(CapturingInjector {
+        injected: Arc::clone(&injected),
+    })));
+
+    // A completed Turn that emits a ScheduleWakeup tool_use with a zero delay.
+    let wakeup_block = serde_json::json!({
+        "type": "tool_use",
+        "id": "toolu_wake",
+        "name": "ScheduleWakeup",
+        "input": { "delaySeconds": 0, "prompt": "resume the task", "reason": "follow up" }
+    });
+    let script = Script::new(vec![
+        Step::SessionReady(SessionId("sess-1".to_string())),
+        Step::AcceptInput,
+        Step::Block(block("msg-1", wakeup_block, Role::Assistant)),
+        Step::Completed,
+    ]);
+
+    // Build the service directly so it uses the capturing registry.
+    let (events, _received, _outbox_cancel) = recording_publisher_with_cancel(cancel.clone());
+    let coordinator = Coordinator::new(Harness::scripted(script), events.clone(), "task-1");
+    let service = CoordinatorService::new(
+        coordinator,
+        Arc::clone(&agent_state),
+        Arc::clone(&config),
+        Arc::new(RwLock::new(HashMap::new())),
+        Arc::new(RecordingBackend {
+            received: Arc::new(Mutex::new(Vec::new())),
+        }),
+        Arc::new(RwLock::new(None)),
+        Arc::clone(&registry),
+    );
+    let (tx, rx) = mpsc::unbounded_channel::<AgentCommand>();
+    tokio::spawn(service.run(rx, Heartbeat::new()));
+
+    let (ack_tx, _ack_rx) = oneshot::channel();
+    tx.send(AgentCommand::Send {
+        text: "go".to_string(),
+        model: None,
+        agent_type: None,
+        agent_mode: None,
+        resume_session_id: None,
+        start_fresh: false,
+        ack: ack_tx,
+    })
+    .expect("channel open");
+
+    // The zero-delay wakeup arms at turn end and fires, injecting its prompt.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        if injected
+            .lock()
+            .expect("lock")
+            .iter()
+            .any(|t| t == "resume the task")
+        {
+            break;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            panic!(
+                "wakeup prompt was not injected within 5 s; got {:?}",
+                injected.lock().expect("lock")
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
 
     cancel.cancel();
 }
