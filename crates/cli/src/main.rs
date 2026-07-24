@@ -73,10 +73,11 @@ enum SharedCommands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
-    /// Trigger management
-    Triggers {
+    /// Loop management (recurring agent work fired by subscriptions or schedules)
+    #[command(alias = "triggers")]
+    Loops {
         #[command(subcommand)]
-        action: Box<commands::adapters::TriggerAction>,
+        action: Box<commands::loops::LoopsAction>,
     },
     /// Task binding management
     Bindings {
@@ -387,8 +388,8 @@ async fn run_shared(
         SharedCommands::Gh { args } => {
             commands::gh::run(moat, cfg, args, json).await?;
         }
-        SharedCommands::Triggers { action } => {
-            commands::adapters::run_triggers(moat, *action, json).await?;
+        SharedCommands::Loops { action } => {
+            commands::loops::run_loops(moat, *action, json).await?;
         }
         SharedCommands::Bindings { action } => {
             commands::adapters::run_bindings(moat, *action, json).await?;
