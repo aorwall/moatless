@@ -446,31 +446,13 @@ pub async fn wait_for_deployment_deleted(
     k8s: &K8sClient,
     task_id: &str,
 ) -> Result<(), SandboxError> {
-    use std::time::Duration;
-
-    const POLL_INTERVAL: Duration = Duration::from_secs(2);
-    const TIMEOUT: Duration = Duration::from_mins(1);
-
-    let deadline = tokio::time::Instant::now() + TIMEOUT;
-    loop {
-        match find_deployment(k8s, task_id).await {
-            Ok(None) => return Ok(()),
-            Ok(Some(_)) => {
-                debug!(task_id, "Waiting for Deployment deletion");
-            }
-            Err(e) => {
-                warn!(task_id, error = %e, "Failed to observe Deployment deletion; retrying");
-            }
-        }
-
-        if tokio::time::Instant::now() >= deadline {
-            return Err(SandboxError::NotReady(format!(
-                "Timed out after {}s waiting for task {task_id} Deployment deletion",
-                TIMEOUT.as_secs()
-            )));
-        }
-        tokio::time::sleep(POLL_INTERVAL).await;
-    }
+    super::wait::wait_absent(
+        task_id,
+        "Deployment",
+        std::time::Duration::from_mins(1),
+        || async { find_deployment(k8s, task_id).await.map(|item| item.is_none()) },
+    )
+    .await
 }
 
 /// Coarse state for one labeled sandbox Deployment.

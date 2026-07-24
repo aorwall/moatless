@@ -100,6 +100,8 @@ Both native adapters enforce observed absence before strict success and surface
 lingering resources as `RuntimeError::NotAbsent`. `DeleteArchives` removes the
 task's transcript and workspace prefixes through the configured S3 client in
 both runtime modes, only after runtime absence succeeds.
+Kubernetes resource modules share the bounded absence poller in `k8s/wait.rs`;
+resource-specific code supplies only its authoritative lookup.
 
 ### K8s resources per sandbox
 Provisioning creates (all labeled `moatless.io/task-id={task_id}`): a **Deployment** (enables stop = scale to 0 / start = scale to 1 without re-provisioning), its **Pod**, a ClusterIP **Service**, an optional **PVC**, and optional **IngressRoute** (Traefik CRD, one per server port, pattern `{task_id}--{port}.{proxy_domain}`). Deployment/Service names are deterministic: `moatless-ws-{sanitized_task_id}` (`k8s/naming.rs`, 63-char cap).

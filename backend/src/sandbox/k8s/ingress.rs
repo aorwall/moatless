@@ -220,36 +220,19 @@ pub async fn wait_for_task_ingress_routes_deleted(
     k8s: &K8sClient,
     task_id: &str,
 ) -> Result<(), crate::sandbox::error::SandboxError> {
-    use std::time::Duration;
-
-    const POLL_INTERVAL: Duration = Duration::from_secs(2);
-    const TIMEOUT: Duration = Duration::from_mins(1);
-
     let api = ingress_api(k8s);
     let lp = ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
-    let deadline = tokio::time::Instant::now() + TIMEOUT;
-    loop {
-        match api.list(&lp).await {
-            Ok(list) if list.items.is_empty() => return Ok(()),
-            Ok(list) => {
-                debug!(
-                    task_id,
-                    remaining = list.items.len(),
-                    "Waiting for IngressRoute deletion"
-                );
+    super::wait::wait_absent(
+        task_id,
+        "IngressRoute",
+        std::time::Duration::from_mins(1),
+        || async {
+            match api.list(&lp).await {
+                Ok(list) => Ok(list.items.is_empty()),
+                Err(kube::Error::Api(ref error)) if error.code == 404 => Ok(true),
+                Err(error) => Err(error),
             }
-            Err(kube::Error::Api(ref e)) if e.code == 404 => return Ok(()),
-            Err(e) => {
-                warn!(task_id, error = %e, "Failed to observe IngressRoute deletion; retrying");
-            }
-        }
-
-        if tokio::time::Instant::now() >= deadline {
-            return Err(crate::sandbox::error::SandboxError::NotReady(format!(
-                "Timed out after {}s waiting for task {task_id} IngressRoute deletion",
-                TIMEOUT.as_secs()
-            )));
-        }
-        tokio::time::sleep(POLL_INTERVAL).await;
-    }
+        },
+    )
+    .await
 }
