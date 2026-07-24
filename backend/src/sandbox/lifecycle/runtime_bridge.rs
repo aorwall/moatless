@@ -119,13 +119,13 @@ impl SandboxRuntime for RuntimeBridge {
     async fn ensure_running(
         &self,
         task_id: &str,
-        _ctx: RuntimeOperationContext,
+        ctx: RuntimeOperationContext,
     ) -> Result<RuntimeOutcome, RuntimeError> {
         let pre = self.observed(task_id).await?;
         let request = self.build_request(task_id).await?;
         let resp = self
             .provider
-            .provision(task_id, &request)
+            .provision(task_id, &request, ctx)
             .await
             .map_err(map_runtime_err)?;
         // Reusing an already-ready sandbox is a no-op; anything else did work.
@@ -144,10 +144,13 @@ impl SandboxRuntime for RuntimeBridge {
     async fn stop(
         &self,
         task_id: &str,
-        _ctx: RuntimeOperationContext,
+        ctx: RuntimeOperationContext,
     ) -> Result<RuntimeOutcome, RuntimeError> {
         let pre = self.observed(task_id).await?;
-        self.provider.stop(task_id).await.map_err(map_runtime_err)?;
+        self.provider
+            .stop(task_id, ctx)
+            .await
+            .map_err(map_runtime_err)?;
         let effect = if is_stopped_or_absent(pre) {
             RuntimeEffect::NoOp
         } else {
@@ -163,10 +166,13 @@ impl SandboxRuntime for RuntimeBridge {
     async fn restart(
         &self,
         task_id: &str,
-        _ctx: RuntimeOperationContext,
+        ctx: RuntimeOperationContext,
     ) -> Result<RuntimeOutcome, RuntimeError> {
         // Edges deliberately supersede — always an applied effect.
-        self.provider.restart(task_id).await.map_err(map_runtime_err)?;
+        self.provider
+            .restart(task_id, ctx)
+            .await
+            .map_err(map_runtime_err)?;
         // Reporting `Starting` on an observation failure is the correct floor for
         // a just-issued restart, but the failure itself is not swallowed: it is
         // logged and surfaced as a diagnostic.
@@ -190,12 +196,12 @@ impl SandboxRuntime for RuntimeBridge {
     async fn redeploy(
         &self,
         task_id: &str,
-        _ctx: RuntimeOperationContext,
+        ctx: RuntimeOperationContext,
     ) -> Result<RuntimeOutcome, RuntimeError> {
         let request = self.build_request(task_id).await?;
         let resp = self
             .provider
-            .redeploy(task_id, &request)
+            .redeploy(task_id, &request, ctx)
             .await
             .map_err(map_runtime_err)?;
         Ok(RuntimeOutcome::applied(to_running_observed(resp.status)))
@@ -205,14 +211,14 @@ impl SandboxRuntime for RuntimeBridge {
         &self,
         task_id: &str,
         retention: ArchiveRetention,
-        _ctx: RuntimeOperationContext,
+        ctx: RuntimeOperationContext,
     ) -> Result<RuntimeOutcome, RuntimeError> {
         let pre = self.observed(task_id).await?;
         // `retain_storage = true` keeps S3 archives; runtime resources always go.
         // `cleanup` is strict: it awaits pod + PVC absence and, on a hard delete,
         // durable archive deletion, surfacing any failure as a typed error.
         self.provider
-            .cleanup(task_id, retention.retains())
+            .cleanup(task_id, retention.retains(), ctx)
             .await
             .map_err(map_runtime_err)?;
         self.wait_for_absence(task_id).await?;
@@ -308,6 +314,7 @@ mod db_tests {
             &self,
             _t: &str,
             _r: &ProvisionRequest,
+            _c: RuntimeOperationContext,
         ) -> Result<ProvisionResponse, SandboxError> {
             unimplemented!()
         }
@@ -335,20 +342,34 @@ mod db_tests {
         fn expected_sandbox_image(&self, _r: Option<&str>) -> String {
             String::new()
         }
-        async fn stop(&self, _t: &str) -> Result<(), SandboxError> {
+        async fn stop(
+            &self,
+            _t: &str,
+            _c: RuntimeOperationContext,
+        ) -> Result<(), SandboxError> {
             unimplemented!()
         }
-        async fn restart(&self, _t: &str) -> Result<(), SandboxError> {
+        async fn restart(
+            &self,
+            _t: &str,
+            _c: RuntimeOperationContext,
+        ) -> Result<(), SandboxError> {
             unimplemented!()
         }
         async fn redeploy(
             &self,
             _t: &str,
             _r: &ProvisionRequest,
+            _c: RuntimeOperationContext,
         ) -> Result<ProvisionResponse, SandboxError> {
             unimplemented!()
         }
-        async fn cleanup(&self, _t: &str, _r: bool) -> Result<(), SandboxError> {
+        async fn cleanup(
+            &self,
+            _t: &str,
+            _r: bool,
+            _c: RuntimeOperationContext,
+        ) -> Result<(), SandboxError> {
             unimplemented!()
         }
         async fn container_statuses(

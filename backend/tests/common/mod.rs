@@ -17,6 +17,7 @@ use moatless_vibe_backend::message::models::{MessageRole, MessageType, TaskMessa
 use moatless_vibe_backend::repository::models::{Repository, RepositoryKind, RepositoryProvider};
 use moatless_vibe_backend::sandbox::client::SandboxClient;
 use moatless_vibe_backend::sandbox::error::SandboxError;
+use moatless_vibe_backend::sandbox::lifecycle::RuntimeOperationContext;
 use moatless_vibe_backend::sandbox::models::*;
 use moatless_vibe_backend::sandbox::provider::SandboxProvider;
 use moatless_vibe_backend::sandbox::schemas::*;
@@ -39,6 +40,7 @@ impl SandboxProvider for MockSandboxProvider {
         &self,
         _task_id: &str,
         _request: &ProvisionRequest,
+        _ctx: RuntimeOperationContext,
     ) -> Result<ProvisionResponse, SandboxError> {
         Err(SandboxError::Internal("mock: not implemented".into()))
     }
@@ -58,11 +60,19 @@ impl SandboxProvider for MockSandboxProvider {
             .unwrap_or_else(|| "mock-sandbox:latest".to_string())
     }
 
-    async fn stop(&self, _task_id: &str) -> Result<(), SandboxError> {
+    async fn stop(
+        &self,
+        _task_id: &str,
+        _ctx: RuntimeOperationContext,
+    ) -> Result<(), SandboxError> {
         Ok(()) // best-effort in handlers
     }
 
-    async fn restart(&self, _task_id: &str) -> Result<(), SandboxError> {
+    async fn restart(
+        &self,
+        _task_id: &str,
+        _ctx: RuntimeOperationContext,
+    ) -> Result<(), SandboxError> {
         Err(SandboxError::Internal("mock: not implemented".into()))
     }
 
@@ -70,11 +80,17 @@ impl SandboxProvider for MockSandboxProvider {
         &self,
         _task_id: &str,
         _request: &ProvisionRequest,
+        _ctx: RuntimeOperationContext,
     ) -> Result<ProvisionResponse, SandboxError> {
         Err(SandboxError::Internal("mock: not implemented".into()))
     }
 
-    async fn cleanup(&self, _task_id: &str, _retain_storage: bool) -> Result<(), SandboxError> {
+    async fn cleanup(
+        &self,
+        _task_id: &str,
+        _retain_storage: bool,
+        _ctx: RuntimeOperationContext,
+    ) -> Result<(), SandboxError> {
         Ok(()) // best-effort in handlers
     }
 

@@ -17,6 +17,9 @@ use super::naming::{
     generate_sandbox_host_path, generate_server_container_name,
 };
 use crate::config::Config;
+use crate::sandbox::lifecycle::runtime::{
+    RuntimeOperationContext, OPERATION_GENERATION_LABEL,
+};
 use crate::sandbox::models::{ProvisionPlan, ServerConfig};
 
 /// Build a complete `bollard::container::Config` for a sandbox container.
@@ -202,6 +205,19 @@ pub fn build_container_config(
         cmd: Some(vec!["/usr/local/bin/sandbox".to_string()]),
         ..Default::default()
     }
+}
+
+/// Stamp lifecycle's operation identity onto a sandbox container before
+/// creation. Docker labels are immutable, so every replacing operation creates
+/// a new container carrying its own generation.
+pub fn stamp_operation_generation(
+    config: &mut ContainerConfig,
+    ctx: RuntimeOperationContext,
+) {
+    config
+        .labels
+        .get_or_insert_with(HashMap::new)
+        .insert(OPERATION_GENERATION_LABEL.to_string(), ctx.generation_label());
 }
 
 /// Build REPO_CONFIG JSON string for the sandbox container.
@@ -666,6 +682,26 @@ mod tests {
         let labels = cc.labels.unwrap();
         assert_eq!(labels.get("created-by").unwrap(), "moatless");
         assert_eq!(labels.get("moatless.io/task-id").unwrap(), "task-1");
+    }
+
+    #[test]
+    fn sandbox_container_carries_operation_generation() {
+        let config = test_config();
+        let plan = test_plan();
+        let mut cc = build_container_config(&config, "task-1", &plan, None);
+        stamp_operation_generation(
+            &mut cc,
+            RuntimeOperationContext::new(
+                crate::sandbox::lifecycle::OperationGeneration(17),
+            ),
+        );
+        assert_eq!(
+            cc.labels
+                .as_ref()
+                .and_then(|labels| labels.get(OPERATION_GENERATION_LABEL))
+                .map(String::as_str),
+            Some("17")
+        );
     }
 
     #[test]

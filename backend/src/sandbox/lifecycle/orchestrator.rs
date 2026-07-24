@@ -123,11 +123,11 @@ pub trait LifecycleStore: Send + Sync {
         write: &IntentWrite,
     ) -> Result<IntentEffect, StoreError>;
 
-    /// Persist the **full** deterministic completion event (id, status, and any
-    /// reason tag) and clear the marker in one transaction — the
-    /// transactional-outbox commit. The orchestrator publishes the event only
-    /// after this returns `Ok`.
-    async fn commit_completion(
+    /// Persist a **full** deterministic terminal fact (id, status, and any
+    /// reason tag) and clear the marker in one transaction. Used for ordinary
+    /// completion and for a stale edge's durable abandonment fact. The caller
+    /// publishes only after this returns `Ok`.
+    async fn commit_fact_and_clear_marker(
         &self,
         task_id: &str,
         event: &LifecycleEvent,
@@ -136,7 +136,11 @@ pub trait LifecycleStore: Send + Sync {
     /// Clear the marker synchronously — used for an `Unchanged` + `NoOp`
     /// against an already-converged target, where no completion fact will ever
     /// exist for the generation.
-    async fn clear_marker(&self, task_id: &str) -> Result<(), StoreError>;
+    async fn clear_marker(
+        &self,
+        task_id: &str,
+        generation: OperationGeneration,
+    ) -> Result<(), StoreError>;
 }
 
 /// The narrow internal agent-stop port. Graceful stop is lifecycle's ordering
@@ -225,6 +229,30 @@ impl Lifecycle {
     pub fn with_lock_attempts(mut self, attempts: u32) -> Self {
         self.lock_attempts = attempts.max(1);
         self
+    }
+
+    /// Classify one watcher observation against durable intent and the current
+    /// correlation marker. Reads fail closed at the watcher boundary: callers
+    /// log the error and publish the observation rather than hiding it.
+    pub(crate) async fn classify_observation(
+        &self,
+        task_id: &str,
+        observation: super::classify::Observation,
+    ) -> Result<super::classify::ClassificationResult, LifecycleError> {
+        let intent = self.require_intent(task_id).await?;
+        let suppression_active = intent.marker.is_some_and(|marker| {
+            super::marker::edge_suppression_active(
+                &marker,
+                self.clock.now(),
+                super::marker::EDGE_MARKER_STALE_AFTER,
+            )
+        });
+        Ok(super::classify::classify_with_correlation(
+            observation,
+            intent.desired_state,
+            intent.marker,
+            suppression_active,
+        ))
     }
 
     // ---- Public operations (detached from the caller future) ----
@@ -649,7 +677,7 @@ impl Lifecycle {
                 // for the reconciler, so the deterministic id is never published
                 // without being persisted).
                 self.store
-                    .commit_completion(task_id, &event)
+                    .commit_fact_and_clear_marker(task_id, &event)
                     .await
                     .map_err(|e| LifecycleError::CompletionCommit {
                         task_id: task_id.to_string(),
@@ -667,7 +695,7 @@ impl Lifecycle {
             && outcome.is_pure_no_op()
             && Self::observed_is_converged_target(run.kind, outcome.observed)
         {
-            self.clear_marker_best_effort(task_id).await;
+            self.clear_marker_best_effort(task_id, run.generation).await;
         }
 
         Ok(outcome)
@@ -684,12 +712,35 @@ impl Lifecycle {
         }
     }
 
-    async fn clear_marker_best_effort(&self, task_id: &str) {
+    async fn clear_marker_best_effort(
+        &self,
+        task_id: &str,
+        generation: OperationGeneration,
+    ) {
         // A no-op-generation marker owes no completion fact; if the clear fails
         // the reconciler's marker acknowledgement is the backstop.
-        if let Err(e) = self.store.clear_marker(task_id).await {
+        if let Err(e) = self.store.clear_marker(task_id, generation).await {
             tracing::warn!(task_id = %task_id, error = %e, "failed to clear no-op marker");
         }
+    }
+
+    /// Durably abandon a stale caller-owned edge. The deterministic `Error`
+    /// fact and marker clear commit atomically, then the fact is published.
+    pub(crate) async fn abandon_edge(
+        &self,
+        task_id: &str,
+        generation: OperationGeneration,
+    ) -> Result<(), LifecycleError> {
+        let event = events::error_event(task_id, generation);
+        self.store
+            .commit_fact_and_clear_marker(task_id, &event)
+            .await
+            .map_err(|e| LifecycleError::CompletionCommit {
+                task_id: task_id.to_string(),
+                reason: e.to_string(),
+            })?;
+        self.events.publish(task_id, &event).await;
+        Ok(())
     }
 }
 
@@ -802,7 +853,7 @@ mod tests {
             });
             Ok(effect)
         }
-        async fn commit_completion(
+        async fn commit_fact_and_clear_marker(
             &self,
             _task_id: &str,
             event: &LifecycleEvent,
@@ -813,14 +864,25 @@ mod tests {
             self.commits.lock().expect("lock").push(event.event_id.clone());
             // Committing a completion clears the marker atomically.
             if let Some(cur) = self.intent.lock().expect("lock").as_mut() {
-                cur.marker = None;
+                if cur
+                    .marker
+                    .is_some_and(|marker| marker.generation == event.generation)
+                {
+                    cur.marker = None;
+                }
             }
             Ok(())
         }
-        async fn clear_marker(&self, _task_id: &str) -> Result<(), StoreError> {
+        async fn clear_marker(
+            &self,
+            _task_id: &str,
+            generation: OperationGeneration,
+        ) -> Result<(), StoreError> {
             *self.marker_cleared.lock().expect("lock") = true;
             if let Some(cur) = self.intent.lock().expect("lock").as_mut() {
-                cur.marker = None;
+                if cur.marker.is_some_and(|marker| marker.generation == generation) {
+                    cur.marker = None;
+                }
             }
             Ok(())
         }
@@ -1182,10 +1244,14 @@ mod tests {
             async fn persist_intent(&self, _t: &str, _w: &IntentWrite) -> Result<IntentEffect, StoreError> {
                 Ok(IntentEffect::Changed)
             }
-            async fn commit_completion(&self, _t: &str, _e: &LifecycleEvent) -> Result<(), StoreError> {
+            async fn commit_fact_and_clear_marker(&self, _t: &str, _e: &LifecycleEvent) -> Result<(), StoreError> {
                 Ok(())
             }
-            async fn clear_marker(&self, _t: &str) -> Result<(), StoreError> {
+            async fn clear_marker(
+                &self,
+                _t: &str,
+                _generation: OperationGeneration,
+            ) -> Result<(), StoreError> {
                 Ok(())
             }
         }

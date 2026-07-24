@@ -6,7 +6,10 @@
 
 use async_trait::async_trait;
 use axum::response::sse::Event;
-use bollard::models::{EndpointSettings, NetworkConnectRequest};
+use bollard::models::{
+    ContainerCreateBody, ContainerInspectResponse, EndpointSettings, NetworkConnectRequest,
+    NetworkingConfig,
+};
 use bollard::query_parameters::{
     CreateContainerOptionsBuilder, ListContainersOptionsBuilder, RemoveContainerOptionsBuilder,
     RestartContainerOptionsBuilder, StartContainerOptions, StopContainerOptionsBuilder,
@@ -24,6 +27,7 @@ use crate::events::EventPublisher;
 use crate::sandbox::client::SandboxClient;
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::jwt;
+use crate::sandbox::lifecycle::RuntimeOperationContext;
 use crate::sandbox::models::*;
 use crate::sandbox::provider::SandboxProvider;
 use crate::sandbox::schemas::*;
@@ -46,6 +50,7 @@ impl SandboxProvider for DockerSandboxProvider {
         &self,
         task_id: &str,
         request: &ProvisionRequest,
+        ctx: RuntimeOperationContext,
     ) -> Result<ProvisionResponse, SandboxError> {
         info!(task_id = %task_id, user_id = %request.user_id, "Provisioning Docker sandbox");
 
@@ -65,7 +70,6 @@ impl SandboxProvider for DockerSandboxProvider {
                 if current_image.as_deref() == Some(expected.as_str()) {
                     // Tag unchanged — fast path: start the existing container.
                     info!(task_id = %task_id, image = %expected, "Starting existing stopped container (image unchanged)");
-                    self.publish_initializing(task_id).await;
                     self.client
                         .docker
                         .start_container(&container_name, None::<StartContainerOptions>)
@@ -73,8 +77,6 @@ impl SandboxProvider for DockerSandboxProvider {
                         .map_err(|e| {
                             SandboxError::DockerError(format!("Failed to start container: {e}"))
                         })?;
-
-                    self.publish_ready(task_id).await;
 
                     return Ok(ProvisionResponse {
                         status: SandboxStatus::Ready,
@@ -145,12 +147,13 @@ impl SandboxProvider for DockerSandboxProvider {
         }
 
         // 4. Build container config
-        let container_config = container_builder::build_container_config(
+        let mut container_config = container_builder::build_container_config(
             &self.config,
             task_id,
             plan,
             Some(&user_auth_token),
         );
+        container_builder::stamp_operation_generation(&mut container_config, ctx);
 
         // 5. Create and start container
         self.client
@@ -165,9 +168,6 @@ impl SandboxProvider for DockerSandboxProvider {
             )
             .await
             .map_err(|e| SandboxError::DockerError(format!("Failed to create container: {e}")))?;
-
-        // Publish initializing event before starting
-        self.publish_initializing(task_id).await;
 
         self.client
             .docker
@@ -258,8 +258,6 @@ impl SandboxProvider for DockerSandboxProvider {
             }
         }
 
-        self.publish_ready(task_id).await;
-
         Ok(ProvisionResponse {
             status: SandboxStatus::Ready,
         })
@@ -296,7 +294,11 @@ impl SandboxProvider for DockerSandboxProvider {
             .map_or_else(|| self.config.docker.image.clone(), str::to_string)
     }
 
-    async fn stop(&self, task_id: &str) -> Result<(), SandboxError> {
+    async fn stop(
+        &self,
+        task_id: &str,
+        _ctx: RuntimeOperationContext,
+    ) -> Result<(), SandboxError> {
         info!(task_id = %task_id, "Stopping Docker sandbox");
 
         // Stop server containers first
@@ -316,26 +318,59 @@ impl SandboxProvider for DockerSandboxProvider {
         Ok(())
     }
 
-    async fn restart(&self, task_id: &str) -> Result<(), SandboxError> {
-        info!(task_id = %task_id, "Restarting Docker sandbox");
+    async fn restart(
+        &self,
+        task_id: &str,
+        ctx: RuntimeOperationContext,
+    ) -> Result<(), SandboxError> {
+        info!(task_id = %task_id, "Recreating Docker sandbox for restart");
 
         let container_name = generate_container_name(task_id);
+        let inspected = self
+            .client
+            .docker
+            .inspect_container(&container_name, None)
+            .await
+            .map_err(|e| {
+                SandboxError::DockerError(format!(
+                    "Failed to inspect container before restart: {e}"
+                ))
+            })?;
+        let container_config = recreate_config(inspected, ctx)?;
 
-        self.publish_initializing(task_id).await;
-
-        // Restart server containers
-        self.restart_server_containers(task_id).await;
-
+        // Labels are immutable on a live Docker container. Strictly remove the
+        // sandbox and recreate it from the inspected configuration so the
+        // replacement has a new container ID and generation label.
+        self.force_remove_container(&container_name, task_id).await?;
         self.client
             .docker
-            .restart_container(
-                &container_name,
-                Some(RestartContainerOptionsBuilder::new().t(30).build()),
+            .create_container(
+                Some(
+                    CreateContainerOptionsBuilder::new()
+                        .name(&container_name)
+                        .build(),
+                ),
+                container_config,
             )
             .await
-            .map_err(|e| SandboxError::DockerError(format!("Failed to restart container: {e}")))?;
+            .map_err(|e| {
+                SandboxError::DockerError(format!(
+                    "Failed to recreate container during restart: {e}"
+                ))
+            })?;
+        self.client
+            .docker
+            .start_container(&container_name, None::<StartContainerOptions>)
+            .await
+            .map_err(|e| {
+                SandboxError::DockerError(format!(
+                    "Failed to start replacement container during restart: {e}"
+                ))
+            })?;
 
-        self.publish_ready(task_id).await;
+        // Server containers are subordinate resources; their lifecycle events
+        // are excluded from sandbox observation.
+        self.restart_server_containers(task_id).await;
 
         Ok(())
     }
@@ -344,6 +379,7 @@ impl SandboxProvider for DockerSandboxProvider {
         &self,
         task_id: &str,
         request: &ProvisionRequest,
+        ctx: RuntimeOperationContext,
     ) -> Result<ProvisionResponse, SandboxError> {
         info!(task_id = %task_id, "Redeploying Docker sandbox (remove containers, reprovision)");
 
@@ -356,10 +392,15 @@ impl SandboxProvider for DockerSandboxProvider {
         self.force_remove_container(&container_name, task_id).await?;
 
         // Reprovision with fresh config (workspace dirs on host are preserved)
-        self.provision(task_id, request).await
+        self.provision(task_id, request, ctx).await
     }
 
-    async fn cleanup(&self, task_id: &str, _retain_storage: bool) -> Result<(), SandboxError> {
+    async fn cleanup(
+        &self,
+        task_id: &str,
+        _retain_storage: bool,
+        _ctx: RuntimeOperationContext,
+    ) -> Result<(), SandboxError> {
         // Docker mode has no S3-backed storage sync, so `retain_storage` is a
         // no-op here — there is nothing to preserve or delete beyond the
         // containers themselves.
@@ -425,6 +466,38 @@ enum ExistingContainerResult {
     NotFound,
 }
 
+/// Reconstruct the create request for a Docker restart from the current
+/// container's effective configuration, replacing only runtime-assigned
+/// network details and lifecycle's immutable generation label.
+fn recreate_config(
+    inspected: ContainerInspectResponse,
+    ctx: RuntimeOperationContext,
+) -> Result<ContainerCreateBody, SandboxError> {
+    let config = inspected.config.ok_or_else(|| {
+        SandboxError::DockerError("Container inspect response had no config".to_string())
+    })?;
+    let value = serde_json::to_value(config).map_err(|e| {
+        SandboxError::DockerError(format!("Failed to serialize inspected container config: {e}"))
+    })?;
+    let mut body: ContainerCreateBody = serde_json::from_value(value).map_err(|e| {
+        SandboxError::DockerError(format!("Failed to rebuild inspected container config: {e}"))
+    })?;
+    body.host_config = inspected.host_config;
+    body.networking_config = inspected
+        .network_settings
+        .and_then(|settings| settings.networks)
+        .map(|networks| NetworkingConfig {
+            endpoints_config: Some(
+                networks
+                    .into_keys()
+                    .map(|name| (name, EndpointSettings::default()))
+                    .collect(),
+            ),
+        });
+    container_builder::stamp_operation_generation(&mut body, ctx);
+    Ok(body)
+}
+
 impl DockerSandboxProvider {
     /// Fast readiness gate — checks container state before attempting gRPC.
     async fn require_sandbox_ready(&self, task_id: &str) -> Result<(), SandboxError> {
@@ -457,28 +530,6 @@ impl DockerSandboxProvider {
             Err(e) => Err(SandboxError::DockerError(format!(
                 "Failed to inspect container: {e}"
             ))),
-        }
-    }
-
-    /// Publish an "initializing" event (fire-and-forget).
-    async fn publish_initializing(&self, task_id: &str) {
-        if let Some(ref publisher) = self.event_publisher {
-            publisher
-                .publish_sandbox_event(
-                    task_id,
-                    moatless_events::SandboxStatus::Initializing,
-                    "Starting",
-                )
-                .await;
-        }
-    }
-
-    /// Publish a "ready" event (fire-and-forget).
-    async fn publish_ready(&self, task_id: &str) {
-        if let Some(ref publisher) = self.event_publisher {
-            publisher
-                .publish_sandbox_event(task_id, moatless_events::SandboxStatus::Ready, "Running")
-                .await;
         }
     }
 
@@ -657,7 +708,14 @@ impl DockerSandboxProvider {
     /// Server containers are subordinate runtime resources — best-effort.
     async fn remove_server_containers(&self, task_id: &str) {
         for name in self.list_server_container_names(task_id).await {
-            let _ = self.force_remove_container(&name, task_id).await;
+            if let Err(e) = self.force_remove_container(&name, task_id).await {
+                warn!(
+                    task_id,
+                    container = %name,
+                    error = %e,
+                    "Failed to remove subordinate server container"
+                );
+            }
         }
     }
 
@@ -728,5 +786,68 @@ impl DockerSandboxProvider {
                 ExistingContainerResult::NotFound
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sandbox::lifecycle::runtime::OPERATION_GENERATION_LABEL;
+    use crate::sandbox::lifecycle::OperationGeneration;
+    use std::collections::HashMap;
+
+    #[test]
+    fn restart_rebuilds_config_and_replaces_generation_label() {
+        let inspected = ContainerInspectResponse {
+            config: Some(bollard::models::ContainerConfig {
+                image: Some("sandbox:v1".to_string()),
+                env: Some(vec!["TASK_ID=t1".to_string()]),
+                labels: Some(HashMap::from([(
+                    OPERATION_GENERATION_LABEL.to_string(),
+                    "4".to_string(),
+                )])),
+                ..Default::default()
+            }),
+            host_config: Some(bollard::models::HostConfig {
+                network_mode: Some("moatless".to_string()),
+                ..Default::default()
+            }),
+            network_settings: Some(bollard::models::NetworkSettings {
+                networks: Some(HashMap::from([(
+                    "preview".to_string(),
+                    EndpointSettings::default(),
+                )])),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let rebuilt = recreate_config(
+            inspected,
+            RuntimeOperationContext::new(OperationGeneration(5)),
+        )
+        .expect("recreate config");
+
+        assert_eq!(rebuilt.image.as_deref(), Some("sandbox:v1"));
+        assert_eq!(rebuilt.env.as_deref(), Some(&["TASK_ID=t1".to_string()][..]));
+        assert_eq!(
+            rebuilt
+                .labels
+                .as_ref()
+                .and_then(|labels| labels.get(OPERATION_GENERATION_LABEL))
+                .map(String::as_str),
+            Some("5")
+        );
+        assert_eq!(
+            rebuilt
+                .host_config
+                .as_ref()
+                .and_then(|host| host.network_mode.as_deref()),
+            Some("moatless")
+        );
+        assert!(rebuilt
+            .networking_config
+            .and_then(|networking| networking.endpoints_config)
+            .is_some_and(|networks| networks.contains_key("preview")));
     }
 }

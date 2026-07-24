@@ -2,7 +2,7 @@
 //!
 //! Publishes a derived lifecycle event to Redis under its deterministic id.
 //! Completion facts are already committed to `task_events` by
-//! [`super::orchestrator::LifecycleStore::commit_completion`], so they publish
+//! [`super::orchestrator::LifecycleStore::commit_fact_and_clear_marker`], so they publish
 //! with `payload_persisted = true`; other facts are persisted by the event
 //! consumer.
 

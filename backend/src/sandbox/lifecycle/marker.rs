@@ -15,6 +15,10 @@ use chrono::{DateTime, Utc};
 use super::convergence::SandboxObservedStatus;
 use super::types::{CorrelationMarker, OperationKind};
 
+/// An edge that has not produced its replacement within this bound no longer
+/// suppresses observations and is eligible for durable abandonment.
+pub const EDGE_MARKER_STALE_AFTER: Duration = Duration::from_mins(5);
+
 /// The reconciler's decision for a persisted marker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MarkerAck {

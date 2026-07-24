@@ -27,6 +27,7 @@ use crate::config::Config;
 use crate::events::EventPublisher;
 use crate::sandbox::client::SandboxClient;
 use crate::sandbox::error::SandboxError;
+use crate::sandbox::lifecycle::RuntimeOperationContext;
 use crate::sandbox::models::*;
 use crate::sandbox::provider::SandboxProvider;
 use crate::sandbox::schemas::*;
@@ -54,6 +55,7 @@ impl SandboxProvider for K8sSandboxProvider {
         &self,
         task_id: &str,
         request: &ProvisionRequest,
+        ctx: RuntimeOperationContext,
     ) -> Result<ProvisionResponse, SandboxError> {
         // Time the whole provision so the `ebs` PVC path (attach) and the
         // node-local backends can be compared. The body runs in an inner async
@@ -103,6 +105,9 @@ impl SandboxProvider for K8sSandboxProvider {
                     // A timeout here surfaces as an environment error rather than
                     // scheduling a new pod straight into the stall.
                     deployment::wait_for_pods_deleted(&self.k8s, task_id).await?;
+                    deployment::stamp_operation_generation(&self.k8s, task_id, ctx)
+                        .await
+                        .map_err(SandboxError::KubeError)?;
                     deployment::scale_deployment(&self.k8s, task_id, 1)
                         .await
                         .map_err(SandboxError::KubeError)?;
@@ -114,10 +119,15 @@ impl SandboxProvider for K8sSandboxProvider {
                         new_image = %expected,
                         "Sandbox image changed since stop, rebuilding deployment"
                     );
-                    deployment::redeploy_with_plan(&self.k8s, &self.config, task_id, request)
-                        .await?;
+                    deployment::redeploy_with_plan(
+                        &self.k8s,
+                        &self.config,
+                        task_id,
+                        request,
+                        ctx,
+                    )
+                    .await?;
                 }
-                self.publish_initializing(task_id).await;
                 return Ok(ProvisionResponse {
                     status: SandboxStatus::Initializing,
                 });
@@ -162,7 +172,7 @@ impl SandboxProvider for K8sSandboxProvider {
 
         // 4. Build pod spec. Secrets flow via gRPC `GetCredentials` and are
         //    materialized to `/opt/moatless/data/server.env` by the sandbox init.
-        let pod = pod_builder::build_pod(
+        let mut pod = pod_builder::build_pod(
             &self.config,
             task_id,
             plan,
@@ -170,6 +180,7 @@ impl SandboxProvider for K8sSandboxProvider {
             Some(pod_builder::SandboxAuthTokens::from_minted(&minted_tokens)),
         )
         .map_err(SandboxError::PodBuildError)?;
+        pod_builder::stamp_operation_generation(&mut pod, ctx);
 
         // Build servers map for service port exposure
         let server_ports: BTreeMap<String, u16> =
@@ -219,9 +230,6 @@ impl SandboxProvider for K8sSandboxProvider {
             "Sandbox provisioned, returning immediately (pod starting in background)"
         );
 
-        // Publish initializing event (pod_watcher handles the rest)
-        self.publish_initializing(task_id).await;
-
         Ok(ProvisionResponse {
             status: SandboxStatus::Initializing,
         })
@@ -267,7 +275,11 @@ impl SandboxProvider for K8sSandboxProvider {
             .map_or_else(|| self.config.sandbox.image.clone(), str::to_string)
     }
 
-    async fn stop(&self, task_id: &str) -> Result<(), SandboxError> {
+    async fn stop(
+        &self,
+        task_id: &str,
+        _ctx: RuntimeOperationContext,
+    ) -> Result<(), SandboxError> {
         info!(task_id = %task_id, "Stopping sandbox (scaling Deployment to 0)");
 
         // Scale Deployment to 0 — keeps Service and IngressRoutes alive
@@ -288,7 +300,11 @@ impl SandboxProvider for K8sSandboxProvider {
         Ok(())
     }
 
-    async fn restart(&self, task_id: &str) -> Result<(), SandboxError> {
+    async fn restart(
+        &self,
+        task_id: &str,
+        ctx: RuntimeOperationContext,
+    ) -> Result<(), SandboxError> {
         info!(task_id = %task_id, "Restarting sandbox (scaling to 0, then back to 1 after termination)");
 
         // Time the restart so the `ebs` path (which pays a pod-drain wait to
@@ -301,13 +317,10 @@ impl SandboxProvider for K8sSandboxProvider {
         // Scale to 0, wait for the pod to terminate (releasing the RWO PVC),
         // then scale back to 1. This also covers the "was stopped" case since
         // restart_deployment always ends at 1 replica.
-        let outcome = deployment::restart_deployment(&self.k8s, task_id).await;
+        let outcome = deployment::restart_deployment(&self.k8s, task_id, ctx).await;
 
         crate::sandbox::metrics::record_restart(backend, started.elapsed());
         outcome?;
-
-        // Publish initializing event (pod_watcher handles readiness)
-        self.publish_initializing(task_id).await;
 
         Ok(())
     }
@@ -316,6 +329,7 @@ impl SandboxProvider for K8sSandboxProvider {
         &self,
         task_id: &str,
         request: &ProvisionRequest,
+        ctx: RuntimeOperationContext,
     ) -> Result<ProvisionResponse, SandboxError> {
         info!(task_id = %task_id, "Redeploying sandbox (deleting Deployment/Service/IngressRoutes, preserving PVC)");
 
@@ -341,10 +355,15 @@ impl SandboxProvider for K8sSandboxProvider {
         // 3. PVC is intentionally NOT deleted — workspace data is preserved
 
         // 4. Reprovision with fresh config (provision handles PVC reuse)
-        self.provision(task_id, request).await
+        self.provision(task_id, request, ctx).await
     }
 
-    async fn cleanup(&self, task_id: &str, retain_storage: bool) -> Result<(), SandboxError> {
+    async fn cleanup(
+        &self,
+        task_id: &str,
+        retain_storage: bool,
+        _ctx: RuntimeOperationContext,
+    ) -> Result<(), SandboxError> {
         info!(task_id = %task_id, retain_storage, "Cleaning up sandbox (deleting all resources)");
 
         // Delete the Deployment first. Its ownerReferences make the Service and
@@ -603,22 +622,6 @@ impl K8sSandboxProvider {
         info!(task_id = %task_id, "Recreated missing sandbox Service");
     }
 
-    /// Publish an "initializing" event (fire-and-forget).
-    ///
-    /// The pod_watcher handles all subsequent readiness tracking and server
-    /// container monitoring. No background readiness checker is spawned.
-    async fn publish_initializing(&self, task_id: &str) {
-        if let Some(ref publisher) = self.event_publisher {
-            publisher
-                .publish_sandbox_event(
-                    task_id,
-                    moatless_events::SandboxStatus::Initializing,
-                    "Starting",
-                )
-                .await;
-        }
-    }
-
     /// Resolve the storage backend of a *running* task from cluster state
     /// (used where there's no `ProvisionPlan`, e.g. restart). A PVC means `ebs`;
     /// otherwise `workspace-data` as a hostPath means `node`, and the
@@ -741,11 +744,19 @@ impl K8sSandboxProvider {
         // If Deployment is scaled to 0, report it as Stopped along with the
         // image currently baked into the pod template. The caller decides
         // whether to scale up (tag unchanged) or rebuild (tag changed).
-        if let Ok((desired, _)) = deployment::get_deployment_replicas(&self.k8s, task_id).await {
-            if desired == 0 {
+        match deployment::get_deployment_replicas(&self.k8s, task_id).await {
+            Ok((0, _)) => {
                 return ExistingPodResult::Stopped {
                     current_image: deployment::deployment_sandbox_image(&dep),
-                };
+                }
+            }
+            Ok(_) => {}
+            Err(e) => {
+                warn!(
+                    task_id,
+                    error = %e,
+                    "Failed to read Deployment replicas; falling back to pod status"
+                );
             }
         }
 

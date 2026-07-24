@@ -13,6 +13,7 @@ use super::error::SandboxError;
 use super::live_status::LiveStatus;
 use super::models::{ContainerObservedStatus, ProvisionRequest, ServerConfig};
 use super::schemas::{ProvisionResponse, SandboxStatusFullResponse};
+use crate::sandbox::lifecycle::RuntimeOperationContext;
 use crate::task::models::{SandboxDesiredState, TaskStatus};
 
 #[async_trait]
@@ -28,6 +29,7 @@ pub trait SandboxProvider: Send + Sync {
         &self,
         task_id: &str,
         request: &ProvisionRequest,
+        ctx: RuntimeOperationContext,
     ) -> Result<ProvisionResponse, SandboxError>;
 
     /// Get full sandbox status (pod status + sandbox snapshot + proxy URLs).
@@ -57,10 +59,18 @@ pub trait SandboxProvider: Send + Sync {
     fn expected_sandbox_image(&self, repo_docker_image: Option<&str>) -> String;
 
     /// Stop a sandbox (preserve storage, scale to 0).
-    async fn stop(&self, task_id: &str) -> Result<(), SandboxError>;
+    async fn stop(
+        &self,
+        task_id: &str,
+        ctx: RuntimeOperationContext,
+    ) -> Result<(), SandboxError>;
 
     /// Restart a sandbox (delete pods, Deployment controller recreates).
-    async fn restart(&self, task_id: &str) -> Result<(), SandboxError>;
+    async fn restart(
+        &self,
+        task_id: &str,
+        ctx: RuntimeOperationContext,
+    ) -> Result<(), SandboxError>;
 
     /// Redeploy a sandbox (delete Deployment/Service/IngressRoutes, recreate from fresh config).
     ///
@@ -70,6 +80,7 @@ pub trait SandboxProvider: Send + Sync {
         &self,
         task_id: &str,
         request: &ProvisionRequest,
+        ctx: RuntimeOperationContext,
     ) -> Result<ProvisionResponse, SandboxError>;
 
     /// Fully clean up a sandbox (remove all resources).
@@ -79,7 +90,12 @@ pub trait SandboxProvider: Send + Sync {
     /// reopen; K8s resources (Deployment/Service/PVC/IngressRoutes) are torn
     /// down regardless. When `false`, everything — including S3 archives — is
     /// removed (permanent deletion).
-    async fn cleanup(&self, task_id: &str, retain_storage: bool) -> Result<(), SandboxError>;
+    async fn cleanup(
+        &self,
+        task_id: &str,
+        retain_storage: bool,
+        ctx: RuntimeOperationContext,
+    ) -> Result<(), SandboxError>;
 
     /// Fetch observed container statuses from the runtime (K8s pods / Docker).
     ///

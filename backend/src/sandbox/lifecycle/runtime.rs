@@ -19,6 +19,9 @@ use super::error::RuntimeError;
 use super::outcome::Diagnostics;
 use super::types::{ArchiveRetention, ObservedStatus, OperationGeneration, RuntimeEffect};
 
+/// Runtime-resource label carrying lifecycle's operation identity.
+pub(crate) const OPERATION_GENERATION_LABEL: &str = "moatless.io/operation-generation";
+
 /// Context threaded to **every** runtime mutation.
 ///
 /// Carries the operation generation the adapter stamps onto the resources it
@@ -35,6 +38,14 @@ impl RuntimeOperationContext {
             operation_generation,
         }
     }
+
+    pub(crate) fn generation_label(self) -> String {
+        self.operation_generation.to_string()
+    }
+}
+
+pub(crate) fn generation_from_label(value: Option<&String>) -> Option<OperationGeneration> {
+    value?.parse::<i64>().ok().map(OperationGeneration)
 }
 
 /// Returned by **every** `SandboxRuntime` mutation.
@@ -170,5 +181,16 @@ mod tests {
     fn context_threads_generation() {
         let ctx = RuntimeOperationContext::new(OperationGeneration(42));
         assert_eq!(ctx.operation_generation, OperationGeneration(42));
+    }
+
+    #[test]
+    fn generation_label_round_trips() {
+        let ctx = RuntimeOperationContext::new(OperationGeneration(42));
+        let value = ctx.generation_label();
+        assert_eq!(
+            generation_from_label(Some(&value)),
+            Some(OperationGeneration(42))
+        );
+        assert_eq!(generation_from_label(Some(&"invalid".to_string())), None);
     }
 }

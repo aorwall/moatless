@@ -15,6 +15,10 @@ use super::naming::generate_service_name;
 use super::{pod_builder, pvc};
 use crate::config::Config;
 use crate::sandbox::error::SandboxError;
+use crate::sandbox::lifecycle::runtime::{
+    generation_from_label, RuntimeOperationContext, OPERATION_GENERATION_LABEL,
+};
+use crate::sandbox::lifecycle::types::OperationGeneration;
 use crate::sandbox::models::ProvisionRequest;
 
 /// Name + UID of a created (or reused) Deployment.
@@ -187,6 +191,40 @@ pub async fn scale_deployment(
     Ok(())
 }
 
+fn operation_generation_patch(ctx: RuntimeOperationContext) -> serde_json::Value {
+    serde_json::json!({
+        "spec": {
+            "template": {
+                "metadata": {
+                    "labels": {
+                        OPERATION_GENERATION_LABEL: ctx.generation_label(),
+                    }
+                }
+            }
+        }
+    })
+}
+
+/// Stamp the replacement generation onto the Deployment's pod template before
+/// scaling up. The merge patch leaves the `Recreate` strategy and existing pod
+/// labels untouched.
+pub async fn stamp_operation_generation(
+    k8s: &K8sClient,
+    task_id: &str,
+    ctx: RuntimeOperationContext,
+) -> Result<(), kube::Error> {
+    let deployments: Api<Deployment> = Api::namespaced(k8s.client.clone(), k8s.namespace());
+    let deployment_name = generate_deployment_name(task_id);
+    deployments
+        .patch(
+            &deployment_name,
+            &PatchParams::apply("moatless-vibe-backend"),
+            &Patch::Merge(&operation_generation_patch(ctx)),
+        )
+        .await?;
+    Ok(())
+}
+
 /// Delete a Deployment for a task. Handles 404 gracefully.
 pub async fn delete_deployment(k8s: &K8sClient, task_id: &str) -> Result<(), kube::Error> {
     let deployments: Api<Deployment> = Api::namespaced(k8s.client.clone(), k8s.namespace());
@@ -220,9 +258,14 @@ pub async fn delete_deployment(k8s: &K8sClient, task_id: &str) -> Result<(), kub
 /// still `Terminating` and holding the EBS attachment, producing a
 /// "Multi-Attach" error that stalls the new pod in `Pending` for 1-6 min.
 /// Scaling to 0 first lets the volume detach before the replacement is created.
-pub async fn restart_deployment(k8s: &K8sClient, task_id: &str) -> Result<(), SandboxError> {
+pub async fn restart_deployment(
+    k8s: &K8sClient,
+    task_id: &str,
+    ctx: RuntimeOperationContext,
+) -> Result<(), SandboxError> {
     scale_deployment(k8s, task_id, 0).await?;
     wait_for_pods_deleted(k8s, task_id).await?;
+    stamp_operation_generation(k8s, task_id, ctx).await?;
     scale_deployment(k8s, task_id, 1).await?;
     info!(
         task_id,
@@ -252,6 +295,7 @@ pub async fn redeploy_with_plan(
     config: &Config,
     task_id: &str,
     request: &ProvisionRequest,
+    ctx: RuntimeOperationContext,
 ) -> Result<(), SandboxError> {
     let pvc_name = pvc::find_task_pvc(k8s, task_id).await;
 
@@ -259,7 +303,7 @@ pub async fn redeploy_with_plan(
     // rebuilt pod. The long-lived token is delivered over the credential channel.
     let minted = pod_builder::mint_sandbox_tokens(config, &request.user_id)?;
 
-    let pod = pod_builder::build_pod(
+    let mut pod = pod_builder::build_pod(
         config,
         task_id,
         &request.plan,
@@ -267,6 +311,7 @@ pub async fn redeploy_with_plan(
         Some(pod_builder::SandboxAuthTokens::from_minted(&minted)),
     )
     .map_err(SandboxError::PodBuildError)?;
+    pod_builder::stamp_operation_generation(&mut pod, ctx);
 
     let deployments: Api<Deployment> = Api::namespaced(k8s.client.clone(), k8s.namespace());
     let deployment_name = generate_deployment_name(task_id);
@@ -380,10 +425,10 @@ pub async fn find_deployment(
 
 /// Coarse desired/ready replica state for every labeled sandbox Deployment, in
 /// one LIST — the reconciler's per-tick fleet observation. Each entry is
-/// `(task_id, desired_replicas, ready_replicas)`.
+/// `(task_id, desired_replicas, ready_replicas, operation_generation)`.
 pub async fn list_sandbox_deployment_states(
     k8s: &K8sClient,
-) -> Result<Vec<(String, i32, i32)>, kube::Error> {
+) -> Result<Vec<(String, i32, i32, Option<OperationGeneration>)>, kube::Error> {
     let deployments: Api<Deployment> = Api::namespaced(k8s.client.clone(), k8s.namespace());
     let lp = ListParams::default().labels("moatless.io/task-id");
     let list = deployments.list(&lp).await?;
@@ -400,7 +445,13 @@ pub async fn list_sandbox_deployment_states(
                 .clone();
             let desired = dep.spec.as_ref().and_then(|s| s.replicas).unwrap_or(1);
             let ready = dep.status.as_ref().and_then(|s| s.ready_replicas).unwrap_or(0);
-            Some((task_id, desired, ready))
+            let generation = dep
+                .spec
+                .as_ref()
+                .and_then(|spec| spec.template.metadata.as_ref())
+                .and_then(|metadata| metadata.labels.as_ref())
+                .and_then(|labels| generation_from_label(labels.get(OPERATION_GENERATION_LABEL)));
+            Some((task_id, desired, ready, generation))
         })
         .collect())
 }
@@ -505,6 +556,22 @@ mod tests {
     fn deployment_sandbox_image_none_when_spec_absent() {
         let dep = Deployment::default();
         assert_eq!(deployment_sandbox_image(&dep), None);
+    }
+
+    #[test]
+    fn restart_patch_labels_replacement_without_changing_strategy() {
+        let patch = operation_generation_patch(RuntimeOperationContext::new(
+            OperationGeneration(23),
+        ));
+        assert_eq!(
+            patch["spec"]["template"]["metadata"]["labels"]
+                [OPERATION_GENERATION_LABEL],
+            "23"
+        );
+        assert!(
+            patch["spec"].get("strategy").is_none(),
+            "the merge patch preserves the Deployment's Recreate strategy"
+        );
     }
 
     fn pod_in_phase(phase: Option<&str>) -> Pod {

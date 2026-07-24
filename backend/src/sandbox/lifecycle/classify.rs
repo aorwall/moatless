@@ -9,7 +9,7 @@
 
 use crate::task::models::SandboxDesiredState;
 
-use super::types::{CorrelationMarker, OperationGeneration};
+use super::types::{CorrelationMarker, OperationGeneration, OperationKind};
 
 /// What a watcher observed about a pod/container, normalized.
 ///
@@ -77,11 +77,51 @@ pub enum Classification {
     Divergence,
 }
 
+/// Watcher decision plus the generation used for a deterministic convergence
+/// event. A current marker identifies a reused resource's new start operation;
+/// otherwise the resource label is the best available identity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClassificationResult {
+    pub classification: Classification,
+    pub event_generation: Option<OperationGeneration>,
+}
+
 impl Classification {
     /// Convergence and Divergence publish; echoes and expected intermediates
     /// are suppressed.
     pub fn publishes(self) -> bool {
         matches!(self, Self::Convergence | Self::Divergence)
+    }
+}
+
+/// Classify and select the generation used by a published observation. Ready
+/// convergence belongs to the active operation marker even when the runtime
+/// resource was reused and still carries its creator generation.
+pub fn classify_with_correlation(
+    obs: Observation,
+    desired: SandboxDesiredState,
+    marker: Option<CorrelationMarker>,
+    suppression_active: bool,
+) -> ClassificationResult {
+    let classification = classify(obs, desired, marker, suppression_active);
+    let event_generation = if classification == Classification::Convergence {
+        match marker {
+            // Start may reuse a stopped Docker container whose immutable label
+            // identifies its creator; the active marker identifies this wake.
+            Some(marker) if marker.kind == OperationKind::Start => Some(marker.generation),
+            // Edge convergence belongs to the marker only when the observed
+            // replacement label proves the identity.
+            Some(marker) if obs.observed_generation == Some(marker.generation) => {
+                Some(marker.generation)
+            }
+            _ => obs.observed_generation,
+        }
+    } else {
+        obs.observed_generation
+    };
+    ClassificationResult {
+        classification,
+        event_generation,
     }
 }
 
@@ -185,6 +225,30 @@ mod tests {
         let c = classify(obs(T::Ready, Some(5)), D::Running, Some(marker(OperationKind::Start, 5)), true);
         assert_eq!(c, Classification::Convergence);
         assert!(c.publishes());
+    }
+
+    #[test]
+    fn reused_resource_ready_uses_the_current_start_generation() {
+        let result = classify_with_correlation(
+            obs(T::Ready, Some(4)),
+            D::Running,
+            Some(marker(OperationKind::Start, 5)),
+            false,
+        );
+        assert_eq!(result.classification, Classification::Convergence);
+        assert_eq!(result.event_generation, Some(OperationGeneration(5)));
+    }
+
+    #[test]
+    fn superseded_ready_does_not_take_an_edge_markers_generation() {
+        let result = classify_with_correlation(
+            obs(T::Ready, Some(4)),
+            D::Running,
+            Some(marker(OperationKind::Restart, 5)),
+            true,
+        );
+        assert_eq!(result.classification, Classification::Convergence);
+        assert_eq!(result.event_generation, Some(OperationGeneration(4)));
     }
 
     // ---- Case 2: Operation echo ----

@@ -43,14 +43,22 @@ transactional outbox is in place.
 The pending-Message query/index and the desired-state reconciler are in place:
 the reconciler is lease-elected on K8s / lease-free single-replica on Docker,
 re-notifies a woken Ready sandbox of its undelivered pending messages, and
-subsumes the `Removed`-intent orphan rule. Remaining step-2 work: thread
-`RuntimeOperationContext` generation into the provider mutations so pods/containers
-carry generation labels (and restrict Docker observation to the sandbox
-container); and the stale edge-marker (restart/redeploy) handling (both need
-generation identity). The reaper's previous desired-vs-actual recovery pass and
-its dark configuration have been deleted; the reconciler is the only recovery
-owner. Steps 3–4 (rename `SandboxProvider` → `SandboxRuntime`, delete shallow
-paths) remain pending.
+subsumes the `Removed`-intent orphan rule. `RuntimeOperationContext` reaches
+every provider mutation; replacement pod templates and sandbox containers carry
+`moatless.io/operation-generation`. K8s restart patches the Deployment template
+under its existing `Recreate` strategy, while Docker restart strictly
+inspect/remove/recreates the sandbox container because live labels are
+immutable. Both watchers carry the observed generation through the four-case
+classifier; Ready convergence uses the active marker generation so a reused
+Docker container does not reuse its original Ready event ID. Docker filters and
+defensively rejects subordinate server-container events. The reconciler
+acknowledges matching replacement generations and
+durably commits a deterministic `Error` fact before clearing a stale abandoned
+edge. Every marker clear compares the acknowledged generation, so a late
+completion cannot erase a newer operation's marker. The reaper's previous
+desired-vs-actual recovery pass and its dark configuration have been deleted;
+the reconciler is the only recovery owner.
+Steps 3–4 (retire `SandboxProvider`, then delete shallow paths) remain pending.
 
 ### Provider abstraction
 `SandboxProvider` trait (`provider.rs`) is the provider-agnostic interface for lifecycle operations (provision, start, stop, restart, cleanup, status, server logs, file search, `sandbox_client()`). Implementations: `K8sSandboxProvider` (`k8s/provider.rs`) and `DockerSandboxProvider` (`docker/provider.rs`). Migration step 3 renames this to `SandboxRuntime` (`provision` → `ensure_running`) and splits out the read-side `SandboxAccess` seam.
@@ -77,7 +85,7 @@ Provisioning creates (all labeled `moatless.io/task-id={task_id}`): a **Deployme
 `StatusResolver` (`k8s/status_resolver.rs`) reads status directly from the K8s API — no Redis cache: (1) Deployment replicas (0 = Stopped, missing = NotFound), (2) pod phase + sandbox container readiness, (3) server status by overlaying container probe states onto repo-config-defined servers (config-first, so servers show in the UI before pods exist).
 
 ### Pod watcher
-`pod_watcher.rs` — leader-elected (K8s Lease) task that watches all sandbox pods, detects lifecycle transitions (OOM, crash loop, eviction, restart, ready, failed, deleted), and publishes events to Redis Streams for SSE/event-handler consumption. Tracks pods **by pod_name, not task_id**, so rolling updates don't confuse old/new pods.
+`pod_watcher.rs` — leader-elected (K8s Lease) task that watches all sandbox pods, detects lifecycle transitions (OOM, crash loop, eviction, restart, ready, failed, deleted), classifies them against durable intent + correlation marker, and publishes only convergence/divergence events to Redis Streams. Tracks pods **by pod_name, not task_id**, so the superseded generation's deliberate stop during restart/redeploy is distinguishable from a replacement crash.
 
 ### Task reaper
 The unified reaper lives in **`task/reaper.rs`, not this module**. Leader-elected; each cycle (1) stops idle sandboxes after `ttl_minutes`, (2) auto-closes Open tasks inactive past `inactive_ttl_days`, and (3) sweeps only taskless labeled resources that lifecycle cannot express. Task-scoped stop/remove goes through `state.sandbox`; its one interior read — the idle-eligibility agent status — goes through the consumer-owned `AgentStatusPort`, whose `ProviderAgentStatus` impl wraps the provider's `sandbox_client`.
@@ -93,6 +101,7 @@ The unified reaper lives in **`task/reaper.rs`, not this module**. Leader-electe
 
 ## K8s label convention
 - `moatless.io/task-id` — task identifier (selector queries)
+- `moatless.io/operation-generation` — lifecycle correlation identity on pod templates and Docker sandbox containers
 - `moatless.io/user-id` — user identifier (on secrets)
 - `app.kubernetes.io/managed-by=moatless` — identifies moatless-managed resources
 - `app.kubernetes.io/name=moatless-workspace`

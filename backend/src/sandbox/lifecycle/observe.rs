@@ -12,12 +12,14 @@ use async_trait::async_trait;
 
 use crate::config::SandboxProviderType;
 use crate::sandbox::docker::client::DockerClient;
+use crate::sandbox::docker::naming::generate_container_name;
 use crate::sandbox::k8s::client::K8sClient;
 use crate::sandbox::provider::SandboxProvider;
 use crate::task::models::{SandboxDesiredState, TaskStatus};
 
 use super::convergence::SandboxObservedStatus;
-use super::reconciler::{FleetObserver, NotifyPort, ObserveError};
+use super::reconciler::{FleetObserver, NotifyPort, ObserveError, RuntimeObservation};
+use super::runtime::{generation_from_label, OPERATION_GENERATION_LABEL};
 
 /// Confirm a Task's status authoritatively via the provider's live-status read.
 async fn confirm(
@@ -47,13 +49,15 @@ impl K8sFleetObserver {
 
 #[async_trait]
 impl FleetObserver for K8sFleetObserver {
-    async fn observe_fleet(&self) -> Result<HashMap<String, SandboxObservedStatus>, ObserveError> {
+    async fn observe_fleet(
+        &self,
+    ) -> Result<HashMap<String, RuntimeObservation>, ObserveError> {
         let states = crate::sandbox::k8s::deployment::list_sandbox_deployment_states(&self.k8s)
             .await
             .map_err(|e| ObserveError::with_source("list sandbox deployments", e))?;
         Ok(states
             .into_iter()
-            .map(|(task_id, desired, ready)| {
+            .map(|(task_id, desired, ready, generation)| {
                 // A Deployment scaled to zero is Stopped; otherwise ready replicas
                 // decide Ready vs. still-Starting.
                 let status = if desired == 0 {
@@ -63,7 +67,7 @@ impl FleetObserver for K8sFleetObserver {
                 } else {
                     SandboxObservedStatus::Starting
                 };
-                (task_id, status)
+                (task_id, RuntimeObservation::new(status, generation))
             })
             .collect())
     }
@@ -73,8 +77,21 @@ impl FleetObserver for K8sFleetObserver {
         task_id: &str,
         task_status: TaskStatus,
         desired_state: SandboxDesiredState,
-    ) -> Result<SandboxObservedStatus, ObserveError> {
-        confirm(&self.provider, task_id, task_status, desired_state).await
+    ) -> Result<RuntimeObservation, ObserveError> {
+        let status = confirm(&self.provider, task_id, task_status, desired_state).await?;
+        let generation = crate::sandbox::k8s::deployment::find_deployment(&self.k8s, task_id)
+            .await
+            .map_err(|e| ObserveError::with_source("inspect sandbox deployment generation", e))?
+            .and_then(|deployment| {
+                deployment
+                    .spec
+                    .and_then(|spec| spec.template.metadata)
+                    .and_then(|metadata| metadata.labels)
+                    .and_then(|labels| {
+                        generation_from_label(labels.get(OPERATION_GENERATION_LABEL))
+                    })
+            });
+        Ok(RuntimeObservation::new(status, generation))
     }
 }
 
@@ -93,7 +110,9 @@ impl DockerFleetObserver {
 
 #[async_trait]
 impl FleetObserver for DockerFleetObserver {
-    async fn observe_fleet(&self) -> Result<HashMap<String, SandboxObservedStatus>, ObserveError> {
+    async fn observe_fleet(
+        &self,
+    ) -> Result<HashMap<String, RuntimeObservation>, ObserveError> {
         use bollard::models::ContainerSummaryStateEnum as State;
         use bollard::query_parameters::ListContainersOptionsBuilder;
 
@@ -132,7 +151,11 @@ impl FleetObserver for DockerFleetObserver {
                 Some(State::REMOVING) => SandboxObservedStatus::Terminating,
                 _ => SandboxObservedStatus::Stopped,
             };
-            out.insert(task_id, status);
+            let generation = c
+                .labels
+                .as_ref()
+                .and_then(|labels| generation_from_label(labels.get(OPERATION_GENERATION_LABEL)));
+            out.insert(task_id, RuntimeObservation::new(status, generation));
         }
         Ok(out)
     }
@@ -142,8 +165,33 @@ impl FleetObserver for DockerFleetObserver {
         task_id: &str,
         task_status: TaskStatus,
         desired_state: SandboxDesiredState,
-    ) -> Result<SandboxObservedStatus, ObserveError> {
-        confirm(&self.provider, task_id, task_status, desired_state).await
+    ) -> Result<RuntimeObservation, ObserveError> {
+        let status = confirm(&self.provider, task_id, task_status, desired_state).await?;
+        let generation = match self
+            .docker
+            .docker
+            .inspect_container(&generate_container_name(task_id), None)
+            .await
+        {
+            Ok(container) => container.config.and_then(|config| {
+                config
+                    .labels
+                    .and_then(|labels| {
+                        generation_from_label(labels.get(OPERATION_GENERATION_LABEL))
+                    })
+            }),
+            Err(bollard::errors::Error::DockerResponseServerError {
+                status_code: 404,
+                ..
+            }) => None,
+            Err(e) => {
+                return Err(ObserveError::with_source(
+                    "inspect sandbox container generation",
+                    e,
+                ));
+            }
+        };
+        Ok(RuntimeObservation::new(status, generation))
     }
 }
 

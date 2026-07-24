@@ -16,6 +16,9 @@ use tracing::{debug, info};
 
 use super::naming::generate_pod_name;
 use crate::config::Config;
+use crate::sandbox::lifecycle::runtime::{
+    RuntimeOperationContext, OPERATION_GENERATION_LABEL,
+};
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::jwt::{self, MintedSandboxTokens};
 use crate::sandbox::models::ProvisionPlan;
@@ -357,6 +360,15 @@ pub fn build_pod(
     );
 
     Ok(pod)
+}
+
+/// Stamp lifecycle's operation identity onto a pod before it becomes a
+/// Deployment template. Kubernetes copies this label to every replacement pod.
+pub fn stamp_operation_generation(pod: &mut Pod, ctx: RuntimeOperationContext) {
+    pod.metadata
+        .labels
+        .get_or_insert_with(BTreeMap::new)
+        .insert(OPERATION_GENERATION_LABEL.to_string(), ctx.generation_label());
 }
 
 /// Resolve the sandbox image for a plan: per-repo override → default sandbox image.
@@ -1342,6 +1354,25 @@ pub fn build_servers_map(plan: &ProvisionPlan) -> HashMap<String, u16> {
 mod tests {
     use super::*;
     use crate::sandbox::models::{RepoConfig, ServerConfig};
+
+    #[test]
+    fn pod_template_carries_operation_generation() {
+        let mut pod = Pod::default();
+        stamp_operation_generation(
+            &mut pod,
+            RuntimeOperationContext::new(
+                crate::sandbox::lifecycle::OperationGeneration(31),
+            ),
+        );
+        assert_eq!(
+            pod.metadata
+                .labels
+                .as_ref()
+                .and_then(|labels| labels.get(OPERATION_GENERATION_LABEL))
+                .map(String::as_str),
+            Some("31")
+        );
+    }
 
     fn test_config() -> Config {
         use crate::config::*;

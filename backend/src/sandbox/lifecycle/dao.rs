@@ -4,7 +4,7 @@
 //! The atomic intent write collapses desired state, stop reason, archive
 //! retention, and the correlation marker into **one** statement (a CTE captures
 //! the pre-image so `persist_intent` can report whether intent actually changed).
-//! `commit_completion` persists the deterministic completion event and clears the
+//! `commit_fact_and_clear_marker` persists the deterministic terminal fact and clears the
 //! marker in one transaction, so the deterministic event id is never live without
 //! its persisted fact.
 
@@ -41,17 +41,22 @@ const CLEAR_MARKER_SQL: &str = r#"UPDATE sandboxes SET
        operation_generation = NULL,
        operation_started_at = NULL,
        updated_at = NOW()
-   WHERE task_id = $1"#;
+   WHERE task_id = $1 AND operation_generation = $2"#;
 
 /// Clear the correlation marker on `executor`. Generic over the executor so the
 /// completion transaction (`&mut tx`) and the standalone clear (`&pool`) issue
 /// one and the same statement.
-async fn clear_marker_on<'e, E>(executor: E, task_id: &str) -> Result<(), sqlx::Error>
+async fn clear_marker_on<'e, E>(
+    executor: E,
+    task_id: &str,
+    generation: OperationGeneration,
+) -> Result<(), sqlx::Error>
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
     sqlx::query(CLEAR_MARKER_SQL)
         .bind(task_id)
+        .bind(generation.value())
         .execute(executor)
         .await
         .map(|_| ())
@@ -278,7 +283,7 @@ impl LifecycleStore for PgLifecycleStore {
         }
     }
 
-    async fn commit_completion(
+    async fn commit_fact_and_clear_marker(
         &self,
         task_id: &str,
         event: &LifecycleEvent,
@@ -313,7 +318,7 @@ impl LifecycleStore for PgLifecycleStore {
 
         // Clear the marker in the same transaction: the fact is durable and the
         // operation is acknowledged together.
-        clear_marker_on(&mut *tx, task_id)
+        clear_marker_on(&mut *tx, task_id, event.generation)
             .await
             .map_err(|e| StoreError::with_source("clear marker on completion", e))?;
 
@@ -322,8 +327,12 @@ impl LifecycleStore for PgLifecycleStore {
             .map_err(|e| StoreError::with_source("commit completion transaction", e))
     }
 
-    async fn clear_marker(&self, task_id: &str) -> Result<(), StoreError> {
-        clear_marker_on(&self.pool, task_id)
+    async fn clear_marker(
+        &self,
+        task_id: &str,
+        generation: OperationGeneration,
+    ) -> Result<(), StoreError> {
+        clear_marker_on(&self.pool, task_id, generation)
             .await
             .map_err(|e| StoreError::with_source("clear marker", e))?;
         Ok(())
@@ -405,7 +414,7 @@ mod db_tests {
     }
 
     #[sqlx::test]
-    async fn remove_persists_retention_and_commit_completion_clears_marker(pool: PgPool) {
+    async fn remove_persists_retention_and_fact_commit_clears_marker(pool: PgPool) {
         seed(&pool, "t1").await;
         let store = PgLifecycleStore::new(pool.clone());
         store
@@ -423,13 +432,20 @@ mod db_tests {
 
         let event = LifecycleEvent {
             event_id: "sandbox:t1:5:removed".to_string(),
+            generation: OperationGeneration(5),
             fact: EventFact::Removed,
             status: SandboxStatus::Removed,
             stop_reason: None,
         };
-        store.commit_completion("t1", &event).await.unwrap();
+        store
+            .commit_fact_and_clear_marker("t1", &event)
+            .await
+            .unwrap();
         // At-least-once retry of the same generation must not duplicate the row.
-        store.commit_completion("t1", &event).await.unwrap();
+        store
+            .commit_fact_and_clear_marker("t1", &event)
+            .await
+            .unwrap();
 
         let after = store.load("t1").await.unwrap().unwrap();
         assert!(after.marker.is_none(), "completion clears the marker");
@@ -447,7 +463,7 @@ mod db_tests {
     }
 
     #[sqlx::test]
-    async fn clear_marker_is_a_targeted_clear(pool: PgPool) {
+    async fn clear_marker_only_clears_the_matching_generation(pool: PgPool) {
         seed(&pool, "t1").await;
         let store = PgLifecycleStore::new(pool);
         store
@@ -463,11 +479,58 @@ mod db_tests {
             .await
             .unwrap();
         assert!(store.load("t1").await.unwrap().unwrap().marker.is_some());
-        store.clear_marker("t1").await.unwrap();
+        store
+            .clear_marker("t1", OperationGeneration(2))
+            .await
+            .unwrap();
+        assert!(
+            store.load("t1").await.unwrap().unwrap().marker.is_some(),
+            "late acknowledgement must not clear a newer marker"
+        );
+        store
+            .clear_marker("t1", OperationGeneration(1))
+            .await
+            .unwrap();
         let after = store.load("t1").await.unwrap().unwrap();
         assert!(after.marker.is_none());
         // Desired state is untouched by a marker clear.
         assert_eq!(after.desired_state, SandboxDesiredState::Running);
+    }
+
+    #[sqlx::test]
+    async fn late_fact_commit_does_not_clear_a_newer_generation(pool: PgPool) {
+        seed(&pool, "t1").await;
+        let store = PgLifecycleStore::new(pool);
+        store
+            .persist_intent(
+                "t1",
+                &IntentWrite {
+                    desired_state: SandboxDesiredState::Running,
+                    stop_reason: None,
+                    retention: None,
+                    marker: marker(OperationKind::Restart, 2),
+                },
+            )
+            .await
+            .unwrap();
+
+        let old_event = LifecycleEvent {
+            event_id: "sandbox:t1:1:error".to_string(),
+            generation: OperationGeneration(1),
+            fact: EventFact::Error,
+            status: SandboxStatus::Error,
+            stop_reason: None,
+        };
+        store
+            .commit_fact_and_clear_marker("t1", &old_event)
+            .await
+            .unwrap();
+
+        let after = store.load("t1").await.unwrap().unwrap();
+        assert_eq!(
+            after.marker.map(|marker| marker.generation),
+            Some(OperationGeneration(2))
+        );
     }
 
     #[sqlx::test]

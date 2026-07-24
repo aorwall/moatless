@@ -40,13 +40,8 @@ pub(crate) mod reconcile;
 pub(crate) mod reconciler;
 pub(crate) mod wake;
 
-// The watcher four-case classifier and per-class marker acknowledgement land
-// before the watcher migration that drives them, so their tested functions
-// have no non-test caller yet.
-// reason: staged delivery — watcher classification lands before the watcher migration.
-#[allow(dead_code)]
+// Watcher four-case classification and reconciler-owned marker acknowledgement.
 pub(crate) mod classify;
-#[allow(dead_code)]
 pub(crate) mod marker;
 
 pub(crate) mod error;
@@ -82,13 +77,19 @@ pub(crate) mod test_support;
 
 pub use error::{ErrorClass, LifecycleError, RuntimeError};
 pub use outcome::{Diagnostics, LifecycleOutcome};
-pub use types::{ArchiveRetention, IntentEffect, ObservedStatus, OperationKind, RuntimeEffect};
+pub use runtime::RuntimeOperationContext;
+pub use types::{
+    ArchiveRetention, IntentEffect, ObservedStatus, OperationGeneration, OperationKind,
+    RuntimeEffect,
+};
 pub use orchestrator::Lifecycle;
 
 // The desired-state reconciler and its production fleet-observer adapters,
 // assembled by `state::build_reconciler` and spawned by `main`.
 pub use observe::{DockerFleetObserver, GrpcNotify, K8sFleetObserver};
-pub use reconciler::{FleetObserver, NotifyPort, Reconciler, ReconcilerConfig};
+pub use reconciler::{
+    FleetObserver, NotifyPort, Reconciler, ReconcilerConfig, RuntimeObservation,
+};
 
 // The system clock `state` hands to the `Lifecycle` and `Reconciler`. The ports,
 // runtime seam, and correlation internals are named through their defining

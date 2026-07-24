@@ -144,6 +144,14 @@ only pod-level failures are treated as dead.
   emitted an identical event every backoff cycle, flooding SSE and the task
   timeline. Metrics and warn-logs still record every edge — only the
   *publish* is deduplicated — and `container_oom_killed` is always loud.
+- **Lifecycle correlation**: replacement pods and Docker sandbox containers
+  carry `moatless.io/operation-generation`. Watchers publish Ready convergence
+  and unexpected divergence, suppress operation echoes, and suppress only the
+  superseded generation's deliberate stop/delete during a fresh
+  restart/redeploy. Crashes, OOM kills, and evictions always publish. A stale
+  edge stops suppressing; the reconciler clears it only after matching
+  replacement Ready or after atomically persisting its deterministic Error
+  fact as abandonment.
 - **Spot-node removal is not fatal** (PR #306): when a pod disappears with
   `pod_status_reason` in `DeletionByPodGC` / `NodeLost` / `NodeShutdown` /
   `Terminated`, or exits cleanly while the Deployment still desires a
@@ -253,6 +261,9 @@ durable wake input, so a lost initial notification is retried.
 
 Retries use a leader-local capped exponential backoff. A newer pending Message
 or new caller operation resets the cap; leader failover deliberately resets it.
+The reconciler also acknowledges operation markers. Restart/redeploy markers
+are generation-sensitive: a Ready resource clears the marker only when it
+carries the replacement generation.
 
 ### 6. Orphan GC
 
@@ -263,7 +274,7 @@ by lifecycle and the reconciler.
 ## Failure Handling & Recovery
 
 - **Container crashes / OOM**: K8s restarts the container in place; the
-  watcher publishes `Initializing` (deduplicated across repeats). After
+  watcher publishes the failure as divergence. After
   `SANDBOX_MAX_CRASH_RESTART_COUNT` (default 5) restarts the sandbox is
   declared crash-looping.
 - **OOM specifics**: `container_oom_killed` is never deduplicated. The

@@ -97,6 +97,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Build sandbox provider based on configured provider type
     let sandbox_provider: Arc<dyn sandbox::provider::SandboxProvider>;
     let reaper_k8s: Option<sandbox::k8s::client::K8sClient>;
+    let docker_watcher_client: Option<sandbox::docker::client::DockerClient>;
     // The reconciler's per-tick fleet observation, built per provider.
     let sandbox_fleet_observer: Arc<dyn sandbox::lifecycle::FleetObserver>;
 
@@ -107,6 +108,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             info!("K8s client initialized");
 
             reaper_k8s = Some(k8s.clone());
+            docker_watcher_client = None;
             sandbox_provider = startup::build_sandbox_provider(
                 &config,
                 k8s.clone(),
@@ -130,6 +132,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             info!("Docker client initialized");
 
             reaper_k8s = None;
+            docker_watcher_client = Some(docker_client.clone());
             sandbox_provider = startup::build_docker_sandbox_provider(
                 &config,
                 docker_client.clone(),
@@ -140,21 +143,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 sandbox_provider.clone(),
             ));
 
-            // Spawn container lifecycle watcher
-            if let Some(ref publisher) = event_publisher {
-                sandbox::docker::container_watcher::spawn_container_lifecycle_watcher(
-                    docker_client,
-                    publisher.clone(),
-                    cancel.clone(),
-                    config.sandbox.max_crash_restart_count,
-                );
-                info!(
-                    max_crash_restart_count = config.sandbox.max_crash_restart_count,
-                    "Container lifecycle watcher spawned"
-                );
-            } else {
-                info!("Container lifecycle watcher disabled (requires Redis)");
-            }
+            // The Docker watcher is spawned after lifecycle is assembled so
+            // every observation is classified against durable intent.
         }
     }
 
@@ -250,6 +240,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             None => None,
         };
+
+    if let Some(docker_client) = docker_watcher_client {
+        if let Some(ref publisher) = event_publisher {
+            sandbox::docker::container_watcher::spawn_container_lifecycle_watcher(
+                docker_client,
+                publisher.clone(),
+                cancel.clone(),
+                config.sandbox.max_crash_restart_count,
+                lifecycle.clone(),
+            );
+            info!(
+                max_crash_restart_count = config.sandbox.max_crash_restart_count,
+                "Container lifecycle watcher spawned"
+            );
+        } else {
+            info!("Container lifecycle watcher disabled (requires Redis)");
+        }
+    }
 
     // Spawn the K8s pod lifecycle watcher now that the DB repos exist. It needs
     // task + repo access (plus credentials) to auto-disable crash-looping server
