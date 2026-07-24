@@ -158,7 +158,8 @@ async fn find_by_name_and_user(pool: PgPool) {
 
 // Run-config JSONB columns (servers/env_vars/plugins) moved off `repositories`
 // onto `workspaces`; their round-trip coverage now lives in
-// `workspace_dao_test`. Repositories keep the provider-reachability columns
+// `workspace_dao_test::update_jsonb_run_config_round_trips`. Repositories keep
+// the provider-reachability columns
 // (`access_status`/`access_checked_at`/`access_error`), so this exercises the
 // update + read-back path against those.
 #[sqlx::test]

@@ -143,6 +143,34 @@ async fn update_mutates_present_fields_only(pool: PgPool) {
         .unwrap());
 }
 
+/// The run-config JSONB columns (`servers`, `env_vars`) moved off `repositories`
+/// onto `workspaces`; this covers their patch + read-back round-trip at the
+/// workspace layer (mirrors the coverage the repository DAO used to carry).
+#[sqlx::test]
+async fn update_jsonb_run_config_round_trips(pool: PgPool) {
+    let repo = PgWorkspaceRepository(pool.clone());
+    repo.insert_workspace(&make_workspace_row("ws-json", "user-1"))
+        .await
+        .unwrap();
+
+    let servers = serde_json::json!([{"name": "web", "port": 3000}]);
+    let env_vars = serde_json::json!({"NODE_ENV": "test"});
+    let patch = WorkspacePatch {
+        servers: Some(Some(servers.clone())),
+        env_vars: Some(Some(env_vars.clone())),
+        ..Default::default()
+    };
+    assert!(repo.update("ws-json", &patch).await.unwrap());
+
+    let found = repo
+        .find_by_id_scoped("ws-json", &scope_ctx("user-1"))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(found.servers.unwrap(), servers);
+    assert_eq!(found.env_vars.unwrap(), env_vars);
+}
+
 // =========================================================================
 // placements — add / set_primary invariant / remove / refresh_kind
 // =========================================================================
