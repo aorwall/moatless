@@ -660,7 +660,10 @@ async fn provision_issue_task(
         return Ok(());
     }
 
-    let task_id = match create_issue_event_task(state, rule, issue).await {
+    let preview = build_issue_inbound_text(issue);
+    let task_id = match insert_event_task(state, rule, &issue.identifier, &issue.title, &preview)
+        .await
+    {
         Ok(id) => id,
         // Preflight failed: surface the reason as an issue comment (the
         // status-entry path has no agent session), then bail out — the errored
@@ -1234,8 +1237,14 @@ async fn provision_session_task(
     // Create the task (short-id, preflight, insert, tags, provision, and the
     // `Open` event all run inside the service), then the peer relation and the
     // binding.
-    let task_id = match create_provider_event_task(state, rule, session).await {
-        Ok(id) => id,
+    let preview = build_inbound_text(session);
+    let task_id = match insert_event_task(state, rule, &issue.identifier, &issue.title, &preview)
+        .await
+    {
+        Ok(id) => {
+            info!(task_id = %id, rule_id = %rule.id, "Created task from Linear AgentSession");
+            id
+        }
         // Preflight failed: the task exists but is errored, and no binding/turn
         // gate exists to surface the service's error event in Linear. Post the
         // reason onto the agent session directly so the user isn't left staring
@@ -1398,31 +1407,6 @@ fn issue_read_block(identifier: &str, title: &str, url: Option<&str>) -> String 
          comments {{ nodes {{ body createdAt user {{ displayName }} }} }} }} }}'`"
     );
     text
-}
-
-async fn create_provider_event_task(
-    state: &AppState,
-    rule: &SubscriptionMatch,
-    session: &AgentSession,
-) -> Result<String, AdapterError> {
-    let issue = session
-        .issue
-        .as_ref()
-        .ok_or_else(|| AdapterError::BadRequest("AgentSession missing issue".into()))?;
-    let preview = build_inbound_text(session);
-    let task_id = insert_event_task(state, rule, &issue.identifier, &issue.title, &preview).await?;
-    info!(task_id = %task_id, rule_id = %rule.id, "Created task from Linear AgentSession");
-    Ok(task_id)
-}
-
-/// Create a task from an `Issue.update` status-entry match.
-async fn create_issue_event_task(
-    state: &AppState,
-    rule: &SubscriptionMatch,
-    issue: &IssuePayload,
-) -> Result<String, AdapterError> {
-    let preview = build_issue_inbound_text(issue);
-    insert_event_task(state, rule, &issue.identifier, &issue.title, &preview).await
 }
 
 /// Build + insert the Task row shared by the session- and issue-initiated

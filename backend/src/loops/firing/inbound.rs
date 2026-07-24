@@ -11,22 +11,23 @@ use crate::task::relations::RelatedTask;
 
 use crate::adapters::models::InboundMessage;
 
-/// Assemble a task's `append_system_prompt` from the three sources every firing
-/// path draws on, in a fixed order:
+/// Assemble a task's firing-time `append_system_prompt` from the three sources
+/// every Subscription firing path draws on, joined with `"\n\n"` in a fixed
+/// order:
 ///
 /// 1. `origin_prelude` — an optional origin-context line prepended ahead of
-///    everything else (GitHub PR passes `PR_ORIGIN_CONTEXT`; chat and Linear
-///    pass `None`).
+///    everything else.
 /// 2. `prompt_template` — the loop/subscription's own prompt template.
-/// 3. the adapter's `reply_instructions()` (e.g. Slack mention syntax). The
-///    universal `moat messages reply --message <id>` guidance lives in the base
-///    sandbox-tools prompt — no per-adapter copy needed.
+/// 3. the reply instructions of the adapter named by `provider_label` (e.g.
+///    mention syntax). The universal `moat messages reply --message <id>`
+///    guidance lives in the base sandbox-tools prompt — no per-adapter copy
+///    needed.
 ///
 /// Returns `None` when every source is absent, so a task with no configured
 /// prompt keeps a `None` append (rather than an empty string). This is the one
-/// prompt-assembly function shared by the chat, GitHub PR, and Linear paths;
-/// the only per-path difference is the `origin_prelude` argument.
-pub(crate) fn build_append_system_prompt(
+/// firing-time prompt-assembly function shared by every Subscription firing
+/// path; a path opts into a prelude purely via the `origin_prelude` argument.
+pub(crate) fn assemble_firing_prompt(
     state: &AppState,
     provider_label: &str,
     prompt_template: Option<&str>,
@@ -91,7 +92,7 @@ pub(crate) async fn create_task_from_loop(
     config: &LoopContext,
     params: CreateTaskParams<'_>,
 ) -> Result<TaskCreationOutcome, TaskCreationError> {
-    let append_system_prompt = build_append_system_prompt(
+    let append_system_prompt = assemble_firing_prompt(
         state,
         &config.provider,
         config.prompt_template.as_deref(),
