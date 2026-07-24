@@ -663,7 +663,22 @@ async fn provision_issue_task(
         return Ok(());
     }
 
-    let task_id = create_issue_event_task(state, rule, issue).await?;
+    let task_id = match create_issue_event_task(state, rule, issue).await {
+        Ok(id) => id,
+        // Preflight failed: surface the reason as an issue comment (the
+        // status-entry path has no agent session), then bail out — the errored
+        // task gets no binding or prompt.
+        Err(AdapterError::AccessDenied(msg)) => {
+            if let Err(e) = api
+                .create_comment(&issue.id, &format!("Couldn't start this task: {msg}"))
+                .await
+            {
+                warn!(issue = %issue.identifier, error = %e, "Failed to post Linear preflight error");
+            }
+            return Err(AdapterError::AccessDenied(msg));
+        }
+        Err(e) => return Err(e),
+    };
     // Open the Linear turn gate so sandbox/agent events on this task surface in
     // Linear's UI. Provisioning already ran inside the creation service.
     state.linear_active_turns.open(&task_id);
@@ -1236,7 +1251,28 @@ async fn provision_session_task(
     // Create the task (short-id, preflight, insert, tags, provision, and the
     // `Open` event all run inside the service), then the peer relation and the
     // binding.
-    let task_id = create_provider_event_task(state, rule, session).await?;
+    let task_id = match create_provider_event_task(state, rule, session).await {
+        Ok(id) => id,
+        // Preflight failed: the task exists but is errored, and no binding/turn
+        // gate exists to surface the service's error event in Linear. Post the
+        // reason onto the agent session directly so the user isn't left staring
+        // at silence, then bail out — no binding, no prompt for a dead task.
+        Err(AdapterError::AccessDenied(msg)) => {
+            if let Err(e) = api
+                .agent_activity_create(
+                    &session.id,
+                    ActivityKind::Error,
+                    &format!("Couldn't start this task: {msg}"),
+                    false,
+                )
+                .await
+            {
+                warn!(session_id = %session.id, error = %e, "Failed to post Linear preflight error");
+            }
+            return Err(AdapterError::AccessDenied(msg));
+        }
+        Err(e) => return Err(e),
+    };
     if let Some(ref r) = related {
         crate::task::relations::record_related_to(state.task_relations.as_ref(), &task_id, r).await;
     }
@@ -1492,7 +1528,10 @@ async fn insert_event_task(
     // inside the creation service. On preflight failure it records the task as
     // errored (with a `SandboxStatus::Error` event) and returns an error, which
     // propagates here so the caller skips the binding/message steps for the
-    // dead task.
+    // dead task. Preflight is surfaced as `AccessDenied` (a repo-token access
+    // failure) so callers can post the reason back to Linear — the service's
+    // error event alone stays invisible there because no turn gate is open for
+    // a task that never got a binding.
     let source_matcher = rule.source_matcher.clone();
     let outcome = state
         .task_creation
@@ -1507,7 +1546,12 @@ async fn insert_event_task(
             |_task_id, _first_message| async move {},
         )
         .await
-        .map_err(|e| AdapterError::Internal(format!("Failed to create task: {e}")))?;
+        .map_err(|e| match e {
+            crate::task::creation::TaskCreationError::Preflight(msg) => {
+                AdapterError::AccessDenied(msg)
+            }
+            other => AdapterError::Internal(format!("Failed to create task: {other}")),
+        })?;
 
     Ok(outcome.task.task_id)
 }
