@@ -172,7 +172,6 @@ pub trait MessageRepository: Send + Sync {
         session_id: &str,
         turn_number: i32,
     ) -> Result<u64, sqlx::Error>;
-    async fn delete_queued(&self, task_id: &str, message_uuid: &str) -> Result<bool, sqlx::Error>;
     async fn get_last_message_type(
         &self,
         task_id: &str,
@@ -702,19 +701,6 @@ impl MessageRepository for PgMessageRepository {
         .await?;
 
         Ok(result.rows_affected())
-    }
-
-    async fn delete_queued(&self, task_id: &str, message_uuid: &str) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query(
-            r#"DELETE FROM task_messages
-               WHERE task_id = $1 AND uuid = $2 AND agent_session_id IS NULL AND sent_at IS NULL"#,
-        )
-        .bind(task_id)
-        .bind(message_uuid)
-        .execute(&self.0)
-        .await?;
-
-        Ok(result.rows_affected() > 0)
     }
 
     async fn get_last_message_type(
@@ -1614,17 +1600,6 @@ pub async fn acknowledge_messages(
 ) -> Result<u64, sqlx::Error> {
     PgMessageRepository(pool.clone())
         .acknowledge_messages(task_id, uuids, session_id, turn_number)
-        .await
-}
-
-/// Delete a queued message (convenience wrapper).
-pub async fn delete_queued(
-    pool: &DbPool,
-    task_id: &str,
-    message_uuid: &str,
-) -> Result<bool, sqlx::Error> {
-    PgMessageRepository(pool.clone())
-        .delete_queued(task_id, message_uuid)
         .await
 }
 

@@ -21,6 +21,8 @@ use super::types::{ObservedStatus, OperationGeneration, OperationKind};
 /// The deterministic fact an event records for an operation generation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EventFact {
+    /// Watcher convergence: the generation's replacement became Ready.
+    Ready,
     /// Acceptance: intent moved to `Removed`.
     Removing,
     /// Completion: the operation newly established a stopped sandbox.
@@ -37,6 +39,7 @@ impl EventFact {
     /// Stable slug used as the last segment of the deterministic event id.
     pub fn slug(self) -> &'static str {
         match self {
+            Self::Ready => "ready",
             Self::Removing => "removing",
             Self::Stopped => "stopped",
             Self::Removed => "removed",
@@ -48,6 +51,7 @@ impl EventFact {
     /// The `SandboxStatus` sub-type the event publishes under.
     pub fn sandbox_status(self) -> SandboxStatus {
         match self {
+            Self::Ready => SandboxStatus::Ready,
             Self::Removing => SandboxStatus::Removing,
             Self::Stopped => SandboxStatus::Stopped,
             Self::Removed => SandboxStatus::Removed,
@@ -61,6 +65,7 @@ impl EventFact {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LifecycleEvent {
     pub event_id: String,
+    pub generation: OperationGeneration,
     pub fact: EventFact,
     pub status: SandboxStatus,
     /// Carried only on the `Stopped` completion so reason tags survive
@@ -72,6 +77,7 @@ impl LifecycleEvent {
     fn new(task_id: &str, generation: OperationGeneration, fact: EventFact, stop_reason: Option<SandboxStopReason>) -> Self {
         Self {
             event_id: event_id(task_id, generation, fact),
+            generation,
             fact,
             status: fact.sandbox_status(),
             stop_reason,
@@ -113,6 +119,7 @@ impl LifecycleEvent {
 
     fn message(&self) -> &'static str {
         match self.fact {
+            EventFact::Ready => "Sandbox ready",
             EventFact::Removing => "Removing sandbox",
             EventFact::Stopped => "Sandbox stopped",
             EventFact::Removed => "Sandbox removed",
@@ -281,6 +288,14 @@ mod tests {
         assert_eq!(event_id("task-1", gen(5), EventFact::Removed), "sandbox:task-1:5:removed");
         assert_eq!(event_id("task-1", gen(6), EventFact::Removed), "sandbox:task-1:6:removed");
         assert_eq!(event_id("task-1", gen(5), EventFact::Error), "sandbox:task-1:5:error");
+    }
+
+    #[test]
+    fn watcher_ready_convergence_id_is_generation_scoped() {
+        assert_eq!(
+            event_id("task-7", OperationGeneration(12), EventFact::Ready),
+            "sandbox:task-7:12:ready"
+        );
     }
 
     #[test]

@@ -123,11 +123,11 @@ pub trait LifecycleStore: Send + Sync {
         write: &IntentWrite,
     ) -> Result<IntentEffect, StoreError>;
 
-    /// Persist the **full** deterministic completion event (id, status, and any
-    /// reason tag) and clear the marker in one transaction — the
-    /// transactional-outbox commit. The orchestrator publishes the event only
-    /// after this returns `Ok`.
-    async fn commit_completion(
+    /// Persist a **full** deterministic terminal fact (id, status, and any
+    /// reason tag) and clear the marker in one transaction. Used for ordinary
+    /// completion and for a stale edge's durable abandonment fact. The caller
+    /// publishes only after this returns `Ok`.
+    async fn commit_fact_and_clear_marker(
         &self,
         task_id: &str,
         event: &LifecycleEvent,
@@ -136,7 +136,11 @@ pub trait LifecycleStore: Send + Sync {
     /// Clear the marker synchronously — used for an `Unchanged` + `NoOp`
     /// against an already-converged target, where no completion fact will ever
     /// exist for the generation.
-    async fn clear_marker(&self, task_id: &str) -> Result<(), StoreError>;
+    async fn clear_marker(
+        &self,
+        task_id: &str,
+        generation: OperationGeneration,
+    ) -> Result<(), StoreError>;
 }
 
 /// The narrow internal agent-stop port. Graceful stop is lifecycle's ordering
@@ -151,6 +155,13 @@ pub trait AgentStopPort: Send + Sync {
 #[async_trait]
 pub trait LifecycleEventSink: Send + Sync {
     async fn publish(&self, task_id: &str, event: &LifecycleEvent);
+    async fn publish_diagnostics(
+        &self,
+        task_id: &str,
+        generation: OperationGeneration,
+        observed: ObservedStatus,
+        diagnostics: &super::outcome::Diagnostics,
+    );
 }
 
 /// A held per-Task lock. Dropping it releases the lock.
@@ -198,6 +209,8 @@ pub struct Lifecycle {
     events: Arc<dyn LifecycleEventSink>,
     lock: Arc<dyn LifecycleLock>,
     clock: Arc<dyn WallClock>,
+    plan: Option<super::plan::ProvisionDeps>,
+    default_sandbox_image: Option<String>,
     /// Bounded lock-acquire attempts before surfacing `OperationInProgress`.
     lock_attempts: u32,
 }
@@ -218,6 +231,8 @@ impl Lifecycle {
             events,
             lock,
             clock,
+            plan: None,
+            default_sandbox_image: None,
             lock_attempts: 1,
         }
     }
@@ -227,12 +242,76 @@ impl Lifecycle {
         self
     }
 
+    pub(crate) fn with_plan_knowledge(
+        mut self,
+        plan: super::plan::ProvisionDeps,
+        default_sandbox_image: String,
+    ) -> Self {
+        self.plan = Some(plan);
+        self.default_sandbox_image = Some(default_sandbox_image);
+        self
+    }
+
+    /// Image a fresh start/redeploy would use, resolved through lifecycle's
+    /// private workspace plan dependencies.
+    pub async fn expected_sandbox_image(&self, task_id: &str) -> Result<String, LifecycleError> {
+        let plan = self.plan.as_ref().ok_or_else(|| LifecycleError::Runtime {
+            task_id: task_id.to_string(),
+            source: super::error::RuntimeError::Infrastructure(
+                "sandbox plan knowledge unavailable".to_string(),
+            ),
+        })?;
+        let default_image =
+            self.default_sandbox_image
+                .as_deref()
+                .ok_or_else(|| LifecycleError::Runtime {
+                    task_id: task_id.to_string(),
+                    source: super::error::RuntimeError::Infrastructure(
+                        "default sandbox image unavailable".to_string(),
+                    ),
+                })?;
+        plan.expected_sandbox_image(task_id, default_image)
+            .await
+            .map_err(|source| LifecycleError::Runtime {
+                task_id: task_id.to_string(),
+                source,
+            })
+    }
+
+    /// Classify one watcher observation against durable intent and the current
+    /// correlation marker. Reads fail closed at the watcher boundary: callers
+    /// log the error and publish the observation rather than hiding it.
+    pub(crate) async fn classify_observation(
+        &self,
+        task_id: &str,
+        observation: super::classify::Observation,
+    ) -> Result<super::classify::ClassificationResult, LifecycleError> {
+        let intent = self.require_intent(task_id).await?;
+        let suppression_active = intent.marker.is_some_and(|marker| {
+            super::marker::edge_suppression_active(
+                &marker,
+                self.clock.now(),
+                super::marker::EDGE_SUPPRESSION_STALE_AFTER,
+            )
+        });
+        Ok(super::classify::classify_with_correlation(
+            observation,
+            intent.desired_state,
+            intent.marker,
+            suppression_active,
+        ))
+    }
+
     // ---- Public operations (detached from the caller future) ----
 
     pub async fn start(&self, task_id: &str) -> Result<LifecycleOutcome, LifecycleError> {
         let me = self.clone();
         let id = task_id.to_string();
-        Self::join(task_id.to_string(), tokio::spawn(async move { me.op_start(id).await })).await
+        Self::join(
+            task_id.to_string(),
+            tokio::spawn(async move { me.op_start(id).await }),
+        )
+        .await
     }
 
     pub async fn stop(
@@ -316,7 +395,8 @@ impl Lifecycle {
         let _guard = self.acquire(&task_id, OperationKind::Start).await?;
         let intent = self.require_intent(&task_id).await?;
         Self::guard_toward_running(&task_id, OperationKind::Start, &intent)?;
-        self.run_toward_running(&task_id, OperationKind::Start, &intent).await
+        self.run_toward_running(&task_id, OperationKind::Start, &intent)
+            .await
     }
 
     async fn op_edge(
@@ -422,13 +502,12 @@ impl Lifecycle {
     }
 
     async fn allocate(&self, task_id: &str) -> Result<OperationGeneration, LifecycleError> {
-        self.store
-            .allocate_generation(task_id)
-            .await
-            .map_err(|e| LifecycleError::GenerationUnavailable {
+        self.store.allocate_generation(task_id).await.map_err(|e| {
+            LifecycleError::GenerationUnavailable {
                 task_id: task_id.to_string(),
                 reason: e.to_string(),
-            })
+            }
+        })
     }
 
     async fn persist(
@@ -452,8 +531,9 @@ impl Lifecycle {
         intent: &TaskIntent,
     ) -> Result<LifecycleOutcome, LifecycleError> {
         let target = SandboxDesiredState::Running;
-        let (generation, marker_was_incomplete) =
-            self.resolve_generation(task_id, kind, intent, target).await?;
+        let (generation, marker_was_incomplete) = self
+            .resolve_generation(task_id, kind, intent, target)
+            .await?;
         let marker = CorrelationMarker::new(kind, generation, self.clock.now());
         let write = IntentWrite {
             desired_state: target,
@@ -649,7 +729,7 @@ impl Lifecycle {
                 // for the reconciler, so the deterministic id is never published
                 // without being persisted).
                 self.store
-                    .commit_completion(task_id, &event)
+                    .commit_fact_and_clear_marker(task_id, &event)
                     .await
                     .map_err(|e| LifecycleError::CompletionCommit {
                         task_id: task_id.to_string(),
@@ -659,6 +739,16 @@ impl Lifecycle {
             }
             self.events.publish(task_id, &event).await;
         }
+        if !outcome.diagnostics.is_empty() {
+            self.events
+                .publish_diagnostics(
+                    task_id,
+                    run.generation,
+                    outcome.observed,
+                    &outcome.diagnostics,
+                )
+                .await;
+        }
 
         // Synchronous clear only for a pure no-op against the already-converged
         // target — no completion fact will ever exist for this generation, so
@@ -667,7 +757,7 @@ impl Lifecycle {
             && outcome.is_pure_no_op()
             && Self::observed_is_converged_target(run.kind, outcome.observed)
         {
-            self.clear_marker_best_effort(task_id).await;
+            self.clear_marker_best_effort(task_id, run.generation).await;
         }
 
         Ok(outcome)
@@ -684,12 +774,31 @@ impl Lifecycle {
         }
     }
 
-    async fn clear_marker_best_effort(&self, task_id: &str) {
+    async fn clear_marker_best_effort(&self, task_id: &str, generation: OperationGeneration) {
         // A no-op-generation marker owes no completion fact; if the clear fails
         // the reconciler's marker acknowledgement is the backstop.
-        if let Err(e) = self.store.clear_marker(task_id).await {
+        if let Err(e) = self.store.clear_marker(task_id, generation).await {
             tracing::warn!(task_id = %task_id, error = %e, "failed to clear no-op marker");
         }
+    }
+
+    /// Durably abandon a stale caller-owned edge. The deterministic `Error`
+    /// fact and marker clear commit atomically, then the fact is published.
+    pub(crate) async fn abandon_edge(
+        &self,
+        task_id: &str,
+        generation: OperationGeneration,
+    ) -> Result<(), LifecycleError> {
+        let event = events::error_event(task_id, generation);
+        self.store
+            .commit_fact_and_clear_marker(task_id, &event)
+            .await
+            .map_err(|e| LifecycleError::CompletionCommit {
+                task_id: task_id.to_string(),
+                reason: e.to_string(),
+            })?;
+        self.events.publish(task_id, &event).await;
+        Ok(())
     }
 }
 
@@ -704,7 +813,9 @@ mod tests {
     // ---- In-memory / recording doubles ----
 
     fn fixed_now() -> DateTime<Utc> {
-        Utc.timestamp_opt(1_700_000_000, 0).single().expect("valid ts")
+        Utc.timestamp_opt(1_700_000_000, 0)
+            .single()
+            .expect("valid ts")
     }
 
     struct TestClock;
@@ -766,7 +877,10 @@ mod tests {
         async fn reconcile_candidates(&self) -> Result<Vec<String>, StoreError> {
             Ok(vec![])
         }
-        async fn allocate_generation(&self, _task_id: &str) -> Result<OperationGeneration, StoreError> {
+        async fn allocate_generation(
+            &self,
+            _task_id: &str,
+        ) -> Result<OperationGeneration, StoreError> {
             let mut g = self.next_gen.lock().expect("lock");
             let out = OperationGeneration(*g);
             *g += 1;
@@ -802,7 +916,7 @@ mod tests {
             });
             Ok(effect)
         }
-        async fn commit_completion(
+        async fn commit_fact_and_clear_marker(
             &self,
             _task_id: &str,
             event: &LifecycleEvent,
@@ -810,17 +924,34 @@ mod tests {
             if self.fail_commit {
                 return Err(StoreError::new("commit failed"));
             }
-            self.commits.lock().expect("lock").push(event.event_id.clone());
+            self.commits
+                .lock()
+                .expect("lock")
+                .push(event.event_id.clone());
             // Committing a completion clears the marker atomically.
             if let Some(cur) = self.intent.lock().expect("lock").as_mut() {
-                cur.marker = None;
+                if cur
+                    .marker
+                    .is_some_and(|marker| marker.generation == event.generation)
+                {
+                    cur.marker = None;
+                }
             }
             Ok(())
         }
-        async fn clear_marker(&self, _task_id: &str) -> Result<(), StoreError> {
+        async fn clear_marker(
+            &self,
+            _task_id: &str,
+            generation: OperationGeneration,
+        ) -> Result<(), StoreError> {
             *self.marker_cleared.lock().expect("lock") = true;
             if let Some(cur) = self.intent.lock().expect("lock").as_mut() {
-                cur.marker = None;
+                if cur
+                    .marker
+                    .is_some_and(|marker| marker.generation == generation)
+                {
+                    cur.marker = None;
+                }
             }
             Ok(())
         }
@@ -838,15 +969,22 @@ mod tests {
 
     struct RecordingEvents {
         published: Mutex<Vec<LifecycleEvent>>,
+        diagnostics: Mutex<Vec<super::super::outcome::Diagnostics>>,
     }
     impl RecordingEvents {
         fn new() -> Arc<Self> {
             Arc::new(Self {
                 published: Mutex::new(vec![]),
+                diagnostics: Mutex::new(vec![]),
             })
         }
         fn facts(&self) -> Vec<EventFact> {
-            self.published.lock().expect("lock").iter().map(|e| e.fact).collect()
+            self.published
+                .lock()
+                .expect("lock")
+                .iter()
+                .map(|e| e.fact)
+                .collect()
         }
         fn ids(&self) -> Vec<String> {
             self.published
@@ -861,6 +999,19 @@ mod tests {
     impl LifecycleEventSink for RecordingEvents {
         async fn publish(&self, _task_id: &str, event: &LifecycleEvent) {
             self.published.lock().expect("lock").push(event.clone());
+        }
+
+        async fn publish_diagnostics(
+            &self,
+            _task_id: &str,
+            _generation: OperationGeneration,
+            _observed: ObservedStatus,
+            diagnostics: &super::super::outcome::Diagnostics,
+        ) {
+            self.diagnostics
+                .lock()
+                .expect("lock")
+                .push(diagnostics.clone());
         }
     }
 
@@ -920,7 +1071,10 @@ mod tests {
             _t: &str,
             ctx: RuntimeOperationContext,
         ) -> Result<RuntimeOutcome, RuntimeError> {
-            self.log.lock().expect("lock").push("runtime_restart".into());
+            self.log
+                .lock()
+                .expect("lock")
+                .push("runtime_restart".into());
             *self.last_ctx.lock().expect("lock") = Some(ctx);
             Self::take(&self.restart_res)
         }
@@ -929,7 +1083,10 @@ mod tests {
             _t: &str,
             ctx: RuntimeOperationContext,
         ) -> Result<RuntimeOutcome, RuntimeError> {
-            self.log.lock().expect("lock").push("runtime_redeploy".into());
+            self.log
+                .lock()
+                .expect("lock")
+                .push("runtime_redeploy".into());
             *self.last_ctx.lock().expect("lock") = Some(ctx);
             Self::take(&self.redeploy_res)
         }
@@ -1004,7 +1161,13 @@ mod tests {
     }
 
     fn open_running() -> TaskIntent {
-        intent(TaskStatus::Open, SandboxDesiredState::Running, None, None, None)
+        intent(
+            TaskStatus::Open,
+            SandboxDesiredState::Running,
+            None,
+            None,
+            None,
+        )
     }
     fn open_stopped() -> TaskIntent {
         intent(
@@ -1072,7 +1235,10 @@ mod tests {
                 "restart" => h.lifecycle.restart("t").await,
                 _ => h.lifecycle.redeploy("t").await,
             };
-            assert!(matches!(res, Err(LifecycleError::NotAllowed { .. })), "{op}");
+            assert!(
+                matches!(res, Err(LifecycleError::NotAllowed { .. })),
+                "{op}"
+            );
             assert!(h.log.lock().expect("lock").is_empty(), "{op}");
         }
     }
@@ -1094,7 +1260,10 @@ mod tests {
             .replace(Ok(RuntimeOutcome::applied(ObservedStatus::Starting)));
         let out = h.lifecycle.start("t").await.expect("ok");
         assert_eq!(out.observed, ObservedStatus::Starting);
-        assert_eq!(h.store.current().expect("intent").desired_state, SandboxDesiredState::Running);
+        assert_eq!(
+            h.store.current().expect("intent").desired_state,
+            SandboxDesiredState::Running
+        );
     }
 
     #[tokio::test]
@@ -1102,7 +1271,11 @@ mod tests {
         // stop is idempotent for Closed, but must not clobber Removed intent or
         // discard its retention (the archive-deletion obligation).
         let h = harness(closed_removed());
-        let out = h.lifecycle.stop("t", SandboxStopReason::User).await.expect("ok");
+        let out = h
+            .lifecycle
+            .stop("t", SandboxStopReason::User)
+            .await
+            .expect("ok");
         assert!(out.is_pure_no_op());
         let cur = h.store.current().expect("intent");
         assert_eq!(cur.desired_state, SandboxDesiredState::Removed);
@@ -1120,13 +1293,20 @@ mod tests {
             .lock()
             .expect("lock")
             .replace(Ok(RuntimeOutcome::no_op(ObservedStatus::Removed)));
-        assert!(h.lifecycle.remove("t", ArchiveRetention::DeleteArchives).await.is_ok());
+        assert!(h
+            .lifecycle
+            .remove("t", ArchiveRetention::DeleteArchives)
+            .await
+            .is_ok());
     }
 
     #[tokio::test]
     async fn missing_task_is_not_found() {
         let h = harness_with(InMemoryStore::missing(), FlakyLock::free());
-        assert!(matches!(h.lifecycle.start("t").await, Err(LifecycleError::TaskNotFound(_))));
+        assert!(matches!(
+            h.lifecycle.start("t").await,
+            Err(LifecycleError::TaskNotFound(_))
+        ));
     }
 
     // ---- Intent-before-effect ordering ----
@@ -1176,16 +1356,31 @@ mod tests {
             async fn reconcile_candidates(&self) -> Result<Vec<String>, StoreError> {
                 Ok(vec![])
             }
-            async fn allocate_generation(&self, _t: &str) -> Result<OperationGeneration, StoreError> {
+            async fn allocate_generation(
+                &self,
+                _t: &str,
+            ) -> Result<OperationGeneration, StoreError> {
                 Ok(OperationGeneration(1))
             }
-            async fn persist_intent(&self, _t: &str, _w: &IntentWrite) -> Result<IntentEffect, StoreError> {
+            async fn persist_intent(
+                &self,
+                _t: &str,
+                _w: &IntentWrite,
+            ) -> Result<IntentEffect, StoreError> {
                 Ok(IntentEffect::Changed)
             }
-            async fn commit_completion(&self, _t: &str, _e: &LifecycleEvent) -> Result<(), StoreError> {
+            async fn commit_fact_and_clear_marker(
+                &self,
+                _t: &str,
+                _e: &LifecycleEvent,
+            ) -> Result<(), StoreError> {
                 Ok(())
             }
-            async fn clear_marker(&self, _t: &str) -> Result<(), StoreError> {
+            async fn clear_marker(
+                &self,
+                _t: &str,
+                _generation: OperationGeneration,
+            ) -> Result<(), StoreError> {
                 Ok(())
             }
         }
@@ -1198,7 +1393,10 @@ mod tests {
             FlakyLock::free(),
             Arc::new(TestClock),
         );
-        assert!(matches!(lifecycle.start("t").await, Err(LifecycleError::IntentLoad { .. })));
+        assert!(matches!(
+            lifecycle.start("t").await,
+            Err(LifecycleError::IntentLoad { .. })
+        ));
     }
 
     // ---- Graceful stop ordering ----
@@ -1211,11 +1409,23 @@ mod tests {
             .lock()
             .expect("lock")
             .replace(Ok(RuntimeOutcome::applied(ObservedStatus::Stopped)));
-        h.lifecycle.stop("t", SandboxStopReason::User).await.expect("ok");
+        h.lifecycle
+            .stop("t", SandboxStopReason::User)
+            .await
+            .expect("ok");
         let log = h.log.lock().expect("lock").clone();
-        let stop_agent = log.iter().position(|s| s == "stop_agent").expect("stop_agent");
-        let runtime_stop = log.iter().position(|s| s == "runtime_stop").expect("runtime_stop");
-        assert!(stop_agent < runtime_stop, "StopAgent must precede runtime stop: {log:?}");
+        let stop_agent = log
+            .iter()
+            .position(|s| s == "stop_agent")
+            .expect("stop_agent");
+        let runtime_stop = log
+            .iter()
+            .position(|s| s == "runtime_stop")
+            .expect("runtime_stop");
+        assert!(
+            stop_agent < runtime_stop,
+            "StopAgent must precede runtime stop: {log:?}"
+        );
     }
 
     #[tokio::test]
@@ -1226,11 +1436,23 @@ mod tests {
             .lock()
             .expect("lock")
             .replace(Ok(RuntimeOutcome::applied(ObservedStatus::Removed)));
-        h.lifecycle.remove("t", ArchiveRetention::DeleteArchives).await.expect("ok");
+        h.lifecycle
+            .remove("t", ArchiveRetention::DeleteArchives)
+            .await
+            .expect("ok");
         let log = h.log.lock().expect("lock").clone();
-        let stop_agent = log.iter().position(|s| s == "stop_agent").expect("stop_agent");
-        let runtime_remove = log.iter().position(|s| s == "runtime_remove").expect("runtime_remove");
-        assert!(stop_agent < runtime_remove, "StopAgent must precede runtime remove: {log:?}");
+        let stop_agent = log
+            .iter()
+            .position(|s| s == "stop_agent")
+            .expect("stop_agent");
+        let runtime_remove = log
+            .iter()
+            .position(|s| s == "runtime_remove")
+            .expect("runtime_remove");
+        assert!(
+            stop_agent < runtime_remove,
+            "StopAgent must precede runtime remove: {log:?}"
+        );
     }
 
     // ---- No-op suppression ----
@@ -1288,6 +1510,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn runtime_success_diagnostics_are_republished_by_lifecycle() {
+        use super::super::outcome::{DegradationWarning, Diagnostics, ServerFailure};
+
+        let h = harness(open_stopped());
+        let diagnostics = Diagnostics {
+            degradations: vec![DegradationWarning {
+                code: "storage_degraded".into(),
+                message: "using ephemeral storage".into(),
+            }],
+            server_failures: vec![ServerFailure {
+                server: "preview".into(),
+                message: "port was unavailable".into(),
+            }],
+        };
+        h.runtime
+            .ensure
+            .lock()
+            .expect("lock")
+            .replace(Ok(RuntimeOutcome::applied(ObservedStatus::Starting)
+                .with_diagnostics(diagnostics.clone())));
+
+        let outcome = h.lifecycle.start("t").await.expect("ok");
+
+        assert_eq!(outcome.diagnostics, diagnostics);
+        assert_eq!(
+            *h.events.diagnostics.lock().expect("lock"),
+            vec![diagnostics]
+        );
+    }
+
+    #[tokio::test]
     async fn start_runtime_failure_publishes_one_error_and_keeps_intent() {
         let h = harness(open_stopped());
         h.runtime
@@ -1297,7 +1550,10 @@ mod tests {
             .replace(Err(RuntimeError::Infrastructure("timeout".into())));
         let res = h.lifecycle.start("t").await;
         assert!(matches!(res, Err(LifecycleError::Runtime { .. })));
-        assert_eq!(h.store.current().expect("intent").desired_state, SandboxDesiredState::Running);
+        assert_eq!(
+            h.store.current().expect("intent").desired_state,
+            SandboxDesiredState::Running
+        );
         assert_eq!(h.events.facts(), vec![EventFact::Error]);
     }
 
@@ -1324,7 +1580,9 @@ mod tests {
         let h = harness_with(store, FlakyLock::denying(1, OperationKind::Stop));
         let res = h.lifecycle.start("t").await;
         match res {
-            Err(LifecycleError::OperationInProgress { kind }) => assert_eq!(kind, OperationKind::Stop),
+            Err(LifecycleError::OperationInProgress { kind }) => {
+                assert_eq!(kind, OperationKind::Stop)
+            }
             other => panic!("expected OperationInProgress, got {other:?}"),
         }
         assert!(h.log.lock().expect("lock").is_empty());
@@ -1361,7 +1619,9 @@ mod tests {
         let res = h.lifecycle.with_lock_attempts(3).start("t").await;
         assert!(matches!(
             res,
-            Err(LifecycleError::OperationInProgress { kind: OperationKind::Remove })
+            Err(LifecycleError::OperationInProgress {
+                kind: OperationKind::Remove
+            })
         ));
     }
 
@@ -1375,7 +1635,10 @@ mod tests {
             .lock()
             .expect("lock")
             .replace(Ok(RuntimeOutcome::applied(ObservedStatus::Stopped)));
-        h.lifecycle.stop("t", SandboxStopReason::IdleReaper).await.expect("ok");
+        h.lifecycle
+            .stop("t", SandboxStopReason::IdleReaper)
+            .await
+            .expect("ok");
         assert!(h.events.facts().contains(&EventFact::Stopped));
         assert_eq!(h.store.commits(), vec!["sandbox:t:1:stopped".to_string()]);
         assert!(h.store.current().expect("intent").marker.is_none());
@@ -1389,7 +1652,11 @@ mod tests {
             .lock()
             .expect("lock")
             .replace(Ok(RuntimeOutcome::no_op(ObservedStatus::Stopped)));
-        let out = h.lifecycle.stop("t", SandboxStopReason::IdleReaper).await.expect("ok");
+        let out = h
+            .lifecycle
+            .stop("t", SandboxStopReason::IdleReaper)
+            .await
+            .expect("ok");
         assert!(out.intent_effect.changed());
         assert!(!out.runtime_effect.applied());
         assert!(h.events.facts().contains(&EventFact::Stopped));
@@ -1430,9 +1697,18 @@ mod tests {
             .lock()
             .expect("lock")
             .replace(Ok(RuntimeOutcome::applied(ObservedStatus::Removed)));
-        h.lifecycle.remove("t", ArchiveRetention::DeleteArchives).await.expect("ok");
-        assert_eq!(h.events.facts(), vec![EventFact::Removing, EventFact::Removed]);
-        assert_eq!(h.store.current().expect("intent").retention, Some(ArchiveRetention::DeleteArchives));
+        h.lifecycle
+            .remove("t", ArchiveRetention::DeleteArchives)
+            .await
+            .expect("ok");
+        assert_eq!(
+            h.events.facts(),
+            vec![EventFact::Removing, EventFact::Removed]
+        );
+        assert_eq!(
+            h.store.current().expect("intent").retention,
+            Some(ArchiveRetention::DeleteArchives)
+        );
         assert_eq!(h.store.commits(), vec!["sandbox:t:1:removed".to_string()]);
     }
 
@@ -1444,7 +1720,10 @@ mod tests {
             .lock()
             .expect("lock")
             .replace(Err(RuntimeError::NotAbsent("pvc".into())));
-        let res = h.lifecycle.remove("t", ArchiveRetention::DeleteArchives).await;
+        let res = h
+            .lifecycle
+            .remove("t", ArchiveRetention::DeleteArchives)
+            .await;
         assert!(matches!(res, Err(LifecycleError::Runtime { .. })));
         let cur = h.store.current().expect("intent");
         assert_eq!(cur.desired_state, SandboxDesiredState::Removed);
@@ -1462,11 +1741,8 @@ mod tests {
         // Remove marker at generation 5. The recovery retry reuses generation 5
         // (stable deterministic id) and the persisted retention — it does not
         // allocate a fresh generation nor take the caller's DeleteArchives.
-        let prior_marker = CorrelationMarker::new(
-            OperationKind::Remove,
-            OperationGeneration(5),
-            fixed_now(),
-        );
+        let prior_marker =
+            CorrelationMarker::new(OperationKind::Remove, OperationGeneration(5), fixed_now());
         let store = Arc::new(InMemoryStore {
             intent: Mutex::new(Some(intent(
                 TaskStatus::Open,
@@ -1488,10 +1764,16 @@ mod tests {
             .expect("lock")
             .replace(Ok(RuntimeOutcome::applied(ObservedStatus::Removed)));
         // Caller passes DeleteArchives, but recovery must keep RetainArchives.
-        h.lifecycle.remove("t", ArchiveRetention::DeleteArchives).await.expect("ok");
+        h.lifecycle
+            .remove("t", ArchiveRetention::DeleteArchives)
+            .await
+            .expect("ok");
         // Deterministic id reuses generation 5, not 100.
         assert_eq!(h.store.commits(), vec!["sandbox:t:5:removed".to_string()]);
-        assert_eq!(h.store.current().expect("intent").retention, Some(ArchiveRetention::RetainArchives));
+        assert_eq!(
+            h.store.current().expect("intent").retention,
+            Some(ArchiveRetention::RetainArchives)
+        );
     }
 
     #[tokio::test]
@@ -1511,7 +1793,11 @@ mod tests {
             .lock()
             .expect("lock")
             .replace(Ok(RuntimeOutcome::no_op(ObservedStatus::Removed)));
-        let out = h.lifecycle.remove("t", ArchiveRetention::DeleteArchives).await.expect("ok");
+        let out = h
+            .lifecycle
+            .remove("t", ArchiveRetention::DeleteArchives)
+            .await
+            .expect("ok");
         assert!(out.is_pure_no_op());
         // No completion fact owed; marker cleared synchronously, none stranded.
         assert!(h.store.marker_cleared());

@@ -11,14 +11,13 @@ use tracing::{debug, warn};
 
 use super::client::K8sClient;
 use super::deployment;
-use super::naming::generate_service_name;
 use super::pod_reader;
 use super::pod_status::{
     check_sandbox_permanent_failure, is_sandbox_container_ready, pick_best_pod,
     DEFAULT_SERVER_READINESS_TIMEOUT_SECS,
 };
 use crate::config::Config;
-use crate::sandbox::client::SandboxClient;
+use crate::sandbox::access::SandboxConnector;
 use crate::sandbox::live_status::{derive_live_status, AgentStatus, LiveStatus};
 use crate::sandbox::models::*;
 use crate::sandbox::schemas::*;
@@ -67,6 +66,7 @@ impl StatusResolver {
         server_configs: &[ServerConfig],
         task_status: TaskStatus,
         desired_state: SandboxDesiredState,
+        connector: &dyn SandboxConnector,
     ) -> SandboxStatusFullResponse {
         let (phase, resolver_error, current_sandbox_image) =
             self.resolve_pod_phase_and_error(task_id).await;
@@ -112,7 +112,7 @@ impl StatusResolver {
                 status: agent_status,
                 scheduled_jobs,
                 background_processes,
-            } = self.fetch_agent_status(task_id).await;
+            } = self.fetch_agent_status(task_id, connector).await;
 
             let live_status = derive_live_status(
                 task_status,
@@ -253,11 +253,12 @@ impl StatusResolver {
         task_id: &str,
         task_status: TaskStatus,
         desired_state: SandboxDesiredState,
+        connector: &dyn SandboxConnector,
     ) -> LiveStatus {
         let (phase, resolver_error, _) = self.resolve_pod_phase_and_error(task_id).await;
         let sandbox_status = phase.to_sandbox_status();
         let agent_status = if sandbox_status == SandboxStatus::Ready {
-            self.fetch_agent_status(task_id).await.status
+            self.fetch_agent_status(task_id, connector).await.status
         } else {
             None
         };
@@ -279,13 +280,12 @@ impl StatusResolver {
     ///
     /// Only called when the pod is running, so any gRPC error (timeout,
     /// unavailable, etc.) means the Agent is unreachable rather than idle.
-    async fn fetch_agent_status(&self, task_id: &str) -> AgentStatusSnapshot {
-        let service_name = generate_service_name(task_id);
-        let client = match SandboxClient::for_service(
-            &service_name,
-            self.k8s.namespace(),
-            self.config.sandbox.grpc_port,
-        ) {
+    async fn fetch_agent_status(
+        &self,
+        task_id: &str,
+        connector: &dyn SandboxConnector,
+    ) -> AgentStatusSnapshot {
+        let client = match connector.sandbox_client(task_id).await {
             Ok(c) => c,
             Err(e) => {
                 debug!(task_id = %task_id, error = %e, "Failed to create gRPC client for agent status");

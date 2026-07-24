@@ -4,7 +4,7 @@
 //! The atomic intent write collapses desired state, stop reason, archive
 //! retention, and the correlation marker into **one** statement (a CTE captures
 //! the pre-image so `persist_intent` can report whether intent actually changed).
-//! `commit_completion` persists the deterministic completion event and clears the
+//! `commit_fact_and_clear_marker` persists the deterministic terminal fact and clears the
 //! marker in one transaction, so the deterministic event id is never live without
 //! its persisted fact.
 
@@ -12,7 +12,9 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
 use crate::db::DbPool;
-use crate::task::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
+use crate::task::models::{
+    sandbox_intent_epoch, SandboxDesiredState, SandboxIntentView, SandboxStopReason, TaskStatus,
+};
 
 use super::events::LifecycleEvent;
 use super::orchestrator::{IntentWrite, LifecycleStore, StoreError, TaskIntent};
@@ -39,23 +41,22 @@ const CLEAR_MARKER_SQL: &str = r#"UPDATE sandboxes SET
        operation_generation = NULL,
        operation_started_at = NULL,
        updated_at = NOW()
-   WHERE task_id = $1"#;
-
-/// The "no intent timestamp" sentinel for a Task with no Sandbox row: the Unix
-/// epoch, so any real Message timestamp supersedes a converged-Stopped absence.
-fn epoch() -> DateTime<Utc> {
-    DateTime::<Utc>::from(std::time::UNIX_EPOCH)
-}
+   WHERE task_id = $1 AND operation_generation = $2"#;
 
 /// Clear the correlation marker on `executor`. Generic over the executor so the
 /// completion transaction (`&mut tx`) and the standalone clear (`&pool`) issue
 /// one and the same statement.
-async fn clear_marker_on<'e, E>(executor: E, task_id: &str) -> Result<(), sqlx::Error>
+async fn clear_marker_on<'e, E>(
+    executor: E,
+    task_id: &str,
+    generation: OperationGeneration,
+) -> Result<(), sqlx::Error>
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
     sqlx::query(CLEAR_MARKER_SQL)
         .bind(task_id)
+        .bind(generation.value())
         .execute(executor)
         .await
         .map(|_| ())
@@ -73,6 +74,55 @@ fn marker_from_columns(
             .map(|kind| CorrelationMarker::new(kind, OperationGeneration(generation), started_at)),
         _ => None,
     }
+}
+
+#[derive(sqlx::FromRow)]
+struct SandboxIntentViewRow {
+    task_id: String,
+    started_at: Option<DateTime<Utc>>,
+    desired_state: Option<SandboxDesiredState>,
+    stop_reason: Option<SandboxStopReason>,
+    desired_state_updated_at: Option<DateTime<Utc>>,
+}
+
+/// Batch-load the task-response projection of Sandbox intent. This module owns
+/// the lazy-row semantic: an existing Task without a Sandbox row is returned as
+/// converged Stopped at the no-intent epoch.
+pub(crate) async fn load_sandbox_intent_views(
+    pool: &DbPool,
+    task_ids: &[String],
+) -> Result<std::collections::HashMap<String, SandboxIntentView>, sqlx::Error> {
+    if task_ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+
+    let rows: Vec<SandboxIntentViewRow> = sqlx::query_as(
+        r#"SELECT t.task_id, s.started_at, s.desired_state, s.stop_reason,
+                  s.desired_state_updated_at
+           FROM tasks t
+           LEFT JOIN sandboxes s ON s.task_id = t.task_id
+           WHERE t.task_id = ANY($1)"#,
+    )
+    .bind(task_ids)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            (
+                row.task_id,
+                SandboxIntentView {
+                    started_at: row.started_at,
+                    desired_state: row.desired_state.unwrap_or(SandboxDesiredState::Stopped),
+                    stop_reason: row.stop_reason,
+                    desired_state_updated_at: row
+                        .desired_state_updated_at
+                        .unwrap_or_else(sandbox_intent_epoch),
+                },
+            )
+        })
+        .collect())
 }
 
 #[async_trait]
@@ -124,7 +174,8 @@ impl LifecycleStore for PgLifecycleStore {
                 stop_reason,
                 retention: retention.as_deref().and_then(ArchiveRetention::from_db_str),
                 marker: marker_from_columns(op_kind, op_generation, op_started_at),
-                desired_state_updated_at: desired_state_updated_at.unwrap_or_else(epoch),
+                desired_state_updated_at: desired_state_updated_at
+                    .unwrap_or_else(sandbox_intent_epoch),
             },
         ))
     }
@@ -232,7 +283,7 @@ impl LifecycleStore for PgLifecycleStore {
         }
     }
 
-    async fn commit_completion(
+    async fn commit_fact_and_clear_marker(
         &self,
         task_id: &str,
         event: &LifecycleEvent,
@@ -267,7 +318,7 @@ impl LifecycleStore for PgLifecycleStore {
 
         // Clear the marker in the same transaction: the fact is durable and the
         // operation is acknowledged together.
-        clear_marker_on(&mut *tx, task_id)
+        clear_marker_on(&mut *tx, task_id, event.generation)
             .await
             .map_err(|e| StoreError::with_source("clear marker on completion", e))?;
 
@@ -276,8 +327,12 @@ impl LifecycleStore for PgLifecycleStore {
             .map_err(|e| StoreError::with_source("commit completion transaction", e))
     }
 
-    async fn clear_marker(&self, task_id: &str) -> Result<(), StoreError> {
-        clear_marker_on(&self.pool, task_id)
+    async fn clear_marker(
+        &self,
+        task_id: &str,
+        generation: OperationGeneration,
+    ) -> Result<(), StoreError> {
+        clear_marker_on(&self.pool, task_id, generation)
             .await
             .map_err(|e| StoreError::with_source("clear marker", e))?;
         Ok(())
@@ -359,7 +414,7 @@ mod db_tests {
     }
 
     #[sqlx::test]
-    async fn remove_persists_retention_and_commit_completion_clears_marker(pool: PgPool) {
+    async fn remove_persists_retention_and_fact_commit_clears_marker(pool: PgPool) {
         seed(&pool, "t1").await;
         let store = PgLifecycleStore::new(pool.clone());
         store
@@ -377,13 +432,20 @@ mod db_tests {
 
         let event = LifecycleEvent {
             event_id: "sandbox:t1:5:removed".to_string(),
+            generation: OperationGeneration(5),
             fact: EventFact::Removed,
             status: SandboxStatus::Removed,
             stop_reason: None,
         };
-        store.commit_completion("t1", &event).await.unwrap();
+        store
+            .commit_fact_and_clear_marker("t1", &event)
+            .await
+            .unwrap();
         // At-least-once retry of the same generation must not duplicate the row.
-        store.commit_completion("t1", &event).await.unwrap();
+        store
+            .commit_fact_and_clear_marker("t1", &event)
+            .await
+            .unwrap();
 
         let after = store.load("t1").await.unwrap().unwrap();
         assert!(after.marker.is_none(), "completion clears the marker");
@@ -401,7 +463,7 @@ mod db_tests {
     }
 
     #[sqlx::test]
-    async fn clear_marker_is_a_targeted_clear(pool: PgPool) {
+    async fn clear_marker_only_clears_the_matching_generation(pool: PgPool) {
         seed(&pool, "t1").await;
         let store = PgLifecycleStore::new(pool);
         store
@@ -417,11 +479,58 @@ mod db_tests {
             .await
             .unwrap();
         assert!(store.load("t1").await.unwrap().unwrap().marker.is_some());
-        store.clear_marker("t1").await.unwrap();
+        store
+            .clear_marker("t1", OperationGeneration(2))
+            .await
+            .unwrap();
+        assert!(
+            store.load("t1").await.unwrap().unwrap().marker.is_some(),
+            "late acknowledgement must not clear a newer marker"
+        );
+        store
+            .clear_marker("t1", OperationGeneration(1))
+            .await
+            .unwrap();
         let after = store.load("t1").await.unwrap().unwrap();
         assert!(after.marker.is_none());
         // Desired state is untouched by a marker clear.
         assert_eq!(after.desired_state, SandboxDesiredState::Running);
+    }
+
+    #[sqlx::test]
+    async fn late_fact_commit_does_not_clear_a_newer_generation(pool: PgPool) {
+        seed(&pool, "t1").await;
+        let store = PgLifecycleStore::new(pool);
+        store
+            .persist_intent(
+                "t1",
+                &IntentWrite {
+                    desired_state: SandboxDesiredState::Running,
+                    stop_reason: None,
+                    retention: None,
+                    marker: marker(OperationKind::Restart, 2),
+                },
+            )
+            .await
+            .unwrap();
+
+        let old_event = LifecycleEvent {
+            event_id: "sandbox:t1:1:error".to_string(),
+            generation: OperationGeneration(1),
+            fact: EventFact::Error,
+            status: SandboxStatus::Error,
+            stop_reason: None,
+        };
+        store
+            .commit_fact_and_clear_marker("t1", &old_event)
+            .await
+            .unwrap();
+
+        let after = store.load("t1").await.unwrap().unwrap();
+        assert_eq!(
+            after.marker.map(|marker| marker.generation),
+            Some(OperationGeneration(2))
+        );
     }
 
     #[sqlx::test]
@@ -547,11 +656,40 @@ mod db_tests {
         assert_eq!(intent.desired_state, SandboxDesiredState::Stopped);
         assert!(intent.marker.is_none());
         assert_eq!(intent.stop_reason, None);
-        assert_eq!(intent.desired_state_updated_at, epoch(), "no intent timestamp");
+        assert_eq!(
+            intent.desired_state_updated_at,
+            sandbox_intent_epoch(),
+            "no intent timestamp"
+        );
 
         assert!(
             store.reconcile_candidates().await.unwrap().is_empty(),
             "a no-row Task is converged, not a candidate",
+        );
+    }
+
+    #[sqlx::test]
+    async fn generation_allocation_births_a_no_intent_row_at_epoch(pool: PgPool) {
+        seed_bare_task(&pool, "t1", "open").await;
+        let store = PgLifecycleStore::new(pool.clone());
+
+        assert_eq!(
+            store.allocate_generation("t1").await.unwrap(),
+            OperationGeneration(1)
+        );
+
+        let intent = store.load("t1").await.unwrap().expect("task exists");
+        assert_eq!(intent.desired_state, SandboxDesiredState::Stopped);
+        assert_eq!(intent.desired_state_updated_at, sandbox_intent_epoch());
+
+        let views = load_sandbox_intent_views(&pool, &[String::from("t1")])
+            .await
+            .unwrap();
+        let view = views.get("t1").expect("existing task has a projection");
+        assert_eq!(view.desired_state, SandboxDesiredState::Stopped);
+        assert!(
+            !view.has_explicit_intent(),
+            "allocation alone must not look like an explicit stop"
         );
     }
 

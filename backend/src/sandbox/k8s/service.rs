@@ -133,3 +133,24 @@ pub async fn delete_sandbox_service(k8s: &K8sClient, task_id: &str) -> Result<()
         }
     }
 }
+
+/// Await observed absence of the task's Sandbox Service.
+pub async fn wait_for_sandbox_service_deleted(
+    k8s: &K8sClient,
+    task_id: &str,
+) -> Result<(), crate::sandbox::error::SandboxError> {
+    let services: Api<Service> = Api::namespaced(k8s.client.clone(), k8s.namespace());
+    let service_name = generate_service_name(task_id);
+    super::wait::wait_absent(
+        task_id,
+        "Service",
+        std::time::Duration::from_mins(1),
+        || async {
+            services
+                .get_opt(&service_name)
+                .await
+                .map(|item| item.is_none())
+        },
+    )
+    .await
+}

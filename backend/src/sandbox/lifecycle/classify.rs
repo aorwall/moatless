@@ -14,14 +14,17 @@ use super::types::{CorrelationMarker, OperationGeneration};
 /// What a watcher observed about a pod/container, normalized.
 ///
 /// Hard failures (`Crash`, `OomKilled`, `Evicted`) are **never** expected and
-/// always publish, marker or not. `CleanStop` and `Deleted` are the only
-/// transitions that can be an operation echo or an expected intermediate.
+/// always publish, marker or not. Docker reports a force-removed superseded
+/// container as a non-zero stop, so that transition remains a correlation
+/// candidate until its generation proves whether it was the old container.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ObservedTransition {
     /// Sandbox container became ready.
     Ready,
     /// Graceful stop / scaled to 0 / clean exit (exit 0).
     CleanStop,
+    /// Docker non-zero stop whose generation may identify deliberate teardown.
+    NonZeroStop,
     /// Pod/container removed.
     Deleted,
     /// Non-zero exit / crash-loop. Always a real failure.
@@ -77,11 +80,37 @@ pub enum Classification {
     Divergence,
 }
 
+/// Watcher decision plus the resource generation used for a deterministic
+/// convergence event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClassificationResult {
+    pub classification: Classification,
+    pub event_generation: Option<OperationGeneration>,
+}
+
 impl Classification {
     /// Convergence and Divergence publish; echoes and expected intermediates
     /// are suppressed.
     pub fn publishes(self) -> bool {
         matches!(self, Self::Convergence | Self::Divergence)
+    }
+}
+
+/// Classify and select the generation used by a published observation.
+///
+/// Runtime adapters stamp every replacement, including waking a stopped Docker
+/// sandbox, so the observed label is a time-independent event identity.
+pub fn classify_with_correlation(
+    obs: Observation,
+    desired: SandboxDesiredState,
+    marker: Option<CorrelationMarker>,
+    suppression_active: bool,
+) -> ClassificationResult {
+    let classification = classify(obs, desired, marker, suppression_active);
+    let event_generation = obs.observed_generation;
+    ClassificationResult {
+        classification,
+        event_generation,
     }
 }
 
@@ -116,7 +145,7 @@ pub fn classify(
                 Classification::Divergence
             }
         }
-        T::CleanStop | T::Deleted => {
+        T::CleanStop | T::NonZeroStop | T::Deleted => {
             // 3. Expected intermediate: the superseded pod's deliberate death
             //    during a restart/redeploy edge. Identity — not the clock —
             //    distinguishes the old pod's death (generation < marker) from
@@ -187,6 +216,33 @@ mod tests {
         assert!(c.publishes());
     }
 
+    #[test]
+    fn ready_identity_does_not_change_when_the_marker_clears() {
+        let result = classify_with_correlation(
+            obs(T::Ready, Some(4)),
+            D::Running,
+            Some(marker(OperationKind::Start, 5)),
+            false,
+        );
+        assert_eq!(result.classification, Classification::Convergence);
+        assert_eq!(result.event_generation, Some(OperationGeneration(4)));
+        let after_ack =
+            classify_with_correlation(obs(T::Ready, Some(4)), D::Running, None, false);
+        assert_eq!(after_ack.event_generation, result.event_generation);
+    }
+
+    #[test]
+    fn superseded_ready_does_not_take_an_edge_markers_generation() {
+        let result = classify_with_correlation(
+            obs(T::Ready, Some(4)),
+            D::Running,
+            Some(marker(OperationKind::Restart, 5)),
+            true,
+        );
+        assert_eq!(result.classification, Classification::Convergence);
+        assert_eq!(result.event_generation, Some(OperationGeneration(4)));
+    }
+
     // ---- Case 2: Operation echo ----
 
     #[test]
@@ -234,6 +290,30 @@ mod tests {
         // read as a crash. Same superseded stop, asserted to NOT diverge.
         let c = classify(obs(T::CleanStop, Some(6)), D::Running, Some(marker(OperationKind::Restart, 7)), true);
         assert_ne!(c, Classification::Divergence);
+    }
+
+    #[test]
+    fn superseded_docker_nonzero_stop_during_restart_is_expected() {
+        let c = classify(
+            obs(T::NonZeroStop, Some(6)),
+            D::Running,
+            Some(marker(OperationKind::Restart, 7)),
+            true,
+        );
+        assert_eq!(c, Classification::ExpectedIntermediate);
+        assert!(!c.publishes());
+    }
+
+    #[test]
+    fn replacement_docker_nonzero_stop_is_a_divergence() {
+        let c = classify(
+            obs(T::NonZeroStop, Some(7)),
+            D::Running,
+            Some(marker(OperationKind::Restart, 7)),
+            true,
+        );
+        assert_eq!(c, Classification::Divergence);
+        assert!(c.publishes());
     }
 
     // ---- Case 4: Divergence ----

@@ -29,11 +29,31 @@ use super::attempt::AttemptBudget;
 use super::convergence::{ReconcileAction, SandboxObservedStatus};
 use super::orchestrator::{Lifecycle, LifecycleStore, WallClock};
 use super::reconcile::{decide, ReconcileInput};
-use super::types::ArchiveRetention;
+use super::types::{ArchiveRetention, OperationGeneration};
+
+/// Runtime observation paired with the lifecycle generation stamped on the
+/// currently observed pod/container. Legacy resources have no generation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeObservation {
+    pub status: SandboxObservedStatus,
+    pub generation: Option<OperationGeneration>,
+}
+
+impl RuntimeObservation {
+    pub fn new(status: SandboxObservedStatus, generation: Option<OperationGeneration>) -> Self {
+        Self { status, generation }
+    }
+}
+
+impl From<SandboxObservedStatus> for RuntimeObservation {
+    fn from(status: SandboxObservedStatus) -> Self {
+        Self::new(status, None)
+    }
+}
 
 /// A runtime-status read failed. The reconciler logs and skips the Task this
 /// tick rather than acting on missing observation. Keeps the underlying source
-/// (a K8s/Docker/provider error) so fleet-LIST debugging retains the chain.
+/// (a K8s/Docker observation error) so fleet-LIST debugging retains the chain.
 #[derive(Debug, thiserror::Error)]
 #[error("{context}")]
 pub struct ObserveError {
@@ -67,18 +87,17 @@ pub trait FleetObserver: Send + Sync {
     /// One label-selector LIST per tick: coarse observed status for every Task
     /// with live resources. Tasks absent from the map have no resources and are
     /// treated as [`SandboxObservedStatus::Absent`].
-    async fn observe_fleet(&self)
-        -> Result<HashMap<String, SandboxObservedStatus>, ObserveError>;
+    async fn observe_fleet(&self) -> Result<HashMap<String, RuntimeObservation>, ObserveError>;
 
     /// Authoritative per-Task status, read to confirm a divergence before acting
     /// so the reconciler never drives an operation off stale coarse data. The
-    /// intent fields are the ones the provider's live-status projection needs.
+    /// intent fields are the ones the observer's live-status projection needs.
     async fn observe(
         &self,
         task_id: &str,
         task_status: TaskStatus,
         desired_state: SandboxDesiredState,
-    ) -> Result<SandboxObservedStatus, ObserveError>;
+    ) -> Result<RuntimeObservation, ObserveError>;
 }
 
 /// Delivers a pending-message wake to an already-Ready sandbox over gRPC.
@@ -233,11 +252,11 @@ impl Reconciler {
     async fn reconcile_task(
         &self,
         task_id: &str,
-        coarse: &HashMap<String, SandboxObservedStatus>,
+        coarse: &HashMap<String, RuntimeObservation>,
         pending_at: Option<DateTime<Utc>>,
         now: DateTime<Utc>,
     ) {
-        let intent = match self.store.load(task_id).await {
+        let mut intent = match self.store.load(task_id).await {
             Ok(Some(intent)) => intent,
             Ok(None) => return,
             Err(e) => {
@@ -259,15 +278,18 @@ impl Reconciler {
         let observed_coarse = coarse
             .get(task_id)
             .copied()
-            .unwrap_or(SandboxObservedStatus::Absent);
+            .unwrap_or_else(|| SandboxObservedStatus::Absent.into());
         let coarse_decision = decide(&ReconcileInput {
             intent: intent.clone(),
-            observed: observed_coarse,
+            observed: observed_coarse.status,
             newest_pending_message_at: pending_at,
         });
         // A woken Task always confirms — even when coarse shows no operation it may
         // be an already-Ready sandbox owed a re-notification.
-        if !coarse_decision.woken && !coarse_decision.action.is_operation() {
+        if intent.marker.is_none()
+            && !coarse_decision.woken
+            && !coarse_decision.action.is_operation()
+        {
             return;
         }
 
@@ -283,9 +305,59 @@ impl Reconciler {
                 return;
             }
         };
+
+        if let Some(marker) = intent.marker {
+            let replacement_ready = observed.status == SandboxObservedStatus::Ready
+                && observed.generation == Some(marker.generation);
+            let ack = super::marker::acknowledge(
+                &marker,
+                super::marker::AckContext {
+                    observed: observed.status,
+                    replacement_ready,
+                    ..Default::default()
+                },
+            );
+            if ack.clears() {
+                if let Err(e) = self.store.clear_marker(task_id, marker.generation).await {
+                    warn!(task_id, error = %e, "reconciler: failed to acknowledge converged marker");
+                }
+                return;
+            }
+
+            if marker.kind.is_edge() {
+                if !super::marker::is_stale(
+                    &marker,
+                    now,
+                    super::marker::EDGE_ABANDON_AFTER,
+                ) {
+                    // Caller-owned edges are never replayed. Give the fresh
+                    // replacement time to appear before level recovery acts.
+                    return;
+                }
+                if observed.status == SandboxObservedStatus::Starting
+                    && observed.generation == Some(marker.generation)
+                {
+                    // The replacement generation is still advancing. Its age
+                    // cannot by itself prove that the edge was abandoned.
+                    return;
+                }
+                if let Err(e) = self
+                    .lifecycle
+                    .abandon_edge(task_id, marker.generation)
+                    .await
+                {
+                    warn!(task_id, error = %e, "reconciler: failed to durably abandon stale edge");
+                    return;
+                }
+                // The atomic abandonment commit cleared the old edge marker.
+                // Any level recovery below must allocate a fresh generation.
+                intent.marker = None;
+            }
+        }
+
         let decision = decide(&ReconcileInput {
             intent: intent.clone(),
-            observed,
+            observed: observed.status,
             newest_pending_message_at: pending_at,
         });
 
@@ -312,7 +384,7 @@ impl Reconciler {
                 ReconcileAction::None | ReconcileAction::Wait => return,
             };
             self.record_outcome(task_id, decision.action, result, now);
-        } else if decision.woken && observed == SandboxObservedStatus::Ready {
+        } else if decision.woken && observed.status == SandboxObservedStatus::Ready {
             // The wake landed on an already-Ready sandbox: re-notify under the
             // per-Task backoff until the pending rows are acknowledged (which
             // drops the Task from the pending set and ends the wake).
@@ -325,7 +397,10 @@ impl Reconciler {
     /// Ready) must not.
     fn note_wake(&self, task_id: &str, wake_at: Option<DateTime<Utc>>) {
         let Some(wake_at) = wake_at else { return };
-        let mut guard = self.retries.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut guard = self
+            .retries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let retry = guard
             .entry(task_id.to_string())
             .or_insert_with(|| TaskRetry::new(self.config.attempt_cap));
@@ -342,7 +417,10 @@ impl Reconciler {
     /// exponential backoff keyed by Task.
     async fn maybe_notify(&self, task_id: &str, now: DateTime<Utc>) {
         let due = {
-            let mut guard = self.retries.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut guard = self
+                .retries
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             let retry = guard
                 .entry(task_id.to_string())
                 .or_insert_with(|| TaskRetry::new(self.config.attempt_cap));
@@ -363,7 +441,10 @@ impl Reconciler {
             }
         };
         if due {
-            debug!(task_id, "reconciler: re-notifying Ready sandbox of pending wake");
+            debug!(
+                task_id,
+                "reconciler: re-notifying Ready sandbox of pending wake"
+            );
             self.notify.notify(task_id).await;
         }
     }
@@ -372,7 +453,10 @@ impl Reconciler {
     /// backoff. Mutates the Task's budget (`begin`) before gating. Wake resets
     /// are handled by [`note_wake`](Self::note_wake) before this runs.
     fn retry_gate(&self, task_id: &str, generation: Option<i64>, now: DateTime<Utc>) -> bool {
-        let mut guard = self.retries.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut guard = self
+            .retries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let retry = guard
             .entry(task_id.to_string())
             .or_insert_with(|| TaskRetry::new(self.config.attempt_cap));
@@ -404,7 +488,10 @@ impl Reconciler {
         result: Result<super::outcome::LifecycleOutcome, super::error::LifecycleError>,
         now: DateTime<Utc>,
     ) {
-        let mut guard = self.retries.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut guard = self
+            .retries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let retry = guard
             .entry(task_id.to_string())
             .or_insert_with(|| TaskRetry::new(self.config.attempt_cap));
@@ -452,9 +539,9 @@ mod db_tests {
         AgentStopPort, IntentWrite, LifecycleEventSink, SystemWallClock,
     };
     use super::super::runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
-    use super::super::test_support::seed_task_with as seed;
-    use super::super::types::{ObservedStatus, OperationKind};
+    use super::super::test_support::{seed_bare_task, seed_task_with as seed};
     use super::super::types::{CorrelationMarker, OperationGeneration};
+    use super::super::types::{ObservedStatus, OperationKind};
 
     // ---- Recording ports ----
 
@@ -492,24 +579,47 @@ mod db_tests {
 
     #[async_trait]
     impl SandboxRuntime for RecordingRuntime {
-        async fn ensure_running(&self, _t: &str, _c: RuntimeOperationContext) -> Result<RuntimeOutcome, super::super::error::RuntimeError> {
+        async fn ensure_running(
+            &self,
+            _t: &str,
+            _c: RuntimeOperationContext,
+        ) -> Result<RuntimeOutcome, super::super::error::RuntimeError> {
             self.calls.lock().unwrap().ensure += 1;
             if self.fail_ensure {
-                return Err(super::super::error::RuntimeError::Infrastructure("boom".into()));
+                return Err(super::super::error::RuntimeError::Infrastructure(
+                    "boom".into(),
+                ));
             }
             Ok(RuntimeOutcome::applied(ObservedStatus::Starting))
         }
-        async fn stop(&self, _t: &str, _c: RuntimeOperationContext) -> Result<RuntimeOutcome, super::super::error::RuntimeError> {
+        async fn stop(
+            &self,
+            _t: &str,
+            _c: RuntimeOperationContext,
+        ) -> Result<RuntimeOutcome, super::super::error::RuntimeError> {
             self.calls.lock().unwrap().stop += 1;
             Ok(RuntimeOutcome::applied(ObservedStatus::Stopped))
         }
-        async fn restart(&self, _t: &str, _c: RuntimeOperationContext) -> Result<RuntimeOutcome, super::super::error::RuntimeError> {
+        async fn restart(
+            &self,
+            _t: &str,
+            _c: RuntimeOperationContext,
+        ) -> Result<RuntimeOutcome, super::super::error::RuntimeError> {
             Ok(RuntimeOutcome::applied(ObservedStatus::Starting))
         }
-        async fn redeploy(&self, _t: &str, _c: RuntimeOperationContext) -> Result<RuntimeOutcome, super::super::error::RuntimeError> {
+        async fn redeploy(
+            &self,
+            _t: &str,
+            _c: RuntimeOperationContext,
+        ) -> Result<RuntimeOutcome, super::super::error::RuntimeError> {
             Ok(RuntimeOutcome::applied(ObservedStatus::Starting))
         }
-        async fn remove(&self, _t: &str, _r: ArchiveRetention, _c: RuntimeOperationContext) -> Result<RuntimeOutcome, super::super::error::RuntimeError> {
+        async fn remove(
+            &self,
+            _t: &str,
+            _r: ArchiveRetention,
+            _c: RuntimeOperationContext,
+        ) -> Result<RuntimeOutcome, super::super::error::RuntimeError> {
             self.calls.lock().unwrap().remove += 1;
             Ok(RuntimeOutcome::applied(ObservedStatus::Removed))
         }
@@ -523,6 +633,15 @@ mod db_tests {
     impl LifecycleEventSink for CollectSink {
         async fn publish(&self, _t: &str, event: &LifecycleEvent) {
             self.facts.lock().unwrap().push(event.fact);
+        }
+
+        async fn publish_diagnostics(
+            &self,
+            _task_id: &str,
+            _generation: OperationGeneration,
+            _observed: ObservedStatus,
+            _diagnostics: &super::super::outcome::Diagnostics,
+        ) {
         }
     }
 
@@ -545,12 +664,12 @@ mod db_tests {
 
     /// A fixed fleet + confirm status the whole tick sees.
     struct FixedObserver {
-        fleet: HashMap<String, SandboxObservedStatus>,
-        confirm: SandboxObservedStatus,
+        fleet: HashMap<String, RuntimeObservation>,
+        confirm: RuntimeObservation,
     }
     #[async_trait]
     impl FleetObserver for FixedObserver {
-        async fn observe_fleet(&self) -> Result<HashMap<String, SandboxObservedStatus>, ObserveError> {
+        async fn observe_fleet(&self) -> Result<HashMap<String, RuntimeObservation>, ObserveError> {
             Ok(self.fleet.clone())
         }
         async fn observe(
@@ -558,7 +677,7 @@ mod db_tests {
             _task_id: &str,
             _task_status: TaskStatus,
             _desired_state: SandboxDesiredState,
-        ) -> Result<SandboxObservedStatus, ObserveError> {
+        ) -> Result<RuntimeObservation, ObserveError> {
             Ok(self.confirm)
         }
     }
@@ -652,8 +771,23 @@ mod db_tests {
         confirm: SandboxObservedStatus,
     ) -> Arc<dyn FleetObserver> {
         Arc::new(FixedObserver {
-            fleet: fleet.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
-            confirm,
+            fleet: fleet
+                .iter()
+                .map(|(k, v)| (k.to_string(), (*v).into()))
+                .collect(),
+            confirm: confirm.into(),
+        })
+    }
+
+    fn observer_with_generation(
+        task_id: &str,
+        status: SandboxObservedStatus,
+        generation: Option<OperationGeneration>,
+    ) -> Arc<dyn FleetObserver> {
+        let observation = RuntimeObservation::new(status, generation);
+        Arc::new(FixedObserver {
+            fleet: HashMap::from([(task_id.to_string(), observation)]),
+            confirm: observation,
         })
     }
 
@@ -672,7 +806,11 @@ mod db_tests {
         rec.reconcile_once().await;
 
         assert_eq!(runtime.calls().0, 1, "ensure_running driven once");
-        assert!(sink.facts.lock().unwrap().contains(&EventFact::Initializing));
+        assert!(sink
+            .facts
+            .lock()
+            .unwrap()
+            .contains(&EventFact::Initializing));
     }
 
     #[sqlx::test]
@@ -698,6 +836,30 @@ mod db_tests {
                 .await
                 .unwrap();
         assert_eq!(desired, "running", "wake flipped intent to running");
+    }
+
+    #[sqlx::test]
+    async fn pending_message_wakes_a_task_without_a_sandbox_row(pool: PgPool) {
+        seed_bare_task(&pool, "t1", "open").await;
+        seed_pending_user_message(&pool, "t1", Utc::now()).await;
+        let runtime = Arc::new(RecordingRuntime::new());
+        let (rec, _sink) = build(
+            pool.clone(),
+            pool.clone(),
+            runtime.clone(),
+            observer(&[], SandboxObservedStatus::Absent),
+            Duration::ZERO,
+        );
+
+        rec.reconcile_once().await;
+
+        assert_eq!(runtime.calls().0, 1, "durable pending Message drove start");
+        let desired: String =
+            sqlx::query_scalar("SELECT desired_state FROM sandboxes WHERE task_id = 't1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(desired, "running");
     }
 
     #[sqlx::test]
@@ -736,8 +898,14 @@ mod db_tests {
         // Bounded near the cap. Without the newest-message guard the wake would
         // reset every tick and drive all 8.
         let ensure = runtime.calls().0;
-        assert!(ensure <= 5, "ensure driven {ensure} times; the cap should bound it");
-        assert!(ensure >= 3, "ensure should retry up to the cap, got {ensure}");
+        assert!(
+            ensure <= 5,
+            "ensure driven {ensure} times; the cap should bound it"
+        );
+        assert!(
+            ensure >= 3,
+            "ensure should retry up to the cap, got {ensure}"
+        );
     }
 
     #[sqlx::test]
@@ -754,7 +922,10 @@ mod db_tests {
             pool.clone(),
             pool,
             runtime.clone(),
-            observer(&[("t1", SandboxObservedStatus::Ready)], SandboxObservedStatus::Ready),
+            observer(
+                &[("t1", SandboxObservedStatus::Ready)],
+                SandboxObservedStatus::Ready,
+            ),
             notify.clone(),
             Arc::new(SystemWallClock),
             ReconcilerConfig {
@@ -766,7 +937,11 @@ mod db_tests {
         rec.reconcile_once().await;
         rec.reconcile_once().await;
 
-        assert_eq!(runtime.calls(), (0, 0, 0), "converged — no lifecycle operation driven");
+        assert_eq!(
+            runtime.calls(),
+            (0, 0, 0),
+            "converged — no lifecycle operation driven"
+        );
         assert_eq!(
             *notify.count.lock().unwrap(),
             1,
@@ -784,7 +959,10 @@ mod db_tests {
             pool.clone(),
             pool,
             runtime.clone(),
-            observer(&[("t1", SandboxObservedStatus::Ready)], SandboxObservedStatus::Ready),
+            observer(
+                &[("t1", SandboxObservedStatus::Ready)],
+                SandboxObservedStatus::Ready,
+            ),
             Duration::ZERO,
         );
 
@@ -819,7 +997,10 @@ mod db_tests {
             pool.clone(),
             pool,
             runtime.clone(),
-            observer(&[("t1", SandboxObservedStatus::Ready)], SandboxObservedStatus::Ready),
+            observer(
+                &[("t1", SandboxObservedStatus::Ready)],
+                SandboxObservedStatus::Ready,
+            ),
             Duration::ZERO,
         );
 
@@ -865,5 +1046,224 @@ mod db_tests {
         rec.reconcile_once().await;
 
         assert_eq!(runtime.calls(), (0, 0, 0), "grace deferred the operation");
+    }
+
+    #[sqlx::test]
+    async fn replacement_generation_ready_acknowledges_edge_marker(pool: PgPool) {
+        seed(&pool, "t1", "open", "running").await;
+        let store = PgLifecycleStore::new(pool.clone());
+        store
+            .persist_intent(
+                "t1",
+                &IntentWrite {
+                    desired_state: SandboxDesiredState::Running,
+                    stop_reason: None,
+                    retention: None,
+                    marker: CorrelationMarker::new(
+                        OperationKind::Restart,
+                        OperationGeneration(7),
+                        Utc::now(),
+                    ),
+                },
+            )
+            .await
+            .unwrap();
+        let runtime = Arc::new(RecordingRuntime::new());
+        let (rec, _sink) = build(
+            pool.clone(),
+            pool.clone(),
+            runtime.clone(),
+            observer_with_generation(
+                "t1",
+                SandboxObservedStatus::Ready,
+                Some(OperationGeneration(7)),
+            ),
+            Duration::ZERO,
+        );
+
+        rec.reconcile_once().await;
+
+        let marker: Option<String> =
+            sqlx::query_scalar("SELECT operation_kind FROM sandboxes WHERE task_id = 't1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(marker, None);
+        assert_eq!(runtime.calls(), (0, 0, 0));
+    }
+
+    #[sqlx::test]
+    async fn fresh_edge_marker_retains_suppression_and_is_not_replayed(pool: PgPool) {
+        seed(&pool, "t1", "open", "running").await;
+        let store = PgLifecycleStore::new(pool.clone());
+        store
+            .persist_intent(
+                "t1",
+                &IntentWrite {
+                    desired_state: SandboxDesiredState::Running,
+                    stop_reason: None,
+                    retention: None,
+                    marker: CorrelationMarker::new(
+                        OperationKind::Redeploy,
+                        OperationGeneration(8),
+                        Utc::now(),
+                    ),
+                },
+            )
+            .await
+            .unwrap();
+        let runtime = Arc::new(RecordingRuntime::new());
+        let (rec, sink) = build(
+            pool.clone(),
+            pool.clone(),
+            runtime.clone(),
+            observer_with_generation("t1", SandboxObservedStatus::Starting, None),
+            Duration::ZERO,
+        );
+
+        rec.reconcile_once().await;
+
+        let marker: Option<String> =
+            sqlx::query_scalar("SELECT operation_kind FROM sandboxes WHERE task_id = 't1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(marker.as_deref(), Some("redeploy"));
+        assert_eq!(runtime.calls(), (0, 0, 0));
+        assert!(sink.facts.lock().unwrap().is_empty());
+    }
+
+    #[sqlx::test]
+    async fn stale_edge_persists_error_before_clearing_marker(pool: PgPool) {
+        seed(&pool, "t1", "open", "running").await;
+        let store = PgLifecycleStore::new(pool.clone());
+        store
+            .persist_intent(
+                "t1",
+                &IntentWrite {
+                    desired_state: SandboxDesiredState::Running,
+                    stop_reason: None,
+                    retention: None,
+                    marker: CorrelationMarker::new(
+                        OperationKind::Restart,
+                        OperationGeneration(9),
+                        Utc::now() - chrono::Duration::minutes(20),
+                    ),
+                },
+            )
+            .await
+            .unwrap();
+        let runtime = Arc::new(RecordingRuntime::new());
+        let (rec, sink) = build(
+            pool.clone(),
+            pool.clone(),
+            runtime.clone(),
+            observer_with_generation("t1", SandboxObservedStatus::Starting, None),
+            Duration::ZERO,
+        );
+
+        rec.reconcile_once().await;
+
+        let marker: Option<String> =
+            sqlx::query_scalar("SELECT operation_kind FROM sandboxes WHERE task_id = 't1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(marker, None);
+        let is_error: bool = sqlx::query_scalar(
+            "SELECT is_error FROM task_events WHERE event_id = 'sandbox:t1:9:error'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(is_error);
+        assert_eq!(runtime.calls(), (0, 0, 0));
+        assert_eq!(*sink.facts.lock().unwrap(), vec![EventFact::Error]);
+    }
+
+    #[sqlx::test]
+    async fn edge_between_suppression_and_abandonment_bounds_is_retained(pool: PgPool) {
+        seed(&pool, "t1", "open", "running").await;
+        let store = PgLifecycleStore::new(pool.clone());
+        store
+            .persist_intent(
+                "t1",
+                &IntentWrite {
+                    desired_state: SandboxDesiredState::Running,
+                    stop_reason: None,
+                    retention: None,
+                    marker: CorrelationMarker::new(
+                        OperationKind::Restart,
+                        OperationGeneration(10),
+                        Utc::now() - chrono::Duration::minutes(10),
+                    ),
+                },
+            )
+            .await
+            .unwrap();
+        let runtime = Arc::new(RecordingRuntime::new());
+        let (rec, sink) = build(
+            pool.clone(),
+            pool.clone(),
+            runtime.clone(),
+            observer_with_generation("t1", SandboxObservedStatus::Starting, None),
+            Duration::ZERO,
+        );
+
+        rec.reconcile_once().await;
+
+        let marker: Option<String> =
+            sqlx::query_scalar("SELECT operation_kind FROM sandboxes WHERE task_id = 't1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(marker.as_deref(), Some("restart"));
+        assert!(sink.facts.lock().unwrap().is_empty());
+        assert_eq!(runtime.calls(), (0, 0, 0));
+    }
+
+    #[sqlx::test]
+    async fn old_edge_with_matching_replacement_still_starting_is_retained(pool: PgPool) {
+        seed(&pool, "t1", "open", "running").await;
+        let store = PgLifecycleStore::new(pool.clone());
+        store
+            .persist_intent(
+                "t1",
+                &IntentWrite {
+                    desired_state: SandboxDesiredState::Running,
+                    stop_reason: None,
+                    retention: None,
+                    marker: CorrelationMarker::new(
+                        OperationKind::Redeploy,
+                        OperationGeneration(11),
+                        Utc::now() - chrono::Duration::minutes(20),
+                    ),
+                },
+            )
+            .await
+            .unwrap();
+        let runtime = Arc::new(RecordingRuntime::new());
+        let (rec, sink) = build(
+            pool.clone(),
+            pool.clone(),
+            runtime.clone(),
+            observer_with_generation(
+                "t1",
+                SandboxObservedStatus::Starting,
+                Some(OperationGeneration(11)),
+            ),
+            Duration::ZERO,
+        );
+
+        rec.reconcile_once().await;
+
+        let marker: Option<String> =
+            sqlx::query_scalar("SELECT operation_kind FROM sandboxes WHERE task_id = 't1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(marker.as_deref(), Some("redeploy"));
+        assert!(sink.facts.lock().unwrap().is_empty());
+        assert_eq!(runtime.calls(), (0, 0, 0));
     }
 }

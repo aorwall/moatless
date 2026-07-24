@@ -40,19 +40,16 @@ pub(crate) mod reconcile;
 pub(crate) mod reconciler;
 pub(crate) mod wake;
 
-// The watcher four-case classifier and per-class marker acknowledgement land
-// before the watcher migration that drives them, so their tested functions
-// have no non-test caller yet.
-// reason: staged delivery — watcher classification lands before the watcher migration.
-#[allow(dead_code)]
+// Watcher four-case classification and reconciler-owned marker acknowledgement.
 pub(crate) mod classify;
-#[allow(dead_code)]
 pub(crate) mod marker;
+pub(crate) mod watcher;
 
 pub(crate) mod error;
 pub(crate) mod events;
 pub(crate) mod orchestrator;
 pub(crate) mod outcome;
+pub(crate) mod plan;
 pub(crate) mod runtime;
 pub(crate) mod types;
 
@@ -63,7 +60,6 @@ pub(crate) mod dao;
 pub(crate) mod event_sink;
 pub(crate) mod lock;
 pub(crate) mod observe;
-pub(crate) mod runtime_bridge;
 
 // The lifecycle contract against local Postgres (Lifecycle over the Pg adapters).
 #[cfg(all(test, feature = "db-tests"))]
@@ -81,14 +77,18 @@ pub(crate) mod test_support;
 // correlation internals — is `pub(crate)`; no caller outside this crate names it.
 
 pub use error::{ErrorClass, LifecycleError, RuntimeError};
-pub use outcome::{Diagnostics, LifecycleOutcome};
-pub use types::{ArchiveRetention, IntentEffect, ObservedStatus, OperationKind, RuntimeEffect};
 pub use orchestrator::Lifecycle;
+pub use outcome::{Diagnostics, LifecycleOutcome};
+pub use runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
+pub use types::{
+    ArchiveRetention, IntentEffect, ObservedStatus, OperationGeneration, OperationKind,
+    RuntimeEffect,
+};
 
 // The desired-state reconciler and its production fleet-observer adapters,
 // assembled by `state::build_reconciler` and spawned by `main`.
 pub use observe::{DockerFleetObserver, GrpcNotify, K8sFleetObserver};
-pub use reconciler::{FleetObserver, NotifyPort, Reconciler, ReconcilerConfig};
+pub use reconciler::{FleetObserver, NotifyPort, Reconciler, ReconcilerConfig, RuntimeObservation};
 
 // The system clock `state` hands to the `Lifecycle` and `Reconciler`. The ports,
 // runtime seam, and correlation internals are named through their defining
@@ -101,4 +101,4 @@ pub(crate) use agent_stop::GrpcAgentStop;
 pub(crate) use dao::PgLifecycleStore;
 pub(crate) use event_sink::OutboxEventSink;
 pub(crate) use lock::PgLifecycleLock;
-pub(crate) use runtime_bridge::{ProvisionDeps, RuntimeBridge};
+pub use plan::ProvisionDeps;

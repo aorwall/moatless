@@ -139,38 +139,15 @@ pub async fn delete_task_pvc(k8s: &K8sClient, task_id: &str) -> Result<(), kube:
 /// bills indefinitely. A transient list error is retried within the window; a
 /// timeout surfaces so the caller withholds `Removed` and retries.
 pub async fn wait_for_pvc_deleted(k8s: &K8sClient, task_id: &str) -> Result<(), SandboxError> {
-    use std::time::Duration;
-
-    const POLL_INTERVAL: Duration = Duration::from_secs(2);
-    const TIMEOUT: Duration = Duration::from_mins(1);
-
     let pvcs: Api<PersistentVolumeClaim> = Api::namespaced(k8s.client.clone(), k8s.namespace());
     let lp = ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
-
-    let deadline = tokio::time::Instant::now() + TIMEOUT;
-    loop {
-        match pvcs.list(&lp).await {
-            Ok(list) if list.items.is_empty() => {
-                debug!(task_id, "All PVCs deleted");
-                return Ok(());
-            }
-            Ok(list) => {
-                debug!(task_id, remaining = list.items.len(), "Waiting for PVC deletion");
-            }
-            Err(e) => {
-                warn!(task_id, error = %e, "Failed to list PVCs while awaiting deletion; retrying");
-            }
-        }
-
-        if tokio::time::Instant::now() >= deadline {
-            return Err(SandboxError::NotReady(format!(
-                "Timed out after {}s waiting for task {task_id} PVC deletion",
-                TIMEOUT.as_secs()
-            )));
-        }
-
-        tokio::time::sleep(POLL_INTERVAL).await;
-    }
+    super::wait::wait_absent(
+        task_id,
+        "PVC",
+        std::time::Duration::from_mins(1),
+        || async { pvcs.list(&lp).await.map(|list| list.items.is_empty()) },
+    )
+    .await
 }
 
 #[cfg(test)]

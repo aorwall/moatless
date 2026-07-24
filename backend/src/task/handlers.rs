@@ -1409,13 +1409,21 @@ async fn enrich_task(
 
     // Durable Sandbox state comes from the `sandboxes` table; absence is the
     // lazy converged-Stopped default.
-    let sandbox = state
+    let sandbox = match state
         .tasks
         .get_sandbox_intents(std::slice::from_ref(&row.task_id))
         .await
-        .ok()
-        .and_then(|mut m| m.remove(&row.task_id))
-        .unwrap_or_default();
+    {
+        Ok(mut intents) => intents.remove(&row.task_id).unwrap_or_default(),
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                task_id = %row.task_id,
+                "Failed to load Sandbox lifecycle intent for task response"
+            );
+            SandboxIntentView::default()
+        }
+    };
     let mut resp = build_task_response(
         row,
         &sandbox,

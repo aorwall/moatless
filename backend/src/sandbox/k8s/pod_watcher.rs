@@ -35,6 +35,14 @@ use super::pod_status::{
     DEFAULT_SERVER_READINESS_TIMEOUT_SECS,
 };
 use crate::events::EventPublisher;
+use crate::sandbox::lifecycle::classify::ObservedTransition;
+use crate::sandbox::lifecycle::runtime::{
+    generation_from_label, OPERATION_GENERATION_LABEL,
+};
+use crate::sandbox::lifecycle::watcher::{
+    classify_observation, publish_sandbox_observation,
+};
+use crate::sandbox::lifecycle::OperationGeneration;
 use crate::sandbox::lifecycle::Lifecycle;
 use crate::task::dao::{TaskPatch, TaskRepository};
 use crate::task::models::SandboxStopReason;
@@ -92,6 +100,7 @@ struct ServerContainerState {
 #[derive(Debug, Clone)]
 struct PodObservedState {
     task_id: String,
+    operation_generation: Option<OperationGeneration>,
     phase: String,
     /// Restart count of the **sandbox** container specifically.
     restart_count: i32,
@@ -596,6 +605,29 @@ async fn process_watcher_event(
                     continue;
                 }
 
+                let mut event_generation = new_state.operation_generation;
+                if let Some(transition) =
+                    lifecycle_observed_transition(sandbox_status, sub_type)
+                {
+                    let decision = classify_observation(
+                        deps.lifecycle.as_ref(),
+                        &task_id,
+                        transition,
+                        new_state.operation_generation,
+                    )
+                    .await;
+                    if !decision.publishes {
+                        debug!(
+                            task_id = %task_id,
+                            pod_name = %pod_name,
+                            lifecycle_event = %sub_type,
+                            "Suppressing lifecycle-correlated pod observation"
+                        );
+                        continue;
+                    }
+                    event_generation = decision.event_generation;
+                }
+
                 // Involuntary eviction is inherently node-initiated — tag it so
                 // the frontend can render an amber "recovering" chip. Other
                 // intentional-stop initiators are set at their explicit publish
@@ -616,35 +648,36 @@ async fn process_watcher_event(
                     None
                 };
 
-                event_publisher
-                    .publish_sandbox_event_with_payload(
-                        &task_id,
-                        sandbox_status,
-                        &SandboxEventPayload {
-                            message: format_sandbox_lifecycle_message(
-                                sub_type,
-                                error_msg.as_deref(),
-                            ),
-                            lifecycle_event: Some(sub_type.clone()),
-                            error: if is_intentional_stop {
-                                None
-                            } else {
-                                error_msg.clone()
-                            },
-                            // Carry the exit code / K8s reason so consumers can tell
-                            // OOM (137) from a crash (1) without scraping pod state.
-                            // Ride these on intentional stops too (Phase 3) — the
-                            // exit code is diagnostic, not an error signal.
-                            exit_code: new_state.effective_exit_code(),
-                            terminated_reason: new_state.effective_terminated_reason(),
-                            // Node-level correlation + disruption cause on every event.
-                            node_name: new_state.node_name.clone(),
-                            disruption_reason: new_state.disruption_reason.clone(),
-                            initiator,
-                            pending_seconds,
+                publish_sandbox_observation(
+                    event_publisher,
+                    &task_id,
+                    sandbox_status,
+                    &SandboxEventPayload {
+                        message: format_sandbox_lifecycle_message(
+                            sub_type,
+                            error_msg.as_deref(),
+                        ),
+                        lifecycle_event: Some(sub_type.clone()),
+                        error: if is_intentional_stop {
+                            None
+                        } else {
+                            error_msg.clone()
                         },
-                    )
-                    .await;
+                        // Carry the exit code / K8s reason so consumers can tell
+                        // OOM (137) from a crash (1) without scraping pod state.
+                        // Ride these on intentional stops too (Phase 3) — the
+                        // exit code is diagnostic, not an error signal.
+                        exit_code: new_state.effective_exit_code(),
+                        terminated_reason: new_state.effective_terminated_reason(),
+                        // Node-level correlation + disruption cause on every event.
+                        node_name: new_state.node_name.clone(),
+                        disruption_reason: new_state.disruption_reason.clone(),
+                        initiator,
+                        pending_seconds,
+                    },
+                    event_generation,
+                )
+                .await;
                 new_state.last_published_sandbox_status = Some(sandbox_status);
             }
 
@@ -1049,6 +1082,13 @@ async fn process_watcher_event(
                 return;
             };
             let pod_name = pod.metadata.name.as_deref().unwrap_or("unknown");
+            let operation_generation = pod
+                .metadata
+                .labels
+                .as_ref()
+                .and_then(|labels| {
+                    generation_from_label(labels.get(OPERATION_GENERATION_LABEL))
+                });
 
             // Capture server state BEFORE removing from pod_states
             let deleted_pod_servers: Vec<ServerContainerState> = pod_states
@@ -1110,6 +1150,26 @@ async fn process_watcher_event(
                     return;
                 };
 
+                let decision = classify_observation(
+                    deps.lifecycle.as_ref(),
+                    &task_id,
+                    if sandbox_status == SandboxStatus::Stopped {
+                        ObservedTransition::CleanStop
+                    } else {
+                        ObservedTransition::Deleted
+                    },
+                    operation_generation,
+                )
+                .await
+                .publishes;
+                if !decision {
+                    debug!(
+                        task_id = %task_id,
+                        pod_name = %pod_name,
+                        "Suppressing lifecycle-correlated pod deletion"
+                    );
+                }
+
                 // Publish server events for each server in the deleted pod
                 let server_sub = if sandbox_status == SandboxStatus::Removed {
                     ServerSubType::Failed // Unexpected deletion
@@ -1148,17 +1208,19 @@ async fn process_watcher_event(
                 } else {
                     "Removed"
                 };
-                event_publisher
-                    .publish_sandbox_event_with_payload(
-                        &task_id,
-                        sandbox_status,
-                        &SandboxEventPayload {
-                            message: delete_message.to_string(),
-                            lifecycle_event: Some("pod_deleted".to_string()),
-                            ..Default::default()
-                        },
-                    )
-                    .await;
+                if decision {
+                    event_publisher
+                        .publish_sandbox_event_with_payload(
+                            &task_id,
+                            sandbox_status,
+                            &SandboxEventPayload {
+                                message: delete_message.to_string(),
+                                lifecycle_event: Some("pod_deleted".to_string()),
+                                ..Default::default()
+                            },
+                        )
+                        .await;
+                }
 
                 // No sandbox.fatal here — "no Deployment + pod deleted" is always
                 // intentional cleanup (the cleanup handler deletes the Deployment first).
@@ -1379,6 +1441,25 @@ fn extract_task_id(pod: &Pod) -> Option<String> {
         .cloned()
 }
 
+fn lifecycle_observed_transition(
+    status: SandboxStatus,
+    lifecycle_event: &str,
+) -> Option<ObservedTransition> {
+    if lifecycle_event == CONTAINER_OOM_KILLED {
+        return Some(ObservedTransition::OomKilled);
+    }
+    if lifecycle_event == POD_EVICTED {
+        return Some(ObservedTransition::Evicted);
+    }
+    match status {
+        SandboxStatus::Ready => Some(ObservedTransition::Ready),
+        SandboxStatus::Stopped => Some(ObservedTransition::CleanStop),
+        SandboxStatus::Removed => Some(ObservedTransition::Deleted),
+        SandboxStatus::Error => Some(ObservedTransition::Crash),
+        _ => None,
+    }
+}
+
 /// Build the observed state from a pod's current status.
 /// Record sandbox startup latency (pod creation → first sandbox-container Ready)
 /// into the `moatless_sandbox_startup_seconds` histogram.
@@ -1534,6 +1615,11 @@ fn extract_pod_observed_state(pod: &Pod, pod_name: &str, task_id: &str) -> PodOb
 
     PodObservedState {
         task_id: task_id.to_string(),
+        operation_generation: pod
+            .metadata
+            .labels
+            .as_ref()
+            .and_then(|labels| generation_from_label(labels.get(OPERATION_GENERATION_LABEL))),
         phase,
         restart_count,
         terminated_reason,
@@ -2160,6 +2246,8 @@ const HIGH_FREQUENCY_LIFECYCLE_SUB_TYPES: &[&str] = &[
     "container_crash_loop",
     "container_terminated",
 ];
+const CONTAINER_OOM_KILLED: &str = "container_oom_killed";
+const POD_EVICTED: &str = "pod_evicted";
 
 /// Whether a lifecycle publish should be suppressed: high-frequency container
 /// sub_type AND the sandbox status it maps to matches the last one published
@@ -2727,6 +2815,41 @@ mod tests {
             "pod-1",
             "task-1",
         )
+    }
+
+    #[test]
+    fn pod_observation_carries_operation_generation() {
+        let mut pod = Pod::default();
+        pod.metadata.labels = Some(std::collections::BTreeMap::from([(
+            OPERATION_GENERATION_LABEL.to_string(),
+            "12".to_string(),
+        )]));
+        let state = extract_pod_observed_state(&pod, "pod-1", "task-1");
+        assert_eq!(state.operation_generation, Some(OperationGeneration(12)));
+    }
+
+    #[test]
+    fn watcher_maps_runtime_failures_to_unsuppressible_transitions() {
+        assert_eq!(
+            lifecycle_observed_transition(SandboxStatus::Stopped, "pod_deleted"),
+            Some(ObservedTransition::CleanStop)
+        );
+        assert_eq!(
+            lifecycle_observed_transition(SandboxStatus::Removed, "pod_deleted"),
+            Some(ObservedTransition::Deleted)
+        );
+        assert_eq!(
+            lifecycle_observed_transition(SandboxStatus::Error, CONTAINER_OOM_KILLED),
+            Some(ObservedTransition::OomKilled)
+        );
+        assert_eq!(
+            lifecycle_observed_transition(SandboxStatus::Error, POD_EVICTED),
+            Some(ObservedTransition::Evicted)
+        );
+        assert_eq!(
+            lifecycle_observed_transition(SandboxStatus::Error, "container_crashed"),
+            Some(ObservedTransition::Crash)
+        );
     }
 
     /// A pod stuck Pending+unscheduled past the threshold trips

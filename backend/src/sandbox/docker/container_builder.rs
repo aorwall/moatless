@@ -17,7 +17,16 @@ use super::naming::{
     generate_sandbox_host_path, generate_server_container_name,
 };
 use crate::config::Config;
+use crate::sandbox::lifecycle::runtime::{
+    RuntimeOperationContext, OPERATION_GENERATION_LABEL,
+};
 use crate::sandbox::models::{ProvisionPlan, ServerConfig};
+
+pub(crate) const CREATED_BY_LABEL: &str = "created-by";
+pub(crate) const CREATED_BY_VALUE: &str = "moatless";
+pub(crate) const SERVICE_LABEL: &str = "moatless.service";
+pub(crate) const SANDBOX_SERVICE: &str = "sandbox";
+pub(crate) const SERVER_SERVICE: &str = "server";
 
 /// Build a complete `bollard::container::Config` for a sandbox container.
 ///
@@ -104,8 +113,8 @@ pub fn build_container_config(
 
     // ── Labels ─────────────────────────────────────────────────────
     let mut labels = HashMap::new();
-    labels.insert("created-by".to_string(), "moatless".to_string());
-    labels.insert("moatless.service".to_string(), "sandbox".to_string());
+    labels.insert(CREATED_BY_LABEL.to_string(), CREATED_BY_VALUE.to_string());
+    labels.insert(SERVICE_LABEL.to_string(), SANDBOX_SERVICE.to_string());
     labels.insert("moatless.io/task-id".to_string(), task_id.to_string());
     labels.insert(
         "app.kubernetes.io/managed-by".to_string(),
@@ -202,6 +211,19 @@ pub fn build_container_config(
         cmd: Some(vec!["/usr/local/bin/sandbox".to_string()]),
         ..Default::default()
     }
+}
+
+/// Stamp lifecycle's operation identity onto a sandbox container before
+/// creation. Docker labels are immutable, so every replacing operation creates
+/// a new container carrying its own generation.
+pub fn stamp_operation_generation(
+    config: &mut ContainerConfig,
+    ctx: RuntimeOperationContext,
+) {
+    config
+        .labels
+        .get_or_insert_with(HashMap::new)
+        .insert(OPERATION_GENERATION_LABEL.to_string(), ctx.generation_label());
 }
 
 /// Build REPO_CONFIG JSON string for the sandbox container.
@@ -352,7 +374,7 @@ pub fn build_server_container_config(
     // ── Labels ─────────────────────────────────────────────────────
     let mut labels = HashMap::new();
     labels.insert("created-by".to_string(), "moatless".to_string());
-    labels.insert("moatless.service".to_string(), "server".to_string());
+    labels.insert(SERVICE_LABEL.to_string(), SERVER_SERVICE.to_string());
     labels.insert("moatless.io/task-id".to_string(), task_id.to_string());
     labels.insert("moatless.io/server-name".to_string(), server.name.clone());
     labels.insert(
@@ -469,7 +491,6 @@ mod tests {
                 idle_check_interval_secs: 300,
                 inactive_task_timeout_days: 0,
                 orphan_gc_enabled: false,
-                orphan_gc_retention_hours: 24,
                 codex_refresher_interval_secs: 0,
                 max_crash_restart_count: 5,
                 node_selector_json: None,
@@ -490,12 +511,6 @@ mod tests {
                 egress_proxy_url: None,
                 egress_proxy_profiles: vec![],
                 egress_proxy_no_proxy: "localhost,.svc.cluster.local".into(),
-            },
-            reconcile: ReconcileConfig {
-                reprovision_enabled: false,
-                pending_timeout_enabled: false,
-                pending_timeout_minutes: 15,
-                max_reprovision_attempts: 3,
             },
             proxy: ProxyConfig {
                 domain: None,
@@ -676,6 +691,26 @@ mod tests {
     }
 
     #[test]
+    fn sandbox_container_carries_operation_generation() {
+        let config = test_config();
+        let plan = test_plan();
+        let mut cc = build_container_config(&config, "task-1", &plan, None);
+        stamp_operation_generation(
+            &mut cc,
+            RuntimeOperationContext::new(
+                crate::sandbox::lifecycle::OperationGeneration(17),
+            ),
+        );
+        assert_eq!(
+            cc.labels
+                .as_ref()
+                .and_then(|labels| labels.get(OPERATION_GENERATION_LABEL))
+                .map(String::as_str),
+            Some("17")
+        );
+    }
+
+    #[test]
     fn container_config_exposes_ports() {
         let config = test_config();
         let plan = test_plan();
@@ -770,7 +805,7 @@ mod tests {
         let server = test_server_config();
         let cc = build_server_container_config(&config, "task-1", &server, TEST_SANDBOX_IMAGE);
         let labels = cc.labels.unwrap();
-        assert_eq!(labels.get("moatless.service").unwrap(), "server");
+        assert_eq!(labels.get(SERVICE_LABEL).unwrap(), SERVER_SERVICE);
         assert_eq!(labels.get("moatless.io/task-id").unwrap(), "task-1");
         assert_eq!(labels.get("moatless.io/server-name").unwrap(), "preview");
     }

@@ -6,10 +6,9 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use sqlx::AssertSqlSafe;
 
-use super::models::{
-    SandboxDesiredState, SandboxIntentView, SandboxStopReason, Task, TaskStatus, Visibility,
-};
+use super::models::{SandboxIntentView, Task, TaskStatus, Visibility};
 use crate::db::DbPool;
+use crate::sandbox::lifecycle::dao::load_sandbox_intent_views;
 use crate::shared_models::AgentType;
 use moatless_backend_core::scope::{Scope, ScopeContext, ScopedEntity};
 
@@ -81,8 +80,8 @@ pub trait TaskRepository: Send + Sync {
     ) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error>;
     /// Batch-fetch the durable Sandbox lifecycle state (desired state, stop
     /// reason, start + intent timestamps) for the given tasks from `sandboxes`.
-    /// Tasks with no Sandbox row are omitted — the caller applies the lazy
-    /// converged-Stopped default.
+    /// Existing Tasks with no Sandbox row are returned with the lifecycle
+    /// module's lazy converged-Stopped default.
     async fn get_sandbox_intents(
         &self,
         task_ids: &[String],
@@ -101,14 +100,6 @@ pub trait TaskRepository: Send + Sync {
     ) -> Result<HashMap<String, i32>, sqlx::Error>;
     /// List task IDs of all tasks currently in `status = 'open'`.
     async fn list_open_task_ids(&self) -> Result<Vec<String>, sqlx::Error>;
-
-    /// Batch-fetch the `status` of the given tasks. Tasks with no row are
-    /// omitted from the map — the reaper's reconcile pass treats absence as
-    /// "deleted". One indexed query (`task_id` is the primary key).
-    async fn get_task_statuses(
-        &self,
-        task_ids: &[String],
-    ) -> Result<HashMap<String, TaskStatus>, sqlx::Error>;
 
     /// Upsert a user's read marker for a task. Monotonic — never moves the
     /// stored `last_read_at` backwards, so out-of-order calls are safe.
@@ -588,41 +579,7 @@ impl TaskRepository for PgTaskRepository {
         &self,
         task_ids: &[String],
     ) -> Result<HashMap<String, SandboxIntentView>, sqlx::Error> {
-        if task_ids.is_empty() {
-            return Ok(HashMap::new());
-        }
-
-        let rows: Vec<(
-            String,
-            Option<DateTime<Utc>>,
-            SandboxDesiredState,
-            Option<SandboxStopReason>,
-            DateTime<Utc>,
-        )> = sqlx::query_as(
-            r#"SELECT task_id, started_at, desired_state, stop_reason, desired_state_updated_at
-               FROM sandboxes
-               WHERE task_id = ANY($1)"#,
-        )
-        .bind(task_ids)
-        .fetch_all(&self.0)
-        .await?;
-
-        Ok(rows
-            .into_iter()
-            .map(
-                |(task_id, started_at, desired_state, stop_reason, desired_state_updated_at)| {
-                    (
-                        task_id,
-                        SandboxIntentView {
-                            started_at,
-                            desired_state,
-                            stop_reason,
-                            desired_state_updated_at,
-                        },
-                    )
-                },
-            )
-            .collect())
+        load_sandbox_intent_views(&self.0, task_ids).await
     }
 
     async fn get_ttl_minutes_map(
@@ -666,23 +623,6 @@ impl TaskRepository for PgTaskRepository {
                 .fetch_all(&self.0)
                 .await?;
         Ok(rows.into_iter().map(|(id,)| id).collect())
-    }
-
-    async fn get_task_statuses(
-        &self,
-        task_ids: &[String],
-    ) -> Result<HashMap<String, TaskStatus>, sqlx::Error> {
-        if task_ids.is_empty() {
-            return Ok(HashMap::new());
-        }
-
-        let rows: Vec<(String, TaskStatus)> =
-            sqlx::query_as(r#"SELECT task_id, status FROM tasks WHERE task_id = ANY($1)"#)
-                .bind(task_ids)
-                .fetch_all(&self.0)
-                .await?;
-
-        Ok(rows.into_iter().collect())
     }
 
     async fn mark_task_read(

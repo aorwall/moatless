@@ -368,15 +368,9 @@ pub struct SandboxConfig {
     /// auto-close. Env: `TASK_INACTIVE_TIMEOUT_DAYS` (default: 7).
     pub inactive_task_timeout_days: u64,
     /// Whether the reaper's orphan-GC pass is enabled (default: true). When on,
-    /// the reaper deletes labeled sandbox K8s resources (Deployment/Service/
-    /// IngressRoute/PVC) whose task no longer exists or was closed past the
-    /// retention window. Env: `SANDBOX_ORPHAN_GC_ENABLED`.
+    /// the reaper deletes labeled sandbox K8s resources whose Task row no
+    /// longer exists. Env: `SANDBOX_ORPHAN_GC_ENABLED`.
     pub orphan_gc_enabled: bool,
-    /// Retention window (hours) before a closed task's leftover sandbox
-    /// resources are orphan-GC'd. Resources for tasks deleted from the DB are
-    /// collected immediately regardless of this window. Env:
-    /// `SANDBOX_ORPHAN_GC_RETENTION_HOURS` (default: 24).
-    pub orphan_gc_retention_hours: u64,
     /// How often the background Codex refresher sweeps `provider_tokens`.
     /// Setting this to 0 disables the sweep entirely (env-var fallback
     /// still works; just no proactive backend refresh). Env:
@@ -882,31 +876,6 @@ impl fmt::Debug for SecretsConfig {
     }
 }
 
-/// Desired-vs-actual reconcile pass in the task reaper (Phase 4).
-///
-/// A slow, level-based backstop to the edge-triggered pod watcher. Runs inside
-/// the existing leader-elected reaper cycle, reusing its cluster-wide
-/// Deployments LIST. Each remediation class is independently gated and defaults
-/// OFF so the pass ships dark and is turned on deliberately per environment.
-#[derive(Debug, Clone)]
-pub struct ReconcileConfig {
-    /// Re-provision a Deployment that vanished out-of-band (e.g. deleted
-    /// manually, or a watch event lost across a reconnect) for an Open task
-    /// with an in-flight turn. Env `RECONCILE_REPROVISION_ENABLED` (default false).
-    pub reprovision_enabled: bool,
-    /// Scale a Deployment to 0 and surface an environment error when its pod is
-    /// stuck `Pending` past the hard deadline (today they linger forever). Env
-    /// `RECONCILE_PENDING_TIMEOUT_ENABLED` (default false).
-    pub pending_timeout_enabled: bool,
-    /// Hard deadline (minutes) a pod may sit `Pending` before the pending-timeout
-    /// remediation fires. Env `RECONCILE_PENDING_TIMEOUT_MINUTES` (default 15).
-    pub pending_timeout_minutes: u64,
-    /// Max re-provision attempts per task (per leader lifetime) before giving up
-    /// and surfacing an environment error. Env `RECONCILE_MAX_REPROVISION_ATTEMPTS`
-    /// (default 3).
-    pub max_reprovision_attempts: u32,
-}
-
 // =========================================================================
 // Top-level Config
 // =========================================================================
@@ -918,8 +887,6 @@ pub struct Config {
     /// Which sandbox provider to use (Kubernetes or Docker).
     pub sandbox_provider: SandboxProviderType,
     pub sandbox: SandboxConfig,
-    /// Desired-vs-actual reconcile pass in the task reaper (all classes default OFF).
-    pub reconcile: ReconcileConfig,
     pub docker: DockerConfig,
     pub proxy: ProxyConfig,
     /// PostgreSQL connection URL. When set, enables DB-backed features.
@@ -1010,7 +977,6 @@ impl Config {
                 idle_check_interval_secs: env_or("SANDBOX_IDLE_CHECK_INTERVAL_SECS", 300),
                 inactive_task_timeout_days: env_or("TASK_INACTIVE_TIMEOUT_DAYS", 7),
                 orphan_gc_enabled: env_bool("SANDBOX_ORPHAN_GC_ENABLED", true),
-                orphan_gc_retention_hours: env_or("SANDBOX_ORPHAN_GC_RETENTION_HOURS", 24),
                 codex_refresher_interval_secs: env_or("CODEX_REFRESHER_INTERVAL_SECS", 3600),
                 max_crash_restart_count: env_or("SANDBOX_MAX_CRASH_RESTART_COUNT", 5),
                 tolerations_json: env_opt("K8S_SANDBOX_TOLERATIONS"),
@@ -1052,13 +1018,6 @@ impl Config {
                     "localhost,127.0.0.1,::1,.svc,.svc.cluster.local,.cluster.local,\
                      10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.169.254,kubernetes.default",
                 ),
-            },
-
-            reconcile: ReconcileConfig {
-                reprovision_enabled: env_bool("RECONCILE_REPROVISION_ENABLED", false),
-                pending_timeout_enabled: env_bool("RECONCILE_PENDING_TIMEOUT_ENABLED", false),
-                pending_timeout_minutes: env_or("RECONCILE_PENDING_TIMEOUT_MINUTES", 15),
-                max_reprovision_attempts: env_or("RECONCILE_MAX_REPROVISION_ATTEMPTS", 3),
             },
 
             proxy: ProxyConfig {
@@ -1382,7 +1341,6 @@ impl Config {
             idle_check_interval_secs: 300,
             inactive_task_timeout_days: 0,
             orphan_gc_enabled: false,
-            orphan_gc_retention_hours: 24,
             codex_refresher_interval_secs: 0,
             max_crash_restart_count: 5,
             node_selector_json: None,
@@ -1403,12 +1361,6 @@ impl Config {
             egress_proxy_url: None,
             egress_proxy_profiles: vec![],
             egress_proxy_no_proxy: "localhost,.svc.cluster.local".into(),
-        },
-        reconcile: ReconcileConfig {
-            reprovision_enabled: false,
-            pending_timeout_enabled: false,
-            pending_timeout_minutes: 15,
-            max_reprovision_attempts: 3,
         },
         proxy: ProxyConfig {
             domain: None,
