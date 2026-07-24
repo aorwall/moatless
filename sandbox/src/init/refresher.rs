@@ -275,6 +275,7 @@ mod tests {
             credential_failures,
             codex_watcher_handle: Arc::new(RwLock::new(None)),
             system_prompt_cache,
+            dispatch_lock: Default::default(),
         }
     }
 

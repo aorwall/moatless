@@ -3,15 +3,10 @@
 //! recording scripted harness, and small builders.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use async_trait::async_trait;
-use sandbox_proto::{
-    DownloadUploadResponse, GetCredentialsResponse, InterruptedTurn, PendingMessage,
-    PublishEventRequest,
-};
+use sandbox_proto::{InterruptedTurn, PendingMessage};
 use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
@@ -33,145 +28,6 @@ use crate::state::SandboxState;
 
 /// A shared sink of the full `Input`s the harness accepted, in submit order.
 pub(super) type InputRecorder = Arc<Mutex<Vec<Input>>>;
-
-/// A backend whose pending-message result and interrupted-Run payload are fixed
-/// per test. `acknowledge_messages` clears the acked message so a later probe
-/// sees it gone — modelling the real ack that the startup race hinges on.
-pub(super) struct ReplayBackend {
-    /// `Ok(list)` for a normal probe; `Err(())` to model a backend blip. Behind
-    /// a `Mutex` only because `acknowledge_messages` prunes it.
-    pending: Mutex<Result<Vec<PendingMessage>, ()>>,
-    /// The interrupted turn `recover_interrupted_run` returns (immutable).
-    interrupted: Option<InterruptedTurn>,
-    /// The session-state archive `download_transcript` serves (immutable).
-    download_tar: Vec<u8>,
-    get_pending_calls: AtomicUsize,
-    recover_calls: AtomicUsize,
-}
-
-impl ReplayBackend {
-    pub(super) fn new(
-        pending: Result<Vec<PendingMessage>, ()>,
-        interrupted: Option<InterruptedTurn>,
-    ) -> Arc<Self> {
-        Arc::new(Self {
-            pending: Mutex::new(pending),
-            interrupted,
-            download_tar: Vec::new(),
-            get_pending_calls: AtomicUsize::new(0),
-            recover_calls: AtomicUsize::new(0),
-        })
-    }
-
-    /// A backend that serves `tar` from `download_transcript`, with no pending
-    /// messages and no interrupted run — for the restore tests.
-    pub(super) fn with_archive(tar: Vec<u8>) -> Arc<Self> {
-        Arc::new(Self {
-            pending: Mutex::new(Ok(Vec::new())),
-            interrupted: None,
-            download_tar: tar,
-            get_pending_calls: AtomicUsize::new(0),
-            recover_calls: AtomicUsize::new(0),
-        })
-    }
-
-    pub(super) fn get_pending_calls(&self) -> usize {
-        self.get_pending_calls.load(Ordering::SeqCst)
-    }
-
-    pub(super) fn recover_calls(&self) -> usize {
-        self.recover_calls.load(Ordering::SeqCst)
-    }
-}
-
-#[async_trait]
-impl BackendClient for ReplayBackend {
-    async fn publish_event(&self, _req: PublishEventRequest) -> Result<(), tonic::Status> {
-        Ok(())
-    }
-
-    async fn get_pending_messages(
-        &self,
-        _task_id: &str,
-    ) -> Result<Vec<PendingMessage>, tonic::Status> {
-        self.get_pending_calls.fetch_add(1, Ordering::SeqCst);
-        match &*self.pending.lock().await {
-            Ok(msgs) => Ok(msgs.clone()),
-            Err(()) => Err(tonic::Status::unavailable("simulated probe failure")),
-        }
-    }
-
-    async fn acknowledge_messages(
-        &self,
-        _task_id: &str,
-        message_uuids: Vec<String>,
-        _session_id: &str,
-        _run_id: &str,
-    ) -> Result<(), tonic::Status> {
-        // Prune acked messages so a subsequent probe no longer returns them —
-        // exactly what lets the startup race manifest if ordering is wrong.
-        if let Ok(msgs) = &mut *self.pending.lock().await {
-            msgs.retain(|m| {
-                m.uuid
-                    .as_ref()
-                    .is_none_or(|u| !message_uuids.contains(u))
-            });
-        }
-        Ok(())
-    }
-
-    async fn get_credentials(
-        &self,
-        _task_id: &str,
-    ) -> Result<GetCredentialsResponse, tonic::Status> {
-        Ok(GetCredentialsResponse {
-            credentials: HashMap::new(),
-            server_env: HashMap::new(),
-            ssh_keys: HashMap::new(),
-        })
-    }
-
-    async fn update_credential(
-        &self,
-        _task_id: &str,
-        _key: &str,
-        _value: &str,
-    ) -> Result<(), tonic::Status> {
-        Ok(())
-    }
-
-    async fn get_system_prompt(&self, _task_id: &str) -> Result<String, tonic::Status> {
-        Ok(String::new())
-    }
-
-    async fn download_upload(
-        &self,
-        _task_id: &str,
-        _file_id: &str,
-    ) -> Result<DownloadUploadResponse, tonic::Status> {
-        Err(tonic::Status::unimplemented("not used"))
-    }
-
-    async fn recover_interrupted_run(
-        &self,
-        _task_id: &str,
-    ) -> Result<Option<InterruptedTurn>, tonic::Status> {
-        self.recover_calls.fetch_add(1, Ordering::SeqCst);
-        Ok(self.interrupted.clone())
-    }
-
-    async fn upload_transcript(
-        &self,
-        _task_id: &str,
-        _tar_data: Vec<u8>,
-    ) -> Result<(), tonic::Status> {
-        Ok(())
-    }
-
-    async fn download_transcript(&self, _task_id: &str) -> Result<Vec<u8>, tonic::Status> {
-        Ok(self.download_tar.clone())
-    }
-}
 
 /// Assemble a `SandboxState` from its parts. `agent_handle` is either a real
 /// recording coordinator (lifecycle tests) or a bare channel (restore tests).
@@ -198,6 +54,7 @@ fn build_state(
         credential_failures: CredentialFailureDetector::default(),
         codex_watcher_handle: Arc::new(RwLock::new(None)),
         system_prompt_cache: Arc::new(RwLock::new(None)),
+        dispatch_lock: Default::default(),
     }
 }
 
@@ -256,6 +113,17 @@ pub(super) fn recording_state(
 ) -> (SandboxState, InputRecorder) {
     let mut config = minimal_config();
     config.agent_type = agent_type.map(ToString::to_string);
+    recording_state_with_config(config, phase, backend)
+}
+
+/// Like [`recording_state`] but over a caller-supplied `config` — used by the
+/// restore-then-replay lifecycle test, whose config points restore at
+/// inspectable tmp dirs.
+pub(super) fn recording_state_with_config(
+    config: Config,
+    phase: InitPhase,
+    backend: Arc<dyn BackendClient>,
+) -> (SandboxState, InputRecorder) {
     let config = Arc::new(config);
 
     let agent = Arc::new(AgentState::new());

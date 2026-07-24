@@ -11,14 +11,17 @@
 //! accepted (text + resume) — proving harness acceptance, not enqueue shape.
 //!
 //! Split into cohesive submodules:
-//! - [`support`] — the in-memory backend, recording-harness state, and fixtures.
+//! - [`backend`] — the in-memory `ReplayBackend`.
+//! - [`support`] — recording-harness state and small fixtures.
 //! - [`readiness`] — the readiness gate and the startup precedence race.
 //! - [`precedence`] — interrupted-Run vs pending-Message precedence + fail-closed.
-//! - [`restore`] — session-state archive restore (happy / missing / corrupt).
+//! - [`restore`] — session-state archive restore (happy / missing / corrupt) and
+//!   the restore-then-replay lifecycle.
 //!
 //! [`CoordinatorService`]: crate::agent::coordinator::CoordinatorService
 //! [`Harness`]: crate::agent::harness::Harness
 
+mod backend;
 mod support;
 
 mod precedence;

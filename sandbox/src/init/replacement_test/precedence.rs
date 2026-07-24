@@ -1,8 +1,9 @@
 //! Interrupted-Run vs pending-Message precedence, proven at the harness: which
 //! `Input` the harness actually accepts (and, for a probe error, that none is).
 
+use super::backend::ReplayBackend;
 use super::support::{
-    interrupted_turn, recorded_inputs, recording_state, settled_inputs, text_message, ReplayBackend,
+    interrupted_turn, recorded_inputs, recording_state, settled_inputs, text_message,
 };
 use crate::agent::dispatcher::dispatch_pending_messages;
 use crate::agent::harness::Input;

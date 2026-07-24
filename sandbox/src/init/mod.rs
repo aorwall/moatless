@@ -236,11 +236,11 @@ pub(crate) async fn open_for_work(state: &SandboxState, workspace_origin: Worksp
     .await;
     info!(task_id = %state.config.task_id, "Core init complete — health is now ready");
 
-    // Spawned (not awaited) so it doesn't block Phase 2 workspace setup.
-    let startup_state = state.clone();
-    tokio::spawn(async move {
-        crate::agent::dispatcher::dispatch_pending_messages(startup_state).await;
-    });
+    // Awaited, not detached: dispatch only fetches, submits to the agent actor,
+    // and returns (the turn itself runs in the coordinator) — it does not block on
+    // the turn, so Phase 2 workspace setup is not delayed. Awaiting keeps this the
+    // one authoritative startup dispatch and avoids an orphaned JoinHandle.
+    crate::agent::dispatcher::dispatch_pending_messages(state.clone()).await;
 }
 
 /// How the workspace came to exist on this start — determines what (if anything)

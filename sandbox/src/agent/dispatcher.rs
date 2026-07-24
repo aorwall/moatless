@@ -54,6 +54,13 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
         return;
     }
 
+    // Single-flight: hold an owned guard from before the fetch until the ack
+    // completes. `get_pending_messages` only returns unacknowledged rows and the
+    // ack lands after the agent accepts, so without this two dispatchers racing
+    // the Ready transition each fetch the same unacked Message and submit it
+    // twice. A concurrent dispatcher blocks here and then fetches empty.
+    let dispatch_guard = state.dispatch_lock.clone().lock_owned().await;
+
     // Fetch pending messages from backend
     let task_id = &state.config.task_id;
     let messages = match state.backend_client.get_pending_messages(task_id).await {
@@ -132,8 +139,12 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
         let backend = Arc::clone(&state.backend_client);
         let redelivery_state = state.clone();
         tokio::spawn(async move {
+            // Held from the fetch above until the ack below prunes the rows.
+            // Released before any re-dispatch, which re-acquires the same lock.
+            let dispatch_guard = dispatch_guard;
             let Ok(ack) = ack_rx.await else {
                 warn!("Agent ack channel dropped — messages not acknowledged");
+                drop(dispatch_guard);
                 schedule_redispatch(redelivery_state).await;
                 return;
             };
@@ -144,6 +155,7 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
                 warn!(error = %e, "Failed to acknowledge messages");
                 return;
             }
+            drop(dispatch_guard);
             // Messages held back by the start_fresh split are now the only
             // pending ones, so re-dispatching picks up exactly those.
             if deferred > 0 {

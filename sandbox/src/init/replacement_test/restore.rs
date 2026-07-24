@@ -1,18 +1,29 @@
-//! Session-state archive restore on startup (`transcript_sync::download_on_start`).
+//! Session-state archive restore on startup (`transcript_sync::download_on_start`),
+//! and the restore-then-replay lifecycle that observes restoration completing
+//! before the harness accepts the resumed turn.
 //!
-//! Scope note: these prove the restore step's file behaviour — happy-path
-//! extraction, and non-fatal no-op on a missing or corrupt archive. They do NOT
-//! assert the downstream `SessionImpact::Lost` classification: when restore
-//! leaves no session on disk, the CLI's later `--resume` is what surfaces the
-//! unavailable session, and the coordinator's classified `session_context_lost`
-//! recovery (same harness family, no switch) is covered by the coordinator tests
-//! (`lost_resume_recovers_with_a_fresh_turn_and_keeps_the_ack`).
+//! Scope note on `SessionImpact::Lost`: the missing/corrupt-archive recovery is
+//! proven as a chain of three deterministic links, each tested where it lives:
+//!   1. restore leaves no session on disk, non-fatally — the tests below;
+//!   2. a resume whose transcript is absent classifies as
+//!      `(UnavailableSession, Lost)` — `claude::tests::resume_startup_failure_is_
+//!      unavailable_session_and_lost` (and the Codex equivalent in `codex::classify`);
+//!   3. a `Lost` verdict drives one fresh same-family turn and keeps the ack —
+//!      `coordinator::tests::lost_resume_recovers_with_a_fresh_turn_and_keeps_the_ack`.
+//! Only the CLI-spawn join of links 1→2 (the real `--resume` process emitting the
+//! startup failure when the jsonl is gone) needs the binary, so it lives in the
+//! gated E2E tier — not the classification itself, which link 2 pins down.
 
 use std::sync::Arc;
 
-use super::support::{combined_archive, restore_state, tmp_config, ReplayBackend};
+use super::backend::ReplayBackend;
+use super::support::{
+    combined_archive, interrupted_turn, recorded_inputs, recording_state_with_config,
+    restore_state, tmp_config,
+};
+use crate::agent::types::ResumeSession;
 use crate::init::transcript_sync::{codex_sessions_dir, download_on_start, transcript_dir};
-use crate::init::InitPhase;
+use crate::init::{open_for_work, InitPhase, WorkspaceOrigin};
 
 #[tokio::test]
 async fn download_on_start_restores_claude_and_codex_session_state() {
@@ -90,4 +101,66 @@ async fn download_on_start_survives_a_corrupt_archive() {
         entries.next_entry().await.unwrap().is_none(),
         "a corrupt archive must restore nothing"
     );
+}
+
+#[tokio::test]
+async fn restore_precedes_the_harness_accepting_the_resumed_turn() {
+    // The whole point of the seam: a replaced pod restores Session state to disk
+    // *before* the harness is handed the resumed turn — otherwise the agent would
+    // `--resume` against history that has not landed yet. This exercises one
+    // lifecycle: download_on_start (restore) → open_for_work (recover), and
+    // observes that the restored session file is present on disk *before* the
+    // harness accepts the interrupted run.
+    for family in ["claude-code", "codex"] {
+        let tmp = tempfile::TempDir::new().unwrap();
+        tokio::fs::create_dir_all(tmp.path().join("workspace"))
+            .await
+            .unwrap();
+        let config = tmp_config(family, &tmp);
+
+        let backend = ReplayBackend::with_archive_and_interrupted(
+            combined_archive().await,
+            interrupted_turn("restored-sess", "prior work", Some(family)),
+        );
+        let (state, recorder) =
+            recording_state_with_config(config.clone(), InitPhase::Starting, backend.clone());
+
+        // Restore first, and confirm the Session state actually landed on disk.
+        download_on_start(&state).await;
+        let restored = match family {
+            "claude-code" => transcript_dir(&config).join("session.jsonl"),
+            _ => codex_sessions_dir(&config)
+                .join("2026")
+                .join("rollout-xyz.jsonl"),
+        };
+        assert!(
+            tokio::fs::try_exists(&restored).await.unwrap(),
+            "family {family}: restore must complete before the turn is dispatched"
+        );
+
+        // Only now open for work: the interrupted run replays into the harness.
+        open_for_work(&state, WorkspaceOrigin::Persisted).await;
+
+        let inputs = recorded_inputs(&recorder, 1).await;
+        assert_eq!(inputs.len(), 1, "family {family}: exactly the interrupted run");
+        assert_eq!(
+            inputs[0].text, "prior work",
+            "family {family}: the harness runs the restored prompt"
+        );
+        assert!(
+            matches!(&inputs[0].resume, Some(ResumeSession::WithId(id)) if id == "restored-sess"),
+            "family {family}: the harness resumes the restored session"
+        );
+        // The restored file is still present after acceptance — restoration was a
+        // precondition of the turn, not a race against it.
+        assert!(
+            tokio::fs::try_exists(&restored).await.unwrap(),
+            "family {family}: restored session state persists across acceptance"
+        );
+        assert_eq!(
+            backend.recover_calls(),
+            1,
+            "family {family}: the interrupted run is probed exactly once"
+        );
+    }
 }

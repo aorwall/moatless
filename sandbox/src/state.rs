@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use crate::agent::agent_state::AgentState;
@@ -71,6 +71,16 @@ pub struct SandboxState {
     /// `BackendClient::get_system_prompt` fails on a subsequent agent run.
     /// Refreshed on every successful fetch in `start_session`.
     pub system_prompt_cache: Arc<RwLock<Option<String>>>,
+    /// Single-flight guard for pending-message dispatch.
+    ///
+    /// `get_pending_messages` only returns still-unacknowledged rows, and the ack
+    /// lands asynchronously after the agent accepts the input. Without this, two
+    /// dispatchers racing at the Ready transition (the authoritative startup
+    /// dispatch and a gRPC notification) each fetch the same unacked Message and
+    /// submit it twice. A dispatcher holds this guard from before the fetch until
+    /// its acknowledge completes, so a concurrent one blocks and then fetches
+    /// empty — the Message reaches the harness exactly once.
+    pub dispatch_lock: Arc<Mutex<()>>,
 }
 
 impl SandboxState {
