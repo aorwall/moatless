@@ -75,8 +75,21 @@ async fn tick(
             }
         }
 
-        let next = next_fire_at(&locked.schedule_expr)?;
-        state.loops.record_schedule_fire(&locked.id, next).await?;
+        // Release the lock and reschedule this job. Contain failures per-job so a
+        // single bad cron expression or DB hiccup doesn't strand the rest of the
+        // already-locked batch until their 2-minute lock expiry.
+        let next = match next_fire_at(&locked.schedule_expr) {
+            Ok(next) => next,
+            Err(e) => {
+                record_job("error", "next_fire_failed", &locked.id);
+                warn!(job_id = %locked.id, error = %e, "Failed to compute next fire time");
+                continue;
+            }
+        };
+        if let Err(e) = state.loops.record_schedule_fire(&locked.id, next).await {
+            record_job("error", "record_fire_failed", &locked.id);
+            warn!(job_id = %locked.id, error = %e, "Failed to record schedule fire");
+        }
     }
 
     Ok(())

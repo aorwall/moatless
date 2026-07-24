@@ -756,38 +756,41 @@ impl LoopStore {
     // ---------------------------------------------------------------------
 
     /// Read the `adapter_config` JSON for an adapter-event trigger's source.
+    /// Returns `Ok(None)` when the trigger has no adapter-event source row (the
+    /// outer `Option` is the `adapter_config` column, which is itself nullable).
     pub async fn get_adapter_config(
         &self,
         trigger_id: &str,
     ) -> Result<Option<serde_json::Value>, sqlx::Error> {
-        let row: (Option<serde_json::Value>,) = sqlx::query_as(
+        let row: Option<(Option<serde_json::Value>,)> = sqlx::query_as(
             "SELECT adapter_config FROM adapter_event_trigger_sources WHERE trigger_id = $1",
         )
         .bind(trigger_id)
-        .fetch_one(&self.db)
+        .fetch_optional(&self.db)
         .await?;
-        Ok(row.0)
+        Ok(row.and_then(|(config,)| config))
     }
 
     /// Overwrite the `adapter_config` JSON for an adapter-event trigger's source
-    /// and bump the trigger's `updated_at`.
+    /// and bump the trigger's `updated_at`, in one transaction.
     pub async fn set_adapter_config(
         &self,
         trigger_id: &str,
         config: &serde_json::Value,
     ) -> Result<(), sqlx::Error> {
+        let mut tx = self.db.begin().await?;
         sqlx::query(
             "UPDATE adapter_event_trigger_sources SET adapter_config = $1 WHERE trigger_id = $2",
         )
         .bind(config)
         .bind(trigger_id)
-        .execute(&self.db)
+        .execute(&mut *tx)
         .await?;
         sqlx::query("UPDATE triggers SET updated_at = now() WHERE id = $1")
             .bind(trigger_id)
-            .execute(&self.db)
+            .execute(&mut *tx)
             .await?;
-        Ok(())
+        tx.commit().await
     }
 
     // ---------------------------------------------------------------------
