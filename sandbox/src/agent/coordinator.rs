@@ -1026,7 +1026,10 @@ impl CoordinatorService {
                             // A replayed run also gets a fresh recovery budget.
                             self.credential_recovery_attempts = 0;
 
-                            // TODO(ticket-09): restoration-ordering migrates here.
+                            // Session state (Claude transcripts + Codex rollouts)
+                            // was restored to disk during init before the pod
+                            // reached Ready, so the `--resume` this drives sees
+                            // the interrupted run's history.
                             let (throwaway_tx, _throwaway_rx) = oneshot::channel();
                             let input = match self.build_input(
                                 text,

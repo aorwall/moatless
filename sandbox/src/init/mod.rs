@@ -22,7 +22,7 @@ mod plugin_skills;
 pub(crate) mod refresher;
 pub(crate) mod server_env;
 mod ssh;
-pub(crate) mod transcript_sync;
+pub mod transcript_sync;
 mod workspace;
 mod workspace_bridge;
 pub(crate) mod workspace_sync;
@@ -145,28 +145,10 @@ pub async fn run_init(state: SandboxState) {
 
     info!(task_id = %state.config.task_id, "Core init complete — health is now ready");
 
-    // Fetch pending messages first so a new user message supersedes any
-    // interrupted-turn replay. When pending messages exist we skip recovery and
-    // let the dispatcher resume the prior session via `--resume <session_id>`
-    // with the new user text as the prompt. When none exist we fall back to
-    // replaying the interrupted turn.
-    let task_id = state.config.task_id.clone();
-    let has_pending_messages = match state.backend_client.get_pending_messages(&task_id).await {
-        Ok(msgs) => !msgs.is_empty(),
-        Err(e) => {
-            warn!(error = %e, task_id = %task_id, "Failed to probe pending messages on startup");
-            false
-        }
-    };
-
-    if has_pending_messages {
-        info!(
-            task_id = %task_id,
-            "Pending messages present on startup; skipping interrupted-run replay"
-        );
-    } else {
-        recover_interrupted_run(&state, workspace_origin).await;
-    }
+    // Replay an interrupted run only when no new user message supersedes it.
+    // Session state was already restored to disk in `run_core_init` (before
+    // Ready), so a resumed run sees its `--resume` history.
+    recover_interrupted_run_unless_pending(&state, workspace_origin).await;
 
     // Fetch any messages that arrived during initialization.
     // Spawned (not awaited) so it doesn't block Phase 2 workspace setup.
@@ -244,7 +226,7 @@ pub async fn run_init(state: SandboxState) {
 /// How the workspace came to exist on this start — determines what (if anything)
 /// a resuming agent must be warned lost across the restart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum WorkspaceOrigin {
+pub enum WorkspaceOrigin {
     /// Repo persisted in place (EBS/PVC volume already held it) or this is a
     /// fresh task — nothing was lost, so no restart note is needed.
     Persisted,
@@ -307,6 +289,38 @@ fn workspace_recloned_note(workspace_dir: &str) -> String {
          your working state before continuing.\n\
          </sandbox-restart-note>\n\n"
     )
+}
+
+/// Interrupted-run precedence gate: probe for pending user messages first, and
+/// replay the interrupted run **only** when none are waiting. A fresh user
+/// message supersedes the interrupted turn — `dispatch_pending_messages` resumes
+/// the prior session with the new text as the prompt instead. A probe error is
+/// treated as "no pending" so a transient backend blip can't strand an
+/// interrupted run.
+///
+/// `pub` so the Sandbox-replacement lifecycle can be exercised with an
+/// in-memory backend without driving the whole of `run_init`.
+pub async fn recover_interrupted_run_unless_pending(
+    state: &SandboxState,
+    origin: WorkspaceOrigin,
+) {
+    let task_id = &state.config.task_id;
+    let has_pending_messages = match state.backend_client.get_pending_messages(task_id).await {
+        Ok(msgs) => !msgs.is_empty(),
+        Err(e) => {
+            warn!(error = %e, task_id = %task_id, "Failed to probe pending messages on startup");
+            false
+        }
+    };
+
+    if has_pending_messages {
+        info!(
+            task_id = %task_id,
+            "Pending messages present on startup; skipping interrupted-run replay"
+        );
+    } else {
+        recover_interrupted_run(state, origin).await;
+    }
 }
 
 /// Detect any interrupted agent run via the backend RPC and queue a resume on
