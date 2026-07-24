@@ -130,11 +130,30 @@ Present the breakdown as a numbered list (title / blocked-by / what it delivers)
 
 ## Phase 4 — Spawn
 
-Find the current repo ID:
+Pick where each child runs — **workspace first, bare repo as fallback**:
 
 ```bash
-moat repos list --json | jq '.[] | {id, name, remoteUrl}'
+moat workspaces list --json | jq '.[] | {id, name, source, dockerAccess}'
+moat repos list --json | jq '.[] | {id, name, remoteUrl}'   # fallback only
 ```
+
+Prefer a named workspace over a bare `--repo`: git-synced workspaces (from the
+repo's `.moatless/workspaces.json`) carry the run-config a child needs —
+resource sizing (memory/storage for heavy builds), servers, and Docker access.
+Spawning by `--repo` lands the child on the repo's bare shadow workspace, which
+may have none of that.
+
+Choose per ticket:
+
+- **Default**: the repo's standard workspace (e.g. `Moatless`).
+- **Docker needed**: the docker-enabled workspace (e.g. `Moatless Fullstack`,
+  `dockerAccess: true`) when the ticket runs compose-based integration tests,
+  builds images, or otherwise needs a Docker daemon. Check the ticket's
+  acceptance criteria for compose/E2E test commands.
+
+Pass `--workspace <ws-id-or-name>` to `moat tasks create` (it replaces
+`--repo`). If your `moat` build predates the flag (`moat tasks create --help`
+doesn't list it), fall back to `--repo <repo-id>`.
 
 Identify which tickets have no blockers (or whose blockers are already complete). Spawn **all unblocked tickets in parallel** — one `moat tasks create` per ticket. Capture each child task ID.
 
@@ -144,7 +163,7 @@ For each unblocked ticket:
 
 ```bash
 CHILD_ID=$(moat tasks create \
-  --repo <repo-id> \
+  --workspace <ws-id> \
   --parent $TASK_ID \
   --name "Ticket <NN>: <slug>" \
   --message "$(cat /opt/moatless/workspace/plans/<slug>/<NN>-<file>.md)
