@@ -1388,7 +1388,6 @@ mod tests {
                 idle_check_interval_secs: 300,
                 inactive_task_timeout_days: 0,
                 orphan_gc_enabled: false,
-                orphan_gc_retention_hours: 24,
                 codex_refresher_interval_secs: 0,
                 max_crash_restart_count: 5,
                 node_selector_json: None,
@@ -1409,12 +1408,6 @@ mod tests {
                 egress_proxy_url: None,
                 egress_proxy_profiles: vec![],
                 egress_proxy_no_proxy: "localhost,.svc.cluster.local".into(),
-            },
-            reconcile: ReconcileConfig {
-                reprovision_enabled: false,
-                pending_timeout_enabled: false,
-                pending_timeout_minutes: 15,
-                max_reprovision_attempts: 3,
             },
             proxy: ProxyConfig {
                 domain: None,

@@ -34,9 +34,9 @@ sandbox namespace. The Deployment's `replicas` field is the on/off switch —
 stop is *scale to 0*, start is *scale to 1* — so a stopped sandbox keeps its
 PVC and restarts cheaply.
 
-The task row also persists the control-plane intent for that sandbox:
-`sandbox_desired_state` is `running`, `stopped`, or `removed`, with
-`sandbox_stop_reason` explaining intentional transitions away from running
+The lazily-created `sandboxes` row persists control-plane intent:
+`desired_state` is `running`, `stopped`, or `removed`, with `stop_reason`
+explaining intentional transitions away from running
 (`user`, `idle_reaper`, `cleanup`, `system`, or `error`). This intent is
 distinct from observed Kubernetes status. It is the durable answer to "should
 recovery try to bring this sandbox back right now?"
@@ -54,13 +54,13 @@ recovery try to bring this sandbox back right now?"
       └─────────────────────────────────────────────────────┘
 ```
 
-Three leader-elected background subsystems drive everything that isn't a
-direct API call:
+These background subsystems drive everything that isn't a direct API call:
 
 | Subsystem | Lease | Job |
 |---|---|---|
 | **Pod watcher** (`sandbox/k8s/pod_watcher.rs`) | `moatless-pod-watcher` | Watch all sandbox pods, detect lifecycle transitions, publish events |
-| **Task reaper** (`task/reaper.rs`) | `moatless-task-reaper` | Stop idle sandboxes, close inactive tasks, close orphaned turns, reconcile desired-vs-actual, GC orphaned resources |
+| **Sandbox reconciler** (`sandbox/lifecycle/reconciler.rs`) | `moatless-sandbox-reconciler` | Converge durable desired state, recover incomplete operations, and process pending-Message wakes |
+| **Task reaper** (`task/reaper.rs`) | `moatless-task-reaper` | Stop idle sandboxes, close inactive tasks and orphaned turns, sweep taskless resources |
 | **Codex refresher** (`credentials/codex/`) | per-scope locks | Keep stored Codex OAuth blobs fresh |
 
 ## Provisioning
@@ -239,29 +239,26 @@ Turn state is committed transactionally at event ingress (`task_turns`
 table), so a turn stuck `active` > 5 minutes is a rare lost-terminal-event
 case. The reaper force-closes it only after confirming it's genuinely
 orphaned: the Deployment is gone, or the agent itself reports terminal.
-Tasks currently being re-provisioned by the reconcile pass are left alone.
 Tasks whose persisted sandbox intent is not `running` are also left alone:
 an explicit user stop, idle stop, cleanup, or crash auto-stop should not be
 converted into a failed turn while the next user message can still retry it.
 
-### 5. Reconcile pass (config-gated, default OFF)
+### 5. Desired-state reconciler
 
-Desired-vs-actual remediation, all classes opt-in:
+The Sandbox reconciler is the single asynchronous recovery owner. It compares
+durable intent with runtime observation and drives `lifecycle.start`, `stop`, or
+`remove`; it never mutates Kubernetes resources directly. Kubernetes elects one
+leader, while Docker runs one lease-free instance. Pending user Messages are
+durable wake input, so a lost initial notification is retried.
 
-- `RECONCILE_REPROVISION_ENABLED`: re-provision tasks whose turn is stuck
-  active but whose sandbox resources vanished (bounded by
-  `RECONCILE_MAX_REPROVISION_ATTEMPTS`, default 3, per leader lifetime).
-  Re-provisioning only runs while `sandbox_desired_state = 'running'`; a
-  stopped or removed task is not recreated just because an old turn is open.
-- `RECONCILE_PENDING_TIMEOUT_ENABLED`: scale to 0 pods stuck `Pending`
-  longer than `RECONCILE_PENDING_TIMEOUT_MINUTES` (default 15) —
-  unschedulable pods otherwise wait forever.
+Retries use a leader-local capped exponential backoff. A newer pending Message
+or new caller operation resets the cap; leader failover deliberately resets it.
 
 ### 6. Orphan GC
 
-Deletes sandbox K8s resources whose task no longer exists or was closed more
-than `SANDBOX_ORPHAN_GC_RETENTION_HOURS` (default 24) ago. Complements the
-ownerReferences cascade for resources that predate it or escaped it.
+Deletes labeled sandbox K8s resources only when their Task row no longer
+exists. Existing Tasks, including Closed Tasks with Removed intent, are owned
+by lifecycle and the reconciler.
 
 ## Failure Handling & Recovery
 
@@ -277,14 +274,12 @@ ownerReferences cascade for resources that predate it or escaped it.
   expected recovery, not `pod_failed` (see Pod Watcher above). The
   Deployment reschedules the pod; the PVC re-attaches.
 - **Stuck provisioning**: `K8S_POD_STARTUP_TIMEOUT_SECS` (120) bounds the
-  provision call; the pending-pod reconcile class (opt-in) is the backstop
-  for pods that stay unschedulable afterwards.
+  provision call; desired Running remains durable reconciler input.
 - **Interrupted-turn recovery**: on sandbox startup, the backend only replays
   an acknowledged user turn when it lacks terminal agent, task-turn, or
   explicit sandbox-stop events and the task still desires a running sandbox.
-  A new user message is the wake-up path after stop/error: message persistence
-  flips `sandbox_desired_state` back to `running` and clears
-  `sandbox_stop_reason` before provisioning/notification continues.
+  A new user message is the wake-up path after stop/error: the durable pending
+  row lets the reconciler request Running when causal precedence permits it.
 - **Backend deploys**: sandbox pods are independent Deployments; a backend
   rollout changes leaders (Lease-based) but doesn't touch running sandboxes.
 
@@ -366,12 +361,7 @@ All read from env at backend startup (`backend/src/config.rs`).
 | `SANDBOX_BUSY_EXTENSION_MAX_HOURS` | `4` | Max deferral for live background processes (0 disables) |
 | `TASK_INACTIVE_TIMEOUT_DAYS` | `7` | Auto-close floor for Open tasks (per-task override; 0 = never) |
 | `SANDBOX_MAX_CRASH_RESTART_COUNT` | `5` | Restarts before crash-loop classification |
-| `SANDBOX_ORPHAN_GC_ENABLED` | `true` | Orphaned-resource GC pass |
-| `SANDBOX_ORPHAN_GC_RETENTION_HOURS` | `24` | Grace before closed/deleted tasks' leftovers are GC'd |
-| `RECONCILE_REPROVISION_ENABLED` | `false` | Re-provision vanished sandboxes with stuck turns |
-| `RECONCILE_PENDING_TIMEOUT_ENABLED` | `false` | Scale down pods stuck Pending |
-| `RECONCILE_PENDING_TIMEOUT_MINUTES` | `15` | Pending age threshold |
-| `RECONCILE_MAX_REPROVISION_ATTEMPTS` | `3` | Per-task re-provision budget |
+| `SANDBOX_ORPHAN_GC_ENABLED` | `true` | Taskless-resource GC pass |
 
 ### Resources & storage
 

@@ -15,7 +15,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use k8s_openapi::api::apps::v1::Deployment;
-use k8s_openapi::api::core::v1::{PersistentVolumeClaim, Pod, Service};
+use k8s_openapi::api::core::v1::{PersistentVolumeClaim, Service};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::api::{Api, ListParams};
 use moatless_events::{TaskSubType, TaskTurnSubType};
@@ -25,7 +25,7 @@ use tracing::{debug, info, warn};
 
 use super::dao::{TaskPatch, TaskRepository};
 use super::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
-use crate::config::{Config, ReconcileConfig};
+use crate::config::Config;
 use crate::event_handler::agent_handlers;
 use crate::event_handler::models::AgentEvent;
 use crate::events::EventPublisher;
@@ -35,7 +35,7 @@ use crate::sandbox::k8s::leader_election::LeaderElection;
 use crate::sandbox::lifecycle::ArchiveRetention;
 use crate::state::AppState;
 use crate::task_turn::models::{TurnStatus, TurnTransition, UnclosedTurn};
-use moatless_events::{EventType, SandboxEventPayload, SandboxStatus};
+use moatless_events::EventType;
 
 /// Minimum age of a stuck `active` turn before the reaper reconciles it.
 ///
@@ -73,16 +73,11 @@ pub fn spawn_task_reaper(
         "task_turns_reconciled_total",
         "Active task turns force-closed by the reaper after a lost terminal event"
     );
-    metrics::describe_counter!(
-        "task_reconcile_remediations_total",
-        "Desired-vs-actual reconcile remediations by the task reaper, labelled by `type` (reprovision/pending_scale_zero) and `outcome`"
-    );
     let identity = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
     let interval = Duration::from_secs(config.sandbox.idle_check_interval_secs);
     let default_ttl_minutes = config.sandbox.idle_timeout_minutes as i32;
     let default_inactive_ttl_days = config.sandbox.inactive_task_timeout_days as i32;
     let orphan_gc_enabled = config.sandbox.orphan_gc_enabled;
-    let orphan_gc_retention_hours = config.sandbox.orphan_gc_retention_hours as i64;
 
     tokio::spawn(async move {
         // Lease duration must exceed the check interval so the lease
@@ -94,13 +89,6 @@ pub fn spawn_task_reaper(
             "moatless-task-reaper".to_string(),
         )
         .with_lease_duration(lease_duration_secs);
-
-        // Bounded re-provision attempts per task, kept across cycles for this
-        // leader's lifetime. Not persisted — a leader change resets the budget,
-        // which is acceptable for a best-effort backstop (a successful provision
-        // clears the entry; the pending-timeout / orphan-turn passes are the
-        // ultimate stops for a task that can never come up).
-        let mut reprovision_attempts: HashMap<String, u32> = HashMap::new();
 
         loop {
             if cancel.is_cancelled() {
@@ -117,12 +105,9 @@ pub fn spawn_task_reaper(
                         &messages,
                         &tasks,
                         &events,
-                        &config.reconcile,
-                        &mut reprovision_attempts,
                         default_ttl_minutes,
                         default_inactive_ttl_days,
                         orphan_gc_enabled,
-                        orphan_gc_retention_hours,
                     )
                     .await
                     {
@@ -156,15 +141,11 @@ async fn run_reap_cycle(
     messages: &Arc<dyn MessageRepository>,
     tasks: &Arc<dyn TaskRepository>,
     events: &Option<Arc<dyn EventPublisher>>,
-    reconcile: &ReconcileConfig,
-    reprovision_attempts: &mut HashMap<String, u32>,
     default_ttl_minutes: i32,
     default_inactive_ttl_days: i32,
     orphan_gc_enabled: bool,
-    orphan_gc_retention_hours: i64,
 ) -> Result<(), ReaperError> {
-    // One cluster-wide Deployments LIST, shared by the idle-stop pass (running =
-    // replicas > 0) and the desired-vs-actual reconcile pass (all Deployments).
+    // One cluster-wide Deployments LIST supplies the running Sandbox set.
     let deployments = list_sandbox_deployments(k8s).await?;
     let sandbox_ids: Vec<String> = deployments
         .iter()
@@ -172,8 +153,7 @@ async fn run_reap_cycle(
         .map(|d| d.task_id.clone())
         .collect();
 
-    // Tasks whose latest turn is stuck `active` past the floor. Shared by the
-    // reconcile pass (re-provision candidates) and the orphaned-turn closer.
+    // Tasks whose latest turn is stuck `active` past the floor.
     let cutoff = Utc::now() - chrono::Duration::seconds(RECONCILE_STUCK_TURN_THRESHOLD_SECS);
     let stuck_turns = match app_state
         .task_turns
@@ -187,33 +167,15 @@ async fn run_reap_cycle(
         }
     };
 
-    // Desired-vs-actual reconcile pass (config-gated, all classes default OFF).
-    // Returns the tasks it re-provisioned/is retrying so the orphaned-turn closer
-    // below leaves their turns open instead of racing the recovery.
-    let reprovisioned = run_reconcile_pass(
-        app_state,
-        k8s,
-        tasks,
-        events,
-        reconcile,
-        &deployments,
-        &stuck_turns,
-        reprovision_attempts,
-    )
-    .await;
-
-    // Third pass: close turns left stuck `active` by a lost terminal event.
+    // Close turns left stuck `active` by a lost terminal event.
     // Independent of the idle/close passes below and best-effort, so a failure
     // here never blocks them.
-    reconcile_orphaned_turns(app_state, &sandbox_ids, &stuck_turns, &reprovisioned).await;
+    reconcile_orphaned_turns(app_state, &sandbox_ids, &stuck_turns).await;
 
-    // Orphan-GC pass: delete leftover sandbox K8s resources whose task no longer
-    // exists or was closed past the retention window. Runs unconditionally (not
-    // gated on there being running sandboxes/open tasks — the whole point is
-    // resources whose task is gone) and best-effort so it never blocks the
-    // idle/close passes below.
+    // Orphan-GC deletes only taskless resources. Desired Removed convergence
+    // for existing Tasks belongs to the Sandbox reconciler.
     if orphan_gc_enabled {
-        gc_orphaned_resources(k8s, tasks, orphan_gc_retention_hours).await;
+        gc_orphaned_resources(k8s, tasks).await;
     }
 
     let open_ids = match tasks.list_open_task_ids().await {
@@ -383,7 +345,9 @@ async fn run_reap_cycle(
                 // sandbox with a broken gRPC path could never be reaped.
                 // Costs one gRPC call per reap candidate per cycle, against
                 // a sandbox that is up.
-                if let Some(status) = agent_status_snapshot(app_state, task_id).await {
+                if let Some(status) =
+                    agent_status_snapshot(app_state.agent_status.as_ref(), task_id).await
+                {
                     if !matches!(status.status.as_str(), "idle" | "stopped") {
                         info!(
                             task_id = %task_id,
@@ -459,7 +423,6 @@ async fn reconcile_orphaned_turns(
     app_state: &AppState,
     running_sandbox_ids: &[String],
     stuck: &[UnclosedTurn],
-    exclude: &HashSet<String>,
 ) {
     if stuck.is_empty() {
         return;
@@ -468,12 +431,6 @@ async fn reconcile_orphaned_turns(
     let running: HashSet<&str> = running_sandbox_ids.iter().map(String::as_str).collect();
 
     for turn in stuck {
-        // A task the reconcile pass is re-provisioning keeps its turn open so
-        // agent recovery can resume it once the sandbox is back up.
-        if exclude.contains(&turn.task_id) {
-            debug!(task_id = %turn.task_id, "reconcile: turn owned by re-provision, skipping close");
-            continue;
-        }
         if !task_desires_running(app_state, &turn.task_id).await {
             debug!(
                 task_id = %turn.task_id,
@@ -516,7 +473,7 @@ async fn task_desires_running(app_state: &AppState, task_id: &str) -> bool {
 /// if it's still `running`, and `None` when the status can't be read (no client,
 /// gRPC error) — the caller treats `None` conservatively as "possibly live".
 async fn agent_is_terminal(app_state: &AppState, task_id: &str) -> Option<bool> {
-    agent_status_snapshot(app_state, task_id)
+    agent_status_snapshot(app_state.agent_status.as_ref(), task_id)
         .await
         .map(|resp| matches!(resp.status.as_str(), "idle" | "stopped"))
 }
@@ -524,10 +481,10 @@ async fn agent_is_terminal(app_state: &AppState, task_id: &str) -> Option<bool> 
 /// Live agent status straight from the sandbox, `None` when unreachable
 /// (no client, gRPC error).
 async fn agent_status_snapshot(
-    app_state: &AppState,
+    agent_status: &dyn AgentStatusPort,
     task_id: &str,
 ) -> Option<sandbox_proto::GetAgentStatusResponse> {
-    app_state.agent_status.agent_status(task_id).await
+    agent_status.agent_status(task_id).await
 }
 
 /// The reaper's read of a Sandbox's live agent status — the one interior read it
@@ -888,36 +845,19 @@ async fn auto_close_task(
 /// Outcome of evaluating a labeled sandbox resource for orphan GC.
 #[derive(Debug, PartialEq, Eq)]
 enum OrphanDecision {
-    /// The resource's task is gone, or was closed past the retention window —
-    /// safe to delete.
+    /// The resource's Task row is gone, so lifecycle cannot express removal.
     Delete,
-    /// The task is still live (Open), errored (may be retried/inspected), or was
-    /// closed only recently — keep the resource.
+    /// An existing Task's desired-state convergence belongs to lifecycle.
     Keep,
 }
 
 /// Pure decision function: decide whether a task's leftover sandbox resources
 /// are orphans safe to GC.
-///
-/// `task` is the task's `(status, updated_at)` if the row still exists in the
-/// DB, or `None` when it's been deleted. Rules, deliberately conservative:
-/// - Deleted (`None`) → the resources can't belong to any task → delete.
-/// - `Open` → live task → never GC (matches the plan's hard rule).
-/// - `Error` → may be retried or inspected → keep.
-/// - `Closed` → GC only once `updated_at` is older than the retention window; a
-///   missing `updated_at` is treated as "recently changed" → keep.
-fn decide_orphan(
-    task: Option<(TaskStatus, Option<DateTime<Utc>>)>,
-    retention: chrono::Duration,
-    now: DateTime<Utc>,
-) -> OrphanDecision {
-    match task {
-        None => OrphanDecision::Delete,
-        Some((TaskStatus::Closed, updated_at)) => match updated_at {
-            Some(ts) if now - ts > retention => OrphanDecision::Delete,
-            _ => OrphanDecision::Keep,
-        },
-        Some(_) => OrphanDecision::Keep,
+fn decide_orphan(task_exists: bool) -> OrphanDecision {
+    if task_exists {
+        OrphanDecision::Keep
+    } else {
+        OrphanDecision::Delete
     }
 }
 
@@ -990,18 +930,9 @@ async fn delete_orphaned_task_resources(k8s: &K8sClient, task_id: &str) {
     }
 }
 
-/// Orphan-GC pass: LIST labeled sandbox resources, then delete those whose task
-/// no longer exists or was closed past `retention_hours`. Never touches
-/// resources for Open (live) or Error tasks. Every deletion is logged at info
-/// with `task_id`. Fully best-effort — errors are logged, never propagated.
-async fn gc_orphaned_resources(
-    k8s: &K8sClient,
-    tasks: &Arc<dyn TaskRepository>,
-    retention_hours: i64,
-) {
-    let retention = chrono::Duration::hours(retention_hours);
-    let now = Utc::now();
-
+/// Orphan-GC pass: LIST labeled sandbox resources, then delete only resources
+/// whose Task row no longer exists. Fully best-effort.
+async fn gc_orphaned_resources(k8s: &K8sClient, tasks: &Arc<dyn TaskRepository>) {
     let task_ids = collect_labeled_task_ids(k8s).await;
     if task_ids.is_empty() {
         return;
@@ -1009,9 +940,9 @@ async fn gc_orphaned_resources(
 
     let mut gc_count = 0u32;
     for task_id in task_ids {
-        let task = match tasks.find_by_id_internal(&task_id).await {
-            Ok(Some(t)) => Some((t.status, t.updated_at)),
-            Ok(None) => None,
+        let task_exists = match tasks.find_by_id_internal(&task_id).await {
+            Ok(Some(_)) => true,
+            Ok(None) => false,
             Err(e) => {
                 // A transient DB error must not be mistaken for a deleted task —
                 // skip this task-id this cycle rather than risk deleting live
@@ -1021,11 +952,10 @@ async fn gc_orphaned_resources(
             }
         };
 
-        if decide_orphan(task, retention, now) == OrphanDecision::Delete {
+        if decide_orphan(task_exists) == OrphanDecision::Delete {
             info!(
                 task_id = %task_id,
-                retention_hours,
-                "orphan-gc: deleting leftover sandbox resources (task deleted or closed past retention)"
+                "orphan-gc: deleting taskless sandbox resources"
             );
             delete_orphaned_task_resources(k8s, &task_id).await;
             gc_count += 1;
@@ -1046,9 +976,7 @@ struct DeploymentInfo {
 }
 
 /// List all managed sandbox Deployments (any replica count) with their task-id
-/// and desired replicas via a single cluster-wide LIST. The idle-stop pass reads
-/// `desired_replicas > 0`; the reconcile pass reads the full set to detect
-/// orphaned resources and missing Deployments.
+/// and desired replicas via a single cluster-wide LIST.
 async fn list_sandbox_deployments(k8s: &K8sClient) -> Result<Vec<DeploymentInfo>, kube::Error> {
     let deployments: Api<Deployment> = Api::namespaced(k8s.client.clone(), k8s.namespace());
     let lp = ListParams::default().labels("app.kubernetes.io/managed-by=moatless");
@@ -1075,437 +1003,44 @@ async fn list_sandbox_deployments(k8s: &K8sClient) -> Result<Vec<DeploymentInfo>
     Ok(infos)
 }
 
-/// A managed sandbox pod stuck in the `Pending` phase, with its age and the
-/// scheduling reason if the scheduler reported one.
-struct PendingPodInfo {
-    task_id: String,
-    pod_name: String,
-    /// Seconds since the pod's `creationTimestamp`.
-    age_secs: i64,
-    /// Reason/message from the `False` `PodScheduled` condition, if present
-    /// (e.g. `Unschedulable: 0/3 nodes are available…`). Read from the LIST
-    /// result — no extra per-pod K8s GET.
-    reason: Option<String>,
-}
-
-/// List managed sandbox pods currently in the `Pending` phase via a single
-/// cluster-wide LIST. Only fetched when the pending-timeout remediation is
-/// enabled, so a disabled reconcile pass adds no Pods LIST.
-async fn list_pending_sandbox_pods(k8s: &K8sClient) -> Result<Vec<PendingPodInfo>, kube::Error> {
-    let pods: Api<Pod> = Api::namespaced(k8s.client.clone(), k8s.namespace());
-    let lp = ListParams::default().labels("app.kubernetes.io/managed-by=moatless");
-
-    let list = pods.list(&lp).await?;
-    let now_ms = k8s_openapi::jiff::Timestamp::now().as_millisecond();
-
-    let pending = list
-        .items
-        .into_iter()
-        .filter_map(|pod| {
-            let phase = pod.status.as_ref().and_then(|s| s.phase.as_deref());
-            if phase != Some("Pending") {
-                return None;
-            }
-            let task_id = pod
-                .metadata
-                .labels
-                .as_ref()
-                .and_then(|labels| labels.get("moatless.io/task-id").cloned())?;
-            let pod_name = pod.metadata.name.clone().unwrap_or_default();
-            let age_secs = pod
-                .metadata
-                .creation_timestamp
-                .as_ref()
-                .map_or(0, |t| ((now_ms - t.0.as_millisecond()).max(0)) / 1000);
-            // Scheduling reason from the PodScheduled=False condition.
-            let reason = pod
-                .status
-                .as_ref()
-                .and_then(|s| s.conditions.as_ref())
-                .and_then(|conds| {
-                    conds
-                        .iter()
-                        .find(|c| c.type_ == "PodScheduled" && c.status == "False")
-                })
-                .and_then(|c| {
-                    let msg = c.message.clone().unwrap_or_default();
-                    let reason = c.reason.clone().unwrap_or_default();
-                    match (reason.is_empty(), msg.is_empty()) {
-                        (true, true) => None,
-                        (false, true) => Some(reason),
-                        (true, false) => Some(msg),
-                        (false, false) => Some(format!("{reason}: {msg}")),
-                    }
-                });
-            Some(PendingPodInfo {
-                task_id,
-                pod_name,
-                age_secs,
-                reason,
-            })
-        })
-        .collect();
-
-    Ok(pending)
-}
-
-// =============================================================================
-// Reconcile pass (Phase 4): desired-vs-actual backstop
-// =============================================================================
-
-/// Outcome of the pure per-task deployment reconcile decision.
-#[derive(Debug, PartialEq, Eq)]
-enum ReconcileAction {
-    /// Deployment missing for a live task mid-turn — re-provision it.
-    Reprovision,
-    /// Nothing to do.
-    None,
-}
-
-/// Pure inputs for the per-task deployment reconcile decision. Kept free of any
-/// K8s/DB types so the decision logic is unit-testable without a cluster.
-///
-/// Resources-present-but-task-gone cleanup is intentionally *not* handled here —
-/// that orphan-GC lives in `gc_orphaned_resources` (see PR #270); this reconcile
-/// pass focuses on re-provisioning a vanished Deployment for a live turn.
-struct DeploymentReconcileInput {
-    reprovision_enabled: bool,
-    /// A managed Deployment exists for this task (any replica count).
-    deployment_present: bool,
-    /// The task row exists in the DB.
-    task_present: bool,
-    /// The task's status is `Open` (a live, resumable task).
-    task_open: bool,
-    /// The persisted sandbox intent still wants a running sandbox.
-    sandbox_wants_running: bool,
-    /// The task has an in-flight (unclosed active) turn.
-    has_active_turn: bool,
-    /// A recent explicit stop was observed (user/agent stopped) — never fight it.
-    recent_explicit_stop: bool,
-    /// Re-provision attempts already spent this leader lifetime.
-    reprovision_attempts: u32,
-    max_reprovision_attempts: u32,
-}
-
-/// Pure decision function: given a task's desired (DB) vs actual (cluster) state,
-/// decide the reconcile action. No I/O — the caller performs the side effect.
-fn decide_deployment_reconcile(i: &DeploymentReconcileInput) -> ReconcileAction {
-    // Re-provision only for a live, Open task that is mid-turn, whose Deployment
-    // vanished, and that was not just stopped by a human — never fight an
-    // in-flight stop. A present Deployment (even scaled to 0 while idle) is left
-    // alone; orphaned-resource cleanup is handled by `gc_orphaned_resources`.
-    if i.reprovision_enabled
-        && !i.deployment_present
-        && i.task_present
-        && i.task_open
-        && i.sandbox_wants_running
-        && i.has_active_turn
-        && !i.recent_explicit_stop
-        && i.reprovision_attempts < i.max_reprovision_attempts
-    {
-        return ReconcileAction::Reprovision;
-    }
-
-    ReconcileAction::None
-}
-
-/// Pure decision for the pending-pod timeout remediation: a pod scheduled to a
-/// task that has sat `Pending` at least `deadline_secs`.
-fn should_scale_pending_pod(enabled: bool, age_secs: i64, deadline_secs: i64) -> bool {
-    enabled && deadline_secs > 0 && age_secs >= deadline_secs
-}
-
-/// Run the config-gated desired-vs-actual reconcile pass.
-///
-/// Two independent, individually-gated remediation classes, all default OFF:
-/// 1. **Re-provision** a Deployment that vanished for an Open task mid-turn.
-/// 2. **Pending-timeout**: scale to 0 + surface an error for pods stuck Pending.
-///
-/// Resources-present-but-task-gone cleanup is handled separately by
-/// `gc_orphaned_resources` (PR #270), so this pass deliberately does not touch
-/// existing Deployments.
-///
-/// Cost when all classes are OFF: zero extra K8s/DB calls (the Deployments LIST
-/// and stuck-turn query are already done by the caller). Returns the set of
-/// tasks it re-provisioned/is retrying so the orphaned-turn closer keeps their
-/// turns open.
-#[allow(clippy::too_many_arguments)]
-async fn run_reconcile_pass(
-    app_state: &AppState,
-    k8s: &K8sClient,
-    tasks: &Arc<dyn TaskRepository>,
-    events: &Option<Arc<dyn EventPublisher>>,
-    reconcile: &ReconcileConfig,
-    deployments: &[DeploymentInfo],
-    stuck_turns: &[UnclosedTurn],
-    reprovision_attempts: &mut HashMap<String, u32>,
-) -> HashSet<String> {
-    let mut reprovisioned: HashSet<String> = HashSet::new();
-
-    let deployment_ids: HashSet<&str> = deployments.iter().map(|d| d.task_id.as_str()).collect();
-
-    // ---- Class 1: re-provision missing Deployments for in-flight turns ----
-    if reconcile.reprovision_enabled {
-        let candidates: Vec<&UnclosedTurn> = stuck_turns
-            .iter()
-            .filter(|t| !deployment_ids.contains(t.task_id.as_str()))
-            .collect();
-
-        if !candidates.is_empty() {
-            let ids: Vec<String> = candidates.iter().map(|t| t.task_id.clone()).collect();
-            match tasks.get_task_statuses(&ids).await {
-                Ok(statuses) => {
-                    // Latest agent run-state: a `stopped` marker means an explicit
-                    // stop we must not fight.
-                    let lifecycle = app_state
-                        .task_events
-                        .get_latest_agent_lifecycle(&ids)
-                        .await
-                        .unwrap_or_else(|e| {
-                            warn!(error = %e, "reconcile: agent lifecycle fetch failed, assuming no recent stop");
-                            HashMap::new()
-                        });
-
-                    for turn in candidates {
-                        let id = &turn.task_id;
-                        let recent_explicit_stop = lifecycle
-                            .get(id)
-                            .is_some_and(|(sub_type, _)| sub_type == "stopped");
-                        let attempts = reprovision_attempts.get(id).copied().unwrap_or(0);
-                        let sandbox_wants_running = task_desires_running(app_state, id).await;
-                        let action = decide_deployment_reconcile(&DeploymentReconcileInput {
-                            reprovision_enabled: true,
-                            deployment_present: false,
-                            task_present: statuses.contains_key(id),
-                            task_open: statuses.get(id).copied() == Some(TaskStatus::Open),
-                            sandbox_wants_running,
-                            has_active_turn: true,
-                            recent_explicit_stop,
-                            reprovision_attempts: attempts,
-                            max_reprovision_attempts: reconcile.max_reprovision_attempts,
-                        });
-                        if action != ReconcileAction::Reprovision {
-                            continue;
-                        }
-                        // Keep the turn open while we recover; drop it only if this
-                        // attempt exhausts the budget (then the orphaned-turn closer
-                        // finalises it and surfaces the error).
-                        let exhausted = reprovision_task(
-                            app_state,
-                            events,
-                            reconcile,
-                            id,
-                            reprovision_attempts,
-                        )
-                        .await;
-                        if !exhausted {
-                            reprovisioned.insert(id.clone());
-                        }
-                    }
-                }
-                Err(e) => {
-                    warn!(error = %e, "reconcile: get_task_statuses failed, skipping re-provision pass");
-                }
-            }
-        }
-    }
-
-    // ---- Class 2 (orphan cleanup: resources present but task gone) is
-    // deliberately omitted here — it is owned by `gc_orphaned_resources`
-    // (PR #270), so the numbering skips straight to Class 3. ----
-
-    // ---- Class 3: pending-pod hard-deadline timeout ----
-    if reconcile.pending_timeout_enabled {
-        let deadline_secs = (reconcile.pending_timeout_minutes as i64) * 60;
-        match list_pending_sandbox_pods(k8s).await {
-            Ok(pending) => {
-                for pod in pending {
-                    if !should_scale_pending_pod(true, pod.age_secs, deadline_secs) {
-                        continue;
-                    }
-                    scale_stuck_pending_pod(k8s, events, &pod).await;
-                }
-            }
-            Err(e) => {
-                warn!(error = %e, "reconcile: pending-pod LIST failed, skipping pending-timeout pass");
-            }
-        }
-    }
-
-    reprovisioned
-}
-
-/// Attempt one re-provision of a task whose Deployment vanished. Returns `true`
-/// when this attempt exhausted the retry budget (an environment error was
-/// surfaced), `false` while still recovering or after a successful provision.
-async fn reprovision_task(
-    app_state: &AppState,
-    events: &Option<Arc<dyn EventPublisher>>,
-    reconcile: &ReconcileConfig,
-    task_id: &str,
-    reprovision_attempts: &mut HashMap<String, u32>,
-) -> bool {
-    info!(task_id = %task_id, "reconcile: re-provisioning Deployment that vanished for an in-flight turn");
-    // A plan that can never be built (repo row deleted, credentials revoked)
-    // surfaces as a permanent `lifecycle.start` error and counts against the
-    // SAME budget as a runtime failure, so the task can't loop forever.
-    match app_state.sandbox.start(task_id).await {
-        Ok(_) => {
-            reprovision_attempts.remove(task_id);
-            metrics::counter!(
-                "task_reconcile_remediations_total",
-                "type" => "reprovision",
-                "outcome" => "success",
-            )
-            .increment(1);
-            info!(task_id = %task_id, "reconcile: re-provision succeeded");
-            false
-        }
-        Err(e) => {
-            record_reprovision_failure(
-                events,
-                reconcile,
-                task_id,
-                reprovision_attempts,
-                &e.to_string(),
-            )
-            .await
-        }
-    }
-}
-
-/// Record one failed re-provision attempt against the per-task budget. Emits the
-/// `failure` metric, and — when the attempt exhausts the budget — the `exhausted`
-/// metric plus an `environment_error` event so the orphaned-turn closer can
-/// finalise the turn next cycle. Returns `true` iff this attempt exhausted the
-/// budget. Shared by both failure modes (un-buildable request and `provision()`
-/// error) so neither can loop unbounded.
-async fn record_reprovision_failure(
-    events: &Option<Arc<dyn EventPublisher>>,
-    reconcile: &ReconcileConfig,
-    task_id: &str,
-    reprovision_attempts: &mut HashMap<String, u32>,
-    error: &str,
-) -> bool {
-    let attempts = *reprovision_attempts
-        .entry(task_id.to_string())
-        .and_modify(|c| *c += 1)
-        .or_insert(1);
-    metrics::counter!(
-        "task_reconcile_remediations_total",
-        "type" => "reprovision",
-        "outcome" => "failure",
-    )
-    .increment(1);
-    warn!(
-        task_id = %task_id,
-        attempts,
-        max = reconcile.max_reprovision_attempts,
-        error,
-        "reconcile: re-provision attempt failed"
-    );
-
-    if attempts >= reconcile.max_reprovision_attempts {
-        metrics::counter!(
-            "task_reconcile_remediations_total",
-            "type" => "reprovision",
-            "outcome" => "exhausted",
-        )
-        .increment(1);
-        if let Some(events) = events {
-            events
-                .publish_sandbox_event_with_payload(
-                    task_id,
-                    SandboxStatus::Error,
-                    &SandboxEventPayload {
-                        message: format!(
-                            "Failed to re-provision the sandbox after {attempts} attempts"
-                        ),
-                        lifecycle_event: Some("environment_error".to_string()),
-                        error: Some(error.to_string()),
-                        initiator: Some("reconcile".to_string()),
-                        ..Default::default()
-                    },
-                )
-                .await;
-        }
-        return true;
-    }
-    false
-}
-
-/// Scale a stuck-Pending pod's Deployment to 0 and surface an environment error
-/// carrying the scheduling reason. Best-effort.
-async fn scale_stuck_pending_pod(
-    k8s: &K8sClient,
-    events: &Option<Arc<dyn EventPublisher>>,
-    pod: &PendingPodInfo,
-) {
-    warn!(
-        task_id = %pod.task_id,
-        pod_name = %pod.pod_name,
-        age_secs = pod.age_secs,
-        reason = ?pod.reason,
-        "reconcile: pod stuck Pending past hard deadline — scaling Deployment to 0"
-    );
-
-    match crate::sandbox::k8s::deployment::scale_deployment(k8s, &pod.task_id, 0).await {
-        Ok(()) => {
-            metrics::counter!(
-                "task_reconcile_remediations_total",
-                "type" => "pending_scale_zero",
-                "outcome" => "success",
-            )
-            .increment(1);
-            if let Some(events) = events {
-                let reason = pod.reason.clone();
-                // A `PodScheduled=False` reason means the pod never got a node —
-                // genuine scheduling failure. No reason means it IS scheduled but
-                // stuck later in Pending: image pull or volume attach (e.g. a
-                // Multi-Attach stall) not completing. Don't conflate the two, or
-                // operators chase the wrong cause.
-                let message = reason.clone().map_or_else(
-                    || {
-                        format!(
-                            "Sandbox scaled down after sitting Pending for {}s after scheduling (image pull or volume attach not completing)",
-                            pod.age_secs
-                        )
-                    },
-                    |r| format!("Sandbox scaled down: scheduling timed out ({r})"),
-                );
-                events
-                    .publish_sandbox_event_with_payload(
-                        &pod.task_id,
-                        SandboxStatus::Error,
-                        &SandboxEventPayload {
-                            message,
-                            lifecycle_event: Some("environment_error".to_string()),
-                            error: Some(reason.unwrap_or_else(|| {
-                                format!("Pod stuck Pending for {}s", pod.age_secs)
-                            })),
-                            initiator: Some("reconcile".to_string()),
-                            pending_seconds: Some(pod.age_secs),
-                            ..Default::default()
-                        },
-                    )
-                    .await;
-            }
-        }
-        Err(e) => {
-            metrics::counter!(
-                "task_reconcile_remediations_total",
-                "type" => "pending_scale_zero",
-                "outcome" => "failure",
-            )
-            .increment(1);
-            warn!(task_id = %pod.task_id, error = %e, "reconcile: failed to scale down stuck-Pending Deployment");
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct RecordingAgentStatus {
+        calls: std::sync::Mutex<Vec<String>>,
+        response: sandbox_proto::GetAgentStatusResponse,
+    }
+
+    #[async_trait]
+    impl AgentStatusPort for RecordingAgentStatus {
+        async fn agent_status(
+            &self,
+            task_id: &str,
+        ) -> Option<sandbox_proto::GetAgentStatusResponse> {
+            self.calls.lock().unwrap().push(task_id.to_string());
+            Some(self.response.clone())
+        }
+    }
+
+    #[tokio::test]
+    async fn idle_eligibility_reads_agent_status_through_its_port() {
+        let port = RecordingAgentStatus {
+            calls: std::sync::Mutex::new(Vec::new()),
+            response: sandbox_proto::GetAgentStatusResponse {
+                status: "idle".to_string(),
+                ..Default::default()
+            },
+        };
+
+        let status = agent_status_snapshot(&port, "task-1")
+            .await
+            .expect("recording port returns status");
+
+        assert_eq!(status.status, "idle");
+        assert_eq!(*port.calls.lock().unwrap(), vec!["task-1"]);
+    }
 
     fn ts(seconds_ago: i64) -> DateTime<Utc> {
         Utc::now() - chrono::Duration::seconds(seconds_ago)
@@ -1720,76 +1255,19 @@ mod tests {
     // decide_orphan (orphan-GC pass)
     // =========================================================================
 
-    fn retention_24h() -> chrono::Duration {
-        chrono::Duration::hours(24)
-    }
-
     #[test]
     fn orphan_deleted_task_is_gc_immediately() {
-        // Task row gone from the DB → resources are pure orphans, GC regardless
-        // of any window.
-        let now = Utc::now();
-        assert_eq!(
-            decide_orphan(None, retention_24h(), now),
-            OrphanDecision::Delete
-        );
+        assert_eq!(decide_orphan(false), OrphanDecision::Delete);
     }
 
     #[test]
     fn orphan_open_task_is_never_gc() {
-        let now = Utc::now();
-        // Even with a very old updated_at, an Open task is live → keep.
-        let old = now - chrono::Duration::days(30);
-        assert_eq!(
-            decide_orphan(Some((TaskStatus::Open, Some(old))), retention_24h(), now),
-            OrphanDecision::Keep
-        );
+        assert_eq!(decide_orphan(true), OrphanDecision::Keep);
     }
 
     #[test]
-    fn orphan_error_task_is_never_gc() {
-        let now = Utc::now();
-        let old = now - chrono::Duration::days(30);
-        assert_eq!(
-            decide_orphan(Some((TaskStatus::Error, Some(old))), retention_24h(), now),
-            OrphanDecision::Keep
-        );
-    }
-
-    #[test]
-    fn orphan_closed_task_within_retention_is_kept() {
-        let now = Utc::now();
-        // Closed 1h ago, 24h window → keep.
-        let recent = now - chrono::Duration::hours(1);
-        assert_eq!(
-            decide_orphan(
-                Some((TaskStatus::Closed, Some(recent))),
-                retention_24h(),
-                now
-            ),
-            OrphanDecision::Keep
-        );
-    }
-
-    #[test]
-    fn orphan_closed_task_past_retention_is_gc() {
-        let now = Utc::now();
-        // Closed 25h ago, 24h window → delete.
-        let old = now - chrono::Duration::hours(25);
-        assert_eq!(
-            decide_orphan(Some((TaskStatus::Closed, Some(old))), retention_24h(), now),
-            OrphanDecision::Delete
-        );
-    }
-
-    #[test]
-    fn orphan_closed_task_missing_updated_at_is_kept() {
-        // No updated_at → treat conservatively as recently changed → keep.
-        let now = Utc::now();
-        assert_eq!(
-            decide_orphan(Some((TaskStatus::Closed, None)), retention_24h(), now),
-            OrphanDecision::Keep
-        );
+    fn existing_closed_task_is_left_to_lifecycle() {
+        assert_eq!(decide_orphan(true), OrphanDecision::Keep);
     }
 
     #[test]
@@ -1811,148 +1289,4 @@ mod tests {
         assert!(ids.contains("b"));
     }
 
-    // =========================================================================
-    // decide_deployment_reconcile (Phase 4)
-    // =========================================================================
-
-    /// A live task mid-turn with a healthy Deployment — nothing to reconcile.
-    fn healthy_input() -> DeploymentReconcileInput {
-        DeploymentReconcileInput {
-            reprovision_enabled: true,
-            deployment_present: true,
-            task_present: true,
-            task_open: true,
-            sandbox_wants_running: true,
-            has_active_turn: true,
-            recent_explicit_stop: false,
-            reprovision_attempts: 0,
-            max_reprovision_attempts: 3,
-        }
-    }
-
-    #[test]
-    fn reconcile_healthy_task_is_noop() {
-        assert_eq!(
-            decide_deployment_reconcile(&healthy_input()),
-            ReconcileAction::None
-        );
-    }
-
-    #[test]
-    fn reconcile_missing_deployment_midturn_reprovisions() {
-        let input = DeploymentReconcileInput {
-            deployment_present: false,
-            ..healthy_input()
-        };
-        assert_eq!(
-            decide_deployment_reconcile(&input),
-            ReconcileAction::Reprovision
-        );
-    }
-
-    #[test]
-    fn reconcile_missing_deployment_without_turn_is_noop() {
-        // No in-flight turn ⇒ an idle sandbox that was legitimately removed; do
-        // not resurrect it.
-        let input = DeploymentReconcileInput {
-            deployment_present: false,
-            has_active_turn: false,
-            ..healthy_input()
-        };
-        assert_eq!(decide_deployment_reconcile(&input), ReconcileAction::None);
-    }
-
-    #[test]
-    fn reconcile_never_fights_recent_explicit_stop() {
-        let input = DeploymentReconcileInput {
-            deployment_present: false,
-            recent_explicit_stop: true,
-            ..healthy_input()
-        };
-        assert_eq!(decide_deployment_reconcile(&input), ReconcileAction::None);
-    }
-
-    #[test]
-    fn reconcile_never_fights_persisted_stopped_intent() {
-        let input = DeploymentReconcileInput {
-            deployment_present: false,
-            sandbox_wants_running: false,
-            ..healthy_input()
-        };
-        assert_eq!(decide_deployment_reconcile(&input), ReconcileAction::None);
-    }
-
-    #[test]
-    fn reconcile_reprovision_respects_attempt_budget() {
-        let input = DeploymentReconcileInput {
-            deployment_present: false,
-            reprovision_attempts: 3,
-            max_reprovision_attempts: 3,
-            ..healthy_input()
-        };
-        assert_eq!(decide_deployment_reconcile(&input), ReconcileAction::None);
-    }
-
-    #[test]
-    fn reconcile_reprovision_disabled_is_noop() {
-        let input = DeploymentReconcileInput {
-            reprovision_enabled: false,
-            deployment_present: false,
-            ..healthy_input()
-        };
-        assert_eq!(decide_deployment_reconcile(&input), ReconcileAction::None);
-    }
-
-    #[test]
-    fn reconcile_present_deployment_is_never_reprovisioned() {
-        // Deployment present (even scaled to 0 while idle) for a task with no
-        // turn — the idle-stop steady state. Orphan cleanup is out of scope here
-        // (handled by gc_orphaned_resources), so this stays a no-op.
-        let input = DeploymentReconcileInput {
-            has_active_turn: false,
-            ..healthy_input()
-        };
-        assert_eq!(decide_deployment_reconcile(&input), ReconcileAction::None);
-    }
-
-    #[test]
-    fn reconcile_closed_task_missing_deployment_is_noop() {
-        // A Closed task whose Deployment vanished is not re-provisioned — only
-        // live Open tasks mid-turn are.
-        let input = DeploymentReconcileInput {
-            deployment_present: false,
-            task_open: false,
-            ..healthy_input()
-        };
-        assert_eq!(decide_deployment_reconcile(&input), ReconcileAction::None);
-    }
-
-    // =========================================================================
-    // should_scale_pending_pod (Phase 4)
-    // =========================================================================
-
-    #[test]
-    fn pending_pod_past_deadline_scales() {
-        assert!(should_scale_pending_pod(true, 16 * 60, 15 * 60));
-    }
-
-    #[test]
-    fn pending_pod_within_deadline_waits() {
-        assert!(!should_scale_pending_pod(true, 5 * 60, 15 * 60));
-    }
-
-    #[test]
-    fn pending_pod_disabled_never_scales() {
-        assert!(!should_scale_pending_pod(false, 60 * 60, 15 * 60));
-    }
-
-    #[test]
-    fn pending_pod_zero_deadline_never_scales() {
-        assert!(!should_scale_pending_pod(true, 60 * 60, 0));
-    }
-
-    #[test]
-    fn pending_pod_exactly_at_deadline_scales() {
-        assert!(should_scale_pending_pod(true, 15 * 60, 15 * 60));
-    }
 }

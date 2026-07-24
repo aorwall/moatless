@@ -452,7 +452,7 @@ mod db_tests {
         AgentStopPort, IntentWrite, LifecycleEventSink, SystemWallClock,
     };
     use super::super::runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
-    use super::super::test_support::seed_task_with as seed;
+    use super::super::test_support::{seed_bare_task, seed_task_with as seed};
     use super::super::types::{ObservedStatus, OperationKind};
     use super::super::types::{CorrelationMarker, OperationGeneration};
 
@@ -698,6 +698,30 @@ mod db_tests {
                 .await
                 .unwrap();
         assert_eq!(desired, "running", "wake flipped intent to running");
+    }
+
+    #[sqlx::test]
+    async fn pending_message_wakes_a_task_without_a_sandbox_row(pool: PgPool) {
+        seed_bare_task(&pool, "t1", "open").await;
+        seed_pending_user_message(&pool, "t1", Utc::now()).await;
+        let runtime = Arc::new(RecordingRuntime::new());
+        let (rec, _sink) = build(
+            pool.clone(),
+            pool.clone(),
+            runtime.clone(),
+            observer(&[], SandboxObservedStatus::Absent),
+            Duration::ZERO,
+        );
+
+        rec.reconcile_once().await;
+
+        assert_eq!(runtime.calls().0, 1, "durable pending Message drove start");
+        let desired: String =
+            sqlx::query_scalar("SELECT desired_state FROM sandboxes WHERE task_id = 't1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(desired, "running");
     }
 
     #[sqlx::test]

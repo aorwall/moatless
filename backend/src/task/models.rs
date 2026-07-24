@@ -22,6 +22,12 @@ pub const DEFAULT_TTL_MINUTES: i32 = 15;
 /// `tasks.inactive_ttl_days` column default.
 pub const DEFAULT_INACTIVE_TTL_DAYS: i32 = 7;
 
+/// The timestamp for a Sandbox that has never received durable lifecycle
+/// intent. Every real Message timestamp sorts after this sentinel.
+pub(crate) fn sandbox_intent_epoch() -> DateTime<Utc> {
+    DateTime::<Utc>::from(std::time::UNIX_EPOCH)
+}
+
 // =============================================================================
 // Task (DB)
 // =============================================================================
@@ -84,9 +90,7 @@ impl Task {
         moatless_backend_core::scope::ScopedResource::borrowed(
             self.scope,
             self.team_id.as_deref(),
-            self.owner_user_id
-                .as_deref()
-                .or(self.created_by.as_deref()),
+            self.owner_user_id.as_deref().or(self.created_by.as_deref()),
         )
     }
 }
@@ -110,8 +114,17 @@ impl Default for SandboxIntentView {
             started_at: None,
             desired_state: SandboxDesiredState::Stopped,
             stop_reason: None,
-            desired_state_updated_at: DateTime::<Utc>::from(std::time::UNIX_EPOCH),
+            desired_state_updated_at: sandbox_intent_epoch(),
         }
+    }
+}
+
+impl SandboxIntentView {
+    /// Generation allocation may create the row before lifecycle persists
+    /// intent. The epoch sentinel keeps that crash window distinct from an
+    /// explicit Stopped or Removed request.
+    pub(crate) fn has_explicit_intent(&self) -> bool {
+        self.desired_state_updated_at != sandbox_intent_epoch()
     }
 }
 

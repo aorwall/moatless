@@ -1529,16 +1529,26 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             debug!(task_id = %req.task_id, "recover_interrupted_run: task is Closed, skipping recovery");
             return Ok(Response::new(RecoverInterruptedRunResponse { turn: None }));
         }
-        // Desired state lives in the `sandboxes` row now. No row (never
-        // requested) reads as None here — fail open and proceed, matching the
-        // old default; only an explicit Stopped/Removed intent gates recovery.
+        // No Sandbox row means the Task never requested runtime resources;
+        // only explicit Stopped or Removed intent gates recovery.
         let sandbox_desired_state = if let Some(ref tasks) = self.tasks {
-            tasks
+            match tasks
                 .get_sandbox_intents(std::slice::from_ref(&req.task_id))
                 .await
-                .ok()
-                .and_then(|mut m| m.remove(&req.task_id))
-                .map(|v| v.desired_state)
+            {
+                Ok(mut intents) => intents
+                    .remove(&req.task_id)
+                    .filter(crate::task::models::SandboxIntentView::has_explicit_intent)
+                    .map(|intent| intent.desired_state),
+                Err(e) => {
+                    warn!(
+                        error = %e,
+                        task_id = %req.task_id,
+                        "Failed to load Sandbox lifecycle intent for recovery gate"
+                    );
+                    None
+                }
+            }
         } else {
             None
         };

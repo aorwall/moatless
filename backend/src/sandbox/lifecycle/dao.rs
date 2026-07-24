@@ -12,7 +12,9 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
 use crate::db::DbPool;
-use crate::task::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
+use crate::task::models::{
+    sandbox_intent_epoch, SandboxDesiredState, SandboxIntentView, SandboxStopReason, TaskStatus,
+};
 
 use super::events::LifecycleEvent;
 use super::orchestrator::{IntentWrite, LifecycleStore, StoreError, TaskIntent};
@@ -41,12 +43,6 @@ const CLEAR_MARKER_SQL: &str = r#"UPDATE sandboxes SET
        updated_at = NOW()
    WHERE task_id = $1"#;
 
-/// The "no intent timestamp" sentinel for a Task with no Sandbox row: the Unix
-/// epoch, so any real Message timestamp supersedes a converged-Stopped absence.
-fn epoch() -> DateTime<Utc> {
-    DateTime::<Utc>::from(std::time::UNIX_EPOCH)
-}
-
 /// Clear the correlation marker on `executor`. Generic over the executor so the
 /// completion transaction (`&mut tx`) and the standalone clear (`&pool`) issue
 /// one and the same statement.
@@ -73,6 +69,55 @@ fn marker_from_columns(
             .map(|kind| CorrelationMarker::new(kind, OperationGeneration(generation), started_at)),
         _ => None,
     }
+}
+
+#[derive(sqlx::FromRow)]
+struct SandboxIntentViewRow {
+    task_id: String,
+    started_at: Option<DateTime<Utc>>,
+    desired_state: Option<SandboxDesiredState>,
+    stop_reason: Option<SandboxStopReason>,
+    desired_state_updated_at: Option<DateTime<Utc>>,
+}
+
+/// Batch-load the task-response projection of Sandbox intent. This module owns
+/// the lazy-row semantic: an existing Task without a Sandbox row is returned as
+/// converged Stopped at the no-intent epoch.
+pub(crate) async fn load_sandbox_intent_views(
+    pool: &DbPool,
+    task_ids: &[String],
+) -> Result<std::collections::HashMap<String, SandboxIntentView>, sqlx::Error> {
+    if task_ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+
+    let rows: Vec<SandboxIntentViewRow> = sqlx::query_as(
+        r#"SELECT t.task_id, s.started_at, s.desired_state, s.stop_reason,
+                  s.desired_state_updated_at
+           FROM tasks t
+           LEFT JOIN sandboxes s ON s.task_id = t.task_id
+           WHERE t.task_id = ANY($1)"#,
+    )
+    .bind(task_ids)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            (
+                row.task_id,
+                SandboxIntentView {
+                    started_at: row.started_at,
+                    desired_state: row.desired_state.unwrap_or(SandboxDesiredState::Stopped),
+                    stop_reason: row.stop_reason,
+                    desired_state_updated_at: row
+                        .desired_state_updated_at
+                        .unwrap_or_else(sandbox_intent_epoch),
+                },
+            )
+        })
+        .collect())
 }
 
 #[async_trait]
@@ -124,7 +169,8 @@ impl LifecycleStore for PgLifecycleStore {
                 stop_reason,
                 retention: retention.as_deref().and_then(ArchiveRetention::from_db_str),
                 marker: marker_from_columns(op_kind, op_generation, op_started_at),
-                desired_state_updated_at: desired_state_updated_at.unwrap_or_else(epoch),
+                desired_state_updated_at: desired_state_updated_at
+                    .unwrap_or_else(sandbox_intent_epoch),
             },
         ))
     }
@@ -547,11 +593,40 @@ mod db_tests {
         assert_eq!(intent.desired_state, SandboxDesiredState::Stopped);
         assert!(intent.marker.is_none());
         assert_eq!(intent.stop_reason, None);
-        assert_eq!(intent.desired_state_updated_at, epoch(), "no intent timestamp");
+        assert_eq!(
+            intent.desired_state_updated_at,
+            sandbox_intent_epoch(),
+            "no intent timestamp"
+        );
 
         assert!(
             store.reconcile_candidates().await.unwrap().is_empty(),
             "a no-row Task is converged, not a candidate",
+        );
+    }
+
+    #[sqlx::test]
+    async fn generation_allocation_births_a_no_intent_row_at_epoch(pool: PgPool) {
+        seed_bare_task(&pool, "t1", "open").await;
+        let store = PgLifecycleStore::new(pool.clone());
+
+        assert_eq!(
+            store.allocate_generation("t1").await.unwrap(),
+            OperationGeneration(1)
+        );
+
+        let intent = store.load("t1").await.unwrap().expect("task exists");
+        assert_eq!(intent.desired_state, SandboxDesiredState::Stopped);
+        assert_eq!(intent.desired_state_updated_at, sandbox_intent_epoch());
+
+        let views = load_sandbox_intent_views(&pool, &[String::from("t1")])
+            .await
+            .unwrap();
+        let view = views.get("t1").expect("existing task has a projection");
+        assert_eq!(view.desired_state, SandboxDesiredState::Stopped);
+        assert!(
+            !view.has_explicit_intent(),
+            "allocation alone must not look like an explicit stop"
         );
     }
 

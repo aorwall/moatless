@@ -10,9 +10,8 @@ use sqlx::PgPool;
 use moatless_vibe_backend::auth::github_app_registry::GitHubAppRegistry;
 use moatless_vibe_backend::config::{
     AuthConfig, CodexOAuthConfig, Config, DatabaseConfig, DockerConfig, GithubPrConfig,
-    LinearConfig, ProxyConfig, ReconcileConfig, RedisConfig, S3Config, SandboxConfig,
-    SandboxProviderType, SecretsConfig, ServerConfig, SkillConfig, SlackConfig, SseConfig,
-    TelegramConfig,
+    LinearConfig, ProxyConfig, RedisConfig, S3Config, SandboxConfig, SandboxProviderType,
+    SecretsConfig, ServerConfig, SkillConfig, SlackConfig, SseConfig, TelegramConfig,
 };
 use moatless_vibe_backend::message::models::{MessageRole, MessageType, TaskMessage};
 use moatless_vibe_backend::repository::models::{Repository, RepositoryKind, RepositoryProvider};
@@ -146,7 +145,6 @@ pub fn test_config() -> Config {
             idle_check_interval_secs: 300,
             inactive_task_timeout_days: 0,
             orphan_gc_enabled: false,
-            orphan_gc_retention_hours: 24,
             codex_refresher_interval_secs: 0,
             max_crash_restart_count: 5,
             sandbox_resources_cpu_request: "1".into(),
@@ -269,12 +267,6 @@ pub fn test_config() -> Config {
         codex_oauth: CodexOAuthConfig {
             issuer: "https://auth.openai.com".into(),
             client_id: "test-client".into(),
-        },
-        reconcile: ReconcileConfig {
-            reprovision_enabled: false,
-            pending_timeout_enabled: false,
-            pending_timeout_minutes: 15,
-            max_reprovision_attempts: 3,
         },
         default_run_as_user_id: None,
     }
