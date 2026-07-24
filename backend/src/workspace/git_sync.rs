@@ -20,6 +20,7 @@ use serde::Deserialize;
 use tracing::{debug, info, warn};
 
 use crate::extractors::AuthUser;
+use crate::repository::access::{access_error_for, resolve_repository_github_token};
 use crate::repository::config_reader::{
     AccessStatus, fetch_provider_file, verify_repository_access,
 };
@@ -191,7 +192,7 @@ pub async fn sync_repo_workspaces(
         return Ok(summary);
     };
     let provider = repo.provider.unwrap_or(RepositoryProvider::Github);
-    let token = resolve_sync_token(state, auth, provider).await;
+    let token = resolve_sync_token(state, repo, auth, provider, remote_url).await;
     let token_str = token.as_deref();
     let branch = repo.default_branch.as_deref();
 
@@ -234,7 +235,7 @@ pub async fn sync_repo_workspaces(
                         continue;
                     }
                 };
-                let placements = resolve_placements(state, repo, &entry.repos, token_str).await?;
+                let placements = resolve_placements(state, repo, &entry.repos, auth).await?;
 
                 present.insert(source_key.clone());
                 let desired = DesiredWorkspace {
@@ -578,11 +579,11 @@ async fn resolve_placements(
     state: &AppState,
     source_repo: &Repository,
     refs: &[MoatlessWorkspaceRepoRef],
-    token: Option<&str>,
+    auth: &AuthUser,
 ) -> Result<Vec<ResolvedPlacement>, RepositoryError> {
     let mut out = Vec::with_capacity(refs.len());
     for r in refs {
-        let repository_id = resolve_or_create_repo(state, source_repo, &r.url, token).await?;
+        let repository_id = resolve_or_create_repo(state, source_repo, &r.url, auth).await?;
         out.push(ResolvedPlacement {
             repository_id,
             branch: r.branch.clone(),
@@ -600,10 +601,11 @@ async fn resolve_or_create_repo(
     state: &AppState,
     source_repo: &Repository,
     url: &str,
-    token: Option<&str>,
+    auth: &AuthUser,
 ) -> Result<String, RepositoryError> {
     let provider = source_repo.provider.unwrap_or(RepositoryProvider::Github);
     let key = normalize_remote_url(url);
+    let token = resolve_sync_token(state, source_repo, auth, provider, url).await;
 
     if let Some(existing) = state
         .repositories
@@ -617,7 +619,8 @@ async fn resolve_or_create_repo(
     {
         if existing.access_status == "unchecked" {
             if let Some(existing_url) = existing.remote_url.clone() {
-                let status = verify_repository_access(&existing_url, token, provider).await;
+                let status =
+                    verify_repository_access(&existing_url, token.as_deref(), provider).await;
                 stamp_access(state, &existing.id, status, &existing_url).await;
             }
         }
@@ -626,7 +629,7 @@ async fn resolve_or_create_repo(
 
     // Create the row, then verify reachability and stamp — a missing or
     // inaccessible repo is still created + placed, just flagged.
-    let status = verify_repository_access(url, token, provider).await;
+    let status = verify_repository_access(url, token.as_deref(), provider).await;
     let now = Utc::now();
     let id = uuid::Uuid::new_v4().to_string();
     let row = Repository {
@@ -670,24 +673,17 @@ async fn stamp_access(state: &AppState, repository_id: &str, status: AccessStatu
     }
 }
 
-fn access_error_for(status: AccessStatus, url: &str) -> Option<String> {
-    match status {
-        AccessStatus::Ok | AccessStatus::Unchecked => None,
-        AccessStatus::NotFound => Some(format!("Repository not found: {url}")),
-        AccessStatus::Forbidden => Some(format!("No access to repository: {url}")),
-        AccessStatus::Error => Some(format!("Failed to verify repository: {url}")),
-    }
-}
-
 /// Resolve a GitHub/provider token for the sync, best-effort (unauthenticated
 /// works for public GitHub repos).
 async fn resolve_sync_token(
     state: &AppState,
+    repository: &Repository,
     auth: &AuthUser,
     provider: RepositoryProvider,
+    remote_url: &str,
 ) -> Option<String> {
     if provider == RepositoryProvider::Github {
-        crate::auth::credentials::resolve_state_github_token(state, &auth.user_id.to_string(), None)
+        resolve_repository_github_token(state, repository, auth, remote_url)
             .await
             .unwrap_or_else(|e| {
                 warn!(error = %e, "Workspace sync: failed to resolve GitHub token");

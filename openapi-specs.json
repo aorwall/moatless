@@ -28,6 +28,16 @@
           "204": {
             "description": "Sandbox cleaned up"
           },
+          "409": {
+            "description": "Another lifecycle operation is in progress",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Cleanup failed",
             "content": {
@@ -485,6 +495,26 @@
               }
             }
           },
+          "400": {
+            "description": "Task is Closed — start not allowed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another lifecycle operation is in progress",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Provisioning failed",
             "content": {
@@ -528,6 +558,26 @@
               }
             }
           },
+          "400": {
+            "description": "Task is Closed — redeploy not allowed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another lifecycle operation is in progress",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Redeploy failed",
             "content": {
@@ -562,6 +612,26 @@
         "responses": {
           "204": {
             "description": "Sandbox restarted"
+          },
+          "400": {
+            "description": "Task is Closed — restart not allowed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another lifecycle operation is in progress",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
           },
           "500": {
             "description": "Restart failed",
@@ -745,6 +815,16 @@
         "responses": {
           "204": {
             "description": "Sandbox stopped"
+          },
+          "409": {
+            "description": "Another lifecycle operation is in progress",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
           },
           "500": {
             "description": "Stop failed",
@@ -3244,6 +3324,68 @@
           },
           "400": {
             "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Repository not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repositories/{repository_id}/verify-access": {
+      "post": {
+        "tags": [
+          "repositories"
+        ],
+        "summary": "Verify the persisted repository URL with the credentials appropriate to its\npersisted scope, then stamp and return the updated repository.",
+        "operationId": "verify_access",
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "description": "Repository identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Repository access checked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Repository cannot be verified",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Write access required",
             "content": {
               "application/json": {
                 "schema": {
@@ -7058,6 +7200,68 @@
         }
       }
     },
+    "/api/v1/workspaces/{workspace_id}/override": {
+      "patch": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "Override a git-synced workspace. Sets `source = \"manual\"` so that git sync\nskips this workspace going forward. Provenance fields are preserved.\nUse `POST /{id}/reset-git` to re-enable git sync.",
+        "operationId": "override_workspace",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "description": "Workspace id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWorkspaceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Workspace overridden; source set to manual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/workspaces/{workspace_id}/repos": {
       "post": {
         "tags": [
@@ -7218,6 +7422,58 @@
         "responses": {
           "200": {
             "description": "Primary set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/reset-git": {
+      "post": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "Reset an overridden workspace back to `source = \"git\"` so the next\ngit sync will update its run-config from the repository again.",
+        "operationId": "reset_git_workspace",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "description": "Workspace id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Workspace reset to git-managed; next sync will update it",
             "content": {
               "application/json": {
                 "schema": {
@@ -9199,7 +9455,8 @@
             ]
           },
           "id": {
-            "type": "string"
+            "type": "string",
+            "format": "uuid"
           },
           "isBot": {
             "type": "boolean"
@@ -9253,6 +9510,12 @@
           },
           "name": {
             "type": "string"
+          },
+          "networkProfile": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "plugins": {
             "type": [
@@ -14320,7 +14583,7 @@
               },
               {
                 "$ref": "#/components/schemas/Scope",
-                "description": "Change the repository's access scope (`global`, `team`, or `user`).\nWhen set, `team_id`/`owner_user_id` are re-resolved from the new scope\n(e.g. `global` moves it to the system team with no owner)."
+                "description": "Change the repository's access scope (`global`, `team`, or `user`).\nRe-submitting `user` preserves the repository's existing immutable\nowner and team. An ownerless repository cannot move to `user`.\nTeam/global targets are resolved from `team_id` and clear the owner."
               }
             ]
           },
@@ -14613,6 +14876,12 @@
               "null"
             ]
           },
+          "networkProfile": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "plugins": {
             "type": [
               "array",
@@ -14820,7 +15089,8 @@
             ]
           },
           "id": {
-            "type": "string"
+            "type": "string",
+            "format": "uuid"
           },
           "login": {
             "type": "string"
@@ -14868,7 +15138,8 @@
             ]
           },
           "id": {
-            "type": "string"
+            "type": "string",
+            "format": "uuid"
           },
           "isBot": {
             "type": "boolean"
@@ -15259,6 +15530,13 @@
           "source": {
             "type": "string",
             "description": "`manual` or `git`. Git-synced workspaces are read-only in the UI and\nwrite API — only a re-sync from git changes them."
+          },
+          "sourceConfigPath": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Path to the config file within the source repository that declared this\nworkspace (e.g. `.moatless/workspaces.json` or `.moatless/config.json`).\nRetained even after a manual override so the origin remains visible."
           },
           "sourceRepositoryId": {
             "type": [

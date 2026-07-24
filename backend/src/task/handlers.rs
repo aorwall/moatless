@@ -1075,11 +1075,11 @@ async fn maybe_sync_repo_config_on_start(
     // Resolve a token for the existence probe; fall back to an unauthenticated
     // probe (works for public repos) if we can't load one.
     let token = if provider == RepositoryProvider::Github {
-        crate::auth::credentials::resolve_state_github_token_for(
+        crate::repository::access::resolve_repository_github_token(
             state,
-            &auth.user_id.to_string(),
-            &auth.team_ids,
-            None,
+            repo,
+            auth,
+            remote_url,
         )
             .await
             .unwrap_or_else(|e| {

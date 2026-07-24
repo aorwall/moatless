@@ -13,7 +13,7 @@ use crate::auth::provider_tokens::ProviderTokenAuthRepository;
 use crate::auth::users::UserRepository;
 use crate::credentials::CredentialService;
 use crate::repository::dao::RepoRepository;
-use crate::repository::handlers::parse_github_owner_repo;
+use crate::repository::access::parse_github_owner_repo;
 use crate::secret::models::{is_reserved_key, SecretKind};
 use crate::secret::service::SecretService;
 use crate::task::dao::TaskRepository;

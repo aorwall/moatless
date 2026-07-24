@@ -20,7 +20,7 @@ use serde::Deserialize;
 use tracing::{debug, warn};
 
 use super::error::SkillError;
-use crate::repository::handlers::parse_github_owner_repo;
+use crate::repository::access::parse_github_owner_repo;
 
 /// Raw SKILL.md content plus its enclosing directory name, so callers can
 /// parse frontmatter themselves and fall back to the directory name when

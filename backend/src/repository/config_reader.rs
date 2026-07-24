@@ -7,8 +7,8 @@
 
 use tracing::{debug, warn};
 
+use super::access::parse_github_owner_repo;
 use super::error::RepositoryError;
-use super::handlers::parse_github_owner_repo;
 use super::models::RepositoryProvider;
 
 /// Provider reachability of a repository URL. Stored on the `repositories` row
@@ -224,6 +224,34 @@ fn gitlab_project_path(remote_url: &str) -> Result<String, RepositoryError> {
         .ok_or_else(|| RepositoryError::BadRequest(format!("Cannot parse GitLab URL: {remote_url}")))
 }
 
+/// Validate that a persisted remote URL can be checked by the wired provider
+/// verifier. This keeps malformed/unsupported inputs as request errors instead
+/// of silently returning `unchecked`.
+pub(crate) fn validate_repository_access_target(
+    remote_url: &str,
+    provider: RepositoryProvider,
+) -> Result<(), RepositoryError> {
+    match provider {
+        RepositoryProvider::Github => parse_github_owner_repo(remote_url)
+            .map(|_| ())
+            .ok_or_else(|| {
+                RepositoryError::BadRequest(format!("Cannot parse GitHub URL: {remote_url}"))
+            }),
+        RepositoryProvider::Gitlab => {
+            let path = gitlab_project_path(remote_url)?;
+            if path.split('/').filter(|part| !part.is_empty()).count() < 2 {
+                return Err(RepositoryError::BadRequest(format!(
+                    "Cannot parse GitLab URL: {remote_url}"
+                )));
+            }
+            Ok(())
+        }
+        RepositoryProvider::Gitness => Err(RepositoryError::BadRequest(
+            "Gitness access verification is not supported".to_string(),
+        )),
+    }
+}
+
 /// Verify a repository URL is reachable via the provider API, mapping the
 /// response to an [`AccessStatus`]: 200→`ok`, 404→`not_found`,
 /// 401/403→`forbidden`, anything else (incl. transport errors)→`error`.
@@ -344,5 +372,29 @@ mod tests {
         assert_eq!(AccessStatus::NotFound.as_str(), "not_found");
         assert_eq!(AccessStatus::Forbidden.as_str(), "forbidden");
         assert_eq!(AccessStatus::Error.as_str(), "error");
+    }
+
+    #[test]
+    fn access_target_validation_rejects_missing_or_unsupported_provider_urls() {
+        assert!(validate_repository_access_target(
+            "https://github.com/acme/repo",
+            RepositoryProvider::Github
+        )
+        .is_ok());
+        assert!(validate_repository_access_target(
+            "https://gitlab.com/group/project",
+            RepositoryProvider::Gitlab
+        )
+        .is_ok());
+        assert!(validate_repository_access_target(
+            "https://example.com/acme/repo",
+            RepositoryProvider::Github
+        )
+        .is_err());
+        assert!(validate_repository_access_target(
+            "https://gitness.example/acme/repo",
+            RepositoryProvider::Gitness
+        )
+        .is_err());
     }
 }

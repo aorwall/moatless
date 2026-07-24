@@ -23,3 +23,17 @@ export function accessFailureLabel(status: string | null | undefined): string {
       return 'Access issue'
   }
 }
+
+/** Human-readable label for every repository access state. */
+export function accessStatusLabel(status: string | null | undefined): string {
+  switch (status) {
+    case 'ok':
+      return 'Verified'
+    case 'unchecked':
+    case undefined:
+    case null:
+      return 'Not checked'
+    default:
+      return accessFailureLabel(status)
+  }
+}

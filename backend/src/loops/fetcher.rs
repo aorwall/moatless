@@ -15,7 +15,7 @@ use serde::Deserialize;
 use tracing::{debug, warn};
 
 use super::error::LoopError;
-use crate::repository::handlers::parse_github_owner_repo;
+use crate::repository::access::parse_github_owner_repo;
 
 /// Repo-relative directory that holds committed loops.
 const LOOPS_PREFIX: &str = ".moatless/loops";

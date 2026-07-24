@@ -22,7 +22,7 @@
 use async_trait::async_trait;
 use tracing::warn;
 
-use crate::repository::handlers::parse_github_owner_repo;
+use crate::repository::access::parse_github_owner_repo;
 use crate::repository::models::{Repository, RepositoryKind, RepositoryProvider};
 use crate::sandbox::secrets::{resolve_task_github_token, TaskCredentialInputs};
 use crate::state::AppState;
@@ -112,7 +112,7 @@ pub async fn preflight_validate_github_token(
     let repo_owner = repo
         .remote_url
         .as_deref()
-        .and_then(crate::repository::handlers::parse_github_owner_repo)
+        .and_then(crate::repository::access::parse_github_owner_repo)
         .map(|(owner, _)| owner);
 
     let token = resolve_task_github_token(TaskCredentialInputs {

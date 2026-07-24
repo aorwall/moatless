@@ -45,12 +45,12 @@ export function useCreateRepository(
 
   return useMutation({
     mutationFn: (request: CreateRepositoryRequest) => repositoriesApi.createRepository(request),
-    onSuccess: (data, variables, onMutateResult, mutationContext) => {
-      // Invalidate repositories list to refresh with new repository
-      queryClient.invalidateQueries({ queryKey: queryKeys.repositories.all() })
-      options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
-    },
     ...options,
+    onSuccess: async (data, variables, onMutateResult, mutationContext) => {
+      // Invalidate repositories list to refresh with new repository
+      await queryClient.invalidateQueries({ queryKey: queryKeys.repositories.all() })
+      await options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
+    },
   })
 }
 
@@ -65,16 +65,42 @@ export function useUpdateRepository(
 
   return useMutation({
     mutationFn: ({ repoId, request }) => repositoriesApi.updateRepository(repoId, request),
-    onSuccess: (data, variables, onMutateResult, mutationContext) => {
-      // Invalidate specific repository detail
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.repositories.detail(variables.repoId),
-      })
-      // Invalidate repositories list
-      queryClient.invalidateQueries({ queryKey: queryKeys.repositories.all() })
-      options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
-    },
     ...options,
+    onSuccess: async (data, variables, onMutateResult, mutationContext) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.repositories.detail(variables.repoId),
+        }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.repositories.list() }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.repositories.branches(variables.repoId),
+        }),
+      ])
+      await options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
+    },
+  })
+}
+
+export function useVerifyRepositoryAccess(
+  options?: UseMutationOptions<RepositoryResponse, Error, string>,
+) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (repoId: string) => repositoriesApi.verifyAccess(repoId),
+    ...options,
+    onSuccess: async (data, repoId, onMutateResult, mutationContext) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.repositories.detail(repoId),
+        }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.repositories.list() }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.repositories.branches(repoId),
+        }),
+      ])
+      await options?.onSuccess?.(data, repoId, onMutateResult, mutationContext)
+    },
   })
 }
 
@@ -83,16 +109,16 @@ export function useDeleteRepository(options?: UseMutationOptions<void, Error, st
 
   return useMutation({
     mutationFn: (repoId: string) => repositoriesApi.deleteRepository(repoId),
-    onSuccess: (data, repoId, onMutateResult, mutationContext) => {
+    ...options,
+    onSuccess: async (data, repoId, onMutateResult, mutationContext) => {
       // Remove from cache
       queryClient.removeQueries({
         queryKey: queryKeys.repositories.detail(repoId),
       })
       // Invalidate repositories list
-      queryClient.invalidateQueries({ queryKey: queryKeys.repositories.all() })
-      options?.onSuccess?.(data, repoId, onMutateResult, mutationContext)
+      await queryClient.invalidateQueries({ queryKey: queryKeys.repositories.all() })
+      await options?.onSuccess?.(data, repoId, onMutateResult, mutationContext)
     },
-    ...options,
   })
 }
 
@@ -103,16 +129,18 @@ export function useConvertToTemplate(
 
   return useMutation({
     mutationFn: (repoId: string) => repositoriesApi.convertToTemplate(repoId),
-    onSuccess: (data, repoId, onMutateResult, mutationContext) => {
-      // Invalidate specific repository detail
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.repositories.detail(repoId),
-      })
-      // Invalidate repositories list
-      queryClient.invalidateQueries({ queryKey: queryKeys.repositories.all() })
-      options?.onSuccess?.(data, repoId, onMutateResult, mutationContext)
-    },
     ...options,
+    onSuccess: async (data, repoId, onMutateResult, mutationContext) => {
+      // Invalidate specific repository detail
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.repositories.detail(repoId),
+        }),
+        // Invalidate repositories list
+        queryClient.invalidateQueries({ queryKey: queryKeys.repositories.all() }),
+      ])
+      await options?.onSuccess?.(data, repoId, onMutateResult, mutationContext)
+    },
   })
 }
 

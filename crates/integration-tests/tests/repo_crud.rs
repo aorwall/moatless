@@ -4,7 +4,10 @@
 //! Spec IDs: REPO-01 through REPO-07
 
 use integration_tests::{create_repo_request, test_client};
-use moatless_api_schemas::{enums::RepositoryKind, repository::UpdateRepositoryRequest};
+use moatless_api_schemas::{
+    enums::{RepositoryKind, RepositoryProvider},
+    repository::UpdateRepositoryRequest,
+};
 use pretty_assertions::assert_eq;
 
 // =============================================================================
@@ -107,5 +110,76 @@ async fn repo_get_nonexistent() {
             assert_eq!(*status, 404);
         }
         other => panic!("expected Api error, got {other:?}"),
+    }
+}
+
+// REPO-08: Manual access verification rejects targets it cannot check.
+#[tokio::test]
+async fn repo_verify_access_validates_persisted_target() {
+    let client = test_client().await;
+    let suffix = uuid::Uuid::new_v4();
+
+    let missing_url = client
+        .api()
+        .create_repository(&create_repo_request(
+            &format!("Verify Missing URL {suffix}"),
+            RepositoryKind::Template,
+        ))
+        .await
+        .unwrap();
+    let err = client
+        .api()
+        .verify_repository_access(&missing_url.id)
+        .await
+        .expect_err("missing URL must be rejected");
+    assert!(matches!(
+        err,
+        moatless_api_client::ApiError::Api { status: 400, .. }
+    ));
+
+    let mut invalid_request = create_repo_request(
+        &format!("Verify Invalid URL {suffix}"),
+        RepositoryKind::Template,
+    );
+    invalid_request.remote_url = Some("not-a-github-url".into());
+    invalid_request.provider = Some(RepositoryProvider::Github);
+    let invalid = client
+        .api()
+        .create_repository(&invalid_request)
+        .await
+        .unwrap();
+    let err = client
+        .api()
+        .verify_repository_access(&invalid.id)
+        .await
+        .expect_err("invalid URL must be rejected");
+    assert!(matches!(
+        err,
+        moatless_api_client::ApiError::Api { status: 400, .. }
+    ));
+
+    let mut gitness_request = create_repo_request(
+        &format!("Verify Gitness {suffix}"),
+        RepositoryKind::Template,
+    );
+    gitness_request.remote_url = Some("https://gitness.example/acme/repo".into());
+    gitness_request.provider = Some(RepositoryProvider::Gitness);
+    let gitness = client
+        .api()
+        .create_repository(&gitness_request)
+        .await
+        .unwrap();
+    let err = client
+        .api()
+        .verify_repository_access(&gitness.id)
+        .await
+        .expect_err("Gitness verification must be unavailable");
+    assert!(matches!(
+        err,
+        moatless_api_client::ApiError::Api { status: 400, .. }
+    ));
+
+    for repository_id in [&missing_url.id, &invalid.id, &gitness.id] {
+        client.api().delete_repository(repository_id).await.unwrap();
     }
 }

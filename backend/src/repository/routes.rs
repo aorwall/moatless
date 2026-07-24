@@ -16,6 +16,7 @@ use crate::state::AppState;
         handlers::list_repositories,
         handlers::get_repository,
         handlers::update_repository,
+        handlers::verify_access,
         handlers::delete_repository,
         handlers::convert_to_template,
         handlers::get_branches,
@@ -36,6 +37,7 @@ pub fn repository_router(state: AppState) -> (axum::Router, utoipa::openapi::Ope
             handlers::update_repository,
             handlers::delete_repository
         ))
+        .routes(routes!(handlers::verify_access))
         .routes(routes!(handlers::convert_to_template))
         .routes(routes!(handlers::get_branches))
         .routes(routes!(handlers::sync_config))

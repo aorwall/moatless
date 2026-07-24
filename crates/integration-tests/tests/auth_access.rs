@@ -5,6 +5,7 @@
 
 use integration_tests::{client_as_user, create_repo_request, relogin, seed_test_users};
 use moatless_api_schemas::enums::{RepositoryKind, Scope};
+use moatless_api_schemas::repository::UpdateRepositoryRequest;
 use moatless_api_schemas::task::CreateTaskRequest;
 use moatless_api_schemas::team::{AddTeamMemberRequest, CreateTeamRequest};
 use pretty_assertions::assert_eq;
@@ -83,6 +84,18 @@ async fn repository_scope_filtering() {
     // AUTH-21.1: Team member can see team repository
     let bob_repos = bob_with_team.client.api().list_repositories().await.unwrap();
     assert!(bob_repos.iter().any(|r| r.id == team_repo.id));
+
+    // AUTH-21.3: A non-managing team member cannot manually verify access.
+    let err = bob_with_team
+        .client
+        .api()
+        .verify_repository_access(&team_repo.id)
+        .await
+        .expect_err("team member must not mutate repository access status");
+    assert!(matches!(
+        err,
+        moatless_api_client::ApiError::Api { status: 403, .. }
+    ));
 
     // AUTH-21.2: Non-member cannot see team repository
     let outsider = client_as_user(&format!("outsider-{suffix}"), "user").await;
@@ -266,6 +279,41 @@ async fn admin_bypass() {
     let repo = carol.client.api().get_repository(&user_repo.id).await.unwrap();
     assert_eq!(repo.id, user_repo.id);
     assert!(repo.name.contains("Alice Private"));
+
+    // AUTH-24.2: An admin re-submitting user scope cannot take ownership.
+    let preserved = carol
+        .client
+        .api()
+        .update_repository(
+            &user_repo.id,
+            &UpdateRepositoryRequest {
+                scope: Some(Scope::User),
+                team_id: Some("system".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(preserved.owner_user_id, user_repo.owner_user_id);
+    assert_eq!(preserved.team_id, user_repo.team_id);
+
+    // AUTH-24.3: An ownerless team repository cannot move to user scope.
+    let err = carol
+        .client
+        .api()
+        .update_repository(
+            &team_repo.id,
+            &UpdateRepositoryRequest {
+                scope: Some(Scope::User),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect_err("ownerless repository must require a future explicit owner picker");
+    assert!(matches!(
+        err,
+        moatless_api_client::ApiError::Api { status: 400, .. }
+    ));
 
     // Cleanup
     let _ = alice.client.api().delete_repository(&user_repo.id).await;
