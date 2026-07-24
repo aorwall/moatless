@@ -591,19 +591,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn build_harness_constructs_each_supported_selection() {
-        // Each supported selection constructs its fixed harness without error;
-        // the variant is private (no public trait), so this proves construction,
-        // not the branch taken — `resolve_agent_harness` covers the mapping.
-        for (agent_type, use_tmux) in [
-            ("codex", false),
-            ("claude-code", false),
-            ("claude-code", true),
-            ("claude-code-cli", false),
+    async fn build_harness_selects_the_fixed_family_for_each_supported_type() {
+        use crate::agent::harness::HarnessFamily;
+        // `config.agent_type` selects the fixed production adapter: Codex -> Codex,
+        // every Claude variant -> Claude (tmux or subprocess). Asserting the
+        // composed family catches a mis-routed adapter, which mere construction
+        // would not.
+        for (agent_type, use_tmux, expected) in [
+            ("codex", false, HarnessFamily::Codex),
+            ("claude-code", false, HarnessFamily::Claude),
+            ("claude-code", true, HarnessFamily::Claude),
+            ("claude-code-cli", false, HarnessFamily::Claude),
         ] {
             let (config, agent_state, failures) = harness_inputs(use_tmux);
-            build_harness(&config, &agent_state, &failures, agent_type)
+            let harness = build_harness(&config, &agent_state, &failures, agent_type)
                 .unwrap_or_else(|_| panic!("{agent_type} (tmux={use_tmux}) should construct"));
+            assert_eq!(
+                harness.family(),
+                expected,
+                "{agent_type} (tmux={use_tmux}) must compose its fixed family"
+            );
         }
     }
 

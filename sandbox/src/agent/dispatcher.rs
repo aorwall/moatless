@@ -48,18 +48,36 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
         return;
     }
 
-    // If agent is waiting for user input, resolve the prompt
+    // Single-flight: hold an owned guard from before the fetch (and before the
+    // prompt branch) until the ack completes. `get_pending_messages` only returns
+    // unacknowledged rows and the ack lands after the agent accepts, so without
+    // this two dispatchers racing the Ready transition each fetch the same unacked
+    // Message and submit it twice; and two racing the *prompt* branch each fetch
+    // the same prompt Message — one answers the prompt, the loser hits the
+    // "prompt already consumed" fallback and resubmits it as normal Input. A
+    // concurrent dispatcher blocks here and then fetches empty.
+    //
+    // Acquisition is cancellation-aware: a dispatcher queued on the lock across a
+    // shutdown must not acquire it and start new work after the pod is stopping.
+    let dispatch_guard = tokio::select! {
+        guard = state.dispatch_lock.clone().lock_owned() => guard,
+        () = state.lifecycle_cancel.cancelled() => {
+            info!("Dispatch skipped: shutting down while awaiting the dispatch lock");
+            return;
+        }
+    };
+    if state.lifecycle_cancel.is_cancelled() {
+        info!("Dispatch skipped: shutting down after acquiring the dispatch lock");
+        return;
+    }
+
+    // If agent is waiting for user input, resolve the prompt — under the guard, so
+    // the prompt Message is answered and acknowledged before any concurrent
+    // dispatcher can re-fetch it.
     if state.agent.has_pending_prompt().await {
         resolve_pending_prompt(&state).await;
         return;
     }
-
-    // Single-flight: hold an owned guard from before the fetch until the ack
-    // completes. `get_pending_messages` only returns unacknowledged rows and the
-    // ack lands after the agent accepts, so without this two dispatchers racing
-    // the Ready transition each fetch the same unacked Message and submit it
-    // twice. A concurrent dispatcher blocks here and then fetches empty.
-    let dispatch_guard = state.dispatch_lock.clone().lock_owned().await;
 
     // Fetch pending messages from backend
     let task_id = &state.config.task_id;
@@ -148,12 +166,34 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
                 schedule_redispatch(redelivery_state).await;
                 return;
             };
-            if let Err(e) = backend
-                .acknowledge_messages(&task_id, uuids, &ack.session_id, &ack.run_id)
-                .await
-            {
-                warn!(error = %e, "Failed to acknowledge messages");
-                return;
+            // The harness has already accepted this Input, so the Message must not
+            // be resubmitted — only the ack RPC may still fail. Retry it (bounded,
+            // backoff, cancellation-aware) while holding the guard, so a waiting
+            // dispatcher cannot re-fetch and re-run the already-accepted Message
+            // during the ack outage.
+            let mut attempt = 1u32;
+            loop {
+                match backend
+                    .acknowledge_messages(&task_id, uuids.clone(), &ack.session_id, &ack.run_id)
+                    .await
+                {
+                    Ok(()) => break,
+                    Err(e) if attempt >= MAX_ACK_ATTEMPTS => {
+                        warn!(error = %e, attempt, "Giving up acknowledging messages after retries");
+                        break;
+                    }
+                    Err(e) => {
+                        warn!(error = %e, attempt, "Failed to acknowledge messages, retrying");
+                        tokio::select! {
+                            () = tokio::time::sleep(ACK_RETRY_BACKOFF) => {}
+                            () = redelivery_state.lifecycle_cancel.cancelled() => {
+                                info!("Acknowledgement retry aborted — sandbox is shutting down");
+                                return;
+                            }
+                        }
+                        attempt += 1;
+                    }
+                }
             }
             drop(dispatch_guard);
             // Messages held back by the start_fresh split are now the only
@@ -189,6 +229,13 @@ fn split_at_start_fresh(
 /// enough for a follow-up agent start attempt to succeed (and ack) or fail
 /// definitively, without hammering `GetPendingMessages` in a tight loop.
 const REDISPATCH_BACKOFF: Duration = Duration::from_secs(15);
+
+/// Bounded retries for the post-acceptance acknowledgement RPC. The harness has
+/// already accepted the Input, so the batch is never resubmitted — only the ack
+/// is re-attempted while the dispatch guard is held, so a waiter cannot re-run
+/// the accepted Message during a transient backend/ack outage.
+const MAX_ACK_ATTEMPTS: u32 = 5;
+const ACK_RETRY_BACKOFF: Duration = Duration::from_secs(2);
 
 /// Skip re-dispatch once the agent has accumulated this many consecutive
 /// errors — mirrors the agent actor's `MAX_CONSECUTIVE_ERRORS` circuit

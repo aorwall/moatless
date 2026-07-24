@@ -24,6 +24,9 @@ pub(super) struct ReplayBackend {
     interrupted: Option<InterruptedTurn>,
     /// The session-state archive `download_transcript` serves (immutable).
     download_tar: Vec<u8>,
+    /// Number of `acknowledge_messages` calls that fail (without pruning) before
+    /// the RPC starts succeeding — models a transient ack outage.
+    ack_failures: AtomicUsize,
     get_pending_calls: AtomicUsize,
     recover_calls: AtomicUsize,
 }
@@ -37,6 +40,7 @@ impl ReplayBackend {
             pending: Mutex::new(pending),
             interrupted,
             download_tar: Vec::new(),
+            ack_failures: AtomicUsize::new(0),
             get_pending_calls: AtomicUsize::new(0),
             recover_calls: AtomicUsize::new(0),
         })
@@ -49,6 +53,7 @@ impl ReplayBackend {
             pending: Mutex::new(Ok(Vec::new())),
             interrupted: None,
             download_tar: tar,
+            ack_failures: AtomicUsize::new(0),
             get_pending_calls: AtomicUsize::new(0),
             recover_calls: AtomicUsize::new(0),
         })
@@ -64,9 +69,16 @@ impl ReplayBackend {
             pending: Mutex::new(Ok(Vec::new())),
             interrupted: Some(interrupted),
             download_tar: tar,
+            ack_failures: AtomicUsize::new(0),
             get_pending_calls: AtomicUsize::new(0),
             recover_calls: AtomicUsize::new(0),
         })
+    }
+
+    /// Make the next `n` `acknowledge_messages` calls fail (without pruning),
+    /// modelling a transient ack outage the dispatcher must retry through.
+    pub(super) fn fail_next_acks(&self, n: usize) {
+        self.ack_failures.store(n, Ordering::SeqCst);
     }
 
     pub(super) fn get_pending_calls(&self) -> usize {
@@ -102,6 +114,16 @@ impl BackendClient for ReplayBackend {
         _session_id: &str,
         _run_id: &str,
     ) -> Result<(), tonic::Status> {
+        // Model a transient ack outage: fail (without pruning) until the injected
+        // failure budget is exhausted, so the row stays pending and the dispatcher
+        // must retry — never resubmit.
+        if self
+            .ack_failures
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+            .is_ok()
+        {
+            return Err(tonic::Status::unavailable("simulated ack failure"));
+        }
         // Prune acked messages so a subsequent probe no longer returns them —
         // exactly what lets the startup race manifest if ordering is wrong.
         if let Ok(msgs) = &mut *self.pending.lock().await {
