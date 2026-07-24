@@ -2023,6 +2023,7 @@ mod tests {
 
     use crate::task_turn::dao::TaskTurnRepository;
     use crate::task_turn::models::{TurnStatus, TurnTransition, UnclosedTurn};
+    use crate::test_support::RecordingPublisher;
 
     /// Shared ordered log of side effects, so we can assert commit-before-publish.
     type Recorder = Arc<StdMutex<Vec<&'static str>>>;
@@ -2096,62 +2097,6 @@ mod tests {
             _turn_number: i32,
         ) -> Result<i32, sqlx::Error> {
             unreachable!("increment_recovery_attempts is the recovery path")
-        }
-    }
-
-    /// Publisher double that records a `"publish"` on `publish_raw_event_with_id`.
-    /// Every other trait method is an unused no-op stub.
-    struct RecordingPublisher {
-        rec: Recorder,
-    }
-
-    #[async_trait]
-    impl EventPublisher for RecordingPublisher {
-        async fn publish_sandbox_event(&self, _: &str, _: SandboxStatus, _: &str) {}
-        async fn publish_sandbox_event_with_payload(
-            &self,
-            _: &str,
-            _: SandboxStatus,
-            _: &SandboxEventPayload,
-        ) {
-        }
-        async fn publish_server_event(&self, _: &str, _: ServerSubType, _: &ServerEventPayload) {}
-        async fn publish_task_event(&self, _: &str, _: TaskSubType, _: Option<&str>, _: Value) {}
-        async fn publish_agent_event(&self, _: &str, _: AgentSubType, _: Option<&str>, _: Value) {}
-        async fn publish_task_turn_event(
-            &self,
-            _: &str,
-            _: TaskTurnSubType,
-            _: Option<&str>,
-            _: Option<i32>,
-            _: Value,
-        ) {
-        }
-        async fn publish_raw_event(
-            &self,
-            _: &str,
-            _: &str,
-            _: &str,
-            _: Option<&str>,
-            _: Option<i32>,
-            _: Value,
-        ) {
-        }
-        async fn publish_raw_event_with_id(
-            &self,
-            _event_id: &str,
-            _task_id: &str,
-            _event_type: &str,
-            _sub_type: &str,
-            _agent_type: Option<&str>,
-            _turn_number: Option<i32>,
-            _payload: Value,
-            _payload_persisted: bool,
-        ) {
-            self.rec.lock().expect("recorder poisoned").push("publish");
-        }
-        async fn health_check(&self) -> Result<(), String> {
-            Ok(())
         }
     }
 
@@ -2236,7 +2181,7 @@ mod tests {
             rec: rec.clone(),
             fail: false,
         });
-        let publisher: Arc<dyn EventPublisher> = Arc::new(RecordingPublisher { rec: rec.clone() });
+        let publisher: Arc<dyn EventPublisher> = Arc::new(RecordingPublisher::with_order_log(rec.clone()));
 
         write_state_then_publish(
             Some(&turns),
@@ -2264,7 +2209,7 @@ mod tests {
             rec: rec.clone(),
             fail: true,
         });
-        let publisher: Arc<dyn EventPublisher> = Arc::new(RecordingPublisher { rec: rec.clone() });
+        let publisher: Arc<dyn EventPublisher> = Arc::new(RecordingPublisher::with_order_log(rec.clone()));
 
         write_state_then_publish(
             Some(&turns),
@@ -2307,7 +2252,7 @@ mod tests {
             fail: false,
         });
         let events = recording_events(&rec, false);
-        let publisher: Arc<dyn EventPublisher> = Arc::new(RecordingPublisher { rec: rec.clone() });
+        let publisher: Arc<dyn EventPublisher> = Arc::new(RecordingPublisher::with_order_log(rec.clone()));
 
         // No TurnStateEvent → no turn projection, but the event row must still
         // land before the fan-out so the published payload stays disposable.

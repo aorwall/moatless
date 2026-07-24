@@ -17,14 +17,54 @@
 //! use only their bound GitHub App installation. Scoped `GITHUB_TOKEN` secrets
 //! are never fallback credentials.
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use tracing::warn;
 
+use crate::auth::github_app_registry::GitHubAppRegistry;
+use crate::auth::github_app_service::GitHubAppService;
+use crate::auth::provider_token_dao::ProviderTokenRepository;
+use crate::auth::provider_tokens::ProviderTokenAuthRepository;
+use crate::auth::users::UserRepository;
+use crate::credentials::CredentialService;
 use crate::repository::access::parse_github_owner_repo;
 use crate::repository::models::{Repository, RepositoryKind, RepositoryProvider};
 use crate::sandbox::secrets::{resolve_task_github_token, TaskCredentialInputs};
+use crate::secret::service::SecretService;
 use crate::state::AppState;
 use crate::task::models::Task;
+
+/// The exact set of credential-resolution dependencies the GitHub preflight
+/// consumes. Bundled so the check no longer needs `&AppState` — the
+/// `TaskCreationService` (which never holds `AppState`) can own its own
+/// `PreflightCredentials`, while HTTP handlers build one from `AppState` via
+/// [`PreflightCredentials::from_state`]. All fields are cheap `Arc` clones.
+#[derive(Clone)]
+pub struct PreflightCredentials {
+    pub secrets: Arc<SecretService>,
+    pub provider_tokens: Arc<dyn ProviderTokenRepository>,
+    pub github_app_service: Option<Arc<GitHubAppService>>,
+    pub provider_token_auth: Arc<dyn ProviderTokenAuthRepository>,
+    pub github_apps: Arc<GitHubAppRegistry>,
+    pub users: Arc<dyn UserRepository>,
+    pub credentials_svc: Arc<CredentialService>,
+}
+
+impl PreflightCredentials {
+    /// Snapshot the credential handles off an assembled `AppState`.
+    pub fn from_state(state: &AppState) -> Self {
+        Self {
+            secrets: state.secrets.clone(),
+            provider_tokens: state.provider_tokens.clone(),
+            github_app_service: state.github_app_service.clone(),
+            provider_token_auth: state.provider_token_auth.clone(),
+            github_apps: state.github_apps.clone(),
+            users: state.users.clone(),
+            credentials_svc: state.credentials_svc.clone(),
+        }
+    }
+}
 
 /// Failure modes for the pre-flight check.
 #[derive(Debug, thiserror::Error)]
@@ -88,7 +128,7 @@ impl GithubValidator for RealGithubValidator {
 /// hosted URLs — those cases are deliberately out of scope (handled by other
 /// providers or the existing in-pod clone failure path).
 pub async fn preflight_validate_github_token(
-    state: &AppState,
+    creds: &PreflightCredentials,
     task: &Task,
     repo: &Repository,
     validator: &dyn GithubValidator,
@@ -104,14 +144,14 @@ pub async fn preflight_validate_github_token(
         team_id: task.team_id.as_deref(),
         // Required to dereference a `secret_ref` row's sentinel; without it
         // every PAT-backed credential resolves as absent.
-        secrets: Some(&state.secrets),
-        provider_tokens: Some(&state.provider_tokens),
-        github_app_service: state.github_app_service.as_ref(),
-        provider_token_auth: Some(&state.provider_token_auth),
-        github_apps: Some(&state.github_apps),
+        secrets: Some(&creds.secrets),
+        provider_tokens: Some(&creds.provider_tokens),
+        github_app_service: creds.github_app_service.as_ref(),
+        provider_token_auth: Some(&creds.provider_token_auth),
+        github_apps: Some(&creds.github_apps),
         repository: Some(repo),
-        users: Some(&state.users),
-        credentials_svc: Some(&state.credentials_svc),
+        users: Some(&creds.users),
+        credentials_svc: Some(&creds.credentials_svc),
     })
     .await
     .ok_or_else(|| PreflightError::NoGithubToken {

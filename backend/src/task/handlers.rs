@@ -7,6 +7,7 @@ use axum::Json;
 
 use moatless_events::{SandboxEventPayload, SandboxStatus, TaskSubType};
 
+use super::creation::{FirstMessage, NewTaskRequest};
 use super::dao::{TaskFilter, TaskPatch};
 use super::models::Task;
 use super::relations::{CreatedByParent, TaskRelationType};
@@ -15,7 +16,7 @@ use crate::access_control::{
 };
 use crate::extractors::AuthUser;
 use crate::sandbox::lifecycle::ArchiveRetention;
-use crate::shared_models::{AgentMode, AgentType};
+use crate::shared_models::AgentType;
 use crate::state::AppState;
 use crate::task::models::{SandboxIntentView, SandboxStopReason, TaskStatus, Visibility};
 use moatless_backend_core::scope::{Scope, ScopedResource};
@@ -102,9 +103,6 @@ pub async fn create_task(
 
     let is_template = repo.kind == RepositoryKind::Template;
 
-    let task_id = uuid::Uuid::new_v4().to_string();
-    let short_id = generate_unique_short_id(&state).await?;
-    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let agent_type = req
         .agent_type
         .unwrap_or_else(|| AgentType(AgentType::CLAUDE_CODE.into()));
@@ -143,151 +141,98 @@ pub async fn create_task(
         }
     }
 
-    let row = Task {
-        task_id: task_id.clone(),
-        short_id: Some(short_id),
-        created_at: now.clone(),
-        last_message_at: now,
-        agent_type,
+    // Hand the normalized request to the creation service. Workspace/scope
+    // resolution, the codex fast-fail above, and response shaping stay here;
+    // short-id, preflight, insert, relations, provision, first message, and the
+    // task event are the service's.
+    let new_task = NewTaskRequest {
         repository_id: repository_id.clone(),
-        status: TaskStatus::Open,
-        total_cost_usd: 0.0,
-        site_url: None,
+        agent_type,
+        name: req.name.clone(),
+        description: req.description.clone(),
+        branch: req.branch.clone().or(repo.default_branch.clone()),
+        created_by: Some(auth.user_id.to_string()),
+        headless: req.headless.unwrap_or(false),
+        visibility: Visibility::Private,
+        scope: task_scope,
+        team_id: task_team_id,
+        owner_user_id: task_owner_user_id,
+        trigger_id: None,
+        workspace_id: req.workspace_id.clone(),
         template_id: if is_template {
             Some(repository_id.clone())
         } else {
             None
         },
         vibe: if is_template { Some(true) } else { None },
-        name: req.name.clone(),
-        description: req.description.clone(),
-        site_id: None,
-        site_provider: None,
-        branch: req.branch.clone().or(repo.default_branch.clone()),
-        created_by: Some(auth.user_id.clone().to_string()),
-        visibility: Visibility::Private,
-        scope: task_scope,
-        team_id: task_team_id,
-        owner_user_id: task_owner_user_id,
-        created_at_db: None,
-        updated_at: None,
         append_system_prompt: None,
-        headless: req.headless.unwrap_or(false),
         ttl_minutes: state.config.sandbox.idle_timeout_minutes as i32,
         inactive_ttl_days: state.config.sandbox.inactive_task_timeout_days as i32,
-        trigger_id: None,
-        workspace_id: req.workspace_id.clone(),
-        disabled_servers: None,
+        tag_ids: vec![],
+        parent: req.parent_task_id.as_deref().map(|p| CreatedByParent {
+            parent_task_id: p.to_string(),
+            context: serde_json::json!({ "via": "create_task_request" }),
+        }),
+        related_to: None,
+        first_message: req.message.clone().map(|text| FirstMessage {
+            text,
+            model: req.model.clone(),
+            agent_mode: req.agent_mode.clone(),
+            file_ids: req.file_ids.clone(),
+            contexts: req.contexts.clone(),
+            sent_by: Some(auth.user_id.to_string()),
+        }),
+        event_subtype: TaskSubType::Created,
     };
 
-    let parent = req.parent_task_id.as_deref().map(|p| CreatedByParent {
-        parent_task_id: p.to_string(),
-        context: serde_json::json!({ "via": "create_task_request" }),
-    });
+    let user_id = auth.user_id.to_string();
+    let state_ev = state.clone();
+    let uid_ev = user_id.clone();
+    let state_msg = state.clone();
 
-    insert_and_provision_task(
-        &state,
-        &auth,
-        &row,
-        req.message.as_deref(),
-        req.model.as_deref(),
-        req.agent_mode.as_ref(),
-        &req.file_ids,
-        &req.contexts,
-        parent.as_ref(),
-    )
-    .await
-}
-
-/// Shared logic for creating a task: insert, publish event, provision sandbox, send initial message.
-#[allow(clippy::too_many_arguments)]
-async fn insert_and_provision_task(
-    state: &AppState,
-    auth: &AuthUser,
-    row: &Task,
-    message: Option<&str>,
-    model: Option<&str>,
-    agent_mode: Option<&AgentMode>,
-    file_ids: &[String],
-    contexts: &[MessageContextInput],
-    parent: Option<&CreatedByParent>,
-) -> Result<Json<CreateTaskResponse>, TaskError> {
-    let task_id = &row.task_id;
-
-    // Pre-flight: validate the GitHub token before the task row is written, so
-    // an unusable credential rejects the request outright rather than leaving
-    // a task stranded in Error.
-    let repo = state
-        .repositories
-        .find_repository_by_id(&row.repository_id)
-        .await?
-        .ok_or_else(|| TaskError::RepoNotFound(row.repository_id.clone()))?;
-
-    let validator = crate::sandbox::preflight::RealGithubValidator;
-    if let Err(e) =
-        crate::sandbox::preflight::preflight_validate_github_token(state, row, &repo, &validator)
-            .await
-    {
-        tracing::warn!(task_id = %task_id, error = %e, "Sandbox preflight failed");
-        return Err(TaskError::Forbidden(e.user_message()));
-    }
-
-    state.tasks.insert_task(row).await?;
-    tracing::info!(task_id = %task_id, user_id = %auth.user_id, repository_id = %row.repository_id, "Task created");
-
-    if let Some(parent) = parent {
-        crate::task::relations::record_created_by(state.task_relations.as_ref(), task_id, parent)
-            .await;
-    }
-
-    // Provision the sandbox. Best-effort: a failure leaves the Task in its
-    // Running intent for the reconciler and lifecycle publishes its own Error
-    // fact, so task creation still proceeds to the initial message.
-    if let Err(e) = state.sandbox.start(task_id).await {
-        tracing::warn!(task_id = %task_id, error = %e, "Sandbox start failed during task creation");
-    }
-
-    // If a message was provided, send it to the agent
-    if let Some(msg) = message {
-        if let Err(e) = crate::message::send::send_message_flow(
-            state,
-            task_id,
-            msg,
-            model,
-            agent_mode,
-            file_ids,
-            contexts,
-            true,
-            None,
-            None,
-            None,
-            None,
-            None,
-            false,
-            Some(&auth.user_id.to_string()),
+    let outcome = state
+        .task_creation
+        .create(
+            new_task,
+            move |task| async move {
+                match enrich_task(&task, &state_ev, &uid_ev).await {
+                    Ok(resp) => serde_json::json!({ "task": resp }),
+                    Err(e) => {
+                        tracing::warn!(task_id = %task.task_id, error = %e, "Failed to enrich created task for event");
+                        serde_json::json!({ "task_id": task.task_id })
+                    }
+                }
+            },
+            move |task_id, fm| async move {
+                if let Err(e) = crate::message::send::send_message_flow(
+                    &state_msg,
+                    &task_id,
+                    &fm.text,
+                    fm.model.as_deref(),
+                    fm.agent_mode.as_ref(),
+                    &fm.file_ids,
+                    &fm.contexts,
+                    true,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    false,
+                    fm.sent_by.as_deref(),
+                )
+                .await
+                {
+                    tracing::warn!(task_id = %task_id, error = %e, "Failed to send initial message");
+                }
+            },
         )
-        .await
-        {
-            tracing::warn!(task_id = %task_id, error = %e, "Failed to send initial message");
-        }
-    }
+        .await?;
 
-    let task_response = enrich_task(row, state, &auth.user_id.to_string()).await?;
-
-    if let Some(ref events) = state.events {
-        events
-            .publish_task_event(
-                task_id,
-                TaskSubType::Created,
-                Some(row.agent_type.as_str()),
-                serde_json::json!({ "task": &task_response }),
-            )
-            .await;
-    }
-
+    let task_response = enrich_task(&outcome.task, &state, &user_id).await?;
     Ok(Json(CreateTaskResponse {
-        task_id: row.task_id.clone(),
-        status: row.status,
+        task_id: outcome.task.task_id.clone(),
+        status: outcome.task.status,
         task: task_response,
     }))
 }
@@ -1022,9 +967,14 @@ pub async fn start_task(
         .ok_or_else(|| TaskError::RepoNotFound(row.repository_id.clone()))?;
 
     let validator = crate::sandbox::preflight::RealGithubValidator;
-    if let Err(e) =
-        crate::sandbox::preflight::preflight_validate_github_token(&state, &row, &repo, &validator)
-            .await
+    let preflight_creds = crate::sandbox::preflight::PreflightCredentials::from_state(&state);
+    if let Err(e) = crate::sandbox::preflight::preflight_validate_github_token(
+        &preflight_creds,
+        &row,
+        &repo,
+        &validator,
+    )
+    .await
     {
         let msg = e.user_message();
         tracing::warn!(task_id = %task_id, error = %e, "Start preflight failed");
@@ -1600,19 +1550,6 @@ fn validate_task_name(name: &str) -> Result<(), TaskError> {
         ));
     }
     Ok(())
-}
-
-/// Generate a unique short ID for a task.
-async fn generate_unique_short_id(state: &AppState) -> Result<String, TaskError> {
-    for _ in 0..10 {
-        let id = nanoid::nanoid!(8, &nanoid::alphabet::SAFE);
-        if !state.tasks.exists_by_short_id(&id).await? {
-            return Ok(id);
-        }
-    }
-    Err(TaskError::Internal(
-        "Failed to generate unique short ID".to_string(),
-    ))
 }
 
 /// Resolve display names for multiple user IDs in a single batch query.

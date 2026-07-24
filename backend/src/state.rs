@@ -34,6 +34,8 @@ use crate::secret::service::{LocalEnvelopeSecretCipher, SecretService};
 use crate::skill::fetcher::{GitHubSkillFetcher, SkillFetcher};
 use crate::skill::service::SkillService;
 use crate::tag::dao::{PgTagRepository, TagRepository};
+use crate::sandbox::preflight::{PreflightCredentials, RealGithubValidator};
+use crate::task::creation::{RealPreflight, TaskCreationService};
 use crate::task::dao::{PgTaskRepository, TaskRepository};
 use crate::task::reaper::AgentStatusPort;
 use crate::task::relations::{PgTaskRelationRepository, TaskRelationRepository};
@@ -102,6 +104,9 @@ pub struct AppState {
     // Repository trait objects
     // =========================================================================
     pub tasks: Arc<dyn TaskRepository>,
+    /// Single owner of the create-then-provision sequence (short-id, preflight,
+    /// insert, tags, relations, provision, first message, event).
+    pub task_creation: Arc<TaskCreationService>,
     pub task_relations: Arc<dyn TaskRelationRepository>,
     pub messages: Arc<dyn MessageRepository>,
     pub feedback: Arc<dyn FeedbackRepository>,
@@ -281,15 +286,46 @@ impl AppState {
         // (`build_lifecycle`) so the sandbox API and pod watcher share this
         // instance — one intent writer, one per-Task lock.
 
+        let tags: Arc<dyn TagRepository> = Arc::new(PgTagRepository(pool.clone()));
+        let task_relations: Arc<dyn TaskRelationRepository> =
+            Arc::new(PgTaskRelationRepository(pool.clone()));
+        let users: Arc<dyn UserRepository> = Arc::new(PgUserRepository(pool.clone()));
+
+        // Wire GitHub-token preflight once here so every task-creation path
+        // (HTTP, triggers, adapters) gets the same check for free.
+        let preflight = Arc::new(RealPreflight::new(
+            PreflightCredentials {
+                secrets: secrets.clone(),
+                provider_tokens: provider_tokens.clone(),
+                github_app_service: github_app_service.clone(),
+                provider_token_auth: provider_token_auth.clone(),
+                github_apps: github_apps.clone(),
+                users: users.clone(),
+                credentials_svc: credentials_svc.clone(),
+            },
+            Arc::new(RealGithubValidator),
+        ));
+
+        let task_creation = Arc::new(TaskCreationService::new(
+            tasks.clone(),
+            tags.clone(),
+            task_relations.clone(),
+            repositories.clone(),
+            events.clone(),
+            lifecycle.clone(),
+            preflight,
+        ));
+
         Self {
             tasks,
-            task_relations: Arc::new(PgTaskRelationRepository(pool.clone())),
+            task_creation,
+            task_relations,
             messages: Arc::new(PgMessageRepository(pool.clone())),
             feedback: Arc::new(PgFeedbackRepository(pool.clone())),
             repositories,
-            tags: Arc::new(PgTagRepository(pool.clone())),
+            tags,
             files: Arc::new(PgFileRepository(pool.clone())),
-            users: Arc::new(PgUserRepository(pool.clone())),
+            users,
             provider_tokens,
             provider_token_auth,
             secret_records,
