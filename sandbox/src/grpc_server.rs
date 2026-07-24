@@ -18,8 +18,6 @@ use sandbox_proto::{
     WriteFileRequest, WriteFileResponse,
 };
 
-use moatless_events::AgentSubType;
-
 use crate::agent::scheduled_job::JobSnapshot;
 use crate::agent::types::AgentStatus;
 use crate::files;
@@ -53,22 +51,30 @@ impl SandboxService for SandboxServiceImpl {
         &self,
         _request: Request<StopAgentRequest>,
     ) -> Result<Response<StopAgentResponse>, Status> {
-        self.state
-            .agent
-            .stop()
-            .await
-            .map_err(|e| Status::failed_precondition(e.to_string()))?;
-        self.state.agent.set_stopped().await;
-
-        // Publish agent.stopped event so backend can emit taskTurn.stopped
-        self.state
-            .events
-            .publish_agent_event(
-                &self.state.config.task_id,
-                AgentSubType::Stopped,
-                serde_json::json!({}),
-            )
-            .await;
+        // Route the stop through the lifecycle owner (CoordinatorService for the
+        // harness path, legacy actor for `agent_type = None`) — never publishing
+        // the terminal event here, and never branching on harness selection. The
+        // ack resolves once exactly one `agent.stopped` has been published and the
+        // Turn closed, so returning Ok means the stop was processed, not queued.
+        let ack_rx = self.state.agent_handle.stop();
+        match tokio::time::timeout(std::time::Duration::from_secs(30), ack_rx).await {
+            Ok(Ok(())) => {}
+            Ok(Err(_)) => {
+                // The lifecycle owner dropped the ack (e.g. the loop exited
+                // without acking). The stop still took effect; log and continue.
+                tracing::warn!(
+                    task_id = %self.state.config.task_id,
+                    "stop ack sender dropped before delivery"
+                );
+            }
+            Err(_elapsed) => {
+                tracing::warn!(
+                    task_id = %self.state.config.task_id,
+                    "stop ack timed out after 30s"
+                );
+                return Err(Status::deadline_exceeded("agent stop timed out"));
+            }
+        }
 
         info!("Agent stopped via gRPC");
         Ok(Response::new(StopAgentResponse {}))

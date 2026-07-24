@@ -982,8 +982,14 @@ pub(super) async fn agent_loop(
                         last_prompt = Some(text);
                         queued_sends.push_back(queued);
                     }
-                    Some(AgentCommand::Stop) | None => {
+                    stop @ (Some(AgentCommand::Stop { .. }) | None) => {
                         info!("Agent actor stopping");
+                        // A `Stop` may carry an ack the caller waits on; `None`
+                        // (channel closed) carries none.
+                        let stop_ack = match stop {
+                            Some(AgentCommand::Stop { ack }) => ack,
+                            _ => None,
+                        };
                         drop(retry_state.take());
                         drop(pending_wakeup.take());
                         while let Some(send) = queued_sends.pop_front() {
@@ -1001,6 +1007,10 @@ pub(super) async fn agent_loop(
                             AgentSubType::Stopped,
                             serde_json::json!({}),
                         ).await;
+                        // Resolve the ack after the terminal event is enqueued.
+                        if let Some(ack) = stop_ack {
+                            let _ = ack.send(());
+                        }
                         break;
                     }
                 }

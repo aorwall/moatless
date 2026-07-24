@@ -206,8 +206,10 @@ pub(crate) enum AgentCommand {
         agent_mode: Option<String>,
         resume_session_id: String,
     },
-    /// Stop the agent and shut down the actor loop.
-    Stop,
+    /// Stop the agent. The `ack` (when present) resolves once the lifecycle
+    /// owner has published the single terminal `Stopped` event and closed the
+    /// Turn, so the caller learns the stop was processed rather than queued.
+    Stop { ack: Option<oneshot::Sender<()>> },
 }
 
 /// Queued turn waiting for a runtime to become idle.
@@ -264,9 +266,16 @@ impl AgentHandle {
         ack_rx
     }
 
-    /// Stop the agent and shut down the actor.
-    pub fn stop(&self) {
-        let _ = self.command_tx.send(AgentCommand::Stop);
+    /// Stop the agent. Returns a receiver that resolves once the lifecycle
+    /// owner has published the single terminal `Stopped` event and closed the
+    /// Turn — so a caller (e.g. the gRPC `stop_agent` handler) can wait for the
+    /// stop to be *processed*, not merely queued.
+    pub fn stop(&self) -> oneshot::Receiver<()> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        let _ = self
+            .command_tx
+            .send(AgentCommand::Stop { ack: Some(ack_tx) });
+        ack_rx
     }
 
     /// Whether the actor loop has exited (its command receiver was dropped).

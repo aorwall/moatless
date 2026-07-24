@@ -591,6 +591,18 @@ pub(crate) struct CoordinatorService {
     /// The latest `ScheduleWakeup` tool_use seen in the in-flight Turn's Source
     /// blocks, armed at turn end (latest-wins). Subprocess mode only.
     pending_wakeup: Option<WakeupJob>,
+
+    // ── Stop ─────────────────────────────────────────────────────────────────
+    /// True while a Stop is in flight — guards the single `Stopped` publish
+    /// against a duplicate Stop or a concurrent self-cancel.
+    stopping: bool,
+    /// The gRPC ack to resolve once the in-flight stop has published its single
+    /// terminal event. `None` when the stop carried no ack (shutdown path).
+    pending_stop_ack: Option<oneshot::Sender<()>>,
+    /// Whether a harness execution is currently in flight (set on
+    /// `ExecutionStarted`, cleared on the terminal outcome). Lets the Stop
+    /// handler pick the active vs. idle path without an async `AgentState` read.
+    turn_active: bool,
 }
 
 impl CoordinatorService {
@@ -621,6 +633,9 @@ impl CoordinatorService {
             consecutive_errors: 0,
             scheduled_jobs,
             pending_wakeup: None,
+            stopping: false,
+            pending_stop_ack: None,
+            turn_active: false,
         }
     }
 
@@ -723,9 +738,12 @@ impl CoordinatorService {
                             self.agent_state
                                 .set_running(turn_cancel.clone())
                                 .await;
+                            self.turn_active = true;
                         }
 
                         if let Some(outcome) = outcome_ref {
+                            // The execution reached its terminal signal.
+                            self.turn_active = false;
                             match outcome {
                                 Outcome::Completed => {
                                     // Successful completion resets retry and breaker state.
@@ -742,7 +760,27 @@ impl CoordinatorService {
                                     self.consecutive_errors = 0;
                                     // A cancelled Turn arms nothing; drop any buffered wakeup.
                                     self.pending_wakeup = None;
-                                    self.agent_state.set_idle().await;
+                                    // The cancellation source owns Turn closure. A
+                                    // cancelled execution — whether from a user Stop
+                                    // (AgentCommand::Stop) or a shutdown-initiated
+                                    // `AgentState::stop()` — closes the Run and Turn
+                                    // with exactly one `Stopped`, published here.
+                                    self.agent_state.set_stopped().await;
+                                    self.coordinator
+                                        .events
+                                        .for_run(self.coordinator.current_run_id())
+                                        .publish_agent_event(
+                                            &task_id,
+                                            AgentSubType::Stopped,
+                                            json!({}),
+                                        )
+                                        .await;
+                                    // Resolve a waiting gRPC stop only after the
+                                    // terminal event is enqueued.
+                                    if let Some(ack) = self.pending_stop_ack.take() {
+                                        let _ = ack.send(());
+                                    }
+                                    self.stopping = false;
                                 }
                                 Outcome::Failed(err) => {
                                     // A failed Turn arms no wakeup (matches the legacy
@@ -962,22 +1000,54 @@ impl CoordinatorService {
                                 // HarnessClosed.
                             }
                         }
-                        Some(AgentCommand::Stop) | None => {
-                            info!(task_id = %task_id, "CoordinatorService stopping");
-                            self.coordinator.cancel();
+                        Some(AgentCommand::Stop { ack }) => {
+                            if self.stopping {
+                                // A Stop is already in flight; the terminal
+                                // `Cancelled` will publish the single `Stopped`.
+                                // Drop this ack rather than double-publish.
+                                drop(ack);
+                                continue;
+                            }
+                            self.stopping = true;
+                            self.pending_stop_ack = ack;
                             self.pending_wakeup = None;
                             self.scheduled_jobs.cancel_all().await;
+
+                            if self.turn_active {
+                                // Active stop: interrupt the harness and keep
+                                // driving signals. The terminal `Cancelled`
+                                // (handled above) publishes the one `Stopped` and
+                                // resolves the ack. Do NOT break — the pod stays
+                                // alive to serve later turns.
+                                info!(task_id = %task_id, "CoordinatorService: active stop");
+                                self.coordinator.cancel();
+                            } else {
+                                // Idle stop: no execution in flight, so no
+                                // `Cancelled` will arrive — publish the single
+                                // `Stopped` directly and resolve the ack.
+                                info!(task_id = %task_id, "CoordinatorService: idle stop");
+                                self.agent_state.set_stopped().await;
+                                self.coordinator
+                                    .events
+                                    .for_run(self.coordinator.current_run_id())
+                                    .publish_agent_event(
+                                        &task_id,
+                                        AgentSubType::Stopped,
+                                        json!({}),
+                                    )
+                                    .await;
+                                if let Some(ack) = self.pending_stop_ack.take() {
+                                    let _ = ack.send(());
+                                }
+                                self.stopping = false;
+                            }
+                        }
+                        None => {
+                            // The command channel closed: the `AgentHandle` was
+                            // dropped (process teardown). Exit so the loop ends and
+                            // `/livez` observes the closed channel.
+                            info!(task_id = %task_id, "CoordinatorService command channel closed");
                             self.run_cancel.cancel();
-                            self.agent_state.set_stopped().await;
-                            self.coordinator
-                                .events
-                                .for_run(self.coordinator.current_run_id())
-                                .publish_agent_event(
-                                    &task_id,
-                                    AgentSubType::Stopped,
-                                    json!({}),
-                                )
-                                .await;
                             break;
                         }
                     }
