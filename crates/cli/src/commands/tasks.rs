@@ -29,8 +29,13 @@ pub enum TaskAction {
     Get { task_id: String },
     /// Create a new task (starts the sandbox and, if --message is provided, the agent)
     Create {
+        /// Repository ID or name. Optional when --workspace is given (the
+        /// workspace's primary repository is used)
+        #[arg(long, required_unless_present = "workspace")]
+        repo: Option<String>,
+        /// Workspace ID (ws_...) or name to run the task in; wins over --repo
         #[arg(long)]
-        repo: String,
+        workspace: Option<String>,
         #[arg(long)]
         name: Option<String>,
         #[arg(long)]
@@ -178,6 +183,7 @@ pub async fn run(
         }
         TaskAction::Create {
             repo,
+            workspace,
             name,
             parent,
             no_parent,
@@ -191,12 +197,19 @@ pub async fn run(
                 parent.or_else(|| config.task_id().map(String::from))
             };
 
-            let repo_id = resolve_repo_id(client, &repo).await?;
+            let repository_id = match &repo {
+                Some(r) => Some(resolve_repo_id(client, r).await?),
+                None => None,
+            };
+            let workspace_id = match &workspace {
+                Some(w) => Some(resolve_workspace_id(client, w).await?),
+                None => None,
+            };
 
             let has_message = message.is_some();
             let req = CreateTaskRequest {
-                repository_id: Some(repo_id),
-                workspace_id: None,
+                repository_id,
+                workspace_id,
                 name,
                 message,
                 branch,
@@ -497,6 +510,38 @@ async fn resolve_repo_id(client: &MoatClient, repo_arg: &str) -> Result<String, 
                     "Multiple repositories match '{repo_arg}': {}",
                     names.join(", ")
                 ),
+            })
+        }
+    }
+}
+
+/// Resolve a workspace argument to a workspace ID.
+/// `ws_`-prefixed IDs pass through. Otherwise, search by name.
+async fn resolve_workspace_id(client: &MoatClient, ws_arg: &str) -> Result<String, ClientError> {
+    if ws_arg.starts_with("ws_") {
+        return Ok(ws_arg.to_string());
+    }
+
+    let workspaces = client.api().list_workspaces().await?;
+
+    let matches: Vec<_> = workspaces
+        .iter()
+        .filter(|w| w.name.eq_ignore_ascii_case(ws_arg))
+        .collect();
+
+    match matches.len() {
+        1 => Ok(matches[0].id.clone()),
+        0 => Err(ClientError::Api {
+            status: 404,
+            body: format!(
+                "No workspace found with name '{ws_arg}'. Run 'moat workspaces list' to see available workspaces."
+            ),
+        }),
+        _ => {
+            let names: Vec<_> = matches.iter().map(|w| format!("{} ({})", w.name, w.id)).collect();
+            Err(ClientError::Api {
+                status: 400,
+                body: format!("Multiple workspaces match '{ws_arg}': {}", names.join(", ")),
             })
         }
     }
