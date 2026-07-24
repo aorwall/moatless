@@ -286,9 +286,7 @@ pub async fn connect_github_binding(
         .adapters
         .as_ref()
         .and_then(|providers| providers.get(AdapterKind::GithubPr))
-        .ok_or_else(|| {
-            AdapterError::Internal("GitHub PR adapter is not registered".to_string())
-        })?;
+        .ok_or_else(|| AdapterError::AdapterNotConfigured("github_pr".into()))?;
     connect_binding_optional_rule(
         state,
         provider.as_ref(),
