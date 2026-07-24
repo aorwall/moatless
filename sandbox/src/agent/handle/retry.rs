@@ -8,9 +8,11 @@ use claude_agent_sdk::SdkError;
 use tokio::time::Instant;
 
 use super::AgentRuntimeError;
+use crate::agent::harness::{ErrorClass, HarnessError};
 
 // ── Retry constants ──────────────────────────────────────────────
-pub(super) const MAX_RETRIES: u32 = 5;
+/// Maximum retry attempts. `pub(crate)` so `CoordinatorService` can read it.
+pub(crate) const MAX_RETRIES: u32 = 5;
 const BACKOFF_BASE_SECS: f64 = 5.0;
 const BACKOFF_CAP_SECS: f64 = 60.0;
 const JITTER_FACTOR: f64 = 0.2;
@@ -89,8 +91,18 @@ pub(super) fn is_session_unavailable_error(error: &SdkError) -> bool {
     )
 }
 
+/// Whether a terminal harness failure is transient and worth retrying.
+/// Mirrors the legacy SDK-level policy (ProcessExit/TransportClosed) plus rate
+/// limits; the harness reports these via ErrorClass. Coarser than
+/// `is_retryable_result` (no per-turn-count gate — the harness doesn't surface
+/// num_turns), so it relies on the MAX_RETRIES cap.
+pub(crate) fn is_retryable_harness_error(err: &HarnessError) -> bool {
+    matches!(err.class, ErrorClass::RateLimit | ErrorClass::ProcessExit)
+}
+
 /// Compute exponential backoff with jitter for a given attempt (0-indexed).
-pub(super) fn compute_backoff(attempt: u32) -> std::time::Duration {
+/// `pub(crate)` so `CoordinatorService` can reuse the same backoff curve.
+pub(crate) fn compute_backoff(attempt: u32) -> std::time::Duration {
     let base = BACKOFF_BASE_SECS * 2.0_f64.powi(attempt as i32);
     let capped = base.min(BACKOFF_CAP_SECS);
 

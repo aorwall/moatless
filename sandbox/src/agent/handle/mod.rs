@@ -20,7 +20,7 @@ mod claude;
 mod codex;
 mod codex_payloads;
 mod credential_recovery;
-mod retry;
+pub(crate) mod retry;
 pub(crate) mod session;
 
 use std::collections::{HashMap, VecDeque};

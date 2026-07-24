@@ -36,7 +36,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use moatless_events::{AgentSubType, TaskTurnSubType};
+use moatless_events::{AgentSubType, SandboxStatus, TaskTurnSubType};
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio_util::sync::CancellationToken;
@@ -51,8 +51,10 @@ use crate::init::credentials::filter_agent_credentials;
 
 use super::agent_state::AgentState;
 use super::handle::{
-    resolve_agent_harness, session::fetch_system_prompt, AgentCommand, RunAck,
-    AGENT_TYPE_CLAUDE_CODE,
+    resolve_agent_harness,
+    retry::{compute_backoff, is_retryable_harness_error, MAX_RETRIES},
+    session::fetch_system_prompt,
+    AgentCommand, RunAck, AGENT_TYPE_CLAUDE_CODE,
 };
 use super::harness::{
     Activity, ErrorClass, Harness, HarnessClosed, HarnessError, Input, InputId, Outcome, Rejection,
@@ -90,6 +92,11 @@ pub struct Coordinator {
     /// of minting a fresh one. Set when a context-loss recovery mints the Run for
     /// its notice, so the recovered Turn continues the same logical Run.
     hold_run_id: bool,
+    /// One-shot: suppress the terminal `error` event for the next `Failed`
+    /// outcome. The service sets this when it has decided to retry a transient
+    /// failure, so the user sees `retrying` (published by the service) instead of
+    /// a terminal error — matching the legacy actor's retry path.
+    suppress_failure_event: bool,
 }
 
 impl Coordinator {
@@ -107,6 +114,7 @@ impl Coordinator {
             block_indices: HashMap::new(),
             last_activity_publish: None,
             hold_run_id: false,
+            suppress_failure_event: false,
         }
     }
 
@@ -171,6 +179,21 @@ impl Coordinator {
     /// consecutive-error count the dispatcher and circuit breaker read).
     pub(crate) fn is_recovering(&self) -> bool {
         self.hold_run_id
+    }
+
+    /// Keep the current Run id on the next `ExecutionStarted` instead of minting a
+    /// fresh one — used when re-driving the same Turn (a transient-error retry),
+    /// so the retried attempt continues the same Run the backend maps to the Turn.
+    pub(crate) fn reuse_run_on_next_start(&mut self) {
+        self.hold_run_id = true;
+    }
+
+    /// Suppress the terminal `error` event for the next `Failed` outcome. The
+    /// service calls this when it has classified the failure as a retryable
+    /// transient error with retry budget remaining, so the coordinator stays
+    /// silent and the service publishes `retrying` instead.
+    pub(crate) fn suppress_next_failure_event(&mut self) {
+        self.suppress_failure_event = true;
     }
 
     /// Map one signal onto Run/ack/publication effects.
@@ -313,7 +336,7 @@ impl Coordinator {
             .await;
     }
 
-    async fn publish_outcome(&self, outcome: Outcome) {
+    async fn publish_outcome(&mut self, outcome: Outcome) {
         match outcome {
             Outcome::Completed => {
                 self.run_events()
@@ -324,7 +347,15 @@ impl Coordinator {
             // matching the legacy cancel path; the caller-side cancel flow closes
             // the turn.
             Outcome::Cancelled => {}
-            Outcome::Failed(error) => self.publish_error(&error).await,
+            Outcome::Failed(error) => {
+                // A retry the service already scheduled suppresses the terminal
+                // error event (one-shot); the service publishes `retrying`.
+                if self.suppress_failure_event {
+                    self.suppress_failure_event = false;
+                } else {
+                    self.publish_error(&error).await;
+                }
+            }
         }
     }
 
@@ -502,6 +533,28 @@ pub(crate) struct CoordinatorService {
     /// Cancelled when `AgentCommand::Stop` is received; also the root for
     /// per-turn child tokens stored in `AgentState`.
     run_cancel: CancellationToken,
+
+    // ── Retry bookkeeping ────────────────────────────────────────────────────
+    /// The text submitted with the most recent `AgentCommand::Send`, for
+    /// rebuilding the `Input` on a retry.
+    last_text: Option<String>,
+    /// The model submitted with the most recent `AgentCommand::Send`.
+    last_model: Option<String>,
+    /// The agent mode submitted with the most recent `AgentCommand::Send`.
+    last_agent_mode: Option<String>,
+    /// The resume session id submitted with the most recent `AgentCommand::Send`.
+    last_resume_session_id: Option<String>,
+    /// The `start_fresh` flag from the most recent `AgentCommand::Send`.
+    last_start_fresh: bool,
+    /// Number of the pending retry attempt (0-indexed; 0 = no retry pending).
+    retry_attempt: u32,
+    /// When the pending retry should fire. `None` = no retry scheduled. A
+    /// `tokio::time::Instant` so the service `select!` can `sleep_until` it.
+    retry_at: Option<tokio::time::Instant>,
+
+    // ── Circuit breaker ──────────────────────────────────────────────────────
+    /// Consecutive terminal failures without a successful idle transition.
+    consecutive_errors: u32,
 }
 
 impl CoordinatorService {
@@ -521,6 +574,14 @@ impl CoordinatorService {
             backend_client,
             system_prompt_cache,
             run_cancel: CancellationToken::new(),
+            last_text: None,
+            last_model: None,
+            last_agent_mode: None,
+            last_resume_session_id: None,
+            last_start_fresh: false,
+            retry_attempt: 0,
+            retry_at: None,
+            consecutive_errors: 0,
         }
     }
 
@@ -542,6 +603,13 @@ impl CoordinatorService {
 
         let mut heartbeat_tick = tokio::time::interval(HEARTBEAT_TICK_INTERVAL);
         heartbeat_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+        // A deadline one year in the future — used as the "never fires" sentinel
+        // for the retry arm when no retry is scheduled.
+        // reason: the larger-unit constructors (`Duration::from_days`) are still
+        // unstable, so build the ~1-year sentinel from seconds.
+        #[allow(clippy::duration_suboptimal_units)]
+        let far_future = tokio::time::Instant::now() + Duration::from_secs(31_536_000);
 
         loop {
             // Prove the loop is alive on every iteration.
@@ -575,6 +643,16 @@ impl CoordinatorService {
                             _ => None,
                         };
 
+                        // Decide retry BEFORE the coordinator publishes: a
+                        // transient failure we will re-drive must suppress the
+                        // coordinator's terminal `error` event so the user sees
+                        // only `retrying` (matching the legacy actor's retry path).
+                        if let Some(Outcome::Failed(err)) = &outcome_ref {
+                            if is_retryable_harness_error(err) && self.retry_attempt < MAX_RETRIES {
+                                self.coordinator.suppress_next_failure_event();
+                            }
+                        }
+
                         // Let the coordinator update Run identity, acks,
                         // and publish backend events.
                         self.coordinator.handle_signal(signal).await;
@@ -599,12 +677,62 @@ impl CoordinatorService {
                         if let Some(outcome) = outcome_ref {
                             match outcome {
                                 Outcome::Completed | Outcome::Cancelled => {
+                                    // Successful completion resets retry and breaker state.
+                                    self.retry_attempt = 0;
+                                    self.retry_at = None;
+                                    self.consecutive_errors = 0;
                                     self.agent_state.set_idle().await;
                                 }
                                 Outcome::Failed(err) => {
-                                    self.agent_state
-                                        .set_error(err.diagnostic.clone())
-                                        .await;
+                                    // Check whether this is a retryable transient error
+                                    // that still has budget remaining — mirroring
+                                    // actor.rs:457-499 exactly.
+                                    if is_retryable_harness_error(&err)
+                                        && self.retry_attempt < MAX_RETRIES
+                                    {
+                                        let attempt = self.retry_attempt;
+                                        self.retry_attempt = attempt + 1;
+
+                                        // Record last_error but undo the +1 that
+                                        // set_error adds to AgentState's own
+                                        // consecutive-error count (read by the
+                                        // dispatcher) — a retryable error must not
+                                        // count until retries are exhausted (mirrors
+                                        // actor.rs:462). The service's own breaker
+                                        // counter is only incremented for terminal
+                                        // failures below, so it is left untouched here.
+                                        self.agent_state.set_error(err.diagnostic.clone()).await;
+                                        self.agent_state.undo_error_increment().await;
+
+                                        let backoff = compute_backoff(attempt);
+                                        info!(
+                                            attempt,
+                                            max_retries = MAX_RETRIES,
+                                            backoff_secs = backoff.as_secs_f64(),
+                                            "Scheduling retry for transient error"
+                                        );
+                                        self.retry_at = Some(tokio::time::Instant::now() + backoff);
+
+                                        self.coordinator
+                                            .events
+                                            .for_run(self.coordinator.current_run_id())
+                                            .publish_agent_event(
+                                                &task_id,
+                                                AgentSubType::Retrying,
+                                                json!({
+                                                    "attempt": attempt,
+                                                    "max_retries": MAX_RETRIES,
+                                                    "backoff_secs": backoff.as_secs_f64(),
+                                                }),
+                                            )
+                                            .await;
+                                    } else {
+                                        // Non-retryable or retries exhausted: terminal error.
+                                        self.retry_at = None;
+                                        self.retry_attempt = 0;
+                                        self.consecutive_errors += 1;
+                                        self.agent_state.set_error(err.diagnostic.clone()).await;
+                                    }
                                 }
                             }
                         }
@@ -617,6 +745,9 @@ impl CoordinatorService {
                                 // will `set_running` shortly. Only a rejection the
                                 // coordinator did NOT recover is a real failure.
                                 Rejection::Failed(err) if !self.coordinator.is_recovering() => {
+                                    // Pre-accept startup failures also count toward the
+                                    // circuit breaker (mirrors actor session-start failure path).
+                                    self.consecutive_errors += 1;
                                     self.agent_state.set_error(err.diagnostic.clone()).await;
                                 }
                                 Rejection::Failed(_) => {}
@@ -645,6 +776,37 @@ impl CoordinatorService {
                     turn_cancel = self.run_cancel.child_token();
                 }
 
+                // Retry timer: fires when a scheduled retry is due, never fires
+                // when no retry is pending (sleep_until(far_future)).
+                () = tokio::time::sleep_until(self.retry_at.unwrap_or(far_future)) => {
+                    if self.retry_at.take().is_some() {
+                        info!(attempt = self.retry_attempt, "Retry timer fired, re-driving turn");
+
+                        // Tell the coordinator to keep the current Run id so the
+                        // retried attempt's events join the same Turn.
+                        self.coordinator.reuse_run_on_next_start();
+
+                        let text = self.last_text.clone().unwrap_or_default();
+                        let model = self.last_model.clone();
+                        let agent_mode = self.last_agent_mode.clone();
+                        let resume_session_id = self.last_resume_session_id.clone();
+                        let start_fresh = self.last_start_fresh;
+
+                        match self.build_input(text, model, agent_mode, resume_session_id, start_fresh).await {
+                            Ok(input) => {
+                                let (throwaway_tx, _throwaway_rx) = oneshot::channel();
+                                if self.coordinator.submit(input, throwaway_tx).await.is_err() {
+                                    // HarnessClosed — signal loop will see None next.
+                                }
+                            }
+                            Err(err) => {
+                                warn!(error = %err, "Failed to build retry input; aborting retry");
+                                self.retry_attempt = 0;
+                            }
+                        }
+                    }
+                }
+
                 cmd = command_rx.recv() => {
                     match cmd {
                         Some(AgentCommand::Send {
@@ -656,7 +818,41 @@ impl CoordinatorService {
                             start_fresh,
                             ack,
                         }) => {
-                            // TODO(ticket-08): circuit-breaker migrates here.
+                            // ── Circuit breaker ───────────────────────────────────────
+                            const MAX_CONSECUTIVE_ERRORS: u32 = 3;
+                            if self.consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
+                                warn!(
+                                    consecutive_errors = self.consecutive_errors,
+                                    "Circuit breaker: rejecting send"
+                                );
+                                drop(ack);
+                                self.coordinator
+                                    .events
+                                    .publish_sandbox_event(
+                                        &task_id,
+                                        SandboxStatus::Error,
+                                        json!({
+                                            "error": format!(
+                                                "Agent failed {} consecutive times. Last error: {}",
+                                                self.consecutive_errors,
+                                                self.agent_state.last_error().await.unwrap_or_default()
+                                            )
+                                        }),
+                                    )
+                                    .await;
+                                // Reset so the next user-initiated send gets a fresh budget.
+                                self.consecutive_errors = 0;
+                                continue;
+                            }
+
+                            // Capture last-Send fields for retry rebuilding before
+                            // moving text into build_input.
+                            self.last_text = Some(text.clone());
+                            self.last_model = model.clone();
+                            self.last_agent_mode = agent_mode.clone();
+                            self.last_resume_session_id = resume_session_id.clone();
+                            self.last_start_fresh = start_fresh;
+
                             // TODO(ticket-08): credential recovery migrates here.
                             let input = match self.build_input(
                                 text,
