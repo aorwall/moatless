@@ -267,8 +267,6 @@ pub fn spawn_grpc_server(
         .map(|pool| Arc::new(crate::workspace::dao::PgWorkspaceRepository(pool.clone())) as _);
     let users: Option<Arc<dyn UserRepository>> =
         db_pool.map(|pool| Arc::new(PgUserRepository(pool.clone())) as _);
-    let teams: Option<Arc<dyn crate::team::dao::TeamRepository>> =
-        db_pool.map(|pool| Arc::new(crate::team::dao::PgTeamRepository(pool.clone())) as _);
     let backend_config = Arc::new(config.clone());
     let port = config.server.grpc_port;
     let token_secret = config.sandbox.task_token_secret.clone();
@@ -328,7 +326,6 @@ pub fn spawn_grpc_server(
             messages,
             provider_tokens,
             tasks,
-            teams,
             task_turns,
             task_events: grpc_task_events,
             task_relations,

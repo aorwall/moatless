@@ -30,9 +30,6 @@ pub struct SessionClaims {
     /// Optional group ID (deprecated, kept for backwards compat)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group_id: Option<String>,
-    /// Team IDs the user belongs to.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub team_ids: Vec<String>,
     /// Issued at (unix timestamp)
     pub iat: u64,
     /// Expiration (unix timestamp)
@@ -49,14 +46,12 @@ impl SessionClaims {
 }
 
 /// Generate a session JWT.
-#[allow(clippy::too_many_arguments)]
 pub fn generate_session_jwt(
     user_id: Uuid,
     login: &str,
     role: UserRole,
     provider: &str,
     group_id: Option<&str>,
-    team_ids: &[String],
     secret: &str,
     max_age_secs: u64,
 ) -> Result<String, jsonwebtoken::errors::Error> {
@@ -71,7 +66,6 @@ pub fn generate_session_jwt(
         role: role.as_str().to_string(),
         provider: provider.to_string(),
         group_id: group_id.map(String::from),
-        team_ids: team_ids.to_vec(),
         iat: now,
         exp: now + max_age_secs,
         iss: SESSION_JWT_ISSUER.to_string(),
@@ -146,7 +140,6 @@ mod tests {
             UserRole::Admin,
             "github",
             Some("group-1"),
-            &["team-a".to_string(), "team-b".to_string()],
             "test-secret",
             3600,
         )
@@ -160,7 +153,6 @@ mod tests {
         assert_eq!(claims.role, "admin");
         assert_eq!(claims.provider, "github");
         assert_eq!(claims.group_id.as_deref(), Some("group-1"));
-        assert_eq!(claims.team_ids, vec!["team-a", "team-b"]);
         assert_eq!(claims.iss, SESSION_JWT_ISSUER);
         assert_eq!(claims.user_role(), UserRole::Admin);
     }
@@ -173,7 +165,6 @@ mod tests {
             UserRole::User,
             "github",
             None,
-            &[],
             "test-secret",
             3600,
         )
@@ -196,7 +187,6 @@ mod tests {
             role: "user".to_string(),
             provider: "github".to_string(),
             group_id: None,
-            team_ids: vec![],
             iat: now - 7200,
             exp: now - 3600, // expired 1 hour ago (well past default 60s leeway)
             iss: SESSION_JWT_ISSUER.to_string(),
@@ -220,7 +210,6 @@ mod tests {
             UserRole::User,
             "github",
             None,
-            &[],
             "test-secret",
             3600,
         )
@@ -228,6 +217,5 @@ mod tests {
 
         let claims = verify_session_jwt(&token, "test-secret").unwrap();
         assert!(claims.group_id.is_none());
-        assert!(claims.team_ids.is_empty());
     }
 }

@@ -328,7 +328,6 @@ pub fn create_repo_request(name: &str, kind: RepositoryKind) -> CreateRepository
         default_branch: None,
         provider: None,
         scope: None,
-        team_id: None,
     }
 }
 
@@ -398,7 +397,6 @@ pub async fn create_webhook_integration(
             webhook_secret: None,
             source_name: None,
             transport_config: None,
-            team_id: None,
             scope: None,
         })
         .await
@@ -411,7 +409,6 @@ pub async fn create_webhook_integration(
             kind: LoopKind::AdapterEvent,
             active: Some(true),
             scope: None,
-            team_id: None,
             config: CreateLoopConfig {
                 repository_id: repository_id.into(),
                 routing_mode,

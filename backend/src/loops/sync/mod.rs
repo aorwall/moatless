@@ -108,9 +108,10 @@ pub async fn sync_loops(
     let existing = state.loops.list_managed_loops(&repo.id).await?;
 
     let to_delete = names_to_delete(&existing, &present);
+    let ctx = auth.scope_context();
     for id in &to_delete {
         // Cascade drops trigger_rules + source rows.
-        state.loops.delete(id).await?;
+        state.loops.delete(id, &ctx).await?;
     }
     summary.removed = to_delete.len() as u32;
 
@@ -457,7 +458,6 @@ async fn upsert_loop(
             kind: resolved.kind.as_str().to_string(),
             active: resolved.active,
             scope: repo.scope,
-            team_id: repo.team_id.clone(),
             owner_user_id: repo.owner_user_id.clone(),
             created_by,
             routing_mode: resolved.routing_mode,

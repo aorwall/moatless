@@ -49,7 +49,6 @@ pub struct Workspace {
     pub source_config_path: Option<String>,
     // --- Access control (mirrors repositories) ---
     pub scope: Scope,
-    pub team_id: Option<String>,
     pub owner_user_id: Option<String>,
     pub created_by: Option<String>,
     pub deleted: Option<bool>,

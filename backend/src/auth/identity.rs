@@ -14,5 +14,4 @@ pub struct AuthIdentity {
     pub role: UserRole,
     pub provider: String,
     pub group_id: Option<String>,
-    pub team_ids: Vec<String>,
 }

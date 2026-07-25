@@ -13,7 +13,6 @@ pub struct RepositoryPatch {
     pub name: Option<String>,
     pub kind: Option<RepositoryKind>,
     pub scope: Option<Scope>,
-    pub team_id: Option<Option<String>>,
     pub owner_user_id: Option<Option<String>>,
     pub remote_url: Option<Option<String>>,
     pub default_branch: Option<Option<String>>,
@@ -28,8 +27,6 @@ pub struct RepositoryPatch {
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait RepoRepository: Send + Sync {
-    /// Find by id (internal, no access control).
-    async fn find_repository_by_id(&self, id: &str) -> Result<Option<Repository>, sqlx::Error>;
     /// Find by id, scoped to access control.
     async fn find_by_id(
         &self,
@@ -38,17 +35,21 @@ pub trait RepoRepository: Send + Sync {
     ) -> Result<Option<Repository>, sqlx::Error>;
     async fn list_all(&self, ctx: &ScopeContext) -> Result<Vec<Repository>, sqlx::Error>;
     async fn insert(&self, row: &Repository) -> Result<(), sqlx::Error>;
-    async fn update(&self, id: &str, patch: &RepositoryPatch) -> Result<bool, sqlx::Error>;
-    async fn soft_delete(&self, id: &str) -> Result<bool, sqlx::Error>;
+    async fn update(
+        &self,
+        id: &str,
+        patch: &RepositoryPatch,
+        ctx: &ScopeContext,
+    ) -> Result<bool, sqlx::Error>;
+    async fn soft_delete(&self, id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error>;
     /// Find a non-deleted repository whose `remote_url` normalizes to `url_key`
     /// (trimmed, trailing `/`/`.git` stripped, lowercased), scoped to the given
-    /// access owner so resolution never crosses tenants. `url_key` must be
+    /// scope+owner so resolution never crosses tenants. `url_key` must be
     /// pre-normalized by [`super::handlers::normalize_remote_url`].
     async fn find_by_normalized_remote_url(
         &self,
         url_key: &str,
         scope: Scope,
-        team_id: Option<String>,
         owner_user_id: Option<String>,
     ) -> Result<Option<Repository>, sqlx::Error>;
     async fn find_names_by_ids(&self, ids: &[String])
@@ -58,7 +59,6 @@ pub trait RepoRepository: Send + Sync {
         &self,
         url_key: &str,
         scope: Scope,
-        team_id: Option<String>,
         owner_user_id: Option<String>,
     ) -> Result<bool, sqlx::Error>;
 }
@@ -68,15 +68,6 @@ pub struct PgRepoRepository(pub DbPool);
 
 #[async_trait]
 impl RepoRepository for PgRepoRepository {
-    async fn find_repository_by_id(&self, id: &str) -> Result<Option<Repository>, sqlx::Error> {
-        sqlx::query_as::<_, Repository>(
-            "SELECT * FROM repositories WHERE id = $1 AND (deleted IS NULL OR deleted = false)",
-        )
-        .bind(id)
-        .fetch_optional(&self.0)
-        .await
-    }
-
     async fn find_by_id(
         &self,
         id: &str,
@@ -93,7 +84,6 @@ impl RepoRepository for PgRepoRepository {
         sqlx::query_as::<_, Repository>(AssertSqlSafe(sql))
             .bind(id)
             .bind(ctx.is_admin)
-            .bind(&ctx.team_ids)
             .bind(&ctx.user_id)
             .fetch_optional(&self.0)
             .await
@@ -110,7 +100,6 @@ impl RepoRepository for PgRepoRepository {
         );
         sqlx::query_as::<_, Repository>(AssertSqlSafe(sql))
             .bind(ctx.is_admin)
-            .bind(&ctx.team_ids)
             .bind(&ctx.user_id)
             .fetch_all(&self.0)
             .await
@@ -120,14 +109,14 @@ impl RepoRepository for PgRepoRepository {
         sqlx::query(
             r#"INSERT INTO repositories (
                 id, name, kind, remote_url, default_branch,
-                description, provider, scope, team_id, owner_user_id, created_by,
+                description, provider, scope, owner_user_id, created_by,
                 deleted, created_at, updated_at,
                 access_status, access_checked_at, access_error
             ) VALUES (
                 $1, $2, $3, $4, $5,
-                $6, $7, $8, $9, $10, $11,
-                $12, $13, $14,
-                $15, $16, $17
+                $6, $7, $8, $9, $10,
+                $11, $12, $13,
+                $14, $15, $16
             )"#,
         )
         .bind(&row.id)
@@ -138,7 +127,6 @@ impl RepoRepository for PgRepoRepository {
         .bind(&row.description)
         .bind(row.provider)
         .bind(row.scope)
-        .bind(&row.team_id)
         .bind(&row.owner_user_id)
         .bind(&row.created_by)
         .bind(row.deleted)
@@ -152,7 +140,12 @@ impl RepoRepository for PgRepoRepository {
         Ok(())
     }
 
-    async fn update(&self, id: &str, patch: &RepositoryPatch) -> Result<bool, sqlx::Error> {
+    async fn update(
+        &self,
+        id: &str,
+        patch: &RepositoryPatch,
+        ctx: &ScopeContext,
+    ) -> Result<bool, sqlx::Error> {
         let mut sets: Vec<String> = Vec::new();
         let mut idx = 2; // $1 is id
 
@@ -168,7 +161,6 @@ impl RepoRepository for PgRepoRepository {
         push_set!(name);
         push_set!(kind);
         push_set!(scope);
-        push_set!(team_id);
         push_set!(owner_user_id);
         push_set!(remote_url);
         push_set!(default_branch);
@@ -183,10 +175,14 @@ impl RepoRepository for PgRepoRepository {
         }
 
         sets.push(format!("updated_at = ${idx}"));
+        idx += 1;
 
+        let control = ctx.control_filter("", idx);
         let sql = format!(
-            "UPDATE repositories SET {} WHERE id = $1 AND (deleted IS NULL OR deleted = false)",
-            sets.join(", ")
+            "UPDATE repositories SET {} \
+             WHERE id = $1 AND (deleted IS NULL OR deleted = false) AND {}",
+            sets.join(", "),
+            control.sql()
         );
 
         let now = chrono::Utc::now();
@@ -203,7 +199,6 @@ impl RepoRepository for PgRepoRepository {
         bind_opt!(name);
         bind_opt!(kind);
         bind_opt!(scope);
-        bind_opt!(team_id);
         bind_opt!(owner_user_id);
         bind_opt!(remote_url);
         bind_opt!(default_branch);
@@ -213,21 +208,29 @@ impl RepoRepository for PgRepoRepository {
         bind_opt!(access_checked_at);
         bind_opt!(access_error);
 
-        // Bind updated_at
+        // Bind updated_at then control_filter params
         q = q.bind(now);
+        q = q.bind(ctx.is_admin);
+        q = q.bind(&ctx.user_id);
 
         let result = q.execute(&self.0).await?;
         Ok(result.rows_affected() > 0)
     }
 
-    async fn soft_delete(&self, id: &str) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query(
-            "UPDATE repositories SET deleted = true, updated_at = $2 WHERE id = $1 AND (deleted IS NULL OR deleted = false)",
-        )
-        .bind(id)
-        .bind(chrono::Utc::now())
-        .execute(&self.0)
-        .await?;
+    async fn soft_delete(&self, id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
+        let control = ctx.control_filter("", 3);
+        let sql = format!(
+            "UPDATE repositories SET deleted = true, updated_at = $2 \
+             WHERE id = $1 AND (deleted IS NULL OR deleted = false) AND {}",
+            control.sql()
+        );
+        let result = sqlx::query(AssertSqlSafe(sql))
+            .bind(id)
+            .bind(chrono::Utc::now())
+            .bind(ctx.is_admin)
+            .bind(&ctx.user_id)
+            .execute(&self.0)
+            .await?;
         Ok(result.rows_affected() > 0)
     }
 
@@ -235,7 +238,6 @@ impl RepoRepository for PgRepoRepository {
         &self,
         url_key: &str,
         scope: Scope,
-        team_id: Option<String>,
         owner_user_id: Option<String>,
     ) -> Result<Option<Repository>, sqlx::Error> {
         // Normalize the stored URL the same way `normalize_remote_url` does:
@@ -252,14 +254,12 @@ impl RepoRepository for PgRepoRepository {
                          '/+$', '')
                      ) = $1
                  AND scope = $2
-                 AND team_id IS NOT DISTINCT FROM $3
-                 AND owner_user_id IS NOT DISTINCT FROM $4
+                 AND owner_user_id IS NOT DISTINCT FROM $3
                ORDER BY created_at ASC NULLS LAST
                LIMIT 1"#,
         )
         .bind(url_key)
         .bind(scope)
-        .bind(team_id)
         .bind(owner_user_id)
         .fetch_optional(&self.0)
         .await
@@ -284,7 +284,6 @@ impl RepoRepository for PgRepoRepository {
         &self,
         url_key: &str,
         scope: Scope,
-        team_id: Option<String>,
         owner_user_id: Option<String>,
     ) -> Result<bool, sqlx::Error> {
         let row: Option<(i32,)> = sqlx::query_as(
@@ -298,13 +297,11 @@ impl RepoRepository for PgRepoRepository {
                          '/+$', '')
                      ) = $1
                  AND scope = $2
-                 AND team_id IS NOT DISTINCT FROM $3
-                 AND owner_user_id IS NOT DISTINCT FROM $4
+                 AND owner_user_id IS NOT DISTINCT FROM $3
                LIMIT 1"#,
         )
         .bind(url_key)
         .bind(scope)
-        .bind(team_id)
         .bind(owner_user_id)
         .fetch_optional(&self.0)
         .await?;
@@ -336,11 +333,20 @@ pub async fn list_all(pool: &DbPool, ctx: &ScopeContext) -> Result<Vec<Repositor
 }
 
 /// Update repository fields (convenience wrapper).
-pub async fn update(pool: &DbPool, id: &str, patch: &RepositoryPatch) -> Result<bool, sqlx::Error> {
-    PgRepoRepository(pool.clone()).update(id, patch).await
+pub async fn update(
+    pool: &DbPool,
+    id: &str,
+    patch: &RepositoryPatch,
+    ctx: &ScopeContext,
+) -> Result<bool, sqlx::Error> {
+    PgRepoRepository(pool.clone()).update(id, patch, ctx).await
 }
 
 /// Soft-delete a repository (convenience wrapper).
-pub async fn soft_delete(pool: &DbPool, id: &str) -> Result<bool, sqlx::Error> {
-    PgRepoRepository(pool.clone()).soft_delete(id).await
+pub async fn soft_delete(
+    pool: &DbPool,
+    id: &str,
+    ctx: &ScopeContext,
+) -> Result<bool, sqlx::Error> {
+    PgRepoRepository(pool.clone()).soft_delete(id, ctx).await
 }

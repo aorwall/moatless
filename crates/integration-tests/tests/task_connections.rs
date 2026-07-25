@@ -7,13 +7,12 @@
 //! access control).
 
 use integration_tests::{
-    client_as_user, create_repo_request, ensure_template_repo, relogin, seed_test_users,
+    client_as_user, create_repo_request, ensure_template_repo, seed_test_users,
     test_client,
 };
 use moatless_api_client::ApiError;
 use moatless_api_schemas::enums::{RepositoryKind, Scope};
 use moatless_api_schemas::task::CreateTaskRequest;
-use moatless_api_schemas::team::CreateTeamRequest;
 
 fn timestamp_suffix() -> String {
     std::time::SystemTime::now()
@@ -71,48 +70,26 @@ async fn task_connections_scope_respected() {
     let alice = seed_test_users().await.alice;
     let suffix = timestamp_suffix();
 
-    let team = alice
-        .client
-        .api()
-        .create_team(&CreateTeamRequest {
-            name: "Connections Scope Team".into(),
-            slug: format!("conn-scope-{suffix}"),
-            description: None,
-        })
-        .await
-        .unwrap();
-    let team_id = team.id.clone();
-
-    // Alice owns the team as its creator; re-login so the membership lands in
-    // her session JWT.
-    let alice_with_team = relogin(&alice).await;
-
     let mut req = create_repo_request(
         &format!("Connections Scope Repo {suffix}"),
         RepositoryKind::Template,
     );
-    req.scope = Some(Scope::Team);
-    req.team_id = Some(team_id.clone());
-    let team_repo = alice_with_team
-        .client
-        .api()
-        .create_repository(&req)
-        .await
-        .unwrap();
+    req.scope = Some(Scope::User);
+    let user_repo = alice.client.api().create_repository(&req).await.unwrap();
 
-    let task = alice_with_team
+    let task = alice
         .client
         .api()
         .create_task(&task_request(
-            team_repo.id.clone(),
+            user_repo.id.clone(),
             "Scoped connections task",
         ))
         .await
         .unwrap();
     let task_id = task.task_id;
 
-    // Owner (team member) can load the endpoint — empty list, not admin-gated.
-    let owner_view = alice_with_team
+    // Owner can load the endpoint — empty list, not admin-gated.
+    let owner_view = alice
         .client
         .api()
         .get_task_connections(&task_id)
@@ -135,6 +112,5 @@ async fn task_connections_scope_respected() {
 
     // Cleanup
     let _ = alice.client.api().delete_task(&task_id).await;
-    let _ = alice.client.api().delete_repository(&team_repo.id).await;
-    let _ = alice.client.api().delete_team(&team_id).await;
+    let _ = alice.client.api().delete_repository(&user_repo.id).await;
 }

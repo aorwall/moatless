@@ -84,7 +84,7 @@ impl CredentialService {
         };
         let scope_kind = scope.scope_kind().to_string();
         let scope_id = match scope {
-            CodexScope::User(id) | CodexScope::Team(id) => id.clone(),
+            CodexScope::User(id) => id.clone(),
             CodexScope::Global => String::new(),
         };
         let except = except_task_id.unwrap_or("").to_string();
@@ -105,8 +105,7 @@ impl CredentialService {
         }
     }
 
-    /// Resolve `CODEX_AUTH_JSON` with `user > team > global` precedence in
-    /// one call.
+    /// Resolve `CODEX_AUTH_JSON` with `user > global` precedence in one call.
     ///
     /// Single entry point for callers that don't want to think about scopes:
     /// the resolver in `sandbox::secrets`, the gRPC `GetCredentials` handler,
@@ -123,18 +122,12 @@ impl CredentialService {
     pub async fn ensure_fresh_codex_for(
         &self,
         user_id: &str,
-        team_id: Option<&str>,
         except_task_id: Option<&str>,
     ) -> Result<String, CredentialError> {
-        let mut scopes: Vec<CodexScope> = Vec::with_capacity(3);
-        scopes.push(CodexScope::user(user_id));
-        if let Some(team_id) = team_id {
-            scopes.push(CodexScope::team(team_id));
-        }
-        scopes.push(CodexScope::Global);
+        let scopes = [CodexScope::user(user_id), CodexScope::Global];
 
         let mut last_err: Option<CredentialError> = None;
-        for scope in scopes {
+        for scope in &scopes {
             match self.ensure_fresh_codex(scope.clone(), except_task_id).await {
                 Ok(blob) => return Ok(blob),
                 Err(CredentialError::NotFound(_)) => continue,
@@ -150,7 +143,7 @@ impl CredentialService {
         }
         Err(last_err.unwrap_or_else(|| {
             CredentialError::NotFound(format!(
-                "No codex provider_token found at any scope (user={user_id}, team={team_id:?})"
+                "No codex provider_token found at any scope (user={user_id})"
             ))
         }))
     }

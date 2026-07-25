@@ -35,17 +35,6 @@ pub struct TaskFilter {
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait TaskRepository: Send + Sync {
-    /// Find by task_id with **no access control** — for system callers that
-    /// have no authenticated user to derive a scope from (background jobs,
-    /// reapers, pod watchers, adapter/webhook runtimes, sandbox-pod-facing gRPC)
-    /// or intentionally privileged flows (e.g. the close cascade, which must
-    /// reach child tasks in other users' scopes).
-    ///
-    /// Any user-facing handler MUST instead use [`Self::find_by_id`] with the
-    /// caller's `ScopeContext`. When a system caller genuinely needs full
-    /// access, `find_by_id(id, &ScopeContext::system())` is the equivalent
-    /// scoped form and is preferred for new code.
-    async fn find_by_id_internal(&self, task_id: &str) -> Result<Option<Task>, sqlx::Error>;
     /// Find by task_id, scoped to access control.
     async fn find_by_id(
         &self,
@@ -54,7 +43,18 @@ pub trait TaskRepository: Send + Sync {
     ) -> Result<Option<Task>, sqlx::Error>;
     async fn insert_task(&self, row: &Task) -> Result<(), sqlx::Error>;
     async fn list_tasks(&self, filter: &TaskFilter) -> Result<(Vec<Task>, i64), sqlx::Error>;
-    async fn update_task(&self, task_id: &str, patch: &TaskPatch) -> Result<(), sqlx::Error>;
+    /// Update task fields for the caller's scope. Per-field statements embed the
+    /// control_filter so the caller only modifies rows they own. Returns `true`
+    /// when at least one field was updated; returns `Ok(true)` when `patch` is
+    /// empty (no writes occurred but the caller already read-checked the task,
+    /// so the phantom "succeeded" is acceptable — callers that reach here with
+    /// an empty patch performed a read first).
+    async fn update_task(
+        &self,
+        task_id: &str,
+        patch: &TaskPatch,
+        ctx: &ScopeContext,
+    ) -> Result<bool, sqlx::Error>;
     /// Flip status to `new_status` only if the task is not already `Closed`.
     ///
     /// Returns `true` when a row changed (status updated), `false` when the
@@ -63,12 +63,18 @@ pub trait TaskRepository: Send + Sync {
     /// TOCTOU a plain read-then-write would lose: a `Closed` task can never be
     /// resurrected by an automated agent-lifecycle event. `Open`→`Open` and
     /// `Error`→`Open` still match the predicate, preserving today's behaviour.
+    ///
+    /// System callers (reaper, event handlers) pass `ScopeContext::system()` so
+    /// they are not limited to the task owner.
     async fn update_status_if_not_closed(
         &self,
         task_id: &str,
         new_status: TaskStatus,
+        ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error>;
-    async fn delete_task(&self, task_id: &str) -> Result<(), sqlx::Error>;
+    /// Delete a task. Returns `true` when a row was deleted, `false` when the
+    /// task was not found or the caller does not have control (existence hiding).
+    async fn delete_task(&self, task_id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error>;
     async fn exists_by_short_id(&self, short_id: &str) -> Result<bool, sqlx::Error>;
     async fn get_created_times(
         &self,
@@ -138,11 +144,10 @@ pub trait TaskRepository: Send + Sync {
     /// in-flight guard (empty → backend may refresh; non-empty → defer to the
     /// active sandbox watcher) and the rotation broadcast fan-out.
     ///
-    /// `scope_kind` is `"user"`, `"team"`, or `"global"`. `scope_id` is the
-    /// user_id or team_id; ignored for global. Pass `""` for `except_task_id`
-    /// to disable the exclusion. Owned `String` params keep `mockall::automock`
-    /// happy — `Option<&str>` and `&str` elide lifetimes the macro can't
-    /// synthesise.
+    /// `scope_kind` is `"user"` or `"global"`. `scope_id` is the user_id;
+    /// ignored for global. Pass `""` for `except_task_id` to disable the
+    /// exclusion. Owned `String` params keep `mockall::automock` happy —
+    /// `Option<&str>` and `&str` elide lifetimes the macro can't synthesise.
     async fn list_open_codex_tasks_for_scope(
         &self,
         scope_kind: String,
@@ -156,13 +161,6 @@ pub struct PgTaskRepository(pub DbPool);
 
 #[async_trait]
 impl TaskRepository for PgTaskRepository {
-    async fn find_by_id_internal(&self, task_id: &str) -> Result<Option<Task>, sqlx::Error> {
-        sqlx::query_as::<_, Task>("SELECT * FROM tasks WHERE task_id = $1")
-            .bind(task_id)
-            .fetch_optional(&self.0)
-            .await
-    }
-
     async fn find_by_id(
         &self,
         task_id: &str,
@@ -176,7 +174,6 @@ impl TaskRepository for PgTaskRepository {
         sqlx::query_as::<_, Task>(AssertSqlSafe(sql))
             .bind(task_id)
             .bind(ctx.is_admin)
-            .bind(&ctx.team_ids)
             .bind(&ctx.user_id)
             .fetch_optional(&self.0)
             .await
@@ -204,15 +201,15 @@ impl TaskRepository for PgTaskRepository {
                 task_id, short_id, created_at, last_message_at, agent_type,
                 repository_id, status, total_cost_usd, site_url, template_id,
                 vibe, name, description, site_id, site_provider, branch,
-                created_by, visibility, scope, team_id, owner_user_id,
+                created_by, visibility, scope, owner_user_id,
                 append_system_prompt, updated_at, headless, ttl_minutes,
                 inactive_ttl_days, trigger_id, disabled_servers,
                 workspace_id
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
-                $22, NOW(), $23, $24, $25, $26, $27,
-                $28
+                $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+                $21, NOW(), $22, $23, $24, $25, $26,
+                $27
             )"#,
         )
         .bind(&row.task_id)
@@ -234,7 +231,6 @@ impl TaskRepository for PgTaskRepository {
         .bind(&row.created_by)
         .bind(row.visibility)
         .bind(row.scope)
-        .bind(&row.team_id)
         .bind(&row.owner_user_id)
         .bind(&row.append_system_prompt)
         .bind(row.headless)
@@ -287,7 +283,6 @@ impl TaskRepository for PgTaskRepository {
             created_by: Option<String>,
             visibility: Visibility,
             scope: Scope,
-            team_id: Option<String>,
             owner_user_id: Option<String>,
             created_at_db: Option<DateTime<Utc>>,
             updated_at: Option<DateTime<Utc>>,
@@ -303,13 +298,16 @@ impl TaskRepository for PgTaskRepository {
         let access = filter.scope.access_filter(ScopedEntity::Task, "t.", 1);
         // The parent_task_id filter joins against task_relations rather than
         // reading a column off `tasks`. When unset, the EXISTS clause is a
-        // no-op (`$8 IS NULL`).
+        // no-op (`$7 IS NULL`). Params: $1=is_admin, $2=user_id, $3=status,
+        // $4=exclude_status(formerly $11), $5=repository_id, $6=created_by,
+        // $7=tag(formerly $7), $8=parent_task_id(was $8), $9=limit, $10=offset,
+        // $11=exclude_status ... re-numbered after removing team_ids bind.
         let sql = format!(
             r#"SELECT DISTINCT
                 t.task_id, t.short_id, t.created_at, t.last_message_at, t.agent_type,
                 t.repository_id, t.workspace_id, t.status, t.total_cost_usd, t.site_url, t.template_id,
                 t.vibe, t.name, t.description, t.site_id, t.site_provider, t.branch,
-                t.created_by, t.visibility, t.scope, t.team_id, t.owner_user_id,
+                t.created_by, t.visibility, t.scope, t.owner_user_id,
                 t.created_at_db, t.updated_at, t.append_system_prompt,
                 t.headless, t.ttl_minutes,
                 t.inactive_ttl_days, t.trigger_id, t.disabled_servers,
@@ -318,29 +316,28 @@ impl TaskRepository for PgTaskRepository {
             LEFT JOIN task_tags tt ON t.task_id = tt.task_id
             LEFT JOIN tags tg ON tt.tag_id = tg.tag_id
             WHERE {}
-              AND ($4::text IS NULL OR t.status = $4)
-              AND ($11::text IS NULL OR t.status != $11)
-              AND ($5::text IS NULL OR t.repository_id = $5)
-              AND ($6::text IS NULL OR t.created_by = $6)
-              AND ($7::text IS NULL OR tg.name = $7)
-              AND ($8::text IS NULL OR EXISTS (
+              AND ($3::text IS NULL OR t.status = $3)
+              AND ($10::text IS NULL OR t.status != $10)
+              AND ($4::text IS NULL OR t.repository_id = $4)
+              AND ($5::text IS NULL OR t.created_by = $5)
+              AND ($6::text IS NULL OR tg.name = $6)
+              AND ($7::text IS NULL OR EXISTS (
                   SELECT 1 FROM task_relations tr
                   WHERE tr.from_task_id = t.task_id
                     AND tr.relation_type = 'created_by'
-                    AND tr.to_task_id = $8
+                    AND tr.to_task_id = $7
               ))
-              AND ($12::text IS NULL OR EXISTS (
+              AND ($11::text IS NULL OR EXISTS (
                   SELECT 1 FROM task_follows tf
                   WHERE tf.task_id = t.task_id
-                    AND tf.user_id = $12
+                    AND tf.user_id = $11
               ))
             ORDER BY t.updated_at DESC NULLS LAST
-            LIMIT $9 OFFSET $10"#,
+            LIMIT $8 OFFSET $9"#,
             access.sql(),
         );
         let rows = sqlx::query_as::<_, TaskWithCount>(AssertSqlSafe(sql))
             .bind(filter.scope.is_admin)
-            .bind(&filter.scope.team_ids)
             .bind(&filter.scope.user_id)
             .bind(filter.status)
             .bind(&filter.repository_id)
@@ -379,7 +376,6 @@ impl TaskRepository for PgTaskRepository {
                 created_by: r.created_by,
                 visibility: r.visibility,
                 scope: r.scope,
-                team_id: r.team_id,
                 owner_user_id: r.owner_user_id,
                 created_at_db: r.created_at_db,
                 updated_at: r.updated_at,
@@ -395,137 +391,133 @@ impl TaskRepository for PgTaskRepository {
         Ok((tasks, total))
     }
 
-    async fn update_task(&self, task_id: &str, patch: &TaskPatch) -> Result<(), sqlx::Error> {
-        // Use individual UPDATE statements per field for type safety
-        // rather than dynamic SQL construction
+    async fn update_task(
+        &self,
+        task_id: &str,
+        patch: &TaskPatch,
+        ctx: &ScopeContext,
+    ) -> Result<bool, sqlx::Error> {
+        // Use individual UPDATE statements per field for type safety.
+        // Each statement embeds the control_filter so only the owner (or admin)
+        // can modify the row. The first executed statement's rows_affected drives
+        // the return value; subsequent statements return their own rows_affected
+        // but we track the first non-empty patch field's result.
+        let ctrl = ctx.control_filter("", 3);
+        let ctrl_sql = ctrl.sql();
+        let mut first_affected: Option<u64> = None;
+
+        macro_rules! run_field {
+            ($set_clause:expr, $value:expr) => {{
+                let sql = format!(
+                    "UPDATE tasks SET {}, updated_at = NOW() WHERE task_id = $1 AND {}",
+                    $set_clause, ctrl_sql
+                );
+                let res = sqlx::query(AssertSqlSafe(sql))
+                    .bind(task_id)
+                    .bind($value)
+                    .bind(ctx.is_admin)
+                    .bind(&ctx.user_id)
+                    .execute(&self.0)
+                    .await?;
+                if first_affected.is_none() {
+                    first_affected = Some(res.rows_affected());
+                }
+            }};
+        }
+
         if let Some(ref status) = patch.status {
-            sqlx::query("UPDATE tasks SET status = $2, updated_at = NOW() WHERE task_id = $1")
-                .bind(task_id)
-                .bind(status)
-                .execute(&self.0)
-                .await?;
+            run_field!("status = $2", status);
         }
         if let Some(ref name) = patch.name {
-            sqlx::query("UPDATE tasks SET name = $2, updated_at = NOW() WHERE task_id = $1")
-                .bind(task_id)
-                .bind(name)
-                .execute(&self.0)
-                .await?;
+            run_field!("name = $2", name);
         }
         if let Some(ref description) = patch.description {
-            sqlx::query("UPDATE tasks SET description = $2, updated_at = NOW() WHERE task_id = $1")
-                .bind(task_id)
-                .bind(description)
-                .execute(&self.0)
-                .await?;
+            run_field!("description = $2", description);
         }
         if let Some(ref last_message_at) = patch.last_message_at {
-            sqlx::query(
-                "UPDATE tasks SET last_message_at = $2, updated_at = NOW() WHERE task_id = $1",
-            )
-            .bind(task_id)
-            .bind(last_message_at)
-            .execute(&self.0)
-            .await?;
+            run_field!("last_message_at = $2", last_message_at);
         }
         if let Some(total_cost_usd) = patch.total_cost_usd {
-            sqlx::query(
-                "UPDATE tasks SET total_cost_usd = $2, updated_at = NOW() WHERE task_id = $1",
-            )
-            .bind(task_id)
-            .bind(total_cost_usd)
-            .execute(&self.0)
-            .await?;
+            run_field!("total_cost_usd = $2", total_cost_usd);
         }
         if let Some(increment) = patch.total_cost_usd_increment {
-            sqlx::query("UPDATE tasks SET total_cost_usd = total_cost_usd + $2, updated_at = NOW() WHERE task_id = $1")
+            let sql = format!(
+                "UPDATE tasks SET total_cost_usd = total_cost_usd + $2, updated_at = NOW() \
+                 WHERE task_id = $1 AND {ctrl_sql}"
+            );
+            let res = sqlx::query(AssertSqlSafe(sql))
                 .bind(task_id)
                 .bind(increment)
+                .bind(ctx.is_admin)
+                .bind(&ctx.user_id)
                 .execute(&self.0)
                 .await?;
+            if first_affected.is_none() {
+                first_affected = Some(res.rows_affected());
+            }
         }
         if let Some(ref site_url) = patch.site_url {
-            sqlx::query("UPDATE tasks SET site_url = $2, updated_at = NOW() WHERE task_id = $1")
-                .bind(task_id)
-                .bind(site_url)
-                .execute(&self.0)
-                .await?;
+            run_field!("site_url = $2", site_url);
         }
         if let Some(ref visibility) = patch.visibility {
-            sqlx::query("UPDATE tasks SET visibility = $2, updated_at = NOW() WHERE task_id = $1")
-                .bind(task_id)
-                .bind(visibility)
-                .execute(&self.0)
-                .await?;
+            run_field!("visibility = $2", visibility);
         }
         if let Some(ref short_id) = patch.short_id {
-            sqlx::query("UPDATE tasks SET short_id = $2, updated_at = NOW() WHERE task_id = $1")
-                .bind(task_id)
-                .bind(short_id)
-                .execute(&self.0)
-                .await?;
+            run_field!("short_id = $2", short_id);
         }
         if let Some(ref append_system_prompt) = patch.append_system_prompt {
-            sqlx::query(
-                "UPDATE tasks SET append_system_prompt = $2, updated_at = NOW() WHERE task_id = $1",
-            )
-            .bind(task_id)
-            .bind(append_system_prompt)
-            .execute(&self.0)
-            .await?;
+            run_field!("append_system_prompt = $2", append_system_prompt);
         }
         if let Some(ttl_minutes) = patch.ttl_minutes {
-            sqlx::query("UPDATE tasks SET ttl_minutes = $2, updated_at = NOW() WHERE task_id = $1")
-                .bind(task_id)
-                .bind(ttl_minutes)
-                .execute(&self.0)
-                .await?;
+            run_field!("ttl_minutes = $2", ttl_minutes);
         }
         if let Some(inactive_ttl_days) = patch.inactive_ttl_days {
-            sqlx::query(
-                "UPDATE tasks SET inactive_ttl_days = $2, updated_at = NOW() WHERE task_id = $1",
-            )
-            .bind(task_id)
-            .bind(inactive_ttl_days)
-            .execute(&self.0)
-            .await?;
+            run_field!("inactive_ttl_days = $2", inactive_ttl_days);
         }
         if let Some(ref disabled_servers) = patch.disabled_servers {
             // Full replace — the column always holds the complete disabled set.
             let json = serde_json::json!(disabled_servers);
-            sqlx::query(
-                "UPDATE tasks SET disabled_servers = $2, updated_at = NOW() WHERE task_id = $1",
-            )
-            .bind(task_id)
-            .bind(json)
-            .execute(&self.0)
-            .await?;
+            run_field!("disabled_servers = $2", json);
         }
-        Ok(())
+        // Empty patch: caller read-checked the task first; return true.
+        Ok(first_affected.is_none_or(|n| n > 0))
     }
 
     async fn update_status_if_not_closed(
         &self,
         task_id: &str,
         new_status: TaskStatus,
+        ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error> {
-        let res = sqlx::query(
+        let ctrl = ctx.control_filter("", 3);
+        let sql = format!(
             "UPDATE tasks SET status = $2, updated_at = NOW() \
-             WHERE task_id = $1 AND status <> 'closed'",
-        )
-        .bind(task_id)
-        .bind(new_status)
-        .execute(&self.0)
-        .await?;
+             WHERE task_id = $1 AND status <> 'closed' AND {}",
+            ctrl.sql()
+        );
+        let res = sqlx::query(AssertSqlSafe(sql))
+            .bind(task_id)
+            .bind(new_status)
+            .bind(ctx.is_admin)
+            .bind(&ctx.user_id)
+            .execute(&self.0)
+            .await?;
         Ok(res.rows_affected() > 0)
     }
 
-    async fn delete_task(&self, task_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM tasks WHERE task_id = $1")
+    async fn delete_task(&self, task_id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
+        let ctrl = ctx.control_filter("", 2);
+        let sql = format!(
+            "DELETE FROM tasks WHERE task_id = $1 AND {}",
+            ctrl.sql()
+        );
+        let res = sqlx::query(AssertSqlSafe(sql))
             .bind(task_id)
+            .bind(ctx.is_admin)
+            .bind(&ctx.user_id)
             .execute(&self.0)
             .await?;
-        Ok(())
+        Ok(res.rows_affected() > 0)
     }
 
     async fn exists_by_short_id(&self, short_id: &str) -> Result<bool, sqlx::Error> {
@@ -737,20 +729,6 @@ impl TaskRepository for PgTaskRepository {
                 .fetch_all(&self.0)
                 .await?
             }
-            "team" => {
-                sqlx::query_as(
-                    r#"SELECT DISTINCT t.task_id FROM tasks t
-                       JOIN team_members tm ON tm.user_id::text = t.created_by
-                       WHERE t.status = 'open'
-                         AND t.agent_type = 'codex'
-                         AND tm.team_id = $1
-                         AND ($2::text IS NULL OR t.task_id <> $2)"#,
-                )
-                .bind(&scope_id)
-                .bind(except)
-                .fetch_all(&self.0)
-                .await?
-            }
             "global" => {
                 sqlx::query_as(
                     r#"SELECT task_id FROM tasks
@@ -810,16 +788,6 @@ pub async fn find_by_id(
         .await
 }
 
-/// Find by task_id without access control (convenience wrapper).
-pub async fn find_by_id_internal(
-    pool: &DbPool,
-    task_id: &str,
-) -> Result<Option<Task>, sqlx::Error> {
-    PgTaskRepository(pool.clone())
-        .find_by_id_internal(task_id)
-        .await
-}
-
 /// List tasks with individual filter arguments (convenience wrapper).
 #[allow(clippy::too_many_arguments)]
 pub async fn list_tasks(
@@ -853,15 +821,22 @@ pub async fn update_task(
     pool: &DbPool,
     task_id: &str,
     patch: &TaskPatch,
-) -> Result<(), sqlx::Error> {
+    ctx: &ScopeContext,
+) -> Result<bool, sqlx::Error> {
     PgTaskRepository(pool.clone())
-        .update_task(task_id, patch)
+        .update_task(task_id, patch, ctx)
         .await
 }
 
 /// Delete a task (convenience wrapper).
-pub async fn delete_task(pool: &DbPool, task_id: &str) -> Result<(), sqlx::Error> {
-    PgTaskRepository(pool.clone()).delete_task(task_id).await
+pub async fn delete_task(
+    pool: &DbPool,
+    task_id: &str,
+    ctx: &ScopeContext,
+) -> Result<bool, sqlx::Error> {
+    PgTaskRepository(pool.clone())
+        .delete_task(task_id, ctx)
+        .await
 }
 
 /// Check if a task with the given short_id exists (convenience wrapper).

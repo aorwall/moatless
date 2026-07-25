@@ -342,7 +342,6 @@ pub const USER_2: &str = "22222222-2222-2222-2222-222222222222";
 pub fn user_scope(user_id: &str) -> ScopeContext {
     ScopeContext {
         user_id: user_id.to_string(),
-        team_ids: vec![],
         is_admin: false,
     }
 }
@@ -385,7 +384,6 @@ pub fn make_task_row(task_id: &str, user_id: &str) -> Task {
         created_by: Some(user_id.to_string()),
         visibility: Visibility::Private,
         scope: moatless_vibe_backend::scope::Scope::User,
-        team_id: Some(format!("personal-{user_id}")),
         owner_user_id: Some(user_id.to_string()),
         created_at_db: None,
         updated_at: None,
@@ -412,7 +410,6 @@ pub fn make_repository_row(id: &str, user_id: &str) -> Repository {
         description: None,
         provider: Some(RepositoryProvider::Github),
         scope: moatless_vibe_backend::scope::Scope::User,
-        team_id: Some(format!("personal-{user_id}")),
         owner_user_id: Some(user_id.to_string()),
         created_by: Some(user_id.to_string()),
         access_status: "unchecked".to_string(),
@@ -501,7 +498,6 @@ pub fn authed_request(
             role: moatless_vibe_backend::auth::models::UserRole::User,
             provider: "test".to_string(),
             group_id: None,
-            team_ids: vec![],
         });
     req
 }
@@ -528,7 +524,6 @@ pub fn authed_json_request(
             role: moatless_vibe_backend::auth::models::UserRole::User,
             provider: "test".to_string(),
             group_id: None,
-            team_ids: vec![],
         });
     req
 }
@@ -575,7 +570,6 @@ pub fn make_workspace_row(id: &str, user_id: &str) -> Workspace {
         source_key: None,
         source_config_path: None,
         scope: moatless_vibe_backend::scope::Scope::User,
-        team_id: Some(format!("personal-{user_id}")),
         owner_user_id: Some(user_id.to_string()),
         created_by: Some(user_id.to_string()),
         deleted: Some(false),

@@ -56,8 +56,7 @@ pub struct OAuthProviders {
     pub github_app: Option<Arc<dyn OAuthProvider>>,
     pub auth0: Option<Arc<dyn OAuthProvider>>,
     /// Linear workspace install. Not used for user login — issued tokens are
-    /// stored at the workspace level (`provider_tokens.team_id = <org uuid>`)
-    /// and consumed by the Linear Agents API client.
+    /// stored globally and consumed by the Linear Agents API client.
     pub linear: Option<Arc<super::oauth::linear::LinearOAuthProvider>>,
 }
 
@@ -136,7 +135,6 @@ pub struct AuthState {
     /// Encrypted secret store — holds the OAuth token stashed behind a PAT
     /// override, and the validated PAT itself.
     pub secrets: Arc<SecretService>,
-    pub teams: Option<Arc<dyn crate::team::dao::TeamRepository>>,
     pub tasks: Option<Arc<dyn crate::task::dao::TaskRepository>>,
 }
 
@@ -150,8 +148,6 @@ impl AuthState {
 
         let providers = OAuthProviders::from_config(&config);
         let cache = AuthCache::new(config.auth.cache_ttl_secs);
-        let teams: Option<Arc<dyn crate::team::dao::TeamRepository>> =
-            Some(Arc::new(crate::team::dao::PgTeamRepository(pool.clone())));
         let tasks: Option<Arc<dyn crate::task::dao::TaskRepository>> =
             Some(Arc::new(crate::task::dao::PgTaskRepository(pool.clone())));
         let github_apps = Arc::new(GitHubAppRegistry::from_config(&config));
@@ -176,7 +172,6 @@ impl AuthState {
             secrets,
             providers: Arc::new(providers),
             cache,
-            teams,
             tasks,
             db: pool,
             config,
@@ -382,20 +377,11 @@ async fn password_login_handler(
             ))
         })?;
 
-    // Same default-team assignment OAuth logins get.
-    let team_ids = match state.teams {
-        Some(ref teams) => {
-            resolve_team_ids_on_login(teams.as_ref(), &user.id, None, &state.config).await
-        }
-        None => vec![],
-    };
-
     let jwt_secret = require_jwt_secret(&state.config)?;
     let token = session::create_session_from_user_with_provider(
         state.sessions.as_ref(),
         &user,
         None,
-        &team_ids,
         state.config.auth.session_max_age_secs,
         jwt_secret,
         "local",
@@ -609,8 +595,6 @@ async fn create_local_user(
     // provider identity so it resolves back to this uuid.
     let provider_user_id = format!("local:{}", login.to_lowercase());
     let user_id = uuid::Uuid::new_v4();
-    let user_id_str = user_id.to_string();
-    let team_id = format!("personal-{user_id}");
 
     // Hash before opening the transaction — argon2 costs ~100ms and must not
     // hold a Postgres connection open for it.
@@ -644,28 +628,6 @@ async fn create_local_user(
     )
     .bind(user_id)
     .bind(&provider_user_id)
-    .execute(&mut *tx)
-    .await?;
-
-    // Personal team scaffolding, mirroring the bot branch.
-    sqlx::query(
-        r#"INSERT INTO teams (id, name, slug, description, is_default, settings, created_at, updated_at)
-           VALUES ($1, $2, $3, 'Personal workspace', false, '{}'::jsonb, NOW(), NOW())
-           ON CONFLICT (id) DO NOTHING"#,
-    )
-    .bind(&team_id)
-    .bind(format!("{login} Personal"))
-    .bind(personal_team_slug(&user_id_str))
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query(
-        r#"INSERT INTO team_members (team_id, user_id, role, created_at)
-           VALUES ($1, $2, 'owner', NOW())
-           ON CONFLICT (team_id, user_id) DO UPDATE SET role = EXCLUDED.role"#,
-    )
-    .bind(&team_id)
-    .bind(user_id)
     .execute(&mut *tx)
     .await?;
 
@@ -765,7 +727,6 @@ async fn authenticate_request(
                     role: payload.role,
                     provider: payload.provider,
                     group_id: payload.group_id,
-                    team_ids: payload.team_ids,
                 });
             }
             return Err(AuthError::InvalidApiKey);
@@ -788,7 +749,6 @@ async fn authenticate_request(
                 role,
                 provider: claims.provider,
                 group_id: claims.group_id,
-                team_ids: claims.team_ids,
             });
         }
     }
@@ -828,8 +788,7 @@ async fn verify_handler(
         if let Some(task_id) = extract_task_id_from_hostname(host) {
             if let Some(ref tasks) = state.tasks {
                 let scope_ctx = ScopeContext {
-                    user_id: identity.user_id.clone().to_string(),
-                    team_ids: identity.team_ids.clone(),
+                    user_id: identity.user_id.to_string(),
                     is_admin: identity.role == UserRole::Admin,
                 };
                 let task = tasks
@@ -891,7 +850,6 @@ async fn me_handler(
 
     let setup_ctx = SetupContext {
         user_id: &identity.user_id.to_string(),
-        team_ids: &identity.team_ids,
         is_admin: identity.role == UserRole::Admin,
         provider_tokens: state.provider_tokens_dao.as_ref(),
         secrets: Some(state.secrets.as_ref()),
@@ -1270,19 +1228,6 @@ async fn handle_oauth_callback(
         None => uuid::Uuid::new_v4(),
     };
 
-    // Resolve team memberships
-    let team_ids = if let Some(ref teams_repo) = state.teams {
-        resolve_team_ids_on_login(
-            teams_repo.as_ref(),
-            &user_id,
-            group_id.as_deref(),
-            &state.config,
-        )
-        .await
-    } else {
-        vec![]
-    };
-
     // Create session (returns JWT)
     let jwt_token = session::create_session(
         state.users.as_ref(),
@@ -1294,7 +1239,6 @@ async fn handle_oauth_callback(
         &tokens,
         &user_info,
         group_id.as_deref(),
-        &team_ids,
         state.config.auth.session_max_age_secs,
         jwt_secret,
     )
@@ -1550,20 +1494,10 @@ async fn exchange_api_key_handler(
 
     let jwt_secret = require_jwt_secret(&state.config)?;
 
-    let team_ids = if let Some(ref teams_repo) = state.teams {
-        teams_repo
-            .find_team_ids_for_user(&user.id)
-            .await
-            .unwrap_or_default()
-    } else {
-        vec![]
-    };
-
     let jwt_token = session::create_session_from_user(
         state.sessions.as_ref(),
         &user,
         payload.group_id.as_deref(),
-        &team_ids,
         state.config.auth.session_max_age_secs,
         jwt_secret,
     )
@@ -1648,20 +1582,10 @@ async fn exchange_token_handler(
 
     let jwt_secret = require_jwt_secret(&state.config)?;
 
-    let team_ids = if let Some(ref teams_repo) = state.teams {
-        teams_repo
-            .find_team_ids_for_user(&user.id)
-            .await
-            .unwrap_or_default()
-    } else {
-        vec![]
-    };
-
     let jwt_token = session::create_session_from_user(
         state.sessions.as_ref(),
         &user,
         None, // sandbox tokens don't carry group_id
-        &team_ids,
         state.config.auth.session_max_age_secs,
         jwt_secret,
     )
@@ -1879,11 +1803,11 @@ async fn create_user_handler(
     // is a uuid, reused across re-runs so the endpoint stays idempotent.
     let provider_user_id = format!("bot:{app_key}");
 
-    // Atomic: users + personal team scaffolding + provider_tokens row succeed
-    // together. A failure of the provider_tokens insert must not leave a
-    // half-bot row in `users` that silently falls back to "user with no creds".
-    // Re-running the endpoint with the same app key refreshes the bot's
-    // login/email from the GitHub App metadata via the ON CONFLICT clauses.
+    // Atomic: users + provider_tokens row succeed together. A failure of the
+    // provider_tokens insert must not leave a half-bot row in `users` that
+    // silently falls back to "user with no creds". Re-running the endpoint with
+    // the same app key refreshes the bot's login/email from the GitHub App
+    // metadata via the ON CONFLICT clauses.
     let mut tx = state.db.begin().await.map_err(AuthError::Database)?;
 
     let existing_bot: Option<(uuid::Uuid,)> =
@@ -1893,7 +1817,6 @@ async fn create_user_handler(
             .await?;
     let user_id = existing_bot.map_or_else(uuid::Uuid::new_v4, |(id,)| id);
     let user_id_str = user_id.to_string();
-    let team_id = format!("personal-{user_id}");
 
     sqlx::query(
         r#"
@@ -1933,42 +1856,20 @@ async fn create_user_handler(
     .execute(&mut *tx)
     .await?;
 
-    // Personal team scaffolding (mirrors `provider_token_dao::ensure_personal_team`)
-    // so the FK on `provider_tokens.team_id` resolves inside this transaction.
-    sqlx::query(
-        r#"INSERT INTO teams (id, name, slug, description, is_default, settings, created_at, updated_at)
-           VALUES ($1, $2, $3, 'Personal workspace', false, '{}'::jsonb, NOW(), NOW())
-           ON CONFLICT (id) DO NOTHING"#,
-    )
-    .bind(&team_id)
-    .bind(format!("{user_id} Personal"))
-    .bind(personal_team_slug(&user_id_str))
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query(
-        r#"INSERT INTO team_members (team_id, user_id, role, created_at)
-           VALUES ($1, $2, 'owner', NOW())
-           ON CONFLICT (team_id, user_id) DO UPDATE SET role = EXCLUDED.role"#,
-    )
-    .bind(&team_id)
-    .bind(user_id)
-    .execute(&mut *tx)
-    .await?;
-
     // Bot's provider_tokens row. `provider_user_id` carries the App key so
     // the canonical resolver can pick the right App when minting installation
     // tokens. `access_token` holds the documented sentinel — any code path that
     // bypasses the resolver and reads the column directly hits a clear 401
     // instead of silently sending an empty Bearer token.
+    // team_id is NULL (migration 0097 dropped the team FK requirement).
     sqlx::query(
         r#"
         INSERT INTO provider_tokens (
             user_id, provider, auth_method, access_token, refresh_token,
             token_type, oauth_scope, provider_user_id, provider_login,
-            connected_at, expires_at, scope, team_id, owner_user_id
+            connected_at, expires_at, scope, owner_user_id
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'user', $12, $1)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'user', $1)
         ON CONFLICT (user_id, provider, team_id) DO UPDATE SET
             auth_method = EXCLUDED.auth_method,
             access_token = EXCLUDED.access_token,
@@ -1994,7 +1895,6 @@ async fn create_user_handler(
     .bind(Some(&bot_identity.login))
     .bind(now)
     .bind::<Option<chrono::DateTime<chrono::Utc>>>(None)
-    .bind(&team_id)
     .execute(&mut *tx)
     .await?;
 
@@ -2092,21 +1992,6 @@ async fn admin_set_codex_provider_token_handler(
             needs_reconnect: Some(false),
         },
     ))
-}
-
-/// Mirror of `provider_token_dao::personal_team_slug` — the slug formula must
-/// match because the create-bot-user handler scaffolds the team itself.
-fn personal_team_slug(user_id: &str) -> String {
-    let mut slug = String::with_capacity(user_id.len() + "personal-".len());
-    slug.push_str("personal-");
-    for ch in user_id.chars() {
-        if ch.is_ascii_alphanumeric() {
-            slug.push(ch.to_ascii_lowercase());
-        } else if !slug.ends_with('-') {
-            slug.push('-');
-        }
-    }
-    slug.trim_end_matches('-').to_string()
 }
 
 /// List all registered users.
@@ -2342,57 +2227,6 @@ async fn list_user_provider_ids_handler(
 }
 
 // ============================================================================
-// Team resolution helpers
-// ============================================================================
-
-/// Resolve team IDs for a user on login.
-///
-/// For Auth0 users with a group claim, upserts the group as a team and adds membership.
-/// For all users, checks for default team assignment if the user has no teams.
-async fn resolve_team_ids_on_login(
-    teams: &dyn crate::team::dao::TeamRepository,
-    user_id: &uuid::Uuid,
-    group_id: Option<&str>,
-    config: &Config,
-) -> Vec<String> {
-    // If Auth0 group claim is present, upsert team and add membership
-    if let Some(group) = group_id {
-        let slug = group.to_lowercase().replace(' ', "-");
-        match teams.upsert_by_external(group, "auth0", group, &slug).await {
-            Ok(team) => {
-                if let Err(e) = teams.add_member(&team.id, user_id, "member").await {
-                    warn!(error = %e, user_id = %user_id, team_id = %team.id, "Failed to add user to Auth0 team");
-                }
-            }
-            Err(e) => {
-                warn!(error = %e, user_id = %user_id, group = group, "Failed to upsert Auth0 team");
-            }
-        }
-    }
-
-    // Fetch current team memberships
-    let mut team_ids = teams
-        .find_team_ids_for_user(user_id)
-        .await
-        .unwrap_or_default();
-
-    // If no teams and a default team is configured, add user to it
-    if team_ids.is_empty() {
-        if let Some(ref slug) = config.auth.default_team_slug {
-            if let Ok(Some(default_team)) = teams.find_by_slug(slug).await {
-                if let Err(e) = teams.add_member(&default_team.id, user_id, "member").await {
-                    warn!(error = %e, user_id = %user_id, "Failed to add user to default team");
-                } else {
-                    team_ids.push(default_team.id);
-                }
-            }
-        }
-    }
-
-    team_ids
-}
-
-// ============================================================================
 // Linear workspace OAuth install
 // ============================================================================
 
@@ -2435,7 +2269,7 @@ async fn linear_install_handler(State(state): State<AuthState>) -> Result<Respon
 /// 2. Exchange code → workspace token (form-encoded).
 /// 3. Fetch viewer + organization to identify the agent + workspace.
 /// 4. Upsert `integration_connections(provider="linear", external_account_id=org_id)`.
-/// 5. Upsert `provider_tokens(team_id="system", provider="linear")` (workspace
+/// 5. Upsert the global `provider_tokens(provider="linear")` row (workspace
 ///    OAuth tokens are stored globally — the Linear org UUID lives in
 ///    `integration_connections.scope_value` and `provider_tokens.metadata`).
 async fn linear_callback_handler(
@@ -2497,17 +2331,20 @@ async fn linear_callback_handler(
         scope: existing
             .as_ref()
             .map_or(moatless_backend_core::scope::Scope::Global, |c| c.scope),
-        team_id: existing.as_ref().and_then(|c| c.team_id.clone()),
         owner_user_id: existing.as_ref().and_then(|c| c.owner_user_id.clone()),
         created_at: existing.as_ref().map_or(now, |c| c.created_at),
         updated_at: now,
     };
+    // reason: OAuth install callback has no user session; the workspace
+    // connection is a global admin-managed row.
+    #[allow(clippy::disallowed_methods)]
+    let sys_ctx = moatless_backend_core::scope::ScopeContext::system();
     conn_repo
-        .upsert(&connection_row)
+        .upsert(&connection_row, &sys_ctx)
         .await
         .map_err(AuthError::Database)?;
 
-    // Upsert the workspace token row.
+    // Upsert the workspace token row (global scope: user_id=NULL, team_id=NULL).
     let expires_at = tokens
         .expires_in
         .map(|secs| now + chrono::Duration::seconds(secs as i64));
@@ -2519,30 +2356,25 @@ async fn linear_callback_handler(
         "agent_viewer_email": identity.agent_viewer_email,
         "scope": tokens.scope,
     });
-    state
-        .provider_tokens_dao
-        .upsert_team_token(
-            "system",
-            "linear",
-            "oauth",
-            &tokens.access_token,
-            tokens.refresh_token.as_deref(),
-            Some(tokens.token_type.as_str()),
-            Some(&metadata),
-        )
-        .await
-        .map_err(AuthError::Database)?;
-
-    if let Some(expires) = expires_at {
-        sqlx::query(
-            "UPDATE provider_tokens SET expires_at = $1 \
-             WHERE team_id = 'system' AND provider = 'linear' AND user_id IS NULL",
-        )
-        .bind(expires)
-        .execute(&state.db)
-        .await
-        .map_err(AuthError::Database)?;
-    }
+    sqlx::query(
+        r#"INSERT INTO provider_tokens (
+               provider, auth_method, access_token, refresh_token, token_type,
+               metadata, connected_at, updated_at, scope, owner_user_id, expires_at
+           )
+           VALUES ('linear', 'oauth', $1, $2, $3, $4, NOW(), NOW(), 'global', NULL, $5)
+           ON CONFLICT (user_id, provider, team_id) DO UPDATE SET
+               access_token = $1, refresh_token = $2, token_type = $3,
+               metadata = $4, auth_method = 'oauth', scope = 'global',
+               owner_user_id = NULL, updated_at = NOW(), expires_at = $5"#,
+    )
+    .bind(&tokens.access_token)
+    .bind(tokens.refresh_token.as_deref())
+    .bind(tokens.token_type.as_str())
+    .bind(&metadata)
+    .bind(expires_at)
+    .execute(&state.db)
+    .await
+    .map_err(AuthError::Database)?;
 
     info!(
         org_id = %identity.organization_id,

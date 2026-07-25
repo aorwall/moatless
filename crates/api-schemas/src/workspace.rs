@@ -48,8 +48,6 @@ pub struct CreateWorkspaceRequest {
     pub description: Option<String>,
     #[serde(default)]
     pub scope: Option<Scope>,
-    #[serde(default)]
-    pub team_id: Option<String>,
     // --- Run configuration (mirrors repositories) ---
     #[serde(default)]
     pub docker_image: Option<String>,
@@ -87,11 +85,10 @@ pub struct CreateWorkspaceRequest {
 pub struct UpdateWorkspaceRequest {
     pub name: Option<String>,
     pub description: Option<String>,
-    /// Change the workspace's access scope (`global`, `team`, or `user`). When
-    /// set, `team_id`/`owner_user_id` are re-resolved from the new scope.
+    /// Change the workspace's access scope (`global` or `user`). When set,
+    /// `owner_user_id` is re-resolved from the new scope. Requesting `global`
+    /// requires admin.
     pub scope: Option<Scope>,
-    /// Target team when moving to `team` scope. Ignored for `global`/`user`.
-    pub team_id: Option<String>,
     pub docker_image: Option<String>,
     pub docker_access: Option<bool>,
     pub sandbox_service_account: Option<String>,
@@ -181,7 +178,6 @@ pub struct WorkspaceResponse {
     #[serde(default)]
     pub source_repository_id: Option<String>,
     pub scope: Scope,
-    pub team_id: Option<String>,
     pub owner_user_id: Option<String>,
     pub created_by: Option<String>,
     pub created_at: Option<String>,

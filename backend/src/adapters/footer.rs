@@ -12,6 +12,7 @@
 
 use crate::message::hooks::FOOTER_MARKER;
 use crate::state::AppState;
+use moatless_backend_core::scope::ScopeContext;
 
 /// Format the footer suffix from already-resolved inputs. Returns `None` when
 /// `frontend_url` is empty (matches the PR-body footer behaviour in
@@ -51,7 +52,9 @@ pub(crate) fn parse_task_id_from_body(frontend_url: &str, body: &str) -> Option<
 /// no frontend URL is configured. Loads the task name (best effort) to use as
 /// the link text.
 pub(crate) async fn task_comment_footer(state: &AppState, task_id: &str) -> Option<String> {
-    let name = match state.tasks.find_by_id_internal(task_id).await {
+    #[allow(clippy::disallowed_methods)] // reason: footer lookup is a background formatting step with no caller identity
+    let sys = ScopeContext::system();
+    let name = match state.tasks.find_by_id(task_id, &sys).await {
         Ok(Some(task)) => task.name,
         Ok(None) => None,
         Err(e) => {

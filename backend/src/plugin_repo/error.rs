@@ -29,7 +29,6 @@ impl From<crate::access_control::AccessControlError> for PluginRepoError {
         match e {
             E::BadRequest(m) => PluginRepoError::BadRequest(m),
             E::Forbidden(m) => PluginRepoError::Forbidden(m),
-            E::Db(e) => PluginRepoError::Db(e),
         }
     }
 }

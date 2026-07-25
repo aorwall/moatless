@@ -5,7 +5,6 @@ use tracing::info;
 use super::dao::RepoRepository;
 use super::handlers::normalize_remote_url;
 use super::models::{Repository, RepositoryKind, RepositoryProvider};
-use crate::access_control::SYSTEM_TEAM_ID;
 use moatless_backend_core::scope::Scope;
 
 /// Insert default template repositories if they don't already exist.
@@ -26,7 +25,6 @@ async fn seed_moatable(repos: &dyn RepoRepository) -> Result<(), sqlx::Error> {
         .exists_by_normalized_remote_url_including_deleted(
             &normalize_remote_url(MOATABLE_URL),
             Scope::Global,
-            Some(SYSTEM_TEAM_ID.to_string()),
             None,
         )
         .await?
@@ -48,7 +46,6 @@ async fn seed_moatable(repos: &dyn RepoRepository) -> Result<(), sqlx::Error> {
         description: Some("React + TypeScript + Vite + Tailwind CSS starter template".to_string()),
         provider: Some(RepositoryProvider::Github),
         scope: Scope::Global,
-        team_id: Some(SYSTEM_TEAM_ID.to_string()),
         owner_user_id: None,
         created_by: Some("system".to_string()),
         access_status: "unchecked".to_string(),

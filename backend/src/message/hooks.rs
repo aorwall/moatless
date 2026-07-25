@@ -24,6 +24,7 @@ use super::schemas::{SubagentStatus, UiMessage};
 use crate::adapters::github_pr::api::GithubPrApi;
 use crate::bindings::dao::PgTaskBindingRepository;
 use crate::state::AppState;
+use moatless_backend_core::scope::ScopeContext;
 
 /// Footer marker so we can detect if the URL was already appended (and skip
 /// re-appending on retries). Stable across runs. Shared with the typed
@@ -390,7 +391,10 @@ async fn try_append_task_footer(state: &AppState, task_id: &str, pr: &ParsedPr) 
     }
     let task_url = format!("{frontend_url}/tasks/{task_id}");
 
-    let task = match state.tasks.find_by_id_internal(task_id).await {
+    // reason: hook runs server-side after agent write; no user request context available.
+    #[allow(clippy::disallowed_methods)]
+    let sys_ctx = ScopeContext::system();
+    let task = match state.tasks.find_by_id(task_id, &sys_ctx).await {
         Ok(Some(t)) => t,
         Ok(None) => {
             warn!(task_id, "Task not found when appending PR footer");
@@ -562,7 +566,10 @@ async fn handle_git_push(state: &AppState, task_id: &str, parent_uuid: &str, res
         return;
     }
 
-    let task = match state.tasks.find_by_id_internal(task_id).await {
+    // reason: hook runs server-side after agent write; no user request context available.
+    #[allow(clippy::disallowed_methods)]
+    let sys_ctx = ScopeContext::system();
+    let task = match state.tasks.find_by_id(task_id, &sys_ctx).await {
         Ok(Some(t)) => t,
         Ok(None) => {
             warn!(task_id, "Task not found when handling git push");
@@ -665,9 +672,13 @@ async fn resolve_task_repository_github_token(
     owner: &str,
     repo_name: &str,
 ) -> Result<Option<String>, crate::repository::error::RepositoryError> {
+    // reason: hook runs in the agent's background flow; the task row was
+    // already resolved for this flow and the repo is its configured one.
+    #[allow(clippy::disallowed_methods)]
+    let sys_ctx = ScopeContext::system();
     let repository = state
         .repositories
-        .find_repository_by_id(&task.repository_id)
+        .find_by_id(&task.repository_id, &sys_ctx)
         .await?
         .ok_or_else(|| {
             crate::repository::error::RepositoryError::NotFound(task.repository_id.clone())

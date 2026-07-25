@@ -1,12 +1,11 @@
-//! Team CRUD, membership, and credentials integration tests.
+//! Team CRUD and membership integration tests.
 //!
 //! Mirrors: tests/api/chains/auth-team-crud.spec.ts
-//! Spec IDs: AUTH-01 through AUTH-10
+//! Spec IDs: AUTH-01 through AUTH-10 (AUTH-08.x retired — team credentials
+//! were removed with the two-value scope model)
 
 use integration_tests::{raw_api, raw_client_for, seed_test_users};
-use moatless_api_schemas::team::{
-    AddTeamMemberRequest, CreateTeamRequest, UpdateTeamRequest, UpsertTeamCredentialRequest,
-};
+use moatless_api_schemas::team::{AddTeamMemberRequest, CreateTeamRequest, UpdateTeamRequest};
 use pretty_assertions::assert_eq;
 
 fn timestamp_suffix() -> String {
@@ -131,69 +130,6 @@ async fn team_membership_chain() {
     // AUTH-07.1: Removed member no longer in listing
     let members = alice.client.api().list_members(&team_id).await.unwrap();
     assert!(!members.iter().any(|m| m.user_id == bob.id));
-
-    // Cleanup
-    let _ = alice.client.api().delete_team(&team_id).await;
-}
-
-// =============================================================================
-// Chain 3: Team Credentials (AUTH-08 through AUTH-08.2.1)
-// =============================================================================
-
-#[tokio::test]
-async fn team_credentials_chain() {
-    let alice = seed_test_users().await.alice;
-    let suffix = timestamp_suffix();
-
-    // Setup: Alice creates a team
-    let team = alice
-        .client
-        .api()
-        .create_team(&CreateTeamRequest {
-            name: "Credentials Team".into(),
-            slug: format!("credentials-{suffix}"),
-            description: None,
-        })
-        .await
-        .unwrap();
-    let team_id = team.id;
-
-    // AUTH-08: Upsert team credential
-    alice
-        .client
-        .api()
-        .upsert_credential(
-            &team_id,
-            "gitlab",
-            &UpsertTeamCredentialRequest {
-                access_token: "glpat_test_token_12345".into(),
-                metadata: None,
-                refresh_token: None,
-                token_type: None,
-            },
-        )
-        .await
-        .unwrap();
-
-    // AUTH-08.1: Credential appears in listing
-    let creds = alice.client.api().list_credentials(&team_id).await.unwrap();
-    let gitlab = creds.iter().find(|c| c.provider == "gitlab");
-    assert!(gitlab.is_some());
-    // Access token must NOT be exposed in listing
-    let cred_json = serde_json::to_string(&gitlab.unwrap()).unwrap();
-    assert!(!cred_json.contains("glpat_test_token"));
-
-    // AUTH-08.2: Delete team credential
-    alice
-        .client
-        .api()
-        .delete_credential(&team_id, "gitlab")
-        .await
-        .unwrap();
-
-    // AUTH-08.2.1: Credential removed from listing
-    let creds = alice.client.api().list_credentials(&team_id).await.unwrap();
-    assert!(!creds.iter().any(|c| c.provider == "gitlab"));
 
     // Cleanup
     let _ = alice.client.api().delete_team(&team_id).await;

@@ -8,7 +8,7 @@
 //! Integration tests for the workspace DAO (Phase B1a).
 //!
 //! Covers the invariants the CRUD/composition handlers rely on:
-//! - `find_by_id_scoped` / `list` access control (owner vs other vs global).
+//! - `find_by_id` / `list` access control (owner vs other vs global).
 //! - `set_primary` — exactly one primary per workspace, transactionally.
 //! - `add_repo` / `remove_repo` + the partial-unique mount-name guard.
 //! - `refresh_kind` — `blank` / `single` / `multi` derived from placement count.
@@ -24,11 +24,10 @@ use sqlx::PgPool;
 
 use common::{make_workspace_repo_row, make_workspace_row};
 
-/// Non-admin `ScopeContext` for a given user (no team memberships).
+/// Non-admin `ScopeContext` for a given user.
 fn scope_ctx(user_id: &str) -> ScopeContext {
     ScopeContext {
         user_id: user_id.into(),
-        team_ids: vec![],
         is_admin: false,
     }
 }
@@ -38,14 +37,14 @@ fn scope_ctx(user_id: &str) -> ScopeContext {
 // =========================================================================
 
 #[sqlx::test]
-async fn insert_and_find_by_id_scoped(pool: PgPool) {
+async fn insert_and_find_by_id(pool: PgPool) {
     let repo = PgWorkspaceRepository(pool.clone());
     let ws = make_workspace_row("ws-1", "user-1");
     repo.insert_workspace(&ws).await.unwrap();
 
     // Owner sees their user-scoped workspace.
     let found = repo
-        .find_by_id_scoped("ws-1", &scope_ctx("user-1"))
+        .find_by_id("ws-1", &scope_ctx("user-1"))
         .await
         .unwrap();
     assert!(found.is_some());
@@ -57,7 +56,7 @@ async fn insert_and_find_by_id_scoped(pool: PgPool) {
     // A different user cannot read another user's user-scoped workspace
     // (out-of-scope reads are indistinguishable from missing → None).
     let hidden = repo
-        .find_by_id_scoped("ws-1", &scope_ctx("user-2"))
+        .find_by_id("ws-1", &scope_ctx("user-2"))
         .await
         .unwrap();
     assert!(hidden.is_none());
@@ -70,11 +69,11 @@ async fn find_by_id_scoped_hides_soft_deleted(pool: PgPool) {
         .await
         .unwrap();
 
-    assert!(repo.soft_delete("ws-del").await.unwrap());
+    assert!(repo.soft_delete("ws-del", &scope_ctx("user-1")).await.unwrap());
 
     // Soft-deleted rows are filtered out even for the owner.
     let found = repo
-        .find_by_id_scoped("ws-del", &scope_ctx("user-1"))
+        .find_by_id("ws-del", &scope_ctx("user-1"))
         .await
         .unwrap();
     assert!(found.is_none());
@@ -91,7 +90,6 @@ async fn list_scope_filtering(pool: PgPool) {
     let mut global = make_workspace_row("ws-global", "system");
     global.scope = Scope::Global;
     global.owner_user_id = None;
-    global.team_id = None;
     repo.insert_workspace(&global).await.unwrap();
 
     repo.insert_workspace(&make_workspace_row("ws-other", "user-2"))
@@ -126,10 +124,10 @@ async fn update_mutates_present_fields_only(pool: PgPool) {
         description: Some(Some("a description".to_string())),
         ..Default::default()
     };
-    assert!(repo.update("ws-u", &patch).await.unwrap());
+    assert!(repo.update("ws-u", &patch, &scope_ctx("user-1")).await.unwrap());
 
     let found = repo
-        .find_by_id_scoped("ws-u", &scope_ctx("user-1"))
+        .find_by_id("ws-u", &scope_ctx("user-1"))
         .await
         .unwrap()
         .unwrap();
@@ -138,7 +136,7 @@ async fn update_mutates_present_fields_only(pool: PgPool) {
 
     // An empty patch is a no-op (no columns to set).
     assert!(!repo
-        .update("ws-u", &WorkspacePatch::default())
+        .update("ws-u", &WorkspacePatch::default(), &scope_ctx("user-1"))
         .await
         .unwrap());
 }
@@ -160,10 +158,13 @@ async fn update_jsonb_run_config_round_trips(pool: PgPool) {
         env_vars: Some(Some(env_vars.clone())),
         ..Default::default()
     };
-    assert!(repo.update("ws-json", &patch).await.unwrap());
+    assert!(repo
+        .update("ws-json", &patch, &scope_ctx("user-1"))
+        .await
+        .unwrap());
 
     let found = repo
-        .find_by_id_scoped("ws-json", &scope_ctx("user-1"))
+        .find_by_id("ws-json", &scope_ctx("user-1"))
         .await
         .unwrap()
         .unwrap();
@@ -183,17 +184,24 @@ async fn set_primary_keeps_exactly_one_primary(pool: PgPool) {
         .unwrap();
 
     // Two placements; the first is elected primary at insert time.
-    repo.add_repo(&make_workspace_repo_row("wsr-a", "ws-p", "repo-a", true, 0))
-        .await
-        .unwrap();
-    repo.add_repo(&make_workspace_repo_row(
-        "wsr-b", "ws-p", "repo-b", false, 1,
-    ))
+    repo.add_repo(
+        &make_workspace_repo_row("wsr-a", "ws-p", "repo-a", true, 0),
+        &scope_ctx("user-1"),
+    )
+    .await
+    .unwrap();
+    repo.add_repo(
+        &make_workspace_repo_row("wsr-b", "ws-p", "repo-b", false, 1),
+        &scope_ctx("user-1"),
+    )
     .await
     .unwrap();
 
     // Promote B — A must be demoted in the same transaction.
-    assert!(repo.set_primary("ws-p", "wsr-b").await.unwrap());
+    assert!(repo
+        .set_primary("ws-p", "wsr-b", &scope_ctx("user-1"))
+        .await
+        .unwrap());
 
     let placements = repo.find_repos("ws-p").await.unwrap();
     let primaries: Vec<&str> = placements
@@ -204,7 +212,10 @@ async fn set_primary_keeps_exactly_one_primary(pool: PgPool) {
     assert_eq!(primaries, vec!["wsr-b"], "exactly one primary, and it's B");
 
     // set_primary on a placement that doesn't belong to the workspace is a no-op.
-    assert!(!repo.set_primary("ws-p", "wsr-missing").await.unwrap());
+    assert!(!repo
+        .set_primary("ws-p", "wsr-missing", &scope_ctx("user-1"))
+        .await
+        .unwrap());
 }
 
 #[sqlx::test]
@@ -216,17 +227,17 @@ async fn add_repo_rejects_duplicate_mount_name(pool: PgPool) {
 
     let mut first = make_workspace_repo_row("wsr-1", "ws-m", "repo-1", true, 0);
     first.mount_name = Some("frontend".to_string());
-    repo.add_repo(&first).await.unwrap();
+    repo.add_repo(&first, &scope_ctx("user-1")).await.unwrap();
 
     // Same mount name in the same workspace violates the partial unique index.
     let mut dup = make_workspace_repo_row("wsr-2", "ws-m", "repo-2", false, 1);
     dup.mount_name = Some("frontend".to_string());
-    assert!(repo.add_repo(&dup).await.is_err());
+    assert!(repo.add_repo(&dup, &scope_ctx("user-1")).await.is_err());
 
     // A distinct mount name is fine.
     let mut ok = make_workspace_repo_row("wsr-3", "ws-m", "repo-3", false, 2);
     ok.mount_name = Some("backend".to_string());
-    repo.add_repo(&ok).await.unwrap();
+    repo.add_repo(&ok, &scope_ctx("user-1")).await.unwrap();
 }
 
 #[sqlx::test]
@@ -237,32 +248,50 @@ async fn refresh_kind_derives_label_and_remove_repo(pool: PgPool) {
         .unwrap();
 
     // 0 placements → blank.
-    repo.refresh_kind("ws-k").await.unwrap();
+    repo.refresh_kind("ws-k", &scope_ctx("user-1"))
+        .await
+        .unwrap();
     assert_eq!(kind_of(&repo, "ws-k").await, "blank");
 
     // 1 placement → single.
-    repo.add_repo(&make_workspace_repo_row("wsr-1", "ws-k", "repo-1", true, 0))
+    repo.add_repo(
+        &make_workspace_repo_row("wsr-1", "ws-k", "repo-1", true, 0),
+        &scope_ctx("user-1"),
+    )
+    .await
+    .unwrap();
+    repo.refresh_kind("ws-k", &scope_ctx("user-1"))
         .await
         .unwrap();
-    repo.refresh_kind("ws-k").await.unwrap();
     assert_eq!(kind_of(&repo, "ws-k").await, "single");
 
     // 2 placements → multi.
-    repo.add_repo(&make_workspace_repo_row(
-        "wsr-2", "ws-k", "repo-2", false, 1,
-    ))
+    repo.add_repo(
+        &make_workspace_repo_row("wsr-2", "ws-k", "repo-2", false, 1),
+        &scope_ctx("user-1"),
+    )
     .await
     .unwrap();
-    repo.refresh_kind("ws-k").await.unwrap();
+    repo.refresh_kind("ws-k", &scope_ctx("user-1"))
+        .await
+        .unwrap();
     assert_eq!(kind_of(&repo, "ws-k").await, "multi");
 
     // Remove one → back to single. remove_repo is scoped to the workspace.
-    assert!(repo.remove_repo("ws-k", "wsr-2").await.unwrap());
-    repo.refresh_kind("ws-k").await.unwrap();
+    assert!(repo
+        .remove_repo("ws-k", "wsr-2", &scope_ctx("user-1"))
+        .await
+        .unwrap());
+    repo.refresh_kind("ws-k", &scope_ctx("user-1"))
+        .await
+        .unwrap();
     assert_eq!(kind_of(&repo, "ws-k").await, "single");
 
     // Removing a placement that isn't there is a no-op.
-    assert!(!repo.remove_repo("ws-k", "wsr-2").await.unwrap());
+    assert!(!repo
+        .remove_repo("ws-k", "wsr-2", &scope_ctx("user-1"))
+        .await
+        .unwrap());
 }
 
 #[sqlx::test]
@@ -275,19 +304,22 @@ async fn find_repos_for_workspaces_batches_by_id(pool: PgPool) {
         .await
         .unwrap();
 
-    repo.add_repo(&make_workspace_repo_row(
-        "wsr-1a", "ws-1", "repo-a", true, 0,
-    ))
+    repo.add_repo(
+        &make_workspace_repo_row("wsr-1a", "ws-1", "repo-a", true, 0),
+        &scope_ctx("user-1"),
+    )
     .await
     .unwrap();
-    repo.add_repo(&make_workspace_repo_row(
-        "wsr-1b", "ws-1", "repo-b", false, 1,
-    ))
+    repo.add_repo(
+        &make_workspace_repo_row("wsr-1b", "ws-1", "repo-b", false, 1),
+        &scope_ctx("user-1"),
+    )
     .await
     .unwrap();
-    repo.add_repo(&make_workspace_repo_row(
-        "wsr-2a", "ws-2", "repo-c", true, 0,
-    ))
+    repo.add_repo(
+        &make_workspace_repo_row("wsr-2a", "ws-2", "repo-c", true, 0),
+        &scope_ctx("user-1"),
+    )
     .await
     .unwrap();
 
@@ -316,7 +348,7 @@ async fn find_repos_for_workspaces_batches_by_id(pool: PgPool) {
 
 /// Read a workspace's derived `kind` label via the scoped finder.
 async fn kind_of(repo: &PgWorkspaceRepository, id: &str) -> String {
-    repo.find_by_id_scoped(id, &scope_ctx("user-1"))
+    repo.find_by_id(id, &scope_ctx("user-1"))
         .await
         .unwrap()
         .unwrap()

@@ -341,7 +341,6 @@ mod tests {
             created_by: None,
             visibility: Visibility::Private,
             scope: moatless_backend_core::scope::Scope::User,
-            team_id: Some("team-1".to_string()),
             owner_user_id: Some("user-1".to_string()),
             created_at_db: None,
             updated_at: None,

@@ -13,6 +13,7 @@ use crate::adapters::models::{OutboundFile, OutboundReply};
 use crate::adapters::Adapters;
 use crate::bindings::dao::PgTaskBindingRepository;
 use crate::bindings::metrics::record_outbound;
+use moatless_backend_core::scope::ScopeContext;
 
 /// Send a message directly through a task trigger.
 ///
@@ -44,8 +45,10 @@ pub async fn direct_send_to_rule(
         )));
     }
 
+    #[allow(clippy::disallowed_methods)] // reason: webhook routing path has no caller identity
+    let sys = ScopeContext::system();
     let connection = PgAdapterConnectionRepository(state.db.clone())
-        .find_by_id(&rule.connection_id)
+        .find_by_id(&rule.connection_id, &sys)
         .await?
         .ok_or_else(|| AdapterError::ConfigNotFound(rule.connection_id.clone()))?;
 
@@ -241,8 +244,10 @@ pub async fn send_to_binding(
         )));
     }
 
+    #[allow(clippy::disallowed_methods)] // reason: outbound reply path runs as background system, no caller identity
+    let sys = ScopeContext::system();
     let connection = PgAdapterConnectionRepository(state.db.clone())
-        .find_by_id(&binding.connection_id)
+        .find_by_id(&binding.connection_id, &sys)
         .await?
         .ok_or_else(|| {
             AdapterError::ConfigNotFound(format!(
@@ -285,9 +290,11 @@ pub async fn send_to_binding(
 
     // Author the reply under the owning task's identity (preferred by the GitHub
     // adapter over binding/trigger-derived identities).
+    #[allow(clippy::disallowed_methods)] // reason: outbound reply dispatched by background runtime, no caller identity
+    let sys_author = ScopeContext::system();
     let author_user_id = state
         .tasks
-        .find_by_id_internal(task_id)
+        .find_by_id(task_id, &sys_author)
         .await
         .ok()
         .flatten()

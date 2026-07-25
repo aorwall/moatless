@@ -15,7 +15,6 @@ pub struct WorkspacePatch {
     pub description: Option<Option<String>>,
     pub kind: Option<String>,
     pub scope: Option<Scope>,
-    pub team_id: Option<Option<String>>,
     pub owner_user_id: Option<Option<String>>,
     pub docker_image: Option<Option<String>>,
     pub docker_access: Option<Option<bool>>,
@@ -37,12 +36,9 @@ pub struct WorkspacePatch {
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait WorkspaceRepository: Send + Sync {
-    /// Fetch a single workspace by id (unscoped — internal/provisioning use).
-    async fn find_by_id(&self, id: &str) -> Result<Option<Workspace>, sqlx::Error>;
-
     /// Fetch a single non-deleted workspace by id, filtered by the caller's ACL
     /// scope. Returns `None` when the row is missing or outside the scope.
-    async fn find_by_id_scoped(
+    async fn find_by_id(
         &self,
         id: &str,
         ctx: &ScopeContext,
@@ -71,34 +67,52 @@ pub trait WorkspaceRepository: Send + Sync {
     /// Insert a workspace row.
     async fn insert_workspace(&self, row: &Workspace) -> Result<(), sqlx::Error>;
 
-    /// Apply a partial update. Returns `false` when nothing changed / no match.
-    async fn update(&self, id: &str, patch: &WorkspacePatch) -> Result<bool, sqlx::Error>;
+    /// Apply a partial update, scoped to caller control. Returns `false` when
+    /// nothing changed, row is missing, or caller cannot control the row.
+    async fn update(
+        &self,
+        id: &str,
+        patch: &WorkspacePatch,
+        ctx: &ScopeContext,
+    ) -> Result<bool, sqlx::Error>;
 
-    /// Soft-delete a workspace. Returns `false` when already deleted / missing.
-    async fn soft_delete(&self, id: &str) -> Result<bool, sqlx::Error>;
+    /// Soft-delete a workspace, scoped to caller control. Returns `false` when
+    /// already deleted, missing, or caller cannot control the row.
+    async fn soft_delete(&self, id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error>;
 
-    /// Insert a workspace_repo placement.
-    async fn add_repo(&self, row: &WorkspaceRepo) -> Result<(), sqlx::Error>;
+    /// Insert a workspace_repo placement, gated on caller controlling the workspace.
+    async fn add_repo(
+        &self,
+        row: &WorkspaceRepo,
+        ctx: &ScopeContext,
+    ) -> Result<bool, sqlx::Error>;
 
-    /// Remove a placement from a workspace. Returns `false` when not found.
+    /// Remove a placement from a workspace, gated on caller controlling the workspace.
+    /// Returns `false` when not found or caller cannot control the workspace.
     async fn remove_repo(
         &self,
         workspace_id: &str,
         placement_id: &str,
+        ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error>;
 
     /// Make `placement_id` the sole primary placement in the workspace
     /// (transactionally clears any existing primary first). Returns `false`
-    /// when the placement does not belong to the workspace.
+    /// when the placement does not belong to the workspace or caller cannot control it.
     async fn set_primary(
         &self,
         workspace_id: &str,
         placement_id: &str,
+        ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error>;
 
     /// Recompute and persist the derived `kind` (`blank`/`single`/`multi`) from
     /// the current placement count.
-    async fn refresh_kind(&self, workspace_id: &str) -> Result<(), sqlx::Error>;
+    async fn refresh_kind(
+        &self,
+        workspace_id: &str,
+        ctx: &ScopeContext,
+    ) -> Result<(), sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`WorkspaceRepository`].
@@ -106,9 +120,23 @@ pub struct PgWorkspaceRepository(pub DbPool);
 
 #[async_trait]
 impl WorkspaceRepository for PgWorkspaceRepository {
-    async fn find_by_id(&self, id: &str) -> Result<Option<Workspace>, sqlx::Error> {
-        sqlx::query_as::<_, Workspace>("SELECT * FROM workspaces WHERE id = $1")
+    async fn find_by_id(
+        &self,
+        id: &str,
+        ctx: &ScopeContext,
+    ) -> Result<Option<Workspace>, sqlx::Error> {
+        let access = ctx.access_filter(ScopedEntity::Resource, "", 2);
+        let sql = format!(
+            "SELECT * FROM workspaces \
+             WHERE id = $1 \
+             AND (deleted IS NULL OR deleted = false) \
+             AND {}",
+            access.sql()
+        );
+        sqlx::query_as::<_, Workspace>(AssertSqlSafe(sql))
             .bind(id)
+            .bind(ctx.is_admin)
+            .bind(&ctx.user_id)
             .fetch_optional(&self.0)
             .await
     }
@@ -146,10 +174,10 @@ impl WorkspaceRepository for PgWorkspaceRepository {
                    docker_image, docker_access, sandbox_service_account,
                    system_prompt, setup_commands, env_vars, servers, plugins, resources,
                    network_profile, source, source_repository_id, source_key, source_config_path,
-                   scope, team_id, owner_user_id, created_by, deleted
+                   scope, owner_user_id, created_by, deleted
                ) VALUES (
                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-                   $14, $15, $16, $17, $18, $19, $20, $21, $22, $23
+                   $14, $15, $16, $17, $18, $19, $20, $21, $22
                )"#,
         )
         .bind(&row.id)
@@ -171,35 +199,12 @@ impl WorkspaceRepository for PgWorkspaceRepository {
         .bind(&row.source_key)
         .bind(&row.source_config_path)
         .bind(row.scope)
-        .bind(&row.team_id)
         .bind(&row.owner_user_id)
         .bind(&row.created_by)
         .bind(row.deleted)
         .execute(&self.0)
         .await?;
         Ok(())
-    }
-
-    async fn find_by_id_scoped(
-        &self,
-        id: &str,
-        ctx: &ScopeContext,
-    ) -> Result<Option<Workspace>, sqlx::Error> {
-        let access = ctx.access_filter(ScopedEntity::Resource, "", 2);
-        let sql = format!(
-            "SELECT * FROM workspaces \
-             WHERE id = $1 \
-             AND (deleted IS NULL OR deleted = false) \
-             AND {}",
-            access.sql()
-        );
-        sqlx::query_as::<_, Workspace>(AssertSqlSafe(sql))
-            .bind(id)
-            .bind(ctx.is_admin)
-            .bind(&ctx.team_ids)
-            .bind(&ctx.user_id)
-            .fetch_optional(&self.0)
-            .await
     }
 
     async fn list(&self, ctx: &ScopeContext) -> Result<Vec<Workspace>, sqlx::Error> {
@@ -213,7 +218,6 @@ impl WorkspaceRepository for PgWorkspaceRepository {
         );
         sqlx::query_as::<_, Workspace>(AssertSqlSafe(sql))
             .bind(ctx.is_admin)
-            .bind(&ctx.team_ids)
             .bind(&ctx.user_id)
             .fetch_all(&self.0)
             .await
@@ -233,7 +237,12 @@ impl WorkspaceRepository for PgWorkspaceRepository {
         .await
     }
 
-    async fn update(&self, id: &str, patch: &WorkspacePatch) -> Result<bool, sqlx::Error> {
+    async fn update(
+        &self,
+        id: &str,
+        patch: &WorkspacePatch,
+        ctx: &ScopeContext,
+    ) -> Result<bool, sqlx::Error> {
         let mut sets: Vec<String> = Vec::new();
         let mut idx = 2; // $1 is id
 
@@ -250,7 +259,6 @@ impl WorkspaceRepository for PgWorkspaceRepository {
         push_set!(description);
         push_set!(kind);
         push_set!(scope);
-        push_set!(team_id);
         push_set!(owner_user_id);
         push_set!(docker_image);
         push_set!(docker_access);
@@ -272,10 +280,14 @@ impl WorkspaceRepository for PgWorkspaceRepository {
         }
 
         sets.push(format!("updated_at = ${idx}"));
+        idx += 1;
 
+        let control = ctx.control_filter("", idx);
         let sql = format!(
-            "UPDATE workspaces SET {} WHERE id = $1 AND (deleted IS NULL OR deleted = false)",
-            sets.join(", ")
+            "UPDATE workspaces SET {} \
+             WHERE id = $1 AND (deleted IS NULL OR deleted = false) AND {}",
+            sets.join(", "),
+            control.sql()
         );
 
         let now = chrono::Utc::now();
@@ -293,7 +305,6 @@ impl WorkspaceRepository for PgWorkspaceRepository {
         bind_opt!(description);
         bind_opt!(kind);
         bind_opt!(scope);
-        bind_opt!(team_id);
         bind_opt!(owner_user_id);
         bind_opt!(docker_image);
         bind_opt!(docker_access);
@@ -311,49 +322,81 @@ impl WorkspaceRepository for PgWorkspaceRepository {
         bind_opt!(source_config_path);
 
         q = q.bind(now);
+        q = q.bind(ctx.is_admin);
+        q = q.bind(&ctx.user_id);
 
         let result = q.execute(&self.0).await?;
         Ok(result.rows_affected() > 0)
     }
 
-    async fn soft_delete(&self, id: &str) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query(
+    async fn soft_delete(&self, id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
+        let control = ctx.control_filter("", 3);
+        let sql = format!(
             "UPDATE workspaces SET deleted = true, updated_at = $2 \
-             WHERE id = $1 AND (deleted IS NULL OR deleted = false)",
-        )
-        .bind(id)
-        .bind(chrono::Utc::now())
-        .execute(&self.0)
-        .await?;
+             WHERE id = $1 AND (deleted IS NULL OR deleted = false) AND {}",
+            control.sql()
+        );
+        let result = sqlx::query(AssertSqlSafe(sql))
+            .bind(id)
+            .bind(chrono::Utc::now())
+            .bind(ctx.is_admin)
+            .bind(&ctx.user_id)
+            .execute(&self.0)
+            .await?;
         Ok(result.rows_affected() > 0)
     }
 
-    async fn add_repo(&self, row: &WorkspaceRepo) -> Result<(), sqlx::Error> {
-        sqlx::query(
+    async fn add_repo(
+        &self,
+        row: &WorkspaceRepo,
+        ctx: &ScopeContext,
+    ) -> Result<bool, sqlx::Error> {
+        // Gate on caller controlling the workspace via EXISTS subquery.
+        let control = ctx.control_filter("w.", 8);
+        let sql = format!(
             r#"INSERT INTO workspace_repos (
                    id, workspace_id, repository_id, branch, mount_name, is_primary, position
-               ) VALUES ($1, $2, $3, $4, $5, $6, $7)"#,
-        )
-        .bind(&row.id)
-        .bind(&row.workspace_id)
-        .bind(&row.repository_id)
-        .bind(&row.branch)
-        .bind(&row.mount_name)
-        .bind(row.is_primary)
-        .bind(row.position)
-        .execute(&self.0)
-        .await?;
-        Ok(())
+               )
+               SELECT $1, $2, $3, $4, $5, $6, $7
+               WHERE EXISTS (
+                   SELECT 1 FROM workspaces w
+                   WHERE w.id = $2 AND (w.deleted IS NULL OR w.deleted = false) AND {}
+               )"#,
+            control.sql()
+        );
+        let result = sqlx::query(AssertSqlSafe(sql))
+            .bind(&row.id)
+            .bind(&row.workspace_id)
+            .bind(&row.repository_id)
+            .bind(&row.branch)
+            .bind(&row.mount_name)
+            .bind(row.is_primary)
+            .bind(row.position)
+            .bind(ctx.is_admin)
+            .bind(&ctx.user_id)
+            .execute(&self.0)
+            .await?;
+        Ok(result.rows_affected() > 0)
     }
 
     async fn remove_repo(
         &self,
         workspace_id: &str,
         placement_id: &str,
+        ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query("DELETE FROM workspace_repos WHERE id = $1 AND workspace_id = $2")
+        let control = ctx.control_filter("w.", 3);
+        let sql = format!(
+            "DELETE FROM workspace_repos \
+             WHERE id = $1 AND workspace_id = $2 \
+             AND EXISTS (SELECT 1 FROM workspaces w WHERE w.id = $2 AND {})",
+            control.sql()
+        );
+        let result = sqlx::query(AssertSqlSafe(sql))
             .bind(placement_id)
             .bind(workspace_id)
+            .bind(ctx.is_admin)
+            .bind(&ctx.user_id)
             .execute(&self.0)
             .await?;
         Ok(result.rows_affected() > 0)
@@ -363,16 +406,25 @@ impl WorkspaceRepository for PgWorkspaceRepository {
         &self,
         workspace_id: &str,
         placement_id: &str,
+        ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error> {
         let mut tx = self.0.begin().await?;
 
-        let belongs: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM workspace_repos WHERE id = $1 AND workspace_id = $2",
-        )
-        .bind(placement_id)
-        .bind(workspace_id)
-        .fetch_one(&mut *tx)
-        .await?;
+        // Check the placement belongs to this workspace AND caller controls it.
+        let control = ctx.control_filter("w.", 3);
+        let check_sql = format!(
+            "SELECT count(*) FROM workspace_repos wr \
+             JOIN workspaces w ON w.id = wr.workspace_id \
+             WHERE wr.id = $1 AND wr.workspace_id = $2 AND {}",
+            control.sql()
+        );
+        let belongs: i64 = sqlx::query_scalar(AssertSqlSafe(check_sql))
+            .bind(placement_id)
+            .bind(workspace_id)
+            .bind(ctx.is_admin)
+            .bind(&ctx.user_id)
+            .fetch_one(&mut *tx)
+            .await?;
         if belongs == 0 {
             return Ok(false);
         }
@@ -396,18 +448,27 @@ impl WorkspaceRepository for PgWorkspaceRepository {
         Ok(true)
     }
 
-    async fn refresh_kind(&self, workspace_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
+    async fn refresh_kind(
+        &self,
+        workspace_id: &str,
+        ctx: &ScopeContext,
+    ) -> Result<(), sqlx::Error> {
+        let control = ctx.control_filter("", 3);
+        let sql = format!(
             "UPDATE workspaces \
              SET kind = CASE (SELECT count(*) FROM workspace_repos WHERE workspace_id = $1) \
                         WHEN 0 THEN 'blank' WHEN 1 THEN 'single' ELSE 'multi' END, \
                  updated_at = $2 \
-             WHERE id = $1",
-        )
-        .bind(workspace_id)
-        .bind(chrono::Utc::now())
-        .execute(&self.0)
-        .await?;
+             WHERE id = $1 AND {}",
+            control.sql()
+        );
+        sqlx::query(AssertSqlSafe(sql))
+            .bind(workspace_id)
+            .bind(chrono::Utc::now())
+            .bind(ctx.is_admin)
+            .bind(&ctx.user_id)
+            .execute(&self.0)
+            .await?;
         Ok(())
     }
 }
@@ -440,14 +501,14 @@ pub async fn ensure_shadow_workspace(
                id, name, description, kind,
                docker_image, docker_access, sandbox_service_account,
                system_prompt, setup_commands, env_vars, servers, plugins, resources,
-               scope, team_id, owner_user_id, created_by, deleted, created_at, updated_at
+               scope, owner_user_id, created_by, deleted, created_at, updated_at
            )
            SELECT
                'ws_' || r.id, r.name, r.description, 'single',
                r.docker_image, r.docker_access, r.sandbox_service_account,
                r.system_prompt, r.setup_commands, r.env_vars,
                COALESCE(r.servers, '[]'::jsonb), r.plugins, r.resources,
-               COALESCE(r.scope, 'user'), r.team_id, r.owner_user_id, r.created_by, r.deleted,
+               COALESCE(r.scope, 'user'), r.owner_user_id, r.created_by, r.deleted,
                COALESCE(r.created_at, now()), COALESCE(r.updated_at, now())
            FROM repositories r
            WHERE r.id = $1

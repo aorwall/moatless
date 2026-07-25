@@ -20,11 +20,6 @@ use crate::state::AppState;
         handlers::list_members,
         handlers::add_member,
         handlers::remove_member,
-        handlers::list_credentials,
-        handlers::upsert_credential,
-        handlers::delete_credential,
-        handlers::put_team_codex_config,
-        handlers::delete_team_codex_config,
     )
 )]
 pub struct TeamApiDoc;
@@ -40,15 +35,6 @@ pub fn team_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenApi) 
         ))
         .routes(routes!(handlers::list_members, handlers::add_member))
         .routes(routes!(handlers::remove_member))
-        .routes(routes!(handlers::list_credentials))
-        .routes(routes!(
-            handlers::upsert_credential,
-            handlers::delete_credential
-        ))
-        .routes(routes!(
-            handlers::put_team_codex_config,
-            handlers::delete_team_codex_config
-        ))
         .with_state(state)
         .split_for_parts();
 

@@ -20,6 +20,7 @@ use serde::Deserialize;
 use tracing::{debug, info, warn};
 
 use crate::extractors::AuthUser;
+use moatless_backend_core::scope::ScopeContext;
 use crate::repository::access::{access_error_for, resolve_repository_github_token};
 use crate::repository::config_reader::{
     fetch_provider_file, verify_repository_access, AccessStatus,
@@ -318,10 +319,14 @@ pub async fn sync_repo_workspaces(
     .bind(&repo.id)
     .fetch_all(&state.db)
     .await?;
+    // reason: git reconcile mirrors repository content across the repo's own
+    // workspaces; the caller's access to trigger the sync was already checked.
+    #[allow(clippy::disallowed_methods)]
+    let sys_ctx = ScopeContext::system();
     for (id, key) in existing {
         let keep = key.as_deref().is_some_and(|k| present.contains(k));
         if !keep {
-            state.workspaces.soft_delete(&id).await?;
+            state.workspaces.soft_delete(&id, &sys_ctx).await?;
             summary.removed += 1;
         }
     }
@@ -459,6 +464,10 @@ async fn upsert_git_workspace(
     repo: &Repository,
     desired: &DesiredWorkspace,
 ) -> Result<Option<bool>, RepositoryError> {
+    // reason: git sync writes workspaces derived from repository content, not
+    // caller input; scope/owner are inherited from the repository row.
+    #[allow(clippy::disallowed_methods)]
+    let sys_ctx = ScopeContext::system();
     let (workspace_id, created) = if let Some(id) = &desired.fixed_id {
         // Shadow workspace — look up by id to check if it has been overridden.
         let source: Option<String> =
@@ -521,7 +530,6 @@ async fn upsert_git_workspace(
                     source_key: Some(desired.source_key.clone()),
                     source_config_path: Some(desired.source_config_path.clone()),
                     scope: repo.scope,
-                    team_id: repo.team_id.clone(),
                     owner_user_id: repo.owner_user_id.clone(),
                     created_by: repo.created_by.clone(),
                     deleted: Some(false),
@@ -546,7 +554,6 @@ async fn upsert_git_workspace(
         description: Some(desired.description.clone()),
         kind: None,
         scope: Some(repo.scope),
-        team_id: Some(repo.team_id.clone()),
         owner_user_id: Some(repo.owner_user_id.clone()),
         docker_image: Some(desired.run.docker_image.clone()),
         docker_access: Some(desired.run.docker_access),
@@ -563,7 +570,7 @@ async fn upsert_git_workspace(
         source_key: Some(Some(desired.source_key.clone())),
         source_config_path: Some(Some(desired.source_config_path.clone())),
     };
-    state.workspaces.update(&workspace_id, &patch).await?;
+    state.workspaces.update(&workspace_id, &patch, &sys_ctx).await?;
 
     // Replace placements (delete-all + re-insert non-primary, then elect one
     // primary) so the partial unique index never sees two primaries mid-write.
@@ -578,16 +585,19 @@ async fn upsert_git_workspace(
         let placement_id = format!("wsr_{}", uuid::Uuid::new_v4());
         state
             .workspaces
-            .add_repo(&WorkspaceRepo {
-                id: placement_id.clone(),
-                workspace_id: workspace_id.clone(),
-                repository_id: p.repository_id.clone(),
-                branch: p.branch.clone(),
-                mount_name: p.mount_name.clone(),
-                is_primary: false,
-                position: i as i32,
-                created_at: None,
-            })
+            .add_repo(
+                &WorkspaceRepo {
+                    id: placement_id.clone(),
+                    workspace_id: workspace_id.clone(),
+                    repository_id: p.repository_id.clone(),
+                    branch: p.branch.clone(),
+                    mount_name: p.mount_name.clone(),
+                    is_primary: false,
+                    position: i as i32,
+                    created_at: None,
+                },
+                &sys_ctx,
+            )
             .await?;
         if primary_choice.is_none() && p.primary {
             primary_choice = Some(placement_id.clone());
@@ -595,9 +605,12 @@ async fn upsert_git_workspace(
         placement_ids.push(placement_id);
     }
     if let Some(target) = primary_choice.or_else(|| placement_ids.first().cloned()) {
-        state.workspaces.set_primary(&workspace_id, &target).await?;
+        state
+            .workspaces
+            .set_primary(&workspace_id, &target, &sys_ctx)
+            .await?;
     }
-    state.workspaces.refresh_kind(&workspace_id).await?;
+    state.workspaces.refresh_kind(&workspace_id, &sys_ctx).await?;
 
     Ok(Some(created))
 }
@@ -638,12 +651,7 @@ async fn resolve_or_create_repo(
 
     if let Some(existing) = state
         .repositories
-        .find_by_normalized_remote_url(
-            &key,
-            source_repo.scope,
-            source_repo.team_id.clone(),
-            source_repo.owner_user_id.clone(),
-        )
+        .find_by_normalized_remote_url(&key, source_repo.scope, source_repo.owner_user_id.clone())
         .await?
     {
         if existing.access_status == "unchecked" {
@@ -670,7 +678,6 @@ async fn resolve_or_create_repo(
         description: None,
         provider: Some(provider),
         scope: source_repo.scope,
-        team_id: source_repo.team_id.clone(),
         owner_user_id: source_repo.owner_user_id.clone(),
         created_by: source_repo.created_by.clone(),
         access_status: status.as_str().to_string(),
@@ -689,12 +696,7 @@ async fn resolve_or_create_repo(
         Ok(()) => Ok(id),
         Err(error) if is_remote_url_conflict(&error) => state
             .repositories
-            .find_by_normalized_remote_url(
-                &key,
-                source_repo.scope,
-                source_repo.team_id.clone(),
-                source_repo.owner_user_id.clone(),
-            )
+            .find_by_normalized_remote_url(&key, source_repo.scope, source_repo.owner_user_id.clone())
             .await?
             .map(|existing| existing.id)
             .ok_or_else(|| RepositoryError::Db(error)),
@@ -710,7 +712,11 @@ async fn stamp_access(state: &AppState, repository_id: &str, status: AccessStatu
         access_error: Some(access_error_for(status, url)),
         ..Default::default()
     };
-    if let Err(e) = state.repositories.update(repository_id, &patch).await {
+    // reason: access-status stamping is sync bookkeeping on rows the reconcile
+    // itself created or resolved.
+    #[allow(clippy::disallowed_methods)]
+    let sys_ctx = ScopeContext::system();
+    if let Err(e) = state.repositories.update(repository_id, &patch, &sys_ctx).await {
         warn!(%repository_id, error = %e, "Failed to stamp repository access_status");
     }
 }

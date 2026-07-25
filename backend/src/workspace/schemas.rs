@@ -48,7 +48,6 @@ pub fn workspace_response(w: Workspace, repos: Vec<WorkspaceRepo>) -> WorkspaceR
         source: w.source,
         source_repository_id: w.source_repository_id,
         scope: w.scope,
-        team_id: w.team_id,
         owner_user_id: w.owner_user_id,
         created_by: w.created_by,
         created_at: w.created_at.map(|t| t.to_rfc3339()),

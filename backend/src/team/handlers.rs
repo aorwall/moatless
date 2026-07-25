@@ -7,14 +7,10 @@ use axum::Json;
 use super::error::TeamError;
 use super::models::Team;
 use super::schemas::{
-    AddTeamMemberRequest, CreateTeamRequest, TeamCredentialResponse, TeamMemberResponse,
-    TeamResponse, UpdateTeamRequest, UpsertTeamCredentialRequest,
+    AddTeamMemberRequest, CreateTeamRequest, TeamMemberResponse, TeamResponse, UpdateTeamRequest,
 };
-use crate::access_control::ensure_team_manager;
-use crate::credentials::codex::CodexScope;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
-use moatless_api_schemas::provider_settings::{CodexConfigResponse, SaveCodexAuthRequest};
 
 /// List all teams the user belongs to.
 #[utoipa::path(
@@ -270,196 +266,25 @@ pub async fn remove_member(
     Ok(StatusCode::NO_CONTENT)
 }
 
-// ---- Team credential endpoints ----
-
-/// List credentials for a team.
-#[utoipa::path(
-    get,
-    path = "/api/v1/teams/{team_id}/credentials",
-    tag = "teams",
-    params(("team_id" = String, Path, description = "Team identifier")),
-    responses(
-        (status = 200, description = "List of team credentials", body = Vec<TeamCredentialResponse>),
-        (status = 404, description = "Team not found", body = crate::error::ErrorBody)
-    )
-)]
-pub async fn list_credentials(
-    State(state): State<AppState>,
-    auth: AuthUser,
-    Path(team_id): Path<String>,
-) -> Result<Json<Vec<TeamCredentialResponse>>, TeamError> {
-    ensure_team_manager(&state, &auth, &team_id).await?;
-
-    let tokens = state.provider_tokens.list_by_team(&team_id).await?;
-    let resp: Vec<TeamCredentialResponse> = tokens
-        .into_iter()
-        .map(|t| TeamCredentialResponse {
-            provider: t.provider,
-            token_type: t.token_type,
-            has_refresh_token: t.refresh_token.is_some(),
-        })
-        .collect();
-    Ok(Json(resp))
-}
-
-/// Upsert a credential for a team.
-#[utoipa::path(
-    put,
-    path = "/api/v1/teams/{team_id}/credentials/{provider}",
-    tag = "teams",
-    params(
-        ("team_id" = String, Path, description = "Team identifier"),
-        ("provider" = String, Path, description = "Provider name (github, gitlab, claude, etc.)"),
-    ),
-    request_body = UpsertTeamCredentialRequest,
-    responses(
-        (status = 204, description = "Credential upserted"),
-        (status = 404, description = "Team not found", body = crate::error::ErrorBody)
-    )
-)]
-pub async fn upsert_credential(
-    State(state): State<AppState>,
-    auth: AuthUser,
-    Path((team_id, provider)): Path<(String, String)>,
-    Json(req): Json<UpsertTeamCredentialRequest>,
-) -> Result<StatusCode, TeamError> {
-    ensure_team_manager(&state, &auth, &team_id).await?;
-    if provider.eq_ignore_ascii_case("github") {
-        return Err(TeamError::BadRequest(
-            "Team GitHub credentials must be configured through the GitHub App installation binding"
-                .to_string(),
-        ));
+/// Verify the caller is an admin or an owner/admin member of the team.
+async fn ensure_team_manager(
+    state: &AppState,
+    auth: &AuthUser,
+    team_id: &str,
+) -> Result<(), TeamError> {
+    if auth.role.as_deref() == Some("admin") {
+        return Ok(());
     }
-
-    state
-        .provider_tokens
-        .upsert_team_token(
-            &team_id,
-            &provider,
-            "manual",
-            &req.access_token,
-            req.refresh_token.as_deref(),
-            req.token_type.as_deref(),
-            req.metadata.as_ref(),
-        )
-        .await?;
-    Ok(StatusCode::NO_CONTENT)
-}
-
-/// Delete a credential for a team.
-#[utoipa::path(
-    delete,
-    path = "/api/v1/teams/{team_id}/credentials/{provider}",
-    tag = "teams",
-    params(
-        ("team_id" = String, Path, description = "Team identifier"),
-        ("provider" = String, Path, description = "Provider name"),
-    ),
-    responses(
-        (status = 204, description = "Credential deleted"),
-        (status = 404, description = "Team not found", body = crate::error::ErrorBody)
-    )
-)]
-pub async fn delete_credential(
-    State(state): State<AppState>,
-    auth: AuthUser,
-    Path((team_id, provider)): Path<(String, String)>,
-) -> Result<StatusCode, TeamError> {
-    require_team_access(&state, &auth, &team_id).await?;
-
-    state
-        .provider_tokens
-        .delete_team_token(&team_id, &provider)
-        .await?;
-    Ok(StatusCode::NO_CONTENT)
-}
-
-// ---- Team codex provider-token endpoints ----
-
-/// Save a team-scoped Codex `auth.json`.
-///
-/// The team blob shadows the global blob but is itself shadowed by any
-/// member's user-scoped row (precedence: user > team > global). Resolution
-/// + just-in-time refresh share one code path with the user / global
-/// endpoints via [`crate::credentials::codex::save_codex_auth_for_scope`].
-#[utoipa::path(
-    put,
-    path = "/api/v1/teams/{team_id}/settings/codex/config",
-    tag = "teams",
-    params(("team_id" = String, Path, description = "Team identifier")),
-    request_body = SaveCodexAuthRequest,
-    responses(
-        (status = 200, description = "Team codex auth saved", body = CodexConfigResponse),
-        (status = 400, description = "Invalid auth JSON", body = crate::error::ErrorBody),
-        (status = 403, description = "Not a team manager", body = crate::error::ErrorBody),
-        (status = 404, description = "Team not found", body = crate::error::ErrorBody)
-    )
-)]
-pub async fn put_team_codex_config(
-    State(state): State<AppState>,
-    auth: AuthUser,
-    Path(team_id): Path<String>,
-    Json(req): Json<SaveCodexAuthRequest>,
-) -> Result<Json<CodexConfigResponse>, TeamError> {
-    let _existing = state
-        .teams
-        .find_by_id(&team_id)
-        .await?
-        .ok_or_else(|| TeamError::NotFound(team_id.clone()))?;
-    ensure_team_manager(&state, &auth, &team_id).await?;
-
-    let resp = crate::credentials::codex::save_codex_auth_for_scope(
-        &state,
-        CodexScope::team(&team_id),
-        req,
-    )
-    .await
-    .map_err(team_error_from_provider_settings)?;
-    Ok(Json(resp))
-}
-
-/// Delete the team's Codex blob.
-#[utoipa::path(
-    delete,
-    path = "/api/v1/teams/{team_id}/settings/codex/config",
-    tag = "teams",
-    params(("team_id" = String, Path, description = "Team identifier")),
-    responses(
-        (status = 204, description = "Team codex disconnected"),
-        (status = 403, description = "Not a team manager", body = crate::error::ErrorBody),
-        (status = 404, description = "Team not found", body = crate::error::ErrorBody)
-    )
-)]
-pub async fn delete_team_codex_config(
-    State(state): State<AppState>,
-    auth: AuthUser,
-    Path(team_id): Path<String>,
-) -> Result<StatusCode, TeamError> {
-    let _existing = state
-        .teams
-        .find_by_id(&team_id)
-        .await?
-        .ok_or_else(|| TeamError::NotFound(team_id.clone()))?;
-    ensure_team_manager(&state, &auth, &team_id).await?;
-
-    state
-        .provider_tokens
-        .delete_codex_blob(&CodexScope::team(&team_id))
-        .await?;
-    Ok(StatusCode::NO_CONTENT)
-}
-
-fn team_error_from_provider_settings(
-    err: crate::provider_settings::error::ProviderSettingsError,
-) -> TeamError {
-    use crate::provider_settings::error::ProviderSettingsError;
-    match err {
-        ProviderSettingsError::BadRequest(m) => TeamError::BadRequest(m),
-        ProviderSettingsError::Forbidden(m) => TeamError::Forbidden(m),
-        ProviderSettingsError::NotFound(m) => TeamError::NotFound(m),
-        ProviderSettingsError::Db(e) => TeamError::Db(e),
-        ProviderSettingsError::ProviderError(m) => TeamError::BadRequest(m),
-        ProviderSettingsError::Secret(e) => TeamError::Internal(e.to_string()),
+    let members = state.teams.find_members(team_id).await?;
+    let caller_role = members
+        .iter()
+        .find(|m| m.user_id == auth.user_id)
+        .map(|m| m.role.as_str());
+    match caller_role {
+        Some("owner") | Some("admin") => Ok(()),
+        _ => Err(TeamError::Forbidden(
+            "Must be a team owner or admin".into(),
+        )),
     }
 }
 

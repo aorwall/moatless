@@ -6,6 +6,8 @@
 
 use std::sync::Arc;
 
+use moatless_backend_core::scope::ScopeContext;
+
 use crate::auth::provider_token_dao::ProviderTokenRepository;
 use crate::db::DbPool;
 use crate::plugin_repo::dao::PluginRepoRepository;
@@ -68,16 +70,19 @@ impl ProvisionDeps {
         task_id: &str,
         default_image: &str,
     ) -> Result<String, RuntimeError> {
+        // reason: image-config lookup resolves across all task owners (lifecycle system path)
+        #[allow(clippy::disallowed_methods)]
+        let sys = ScopeContext::system();
         let task = self
             .tasks
-            .find_by_id_internal(task_id)
+            .find_by_id(task_id, &sys)
             .await
             .map_err(|e| RuntimeError::Infrastructure(format!("read task image config: {e}")))?
             .ok_or_else(|| RuntimeError::Rejected(format!("task {task_id} not found")))?;
         let image = match task.workspace_id.as_deref() {
             Some(workspace_id) => self
                 .workspaces
-                .find_by_id(workspace_id)
+                .find_by_id(workspace_id, &sys)
                 .await
                 .map_err(|e| {
                     RuntimeError::Infrastructure(format!("read workspace image config: {e}"))

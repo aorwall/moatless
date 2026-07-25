@@ -83,8 +83,6 @@ pub enum LoopsAction {
         rule: CreateRuleArgs,
         #[arg(long)]
         name: Option<String>,
-        #[arg(long)]
-        team_id: Option<String>,
     },
     /// Create a schedule loop
     CreateSchedule {
@@ -98,8 +96,6 @@ pub enum LoopsAction {
         rule: CreateRuleArgs,
         #[arg(long)]
         name: Option<String>,
-        #[arg(long)]
-        team_id: Option<String>,
     },
     /// Update loop base, rule, or source fields
     ///
@@ -202,10 +198,6 @@ pub enum LoopsAction {
         message_template: Option<String>,
         #[arg(long)]
         scope: Option<String>,
-        #[arg(long)]
-        team_id: Option<String>,
-        #[arg(long)]
-        clear_team_id: bool,
     },
     /// Delete a loop
     Delete {
@@ -272,7 +264,6 @@ pub async fn run_loops(
             notify_on_success,
             rule,
             name,
-            team_id,
         } => {
             let base = parse_json_opt(adapter_config.as_deref())?;
             let adapter_config = apply_config_ops(base, config_set, config_append, config_unset)?;
@@ -281,7 +272,6 @@ pub async fn run_loops(
                 kind: LoopKind::AdapterEvent,
                 active: None,
                 scope: None,
-                team_id,
                 config: create_rule(rule)?,
                 source: CreateLoopSource::AdapterEvent(CreateSubscription {
                     adapter_kind: parse_adapter_kind(&adapter)?,
@@ -304,14 +294,12 @@ pub async fn run_loops(
             message_template,
             rule,
             name,
-            team_id,
         } => {
             let req = CreateLoopRequest {
                 name,
                 kind: LoopKind::Schedule,
                 active: None,
                 scope: None,
-                team_id,
                 config: create_rule(rule)?,
                 source: CreateLoopSource::Schedule(CreateSchedule {
                     cron_expression,
@@ -359,8 +347,6 @@ pub async fn run_loops(
             timezone,
             message_template,
             scope,
-            team_id,
-            clear_team_id,
         } => {
             let routing_mode = routing_mode
                 .as_deref()
@@ -412,7 +398,6 @@ pub async fn run_loops(
                 name: fold_clearable(name, clear_name, "name")?,
                 active,
                 scope,
-                team_id: fold_clearable(team_id, clear_team_id, "team-id")?,
                 config: rule,
                 source,
             };
@@ -728,10 +713,9 @@ fn fold_tag_ids(tag_ids: Vec<String>, clear: bool) -> Result<Option<Vec<String>>
 fn parse_scope(value: &str) -> Result<Scope, ClientError> {
     match value {
         "global" => Ok(Scope::Global),
-        "team" => Ok(Scope::Team),
         "user" => Ok(Scope::User),
         other => Err(ClientError::Other(format!(
-            "Invalid scope '{other}'. Expected global, team, or user"
+            "Invalid scope '{other}'. Expected global or user"
         ))),
     }
 }

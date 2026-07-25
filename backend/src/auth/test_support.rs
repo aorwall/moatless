@@ -8,18 +8,16 @@ use async_trait::async_trait;
 
 use super::models::{GithubTokenPresence, ProviderAccessToken, ProviderToken};
 use super::provider_token_dao::ProviderTokenRepository;
-use crate::credentials::github::scope::{GitHubScope, SYSTEM_TEAM_ID};
+use crate::credentials::github::scope::GitHubScope;
 use crate::credentials::CodexScope;
 
 /// Canned `provider_tokens` rows at each scope. Writes are accepted and
-/// dropped. Reads honour the same `user > team > global` precedence as
+/// dropped. Reads honour the same `user > global` precedence as
 /// `PgProviderTokenRepository`.
 #[derive(Default)]
 pub struct StubProviderTokens {
     /// Row returned for every user-scope lookup, regardless of user id.
     pub user_row: Option<ProviderToken>,
-    /// Team-scope github rows, keyed by team id.
-    pub team_rows: Vec<(String, ProviderToken)>,
     /// The singleton global github row.
     pub global_row: Option<ProviderToken>,
 }
@@ -31,11 +29,6 @@ impl StubProviderTokens {
             user_row: row,
             ..Self::default()
         }
-    }
-
-    pub fn with_team_row(mut self, team_id: impl Into<String>, row: ProviderToken) -> Self {
-        self.team_rows.push((team_id.into(), row));
-        self
     }
 
     pub fn with_global_row(mut self, row: ProviderToken) -> Self {
@@ -74,11 +67,7 @@ fn presence(scope: &GitHubScope, row: &ProviderToken) -> GithubTokenPresence {
             GitHubScope::User(id) => Some(id.clone()),
             _ => None,
         },
-        team_id: match scope {
-            GitHubScope::Team(id) => Some(id.clone()),
-            GitHubScope::Global => Some(SYSTEM_TEAM_ID.to_string()),
-            GitHubScope::User(_) => None,
-        },
+        team_id: None,
         auth_method: row.auth_method.clone(),
         login: row
             .metadata
@@ -150,41 +139,6 @@ impl ProviderTokenRepository for StubProviderTokens {
         Ok(())
     }
 
-    async fn find_team_token(
-        &self,
-        team_id: &str,
-        provider: &str,
-    ) -> Result<Option<ProviderAccessToken>, sqlx::Error> {
-        Ok(self
-            .team_rows
-            .iter()
-            .find(|(id, r)| id == team_id && r.provider == provider)
-            .map(|(_, r)| ProviderAccessToken {
-                access_token: r.access_token.clone(),
-            }))
-    }
-
-    async fn upsert_team_token(
-        &self,
-        _team_id: &str,
-        _provider: &str,
-        _auth_method: &str,
-        _access_token: &str,
-        _refresh_token: Option<&str>,
-        _token_type: Option<&str>,
-        _metadata: Option<&serde_json::Value>,
-    ) -> Result<(), sqlx::Error> {
-        Ok(())
-    }
-
-    async fn delete_team_token(&self, _team_id: &str, _provider: &str) -> Result<(), sqlx::Error> {
-        Ok(())
-    }
-
-    async fn list_by_team(&self, _team_id: &str) -> Result<Vec<ProviderToken>, sqlx::Error> {
-        Ok(vec![])
-    }
-
     async fn find_codex_blob(
         &self,
         _scope: &CodexScope,
@@ -213,11 +167,6 @@ impl ProviderTokenRepository for StubProviderTokens {
     ) -> Result<Option<ProviderToken>, sqlx::Error> {
         Ok(match scope {
             GitHubScope::User(_) => self.github_user_row().cloned(),
-            GitHubScope::Team(team_id) => self
-                .team_rows
-                .iter()
-                .find(|(id, r)| id == team_id && r.provider == "github")
-                .map(|(_, r)| r.clone()),
             GitHubScope::Global => self.global_row.clone(),
         })
     }
@@ -242,19 +191,9 @@ impl ProviderTokenRepository for StubProviderTokens {
     async fn find_github_scope_presence(
         &self,
         user_id: &str,
-        team_ids: &[String],
     ) -> Result<Option<GithubTokenPresence>, sqlx::Error> {
         if let Some(row) = self.github_user_row() {
             return Ok(Some(presence(&GitHubScope::user(user_id), row)));
-        }
-        for team_id in team_ids {
-            if let Some((_, row)) = self
-                .team_rows
-                .iter()
-                .find(|(id, r)| id == team_id && r.provider == "github")
-            {
-                return Ok(Some(presence(&GitHubScope::team(team_id), row)));
-            }
         }
         Ok(self
             .global_row

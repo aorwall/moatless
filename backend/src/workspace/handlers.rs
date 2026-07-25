@@ -5,9 +5,7 @@ use axum::http::StatusCode;
 use axum::Json;
 use serde::Serialize;
 
-use moatless_backend_core::scope::ScopedResource;
-
-use crate::access_control::{ensure_can_write_resource, resolve_scope_for_create};
+use crate::access_control::resolve_scope_for_create_auth;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
 
@@ -55,7 +53,7 @@ async fn load_response(
 ) -> Result<WorkspaceResponse, WorkspaceError> {
     let ws = state
         .workspaces
-        .find_by_id_scoped(workspace_id, &auth.scope_context())
+        .find_by_id(workspace_id, &auth.scope_context())
         .await?
         .ok_or_else(|| WorkspaceError::NotFound(workspace_id.to_string()))?;
     let repos = state.workspaces.find_repos(workspace_id).await?;
@@ -122,7 +120,7 @@ pub async fn create_workspace(
     ensure_unique_mount_names(&req.repos)?;
     ensure_repos_visible(&state, &auth, &req.repos).await?;
 
-    let resolved = resolve_scope_for_create(&state, &auth, req.scope, req.team_id.clone()).await?;
+    let resolved = resolve_scope_for_create_auth(&auth, req.scope)?;
 
     let workspace_id = format!("ws_{}", uuid::Uuid::new_v4());
     let row = Workspace {
@@ -145,7 +143,6 @@ pub async fn create_workspace(
         source_key: None,
         source_config_path: None,
         scope: resolved.scope,
-        team_id: Some(resolved.team_id),
         owner_user_id: resolved.owner_user_id,
         created_by: Some(auth.user_id.clone().to_string()),
         deleted: Some(false),
@@ -156,22 +153,26 @@ pub async fn create_workspace(
 
     // Insert placements non-primary, then elect exactly one primary so the
     // partial unique index never sees two primaries mid-insert.
+    let ctx = auth.scope_context();
     let mut placement_ids: Vec<String> = Vec::with_capacity(req.repos.len());
     let mut primary_choice: Option<String> = None;
     for (i, p) in req.repos.iter().enumerate() {
         let placement_id = format!("wsr_{}", uuid::Uuid::new_v4());
         state
             .workspaces
-            .add_repo(&WorkspaceRepo {
-                id: placement_id.clone(),
-                workspace_id: workspace_id.clone(),
-                repository_id: p.repository_id.clone(),
-                branch: p.branch.clone(),
-                mount_name: p.mount_name.clone(),
-                is_primary: false,
-                position: p.position.unwrap_or(i as i32),
-                created_at: None,
-            })
+            .add_repo(
+                &WorkspaceRepo {
+                    id: placement_id.clone(),
+                    workspace_id: workspace_id.clone(),
+                    repository_id: p.repository_id.clone(),
+                    branch: p.branch.clone(),
+                    mount_name: p.mount_name.clone(),
+                    is_primary: false,
+                    position: p.position.unwrap_or(i as i32),
+                    created_at: None,
+                },
+                &ctx,
+            )
             .await?;
         if primary_choice.is_none() && p.is_primary == Some(true) {
             primary_choice = Some(placement_id.clone());
@@ -180,7 +181,10 @@ pub async fn create_workspace(
     }
     // Default the first placement to primary when the caller flagged none.
     if let Some(target) = primary_choice.or_else(|| placement_ids.first().cloned()) {
-        state.workspaces.set_primary(&workspace_id, &target).await?;
+        state
+            .workspaces
+            .set_primary(&workspace_id, &target, &ctx)
+            .await?;
     }
 
     let response = load_response(&state, &auth, &workspace_id).await?;
@@ -254,47 +258,27 @@ pub async fn update_workspace(
     Path(workspace_id): Path<String>,
     Json(req): Json<UpdateWorkspaceRequest>,
 ) -> Result<Json<WorkspaceResponse>, WorkspaceError> {
+    let ctx = auth.scope_context();
     let existing = state
         .workspaces
-        .find_by_id_scoped(&workspace_id, &auth.scope_context())
+        .find_by_id(&workspace_id, &ctx)
         .await?
         .ok_or_else(|| WorkspaceError::NotFound(workspace_id.clone()))?;
     ensure_workspace_mutable(&existing)?;
-    ensure_can_write_resource(
-        &state,
-        &auth,
-        &ScopedResource::borrowed(
-            existing.scope,
-            existing.team_id.as_deref(),
-            existing
-                .owner_user_id
-                .as_deref()
-                .or(existing.created_by.as_deref()),
-        ),
-        "workspace",
-    )
-    .await?;
 
-    // Re-resolve team_id/owner_user_id when the scope changes.
-    let (scope, team_id, owner_user_id) = match req.scope {
+    // Re-resolve owner_user_id when the scope changes.
+    let (scope, owner_user_id) = match req.scope {
         Some(new_scope) => {
-            let resolved =
-                resolve_scope_for_create(&state, &auth, Some(new_scope), req.team_id.clone())
-                    .await?;
-            (
-                Some(resolved.scope),
-                Some(Some(resolved.team_id)),
-                Some(resolved.owner_user_id),
-            )
+            let resolved = resolve_scope_for_create_auth(&auth, Some(new_scope))?;
+            (Some(resolved.scope), Some(resolved.owner_user_id))
         }
-        None => (None, None, None),
+        None => (None, None),
     };
 
     let patch = WorkspacePatch {
         name: req.name,
         description: req.description.map(Some),
         scope,
-        team_id,
         owner_user_id,
         docker_image: req.docker_image.map(Some),
         docker_access: req.docker_access.map(Some),
@@ -313,7 +297,7 @@ pub async fn update_workspace(
         source_key: None,
         source_config_path: None,
     };
-    state.workspaces.update(&workspace_id, &patch).await?;
+    state.workspaces.update(&workspace_id, &patch, &ctx).await?;
 
     let response = load_response(&state, &auth, &workspace_id).await?;
     Ok(Json(response))
@@ -335,28 +319,17 @@ pub async fn delete_workspace(
     auth: AuthUser,
     Path(workspace_id): Path<String>,
 ) -> Result<StatusCode, WorkspaceError> {
+    let ctx = auth.scope_context();
     let existing = state
         .workspaces
-        .find_by_id_scoped(&workspace_id, &auth.scope_context())
+        .find_by_id(&workspace_id, &ctx)
         .await?
         .ok_or_else(|| WorkspaceError::NotFound(workspace_id.clone()))?;
     ensure_workspace_mutable(&existing)?;
-    ensure_can_write_resource(
-        &state,
-        &auth,
-        &ScopedResource::borrowed(
-            existing.scope,
-            existing.team_id.as_deref(),
-            existing
-                .owner_user_id
-                .as_deref()
-                .or(existing.created_by.as_deref()),
-        ),
-        "workspace",
-    )
-    .await?;
 
-    state.workspaces.soft_delete(&workspace_id).await?;
+    if !state.workspaces.soft_delete(&workspace_id, &ctx).await? {
+        return Err(WorkspaceError::NotFound(workspace_id));
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -381,27 +354,15 @@ pub async fn override_workspace(
     Path(workspace_id): Path<String>,
     Json(req): Json<UpdateWorkspaceRequest>,
 ) -> Result<Json<WorkspaceResponse>, WorkspaceError> {
-    let existing = state
+    let ctx = auth.scope_context();
+    state
         .workspaces
-        .find_by_id_scoped(&workspace_id, &auth.scope_context())
+        .find_by_id(&workspace_id, &ctx)
         .await?
         .ok_or_else(|| WorkspaceError::NotFound(workspace_id.clone()))?;
     // Intentionally skipping `ensure_workspace_mutable` — this endpoint is the
-    // explicit way to take ownership of a git-synced workspace.
-    ensure_can_write_resource(
-        &state,
-        &auth,
-        &ScopedResource::borrowed(
-            existing.scope,
-            existing.team_id.as_deref(),
-            existing
-                .owner_user_id
-                .as_deref()
-                .or(existing.created_by.as_deref()),
-        ),
-        "workspace",
-    )
-    .await?;
+    // explicit way to take ownership of a git-synced workspace. The DAO
+    // control_filter ensures only the owner/admin can do this.
 
     let patch = WorkspacePatch {
         name: req.name,
@@ -420,13 +381,12 @@ pub async fn override_workspace(
         source: Some("manual".to_string()),
         kind: None,
         scope: None,
-        team_id: None,
         owner_user_id: None,
         source_repository_id: None,
         source_key: None,
         source_config_path: None,
     };
-    state.workspaces.update(&workspace_id, &patch).await?;
+    state.workspaces.update(&workspace_id, &patch, &ctx).await?;
 
     let response = load_response(&state, &auth, &workspace_id).await?;
     Ok(Json(response))
@@ -450,31 +410,18 @@ pub async fn reset_git_workspace(
     auth: AuthUser,
     Path(workspace_id): Path<String>,
 ) -> Result<Json<WorkspaceResponse>, WorkspaceError> {
-    let existing = state
+    let ctx = auth.scope_context();
+    state
         .workspaces
-        .find_by_id_scoped(&workspace_id, &auth.scope_context())
+        .find_by_id(&workspace_id, &ctx)
         .await?
         .ok_or_else(|| WorkspaceError::NotFound(workspace_id.clone()))?;
-    ensure_can_write_resource(
-        &state,
-        &auth,
-        &ScopedResource::borrowed(
-            existing.scope,
-            existing.team_id.as_deref(),
-            existing
-                .owner_user_id
-                .as_deref()
-                .or(existing.created_by.as_deref()),
-        ),
-        "workspace",
-    )
-    .await?;
 
     let patch = WorkspacePatch {
         source: Some("git".to_string()),
         ..WorkspacePatch::default()
     };
-    state.workspaces.update(&workspace_id, &patch).await?;
+    state.workspaces.update(&workspace_id, &patch, &ctx).await?;
 
     let response = load_response(&state, &auth, &workspace_id).await?;
     Ok(Json(response))
@@ -488,24 +435,12 @@ async fn ensure_writable(
 ) -> Result<(), WorkspaceError> {
     let existing = state
         .workspaces
-        .find_by_id_scoped(workspace_id, &auth.scope_context())
+        .find_by_id(workspace_id, &auth.scope_context())
         .await?
         .ok_or_else(|| WorkspaceError::NotFound(workspace_id.to_string()))?;
     ensure_workspace_mutable(&existing)?;
-    ensure_can_write_resource(
-        state,
-        auth,
-        &ScopedResource::borrowed(
-            existing.scope,
-            existing.team_id.as_deref(),
-            existing
-                .owner_user_id
-                .as_deref()
-                .or(existing.created_by.as_deref()),
-        ),
-        "workspace",
-    )
-    .await?;
+    // Control is enforced in the DAO via control_filter; the read above just
+    // provides an early NotFound / git-sync guard.
     Ok(())
 }
 
@@ -556,18 +491,22 @@ pub async fn add_workspace_repo(
 
     let placement_id = format!("wsr_{}", uuid::Uuid::new_v4());
     let position = req.position.unwrap_or(existing.len() as i32);
+    let ctx = auth.scope_context();
     state
         .workspaces
-        .add_repo(&WorkspaceRepo {
-            id: placement_id.clone(),
-            workspace_id: workspace_id.clone(),
-            repository_id: req.repository_id,
-            branch: req.branch,
-            mount_name: req.mount_name,
-            is_primary: false,
-            position,
-            created_at: None,
-        })
+        .add_repo(
+            &WorkspaceRepo {
+                id: placement_id.clone(),
+                workspace_id: workspace_id.clone(),
+                repository_id: req.repository_id,
+                branch: req.branch,
+                mount_name: req.mount_name,
+                is_primary: false,
+                position,
+                created_at: None,
+            },
+            &ctx,
+        )
         .await?;
 
     // First repo in a previously-blank workspace, or an explicit request, makes
@@ -575,10 +514,10 @@ pub async fn add_workspace_repo(
     if req.is_primary == Some(true) || existing.is_empty() {
         state
             .workspaces
-            .set_primary(&workspace_id, &placement_id)
+            .set_primary(&workspace_id, &placement_id, &ctx)
             .await?;
     }
-    state.workspaces.refresh_kind(&workspace_id).await?;
+    state.workspaces.refresh_kind(&workspace_id, &ctx).await?;
 
     let response = load_response(&state, &auth, &workspace_id).await?;
     Ok(Json(response))
@@ -605,14 +544,15 @@ pub async fn remove_workspace_repo(
 ) -> Result<Json<WorkspaceResponse>, WorkspaceError> {
     ensure_writable(&state, &auth, &workspace_id).await?;
 
+    let ctx = auth.scope_context();
     let removed = state
         .workspaces
-        .remove_repo(&workspace_id, &placement_id)
+        .remove_repo(&workspace_id, &placement_id, &ctx)
         .await?;
     if !removed {
         return Err(WorkspaceError::NotFound(placement_id));
     }
-    state.workspaces.refresh_kind(&workspace_id).await?;
+    state.workspaces.refresh_kind(&workspace_id, &ctx).await?;
 
     // Preserve the "exactly one primary when n>=1" invariant if we removed the
     // primary: promote the next-best remaining placement.
@@ -620,7 +560,7 @@ pub async fn remove_workspace_repo(
     if !repos.is_empty() && !repos.iter().any(|r| r.is_primary) {
         state
             .workspaces
-            .set_primary(&workspace_id, &repos[0].id)
+            .set_primary(&workspace_id, &repos[0].id, &ctx)
             .await?;
     }
 
@@ -649,9 +589,10 @@ pub async fn set_workspace_primary_repo(
 ) -> Result<Json<WorkspaceResponse>, WorkspaceError> {
     ensure_writable(&state, &auth, &workspace_id).await?;
 
+    let ctx = auth.scope_context();
     let ok = state
         .workspaces
-        .set_primary(&workspace_id, &placement_id)
+        .set_primary(&workspace_id, &placement_id, &ctx)
         .await?;
     if !ok {
         return Err(WorkspaceError::NotFound(placement_id));
@@ -704,7 +645,6 @@ mod tests {
             source_key: None,
             source_config_path: None,
             scope: moatless_backend_core::scope::Scope::User,
-            team_id: None,
             owner_user_id: None,
             created_by: None,
             deleted: Some(false),

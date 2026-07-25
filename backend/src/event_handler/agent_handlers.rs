@@ -1,5 +1,6 @@
 //! Agent event handlers — process agent.completed, agent.stopped, agent.error events.
 
+use moatless_backend_core::scope::ScopeContext;
 use moatless_events::{TaskSubType, TaskTurnSubType};
 
 use crate::message::models::{ContentBlockType, MessageRole, MessageType};
@@ -30,6 +31,9 @@ fn message_uuid_for_event(event_id: &str) -> String {
 /// <https://linear.app/developers/agent-interaction#activity-content-payload>).
 /// If the payload fails to parse there's nothing to act on — skip.
 pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
+    // reason: agent-lifecycle event handler runs as background system with no caller identity
+    #[allow(clippy::disallowed_methods)]
+    let sys_ctx = ScopeContext::system();
     let sdk_result: SdkResultMessage = match serde_json::from_value(event.payload.clone()) {
         Ok(r) => r,
         Err(e) => {
@@ -102,7 +106,7 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
         patch.total_cost_usd_increment = Some(cost);
     }
 
-    if let Err(e) = state.tasks.update_task(&event.task_id, &patch).await {
+    if let Err(e) = state.tasks.update_task(&event.task_id, &patch, &sys_ctx).await {
         tracing::warn!(task_id = %event.task_id, error = %e, "Failed to update task after completion");
     }
 
@@ -172,7 +176,7 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
     // `TaskSubType::Open` SSE event below so a closed task emits no phantom Open.
     let reopened = match state
         .tasks
-        .update_status_if_not_closed(&event.task_id, TaskStatus::Open)
+        .update_status_if_not_closed(&event.task_id, TaskStatus::Open, &sys_ctx)
         .await
     {
         Ok(changed) => changed,
@@ -328,6 +332,9 @@ pub async fn handle_agent_session_init(_state: &AppState, event: &AgentEvent) {
 /// unknown source is treated as a user stop — the pre-`source` behavior, kept
 /// for sandboxes that predate the field.
 pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
+    // reason: agent-lifecycle event handler runs as background system with no caller identity
+    #[allow(clippy::disallowed_methods)]
+    let sys_ctx = ScopeContext::system();
     // Idempotency: drop duplicate stop fan-out. Both the sandbox and the
     // /stop HTTP handler can publish `agent.stopped` for a single user
     // action, and a hammered /stop endpoint must never accumulate phantom
@@ -415,6 +422,7 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
                 last_message_at: Some(now),
                 ..Default::default()
             },
+            &sys_ctx,
         )
         .await
     {
@@ -426,7 +434,7 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
     // not resurrect it.
     if let Err(e) = state
         .tasks
-        .update_status_if_not_closed(&event.task_id, TaskStatus::Open)
+        .update_status_if_not_closed(&event.task_id, TaskStatus::Open, &sys_ctx)
         .await
     {
         tracing::warn!(task_id = %event.task_id, error = %e, "Failed to update task status after stop");
@@ -451,6 +459,9 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
 
 /// Handle `agent.error` or `sandbox.fatal` event.
 pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
+    // reason: agent-lifecycle event handler runs as background system with no caller identity
+    #[allow(clippy::disallowed_methods)]
+    let sys_ctx = ScopeContext::system();
     // Prometheus: count the errored run. Reached both from the `agent.error`
     // dispatch arm and from `handle_agent_completed`'s `is_error` short-circuit
     // (which returns before recording a `completed` outcome), so an error run is
@@ -521,6 +532,7 @@ pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
                 last_message_at: Some(now),
                 ..Default::default()
             },
+            &sys_ctx,
         )
         .await
     {
@@ -534,7 +546,7 @@ pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
     // unblocks), but the status stays Closed.
     let child_not_closed = match state
         .tasks
-        .update_status_if_not_closed(&event.task_id, TaskStatus::Open)
+        .update_status_if_not_closed(&event.task_id, TaskStatus::Open, &sys_ctx)
         .await
     {
         Ok(changed) => changed,
@@ -1070,6 +1082,9 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
 
 /// Handle `task.metadata.updated` event.
 pub async fn handle_task_metadata_updated(state: &AppState, event: &AgentEvent) {
+    // reason: agent-lifecycle event handler runs as background system with no caller identity
+    #[allow(clippy::disallowed_methods)]
+    let sys_ctx = ScopeContext::system();
     let name = event.payload.get("name").and_then(|v| v.as_str());
     let description = event.payload.get("description").and_then(|v| v.as_str());
 
@@ -1083,7 +1098,7 @@ pub async fn handle_task_metadata_updated(state: &AppState, event: &AgentEvent) 
         ..Default::default()
     };
 
-    if let Err(e) = state.tasks.update_task(&event.task_id, &patch).await {
+    if let Err(e) = state.tasks.update_task(&event.task_id, &patch, &sys_ctx).await {
         tracing::warn!(task_id = %event.task_id, error = %e, "Failed to update task metadata");
     }
 }

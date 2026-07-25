@@ -49,24 +49,3 @@ pub struct TeamMemberResponse {
     pub role: String,
     pub created_at: String,
 }
-
-// ---- Team credential schemas ----
-
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct UpsertTeamCredentialRequest {
-    pub access_token: String,
-    pub refresh_token: Option<String>,
-    pub token_type: Option<String>,
-    pub metadata: Option<serde_json::Value>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct TeamCredentialResponse {
-    pub provider: String,
-    pub token_type: Option<String>,
-    pub has_refresh_token: bool,
-}

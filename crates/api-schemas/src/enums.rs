@@ -350,16 +350,19 @@ impl sqlx::Encode<'_, sqlx::Postgres> for Visibility {
 // Scope
 // =============================================================================
 
-/// 3-level scope for repositories, tasks, integrations, and credentials.
+/// Access scope for repositories, tasks, integrations, and credentials.
+///
+/// Reads: `global` is readable by every authenticated user; `user` only by
+/// its owner (and admins). Control: `global` is admin-managed; `user` is
+/// owner-managed. Task `visibility = 'public'` additionally grants
+/// read/interact on tasks — never control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum Scope {
-    /// Visible to all authenticated users.
+    /// Visible to all authenticated users; admin-managed.
     Global,
-    /// Visible to team members.
-    Team,
-    /// Visible only to the creator.
+    /// Visible only to the owner.
     User,
 }
 
@@ -367,7 +370,6 @@ impl Scope {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Global => "global",
-            Self::Team => "team",
             Self::User => "user",
         }
     }
@@ -384,7 +386,6 @@ impl TryFrom<&str> for Scope {
     fn try_from(s: &str) -> Result<Self, String> {
         match s {
             "global" => Ok(Self::Global),
-            "team" => Ok(Self::Team),
             "user" => Ok(Self::User),
             other => Err(format!("unknown Scope: {other:?}")),
         }
@@ -955,23 +956,20 @@ mod tests {
             "\"global\""
         );
         assert_eq!(
-            serde_json::to_string(&Scope::Team).expect("serialize"),
-            "\"team\""
-        );
-        assert_eq!(
             serde_json::to_string(&Scope::User).expect("serialize"),
             "\"user\""
         );
 
-        let parsed: Scope = serde_json::from_str("\"team\"").expect("deserialize");
-        assert_eq!(parsed, Scope::Team);
+        let parsed: Scope = serde_json::from_str("\"user\"").expect("deserialize");
+        assert_eq!(parsed, Scope::User);
+        assert!(serde_json::from_str::<Scope>("\"team\"").is_err());
     }
 
     #[test]
     fn scope_try_from() {
         assert_eq!(Scope::try_from("global"), Ok(Scope::Global));
-        assert_eq!(Scope::try_from("team"), Ok(Scope::Team));
         assert_eq!(Scope::try_from("user"), Ok(Scope::User));
+        assert!(Scope::try_from("team").is_err());
         assert!(Scope::try_from("invalid").is_err());
     }
 

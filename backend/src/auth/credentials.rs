@@ -25,16 +25,13 @@ use super::token_refresh::ensure_fresh_token;
 use crate::credentials::github::scope::GitHubScope;
 use crate::sandbox::secrets::GITHUB_TOKEN;
 use crate::secret::error::SecretError;
-use crate::secret::models::{SecretKind, SecretScopeType};
+use crate::secret::models::SecretKind;
 use crate::secret::schemas::PutSecretRequest;
 use crate::secret::service::SecretService;
-use moatless_backend_core::scope::ScopeContext;
+use moatless_backend_core::scope::{Scope, ScopeContext};
 
 /// Resolve the GitHub token a given user should present to GitHub at this
 /// moment, from the user's own scope or the org-wide global one.
-///
-/// Use [`resolve_github_token_for_scopes`] where team memberships are known so
-/// team-scoped tokens are reachable too.
 ///
 /// Branches by `provider_tokens.auth_method`:
 /// - `github_app_installation` (bot user): mint a fresh installation token via
@@ -66,7 +63,6 @@ pub async fn resolve_user_github_token(
         github_apps,
         secrets,
         user_id,
-        &[],
         repo_owner,
     )
     .await?
@@ -81,14 +77,13 @@ pub struct ResolvedGithubToken {
     pub login: Option<String>,
 }
 
-/// Resolve the GitHub token for `user_id`, walking `user > team > global`.
+/// Resolve the GitHub token for `user_id`, walking `user > global`.
 ///
-/// The walk is what makes an admin-set org-wide PAT usable: a user with no
-/// credential of their own falls through to their teams and then to the single
-/// global row. Passing an empty `team_ids` still reaches the global scope.
+/// The walk is what makes an admin-set org-wide token usable: a user with no
+/// credential of their own falls through to the single global row.
 #[allow(clippy::too_many_arguments)]
-// reason: mirrors `resolve_user_github_token`'s dependency list plus team
-// context; bundling would only move the argument count to the call sites.
+// reason: mirrors `resolve_user_github_token`'s dependency list; bundling
+// would only move the argument count to the call sites.
 pub async fn resolve_github_token_for_scopes(
     provider_tokens: &dyn ProviderTokenRepository,
     provider_token_auth: Option<&dyn ProviderTokenAuthRepository>,
@@ -96,11 +91,10 @@ pub async fn resolve_github_token_for_scopes(
     github_apps: &GitHubAppRegistry,
     secrets: Option<&SecretService>,
     user_id: &str,
-    team_ids: &[String],
     repo_owner: Option<&str>,
 ) -> Result<Option<ResolvedGithubToken>, AuthError> {
     let Some(presence) = provider_tokens
-        .find_github_scope_presence(user_id, team_ids)
+        .find_github_scope_presence(user_id)
         .await
         .map_err(AuthError::Database)?
     else {
@@ -219,14 +213,14 @@ pub(crate) async fn resolve_repository_github_scope_token(
                     .to_string(),
             ));
         }
-        GitHubScope::Team(_) | GitHubScope::Global
+        GitHubScope::Global
             if row.auth_method.as_deref() != Some(AUTH_METHOD_APP_INSTALLATION) =>
         {
             return Err(AuthError::Config(format!(
                 "GitHub credential at scope '{scope}' is not a GitHub App installation binding"
             )));
         }
-        GitHubScope::Team(_) | GitHubScope::Global => {
+        GitHubScope::Global => {
             let metadata = row.metadata.as_ref().ok_or_else(|| {
                 AuthError::Config(format!(
                     "GitHub App installation binding at scope '{scope}' has no metadata"
@@ -251,7 +245,7 @@ pub(crate) async fn resolve_repository_github_scope_token(
 
     let user_id = match scope {
         GitHubScope::User(user_id) => user_id.as_str(),
-        GitHubScope::Team(_) | GitHubScope::Global => "",
+        GitHubScope::Global => "",
     };
     resolve_github_row_token(
         provider_tokens,
@@ -270,11 +264,10 @@ pub(crate) async fn resolve_repository_github_scope_token(
 }
 
 /// Map a token scope onto the secret scope holding its encrypted value.
-pub(crate) fn secret_scope_for(scope: &GitHubScope) -> (SecretScopeType, Option<&str>) {
+pub(crate) fn secret_scope_for(scope: &GitHubScope) -> (Scope, Option<&str>) {
     match scope {
-        GitHubScope::User(id) => (SecretScopeType::User, Some(id.as_str())),
-        GitHubScope::Team(id) => (SecretScopeType::Team, Some(id.as_str())),
-        GitHubScope::Global => (SecretScopeType::Global, None),
+        GitHubScope::User(id) => (Scope::User, Some(id.as_str())),
+        GitHubScope::Global => (Scope::Global, None),
     }
 }
 
@@ -288,7 +281,6 @@ pub const GITHUB_OAUTH_STASH_KEY: &str = "GITHUB_OAUTH_ACCESS_TOKEN";
 fn user_scope(user_id: &str) -> ScopeContext {
     ScopeContext {
         user_id: user_id.to_string(),
-        team_ids: Vec::new(),
         is_admin: false,
     }
 }
@@ -304,8 +296,7 @@ pub async fn stash_github_oauth_token(
             &user_scope(user_id),
             user_id,
             PutSecretRequest {
-                scope_type: SecretScopeType::User,
-                scope_id: Some(user_id.to_string()),
+                scope: Some(Scope::User),
                 key: GITHUB_OAUTH_STASH_KEY.to_string(),
                 kind: SecretKind::Internal,
                 provider: Some("github".to_string()),
@@ -337,19 +328,6 @@ pub async fn resolve_state_github_token(
     user_id: &str,
     repo_owner: Option<&str>,
 ) -> Result<Option<String>, AuthError> {
-    resolve_state_github_token_for(state, user_id, &[], repo_owner).await
-}
-
-/// [`resolve_state_github_token`] with the caller's team memberships, so a
-/// user with no credential of their own can fall through to a team-scoped
-/// token before the global one. Callers holding an `AuthContext` should pass
-/// its `team_ids`.
-pub async fn resolve_state_github_token_for(
-    state: &crate::state::AppState,
-    user_id: &str,
-    team_ids: &[String],
-    repo_owner: Option<&str>,
-) -> Result<Option<String>, AuthError> {
     Ok(resolve_github_token_for_scopes(
         state.provider_tokens.as_ref(),
         Some(state.provider_token_auth.as_ref()),
@@ -357,7 +335,6 @@ pub async fn resolve_state_github_token_for(
         state.github_apps.as_ref(),
         Some(state.secrets.as_ref()),
         user_id,
-        team_ids,
         repo_owner,
     )
     .await?
@@ -493,6 +470,7 @@ mod tests {
         .await
     }
 
+
     #[tokio::test]
     async fn secret_ref_row_resolves_the_encrypted_pat() {
         let secrets = service_with(vec![secret(
@@ -586,14 +564,11 @@ mod tests {
         assert_eq!(resolve(None, None).await.unwrap(), None);
     }
 
-    // --- scope walk: user > team > global ---
+    // --- scope walk: user > global ---
 
-    async fn resolve_scoped(
-        tokens: StubProviderTokens,
-        team_ids: &[String],
-    ) -> Option<ResolvedGithubToken> {
+    async fn resolve_scoped(tokens: StubProviderTokens) -> Option<ResolvedGithubToken> {
         let apps = GitHubAppRegistry::default();
-        resolve_github_token_for_scopes(&tokens, None, None, &apps, None, "u1", team_ids, None)
+        resolve_github_token_for_scopes(&tokens, None, None, &apps, None, "u1", None)
             .await
             .expect("scope walk must not error")
     }
@@ -604,7 +579,6 @@ mod tests {
         // still gets one.
         let resolved = resolve_scoped(
             StubProviderTokens::default().with_global_row(github_row("manual", "ghp_org")),
-            &[],
         )
         .await
         .expect("global row must satisfy a user with no token");
@@ -613,45 +587,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn user_row_wins_over_team_and_global() {
+    async fn user_row_wins_over_global() {
         let resolved = resolve_scoped(
             StubProviderTokens::with_user_row(Some(github_row("manual", "ghp_mine")))
-                .with_team_row("t1", github_row("manual", "ghp_team"))
                 .with_global_row(github_row("manual", "ghp_org")),
-            &["t1".to_string()],
         )
         .await
         .expect("user row must resolve");
         assert_eq!(resolved.token, "ghp_mine");
         assert_eq!(resolved.scope, GitHubScope::user("u1"));
-    }
-
-    #[tokio::test]
-    async fn team_row_wins_over_global() {
-        let resolved = resolve_scoped(
-            StubProviderTokens::default()
-                .with_team_row("t1", github_row("manual", "ghp_team"))
-                .with_global_row(github_row("manual", "ghp_org")),
-            &["t1".to_string()],
-        )
-        .await
-        .expect("team row must resolve");
-        assert_eq!(resolved.token, "ghp_team");
-        assert_eq!(resolved.scope, GitHubScope::team("t1"));
-    }
-
-    #[tokio::test]
-    async fn team_row_is_unreachable_without_membership() {
-        // A team token must not leak to non-members; the walk falls through.
-        let resolved = resolve_scoped(
-            StubProviderTokens::default()
-                .with_team_row("t1", github_row("manual", "ghp_team"))
-                .with_global_row(github_row("manual", "ghp_org")),
-            &[],
-        )
-        .await
-        .expect("global row must still resolve");
-        assert_eq!(resolved.token, "ghp_org");
     }
 
     #[tokio::test]
@@ -687,7 +631,6 @@ mod tests {
             &apps,
             Some(&secrets),
             "u1",
-            &[],
             None,
         )
         .await
@@ -714,26 +657,6 @@ mod tests {
         .await
         .expect("missing exact row is not an error");
         assert_eq!(resolved, None);
-    }
-
-    #[tokio::test]
-    async fn repository_team_scope_rejects_legacy_pat_row() {
-        let tokens =
-            StubProviderTokens::default().with_team_row("t1", github_row("manual", "ghp_legacy"));
-        let apps = GitHubAppRegistry::default();
-        let error = resolve_repository_github_scope_token(
-            &tokens,
-            None,
-            None,
-            &apps,
-            None,
-            &GitHubScope::team("t1"),
-            "acme",
-            "repo",
-        )
-        .await
-        .expect_err("team PAT must stay inactive");
-        assert!(matches!(error, AuthError::Config(_)));
     }
 
     #[tokio::test]

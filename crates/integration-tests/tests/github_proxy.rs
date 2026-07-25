@@ -215,7 +215,6 @@ async fn pr_create_and_comment_bind_task_via_mock_github() {
             webhook_secret: None,
             source_name: None,
             transport_config: None,
-            team_id: None,
             scope: None,
         })
         .await
@@ -227,7 +226,6 @@ async fn pr_create_and_comment_bind_task_via_mock_github() {
             kind: LoopKind::AdapterEvent,
             active: Some(true),
             scope: None,
-            team_id: None,
             config: CreateLoopConfig {
                 repository_id: repo_id.clone(),
                 routing_mode: RoutingMode::BySubject,

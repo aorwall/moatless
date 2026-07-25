@@ -31,11 +31,7 @@ pub async fn list_secrets(
 ) -> Result<Json<Vec<SecretMetadataResponse>>, SecretError> {
     let rows = state
         .secrets
-        .list_metadata(
-            &auth.scope_context(),
-            query.scope_type,
-            query.scope_id.as_deref(),
-        )
+        .list_metadata(&auth.scope_context(), query.scope)
         .await?;
     Ok(Json(rows))
 }
@@ -172,9 +168,12 @@ pub async fn resolve_task_secrets(
         ));
     }
 
+    // reason: admin-gated internal endpoint; task lookup is system-wide by design
+    #[allow(clippy::disallowed_methods)]
+    let sys_ctx = moatless_backend_core::scope::ScopeContext::system();
     let task = state
         .tasks
-        .find_by_id_internal(&req.task_id)
+        .find_by_id(&req.task_id, &sys_ctx)
         .await?
         .ok_or_else(|| SecretError::BadRequest(format!("task not found: {}", req.task_id)))?;
     let credentials = state
@@ -183,7 +182,6 @@ pub async fn resolve_task_secrets(
             task.created_by
                 .as_deref()
                 .unwrap_or(&auth.user_id.to_string()),
-            task.team_id.as_deref(),
         )
         .await?;
     Ok(Json(ResolveSecretsResponse { credentials }))

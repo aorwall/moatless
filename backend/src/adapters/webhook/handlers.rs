@@ -2,6 +2,7 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
+use moatless_backend_core::scope::ScopeContext;
 use tracing::{info, warn};
 
 use crate::adapters::dao::PgAdapterConnectionRepository;
@@ -49,8 +50,12 @@ pub async fn webhook_inbound(
         return Ok(StatusCode::OK.into_response());
     }
 
+    // reason: inbound webhook routing has no user session; the connection is
+    // resolved from the trigger rule, not caller input.
+    #[allow(clippy::disallowed_methods)]
+    let sys_ctx = ScopeContext::system();
     let connection = PgAdapterConnectionRepository(state.db.clone())
-        .find_by_id(&rule.connection_id)
+        .find_by_id(&rule.connection_id, &sys_ctx)
         .await?
         .ok_or_else(|| {
             AdapterError::NotFound(format!("Connection {} not found", rule.connection_id))

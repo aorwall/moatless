@@ -8,8 +8,9 @@
 
 use std::collections::BTreeMap;
 
-use super::models::{looks_like_secret_key, SecretKind, SecretScopeType};
+use super::models::{looks_like_secret_key, SecretKind};
 use super::schemas::PutSecretRequest;
+use moatless_api_schemas::enums::Scope;
 use super::service::SecretService;
 use crate::db::DbPool;
 use moatless_backend_core::scope::ScopeContext;
@@ -85,7 +86,7 @@ pub async fn run_migrate_repo_env_vars(
                         let Some(owner) = repo.owner.as_deref() else {
                             continue;
                         };
-                        put_user(service, ctx, actor_id, owner, &plan.key, &group.value).await?;
+                        put_user(service, actor_id, owner, &plan.key, &group.value).await?;
                         strip_from_repos(pool, &plan.key, std::slice::from_ref(repo)).await?;
                     }
                 }
@@ -181,8 +182,7 @@ async fn put_global(
             ctx,
             actor_id,
             PutSecretRequest {
-                scope_type: SecretScopeType::Global,
-                scope_id: None,
+                scope: Some(Scope::Global),
                 key: key.to_string(),
                 kind: SecretKind::Env,
                 provider: None,
@@ -196,19 +196,24 @@ async fn put_global(
 
 async fn put_user(
     service: &SecretService,
-    ctx: &ScopeContext,
     actor_id: &str,
     owner_id: &str,
     key: &str,
     value: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // For user-scoped migrate we create via the admin context which allows any scope.
+    // The owner_id is set as the ctx user for resolution via resolve_scope_for_create.
+    // We use a temporary ctx to impersonate the owner.
+    let owner_ctx = moatless_backend_core::scope::ScopeContext {
+        user_id: owner_id.to_string(),
+        is_admin: false,
+    };
     service
         .put_secret(
-            ctx,
+            &owner_ctx,
             actor_id,
             PutSecretRequest {
-                scope_type: SecretScopeType::User,
-                scope_id: Some(owner_id.to_string()),
+                scope: Some(Scope::User),
                 key: key.to_string(),
                 kind: SecretKind::Env,
                 provider: None,

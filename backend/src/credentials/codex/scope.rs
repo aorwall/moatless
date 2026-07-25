@@ -7,28 +7,21 @@
 //! value uniquely addresses one row without callers having to thread
 //! `(scope_kind, scope_id)` tuples through every layer.
 //!
-//! Three scopes:
+//! Two scopes:
 //! - [`CodexScope::User`] — per-user row keyed by `user_id`.
-//! - [`CodexScope::Team`] — per-team row keyed by `team_id` (`user_id IS NULL`).
-//! - [`CodexScope::Global`] — single global row stored at `team_id = 'system'`,
-//!   `user_id IS NULL`. The 'system' team is seeded by migration `0049`.
+//! - [`CodexScope::Global`] — single global row: `user_id IS NULL`,
+//!   `team_id IS NULL`, `scope = 'global'`.
 //!
-//! Resolver precedence: `User > Team > Global` (most-specific wins).
+//! Resolver precedence: `User > Global` (most-specific wins).
 
 /// Discriminator + identifier for a Codex `provider_tokens` row's scope.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CodexScope {
     /// Per-user row: `(user_id = id, scope = 'user')`.
     User(String),
-    /// Per-team row: `(team_id = id, user_id IS NULL, scope = 'team')`.
-    Team(String),
-    /// Singleton global row: `(team_id = 'system', user_id IS NULL, scope = 'global')`.
+    /// Singleton global row: `(user_id IS NULL, team_id IS NULL, scope = 'global')`.
     Global,
 }
-
-/// The reserved team id used as the `team_id` of the global codex row.
-/// Matches the row seeded by migration `0049_canonical_access_control.sql`.
-pub const SYSTEM_TEAM_ID: &str = "system";
 
 impl CodexScope {
     /// Convenience constructors.
@@ -36,17 +29,12 @@ impl CodexScope {
         Self::User(id.into())
     }
 
-    pub fn team(id: impl Into<String>) -> Self {
-        Self::Team(id.into())
-    }
-
     /// The string the Postgres advisory lock is hashed from. Includes the
-    /// scope discriminant so a user named `"foo"` and a team named `"foo"`
-    /// don't collide on the same lock.
+    /// scope discriminant so a user named `"foo"` doesn't collide with the
+    /// global lock.
     pub fn advisory_id_input(&self) -> String {
         match self {
             Self::User(id) => format!("codex-refresh:user:{id}"),
-            Self::Team(id) => format!("codex-refresh:team:{id}"),
             Self::Global => "codex-refresh:global".to_string(),
         }
     }
@@ -57,25 +45,21 @@ impl CodexScope {
         self.advisory_id_input()
     }
 
-    /// Short human-readable label for log fields (`scope=user`, `scope=team:42`,
-    /// `scope=global`).
+    /// Short human-readable label for log fields (`scope=user`, `scope=global`).
     pub fn display(&self) -> String {
         match self {
             Self::User(id) => format!("user:{id}"),
-            Self::Team(id) => format!("team:{id}"),
             Self::Global => "global".to_string(),
         }
     }
 
-    /// Bind value for the `WHERE` fragment's single `$N` placeholder. All
-    /// three scopes carry exactly one identifier in the fragment (user_id,
-    /// team_id, or the reserved `'system'` literal for global), so callers
-    /// can bind uniformly via [`bind_value`] without branching on the
-    /// variant.
+    /// Bind value for the `WHERE` fragment's single `$N` placeholder.
+    /// User scope carries the user_id; Global uses an empty string sentinel
+    /// (the clause itself uses IS NULL checks, not a bound value).
     pub fn bind_value(&self) -> &str {
         match self {
-            Self::User(id) | Self::Team(id) => id.as_str(),
-            Self::Global => SYSTEM_TEAM_ID,
+            Self::User(id) => id.as_str(),
+            Self::Global => "",
         }
     }
 
@@ -84,19 +68,15 @@ impl CodexScope {
     /// Callers paste the result into the larger SQL string and bind
     /// [`bind_value`] at the same positional parameter index.
     ///
-    /// All three scopes use exactly one bind, so the positional indexing of
-    /// surrounding params is independent of variant.
+    /// Note: Global scope uses `IS NULL` checks so the bind value is unused
+    /// for that variant; callers should still bind it (empty string) to keep
+    /// positional parameter counts consistent.
     pub fn where_clause(&self, placeholder: &str) -> String {
         match self {
             Self::User(_) => format!(
                 "user_id = {placeholder} AND provider = 'codex' AND scope = 'user'"
             ),
-            Self::Team(_) => format!(
-                "team_id = {placeholder} AND user_id IS NULL AND provider = 'codex' AND scope = 'team'"
-            ),
-            Self::Global => format!(
-                "team_id = {placeholder} AND user_id IS NULL AND provider = 'codex' AND scope = 'global'"
-            ),
+            Self::Global => "user_id IS NULL AND team_id IS NULL AND provider = 'codex' AND scope = 'global'".to_string(),
         }
     }
 
@@ -104,7 +84,6 @@ impl CodexScope {
     pub fn scope_kind(&self) -> &'static str {
         match self {
             Self::User(_) => "user",
-            Self::Team(_) => "team",
             Self::Global => "global",
         }
     }
@@ -123,13 +102,9 @@ mod tests {
     #[test]
     fn lock_key_is_distinct_across_scopes_with_same_id() {
         let user = CodexScope::user("foo").lock_key();
-        let team = CodexScope::team("foo").lock_key();
         let global = CodexScope::Global.lock_key();
-        assert_ne!(user, team);
         assert_ne!(user, global);
-        assert_ne!(team, global);
         assert!(user.contains("user"));
-        assert!(team.contains("team"));
         assert!(global.contains("global"));
     }
 
@@ -139,35 +114,27 @@ mod tests {
         assert!(u.contains("user_id = $1"));
         assert!(u.contains("scope = 'user'"));
 
-        let t = CodexScope::team("t1").where_clause("$3");
-        assert!(t.contains("team_id = $3"));
-        assert!(t.contains("user_id IS NULL"));
-        assert!(t.contains("scope = 'team'"));
-
         let g = CodexScope::Global.where_clause("$1");
-        assert!(g.contains("team_id = $1"));
         assert!(g.contains("user_id IS NULL"));
+        assert!(g.contains("team_id IS NULL"));
         assert!(g.contains("scope = 'global'"));
     }
 
     #[test]
     fn bind_value_is_the_scope_identifier() {
         assert_eq!(CodexScope::user("alice").bind_value(), "alice");
-        assert_eq!(CodexScope::team("acme").bind_value(), "acme");
-        assert_eq!(CodexScope::Global.bind_value(), SYSTEM_TEAM_ID);
+        assert_eq!(CodexScope::Global.bind_value(), "");
     }
 
     #[test]
     fn scope_kind_matches_db_literal() {
         assert_eq!(CodexScope::user("a").scope_kind(), "user");
-        assert_eq!(CodexScope::team("a").scope_kind(), "team");
         assert_eq!(CodexScope::Global.scope_kind(), "global");
     }
 
     #[test]
     fn display_is_compact() {
         assert_eq!(CodexScope::user("a").display(), "user:a");
-        assert_eq!(CodexScope::team("b").display(), "team:b");
         assert_eq!(CodexScope::Global.display(), "global");
     }
 }

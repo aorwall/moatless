@@ -40,10 +40,7 @@ pub enum RepoAction {
         /// Repository description
         #[arg(long)]
         description: Option<String>,
-        /// Team ID
-        #[arg(long)]
-        team_id: Option<String>,
-        /// Scope: global, team, or user
+        /// Scope: global or user
         #[arg(long)]
         scope: Option<String>,
     },
@@ -52,12 +49,9 @@ pub enum RepoAction {
         repo_id: String,
         #[arg(long)]
         name: Option<String>,
-        /// Change access scope: global, team, or user (re-resolves team/owner)
+        /// Change access scope: global or user
         #[arg(long)]
         scope: Option<String>,
-        /// Target team ID when moving to team scope
-        #[arg(long)]
-        team_id: Option<String>,
         #[arg(long)]
         branch: Option<String>,
         #[arg(long)]
@@ -102,7 +96,6 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             provider,
             kind,
             description,
-            team_id,
             scope,
         } => {
             let req = CreateRepositoryRequest {
@@ -113,7 +106,6 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 provider: parse_repo_provider(&provider),
                 description,
                 scope: scope.as_deref().and_then(parse_scope),
-                team_id,
             };
             let created = client.api().create_repository(&req).await?;
             if json {
@@ -126,7 +118,6 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             repo_id,
             name,
             scope,
-            team_id,
             branch,
             git_url,
             description,
@@ -136,7 +127,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                     Some(sc) => Some(sc),
                     None => {
                         return Err(ClientError::Other(format!(
-                            "Invalid --scope '{s}' (expected: global, team, or user)"
+                            "Invalid --scope '{s}' (expected: global or user)"
                         )));
                     }
                 },
@@ -145,7 +136,6 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             let req = UpdateRepositoryRequest {
                 name,
                 scope: parsed_scope,
-                team_id,
                 default_branch: branch,
                 remote_url: git_url,
                 description,
@@ -233,7 +223,6 @@ fn parse_repo_provider(s: &str) -> Option<RepositoryProvider> {
 fn parse_scope(s: &str) -> Option<Scope> {
     match s {
         "global" => Some(Scope::Global),
-        "team" => Some(Scope::Team),
         "user" => Some(Scope::User),
         _ => None,
     }
@@ -272,9 +261,6 @@ fn format_repo_detail(r: &RepositoryResponse) {
         println!("Description: {desc}");
     }
     println!("Scope:      {}", r.scope);
-    if let Some(ref tid) = r.team_id {
-        println!("Team ID:    {tid}");
-    }
     if let Some(ref owner) = r.owner_user_id {
         println!("Owner:      {owner}");
     }

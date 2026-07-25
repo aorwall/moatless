@@ -8,12 +8,12 @@ use tracing::{debug, info, warn};
 
 use moatless_api_schemas::loops::{LoopSyncSummary, SyncConfigResponse};
 
-use crate::access_control::{ensure_can_write_resource, resolve_scope_for_create};
+use crate::access_control::resolve_scope_for_create_auth;
 use crate::extractors::AuthUser;
 use crate::loops::sync::sync_repo_loops;
 use crate::secret::models::looks_like_secret_key;
 use crate::state::AppState;
-use moatless_backend_core::scope::{Scope, ScopedResource};
+use moatless_backend_core::scope::Scope;
 
 use super::access::{access_error_for, parse_github_owner_repo, resolve_repository_github_token};
 use super::config_reader::{
@@ -61,17 +61,14 @@ pub async fn create_repository(
     let now = chrono::Utc::now();
     let user_id = auth.user_id;
 
-    let resolved_scope =
-        resolve_scope_for_create(&state, &auth, req.scope, req.team_id.clone()).await?;
+    let resolved_scope = resolve_scope_for_create_auth(&auth, req.scope)?;
     let scope_ctx = auth.scope_context();
-    let team_id = Some(resolved_scope.team_id);
 
     ensure_unique_remote_url(
         state.repositories.as_ref(),
         None,
         req.remote_url.as_deref(),
         resolved_scope.scope,
-        team_id.clone(),
         resolved_scope.owner_user_id.clone(),
     )
     .await?;
@@ -85,7 +82,6 @@ pub async fn create_repository(
         description: req.description,
         provider: req.provider,
         scope: resolved_scope.scope,
-        team_id,
         owner_user_id: resolved_scope.owner_user_id,
         created_by: Some(user_id.to_string()),
         access_status: "unchecked".to_string(),
@@ -233,25 +229,12 @@ pub async fn update_repository(
     Path(repository_id): Path<String>,
     Json(req): Json<UpdateRepositoryRequest>,
 ) -> Result<Json<RepositoryResponse>, RepositoryError> {
+    let ctx = auth.scope_context();
     let existing = state
         .repositories
-        .find_by_id(&repository_id, &auth.scope_context())
+        .find_by_id(&repository_id, &ctx)
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
-    ensure_can_write_resource(
-        &state,
-        &auth,
-        &ScopedResource::borrowed(
-            existing.scope,
-            existing.team_id.as_deref(),
-            existing
-                .owner_user_id
-                .as_deref()
-                .or(existing.created_by.as_deref()),
-        ),
-        "repository",
-    )
-    .await?;
 
     let access_context_changed = req.scope.is_some()
         || req
@@ -260,32 +243,21 @@ pub async fn update_repository(
             .is_some_and(|remote_url| existing.remote_url.as_ref() != Some(remote_url));
 
     // User ownership is immutable here: re-submitting `scope: user` preserves
-    // the existing owner and team even when an admin is editing the row.
-    // Team/global moves still resolve their target team and clear the owner.
-    let (scope, team_id, owner_user_id) = match req.scope {
+    // the existing owner even when an admin is editing the row.
+    // Global moves require admin (enforced by resolve_scope_for_create_auth).
+    let (scope, owner_user_id) = match req.scope {
         Some(Scope::User) => {
-            let (existing_team_id, existing_owner_user_id) = preserved_user_scope(&existing)?;
-            (
-                Some(Scope::User),
-                Some(existing_team_id),
-                Some(Some(existing_owner_user_id)),
-            )
+            let existing_owner_user_id = preserved_user_scope(&existing)?;
+            (Some(Scope::User), Some(Some(existing_owner_user_id)))
         }
         Some(new_scope) => {
-            let resolved =
-                resolve_scope_for_create(&state, &auth, Some(new_scope), req.team_id.clone())
-                    .await?;
-            (
-                Some(resolved.scope),
-                Some(Some(resolved.team_id)),
-                Some(resolved.owner_user_id),
-            )
+            let resolved = resolve_scope_for_create_auth(&auth, Some(new_scope))?;
+            (Some(resolved.scope), Some(resolved.owner_user_id))
         }
-        None => (None, None, None),
+        None => (None, None),
     };
 
     let target_scope = scope.unwrap_or(existing.scope);
-    let target_team_id = team_id.clone().unwrap_or_else(|| existing.team_id.clone());
     let target_owner_user_id = owner_user_id
         .clone()
         .unwrap_or_else(|| existing.owner_user_id.clone());
@@ -299,14 +271,12 @@ pub async fn update_repository(
         Some(&repository_id),
         target_remote_url.as_deref(),
         target_scope,
-        target_team_id,
         target_owner_user_id,
     )
     .await?;
 
     let patch = RepositoryPatch {
         scope,
-        team_id,
         owner_user_id,
         name: req.name,
         remote_url: req.remote_url.map(Some),
@@ -320,14 +290,14 @@ pub async fn update_repository(
 
     state
         .repositories
-        .update(&repository_id, &patch)
+        .update(&repository_id, &patch, &ctx)
         .await
         .map_err(|error| RepositoryError::from_write_error(error, target_remote_url.as_deref()))?;
 
     // Re-fetch updated row
     let updated = state
         .repositories
-        .find_by_id(&repository_id, &auth.scope_context())
+        .find_by_id(&repository_id, &ctx)
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id))?;
 
@@ -339,7 +309,6 @@ async fn ensure_unique_remote_url(
     repository_id: Option<&str>,
     remote_url: Option<&str>,
     scope: Scope,
-    team_id: Option<String>,
     owner_user_id: Option<String>,
 ) -> Result<(), RepositoryError> {
     let Some(remote_url) = remote_url else {
@@ -347,7 +316,7 @@ async fn ensure_unique_remote_url(
     };
     let url_key = normalize_remote_url(remote_url);
     let existing = repositories
-        .find_by_normalized_remote_url(&url_key, scope, team_id, owner_user_id)
+        .find_by_normalized_remote_url(&url_key, scope, owner_user_id)
         .await?;
     if existing
         .as_ref()
@@ -358,16 +327,13 @@ async fn ensure_unique_remote_url(
     Ok(())
 }
 
-/// Preserve the immutable owner/team when a repository is submitted as
-/// user-scoped. Ownerless team/global rows cannot be promoted to user scope
-/// because this API intentionally has no owner-picker contract.
-fn preserved_user_scope(
-    existing: &Repository,
-) -> Result<(Option<String>, String), RepositoryError> {
-    let owner_user_id = existing.owner_user_id.clone().ok_or_else(|| {
+/// Preserve the immutable owner when a repository is submitted as user-scoped.
+/// Ownerless global rows cannot be promoted to user scope because this API
+/// intentionally has no owner-picker contract.
+fn preserved_user_scope(existing: &Repository) -> Result<String, RepositoryError> {
+    existing.owner_user_id.clone().ok_or_else(|| {
         RepositoryError::BadRequest("Cannot move an ownerless repository to user scope".to_string())
-    })?;
-    Ok((existing.team_id.clone(), owner_user_id))
+    })
 }
 
 /// Verify the persisted repository URL with the credentials appropriate to its
@@ -396,17 +362,6 @@ pub async fn verify_access(
         .find_by_id(&repository_id, &auth.scope_context())
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
-    ensure_can_write_resource(
-        &state,
-        &auth,
-        &ScopedResource::borrowed(
-            repository.scope,
-            repository.team_id.as_deref(),
-            repository.owner_user_id.as_deref(),
-        ),
-        "repository",
-    )
-    .await?;
 
     let remote_url = repository
         .remote_url
@@ -433,11 +388,13 @@ pub async fn verify_access(
     };
 
     let status = verify_repository_access(remote_url, token.as_deref(), provider).await;
+    let ctx = auth.scope_context();
     let updated = persist_access_verification(
         state.repositories.as_ref(),
         &repository,
         status,
         chrono::Utc::now(),
+        &ctx,
     )
     .await?;
 
@@ -449,6 +406,7 @@ async fn persist_access_verification(
     repository: &Repository,
     status: AccessStatus,
     checked_at: chrono::DateTime<chrono::Utc>,
+    ctx: &moatless_backend_core::scope::ScopeContext,
 ) -> Result<Repository, RepositoryError> {
     let access_error = access_error_for(status, repository.remote_url.as_deref().unwrap_or(""));
     let patch = RepositoryPatch {
@@ -457,7 +415,7 @@ async fn persist_access_verification(
         access_error: Some(access_error.clone()),
         ..Default::default()
     };
-    if !repositories.update(&repository.id, &patch).await? {
+    if !repositories.update(&repository.id, &patch, ctx).await? {
         return Err(RepositoryError::NotFound(repository.id.clone()));
     }
 
@@ -486,27 +444,16 @@ pub async fn delete_repository(
     auth: AuthUser,
     Path(repository_id): Path<String>,
 ) -> Result<StatusCode, RepositoryError> {
-    let existing = state
+    let ctx = auth.scope_context();
+    state
         .repositories
-        .find_by_id(&repository_id, &auth.scope_context())
+        .find_by_id(&repository_id, &ctx)
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
-    ensure_can_write_resource(
-        &state,
-        &auth,
-        &ScopedResource::borrowed(
-            existing.scope,
-            existing.team_id.as_deref(),
-            existing
-                .owner_user_id
-                .as_deref()
-                .or(existing.created_by.as_deref()),
-        ),
-        "repository",
-    )
-    .await?;
 
-    state.repositories.soft_delete(&repository_id).await?;
+    if !state.repositories.soft_delete(&repository_id, &ctx).await? {
+        return Err(RepositoryError::NotFound(repository_id.clone()));
+    }
 
     // Soft-delete workspaces this repo declared in git — once the source repo is
     // gone no future sync will prune them. Best-effort; the repo is already deleted.
@@ -544,25 +491,12 @@ pub async fn convert_to_template(
     auth: AuthUser,
     Path(repository_id): Path<String>,
 ) -> Result<Json<RepositoryResponse>, RepositoryError> {
+    let ctx = auth.scope_context();
     let existing = state
         .repositories
-        .find_by_id(&repository_id, &auth.scope_context())
+        .find_by_id(&repository_id, &ctx)
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
-    ensure_can_write_resource(
-        &state,
-        &auth,
-        &ScopedResource::borrowed(
-            existing.scope,
-            existing.team_id.as_deref(),
-            existing
-                .owner_user_id
-                .as_deref()
-                .or(existing.created_by.as_deref()),
-        ),
-        "repository",
-    )
-    .await?;
 
     if existing.kind != RepositoryKind::Remote {
         return Err(RepositoryError::BadRequest(format!(
@@ -576,11 +510,11 @@ pub async fn convert_to_template(
         ..Default::default()
     };
 
-    state.repositories.update(&repository_id, &patch).await?;
+    state.repositories.update(&repository_id, &patch, &ctx).await?;
 
     let updated = state
         .repositories
-        .find_by_id(&repository_id, &auth.scope_context())
+        .find_by_id(&repository_id, &ctx)
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id))?;
 
@@ -684,7 +618,11 @@ pub async fn get_branches(
                 default_branch: Some(Some(branch.clone())),
                 ..Default::default()
             };
-            if let Err(e) = state.repositories.update(&repository_id, &patch).await {
+            if let Err(e) = state
+                .repositories
+                .update(&repository_id, &patch, &auth.scope_context())
+                .await
+            {
                 warn!(repository_id = %repository_id, error = %e, "Failed to persist default branch");
             }
         }
@@ -1183,7 +1121,6 @@ mod tests {
             description: None,
             provider: Some(RepositoryProvider::Github),
             scope,
-            team_id: Some("team-1".to_string()),
             owner_user_id: owner_user_id.map(str::to_string),
             created_by: Some("creator".to_string()),
             access_status: "unchecked".to_string(),
@@ -1217,16 +1154,15 @@ mod tests {
     }
 
     #[test]
-    fn resubmitting_user_scope_preserves_owner_and_team() {
+    fn resubmitting_user_scope_preserves_owner() {
         let existing = repository(Scope::User, Some("original-owner"));
-        let (team_id, owner_user_id) = preserved_user_scope(&existing).unwrap();
-        assert_eq!(team_id.as_deref(), Some("team-1"));
+        let owner_user_id = preserved_user_scope(&existing).unwrap();
         assert_eq!(owner_user_id, "original-owner");
     }
 
     #[test]
     fn ownerless_repository_cannot_move_to_user_scope() {
-        let existing = repository(Scope::Team, None);
+        let existing = repository(Scope::Global, None);
         let err = preserved_user_scope(&existing)
             .expect_err("ownerless repository needs an explicit future owner-picker");
         assert!(matches!(err, RepositoryError::BadRequest(_)));
@@ -1234,10 +1170,11 @@ mod tests {
 
     #[tokio::test]
     async fn access_verification_persists_status_time_and_error() {
+        use moatless_backend_core::scope::ScopeContext;
         let mut mock = MockRepoRepository::new();
         let checked_at = chrono::Utc::now();
         mock.expect_update()
-            .withf(move |id, patch| {
+            .withf(move |id, patch, _ctx| {
                 id == "repo-1"
                     && patch.access_status.as_deref() == Some("forbidden")
                     && patch.access_checked_at == Some(Some(checked_at))
@@ -1247,13 +1184,18 @@ mod tests {
                         .and_then(|error| error.as_deref())
                         == Some("No access to repository: https://github.com/acme/repo.git")
             })
-            .returning(|_, _| Ok(true));
+            .returning(|_, _, _| Ok(true));
 
+        let ctx = ScopeContext {
+            user_id: "owner".to_string(),
+            is_admin: false,
+        };
         let updated = persist_access_verification(
             &mock,
             &repository(Scope::User, Some("owner")),
             AccessStatus::Forbidden,
             checked_at,
+            &ctx,
         )
         .await
         .unwrap();

@@ -127,7 +127,6 @@ pub struct CreateRepositoryRequest {
     pub description: Option<String>,
     pub provider: Option<RepositoryProvider>,
     pub scope: Option<Scope>,
-    pub team_id: Option<String>,
 }
 
 // =============================================================================
@@ -139,13 +138,11 @@ pub struct CreateRepositoryRequest {
 #[serde(rename_all = "camelCase")]
 pub struct UpdateRepositoryRequest {
     pub name: Option<String>,
-    /// Change the repository's access scope (`global`, `team`, or `user`).
-    /// Re-submitting `user` preserves the repository's existing immutable
-    /// owner and team. An ownerless repository cannot move to `user`.
-    /// Team/global targets are resolved from `team_id` and clear the owner.
+    /// Change the repository's access scope (`global` or `user`).
+    /// Re-submitting `user` preserves the repository's existing immutable owner.
+    /// An ownerless repository cannot move to `user`.
+    /// Requesting `global` requires admin.
     pub scope: Option<Scope>,
-    /// Target team when moving to `team` scope. Ignored for `global`/`user`.
-    pub team_id: Option<String>,
     pub remote_url: Option<String>,
     pub default_branch: Option<String>,
     pub description: Option<String>,
@@ -167,7 +164,6 @@ pub struct RepositoryResponse {
     pub description: Option<String>,
     pub provider: Option<RepositoryProvider>,
     pub scope: Scope,
-    pub team_id: Option<String>,
     pub owner_user_id: Option<String>,
     /// Provider reachability of `remote_url`: `unchecked` | `ok` | `not_found`
     /// | `forbidden` | `error`. Stamped when the repo is auto-created by a

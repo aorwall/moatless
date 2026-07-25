@@ -183,7 +183,6 @@ pub async fn validate_key_cached(
         role: payload.role,
         provider: "api-key".to_string(),
         group_id: payload.group_id,
-        team_ids: vec![], // Team IDs resolved separately on login
         expires_at,
     };
 

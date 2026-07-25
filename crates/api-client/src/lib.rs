@@ -993,36 +993,6 @@ impl ApiClient {
             .await
     }
 
-    /// PUT /api/v1/teams/{team_id}/credentials/{provider}
-    pub async fn upsert_credential(
-        &self,
-        team_id: &str,
-        provider: &str,
-        req: &moatless_api_schemas::team::UpsertTeamCredentialRequest,
-    ) -> Result<(), ApiError> {
-        let url = format!(
-            "{}/api/v1/teams/{team_id}/credentials/{provider}",
-            self.base_url
-        );
-        let resp = self.http.put(&url).json(req).send().await?;
-        self.check_status(resp).await
-    }
-
-    /// GET /api/v1/teams/{team_id}/credentials
-    pub async fn list_credentials(
-        &self,
-        team_id: &str,
-    ) -> Result<Vec<moatless_api_schemas::team::TeamCredentialResponse>, ApiError> {
-        self.get(&format!("/api/v1/teams/{team_id}/credentials"))
-            .await
-    }
-
-    /// DELETE /api/v1/teams/{team_id}/credentials/{provider}
-    pub async fn delete_credential(&self, team_id: &str, provider: &str) -> Result<(), ApiError> {
-        self.delete_request(&format!("/api/v1/teams/{team_id}/credentials/{provider}"))
-            .await
-    }
-
     // ========================================================================
     // Tags
     // ========================================================================

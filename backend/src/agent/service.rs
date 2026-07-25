@@ -54,39 +54,19 @@ fn build_descriptor(
 }
 
 /// Collect the set of credential keys visible to the caller across:
-///   - Global / Team / User scoped secrets (metadata only).
+///   - Global / User scoped secrets (metadata only).
 async fn collect_credential_keys(state: &AppState, ctx: &ScopeContext) -> HashSet<String> {
     let mut keys: HashSet<String> = HashSet::new();
 
-    match state.secret_records.list_by_scope("global", None).await {
-        Ok(records) => keys.extend(records.into_iter().map(|r| r.key)),
-        Err(e) => tracing::warn!(error = %e, "agent service: failed to list global secrets"),
-    }
-
-    for team_id in &ctx.team_ids {
-        match state
-            .secret_records
-            .list_by_scope("team", Some(team_id))
-            .await
-        {
-            Ok(records) => keys.extend(records.into_iter().map(|r| r.key)),
-            Err(e) => {
-                tracing::warn!(error = %e, team_id, "agent service: failed to list team secrets");
-            }
-        }
-    }
-
-    match state
-        .secret_records
-        .list_by_scope("user", Some(&ctx.user_id))
-        .await
-    {
+    // The access filter already limits this to global secrets plus the
+    // caller's own user-scoped ones.
+    match state.secret_records.list(ctx, None).await {
         Ok(records) => keys.extend(records.into_iter().map(|r| r.key)),
         Err(e) => {
             tracing::warn!(
                 error = %e,
                 user_id = %ctx.user_id,
-                "agent service: failed to list user secrets"
+                "agent service: failed to list visible secrets"
             );
         }
     }
@@ -120,32 +100,6 @@ async fn collect_provider_token_providers(state: &AppState, ctx: &ScopeContext) 
                     provider,
                     "agent service: failed to query user provider_token"
                 );
-            }
-        }
-    }
-
-    for team_id in &ctx.team_ids {
-        for provider in &relevant {
-            if providers.contains(*provider) {
-                continue;
-            }
-            match state
-                .provider_tokens
-                .find_team_token(team_id, provider)
-                .await
-            {
-                Ok(Some(_)) => {
-                    providers.insert((*provider).to_string());
-                }
-                Ok(None) => {}
-                Err(e) => {
-                    tracing::warn!(
-                        error = %e,
-                        team_id,
-                        provider,
-                        "agent service: failed to query team provider_token"
-                    );
-                }
             }
         }
     }

@@ -23,6 +23,7 @@ use crate::bindings::dao::PgTaskBindingRepository;
 use crate::sandbox::lifecycle::ArchiveRetention;
 use crate::state::AppState;
 use crate::task::dao::TaskPatch;
+use moatless_backend_core::scope::ScopeContext;
 use crate::task::models::{TaskStatus, Visibility};
 
 use super::agent_api::{default_http_client, ActivityKind, LinearAgentApi};
@@ -1066,7 +1067,9 @@ async fn close_active_bindings_for_issue(
             continue;
         }
 
-        match state.tasks.find_by_id_internal(&binding.task_id).await {
+        #[allow(clippy::disallowed_methods)] // reason: Linear issue-close handler runs as background system, no caller identity
+        let sys = ScopeContext::system();
+        match state.tasks.find_by_id(&binding.task_id, &sys).await {
             Ok(Some(task)) if task.status == TaskStatus::Closed => {
                 debug!(task_id = %binding.task_id, issue = %issue.identifier, "Task already closed, skipping");
                 continue;
@@ -1122,6 +1125,7 @@ async fn close_active_bindings_for_issue(
                     status: Some(TaskStatus::Closed),
                     ..Default::default()
                 },
+                &sys,
             )
             .await
         {
@@ -1482,7 +1486,9 @@ fn format_attachment_title(prefix: &str, name: Option<&str>) -> String {
 }
 
 pub(crate) async fn task_attachment_title(state: &AppState, task_id: &str, prefix: &str) -> String {
-    match state.tasks.find_by_id_internal(task_id).await {
+    #[allow(clippy::disallowed_methods)] // reason: attachment title fetch is a background formatting step, no caller identity
+    let sys = ScopeContext::system();
+    match state.tasks.find_by_id(task_id, &sys).await {
         Ok(Some(task)) => format_attachment_title(prefix, task.name.as_deref()),
         Ok(None) => prefix.to_string(),
         Err(e) => {
@@ -1555,8 +1561,11 @@ async fn resolve_linear_sessions_for_task(
         // Column is `external_account_id` on disk; the rest of the codebase
         // reads it via `external_account_id AS scope_value`. Use the DAO so
         // we stay in sync with future schema changes.
+        // reason: session routing for an agent-side notification; no caller identity
+        #[allow(clippy::disallowed_methods)]
+        let sys = ScopeContext::system();
         let connection = match PgAdapterConnectionRepository(state.db.clone())
-            .find_by_id(&binding.connection_id)
+            .find_by_id(&binding.connection_id, &sys)
             .await
         {
             Ok(c) => c,

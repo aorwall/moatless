@@ -31,7 +31,6 @@ pub const GIT_USER_EMAIL: &str = "GIT_USER_EMAIL";
 pub struct TaskCredentialInputs<'a> {
     pub task_id: &'a str,
     pub user_id: &'a str,
-    pub team_id: Option<&'a str>,
     pub secrets: Option<&'a Arc<SecretService>>,
     pub provider_tokens: Option<&'a Arc<dyn ProviderTokenRepository>>,
     pub github_app_service: Option<&'a Arc<GitHubAppService>>,
@@ -54,11 +53,11 @@ pub struct TaskCredentialInputs<'a> {
 /// Resolve the credentials a task's sandbox needs.
 ///
 /// Priority order (most-specific wins):
-/// 1. Per-user / team `provider_tokens` (OAuth-managed, e.g. a freshly-issued
+/// 1. Per-user `provider_tokens` (OAuth-managed, e.g. a freshly-issued
 ///    Codex `auth.json` from the device-code flow or a connected GitHub App
 ///    user-token).
 /// 2. Scoped secrets — the `SecretService` already resolves these with
-///    user > team > global precedence internally; we only fill keys that
+///    user > global precedence internally; we only fill keys that
 ///    aren't already covered by a `provider_token`.
 ///
 /// Rationale: `provider_tokens` is the live OAuth/connection state and is
@@ -73,7 +72,6 @@ pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMa
         &mut credentials,
         input.provider_tokens,
         input.secrets,
-        input.team_id,
         input.user_id,
         input.github_app_service,
         input.provider_token_auth,
@@ -86,8 +84,7 @@ pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMa
 
     fill_git_identity(&mut credentials, input.users, input.user_id).await;
 
-    let scoped =
-        resolve_scoped_secrets(input.secrets, input.user_id, input.team_id, input.task_id).await;
+    let scoped = resolve_scoped_secrets(input.secrets, input.user_id, input.task_id).await;
 
     fill_missing_from_scoped(&mut credentials, scoped);
     credentials
@@ -139,18 +136,17 @@ fn fill_missing_from_scoped(
 /// `~/.ssh`.
 ///
 /// These are `ssh_key`-kind scoped secrets, resolved with the same
-/// `user > team > global` precedence as other secrets but delivered on a
+/// `user > global` precedence as other secrets but delivered on a
 /// dedicated channel so they are never exposed as environment variables to the
 /// agent. Returns a `secret key name → private key` map.
 pub async fn resolve_task_ssh_keys(
     secrets: Option<&Arc<SecretService>>,
     user_id: &str,
-    team_id: Option<&str>,
 ) -> HashMap<String, String> {
     let Some(secrets) = secrets else {
         return HashMap::new();
     };
-    match secrets.resolve_accessible_ssh_keys(user_id, team_id).await {
+    match secrets.resolve_accessible_ssh_keys(user_id).await {
         Ok(keys) => keys,
         Err(e) => {
             warn!(user_id, error = %e, "Failed to resolve ssh key secrets");
@@ -161,18 +157,17 @@ pub async fn resolve_task_ssh_keys(
 
 /// Resolve the shared env delivered to every server sidecar.
 ///
-/// Returns the full accessible scope chain (user > team > global) with
+/// Returns the full accessible scope chain (user > global) with
 /// reserved runtime keys filtered out. The agent env is a superset that
 /// additionally includes provider tokens.
 pub async fn resolve_server_env(
     user_id: &str,
-    team_id: Option<&str>,
     secrets: Option<&Arc<SecretService>>,
 ) -> HashMap<String, String> {
     let Some(secrets) = secrets else {
         return HashMap::new();
     };
-    match secrets.resolve_accessible_plaintext(user_id, team_id).await {
+    match secrets.resolve_accessible_plaintext(user_id).await {
         Ok(mut env) => {
             env.retain(|key, _| !is_reserved_key(key));
             env
@@ -192,43 +187,27 @@ pub(crate) async fn resolve_task_repository(
 ) -> Option<Repository> {
     let tasks = tasks?;
     let repositories = repositories?;
-    let task = tasks.find_by_id_internal(task_id).await.ok().flatten()?;
+    // reason: repository lookup for sandbox provisioning is system-wide
+    #[allow(clippy::disallowed_methods)]
+    let sys_ctx = moatless_backend_core::scope::ScopeContext::system();
+    let task = tasks.find_by_id(task_id, &sys_ctx).await.ok().flatten()?;
     repositories
-        .find_repository_by_id(&task.repository_id)
+        .find_by_id(&task.repository_id, &sys_ctx)
         .await
         .ok()
         .flatten()
 }
 
-pub(crate) async fn resolve_task_team_id(
-    tasks: Option<&Arc<dyn TaskRepository>>,
-    task_id: &str,
-) -> Option<String> {
-    let tasks = tasks?;
-    match tasks.find_by_id_internal(task_id).await {
-        Ok(Some(task)) => task.team_id,
-        Ok(None) => {
-            warn!(task_id, "resolve_task_team_id: task not found");
-            None
-        }
-        Err(e) => {
-            warn!(task_id, error = %e, "resolve_task_team_id: DB error");
-            None
-        }
-    }
-}
-
 async fn resolve_scoped_secrets(
     secrets: Option<&Arc<SecretService>>,
     user_id: &str,
-    team_id: Option<&str>,
     task_id: &str,
 ) -> HashMap<String, String> {
     let Some(secrets) = secrets else {
         return HashMap::new();
     };
 
-    match secrets.resolve_accessible_plaintext(user_id, team_id).await {
+    match secrets.resolve_accessible_plaintext(user_id).await {
         Ok(credentials) => credentials,
         Err(e) => {
             warn!(task_id, error = %e, "Failed to resolve scoped secrets");
@@ -242,7 +221,6 @@ async fn fill_provider_tokens(
     credentials: &mut HashMap<String, String>,
     provider_tokens: Option<&Arc<dyn ProviderTokenRepository>>,
     secrets: Option<&Arc<SecretService>>,
-    team_id: Option<&str>,
     user_id: &str,
     github_app_service: Option<&Arc<GitHubAppService>>,
     provider_token_auth: Option<&Arc<dyn ProviderTokenAuthRepository>>,
@@ -266,16 +244,12 @@ async fn fill_provider_tokens(
         repository,
     )
     .await;
-    if let Some(team_id) = team_id {
-        fill_team_provider_tokens(credentials, provider_tokens, team_id).await;
-    }
     fill_user_provider_tokens(credentials, provider_tokens, user_id).await;
     fill_codex(
         credentials,
         provider_tokens,
         credentials_svc,
         user_id,
-        team_id,
         current_task_id,
     )
     .await;
@@ -338,7 +312,7 @@ async fn fill_github(
 /// Resolve `CODEX_AUTH_JSON` for this task.
 ///
 /// Delegates to [`CredentialService::ensure_fresh_codex_for`] which owns
-/// the `user > team > global` precedence walk; this function is a thin
+/// the `user > global` precedence walk; this function is a thin
 /// fallback shim for callers without the credential service wired (tests /
 /// no-DB) — there we walk the same chain via raw DAO reads with no refresh.
 async fn fill_codex(
@@ -346,7 +320,6 @@ async fn fill_codex(
     provider_tokens: &Arc<dyn ProviderTokenRepository>,
     credentials_svc: Option<&Arc<CredentialService>>,
     user_id: &str,
-    team_id: Option<&str>,
     current_task_id: Option<&str>,
 ) {
     if credentials.contains_key(CODEX_AUTH_JSON) {
@@ -355,7 +328,7 @@ async fn fill_codex(
 
     if let Some(svc) = credentials_svc {
         match svc
-            .ensure_fresh_codex_for(user_id, team_id, current_task_id)
+            .ensure_fresh_codex_for(user_id, current_task_id)
             .await
         {
             Ok(blob) => {
@@ -372,14 +345,9 @@ async fn fill_codex(
         return;
     }
 
-    // No CredentialService: walk the same precedence with raw DAO reads.
+    // No CredentialService: walk user > global with raw DAO reads.
     use crate::credentials::codex::scope::CodexScope;
-    let mut scopes: Vec<CodexScope> = Vec::with_capacity(3);
-    scopes.push(CodexScope::user(user_id));
-    if let Some(team_id) = team_id {
-        scopes.push(CodexScope::team(team_id));
-    }
-    scopes.push(CodexScope::Global);
+    let scopes = [CodexScope::user(user_id), CodexScope::Global];
 
     for scope in scopes {
         match provider_tokens.find_codex_blob(&scope).await {
@@ -391,53 +359,6 @@ async fn fill_codex(
             Err(e) => {
                 warn!(error = %e, scope = %scope, "Failed to query codex provider_token");
             }
-        }
-    }
-}
-
-async fn fill_team_provider_tokens(
-    credentials: &mut HashMap<String, String>,
-    provider_tokens: &Arc<dyn ProviderTokenRepository>,
-    team_id: &str,
-) {
-    // GitHub is resolved through `fill_github`, which walks user > team >
-    // global in one pass; intentionally not handled here. Reading the team
-    // row directly would both shadow the user's own token and hand a
-    // `secret_ref` row's sentinel to the sandbox.
-    for (provider, cred_key) in [
-        ("gitlab", GITLAB_TOKEN),
-        ("gitness", GITNESS_TOKEN),
-        ("openai", OPENAI_API_KEY),
-    ] {
-        if credentials.contains_key(cred_key) {
-            continue;
-        }
-        match provider_tokens.find_team_token(team_id, provider).await {
-            Ok(Some(row)) => {
-                credentials.insert(cred_key.to_string(), row.access_token);
-            }
-            Ok(None) => {}
-            Err(e) => {
-                warn!(error = %e, team_id, provider, "Failed to query team provider_token");
-            }
-        }
-    }
-
-    // Codex is resolved through `fill_codex_with_precedence` which walks
-    // user > team > global in one pass; intentionally not handled here.
-
-    if credentials.contains_key(CLAUDE_CODE_OAUTH_TOKEN)
-        || credentials.contains_key(ANTHROPIC_API_KEY)
-    {
-        return;
-    }
-    match provider_tokens.find_team_token(team_id, "claude").await {
-        Ok(Some(row)) => {
-            credentials.insert(CLAUDE_CODE_OAUTH_TOKEN.to_string(), row.access_token);
-        }
-        Ok(None) => {}
-        Err(e) => {
-            warn!(error = %e, team_id, "Failed to query team claude provider_token");
         }
     }
 }
@@ -467,8 +388,8 @@ async fn fill_user_provider_tokens(
         }
     }
 
-    // Codex is resolved through `fill_codex_with_precedence` which walks
-    // user > team > global in one pass; intentionally not handled here.
+    // Codex is resolved through `fill_codex` which walks user > global in one
+    // pass; intentionally not handled here.
 
     if credentials.contains_key(CLAUDE_CODE_OAUTH_TOKEN)
         || credentials.contains_key(ANTHROPIC_API_KEY)
@@ -620,7 +541,6 @@ mod tests {
             description: None,
             provider: Some(crate::repository::models::RepositoryProvider::Github),
             scope,
-            team_id: Some("t1".to_string()),
             owner_user_id: Some("u1".to_string()),
             created_by: Some("u1".to_string()),
             access_status: "unchecked".to_string(),
@@ -641,7 +561,6 @@ mod tests {
         TaskCredentialInputs {
             task_id: "t1",
             user_id: "u1",
-            team_id: None,
             secrets,
             provider_tokens: Some(provider_tokens),
             github_app_service: None,
@@ -755,35 +674,6 @@ mod tests {
 
     // --- GITHUB_TOKEN exact repository scope ---
 
-    fn github_inputs_in_team<'a>(
-        provider_tokens: &'a Arc<dyn ProviderTokenRepository>,
-        team_id: &'a str,
-        repository: &'a Repository,
-    ) -> TaskCredentialInputs<'a> {
-        TaskCredentialInputs {
-            team_id: Some(team_id),
-            ..github_inputs(provider_tokens, None, repository)
-        }
-    }
-
-    #[tokio::test]
-    async fn user_repository_ignores_the_team_row() {
-        let tokens: Arc<dyn ProviderTokenRepository> = Arc::new(
-            StubProviderTokens::with_user_row(Some(crate::auth::test_support::github_row(
-                "oauth", "gho_mine",
-            )))
-            .with_team_row(
-                "t1",
-                crate::auth::test_support::github_row("manual", "ghp_team"),
-            ),
-        );
-
-        let repository = github_repository(moatless_backend_core::scope::Scope::User);
-        let token =
-            resolve_task_github_token(github_inputs_in_team(&tokens, "t1", &repository)).await;
-        assert_eq!(token, Some("gho_mine".to_string()));
-    }
-
     #[tokio::test]
     async fn global_github_token_does_not_backstop_user_scope() {
         let tokens: Arc<dyn ProviderTokenRepository> = Arc::new(
@@ -793,35 +683,6 @@ mod tests {
 
         let repository = github_repository(moatless_backend_core::scope::Scope::User);
         let token = resolve_task_github_token(github_inputs(&tokens, None, &repository)).await;
-        assert_eq!(token, None);
-    }
-
-    #[tokio::test]
-    async fn legacy_team_pat_is_inactive_for_team_repository() {
-        // Team rows used to be read via `find_team_token`, which returns
-        // `access_token` verbatim — for a reference row that is the sentinel.
-        let tokens: Arc<dyn ProviderTokenRepository> =
-            Arc::new(StubProviderTokens::default().with_team_row(
-                "t1",
-                crate::auth::test_support::github_row(
-                    AUTH_METHOD_SECRET_REF,
-                    crate::auth::provider_tokens::SECRET_REF_TOKEN_PLACEHOLDER,
-                ),
-            ));
-        let secrets = Arc::new(service_with(vec![secret(
-            "team",
-            Some("t1"),
-            "provider_token",
-            GITHUB_TOKEN,
-            "ghp_team_secret",
-        )]));
-
-        let repository = github_repository(moatless_backend_core::scope::Scope::Team);
-        let token = resolve_task_github_token(TaskCredentialInputs {
-            secrets: Some(&secrets),
-            ..github_inputs_in_team(&tokens, "t1", &repository)
-        })
-        .await;
         assert_eq!(token, None);
     }
 

@@ -12,10 +12,9 @@ use serde::Deserialize;
 use utoipa::ToSchema;
 
 use crate::adapters::common::{
-    ensure_can_run_as, ensure_can_write_adapter_resource, ensure_repository_exists,
-    load_adapter_connection_for_auth, load_loop_for_auth, loop_response, next_fire_at,
-    parse_adapter_kind, resolve_scope_for_adapter_create, resolve_scope_for_adapter_update,
-    scoped_resource, LoopFilter, TeamIdUpdate,
+    ensure_can_run_as, ensure_repository_exists, load_adapter_connection_for_auth,
+    load_loop_for_auth, loop_response, next_fire_at, parse_adapter_kind,
+    resolve_scope_for_adapter_create, LoopFilter,
 };
 use crate::adapters::error::AdapterError;
 use crate::bindings::dao::{LoopRecentTaskRow, PgTaskBindingRepository};
@@ -172,8 +171,7 @@ pub async fn create_loop(
         None
     };
 
-    let resolved =
-        resolve_scope_for_adapter_create(&state, &auth, req.scope, req.team_id.clone()).await?;
+    let resolved = resolve_scope_for_adapter_create(&ctx, req.scope)?;
     let id = format!("tr_{}", uuid::Uuid::new_v4());
     let now = Utc::now();
 
@@ -213,7 +211,6 @@ pub async fn create_loop(
             kind: req.kind.as_str().to_string(),
             active: req.active.unwrap_or(true),
             scope: resolved.scope,
-            team_id: Some(resolved.team_id),
             owner_user_id: resolved.owner_user_id,
             created_by: auth.user_id.to_string(),
             created_at: now,
@@ -238,7 +235,7 @@ pub async fn create_loop(
 
     let record = state
         .loops
-        .get(&id)
+        .get(&id, &ctx)
         .await?
         .ok_or_else(|| AdapterError::NotFound(format!("Loop {id} not found")))?;
     Ok(Json(loop_response(&record)))
@@ -259,13 +256,6 @@ pub async fn update_loop(
 ) -> Result<Json<Loop>, AdapterError> {
     let ctx = auth.scope_context();
     let current = load_loop_for_auth(&state, &ctx, &id).await?;
-    let current_resource = scoped_resource(
-        current.trigger.scope,
-        current.trigger.team_id.as_deref(),
-        current.trigger.owner_user_id.as_deref(),
-        &current.trigger.created_by,
-    );
-    ensure_can_write_adapter_resource(&state, &auth, &current_resource, "trigger").await?;
 
     if let Some(rule) = &req.config {
         if let Some(repository_id) = rule.repository_id.as_deref() {
@@ -276,16 +266,16 @@ pub async fn update_loop(
         }
     }
 
-    let resolved = resolve_scope_for_adapter_update(
-        &state,
-        &auth,
-        req.scope,
-        req.team_id
-            .clone()
-            .map_or(TeamIdUpdate::Unchanged, TeamIdUpdate::Set),
-        &current_resource,
-    )
-    .await?;
+    // Scope update: if a new scope is requested, resolve it; otherwise keep current.
+    let (next_scope, next_owner) = if let Some(requested) = req.scope {
+        let resolved = resolve_scope_for_adapter_create(&ctx, Some(requested))?;
+        (resolved.scope, resolved.owner_user_id)
+    } else {
+        (
+            current.trigger.scope,
+            current.trigger.owner_user_id.clone(),
+        )
+    };
 
     if let Some(UpdateLoopSource::AdapterEvent(source)) = &req.source {
         let LoopSourceRow::AdapterEvent(current_source) = &current.source else {
@@ -403,25 +393,29 @@ pub async fn update_loop(
         Some(UpdateLoopSource::Manual(_)) | None => None,
     };
 
-    state
+    let updated = state
         .loops
         .update(
             &id,
             LoopUpdate {
                 name: req.name.unwrap_or_else(|| current.trigger.name.clone()),
                 active: req.active.unwrap_or(current.trigger.active),
-                scope: resolved.scope,
-                team_id: Some(resolved.team_id),
-                owner_user_id: resolved.owner_user_id,
+                scope: next_scope,
+                owner_user_id: next_owner,
             },
             rule_update,
             source_update,
+            &ctx,
         )
         .await?;
 
+    if !updated {
+        return Err(AdapterError::NotFound(format!("trigger {id}")));
+    }
+
     let record = state
         .loops
-        .get(&id)
+        .get(&id, &ctx)
         .await?
         .ok_or_else(|| AdapterError::NotFound(format!("Loop {id} not found")))?;
     Ok(Json(loop_response(&record)))
@@ -486,15 +480,7 @@ pub async fn delete_loop(
     Path(id): Path<String>,
 ) -> Result<StatusCode, AdapterError> {
     let ctx = auth.scope_context();
-    let current = load_loop_for_auth(&state, &ctx, &id).await?;
-    let resource = scoped_resource(
-        current.trigger.scope,
-        current.trigger.team_id.as_deref(),
-        current.trigger.owner_user_id.as_deref(),
-        &current.trigger.created_by,
-    );
-    ensure_can_write_adapter_resource(&state, &auth, &resource, "trigger").await?;
-    let result = state.loops.delete(&id).await?;
+    let result = state.loops.delete(&id, &ctx).await?;
 
     if result == 0 {
         return Err(AdapterError::NotFound(format!("trigger {id}")));

@@ -140,7 +140,6 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
                         role: payload.role,
                         provider: payload.provider,
                         group_id: payload.group_id,
-                        team_ids: payload.team_ids,
                     });
                     return next.run(req).await;
                 }
@@ -178,7 +177,6 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
                     role,
                     provider: claims.provider,
                     group_id: claims.group_id,
-                    team_ids: claims.team_ids,
                 });
                 return next.run(req).await;
             }

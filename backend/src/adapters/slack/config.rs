@@ -123,7 +123,6 @@ mod tests {
             provider_config: None,
             ongoing_task_id: None,
             scope: moatless_backend_core::scope::Scope::User,
-            team_id: None,
             task_name: None,
             tag_ids: vec![],
             run_as_user_id: None,

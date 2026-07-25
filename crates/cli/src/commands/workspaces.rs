@@ -21,12 +21,9 @@ pub enum WorkspaceAction {
         name: String,
         #[arg(long)]
         description: Option<String>,
-        /// Access scope: global, team, or user
+        /// Access scope: global or user
         #[arg(long)]
         scope: Option<String>,
-        /// Team ID (required when scope is team)
-        #[arg(long)]
-        team_id: Option<String>,
         #[arg(long)]
         docker_image: Option<String>,
         /// Allow docker-in-docker access in the sandbox
@@ -64,11 +61,9 @@ pub enum WorkspaceAction {
         name: Option<String>,
         #[arg(long)]
         description: Option<String>,
-        /// Change access scope: global, team, or user
+        /// Change access scope: global or user
         #[arg(long)]
         scope: Option<String>,
-        #[arg(long)]
-        team_id: Option<String>,
         #[arg(long)]
         docker_image: Option<String>,
         #[arg(long)]
@@ -159,7 +154,6 @@ pub async fn run(
             name,
             description,
             scope,
-            team_id,
             docker_image,
             docker_access,
             sandbox_service_account,
@@ -181,7 +175,6 @@ pub async fn run(
                 name,
                 description,
                 scope: scope.as_deref().and_then(parse_scope),
-                team_id,
                 docker_image,
                 docker_access,
                 sandbox_service_account,
@@ -206,7 +199,6 @@ pub async fn run(
             name,
             description,
             scope,
-            team_id,
             docker_image,
             docker_access,
             sandbox_service_account,
@@ -223,7 +215,6 @@ pub async fn run(
                 name,
                 description,
                 scope: parsed_scope,
-                team_id,
                 docker_image,
                 docker_access,
                 sandbox_service_account,
@@ -261,7 +252,6 @@ pub async fn run(
                 name,
                 description,
                 scope: None,
-                team_id: None,
                 docker_image,
                 docker_access,
                 sandbox_service_account,
@@ -343,7 +333,6 @@ pub async fn run(
 fn parse_scope(s: &str) -> Option<Scope> {
     match s {
         "global" => Some(Scope::Global),
-        "team" => Some(Scope::Team),
         "user" => Some(Scope::User),
         _ => None,
     }
@@ -354,7 +343,7 @@ fn parse_scope_arg(s: Option<&str>) -> Result<Option<Scope>, ClientError> {
         None => Ok(None),
         Some(v) => parse_scope(v)
             .map(Some)
-            .ok_or_else(|| ClientError::Other(format!("Invalid --scope '{v}' (global/team/user)"))),
+            .ok_or_else(|| ClientError::Other(format!("Invalid --scope '{v}' (global/user)"))),
     }
 }
 
@@ -395,9 +384,6 @@ fn format_workspace_detail(w: &WorkspaceResponse) {
     }
     println!("Kind:        {}", w.kind);
     println!("Scope:       {}", w.scope);
-    if let Some(ref tid) = w.team_id {
-        println!("Team ID:     {tid}");
-    }
     if let Some(ref owner) = w.owner_user_id {
         println!("Owner:       {owner}");
     }

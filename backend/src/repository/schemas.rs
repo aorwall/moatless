@@ -17,7 +17,6 @@ impl From<Repository> for RepositoryResponse {
             description: r.description,
             provider: r.provider,
             scope: r.scope,
-            team_id: r.team_id,
             owner_user_id: r.owner_user_id,
             access_status: r.access_status,
             access_checked_at: r.access_checked_at.map(|t| t.to_rfc3339()),

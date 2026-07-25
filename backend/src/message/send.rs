@@ -6,6 +6,7 @@ use crate::shared_models::AgentMode;
 use crate::state::AppState;
 use crate::task::dao::TaskPatch;
 use crate::task::schemas::{FileContextData, MessageContextInput};
+use moatless_backend_core::scope::ScopeContext;
 
 use super::contexts::message_context_input_to_row;
 use super::enricher;
@@ -14,7 +15,10 @@ use super::error::MessageError;
 /// Whether the task exists and is in `Closed` status. Fail-open on DB
 /// errors: a DB blip must not silently drop a legitimate message.
 async fn task_is_closed(state: &AppState, task_id: &str) -> bool {
-    match state.tasks.find_by_id_internal(task_id).await {
+    // reason: closed-task guard runs server-side without a user request; system ctx required.
+    #[allow(clippy::disallowed_methods)]
+    let sys_ctx = ScopeContext::system();
+    match state.tasks.find_by_id(task_id, &sys_ctx).await {
         Ok(Some(task)) => task.status == crate::task::models::TaskStatus::Closed,
         Ok(None) => false,
         Err(e) => {
@@ -251,6 +255,10 @@ pub async fn send_message_flow(
     // reconciler's durable wake input after idle/user stops; sandbox intent is
     // written only by lifecycle (through the ensure-and-notify start path),
     // never here.
+    // reason: conversation-clock bookkeeping; the send itself was already
+    // read-authorized (public tasks accept messages from non-owners).
+    #[allow(clippy::disallowed_methods)]
+    let sys_ctx = ScopeContext::system();
     state
         .tasks
         .update_task(
@@ -259,6 +267,7 @@ pub async fn send_message_flow(
                 last_message_at: Some(now),
                 ..Default::default()
             },
+            &sys_ctx,
         )
         .await
         .map_err(|e| MessageError::Internal(format!("Failed to update task: {e}")))?;

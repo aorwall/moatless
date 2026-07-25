@@ -8,8 +8,8 @@
 //!   linked from the Linear Agent UI.
 //! - `viewer`: identify the authenticated agent (used at OAuth install time).
 //!
-//! Auth: workspace-scoped OAuth tokens persisted in `provider_tokens` with
-//! `team_id = <linear org uuid>`. Expired tokens are transparently refreshed
+//! Auth: the workspace OAuth token is persisted as the single global
+//! `provider_tokens` row for the provider. Expired tokens are transparently refreshed
 //! against `https://api.linear.app/oauth/token` (form-encoded).
 
 use std::time::Duration;
@@ -21,7 +21,6 @@ use tracing::{info, warn};
 
 use crate::adapters::error::AdapterError;
 use crate::adapters::metrics::record_api_call;
-use crate::auth::provider_token_dao::{PgProviderTokenRepository, ProviderTokenRepository};
 use crate::db::DbPool;
 
 const LINEAR_GRAPHQL_URL: &str = "https://api.linear.app/graphql";
@@ -111,7 +110,7 @@ impl LinearAgentApi {
         >(
             "SELECT access_token, refresh_token, expires_at, metadata \
              FROM provider_tokens \
-             WHERE team_id = 'system' AND provider = $1 AND user_id IS NULL \
+             WHERE provider = $1 AND user_id IS NULL AND team_id IS NULL \
              LIMIT 1",
         )
         .bind(PROVIDER)
@@ -160,8 +159,6 @@ impl LinearAgentApi {
         prev_refresh: &str,
         prev_metadata: Option<serde_json::Value>,
     ) -> Result<String, AdapterError> {
-        let token_dao = PgProviderTokenRepository(self.db.clone());
-
         let new_expires_at = refreshed
             .expires_in
             .map(|secs| Utc::now() + chrono::Duration::seconds(secs as i64));
@@ -183,30 +180,26 @@ impl LinearAgentApi {
                 v
             });
 
-        token_dao
-            .upsert_team_token(
-                "system",
-                PROVIDER,
-                "oauth",
-                &refreshed.access_token,
-                new_refresh.as_deref(),
-                refreshed.token_type.as_deref(),
-                new_metadata.as_ref(),
-            )
-            .await
-            .map_err(AdapterError::Db)?;
-
-        if let Some(at) = new_expires_at {
-            sqlx::query(
-                "UPDATE provider_tokens SET expires_at = $1 \
-                 WHERE team_id = 'system' AND provider = $2 AND user_id IS NULL",
-            )
-            .bind(at)
-            .bind(PROVIDER)
-            .execute(&self.db)
-            .await
-            .map_err(AdapterError::Db)?;
-        }
+        sqlx::query(
+            r#"INSERT INTO provider_tokens (
+                   provider, auth_method, access_token, refresh_token, token_type,
+                   metadata, connected_at, updated_at, scope, owner_user_id, expires_at
+               )
+               VALUES ($1, 'oauth', $2, $3, $4, $5, NOW(), NOW(), 'global', NULL, $6)
+               ON CONFLICT (user_id, provider, team_id) DO UPDATE SET
+                   access_token = $2, refresh_token = $3, token_type = $4,
+                   metadata = $5, auth_method = 'oauth', scope = 'global',
+                   owner_user_id = NULL, updated_at = NOW(), expires_at = $6"#,
+        )
+        .bind(PROVIDER)
+        .bind(&refreshed.access_token)
+        .bind(new_refresh.as_deref())
+        .bind(refreshed.token_type.as_deref())
+        .bind(new_metadata.as_ref())
+        .bind(new_expires_at)
+        .execute(&self.db)
+        .await
+        .map_err(AdapterError::Db)?;
 
         Ok(refreshed.access_token)
     }
@@ -223,7 +216,7 @@ impl LinearAgentApi {
         let row = sqlx::query_as::<_, (Option<String>, Option<serde_json::Value>)>(
             "SELECT refresh_token, metadata \
              FROM provider_tokens \
-             WHERE team_id = 'system' AND provider = $1 AND user_id IS NULL \
+             WHERE provider = $1 AND user_id IS NULL AND team_id IS NULL \
              LIMIT 1",
         )
         .bind(PROVIDER)

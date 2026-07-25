@@ -17,7 +17,6 @@ use crate::secret::service::SecretService;
 /// to work from either.
 pub struct SetupContext<'a> {
     pub user_id: &'a str,
-    pub team_ids: &'a [String],
     pub is_admin: bool,
     pub provider_tokens: &'a dyn ProviderTokenRepository,
     pub secrets: Option<&'a SecretService>,
@@ -60,7 +59,6 @@ mod tests {
     fn context<'a>(tokens: &'a StubProviderTokens, is_admin: bool) -> SetupContext<'a> {
         SetupContext {
             user_id: "u1",
-            team_ids: &[],
             is_admin,
             provider_tokens: tokens,
             secrets: None,

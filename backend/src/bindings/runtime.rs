@@ -16,6 +16,7 @@ use crate::loops::firing::inbound;
 use crate::state::AppState;
 use crate::task::creation::TaskCreationError;
 use crate::task::models::TaskStatus;
+use moatless_backend_core::scope::ScopeContext;
 
 pub use crate::adapters::models::{
     ADAPTER_EVENT_BINDING_ORIGIN as ORIGIN_ADAPTER_EVENT,
@@ -38,7 +39,6 @@ pub fn trigger_context(rule: &SubscriptionMatch, provider_label: &str) -> LoopCo
         provider_config: rule.provider_config.clone(),
         ongoing_task_id: rule.ongoing_task_id.clone(),
         scope: rule.scope,
-        team_id: rule.team_id.clone(),
         task_name: rule.task_name.clone(),
         tag_ids: rule.tag_ids.clone(),
         run_as_user_id: rule.run_as_user_id.clone(),
@@ -397,7 +397,9 @@ async fn should_create_binding_task(
 
 async fn open_ongoing_task_id(state: &AppState, rule: &SubscriptionMatch) -> Option<String> {
     let task_id = rule.ongoing_task_id.as_deref()?;
-    match state.tasks.find_by_id_internal(task_id).await {
+    #[allow(clippy::disallowed_methods)] // reason: event routing is a background path with no caller identity
+    let sys = ScopeContext::system();
+    match state.tasks.find_by_id(task_id, &sys).await {
         Ok(Some(task)) if task.status == TaskStatus::Open => Some(task.task_id),
         _ => None,
     }

@@ -10,4 +10,4 @@ pub mod refresher;
 pub mod scope;
 
 pub use self::auth_json::{build_codex_metadata, parse_codex_auth_json, save_codex_auth_for_scope};
-pub use self::scope::{CodexScope, SYSTEM_TEAM_ID};
+pub use self::scope::CodexScope;

@@ -28,17 +28,16 @@ impl FileRepository for PgFileRepository {
     async fn insert_metadata(&self, row: &FileMetadata) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"INSERT INTO file_metadata (
-                file_id, filename, mime_type, size, scope, team_id,
+                file_id, filename, mime_type, size, scope,
                 owner_user_id, created_by, uploaded_at
             )
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#,
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
         )
         .bind(&row.file_id)
         .bind(&row.filename)
         .bind(&row.mime_type)
         .bind(row.size)
         .bind(row.scope)
-        .bind(&row.team_id)
         .bind(&row.owner_user_id)
         .bind(&row.created_by)
         .bind(row.uploaded_at)

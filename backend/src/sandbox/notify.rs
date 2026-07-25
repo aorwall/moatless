@@ -1,5 +1,7 @@
 //! Sandbox notification and wake-up helpers.
 
+use moatless_backend_core::scope::ScopeContext;
+
 use super::access::SandboxConnector;
 use crate::sandbox::lifecycle::{LifecycleError, ObservedStatus};
 use crate::state::AppState;
@@ -40,7 +42,10 @@ pub async fn ensure_sandbox_and_notify(state: &AppState, task_id: &str) -> Resul
     // single backstop against resurrection from every caller (adapter inbound
     // comments, scheduled runs, the UI message handler). `Error` tasks stay
     // resumable to match `start_task`'s recovery semantics.
-    match state.tasks.find_by_id_internal(task_id).await {
+    // reason: sandbox wake-up guard checks task status across all owners
+    #[allow(clippy::disallowed_methods)]
+    let sys = ScopeContext::system();
+    match state.tasks.find_by_id(task_id, &sys).await {
         Ok(Some(task)) if task.status == crate::task::models::TaskStatus::Closed => {
             tracing::debug!(
                 task_id,

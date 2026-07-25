@@ -133,7 +133,6 @@ async fn integration_create_nonexistent_repo() {
             webhook_secret: None,
             source_name: Some(source.clone()),
             transport_config: None,
-            team_id: None,
             scope: None,
         })
         .await

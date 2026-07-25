@@ -215,7 +215,6 @@ pub struct Loop {
     pub kind: LoopKind,
     pub active: bool,
     pub scope: Scope,
-    pub team_id: Option<String>,
     pub owner_user_id: Option<String>,
     pub created_by: String,
     pub created_at: String,
@@ -233,7 +232,6 @@ pub struct CreateLoopRequest {
     pub kind: LoopKind,
     pub active: Option<bool>,
     pub scope: Option<Scope>,
-    pub team_id: Option<String>,
     #[serde(rename = "rule")]
     pub config: CreateLoopConfig,
     pub source: CreateLoopSource,
@@ -246,7 +244,6 @@ pub struct UpdateLoopRequest {
     pub name: Option<Option<String>>,
     pub active: Option<bool>,
     pub scope: Option<Scope>,
-    pub team_id: Option<Option<String>>,
     #[serde(rename = "rule")]
     pub config: Option<UpdateLoopConfig>,
     pub source: Option<UpdateLoopSource>,

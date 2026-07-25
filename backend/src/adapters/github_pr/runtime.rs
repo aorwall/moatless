@@ -18,6 +18,7 @@ use crate::state::AppState;
 use crate::task::creation::TaskCreationError;
 use crate::task::dao::TaskPatch;
 use crate::task::models::{TaskStatus, Visibility};
+use moatless_backend_core::scope::ScopeContext;
 
 use super::adapter::{resolve_user_or_fallback, PrCloseInfo};
 
@@ -114,7 +115,6 @@ pub fn connection_only_rule(
         active: true,
         created_by: connection.created_by.clone(),
         scope: connection.scope,
-        team_id: connection.team_id.clone(),
         owner_user_id: connection.owner_user_id.clone(),
         created_at: now,
         updated_at: now,
@@ -297,7 +297,9 @@ pub async fn route_inbound_message(
         // (e.g. `gh pr comment` bypassing `moat reply`, which leaves no marker
         // and no recorded external_event_id). Per-binding DB fetch; typical
         // PRs have 1-2 bindings. Skipped for CI notifications (see above).
-        match state.tasks.find_by_id_internal(&binding.task_id).await {
+        #[allow(clippy::disallowed_methods)] // reason: GitHub PR webhook routing has no caller identity
+        let sys = ScopeContext::system();
+        match state.tasks.find_by_id(&binding.task_id, &sys).await {
             Ok(Some(task))
                 if !ci_self_echo_exempt
                     && is_authored_by_task_owner(
@@ -664,7 +666,9 @@ pub async fn close_tasks_for_pr(
     for binding in bindings {
         let task_id = &binding.task_id;
 
-        match state.tasks.find_by_id_internal(task_id).await {
+        #[allow(clippy::disallowed_methods)] // reason: GitHub PR close handler runs as background system, no caller identity
+        let sys = ScopeContext::system();
+        match state.tasks.find_by_id(task_id, &sys).await {
             Ok(Some(task)) if task.status == TaskStatus::Closed => {
                 debug!(task_id, pr_number, "Task already closed, skipping");
                 continue;
@@ -736,6 +740,7 @@ pub async fn close_tasks_for_pr(
                     status: Some(TaskStatus::Closed),
                     ..Default::default()
                 },
+                &sys,
             )
             .await
         {
@@ -1115,7 +1120,6 @@ mod tests {
                 transport_config: serde_json::json!({}),
                 created_by: "u_owner".to_string(),
                 scope: Scope::User,
-                team_id: Some("personal-u_owner".to_string()),
                 owner_user_id: Some("u_owner".to_string()),
                 created_at: now,
                 updated_at: now,

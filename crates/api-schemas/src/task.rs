@@ -192,7 +192,6 @@ pub struct TaskResponse {
     pub created_by_display_name: Option<String>,
     pub visibility: Visibility,
     pub scope: Scope,
-    pub team_id: Option<String>,
     pub owner_user_id: Option<String>,
     /// Derived from the `created_by` relation in `relations`. Kept for
     /// backward compatibility with clients that pre-date the relations field.

@@ -52,7 +52,6 @@ impl From<AccessControlError> for AdapterError {
         match value {
             AccessControlError::BadRequest(msg) => Self::BadRequest(msg),
             AccessControlError::Forbidden(msg) => Self::AccessDenied(msg),
-            AccessControlError::Db(err) => Self::Db(err),
         }
     }
 }

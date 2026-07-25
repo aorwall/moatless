@@ -12,15 +12,13 @@ use super::creation::{FirstMessage, NewTaskRequest};
 use super::dao::{TaskFilter, TaskPatch};
 use super::models::Task;
 use super::relations::{CreatedByParent, TaskRelationType};
-use crate::access_control::{
-    ensure_can_control_task, ensure_can_use_repository, resolve_scope_for_create,
-};
+use crate::access_control::{ensure_can_use_repository, resolve_scope_for_create};
 use crate::extractors::AuthUser;
 use crate::sandbox::lifecycle::ArchiveRetention;
 use crate::shared_models::AgentType;
 use crate::state::AppState;
 use crate::task::models::{SandboxIntentView, SandboxStopReason, TaskStatus, Visibility};
-use moatless_backend_core::scope::{Scope, ScopedResource};
+use moatless_backend_core::scope::{Scope, ScopeContext, ScopedResource};
 
 use crate::repository::models::{RepositoryKind, RepositoryProvider};
 
@@ -59,7 +57,7 @@ pub async fn create_task(
         Some(workspace_id) => Some(
             state
                 .workspaces
-                .find_by_id_scoped(workspace_id, &scope_ctx)
+                .find_by_id(workspace_id, &scope_ctx)
                 .await?
                 .ok_or_else(|| TaskError::NotFound(format!("workspace {workspace_id}")))?,
         ),
@@ -92,7 +90,6 @@ pub async fn create_task(
         &scope_ctx,
         &ScopedResource::borrowed(
             repo.scope,
-            repo.team_id.as_deref(),
             repo.owner_user_id.as_deref().or(repo.created_by.as_deref()),
         ),
     )?;
@@ -108,17 +105,12 @@ pub async fn create_task(
         .agent_type
         .unwrap_or_else(|| AgentType(AgentType::CLAUDE_CODE.into()));
 
-    let (task_scope, task_team_id, task_owner_user_id) = if repo.scope == Scope::Team {
-        (Scope::Team, repo.team_id.clone(), None)
-    } else {
-        let resolved_scope =
-            resolve_scope_for_create(&state, &auth, Some(Scope::User), None).await?;
-        (
-            resolved_scope.scope,
-            Some(resolved_scope.team_id),
-            resolved_scope.owner_user_id,
-        )
-    };
+    // Resolve scope for the new task. Repositories are always user- or
+    // global-scoped now; tasks always inherit User scope owned by the creator.
+    // `resolve_scope_for_create` is sync and pure: no DB or team lookup needed.
+    let resolved_scope = resolve_scope_for_create(&scope_ctx, Some(Scope::User))
+        .map_err(|e| TaskError::Forbidden(e.to_string()))?;
+    let (task_scope, task_owner_user_id) = (resolved_scope.scope, resolved_scope.owner_user_id);
 
     // Fast-fail codex tasks with no usable credential: a missing connection
     // or permanent refresh failure would otherwise surface minutes later as
@@ -128,7 +120,7 @@ pub async fn create_task(
     if agent_type.as_str() == "codex" {
         if let Err(crate::credentials::CredentialError::NotFound(reason)) = state
             .credentials_svc
-            .ensure_fresh_codex_for(&auth.user_id.to_string(), task_team_id.as_deref(), None)
+            .ensure_fresh_codex_for(&auth.user_id.to_string(), None)
             .await
         {
             tracing::info!(
@@ -156,7 +148,6 @@ pub async fn create_task(
         headless: req.headless.unwrap_or(false),
         visibility: Visibility::Private,
         scope: task_scope,
-        team_id: task_team_id,
         owner_user_id: task_owner_user_id,
         trigger_id: None,
         workspace_id: req.workspace_id.clone(),
@@ -537,14 +528,8 @@ pub async fn update_task_metadata(
         validate_task_name(name)?;
     }
 
-    let existing = state
-        .tasks
-        .find_by_id(&task_id, &auth.scope_context())
-        .await?
-        .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
-    ensure_can_control_task(&state, &auth, &task_resource(&existing)).await?;
-
-    state
+    let scope_ctx = auth.scope_context();
+    let updated = state
         .tasks
         .update_task(
             &task_id,
@@ -553,16 +538,26 @@ pub async fn update_task_metadata(
                 description: req.description.clone(),
                 ..Default::default()
             },
+            &scope_ctx,
         )
         .await?;
+    if !updated {
+        return Err(TaskError::NotFound(task_id.clone()));
+    }
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task metadata updated");
+
+    let row = state
+        .tasks
+        .find_by_id(&task_id, &scope_ctx)
+        .await?
+        .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
     if let Some(ref events) = state.events {
         events
             .publish_task_event(
                 &task_id,
                 TaskSubType::MetadataUpdated,
-                Some(existing.agent_type.as_str()),
+                Some(row.agent_type.as_str()),
                 serde_json::json!({
                     "name": req.name,
                     "description": req.description,
@@ -570,12 +565,6 @@ pub async fn update_task_metadata(
             )
             .await;
     }
-
-    let row = state
-        .tasks
-        .find_by_id(&task_id, &auth.scope_context())
-        .await?
-        .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
     let resp = enrich_task(&row, &state, &auth.user_id.to_string()).await?;
     Ok(Json(resp))
@@ -620,12 +609,7 @@ pub async fn delete_task(
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<axum::http::StatusCode, TaskError> {
-    let existing = state
-        .tasks
-        .find_by_id(&task_id, &auth.scope_context())
-        .await?
-        .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
-    ensure_can_control_task(&state, &auth, &task_resource(&existing)).await?;
+    let scope_ctx = auth.scope_context();
 
     // Permanent deletion is strict remove with archive deletion, and the row is
     // deleted only on success. The lifecycle handle owns the graceful agent stop
@@ -640,7 +624,10 @@ pub async fn delete_task(
     // don't cascade on delete — deactivate them so inbound routing stops.
     deactivate_task_bindings(&state, &task_id).await;
 
-    state.tasks.delete_task(&task_id).await?;
+    let deleted = state.tasks.delete_task(&task_id, &scope_ctx).await?;
+    if !deleted {
+        return Err(TaskError::NotFound(task_id.clone()));
+    }
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task deleted");
 
     Ok(axum::http::StatusCode::NO_CONTENT)
@@ -769,12 +756,18 @@ pub async fn close_task(
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<Json<TaskResponse>, TaskError> {
+    let scope_ctx = auth.scope_context();
+    // Read-check + control-check: find_by_id uses access_filter (visibility);
+    // the inline can_control check enforces owner/admin policy without the
+    // deleted ensure_can_control_task helper.
     let row = state
         .tasks
-        .find_by_id(&task_id, &auth.scope_context())
+        .find_by_id(&task_id, &scope_ctx)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
-    ensure_can_control_task(&state, &auth, &task_resource(&row)).await?;
+    if !scope_ctx.can_control(&task_resource(&row)) {
+        return Err(TaskError::NotFound(task_id.clone())); // existence hiding
+    }
 
     let mut visited = HashSet::new();
     close_task_tree(&state, &task_id, &mut visited).await?;
@@ -834,7 +827,12 @@ async fn close_task_tree(
 }
 
 async fn close_single_task(state: &AppState, task_id: &str) -> Result<(), TaskError> {
-    let Some(row) = state.tasks.find_by_id_internal(task_id).await? else {
+    // reason: close cascade reaches child tasks owned by other users; system ctx
+    // is required to traverse the full tree without re-checking per-child ownership.
+    #[allow(clippy::disallowed_methods)]
+    let sys_ctx = ScopeContext::system();
+
+    let Some(row) = state.tasks.find_by_id(task_id, &sys_ctx).await? else {
         tracing::warn!(task_id, "close cascade: task vanished mid-close");
         return Ok(());
     };
@@ -853,6 +851,7 @@ async fn close_single_task(state: &AppState, task_id: &str) -> Result<(), TaskEr
                 status: Some(TaskStatus::Closed),
                 ..Default::default()
             },
+            &sys_ctx,
         )
         .await?;
 
@@ -909,12 +908,15 @@ pub async fn reopen_task(
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<Json<TaskResponse>, TaskError> {
+    let scope_ctx = auth.scope_context();
     let row = state
         .tasks
-        .find_by_id(&task_id, &auth.scope_context())
+        .find_by_id(&task_id, &scope_ctx)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
-    ensure_can_control_task(&state, &auth, &task_resource(&row)).await?;
+    if !scope_ctx.can_control(&task_resource(&row)) {
+        return Err(TaskError::NotFound(task_id.clone())); // existence hiding
+    }
 
     if row.status != TaskStatus::Closed {
         return Err(TaskError::BadRequest(format!(
@@ -923,7 +925,7 @@ pub async fn reopen_task(
         )));
     }
 
-    state
+    let updated = state
         .tasks
         .update_task(
             &task_id,
@@ -931,8 +933,12 @@ pub async fn reopen_task(
                 status: Some(TaskStatus::Open),
                 ..Default::default()
             },
+            &scope_ctx,
         )
         .await?;
+    if !updated {
+        return Err(TaskError::NotFound(task_id.clone()));
+    }
 
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task reopened");
 
@@ -976,12 +982,15 @@ pub async fn start_task(
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<axum::http::StatusCode, TaskError> {
+    let scope_ctx = auth.scope_context();
     let row = state
         .tasks
-        .find_by_id(&task_id, &auth.scope_context())
+        .find_by_id(&task_id, &scope_ctx)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
-    ensure_can_control_task(&state, &auth, &task_resource(&row)).await?;
+    if !scope_ctx.can_control(&task_resource(&row)) {
+        return Err(TaskError::NotFound(task_id.clone())); // existence hiding
+    }
 
     if row.status != TaskStatus::Open && row.status != TaskStatus::Error {
         return Err(TaskError::BadRequest(format!(
@@ -997,7 +1006,7 @@ pub async fn start_task(
     // sandbox.error event, and return 400.
     let repo = state
         .repositories
-        .find_repository_by_id(&row.repository_id)
+        .find_by_id(&row.repository_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::RepoNotFound(row.repository_id.clone()))?;
 
@@ -1021,6 +1030,7 @@ pub async fn start_task(
                     status: Some(TaskStatus::Error),
                     ..Default::default()
                 },
+                &scope_ctx,
             )
             .await
         {
@@ -1145,12 +1155,15 @@ pub async fn stop_task(
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<axum::http::StatusCode, TaskError> {
+    let scope_ctx = auth.scope_context();
     let task = state
         .tasks
-        .find_by_id(&task_id, &auth.scope_context())
+        .find_by_id(&task_id, &scope_ctx)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
-    ensure_can_control_task(&state, &auth, &task_resource(&task)).await?;
+    if !scope_ctx.can_control(&task_resource(&task)) {
+        return Err(TaskError::NotFound(task_id.clone())); // existence hiding
+    }
 
     // lifecycle owns the Stopped intent + user reason, stops compute, and issues
     // the graceful StopAgent. Task status is not lifecycle's to write.
@@ -1200,12 +1213,15 @@ pub async fn set_task_tags(
     Path(task_id): Path<String>,
     Json(req): Json<SetTagsRequest>,
 ) -> Result<Json<Vec<TagResponse>>, TaskError> {
+    let scope_ctx = auth.scope_context();
     let existing = state
         .tasks
-        .find_by_id(&task_id, &auth.scope_context())
+        .find_by_id(&task_id, &scope_ctx)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
-    ensure_can_control_task(&state, &auth, &task_resource(&existing)).await?;
+    if !scope_ctx.can_control(&task_resource(&existing)) {
+        return Err(TaskError::NotFound(task_id.clone())); // existence hiding
+    }
 
     let tags = state.tags.find_or_create_tags(&req.tags).await?;
     let tag_ids: Vec<String> = tags.iter().map(|t| t.tag_id.clone()).collect();
@@ -1244,14 +1260,8 @@ pub async fn update_visibility(
     Path(task_id): Path<String>,
     Json(req): Json<UpdateVisibilityRequest>,
 ) -> Result<Json<TaskResponse>, TaskError> {
-    let existing = state
-        .tasks
-        .find_by_id(&task_id, &auth.scope_context())
-        .await?
-        .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
-    ensure_can_control_task(&state, &auth, &task_resource(&existing)).await?;
-
-    state
+    let scope_ctx = auth.scope_context();
+    let updated = state
         .tasks
         .update_task(
             &task_id,
@@ -1259,13 +1269,17 @@ pub async fn update_visibility(
                 visibility: Some(req.visibility),
                 ..Default::default()
             },
+            &scope_ctx,
         )
         .await?;
+    if !updated {
+        return Err(TaskError::NotFound(task_id.clone()));
+    }
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, visibility = %req.visibility, "Task visibility updated");
 
     let row = state
         .tasks
-        .find_by_id(&task_id, &auth.scope_context())
+        .find_by_id(&task_id, &scope_ctx)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
@@ -1313,14 +1327,8 @@ pub async fn update_ttl(
         ));
     }
 
-    let existing = state
-        .tasks
-        .find_by_id(&task_id, &auth.scope_context())
-        .await?
-        .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
-    ensure_can_control_task(&state, &auth, &task_resource(&existing)).await?;
-
-    state
+    let scope_ctx = auth.scope_context();
+    let updated = state
         .tasks
         .update_task(
             &task_id,
@@ -1329,8 +1337,12 @@ pub async fn update_ttl(
                 inactive_ttl_days: req.inactive_ttl_days,
                 ..Default::default()
             },
+            &scope_ctx,
         )
         .await?;
+    if !updated {
+        return Err(TaskError::NotFound(task_id.clone()));
+    }
     tracing::info!(
         task_id = %task_id,
         user_id = %auth.user_id,
@@ -1341,7 +1353,7 @@ pub async fn update_ttl(
 
     let row = state
         .tasks
-        .find_by_id(&task_id, &auth.scope_context())
+        .find_by_id(&task_id, &scope_ctx)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
@@ -1368,9 +1380,13 @@ async fn enrich_task(
         })
         .collect();
 
+    // reason: display enrichment of a task the caller already read; the
+    // task's configured repository name is part of that task's own data.
+    #[allow(clippy::disallowed_methods)]
+    let sys_ctx = ScopeContext::system();
     let repo_name = state
         .repositories
-        .find_repository_by_id(&row.repository_id)
+        .find_by_id(&row.repository_id, &sys_ctx)
         .await?
         .map(|r| r.name);
 
@@ -1493,7 +1509,6 @@ fn build_task_response(
         created_by_display_name: display_name,
         visibility: row.visibility,
         scope: row.scope,
-        team_id: row.team_id.clone(),
         owner_user_id: row.owner_user_id.clone(),
         parent_task_id,
         relations,

@@ -5,7 +5,6 @@ use axum::Json;
 
 use moatless_backend_core::scope::ScopedResource;
 
-use crate::access_control::ensure_can_write_resource;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
 
@@ -35,22 +34,21 @@ async fn ensure_repo_control(
     auth: &AuthUser,
     repo_id: &str,
 ) -> Result<(), PluginRepoError> {
+    let ctx = auth.scope_context();
     let repo = state
         .repositories
-        .find_by_id(repo_id, &auth.scope_context())
+        .find_by_id(repo_id, &ctx)
         .await?
         .ok_or_else(|| PluginRepoError::NotFound(format!("Repository '{repo_id}' not found")))?;
-    ensure_can_write_resource(
-        state,
-        auth,
-        &ScopedResource::borrowed(
-            repo.scope,
-            repo.team_id.as_deref(),
-            repo.owner_user_id.as_deref().or(repo.created_by.as_deref()),
-        ),
-        "repository",
-    )
-    .await?;
+    let resource = ScopedResource::borrowed(
+        repo.scope,
+        repo.owner_user_id.as_deref().or(repo.created_by.as_deref()),
+    );
+    if !ctx.can_control(&resource) {
+        return Err(PluginRepoError::Forbidden(format!(
+            "No control access to repository '{repo_id}'"
+        )));
+    }
     Ok(())
 }
 

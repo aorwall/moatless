@@ -29,7 +29,6 @@ use common::{make_repository_row, make_task_row};
 fn scope_ctx(user_id: &str) -> ScopeContext {
     ScopeContext {
         user_id: user_id.into(),
-        team_ids: vec![],
         is_admin: false,
     }
 }
@@ -49,7 +48,7 @@ async fn ensure_shadow_workspace_creates_shadow_and_primary_placement(pool: PgPo
     // Workspace copies the repository's identity/ACL columns 1:1 with kind=single.
     let ws_repo = PgWorkspaceRepository(pool.clone());
     let ws = ws_repo
-        .find_by_id_scoped(&ws_id, &scope_ctx("user-1"))
+        .find_by_id(&ws_id, &scope_ctx("user-1"))
         .await
         .unwrap()
         .expect("shadow workspace present");
@@ -98,7 +97,7 @@ async fn insert_task_derives_shadow_workspace_id_when_unset(pool: PgPool) {
     task_dao::insert_task(&pool, &task).await.unwrap();
 
     // The task now points at its repository's shadow workspace...
-    let stored = task_dao::find_by_id_internal(&pool, "task-1")
+    let stored = task_dao::find_by_id(&pool, "task-1", &scope_ctx("user-1"))
         .await
         .unwrap()
         .expect("task present");
@@ -107,7 +106,7 @@ async fn insert_task_derives_shadow_workspace_id_when_unset(pool: PgPool) {
     // ...and that shadow workspace was actually created.
     let ws_repo = PgWorkspaceRepository(pool.clone());
     assert!(ws_repo
-        .find_by_id_scoped("ws_repo-1", &scope_ctx("user-1"))
+        .find_by_id("ws_repo-1", &scope_ctx("user-1"))
         .await
         .unwrap()
         .is_some());
@@ -130,7 +129,7 @@ async fn insert_task_respects_explicit_workspace_id(pool: PgPool) {
     task.workspace_id = Some("ws-explicit".to_string());
     task_dao::insert_task(&pool, &task).await.unwrap();
 
-    let stored = task_dao::find_by_id_internal(&pool, "task-2")
+    let stored = task_dao::find_by_id(&pool, "task-2", &scope_ctx("user-1"))
         .await
         .unwrap()
         .expect("task present");
@@ -138,7 +137,7 @@ async fn insert_task_respects_explicit_workspace_id(pool: PgPool) {
 
     // The repository's shadow workspace was NOT force-created for this path.
     assert!(ws_repo
-        .find_by_id_scoped("ws_repo-1", &scope_ctx("user-1"))
+        .find_by_id("ws_repo-1", &scope_ctx("user-1"))
         .await
         .unwrap()
         .is_none());

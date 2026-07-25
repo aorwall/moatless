@@ -107,7 +107,6 @@ pub(crate) async fn create_task_from_loop(
         headless: true,
         visibility: params.visibility,
         scope: config.scope,
-        team_id: config.team_id.clone(),
         owner_user_id: (config.scope == moatless_backend_core::scope::Scope::User)
             .then(|| config.effective_user_id().to_string()),
         trigger_id: Some(config.id.clone()),

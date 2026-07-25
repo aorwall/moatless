@@ -7,13 +7,10 @@ use moatless_api_schemas::loops::{
 };
 use serde::Deserialize;
 
-use crate::access_control::{
-    ensure_can_use_repository, ensure_can_write_resource, resolve_scope_for_create, ResolvedScope,
-};
+use crate::access_control::{ensure_can_use_repository, resolve_scope_for_create, ResolvedScope};
 use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, TaskBinding};
-use crate::extractors::AuthUser;
 use crate::loops::store::{LoopRecord, LoopSourceRow};
 use crate::state::AppState;
 use moatless_backend_core::scope::{ScopeContext, ScopedResource};
@@ -35,14 +32,6 @@ pub(crate) fn parse_adapter_kind(provider: &str) -> AdapterKind {
     AdapterKind::parse(provider).unwrap_or(AdapterKind::Webhook)
 }
 
-pub(crate) fn default_scope(scope: Option<Scope>, team_id: Option<&str>) -> Scope {
-    scope.unwrap_or(if team_id.is_some() {
-        Scope::Team
-    } else {
-        Scope::User
-    })
-}
-
 pub(crate) fn adapter_connection_response(row: &AdapterConnection) -> AdapterConnectionResponse {
     AdapterConnectionResponse {
         id: row.id.clone(),
@@ -51,7 +40,6 @@ pub(crate) fn adapter_connection_response(row: &AdapterConnection) -> AdapterCon
         external_account_id: row.scope_value.clone(),
         created_by: row.created_by.clone(),
         scope: row.scope,
-        team_id: row.team_id.clone(),
         owner_user_id: row.owner_user_id.clone(),
         created_at: row.created_at.to_rfc3339(),
         updated_at: row.updated_at.to_rfc3339(),
@@ -90,7 +78,6 @@ pub(crate) fn loop_response(record: &LoopRecord) -> Loop {
         kind,
         active: record.trigger.active,
         scope: record.trigger.scope,
-        team_id: record.trigger.team_id.clone(),
         owner_user_id: record.trigger.owner_user_id.clone(),
         created_by: record.trigger.created_by.clone(),
         created_at: record.trigger.created_at.to_rfc3339(),
@@ -156,169 +143,74 @@ pub(crate) async fn ensure_repository_exists(
 ) -> Result<(), AdapterError> {
     let repo = state
         .repositories
-        .find_repository_by_id(repository_id)
+        .find_by_id(repository_id, ctx)
         .await
         .map_err(|e| AdapterError::Internal(format!("Failed to look up repository: {e}")))?
         .ok_or_else(|| AdapterError::BadRequest(format!("Repository {repository_id} not found")))?;
-    ensure_scope_access(
-        ctx,
-        repo.scope,
-        repo.team_id.as_deref(),
-        repo.owner_user_id.as_deref().or(repo.created_by.as_deref()),
-        "repository",
-        repository_id,
-    )?;
     ensure_can_use_repository(
         ctx,
         &ScopedResource::borrowed(
             repo.scope,
-            repo.team_id.as_deref(),
             repo.owner_user_id.as_deref().or(repo.created_by.as_deref()),
         ),
     )?;
     Ok(())
 }
 
-pub(crate) fn ensure_scope_access(
+/// Resolve the scope for a new adapter resource. Defaults to `User` owned by
+/// the caller; requesting `Global` requires admin.
+pub(crate) fn resolve_scope_for_adapter_create(
     ctx: &ScopeContext,
-    scope: Scope,
-    team_id: Option<&str>,
-    owner_id: Option<&str>,
-    resource_kind: &str,
-    resource_id: &str,
-) -> Result<(), AdapterError> {
-    if ctx.can_access(scope, team_id, owner_id) {
-        Ok(())
-    } else {
-        Err(AdapterError::AccessDenied(format!(
-            "No access to {resource_kind} {resource_id}"
-        )))
-    }
-}
-
-pub(crate) fn scoped_resource(
-    scope: Scope,
-    team_id: Option<&str>,
-    owner_user_id: Option<&str>,
-    created_by: &str,
-) -> ScopedResource {
-    ScopedResource::borrowed(scope, team_id, owner_user_id.or(Some(created_by)))
-}
-
-pub(crate) enum TeamIdUpdate {
-    Unchanged,
-    Set(Option<String>),
-}
-
-pub(crate) async fn resolve_scope_for_adapter_create(
-    state: &AppState,
-    auth: &AuthUser,
     requested_scope: Option<Scope>,
-    requested_team_id: Option<String>,
 ) -> Result<ResolvedScope, AdapterError> {
-    let scope = default_scope(requested_scope, requested_team_id.as_deref());
-    Ok(resolve_scope_for_create(state, auth, Some(scope), requested_team_id).await?)
+    Ok(resolve_scope_for_create(ctx, requested_scope)?)
 }
 
-pub(crate) async fn resolve_scope_for_adapter_update(
-    state: &AppState,
-    auth: &AuthUser,
-    requested_scope: Option<Scope>,
-    requested_team_id: TeamIdUpdate,
-    current: &ScopedResource,
-) -> Result<ResolvedScope, AdapterError> {
-    if requested_scope.is_none() && matches!(requested_team_id, TeamIdUpdate::Unchanged) {
-        let Some(team_id) = current.team_id.clone() else {
-            return Err(AdapterError::BadRequest(
-                "teamId is required for scoped adapter resources".into(),
-            ));
-        };
-        return Ok(ResolvedScope {
-            scope: current.scope,
-            team_id,
-            owner_user_id: current.owner_user_id.clone(),
-        });
-    }
-
-    let next_scope = requested_scope.unwrap_or(current.scope);
-    let next_team_id = match requested_team_id {
-        TeamIdUpdate::Set(team_id) => team_id,
-        TeamIdUpdate::Unchanged => current.team_id.clone(),
-    };
-    Ok(resolve_scope_for_create(state, auth, Some(next_scope), next_team_id).await?)
-}
-
-pub(crate) async fn ensure_can_write_adapter_resource(
-    state: &AppState,
-    auth: &AuthUser,
-    resource: &ScopedResource,
-    resource_name: &str,
-) -> Result<(), AdapterError> {
-    Ok(ensure_can_write_resource(state, auth, resource, resource_name).await?)
-}
-
-/// Authorize a `run_as_user_id` choice for a trigger.
+/// Load and authorize an adapter connection for the calling user.
 ///
-/// Allows the choice when:
-/// 1. The target is the caller themselves, or the caller is an admin
-///    (existing `ctx.can_run_as` rule), or
-/// 2. The target is a bot user (`users.is_bot = true`). For v1 there is no
-///    team scoping on bots — any authenticated human user can point a
-///    trigger at any bot.
-///
-/// Bot-on-bot impersonation is blocked: a caller who is themselves a bot
-/// (`ctx.is_bot = true`) cannot pick a different bot as the `run_as_user_id`
-/// even though `ctx.can_run_as` would otherwise allow it for admins.
-/// Today no caller path constructs a `ScopeContext` for a bot user, so this
-/// guard is defensive; it removes transitive impersonation as a follow-up
-/// risk without requiring changes elsewhere.
-pub(crate) async fn ensure_can_run_as(
-    state: &AppState,
-    ctx: &ScopeContext,
-    run_as_user_id: Option<&str>,
-) -> Result<(), AdapterError> {
-    let Some(target) = run_as_user_id else {
-        return Ok(());
-    };
-    if ctx.can_run_as(target) {
-        return Ok(());
-    }
-    // `target` is a uuid; a legacy provider id also resolves via the identity map.
-    let found = match target.parse::<uuid::Uuid>() {
-        Ok(uid) => state.users.get_user(&uid).await,
-        Err(_) => state.users.find_user_by_legacy_id(target).await,
-    };
-    match found {
-        Ok(Some(user)) if user.is_bot => Ok(()),
-        Ok(_) => Err(AdapterError::AccessDenied(format!(
-            "Cannot run as user {target}"
-        ))),
-        Err(e) => Err(AdapterError::Internal(format!(
-            "Failed to look up run-as user {target}: {e}"
-        ))),
-    }
-}
-
+/// Uses the scoped `find_by_id(id, ctx)` DAO method so only connections
+/// visible to the caller are returned; `None` → `NotFound`.
 pub(crate) async fn load_adapter_connection_for_auth(
     state: &AppState,
     ctx: &ScopeContext,
     id: &str,
 ) -> Result<AdapterConnection, AdapterError> {
-    let row = PgAdapterConnectionRepository(state.db.clone())
-        .find_by_id(id)
+    PgAdapterConnectionRepository(state.db.clone())
+        .find_by_id(id, ctx)
         .await?
-        .ok_or_else(|| AdapterError::NotFound(format!("Provider connection {id} not found")))?;
-    ensure_scope_access(
-        ctx,
-        row.scope,
-        row.team_id.as_deref(),
-        row.owner_user_id
-            .as_deref()
-            .or(Some(row.created_by.as_str())),
-        "provider connection",
-        id,
-    )?;
-    Ok(row)
+        .ok_or_else(|| AdapterError::NotFound(format!("Provider connection {id} not found")))
+}
+
+/// Load and authorize a loop for the calling user.
+///
+/// Uses the scoped `get(id, ctx)` store method so only loops visible to the
+/// caller are returned; `None` → `NotFound`.
+pub(crate) async fn load_loop_for_auth(
+    state: &AppState,
+    ctx: &ScopeContext,
+    id: &str,
+) -> Result<LoopRecord, AdapterError> {
+    state
+        .loops
+        .get(id, ctx)
+        .await?
+        .ok_or_else(|| AdapterError::NotFound(format!("Trigger {id} not found")))
+}
+
+/// Load and authorize a task for the calling user.
+///
+/// Uses the scoped `find_by_id(id, ctx)` DAO method; `None` → `NotFound`.
+pub(crate) async fn ensure_task_access(
+    state: &AppState,
+    ctx: &ScopeContext,
+    task_id: &str,
+) -> Result<crate::task::models::Task, AdapterError> {
+    state
+        .tasks
+        .find_by_id(task_id, ctx)
+        .await
+        .map_err(|e| AdapterError::Internal(format!("Failed to look up task: {e}")))?
+        .ok_or_else(|| AdapterError::NotFound(format!("Task {task_id} not found")))
 }
 
 /// Resolve an adapter connection for the caller.
@@ -370,49 +262,44 @@ pub(crate) async fn resolve_connection(
     }
 }
 
-pub(crate) async fn load_loop_for_auth(
+/// Authorize a `run_as_user_id` choice for a trigger.
+///
+/// Allows the choice when:
+/// 1. The target is the caller themselves, or the caller is an admin
+///    (existing `ctx.can_run_as` rule), or
+/// 2. The target is a bot user (`users.is_bot = true`). For v1 there is no
+///    team scoping on bots — any authenticated human user can point a
+///    trigger at any bot.
+///
+/// Bot-on-bot impersonation is blocked: a caller who is themselves a bot
+/// (`ctx.is_bot = true`) cannot pick a different bot as the `run_as_user_id`
+/// even though `ctx.can_run_as` would otherwise allow it for admins.
+/// Today no caller path constructs a `ScopeContext` for a bot user, so this
+/// guard is defensive; it removes transitive impersonation as a follow-up
+/// risk without requiring changes elsewhere.
+pub(crate) async fn ensure_can_run_as(
     state: &AppState,
     ctx: &ScopeContext,
-    id: &str,
-) -> Result<LoopRecord, AdapterError> {
-    let record = state
-        .loops
-        .get(id)
-        .await?
-        .ok_or_else(|| AdapterError::NotFound(format!("Trigger {id} not found")))?;
-    ensure_scope_access(
-        ctx,
-        record.trigger.scope,
-        record.trigger.team_id.as_deref(),
-        record
-            .trigger
-            .owner_user_id
-            .as_deref()
-            .or(Some(record.trigger.created_by.as_str())),
-        "trigger",
-        id,
-    )?;
-    Ok(record)
-}
-
-pub(crate) async fn ensure_task_access(
-    state: &AppState,
-    ctx: &ScopeContext,
-    task_id: &str,
-) -> Result<crate::task::models::Task, AdapterError> {
-    let task = state
-        .tasks
-        .find_by_id_internal(task_id)
-        .await
-        .map_err(|e| AdapterError::Internal(format!("Failed to look up task: {e}")))?
-        .ok_or_else(|| AdapterError::NotFound(format!("Task {task_id} not found")))?;
-    ensure_scope_access(
-        ctx,
-        task.scope,
-        task.team_id.as_deref(),
-        task.owner_user_id.as_deref().or(task.created_by.as_deref()),
-        "task",
-        task_id,
-    )?;
-    Ok(task)
+    run_as_user_id: Option<&str>,
+) -> Result<(), AdapterError> {
+    let Some(target) = run_as_user_id else {
+        return Ok(());
+    };
+    if ctx.can_run_as(target) {
+        return Ok(());
+    }
+    // `target` is a uuid; a legacy provider id also resolves via the identity map.
+    let found = match target.parse::<uuid::Uuid>() {
+        Ok(uid) => state.users.get_user(&uid).await,
+        Err(_) => state.users.find_user_by_legacy_id(target).await,
+    };
+    match found {
+        Ok(Some(user)) if user.is_bot => Ok(()),
+        Ok(_) => Err(AdapterError::AccessDenied(format!(
+            "Cannot run as user {target}"
+        ))),
+        Err(e) => Err(AdapterError::Internal(format!(
+            "Failed to look up run-as user {target}: {e}"
+        ))),
+    }
 }

@@ -96,7 +96,7 @@ async fn run_sweep(
     // `idx_provider_tokens_codex_healthy` (migration `0059`) backs the
     // predicate so this remains O(touched rows).
     let rows = sqlx::query(
-        "SELECT user_id, team_id, scope FROM provider_tokens \
+        "SELECT user_id, scope FROM provider_tokens \
          WHERE provider = 'codex' \
            AND metadata->>'refresh_failure' IS NULL",
     )
@@ -107,13 +107,11 @@ async fn run_sweep(
     let mut errored = 0u32;
     for row in rows {
         let user_id: Option<String> = row.try_get("user_id")?;
-        let team_id: Option<String> = row.try_get("team_id")?;
         let scope_str: Option<String> = row.try_get("scope")?;
 
-        let scope = match (scope_str.as_deref(), user_id, team_id) {
-            (Some("user"), Some(uid), _) => CodexScope::user(uid),
-            (Some("team"), _, Some(tid)) => CodexScope::team(tid),
-            (Some("global"), _, _) => CodexScope::Global,
+        let scope = match (scope_str.as_deref(), user_id) {
+            (Some("user"), Some(uid)) => CodexScope::user(uid),
+            (Some("global"), _) => CodexScope::Global,
             other => {
                 warn!(
                     ?other,

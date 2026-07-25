@@ -28,6 +28,7 @@ use crate::adapters::AdapterKind;
 use crate::extractors::AuthUser;
 use crate::message::hooks::{compose_footer, FOOTER_MARKER};
 use crate::state::AppState;
+use moatless_backend_core::scope::ScopeContext;
 
 use super::adapter::GithubPrAdapter;
 use super::api::{GithubPrApi, MAX_COMMENT_LENGTH};
@@ -294,15 +295,18 @@ async fn resolve_github_api(
     task_id: Option<&str>,
 ) -> Result<GithubPrApi, AdapterError> {
     if let Some(task_id) = task_id {
+        // Access already verified by ensure_task_access in the calling handler.
+        #[allow(clippy::disallowed_methods)] // reason: access already verified by ensure_task_access in the handler; system ctx used for repository lookup only
+        let sys = ScopeContext::system();
         let task = state
             .tasks
-            .find_by_id_internal(task_id)
+            .find_by_id(task_id, &sys)
             .await
             .map_err(|error| AdapterError::Internal(error.to_string()))?
             .ok_or_else(|| AdapterError::NotFound(format!("Task {task_id}")))?;
         let repository = state
             .repositories
-            .find_repository_by_id(&task.repository_id)
+            .find_by_id(&task.repository_id, &sys)
             .await
             .map_err(|error| AdapterError::Internal(error.to_string()))?
             .ok_or_else(|| AdapterError::NotFound(format!("Repository {}", task.repository_id)))?;

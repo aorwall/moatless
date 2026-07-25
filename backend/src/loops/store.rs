@@ -31,7 +31,6 @@ pub struct LoopRow {
     pub kind: String,
     pub active: bool,
     pub scope: Scope,
-    pub team_id: Option<String>,
     pub owner_user_id: Option<String>,
     pub created_by: String,
     pub created_at: DateTime<Utc>,
@@ -99,7 +98,6 @@ struct JoinedLoopRecordRow {
     kind: String,
     active: bool,
     scope: Scope,
-    team_id: Option<String>,
     owner_user_id: Option<String>,
     created_by: String,
     created_at: DateTime<Utc>,
@@ -139,7 +137,6 @@ impl JoinedLoopRecordRow {
             kind: self.kind.clone(),
             active: self.active,
             scope: self.scope,
-            team_id: self.team_id,
             owner_user_id: self.owner_user_id,
             created_by: self.created_by,
             created_at: self.created_at,
@@ -203,7 +200,6 @@ const LOOP_RECORD_SELECT: &str = r#"
            t.kind,
            t.active,
            t.scope,
-           t.team_id,
            t.owner_user_id,
            t.created_by,
            t.created_at,
@@ -251,7 +247,6 @@ pub struct NewLoop {
     pub kind: String,
     pub active: bool,
     pub scope: Scope,
-    pub team_id: Option<String>,
     pub owner_user_id: Option<String>,
     pub created_by: String,
     pub created_at: DateTime<Utc>,
@@ -302,7 +297,6 @@ pub struct LoopUpdate {
     pub name: Option<String>,
     pub active: bool,
     pub scope: Scope,
-    pub team_id: Option<String>,
     pub owner_user_id: Option<String>,
 }
 
@@ -333,7 +327,6 @@ pub struct ManagedLoopUpsert {
     pub kind: String,
     pub active: bool,
     pub scope: Scope,
-    pub team_id: Option<String>,
     pub owner_user_id: Option<String>,
     pub created_by: String,
     pub routing_mode: RoutingMode,
@@ -364,13 +357,22 @@ impl LoopStore {
     // HTTP surface: get / list / create / update / delete
     // ---------------------------------------------------------------------
 
-    pub async fn get(&self, id: &str) -> Result<Option<LoopRecord>, sqlx::Error> {
-        let row = sqlx::query_as::<_, JoinedLoopRecordRow>(AssertSqlSafe(format!(
-            "{LOOP_RECORD_SELECT} WHERE t.id = $1"
-        )))
-        .bind(id)
-        .fetch_optional(&self.db)
-        .await?;
+    pub async fn get(
+        &self,
+        id: &str,
+        ctx: &ScopeContext,
+    ) -> Result<Option<LoopRecord>, sqlx::Error> {
+        let access = ctx.access_filter(ScopedEntity::Resource, "t.", 2);
+        let sql = format!(
+            "{LOOP_RECORD_SELECT} WHERE t.id = $1 AND {}",
+            access.sql()
+        );
+        let row = sqlx::query_as::<_, JoinedLoopRecordRow>(AssertSqlSafe(sql))
+            .bind(id)
+            .bind(ctx.is_admin)
+            .bind(&ctx.user_id)
+            .fetch_optional(&self.db)
+            .await?;
 
         row.map(JoinedLoopRecordRow::into_record).transpose()
     }
@@ -396,7 +398,6 @@ impl LoopStore {
 
         let mut query = sqlx::query_as::<_, JoinedLoopRecordRow>(AssertSqlSafe(sql))
             .bind(ctx.is_admin)
-            .bind(&ctx.team_ids)
             .bind(&ctx.user_id);
         if let Some(kind) = filter.kind {
             query = query.bind(kind);
@@ -416,16 +417,15 @@ impl LoopStore {
 
         sqlx::query(
             r#"INSERT INTO triggers
-               (id, name, kind, active, scope, team_id, owner_user_id,
+               (id, name, kind, active, scope, owner_user_id,
                 created_by, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)"#,
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)"#,
         )
         .bind(&new.id)
         .bind(&new.name)
         .bind(&new.kind)
         .bind(new.active)
         .bind(new.scope)
-        .bind(&new.team_id)
         .bind(&new.owner_user_id)
         .bind(&new.created_by)
         .bind(new.created_at)
@@ -448,33 +448,42 @@ impl LoopStore {
     }
 
     /// Update a Loop's trigger row, and optionally its rule and/or source.
+    /// Returns `false` when the id is not found or the caller lacks control.
     pub async fn update(
         &self,
         id: &str,
         trigger: LoopUpdate,
         rule: Option<NewLoopConfig>,
         source: Option<UpdateLoopSource>,
-    ) -> Result<(), sqlx::Error> {
-        let mut tx = self.db.begin().await?;
-
-        sqlx::query(
-            r#"UPDATE triggers
+        ctx: &ScopeContext,
+    ) -> Result<bool, sqlx::Error> {
+        let ctrl = ctx.control_filter("t.", 6);
+        let sql = format!(
+            r#"UPDATE triggers t
                SET name = $2,
                    active = $3,
                    scope = $4,
-                   team_id = $5,
-                   owner_user_id = $6,
+                   owner_user_id = $5,
                    updated_at = now()
-               WHERE id = $1"#,
-        )
-        .bind(id)
-        .bind(&trigger.name)
-        .bind(trigger.active)
-        .bind(trigger.scope)
-        .bind(&trigger.team_id)
-        .bind(&trigger.owner_user_id)
-        .execute(&mut *tx)
-        .await?;
+               WHERE t.id = $1
+                 AND {}"#,
+            ctrl.sql()
+        );
+        let result = sqlx::query(AssertSqlSafe(sql))
+            .bind(id)
+            .bind(&trigger.name)
+            .bind(trigger.active)
+            .bind(trigger.scope)
+            .bind(&trigger.owner_user_id)
+            .bind(ctx.is_admin)
+            .bind(&ctx.user_id)
+            .execute(&self.db)
+            .await?;
+        if result.rows_affected() == 0 {
+            return Ok(false);
+        }
+
+        let mut tx = self.db.begin().await?;
 
         if let Some(rule) = rule {
             sqlx::query(
@@ -550,13 +559,22 @@ impl LoopStore {
             None => {}
         }
 
-        tx.commit().await
+        tx.commit().await?;
+        Ok(true)
     }
 
     /// Delete a Loop by id. Cascades to `trigger_rules` and source rows.
-    pub async fn delete(&self, id: &str) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query("DELETE FROM triggers WHERE id = $1")
+    /// Returns `false` when the id is not found or the caller lacks control.
+    pub async fn delete(&self, id: &str, ctx: &ScopeContext) -> Result<u64, sqlx::Error> {
+        let ctrl = ctx.control_filter("", 2);
+        let sql = format!(
+            "DELETE FROM triggers WHERE id = $1 AND {}",
+            ctrl.sql()
+        );
+        let result = sqlx::query(AssertSqlSafe(sql))
             .bind(id)
+            .bind(ctx.is_admin)
+            .bind(&ctx.user_id)
             .execute(&self.db)
             .await?;
         Ok(result.rows_affected())
@@ -640,15 +658,14 @@ impl LoopStore {
 
         sqlx::query(
             r#"INSERT INTO triggers
-               (id, name, kind, active, scope, team_id, owner_user_id,
+               (id, name, kind, active, scope, owner_user_id,
                 created_by, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                ON CONFLICT (id) DO UPDATE
                SET name            = EXCLUDED.name,
                    kind            = EXCLUDED.kind,
                    active          = EXCLUDED.active,
                    scope           = EXCLUDED.scope,
-                   team_id         = EXCLUDED.team_id,
                    owner_user_id   = EXCLUDED.owner_user_id,
                    updated_at      = EXCLUDED.updated_at"#,
         )
@@ -657,7 +674,6 @@ impl LoopStore {
         .bind("adapter_event")
         .bind(row.active)
         .bind(row.scope)
-        .bind(&row.team_id)
         .bind(&row.owner_user_id)
         .bind(&row.created_by)
         .bind(row.created_at)
@@ -814,8 +830,8 @@ impl LoopStore {
         let (trigger_id, created) = if let Some(id) = existing_id {
             sqlx::query(
                 "UPDATE triggers \
-                 SET name = $2, kind = $3, active = $4, scope = $5, team_id = $6, \
-                     owner_user_id = $7, updated_at = $8 \
+                 SET name = $2, kind = $3, active = $4, scope = $5, \
+                     owner_user_id = $6, updated_at = $7 \
                  WHERE id = $1",
             )
             .bind(&id)
@@ -823,7 +839,6 @@ impl LoopStore {
             .bind(&input.kind)
             .bind(input.active)
             .bind(input.scope)
-            .bind(&input.team_id)
             .bind(&input.owner_user_id)
             .bind(now)
             .execute(&mut *tx)
@@ -833,16 +848,15 @@ impl LoopStore {
             let id = format!("tr_{}", uuid::Uuid::new_v4());
             sqlx::query(
                 "INSERT INTO triggers \
-                 (id, name, kind, active, scope, team_id, owner_user_id, created_by, \
+                 (id, name, kind, active, scope, owner_user_id, created_by, \
                   managed_by, source_repository_id, loop_name, created_at, updated_at) \
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'repo_loop', $9, $10, $11, $11)",
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, 'repo_loop', $8, $9, $10, $10)",
             )
             .bind(&id)
             .bind(&input.trigger_name)
             .bind(&input.kind)
             .bind(input.active)
             .bind(input.scope)
-            .bind(&input.team_id)
             .bind(&input.owner_user_id)
             .bind(&input.created_by)
             .bind(&input.source_repository_id)
@@ -913,8 +927,8 @@ impl LoopStore {
     // ---------------------------------------------------------------------
 
     /// Select due, unlocked schedule jobs and lock each one for `worker_id`.
-    /// Returns the jobs that were successfully locked. Mirrors the runner's
-    /// previous two-statement due-select + per-row lock CTE.
+    /// Returns the jobs that were successfully locked. System-level query —
+    /// no scope filter applied (the schedule runner acts across all owners).
     pub async fn claim_due_schedules(
         &self,
         worker_id: &str,
@@ -934,7 +948,6 @@ impl LoopStore {
                       sts.locked_until,
                       t.created_by,
                       t.scope,
-                      t.team_id,
                       t.owner_user_id,
                       t.created_at,
                       t.updated_at
@@ -983,7 +996,6 @@ impl LoopStore {
                           s.locked_until,
                           t.created_by,
                           t.scope,
-                          t.team_id,
                           t.owner_user_id,
                           t.created_at,
                           t.updated_at
@@ -1031,6 +1043,7 @@ impl LoopStore {
         &self,
         trigger_id: &str,
     ) -> Result<LoopSpawnConfig, sqlx::Error> {
+        // System-level query — schedule runner acts across all owners, no scope filter needed.
         sqlx::query_as::<_, LoopSpawnConfig>(
             r#"SELECT t.id,
                       r.repository_id,
@@ -1043,7 +1056,6 @@ impl LoopStore {
                       r.agent_type,
                       r.inactive_ttl_days,
                       t.scope,
-                      t.team_id,
                       t.owner_user_id,
                       t.created_by,
                       t.created_at,
@@ -1102,7 +1114,6 @@ const SUBSCRIPTION_MATCH_SELECT: &str = r#"
            t.active,
            t.created_by,
            t.scope,
-           t.team_id,
            t.owner_user_id,
            t.created_at,
            t.updated_at

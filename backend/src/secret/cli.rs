@@ -14,11 +14,11 @@ use clap::{Args, Subcommand, ValueEnum};
 use super::audit::PgSecretAuditRepository;
 use super::cli_migrate::{run_migrate_repo_env_vars, MigrateOptions};
 use super::dao::PgSecretRepository;
-use super::models::SecretScopeType;
 use super::schemas::PutSecretRequest;
 use super::service::{LocalEnvelopeSecretCipher, SecretService};
 use crate::config::Config;
 use crate::db;
+use moatless_api_schemas::enums::Scope;
 use moatless_backend_core::scope::ScopeContext;
 
 #[derive(Args, Debug)]
@@ -42,15 +42,13 @@ pub enum SecretsCommand {
 #[derive(Copy, Clone, Debug, ValueEnum)]
 pub enum CliScope {
     Global,
-    Team,
     User,
 }
 
-impl From<CliScope> for SecretScopeType {
+impl From<CliScope> for Scope {
     fn from(value: CliScope) -> Self {
         match value {
             CliScope::Global => Self::Global,
-            CliScope::Team => Self::Team,
             CliScope::User => Self::User,
         }
     }
@@ -81,16 +79,18 @@ impl From<CliKind> for super::models::SecretKind {
 pub struct ListArgs {
     #[arg(long, value_enum)]
     pub scope: CliScope,
+    /// Owner user ID (required for user scope).
     #[arg(long)]
-    pub scope_id: Option<String>,
+    pub owner_user_id: Option<String>,
 }
 
 #[derive(Args, Debug)]
 pub struct PutArgs {
     #[arg(long, value_enum)]
     pub scope: CliScope,
+    /// Owner user ID (required for user scope).
     #[arg(long)]
-    pub scope_id: Option<String>,
+    pub owner_user_id: Option<String>,
     #[arg(long)]
     pub key: String,
     #[arg(long, value_enum, default_value_t = CliKind::Env)]
@@ -106,8 +106,9 @@ pub struct PutArgs {
 pub struct DeleteArgs {
     #[arg(long, value_enum)]
     pub scope: CliScope,
+    /// Owner user ID (required for user scope).
     #[arg(long)]
-    pub scope_id: Option<String>,
+    pub owner_user_id: Option<String>,
     #[arg(long)]
     pub key: String,
 }
@@ -169,7 +170,6 @@ pub async fn run(cli: SecretsCli) -> Result<(), Box<dyn std::error::Error>> {
 fn admin_context() -> ScopeContext {
     ScopeContext {
         user_id: CLI_ACTOR.to_string(),
-        team_ids: Vec::new(),
         is_admin: true,
     }
 }
@@ -179,24 +179,23 @@ async fn list(
     ctx: &ScopeContext,
     args: ListArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let rows = service
-        .list_metadata(ctx, args.scope.into(), args.scope_id.as_deref())
-        .await?;
+    let scope: Scope = args.scope.into();
+    let rows = service.list_metadata(ctx, Some(scope)).await?;
     if rows.is_empty() {
         println!("(no secrets)");
         return Ok(());
     }
     println!(
         "{:<44}  {:<10}  {:<32}  {:<24}  updated",
-        "ID", "SCOPE", "KEY", "SCOPE_ID"
+        "ID", "SCOPE", "KEY", "OWNER_USER_ID"
     );
     for row in rows {
         println!(
             "{:<44}  {:<10}  {:<32}  {:<24}  {}",
             row.id,
-            row.scope_type,
+            row.scope,
             row.key,
-            row.scope_id.clone().unwrap_or_default(),
+            row.owner_user_id.clone().unwrap_or_default(),
             row.updated_at,
         );
     }
@@ -208,10 +207,10 @@ async fn put(
     ctx: &ScopeContext,
     args: PutArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let scope: Scope = args.scope.into();
     let value = resolve_value(args.value, args.value_stdin)?;
     let req = PutSecretRequest {
-        scope_type: args.scope.into(),
-        scope_id: args.scope_id,
+        scope: Some(scope),
         key: args.key,
         kind: args.kind.into(),
         provider: None,
@@ -219,7 +218,7 @@ async fn put(
         external_ref: None,
     };
     let row = service.put_secret(ctx, CLI_ACTOR, req).await?;
-    println!("ok: secret {} @ {}", row.key, row.scope_type);
+    println!("ok: secret {} @ {}", row.key, row.scope);
     Ok(())
 }
 
@@ -228,9 +227,8 @@ async fn delete(
     ctx: &ScopeContext,
     args: DeleteArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let rows = service
-        .list_metadata(ctx, args.scope.into(), args.scope_id.as_deref())
-        .await?;
+    let scope: Scope = args.scope.into();
+    let rows = service.list_metadata(ctx, Some(scope)).await?;
     let match_id = rows
         .iter()
         .find(|row| row.key == args.key)

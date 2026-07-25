@@ -26,7 +26,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use moatless_backend_core::scope::Scope;
+use moatless_backend_core::scope::{Scope, ScopeContext};
 use moatless_events::{SandboxEventPayload, SandboxStatus, TaskSubType};
 
 use crate::events::EventPublisher;
@@ -108,7 +108,6 @@ pub struct NewTaskRequest {
     pub headless: bool,
     pub visibility: Visibility,
     pub scope: Scope,
-    pub team_id: Option<String>,
     pub owner_user_id: Option<String>,
     pub trigger_id: Option<String>,
     pub workspace_id: Option<String>,
@@ -275,7 +274,6 @@ impl TaskCreationService {
             created_by: req.created_by.clone(),
             visibility: req.visibility,
             scope: req.scope,
-            team_id: req.team_id.clone(),
             owner_user_id: req.owner_user_id.clone(),
             created_at_db: None,
             updated_at: None,
@@ -291,13 +289,18 @@ impl TaskCreationService {
         // Repo is needed for preflight. Reuse a caller-supplied one if present
         // (the HTTP path already fetched it); otherwise look it up, which also
         // yields the 404 for an unknown id.
-        let repo = match req.repository.take() {
-            Some(repo) => repo,
-            None => self
-                .repositories
-                .find_repository_by_id(&req.repository_id)
+        let repo = if let Some(repo) = req.repository.take() {
+            repo
+        } else {
+            // reason: non-HTTP creation paths (adapters, triggers) resolve
+            // the repository configured on the trigger, not user input; the
+            // HTTP path passes an already access-checked repository.
+            #[allow(clippy::disallowed_methods)]
+            let sys_ctx = ScopeContext::system();
+            self.repositories
+                .find_by_id(&req.repository_id, &sys_ctx)
                 .await?
-                .ok_or_else(|| TaskCreationError::RepoNotFound(req.repository_id.clone()))?,
+                .ok_or_else(|| TaskCreationError::RepoNotFound(req.repository_id.clone()))?
         };
 
         // Preflight. On failure persist the row as `Error` and publish a
@@ -433,7 +436,6 @@ mod tests {
             description: None,
             provider: None,
             scope: Scope::User,
-            team_id: None,
             owner_user_id: None,
             created_by: None,
             access_status: "unchecked".into(),
@@ -456,7 +458,6 @@ mod tests {
             headless: false,
             visibility: Visibility::Private,
             scope: Scope::User,
-            team_id: None,
             owner_user_id: Some("user1".into()),
             trigger_id: None,
             workspace_id: None,
@@ -497,8 +498,8 @@ mod tests {
         let relations = MockTaskRelationRepository::new();
         let mut repos = MockRepoRepository::new();
         repos
-            .expect_find_repository_by_id()
-            .returning(|_| Ok(Some(sample_repo())));
+            .expect_find_by_id()
+            .returning(|_, _| Ok(Some(sample_repo())));
         TaskCreationService::new(
             Arc::new(tasks),
             Arc::new(tags),

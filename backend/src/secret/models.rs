@@ -3,44 +3,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-/// Scope type for application-managed secrets.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum SecretScopeType {
-    Global,
-    Team,
-    User,
-}
-
-impl SecretScopeType {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Global => "global",
-            Self::Team => "team",
-            Self::User => "user",
-        }
-    }
-}
-
-impl std::fmt::Display for SecretScopeType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl TryFrom<&str> for SecretScopeType {
-    type Error = String;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
-            "global" => Ok(Self::Global),
-            "team" => Ok(Self::Team),
-            "user" => Ok(Self::User),
-            other => Err(format!("unknown secret scope type: {other}")),
-        }
-    }
-}
-
 /// Secret value category.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -105,8 +67,8 @@ pub enum SecretSource {
 #[derive(sqlx::FromRow, Debug, Clone)]
 pub struct SecretRecord {
     pub id: String,
-    pub scope_type: String,
-    pub scope_id: Option<String>,
+    pub scope: String,
+    pub owner_user_id: Option<String>,
     pub key: String,
     pub kind: String,
     pub provider: Option<String>,

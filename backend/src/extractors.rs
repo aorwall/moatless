@@ -28,10 +28,8 @@ pub struct AuthUser {
     pub login: String,
     pub role: Option<String>,
     pub provider: Option<String>,
-    /// Deprecated: use `team_ids` instead. Kept for backwards compatibility.
+    /// Deprecated legacy grouping id. Kept for backwards compatibility.
     pub group_id: Option<String>,
-    /// Team IDs the user belongs to (populated from X-Team-Ids header).
-    pub team_ids: Vec<String>,
     pub task_id: Option<String>,
     /// True when this request was authenticated via the sandbox-issued
     /// `X-User-Token` JWT (i.e. came from inside a sandbox pod, on behalf
@@ -44,7 +42,6 @@ impl AuthUser {
     pub fn scope_context(&self) -> ScopeContext {
         ScopeContext {
             user_id: self.user_id.to_string(),
-            team_ids: self.team_ids.clone(),
             is_admin: self.role.as_deref() == Some("admin"),
         }
     }
@@ -81,7 +78,6 @@ impl FromRequestParts<AppState> for AuthUser {
                 role: Some(identity.role.as_str().to_string()),
                 provider: Some(identity.provider.clone()),
                 group_id: identity.group_id.clone(),
-                team_ids: identity.team_ids.clone(),
                 task_id,
                 is_agent_context: false,
             });
@@ -114,7 +110,6 @@ impl FromRequestParts<AppState> for AuthUser {
                 role: None,
                 provider: Some("user-token".to_string()),
                 group_id: None,
-                team_ids: vec![],
                 task_id,
                 is_agent_context: true,
             });
@@ -168,7 +163,6 @@ impl<S: Send + Sync> FromRequestParts<S> for OptionalScope {
             .get::<AuthIdentity>()
             .map(|id| ScopeContext {
                 user_id: id.user_id.to_string(),
-                team_ids: id.team_ids.clone(),
                 is_admin: id.role == UserRole::Admin,
             });
         Ok(OptionalScope(ctx))

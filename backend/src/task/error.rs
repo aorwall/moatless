@@ -49,7 +49,6 @@ impl From<AccessControlError> for TaskError {
         match value {
             AccessControlError::BadRequest(msg) => Self::BadRequest(msg),
             AccessControlError::Forbidden(msg) => Self::Forbidden(msg),
-            AccessControlError::Db(err) => Self::Db(err),
         }
     }
 }

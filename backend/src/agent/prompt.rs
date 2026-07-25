@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+use moatless_backend_core::scope::ScopeContext;
 use tracing::warn;
 
 use crate::config::Config;
@@ -140,9 +141,13 @@ pub async fn build_for_task(
     task_relations: Option<&Arc<dyn TaskRelationRepository>>,
     config: Option<&Arc<Config>>,
 ) -> String {
+    // reason: prompt assembly runs in the agent's background flow; the
+    // workspace is the task's own configured one.
+    #[allow(clippy::disallowed_methods)]
+    let sys_ctx = ScopeContext::system();
     let workspace = match (task, workspaces) {
         (Some(t), Some(ws)) => match t.workspace_id.as_deref() {
-            Some(ws_id) => ws.find_by_id(ws_id).await.ok().flatten(),
+            Some(ws_id) => ws.find_by_id(ws_id, &sys_ctx).await.ok().flatten(),
             None => None,
         },
         _ => None,

@@ -14,6 +14,7 @@ use crate::loops::firing::metrics::record_job;
 use crate::shared_models::AgentMode;
 use crate::state::AppState;
 use crate::task::models::TaskStatus;
+use moatless_backend_core::scope::ScopeContext;
 
 /// Spawn the scheduled-job background task.
 pub fn spawn_cron_scheduler(
@@ -123,7 +124,9 @@ async fn execute_job(
     let mut is_new_task = false;
     let task_id = if route.routing_mode == crate::adapters::models::RoutingMode::Ongoing {
         if let Some(task_id) = route.ongoing_task_id.as_deref() {
-            match state.tasks.find_by_id_internal(task_id).await {
+            #[allow(clippy::disallowed_methods)] // reason: schedule runner is a background system with no caller identity
+            let sys = ScopeContext::system();
+            match state.tasks.find_by_id(task_id, &sys).await {
                 Ok(Some(task)) if task.status == TaskStatus::Open => task.task_id,
                 _ => {
                     is_new_task = true;
@@ -221,7 +224,6 @@ fn route_to_config(route: &LoopSpawnConfig, job: &Schedule) -> LoopContext {
         })),
         ongoing_task_id: route.ongoing_task_id.clone(),
         scope: route.scope,
-        team_id: route.team_id.clone(),
         task_name: route.task_name.clone(),
         tag_ids: route.tag_ids.clone(),
         run_as_user_id: job

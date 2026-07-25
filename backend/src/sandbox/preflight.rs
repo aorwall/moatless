@@ -141,7 +141,6 @@ pub async fn preflight_validate_github_token(
     let token = resolve_task_github_token(TaskCredentialInputs {
         task_id: &task.task_id,
         user_id: &user_id,
-        team_id: task.team_id.as_deref(),
         // Required to dereference a `secret_ref` row's sentinel; without it
         // every PAT-backed credential resolves as absent.
         secrets: Some(&creds.secrets),
@@ -302,7 +301,6 @@ mod tests {
             description: None,
             provider,
             scope: moatless_api_schemas::enums::Scope::User,
-            team_id: None,
             owner_user_id: None,
             created_by: None,
             access_status: "unchecked".into(),

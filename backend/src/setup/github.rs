@@ -28,7 +28,7 @@ impl SetupRequirementCheck for GithubTokenRequirement {
     async fn evaluate(&self, ctx: &SetupContext<'_>) -> SetupRequirement {
         let status = match ctx
             .provider_tokens
-            .find_github_scope_presence(ctx.user_id, ctx.team_ids)
+            .find_github_scope_presence(ctx.user_id)
             .await
         {
             Ok(Some(presence)) => classify(ctx, &presence).await,
@@ -137,12 +137,10 @@ mod tests {
         tokens: &StubProviderTokens,
         secrets: Option<&SecretService>,
         is_admin: bool,
-        team_ids: &[String],
     ) -> SetupRequirement {
         GithubTokenRequirement
             .evaluate(&SetupContext {
                 user_id: "u1",
-                team_ids,
                 is_admin,
                 provider_tokens: tokens,
                 secrets,
@@ -152,14 +150,14 @@ mod tests {
 
     #[tokio::test]
     async fn no_row_at_any_scope_is_missing() {
-        let req = evaluate(&StubProviderTokens::default(), None, false, &[]).await;
+        let req = evaluate(&StubProviderTokens::default(), None, false).await;
         assert_eq!(req.status, SetupRequirementStatus::Missing);
     }
 
     #[tokio::test]
     async fn a_plain_user_row_satisfies_and_offers_no_actions() {
         let tokens = StubProviderTokens::with_user_row(Some(github_row("oauth", "gho_x")));
-        let req = evaluate(&tokens, None, false, &[]).await;
+        let req = evaluate(&tokens, None, false).await;
         assert_eq!(req.status, SetupRequirementStatus::Satisfied);
         assert!(req.actions.is_empty());
     }
@@ -167,7 +165,7 @@ mod tests {
     #[tokio::test]
     async fn the_org_wide_token_satisfies_a_user_with_none() {
         let tokens = StubProviderTokens::default().with_global_row(github_row("manual", "ghp_org"));
-        let req = evaluate(&tokens, None, false, &[]).await;
+        let req = evaluate(&tokens, None, false).await;
         assert_eq!(req.status, SetupRequirementStatus::Satisfied);
     }
 
@@ -184,7 +182,7 @@ mod tests {
             GITHUB_TOKEN,
             "ghp_real",
         )]);
-        let req = evaluate(&tokens, Some(&secrets), false, &[]).await;
+        let req = evaluate(&tokens, Some(&secrets), false).await;
         assert_eq!(req.status, SetupRequirementStatus::Satisfied);
     }
 
@@ -197,13 +195,13 @@ mod tests {
             SECRET_REF_TOKEN_PLACEHOLDER,
         )));
         let secrets = service_with(vec![]);
-        let req = evaluate(&tokens, Some(&secrets), false, &[]).await;
+        let req = evaluate(&tokens, Some(&secrets), false).await;
         assert_eq!(req.status, SetupRequirementStatus::Broken);
     }
 
     #[tokio::test]
     async fn admins_are_offered_the_org_wide_route_first() {
-        let req = evaluate(&StubProviderTokens::default(), None, true, &[]).await;
+        let req = evaluate(&StubProviderTokens::default(), None, true).await;
         assert_eq!(req.actions[0].kind, SetupActionKind::AdminRoute);
         assert_eq!(req.actions[0].target, ADMIN_ROUTE);
         assert_eq!(req.actions[1].kind, SetupActionKind::OpenSettings);
@@ -211,7 +209,7 @@ mod tests {
 
     #[tokio::test]
     async fn non_admins_are_never_offered_the_admin_route() {
-        let req = evaluate(&StubProviderTokens::default(), None, false, &[]).await;
+        let req = evaluate(&StubProviderTokens::default(), None, false).await;
         assert_eq!(req.actions.len(), 1);
         assert_eq!(req.actions[0].kind, SetupActionKind::OpenSettings);
     }

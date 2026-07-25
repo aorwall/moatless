@@ -70,7 +70,6 @@ async fn schedule_trigger_recent_tasks_returns_binding_none() {
             kind: LoopKind::Schedule,
             active: Some(true),
             scope: None,
-            team_id: None,
             config: CreateLoopConfig {
                 repository_id: repo_id.clone(),
                 routing_mode: RoutingMode::BySubject,

@@ -32,7 +32,6 @@ fn auth(user_id: &str) -> AuthUser {
         role: None,
         provider: Some("github".to_string()),
         group_id: None,
-        team_ids: vec![],
         task_id: None,
         is_agent_context: false,
     }

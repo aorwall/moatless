@@ -6,14 +6,15 @@ use std::collections::HashMap;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-use super::models::{SecretKind, SecretRecord, SecretScopeType, SecretSource};
+use super::models::{SecretKind, SecretRecord, SecretSource};
+use moatless_api_schemas::enums::Scope;
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SecretMetadataResponse {
     pub id: String,
-    pub scope_type: SecretScopeType,
-    pub scope_id: Option<String>,
+    pub scope: Scope,
+    pub owner_user_id: Option<String>,
     pub key: String,
     pub kind: SecretKind,
     pub provider: Option<String>,
@@ -31,8 +32,8 @@ impl TryFrom<SecretRecord> for SecretMetadataResponse {
         let source = record.source();
         Ok(Self {
             id: record.id,
-            scope_type: SecretScopeType::try_from(record.scope_type.as_str())?,
-            scope_id: record.scope_id,
+            scope: Scope::try_from(record.scope.as_str())?,
+            owner_user_id: record.owner_user_id,
             key: record.key,
             kind: SecretKind::try_from(record.kind.as_str())?,
             provider: record.provider,
@@ -49,17 +50,13 @@ impl TryFrom<SecretRecord> for SecretMetadataResponse {
 #[into_params(parameter_in = Query)]
 #[serde(rename_all = "camelCase")]
 pub struct ListSecretsQuery {
-    #[serde(rename = "scope")]
-    pub scope_type: SecretScopeType,
-    pub scope_id: Option<String>,
+    pub scope: Option<Scope>,
 }
 
 #[derive(Clone, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PutSecretRequest {
-    #[serde(rename = "scope")]
-    pub scope_type: SecretScopeType,
-    pub scope_id: Option<String>,
+    pub scope: Option<Scope>,
     pub key: String,
     pub kind: SecretKind,
     pub provider: Option<String>,
@@ -70,8 +67,7 @@ pub struct PutSecretRequest {
 impl std::fmt::Debug for PutSecretRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PutSecretRequest")
-            .field("scope_type", &self.scope_type)
-            .field("scope_id", &self.scope_id)
+            .field("scope", &self.scope)
             .field("key", &self.key)
             .field("kind", &self.kind)
             .field("provider", &self.provider)
@@ -107,9 +103,7 @@ impl std::fmt::Debug for PatchSecretRequest {
 #[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ValidateSecretsRequest {
-    #[serde(rename = "scope")]
-    pub scope_type: SecretScopeType,
-    pub scope_id: Option<String>,
+    pub scope: Option<Scope>,
     pub required: Vec<String>,
 }
 
@@ -145,8 +139,7 @@ mod tests {
     #[test]
     fn put_request_debug_redacts_secret_value() {
         let req = PutSecretRequest {
-            scope_type: SecretScopeType::User,
-            scope_id: Some("repo_1".to_string()),
+            scope: Some(Scope::User),
             key: "STRIPE_SECRET_KEY".to_string(),
             kind: SecretKind::Env,
             provider: None,
@@ -161,10 +154,11 @@ mod tests {
 
     #[test]
     fn metadata_response_serializes_without_value_field() {
+        use super::super::models::SecretSource;
         let resp = SecretMetadataResponse {
             id: "id".to_string(),
-            scope_type: SecretScopeType::User,
-            scope_id: Some("repo".to_string()),
+            scope: Scope::User,
+            owner_user_id: Some("u1".to_string()),
             key: "STRIPE_SECRET_KEY".to_string(),
             kind: SecretKind::Env,
             provider: None,

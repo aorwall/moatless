@@ -271,8 +271,13 @@ pub async fn reply_to_message(
         .get_by_name(&provider_key)
         .ok_or_else(|| AdapterError::BadRequest(format!("Unknown adapter `{provider_key}`")))?;
 
+    // reason: delivery routing for an already read-authorized reply; public
+    // tasks accept replies from non-owners, so the owner's connection row is
+    // resolved with system context.
+    #[allow(clippy::disallowed_methods)]
+    let sys_ctx = ScopeContext::system();
     let connection = PgAdapterConnectionRepository(state.db.clone())
-        .find_by_id(&binding.connection_id)
+        .find_by_id(&binding.connection_id, &sys_ctx)
         .await?
         .ok_or_else(|| {
             AdapterError::ConfigNotFound(format!(

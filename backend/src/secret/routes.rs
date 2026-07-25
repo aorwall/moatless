@@ -21,7 +21,7 @@ use crate::state::AppState;
         handlers::resolve_task_secrets,
     ),
     components(schemas(
-        super::models::SecretScopeType,
+        moatless_api_schemas::enums::Scope,
         super::models::SecretKind,
         super::models::SecretSource,
         super::schemas::SecretMetadataResponse,

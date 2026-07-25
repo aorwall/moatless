@@ -8,6 +8,8 @@
 
 use tracing::{info, warn};
 
+use moatless_backend_core::scope::ScopeContext;
+
 use crate::auth::provider_token_dao::ProviderTokenRepository;
 use crate::plugin_repo::dao::PluginRepoRepository;
 use crate::repository::dao::RepoRepository;
@@ -44,8 +46,11 @@ pub async fn build_provision_request(
     task_id: &str,
 ) -> Result<ProvisionRequest, SandboxError> {
     // 1. Read task from DB
+    // reason: lifecycle plan construction acts on behalf of the system, not a user
+    #[allow(clippy::disallowed_methods)]
+    let sys = ScopeContext::system();
     let task = tasks
-        .find_by_id_internal(task_id)
+        .find_by_id(task_id, &sys)
         .await
         .map_err(|e| SandboxError::Internal(format!("DB error reading task: {e}")))?
         .ok_or_else(|| SandboxError::Internal(format!("Task '{task_id}' not found in database")))?;
@@ -79,8 +84,11 @@ pub async fn build_provision_request(
     // (the task references a repository that does not exist) — retrying can't
     // create it — so it surfaces as a client error, not a transient one. A DB
     // read error stays `Internal` (transient).
+    // reason: provision plan reads any repository regardless of owner
+    #[allow(clippy::disallowed_methods)]
+    let repo_sys = ScopeContext::system();
     let repo = repos
-        .find_repository_by_id(&repository_id)
+        .find_by_id(&repository_id, &repo_sys)
         .await
         .map_err(|e| SandboxError::Internal(format!("DB error reading repository: {e}")))?
         .ok_or_else(|| {
@@ -101,7 +109,7 @@ pub async fn build_provision_request(
     // checkout only this iteration).
     let workspace = match task.workspace_id.as_deref() {
         Some(ws_id) => workspaces
-            .find_by_id(ws_id)
+            .find_by_id(ws_id, &repo_sys)
             .await
             .map_err(|e| SandboxError::Internal(format!("DB error reading workspace: {e}")))?,
         None => None,
@@ -270,8 +278,11 @@ async fn resolve_server_configs(
     workspaces: &dyn WorkspaceRepository,
     task_id: &str,
 ) -> Result<Vec<ServerConfig>, String> {
+    // reason: server config resolution reads across all task owners for pod watcher
+    #[allow(clippy::disallowed_methods)]
+    let sys = ScopeContext::system();
     let task = tasks
-        .find_by_id_internal(task_id)
+        .find_by_id(task_id, &sys)
         .await
         .map_err(|e| format!("Failed to fetch task {task_id}: {e}"))?
         .ok_or_else(|| format!("Task {task_id} not found"))?;
@@ -279,7 +290,7 @@ async fn resolve_server_configs(
         return Ok(vec![]);
     };
     let ws = workspaces
-        .find_by_id(ws_id)
+        .find_by_id(ws_id, &sys)
         .await
         .map_err(|e| format!("Failed to fetch workspace {ws_id}: {e}"))?
         .ok_or_else(|| format!("Workspace {ws_id} not found"))?;

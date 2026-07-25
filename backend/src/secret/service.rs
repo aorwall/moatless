@@ -12,13 +12,15 @@ use super::dao::{SecretInsert, SecretReplace, SecretRepository};
 use super::error::SecretError;
 use super::models::{
     is_reserved_key, is_valid_secret_key, EncryptedSecretValue, ResolvedSecret, SecretKind,
-    SecretRecord, SecretScopeType,
+    SecretRecord,
 };
 use super::schemas::{
     PatchSecretRequest, PutSecretRequest, SecretMetadataResponse, ValidateSecretsRequest,
     ValidateSecretsResponse,
 };
+use crate::access_control::{resolve_scope_for_create, AccessControlError};
 use crate::config::SecretsConfig;
+use moatless_api_schemas::enums::Scope;
 use moatless_backend_core::scope::ScopeContext;
 
 const ENCRYPTION_VERSION: i32 = 1;
@@ -195,14 +197,11 @@ impl SecretService {
     pub async fn list_metadata(
         &self,
         ctx: &ScopeContext,
-        scope_type: SecretScopeType,
-        scope_id: Option<&str>,
+        scope_filter: Option<Scope>,
     ) -> Result<Vec<SecretMetadataResponse>, SecretError> {
-        let scope_id = normalize_scope_id(scope_type, scope_id, &ctx.user_id)?;
-        ensure_scope_access(ctx, scope_type, scope_id.as_deref())?;
         let records = self
             .secrets
-            .list_by_scope(scope_type.as_str(), scope_id.as_deref())
+            .list(ctx, scope_filter.map(|s| s.as_str()))
             .await?;
         records
             .into_iter()
@@ -222,12 +221,9 @@ impl SecretService {
     ) -> Result<SecretMetadataResponse, SecretError> {
         let record = self
             .secrets
-            .find_by_id(id)
+            .find_by_id(id, ctx)
             .await?
             .ok_or_else(|| SecretError::NotFound(id.to_string()))?;
-        let scope_type =
-            SecretScopeType::try_from(record.scope_type.as_str()).map_err(SecretError::Internal)?;
-        ensure_scope_access(ctx, scope_type, record.scope_id.as_deref())?;
         SecretMetadataResponse::try_from(record).map_err(SecretError::Internal)
     }
 
@@ -237,43 +233,53 @@ impl SecretService {
         actor_id: &str,
         req: PutSecretRequest,
     ) -> Result<SecretMetadataResponse, SecretError> {
-        let scope_id = normalize_scope_id(req.scope_type, req.scope_id.as_deref(), actor_id)?;
-        ensure_scope_access(ctx, req.scope_type, scope_id.as_deref())?;
+        let resolved =
+            resolve_scope_for_create(ctx, req.scope).map_err(map_access_control_error)?;
         validate_secret_shape(&req.key, req.value.as_ref(), req.external_ref.as_ref())?;
 
-        let id = self
+        let existing = self
             .secrets
-            .find_by_scope_key(req.scope_type.as_str(), scope_id.as_deref(), &req.key)
-            .await?
-            .map_or_else(|| uuid::Uuid::new_v4().to_string(), |existing| existing.id);
+            .find_by_key(
+                resolved.scope.as_str(),
+                resolved.owner_user_id.as_deref(),
+                &req.key,
+            )
+            .await?;
+        let id = existing
+            .as_ref()
+            .map_or_else(|| uuid::Uuid::new_v4().to_string(), |e| e.id.clone());
+        let is_update = existing.is_some();
 
         let storage =
             self.prepare_storage(&id, req.value.as_deref(), req.external_ref.as_deref())?;
-        let existing = self.secrets.find_by_id(&id).await?.map(|record| record.id);
 
-        let record = if existing.is_some() {
+        let record = if is_update {
             self.secrets
-                .replace(SecretReplace {
-                    id: &id,
-                    kind: req.kind.as_str(),
-                    provider: req.provider.as_deref(),
-                    value_ciphertext: storage.value_ciphertext.as_deref(),
-                    encryption_nonce: storage.encryption_nonce.as_deref(),
-                    encrypted_data_key: storage.encrypted_data_key.as_deref(),
-                    external_ref: storage.external_ref.as_deref(),
-                    kms_key_id: storage.kms_key_id.as_deref(),
-                    encryption_version: storage.encryption_version,
-                    // Setting a fresh value re-enables a disabled secret.
-                    enabled: Some(true),
-                    actor_id,
-                })
+                .replace(
+                    SecretReplace {
+                        id: &id,
+                        kind: req.kind.as_str(),
+                        provider: req.provider.as_deref(),
+                        value_ciphertext: storage.value_ciphertext.as_deref(),
+                        encryption_nonce: storage.encryption_nonce.as_deref(),
+                        encrypted_data_key: storage.encrypted_data_key.as_deref(),
+                        external_ref: storage.external_ref.as_deref(),
+                        kms_key_id: storage.kms_key_id.as_deref(),
+                        encryption_version: storage.encryption_version,
+                        // Setting a fresh value re-enables a disabled secret.
+                        enabled: Some(true),
+                        actor_id,
+                    },
+                    ctx,
+                )
                 .await?
+                .ok_or_else(|| SecretError::NotFound(id.clone()))?
         } else {
             self.secrets
                 .insert(SecretInsert {
                     id: &id,
-                    scope_type: req.scope_type.as_str(),
-                    scope_id: scope_id.as_deref(),
+                    scope: resolved.scope.as_str(),
+                    owner_user_id: resolved.owner_user_id.as_deref(),
                     key: &req.key,
                     kind: req.kind.as_str(),
                     provider: req.provider.as_deref(),
@@ -291,11 +297,7 @@ impl SecretService {
         self.audit(
             Some(&record.id),
             actor_id,
-            if existing.is_some() {
-                "update"
-            } else {
-                "create"
-            },
+            if is_update { "update" } else { "create" },
             &record,
             "success",
         )
@@ -313,12 +315,9 @@ impl SecretService {
     ) -> Result<SecretMetadataResponse, SecretError> {
         let existing = self
             .secrets
-            .find_by_id(id)
+            .find_by_id(id, ctx)
             .await?
             .ok_or_else(|| SecretError::NotFound(id.to_string()))?;
-        let scope_type = SecretScopeType::try_from(existing.scope_type.as_str())
-            .map_err(SecretError::Internal)?;
-        ensure_scope_access(ctx, scope_type, existing.scope_id.as_deref())?;
 
         let kind = req.kind.unwrap_or(
             SecretKind::try_from(existing.kind.as_str()).map_err(SecretError::Internal)?,
@@ -338,20 +337,24 @@ impl SecretService {
 
         let record = self
             .secrets
-            .replace(SecretReplace {
-                id: &existing.id,
-                kind: kind.as_str(),
-                provider: provider.as_deref(),
-                value_ciphertext: storage.value_ciphertext.as_deref(),
-                encryption_nonce: storage.encryption_nonce.as_deref(),
-                encrypted_data_key: storage.encrypted_data_key.as_deref(),
-                external_ref: storage.external_ref.as_deref(),
-                kms_key_id: storage.kms_key_id.as_deref(),
-                encryption_version: storage.encryption_version,
-                enabled: req.enabled,
-                actor_id,
-            })
-            .await?;
+            .replace(
+                SecretReplace {
+                    id: &existing.id,
+                    kind: kind.as_str(),
+                    provider: provider.as_deref(),
+                    value_ciphertext: storage.value_ciphertext.as_deref(),
+                    encryption_nonce: storage.encryption_nonce.as_deref(),
+                    encrypted_data_key: storage.encrypted_data_key.as_deref(),
+                    external_ref: storage.external_ref.as_deref(),
+                    kms_key_id: storage.kms_key_id.as_deref(),
+                    encryption_version: storage.encryption_version,
+                    enabled: req.enabled,
+                    actor_id,
+                },
+                ctx,
+            )
+            .await?
+            .ok_or_else(|| SecretError::NotFound(id.to_string()))?;
 
         let action = match req.enabled {
             Some(true) => "enable",
@@ -369,15 +372,13 @@ impl SecretService {
         actor_id: &str,
         id: &str,
     ) -> Result<(), SecretError> {
+        // Read first (with access filter) so we can audit the key/scope before deleting.
         let record = self
             .secrets
-            .find_by_id(id)
+            .find_by_id(id, ctx)
             .await?
             .ok_or_else(|| SecretError::NotFound(id.to_string()))?;
-        let scope_type =
-            SecretScopeType::try_from(record.scope_type.as_str()).map_err(SecretError::Internal)?;
-        ensure_scope_access(ctx, scope_type, record.scope_id.as_deref())?;
-        if !self.secrets.delete(id).await? {
+        if !self.secrets.delete(id, ctx).await? {
             return Err(SecretError::NotFound(id.to_string()));
         }
         self.audit(Some(id), actor_id, "delete", &record, "success")
@@ -389,11 +390,12 @@ impl SecretService {
         ctx: &ScopeContext,
         req: ValidateSecretsRequest,
     ) -> Result<ValidateSecretsResponse, SecretError> {
-        let scope_id = normalize_scope_id(req.scope_type, req.scope_id.as_deref(), &ctx.user_id)?;
-        ensure_scope_access(ctx, req.scope_type, scope_id.as_deref())?;
+        let resolved =
+            resolve_scope_for_create(ctx, req.scope).map_err(map_access_control_error)?;
+        // list() with access_filter already limits to rows the caller may read.
         let records = self
             .secrets
-            .list_by_scope(req.scope_type.as_str(), scope_id.as_deref())
+            .list(ctx, Some(resolved.scope.as_str()))
             .await?;
         let required: HashSet<String> = req.required.into_iter().collect();
         let present: HashSet<String> = records
@@ -429,26 +431,26 @@ impl SecretService {
         key: &str,
         kind: Option<SecretKind>,
     ) -> Result<Option<String>, SecretError> {
-        self.resolve_scope_secret(SecretScopeType::User, Some(actor_id), key, kind)
+        self.resolve_scope_secret(Scope::User, Some(actor_id), key, kind)
             .await
     }
 
     /// Read one secret at an explicit scope. Backs [`resolve_user_secret`] and
-    /// the team / global reads behind an org-wide provider token.
+    /// the global reads behind an org-wide provider token.
     ///
     /// Access is not re-checked here: callers reach this only after resolving
     /// which scope owns the credential, and the scope walk itself is the
-    /// authorization. Use [`Self::get_secret`] for actor-driven reads.
+    /// authorization. Use [`Self::get_metadata`] for actor-driven reads.
     pub async fn resolve_scope_secret(
         &self,
-        scope_type: SecretScopeType,
-        scope_id: Option<&str>,
+        scope: Scope,
+        owner_user_id: Option<&str>,
         key: &str,
         kind: Option<SecretKind>,
     ) -> Result<Option<String>, SecretError> {
         let Some(record) = self
             .secrets
-            .find_by_scope_key(scope_type.as_str(), scope_id, key)
+            .find_by_key(scope.as_str(), owner_user_id, key)
             .await?
         else {
             return Ok(None);
@@ -473,14 +475,14 @@ impl SecretService {
     /// `last_used_at` for that would be an AES round and a write per request.
     pub async fn secret_exists(
         &self,
-        scope_type: SecretScopeType,
-        scope_id: Option<&str>,
+        scope: Scope,
+        owner_user_id: Option<&str>,
         key: &str,
         kind: Option<SecretKind>,
     ) -> Result<bool, SecretError> {
         let Some(record) = self
             .secrets
-            .find_by_scope_key(scope_type.as_str(), scope_id, key)
+            .find_by_key(scope.as_str(), owner_user_id, key)
             .await?
         else {
             return Ok(false);
@@ -500,7 +502,7 @@ impl SecretService {
     ) -> Result<bool, SecretError> {
         let Some(record) = self
             .secrets
-            .find_by_scope_key(SecretScopeType::User.as_str(), Some(actor_id), key)
+            .find_by_key(Scope::User.as_str(), Some(actor_id), key)
             .await?
         else {
             return Ok(false);
@@ -508,7 +510,11 @@ impl SecretService {
         if kind.is_some_and(|kind| record.kind != kind.as_str()) {
             return Ok(false);
         }
-        let removed = self.secrets.delete(&record.id).await?;
+        // System bookkeeping: delete the record using a system context.
+        // reason: delete_user_secret is an internal workflow path — actor already authorized
+        #[allow(clippy::disallowed_methods)]
+        let sys_ctx = ScopeContext::system();
+        let removed = self.secrets.delete(&record.id, &sys_ctx).await?;
         if removed {
             self.audit(Some(&record.id), actor_id, "delete", &record, "success")
                 .await?;
@@ -517,21 +523,19 @@ impl SecretService {
     }
 
     /// Delete a secret at an explicit scope, gated by the caller's access to
-    /// that scope. `kind` guards the delete so a caller cleaning up its own
-    /// bookkeeping can't remove a user-managed secret sharing the key.
+    /// that scope via `ctx`.
     pub async fn delete_scope_secret(
         &self,
         ctx: &ScopeContext,
         actor_id: &str,
-        scope_type: SecretScopeType,
-        scope_id: Option<&str>,
+        scope: Scope,
+        owner_user_id: Option<&str>,
         key: &str,
         kind: Option<SecretKind>,
     ) -> Result<bool, SecretError> {
-        ensure_scope_access(ctx, scope_type, scope_id)?;
         let Some(record) = self
             .secrets
-            .find_by_scope_key(scope_type.as_str(), scope_id, key)
+            .find_by_key(scope.as_str(), owner_user_id, key)
             .await?
         else {
             return Ok(false);
@@ -539,7 +543,7 @@ impl SecretService {
         if kind.is_some_and(|kind| record.kind != kind.as_str()) {
             return Ok(false);
         }
-        let removed = self.secrets.delete(&record.id).await?;
+        let removed = self.secrets.delete(&record.id, ctx).await?;
         if removed {
             self.audit(Some(&record.id), actor_id, "delete", &record, "success")
                 .await?;
@@ -551,16 +555,24 @@ impl SecretService {
     pub async fn resolve_plaintext_scope(
         &self,
         actor_id: &str,
-        scope_type: SecretScopeType,
-        scope_id: Option<&str>,
+        scope: Scope,
+        owner_user_id: Option<&str>,
     ) -> Result<Vec<ResolvedSecret>, SecretError> {
-        let scope_id = normalize_scope_id(scope_type, scope_id, actor_id)?;
+        // reason: resolution paths are system/internal — already authorized by caller
+        #[allow(clippy::disallowed_methods)]
+        let sys_ctx = ScopeContext::system();
         let records = self
             .secrets
-            .list_by_scope(scope_type.as_str(), scope_id.as_deref())
+            .list(&sys_ctx, Some(scope.as_str()))
             .await?;
         let mut resolved = Vec::new();
         for record in records {
+            // Filter to the requested owner for user-scoped secrets.
+            if scope == Scope::User
+                && record.owner_user_id.as_deref() != owner_user_id
+            {
+                continue;
+            }
             if is_reserved_key(&record.key) {
                 continue;
             }
@@ -593,8 +605,8 @@ impl SecretService {
         Ok(resolved)
     }
 
-    /// Resolve accessible secrets into an env-var map with `user > team >
-    /// global` precedence.
+    /// Resolve accessible secrets into an env-var map with `user > global`
+    /// precedence.
     ///
     /// `ssh_key`-kind secrets are intentionally excluded — they are delivered
     /// through a separate channel and materialized into `~/.ssh` rather than
@@ -603,22 +615,18 @@ impl SecretService {
     pub async fn resolve_accessible_plaintext(
         &self,
         actor_id: &str,
-        team_id: Option<&str>,
     ) -> Result<HashMap<String, String>, SecretError> {
-        self.resolve_accessible_by_kind(actor_id, team_id, false)
-            .await
+        self.resolve_accessible_by_kind(actor_id, false).await
     }
 
     /// Resolve accessible `ssh_key`-kind secrets into a name → private-key map
-    /// with `user > team > global` precedence. Delivered to the sandbox
+    /// with `user > global` precedence. Delivered to the sandbox
     /// separately from env credentials and written to `~/.ssh`.
     pub async fn resolve_accessible_ssh_keys(
         &self,
         actor_id: &str,
-        team_id: Option<&str>,
     ) -> Result<HashMap<String, String>, SecretError> {
-        self.resolve_accessible_by_kind(actor_id, team_id, true)
-            .await
+        self.resolve_accessible_by_kind(actor_id, true).await
     }
 
     /// Shared implementation for the two accessible-secret resolvers.
@@ -627,7 +635,6 @@ impl SecretService {
     async fn resolve_accessible_by_kind(
         &self,
         actor_id: &str,
-        team_id: Option<&str>,
         ssh_keys_only: bool,
     ) -> Result<HashMap<String, String>, SecretError> {
         let ssh_kind = SecretKind::SshKey.as_str();
@@ -638,29 +645,19 @@ impl SecretService {
                 && (scope.kind.as_str() == ssh_kind) == ssh_keys_only
         };
 
-        // Most-specific scope wins: user > team > global. Resolve user first so
-        // `or_insert` keeps it when a broader scope repeats the same key.
+        // Most-specific scope wins: user > global. Resolve user first so
+        // `or_insert` keeps it when global repeats the same key.
         let mut credentials = HashMap::new();
         for scope in self
-            .resolve_plaintext_scope(actor_id, SecretScopeType::User, Some(actor_id))
+            .resolve_plaintext_scope(actor_id, Scope::User, Some(actor_id))
             .await?
         {
             if keep(&scope) {
                 credentials.insert(scope.key, scope.value);
             }
         }
-        if let Some(team_id) = team_id {
-            for scope in self
-                .resolve_plaintext_scope(actor_id, SecretScopeType::Team, Some(team_id))
-                .await?
-            {
-                if keep(&scope) {
-                    credentials.entry(scope.key).or_insert(scope.value);
-                }
-            }
-        }
         for scope in self
-            .resolve_plaintext_scope(actor_id, SecretScopeType::Global, None)
+            .resolve_plaintext_scope(actor_id, Scope::Global, None)
             .await?
         {
             if keep(&scope) {
@@ -731,18 +728,27 @@ impl SecretService {
         record: &SecretRecord,
         result: &str,
     ) -> Result<(), SecretError> {
+        // Write scope into scope_type column and owner_user_id into scope_id column
+        // of secret_audit_events to preserve the audit table shape.
         self.audits
             .record(SecretAuditInput {
                 secret_id,
                 actor_id,
                 action,
-                scope_type: &record.scope_type,
-                scope_id: record.scope_id.as_deref(),
+                scope_type: &record.scope,
+                scope_id: record.owner_user_id.as_deref(),
                 key: &record.key,
                 result,
             })
             .await?;
         Ok(())
+    }
+}
+
+fn map_access_control_error(e: AccessControlError) -> SecretError {
+    match e {
+        AccessControlError::BadRequest(msg) => SecretError::BadRequest(msg),
+        AccessControlError::Forbidden(msg) => SecretError::Forbidden(msg),
     }
 }
 
@@ -764,78 +770,6 @@ impl ExistingStorage {
             external_ref: record.external_ref.clone(),
             kms_key_id: record.kms_key_id.clone(),
             encryption_version: record.encryption_version,
-        }
-    }
-}
-
-fn normalize_scope_id(
-    scope_type: SecretScopeType,
-    scope_id: Option<&str>,
-    actor_id: &str,
-) -> Result<Option<String>, SecretError> {
-    match scope_type {
-        SecretScopeType::Global => {
-            if scope_id.is_some() {
-                return Err(SecretError::BadRequest(
-                    "global secrets must not set scopeId".to_string(),
-                ));
-            }
-            Ok(None)
-        }
-        SecretScopeType::Team => scope_id
-            .filter(|id| !id.trim().is_empty())
-            .map(std::string::ToString::to_string)
-            .map(Some)
-            .ok_or_else(|| SecretError::BadRequest("team secrets require scopeId".to_string())),
-        SecretScopeType::User => Ok(Some(
-            scope_id
-                .filter(|id| !id.trim().is_empty())
-                .unwrap_or(actor_id)
-                .to_string(),
-        )),
-    }
-}
-
-fn ensure_scope_access(
-    ctx: &ScopeContext,
-    scope_type: SecretScopeType,
-    scope_id: Option<&str>,
-) -> Result<(), SecretError> {
-    if ctx.is_admin {
-        return Ok(());
-    }
-
-    match scope_type {
-        SecretScopeType::Global => Err(SecretError::Forbidden(
-            "global secrets require admin access".to_string(),
-        )),
-        SecretScopeType::Team => {
-            let Some(team_id) = scope_id else {
-                return Err(SecretError::BadRequest(
-                    "team secrets require scopeId".to_string(),
-                ));
-            };
-            if ctx.team_ids.iter().any(|id| id == team_id) {
-                Ok(())
-            } else {
-                Err(SecretError::Forbidden(
-                    "team secret is outside this user's teams".to_string(),
-                ))
-            }
-        }
-        SecretScopeType::User => {
-            let Some(user_id) = scope_id else {
-                return Err(SecretError::BadRequest(
-                    "user secrets require scopeId".to_string(),
-                ));
-            };
-            if user_id == ctx.user_id {
-                Ok(())
-            } else {
-                Err(SecretError::Forbidden(
-                    "user secret is outside this user".to_string(),
-                ))
-            }
         }
     }
 }
@@ -878,8 +812,8 @@ mod tests {
         assert_ne!(encrypted.value_ciphertext, b"super-secret");
         let record = SecretRecord {
             id: "secret-id".to_string(),
-            scope_type: "user".to_string(),
-            scope_id: Some("u1".to_string()),
+            scope: "user".to_string(),
+            owner_user_id: Some("u1".to_string()),
             key: "TOKEN".to_string(),
             kind: "env".to_string(),
             provider: None,
@@ -901,24 +835,15 @@ mod tests {
     }
 
     #[test]
-    fn normalizes_user_scope_to_actor() {
-        assert_eq!(
-            normalize_scope_id(SecretScopeType::User, None, "u1").unwrap(),
-            Some("u1".to_string())
-        );
-    }
-
-    #[test]
     fn non_admin_cannot_create_global_secret() {
         let ctx = ScopeContext {
             user_id: "u1".to_string(),
-            team_ids: vec![],
             is_admin: false,
         };
-        assert!(ensure_scope_access(&ctx, SecretScopeType::Global, None).is_err());
+        assert!(resolve_scope_for_create(&ctx, Some(Scope::Global)).is_err());
     }
 
-    // --- scope precedence (user > team > global), shared by env + ssh_key ---
+    // --- scope precedence (user > global), shared by env + ssh_key ---
 
     use super::super::test_support::{secret, service_with};
 
@@ -941,28 +866,10 @@ mod tests {
             ),
             secret("global", None, "env", "GLOBAL_ONLY", "g"),
         ]);
-        let resolved = svc.resolve_accessible_plaintext("u1", None).await.unwrap();
+        let resolved = svc.resolve_accessible_plaintext("u1").await.unwrap();
         assert_eq!(resolved["CLAUDE_CODE_OAUTH_TOKEN"], "user-token");
         // Keys set only globally still fall through as a fallback.
         assert_eq!(resolved["GLOBAL_ONLY"], "g");
-    }
-
-    #[tokio::test]
-    async fn user_beats_team_beats_global() {
-        let svc = service_with(vec![
-            secret("global", None, "env", "K", "global"),
-            secret("team", Some("t1"), "env", "K", "team"),
-            secret("user", Some("u1"), "env", "K", "user"),
-            secret("global", None, "env", "TEAM_KEY", "global-teamkey"),
-            secret("team", Some("t1"), "env", "TEAM_KEY", "team-teamkey"),
-        ]);
-        let resolved = svc
-            .resolve_accessible_plaintext("u1", Some("t1"))
-            .await
-            .unwrap();
-        assert_eq!(resolved["K"], "user");
-        // Team overrides global when the user has no value for that key.
-        assert_eq!(resolved["TEAM_KEY"], "team-teamkey");
     }
 
     #[tokio::test]
@@ -973,7 +880,7 @@ mod tests {
             // env secrets must not leak into the ssh-key map.
             secret("user", Some("u1"), "env", "CLAUDE_CODE_OAUTH_TOKEN", "tok"),
         ]);
-        let keys = svc.resolve_accessible_ssh_keys("u1", None).await.unwrap();
+        let keys = svc.resolve_accessible_ssh_keys("u1").await.unwrap();
         assert_eq!(keys["DEPLOY_KEY"], "user-key");
         assert!(!keys.contains_key("CLAUDE_CODE_OAUTH_TOKEN"));
     }
@@ -1000,13 +907,13 @@ mod tests {
 
         // Disabled user secret is skipped, so global wins.
         let svc = service_with(vec![user.clone(), global.clone()]);
-        let resolved = svc.resolve_accessible_plaintext("u1", None).await.unwrap();
+        let resolved = svc.resolve_accessible_plaintext("u1").await.unwrap();
         assert_eq!(resolved["CLAUDE_CODE_OAUTH_TOKEN"], "global-token");
 
         // Re-enabling the user secret restores the user value.
         user.enabled = true;
         let svc = service_with(vec![user, global]);
-        let resolved = svc.resolve_accessible_plaintext("u1", None).await.unwrap();
+        let resolved = svc.resolve_accessible_plaintext("u1").await.unwrap();
         assert_eq!(resolved["CLAUDE_CODE_OAUTH_TOKEN"], "user-token");
     }
 
@@ -1086,14 +993,14 @@ mod tests {
             secret("user", Some("u1"), "ssh_key", "DEPLOY_KEY", "k"),
         ]);
 
-        let env = svc.resolve_accessible_plaintext("u1", None).await.unwrap();
+        let env = svc.resolve_accessible_plaintext("u1").await.unwrap();
         assert!(
             !env.contains_key("GITHUB_OAUTH_ACCESS_TOKEN"),
             "internal secrets must not be delivered as env vars"
         );
         assert_eq!(env["NORMAL"], "v");
 
-        let keys = svc.resolve_accessible_ssh_keys("u1", None).await.unwrap();
+        let keys = svc.resolve_accessible_ssh_keys("u1").await.unwrap();
         assert!(
             !keys.contains_key("GITHUB_OAUTH_ACCESS_TOKEN"),
             "internal secrets must not be delivered as ssh keys"
@@ -1119,7 +1026,7 @@ mod tests {
         let mut global = secret("global", None, "env", "GLOBAL_ONLY", "g");
         global.enabled = false;
         let svc = service_with(vec![global]);
-        let resolved = svc.resolve_accessible_plaintext("u1", None).await.unwrap();
+        let resolved = svc.resolve_accessible_plaintext("u1").await.unwrap();
         assert!(!resolved.contains_key("GLOBAL_ONLY"));
     }
 }

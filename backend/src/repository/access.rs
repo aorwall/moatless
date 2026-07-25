@@ -27,16 +27,6 @@ fn github_credential_scope(repository: &Repository) -> Result<GitHubScope, Repos
                     repository.id
                 ))
             }),
-        Scope::Team => repository
-            .team_id
-            .as_deref()
-            .map(GitHubScope::team)
-            .ok_or_else(|| {
-                RepositoryError::ProviderError(format!(
-                    "Team-scoped repository '{}' has no team",
-                    repository.id
-                ))
-            }),
         Scope::Global => Ok(GitHubScope::Global),
     }
 }
@@ -149,7 +139,6 @@ mod tests {
             description: None,
             provider: Some(RepositoryProvider::Github),
             scope,
-            team_id: Some("team-1".to_string()),
             owner_user_id: owner_user_id.map(str::to_string),
             created_by: Some("creator".to_string()),
             access_status: "unchecked".to_string(),
@@ -171,11 +160,7 @@ mod tests {
     }
 
     #[test]
-    fn team_and_global_scopes_select_only_the_bound_scope() {
-        assert_eq!(
-            github_credential_scope(&repository(Scope::Team, None)).unwrap(),
-            GitHubScope::team("team-1")
-        );
+    fn global_scope_selects_global_credential() {
         assert_eq!(
             github_credential_scope(&repository(Scope::Global, None)).unwrap(),
             GitHubScope::Global

@@ -43,12 +43,12 @@ pub fn build_codex_metadata(parsed: &serde_json::Value) -> serde_json::Value {
     })
 }
 
-/// Shared codex-blob save path used by every scope endpoint (user / team /
-/// admin global). Parses + validates, upserts the row addressed by `scope`,
-/// and broadcasts the rotation to running sandboxes whose effective user
-/// resolves through this scope.
+/// Shared codex-blob save path used by every scope endpoint (user / admin global).
+/// Parses + validates, upserts the row addressed by `scope`, and broadcasts
+/// the rotation to running sandboxes whose effective user resolves through
+/// this scope.
 ///
-/// Centralising here keeps the three scope-specific HTTP handlers thin and
+/// Centralising here keeps the scope-specific HTTP handlers thin and
 /// guarantees they apply identical metadata, error mapping, and broadcast
 /// behaviour.
 pub async fn save_codex_auth_for_scope(
@@ -73,9 +73,9 @@ pub async fn save_codex_auth_for_scope(
 
     // Fan the rotation out to every running sandbox whose effective user
     // resolves through this scope. For user scope we route via `store` so
-    // the standard dedup path runs; for team / global we call the
-    // scope-aware broadcast directly because `store` is hard-wired to
-    // user-scoped provider_tokens.
+    // the standard dedup path runs; for global we call the scope-aware
+    // broadcast directly because `store` is hard-wired to user-scoped
+    // provider_tokens.
     if let Err(e) = match &scope {
         CodexScope::User(user_id) => {
             state
@@ -88,7 +88,7 @@ pub async fn save_codex_auth_for_scope(
                 )
                 .await
         }
-        CodexScope::Team(_) | CodexScope::Global => {
+        CodexScope::Global => {
             state
                 .credentials_svc
                 .broadcast_codex_rotation(&scope, &serialized)

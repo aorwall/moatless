@@ -161,6 +161,7 @@ async fn set_closed(pool: &PgPool, task_id: &str) {
                 status: Some(TaskStatus::Closed),
                 ..Default::default()
             },
+            &user_scope(USER_1),
         )
         .await
         .unwrap();

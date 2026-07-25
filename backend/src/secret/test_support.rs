@@ -11,6 +11,7 @@ use super::dao::{SecretInsert, SecretReplace, SecretRepository};
 use super::error::SecretError;
 use super::models::{EncryptedSecretValue, SecretRecord};
 use super::service::{SecretCipher, SecretService};
+use moatless_backend_core::scope::ScopeContext;
 
 /// Read-only in-memory store. Write methods are unimplemented — tests that
 /// exercise writes should use the real DAO via `#[sqlx::test]`.
@@ -20,34 +21,38 @@ pub struct InMemorySecretStore {
 
 #[async_trait::async_trait]
 impl SecretRepository for InMemorySecretStore {
-    async fn list_by_scope(
+    async fn list(
         &self,
-        scope_type: &str,
-        scope_id: Option<&str>,
+        _ctx: &ScopeContext,
+        scope_filter: Option<&str>,
     ) -> Result<Vec<SecretRecord>, sqlx::Error> {
         Ok(self
             .records
             .iter()
-            .filter(|r| r.scope_type == scope_type && r.scope_id.as_deref() == scope_id)
+            .filter(|r| scope_filter.is_none_or(|s| r.scope == s))
             .cloned()
             .collect())
     }
 
-    async fn find_by_id(&self, id: &str) -> Result<Option<SecretRecord>, sqlx::Error> {
+    async fn find_by_id(
+        &self,
+        id: &str,
+        _ctx: &ScopeContext,
+    ) -> Result<Option<SecretRecord>, sqlx::Error> {
         Ok(self.records.iter().find(|r| r.id == id).cloned())
     }
 
-    async fn find_by_scope_key(
+    async fn find_by_key(
         &self,
-        scope_type: &str,
-        scope_id: Option<&str>,
+        scope: &str,
+        owner_user_id: Option<&str>,
         key: &str,
     ) -> Result<Option<SecretRecord>, sqlx::Error> {
         Ok(self
             .records
             .iter()
             .find(|r| {
-                r.scope_type == scope_type && r.scope_id.as_deref() == scope_id && r.key == key
+                r.scope == scope && r.owner_user_id.as_deref() == owner_user_id && r.key == key
             })
             .cloned())
     }
@@ -56,11 +61,15 @@ impl SecretRepository for InMemorySecretStore {
         unimplemented!("InMemorySecretStore is read-only")
     }
 
-    async fn replace(&self, _input: SecretReplace<'_>) -> Result<SecretRecord, sqlx::Error> {
+    async fn replace(
+        &self,
+        _input: SecretReplace<'_>,
+        _ctx: &ScopeContext,
+    ) -> Result<Option<SecretRecord>, sqlx::Error> {
         unimplemented!("InMemorySecretStore is read-only")
     }
 
-    async fn delete(&self, _id: &str) -> Result<bool, sqlx::Error> {
+    async fn delete(&self, _id: &str, _ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
         unimplemented!("InMemorySecretStore is read-only")
     }
 
@@ -99,16 +108,16 @@ impl SecretCipher for PlaintextCipher {
 
 /// Build a `SecretRecord` whose ciphertext is the plaintext `value`.
 pub fn secret(
-    scope_type: &str,
-    scope_id: Option<&str>,
+    scope: &str,
+    owner_user_id: Option<&str>,
     kind: &str,
     key: &str,
     value: &str,
 ) -> SecretRecord {
     SecretRecord {
-        id: format!("{scope_type}:{key}"),
-        scope_type: scope_type.to_string(),
-        scope_id: scope_id.map(str::to_string),
+        id: format!("{scope}:{key}"),
+        scope: scope.to_string(),
+        owner_user_id: owner_user_id.map(str::to_string),
         key: key.to_string(),
         kind: kind.to_string(),
         provider: None,

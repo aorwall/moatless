@@ -27,7 +27,7 @@ use moatless_vibe_backend::task::dao::{
 use moatless_vibe_backend::task::models::TaskStatus;
 use sqlx::PgPool;
 
-use common::{make_repository_row, make_task_row, test_app_state};
+use common::{make_repository_row, make_task_row, test_app_state, user_scope};
 
 /// Seed a repo + task with the given status and return an `AppState`.
 async fn seed_with_status(pool: &PgPool, task_id: &str, status: TaskStatus) {
@@ -43,6 +43,7 @@ async fn seed_with_status(pool: &PgPool, task_id: &str, status: TaskStatus) {
                     status: Some(status),
                     ..Default::default()
                 },
+                &user_scope("user-1"),
             )
             .await
             .unwrap();
@@ -50,7 +51,7 @@ async fn seed_with_status(pool: &PgPool, task_id: &str, status: TaskStatus) {
 }
 
 async fn status_of(pool: &PgPool, task_id: &str) -> TaskStatus {
-    task_dao::find_by_id_internal(pool, task_id)
+    task_dao::find_by_id(pool, task_id, &user_scope("user-1"))
         .await
         .unwrap()
         .expect("task present")
@@ -87,7 +88,7 @@ async fn update_status_if_not_closed_noop_on_closed(pool: PgPool) {
     let repo = PgTaskRepository(pool.clone());
 
     let changed = repo
-        .update_status_if_not_closed("task-closed", TaskStatus::Open)
+        .update_status_if_not_closed("task-closed", TaskStatus::Open, &user_scope("user-1"))
         .await
         .unwrap();
 
@@ -102,7 +103,7 @@ async fn update_status_if_not_closed_flips_open_and_error(pool: PgPool) {
     // Open → Open still matches the predicate (status <> 'closed').
     seed_with_status(&pool, "task-open", TaskStatus::Open).await;
     assert!(repo
-        .update_status_if_not_closed("task-open", TaskStatus::Open)
+        .update_status_if_not_closed("task-open", TaskStatus::Open, &user_scope("user-1"))
         .await
         .unwrap());
     assert_eq!(status_of(&pool, "task-open").await, TaskStatus::Open);
@@ -115,11 +116,12 @@ async fn update_status_if_not_closed_flips_open_and_error(pool: PgPool) {
                 status: Some(TaskStatus::Error),
                 ..Default::default()
             },
+            &user_scope("user-1"),
         )
         .await
         .unwrap();
     assert!(repo
-        .update_status_if_not_closed("task-open", TaskStatus::Open)
+        .update_status_if_not_closed("task-open", TaskStatus::Open, &user_scope("user-1"))
         .await
         .unwrap());
     assert_eq!(status_of(&pool, "task-open").await, TaskStatus::Open);

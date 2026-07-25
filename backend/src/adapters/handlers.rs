@@ -8,8 +8,8 @@ use moatless_api_schemas::adapters::{
 use moatless_api_schemas::user::{SendDmRequest, SendDmResponse};
 
 use super::common::{
-    adapter_connection_response, ensure_can_write_adapter_resource, ensure_task_access,
-    resolve_connection, resolve_scope_for_adapter_create, scoped_resource, AdapterFilter,
+    adapter_connection_response, ensure_task_access, resolve_connection,
+    resolve_scope_for_adapter_create, AdapterFilter,
 };
 use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::error::AdapterError;
@@ -86,23 +86,11 @@ pub async fn create_adapter_connection(
         ));
     }
 
+    let ctx = auth.scope_context();
     let now = Utc::now();
     let provider = req.adapter_kind.as_str().to_string();
+    let resolved = resolve_scope_for_adapter_create(&ctx, req.scope)?;
     let repo = PgAdapterConnectionRepository(state.db.clone());
-    if let Some(existing) = repo
-        .find_by_external_account(&provider, &req.external_account_id)
-        .await?
-    {
-        let resource = scoped_resource(
-            existing.scope,
-            existing.team_id.as_deref(),
-            existing.owner_user_id.as_deref(),
-            &existing.created_by,
-        );
-        ensure_can_write_adapter_resource(&state, &auth, &resource, "adapter connection").await?;
-    }
-    let resolved =
-        resolve_scope_for_adapter_create(&state, &auth, req.scope, req.team_id.clone()).await?;
     let row = AdapterConnection {
         id: format!("pc_{}", uuid::Uuid::new_v4()),
         provider,
@@ -115,12 +103,11 @@ pub async fn create_adapter_connection(
             .unwrap_or_else(|| serde_json::json!({})),
         created_by: auth.user_id.to_string(),
         scope: resolved.scope,
-        team_id: Some(resolved.team_id),
         owner_user_id: resolved.owner_user_id,
         created_at: now,
         updated_at: now,
     };
-    let saved = repo.upsert(&row).await?;
+    let saved = repo.upsert(&row, &ctx).await?;
     Ok(Json(adapter_connection_response(&saved)))
 }
 

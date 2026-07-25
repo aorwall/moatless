@@ -21,7 +21,6 @@ use common::{make_repository_row, make_task_row};
 fn scope_ctx(user_id: &str) -> ScopeContext {
     ScopeContext {
         user_id: user_id.into(),
-        team_ids: vec![],
         is_admin: false,
     }
 }
@@ -103,15 +102,24 @@ async fn find_by_id_access_control_public(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn find_by_id_internal_bypasses_visibility(pool: PgPool) {
+async fn system_context_reads_any_task(pool: PgPool) {
     let owner = "user-1";
     seed_repo(&pool, "repo-1", owner).await;
 
     let row = make_task_row("task-internal", owner);
     task_dao::insert_task(&pool, &row).await.unwrap();
 
-    // Internal find ignores visibility
-    let found = task_dao::find_by_id_internal(&pool, "task-internal")
+    // Another user cannot read the private user-scoped task...
+    let found = task_dao::find_by_id(&pool, "task-internal", &scope_ctx("user-2"))
+        .await
+        .unwrap();
+    assert!(found.is_none());
+
+    // ...but background/system callers read through the same scoped method.
+    // reason: exercising the system-context path replacing find_by_id_internal
+    #[allow(clippy::disallowed_methods)]
+    let sys = ScopeContext::system();
+    let found = task_dao::find_by_id(&pool, "task-internal", &sys)
         .await
         .unwrap();
     assert!(found.is_some());
@@ -256,6 +264,7 @@ async fn update_task_partial(pool: PgPool) {
             name: Some("Updated name".to_string()),
             ..Default::default()
         },
+        &scope_ctx(user),
     )
     .await
     .unwrap();
@@ -284,6 +293,7 @@ async fn update_task_cost_increment(pool: PgPool) {
             total_cost_usd_increment: Some(0.5),
             ..Default::default()
         },
+        &scope_ctx(user),
     )
     .await
     .unwrap();
@@ -303,7 +313,9 @@ async fn delete_task(pool: PgPool) {
     let row = make_task_row("task-del", user);
     task_dao::insert_task(&pool, &row).await.unwrap();
 
-    task_dao::delete_task(&pool, "task-del").await.unwrap();
+    task_dao::delete_task(&pool, "task-del", &scope_ctx(user))
+        .await
+        .unwrap();
 
     let found = task_dao::find_by_id(&pool, "task-del", &scope_ctx(user))
         .await

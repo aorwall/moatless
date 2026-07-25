@@ -25,6 +25,7 @@ use tracing::{debug, info, warn};
 
 use super::dao::{TaskPatch, TaskRepository};
 use super::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
+use moatless_backend_core::scope::ScopeContext;
 use crate::config::Config;
 use crate::event_handler::agent_handlers;
 use crate::event_handler::models::AgentEvent;
@@ -638,9 +639,12 @@ async fn close_orphaned_turn_as_completed(app_state: &AppState, turn: &UnclosedT
 
     // Return the task to Open unless it was closed mid-run (mirrors the agent
     // terminal handlers — a Closed task is never resurrected by automation).
+    // reason: reaper reconciles orphaned turns across all task owners; system ctx required.
+    #[allow(clippy::disallowed_methods)]
+    let sys_ctx = ScopeContext::system();
     if let Err(e) = app_state
         .tasks
-        .update_status_if_not_closed(&turn.task_id, TaskStatus::Open)
+        .update_status_if_not_closed(&turn.task_id, TaskStatus::Open, &sys_ctx)
         .await
     {
         warn!(
@@ -781,14 +785,18 @@ async fn auto_close_task(
     tasks: &Arc<dyn TaskRepository>,
     events: &Option<Arc<dyn EventPublisher>>,
 ) {
-    let agent_type = match tasks.find_by_id_internal(task_id).await {
+    // reason: reaper acts across all task owners; system ctx bypasses per-user scope.
+    #[allow(clippy::disallowed_methods)]
+    let sys_ctx = ScopeContext::system();
+
+    let agent_type = match tasks.find_by_id(task_id, &sys_ctx).await {
         Ok(Some(row)) => Some(row.agent_type),
         Ok(None) => {
             warn!(task_id, "auto-close: task vanished mid-cycle");
             return;
         }
         Err(e) => {
-            warn!(task_id, error = %e, "auto-close: find_by_id_internal failed");
+            warn!(task_id, error = %e, "auto-close: find_by_id failed");
             return;
         }
     };
@@ -804,6 +812,7 @@ async fn auto_close_task(
                 status: Some(TaskStatus::Closed),
                 ..Default::default()
             },
+            &sys_ctx,
         )
         .await
     {
@@ -937,9 +946,12 @@ async fn gc_orphaned_resources(k8s: &K8sClient, tasks: &Arc<dyn TaskRepository>)
         return;
     }
 
+    // reason: orphan GC checks task existence across all owners; system ctx required.
+    #[allow(clippy::disallowed_methods)]
+    let sys_ctx = ScopeContext::system();
     let mut gc_count = 0u32;
     for task_id in task_ids {
-        let task_exists = match tasks.find_by_id_internal(&task_id).await {
+        let task_exists = match tasks.find_by_id(&task_id, &sys_ctx).await {
             Ok(Some(_)) => true,
             Ok(None) => false,
             Err(e) => {

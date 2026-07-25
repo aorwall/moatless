@@ -33,11 +33,11 @@ use crate::auth::token_refresh::ensure_fresh_token_with_dao;
 use crate::db::DbPool;
 use crate::sandbox::access::SandboxConnector;
 use crate::sandbox::secrets::GITHUB_TOKEN;
-use crate::secret::models::{SecretKind, SecretScopeType};
+use crate::secret::models::SecretKind;
 use crate::secret::schemas::PutSecretRequest;
 use crate::secret::service::SecretService;
 use crate::task::dao::TaskRepository;
-use moatless_backend_core::scope::ScopeContext;
+use moatless_backend_core::scope::{Scope, ScopeContext};
 
 pub use self::codex::CodexScope;
 pub use self::error::CredentialError;
@@ -366,13 +366,11 @@ impl CredentialService {
             .put_secret(
                 &ScopeContext {
                     user_id: user_id.to_string(),
-                    team_ids: Vec::new(),
                     is_admin: false,
                 },
                 user_id,
                 PutSecretRequest {
-                    scope_type: SecretScopeType::User,
-                    scope_id: Some(user_id.to_string()),
+                    scope: Some(Scope::User),
                     key: GITHUB_TOKEN.to_string(),
                     kind: SecretKind::ProviderToken,
                     provider: Some("github".to_string()),
@@ -419,7 +417,7 @@ impl CredentialService {
 
         let scope_kind = scope.scope_kind().to_string();
         let scope_id = match scope {
-            CodexScope::User(id) | CodexScope::Team(id) => id.clone(),
+            CodexScope::User(id) => id.clone(),
             CodexScope::Global => String::new(),
         };
         let except = except_task_id.unwrap_or("").to_string();
@@ -550,39 +548,6 @@ mod tests {
             Ok(())
         }
 
-        async fn find_team_token(
-            &self,
-            _team_id: &str,
-            _provider: &str,
-        ) -> Result<Option<ProviderAccessToken>, sqlx::Error> {
-            Ok(None)
-        }
-
-        async fn upsert_team_token(
-            &self,
-            _team_id: &str,
-            _provider: &str,
-            _auth_method: &str,
-            _access_token: &str,
-            _refresh_token: Option<&str>,
-            _token_type: Option<&str>,
-            _metadata: Option<&serde_json::Value>,
-        ) -> Result<(), sqlx::Error> {
-            Ok(())
-        }
-
-        async fn delete_team_token(
-            &self,
-            _team_id: &str,
-            _provider: &str,
-        ) -> Result<(), sqlx::Error> {
-            Ok(())
-        }
-
-        async fn list_by_team(&self, _team_id: &str) -> Result<Vec<ProviderToken>, sqlx::Error> {
-            Ok(vec![])
-        }
-
         async fn find_codex_blob(
             &self,
             _scope: &CodexScope,
@@ -632,7 +597,6 @@ mod tests {
         async fn find_github_scope_presence(
             &self,
             _user_id: &str,
-            _team_ids: &[String],
         ) -> Result<Option<GithubTokenPresence>, sqlx::Error> {
             Ok(None)
         }

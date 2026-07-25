@@ -26,7 +26,6 @@ pub struct Repository {
     pub description: Option<String>,
     pub provider: Option<RepositoryProvider>,
     pub scope: Scope,
-    pub team_id: Option<String>,
     pub owner_user_id: Option<String>,
     pub created_by: Option<String>,
     /// Provider reachability of `remote_url`, stamped when the repo is

@@ -2,8 +2,15 @@
 //!
 //! The `Scope` enum is re-exported from `moatless-api-schemas`.
 //! `ScopeContext` is backend-only and is used for both query filtering and
-//! pure policy checks. Database-backed team-role validation lives in handlers
-//! and passes a parsed [`TeamRole`] into the write/create helpers.
+//! pure policy checks. The policy is a pure function of
+//! `(user_id, is_admin)` × `(scope, owner, visibility)` — no database input:
+//!
+//! - **read**: `is_admin ∨ scope = global ∨ owner = me ∨ (Task ∧ visibility = public)`
+//! - **control**: `is_admin ∨ (scope = user ∧ owner = me)`
+//!
+//! Owner is `COALESCE(owner_user_id, created_by)`. These are the only two
+//! grants; for tasks, read includes interact (send message, follow,
+//! mark read) by product rule — a public task is collaborative.
 
 pub use moatless_api_schemas::enums::Scope;
 
@@ -39,58 +46,30 @@ impl ScopedEntity {
 // ---------------------------------------------------------------------------
 
 /// Canonical access-control fields for root scoped resources.
+///
+/// `owner_user_id` carries the effective owner: callers pass
+/// `owner_user_id.or(created_by)` to preserve the legacy fallback.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScopedResource {
     pub scope: Scope,
-    pub team_id: Option<String>,
     pub owner_user_id: Option<String>,
 }
 
 impl ScopedResource {
-    pub fn new<T, U>(scope: Scope, team_id: Option<T>, owner_user_id: Option<U>) -> Self
+    pub fn new<U>(scope: Scope, owner_user_id: Option<U>) -> Self
     where
-        T: Into<String>,
         U: Into<String>,
     {
         Self {
             scope,
-            team_id: team_id.map(Into::into),
             owner_user_id: owner_user_id.map(Into::into),
         }
     }
 
-    pub fn borrowed(scope: Scope, team_id: Option<&str>, owner_user_id: Option<&str>) -> Self {
+    pub fn borrowed(scope: Scope, owner_user_id: Option<&str>) -> Self {
         Self {
             scope,
-            team_id: team_id.map(str::to_string),
             owner_user_id: owner_user_id.map(str::to_string),
-        }
-    }
-}
-
-/// Team membership role used by write/create checks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TeamRole {
-    Owner,
-    Admin,
-    Member,
-}
-
-impl TeamRole {
-    pub fn can_manage(self) -> bool {
-        matches!(self, Self::Owner | Self::Admin)
-    }
-}
-
-impl TryFrom<&str> for TeamRole {
-    type Error = ();
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
-            "owner" => Ok(Self::Owner),
-            "admin" => Ok(Self::Admin),
-            "member" => Ok(Self::Member),
-            _ => Err(()),
         }
     }
 }
@@ -101,8 +80,9 @@ impl TryFrom<&str> for TeamRole {
 
 /// Access-control WHERE clause fragment with parameter tracking.
 ///
-/// Created via [`ScopeContext::access_filter()`]. Contains the SQL fragment
-/// and tracks the next available positional parameter index.
+/// Created via [`ScopeContext::access_filter()`] or
+/// [`ScopeContext::control_filter()`]. Contains the SQL fragment and tracks
+/// the next available positional parameter index.
 pub struct AccessFilter {
     sql: String,
     next_param: usize,
@@ -130,7 +110,6 @@ impl AccessFilter {
 #[derive(Debug, Clone)]
 pub struct ScopeContext {
     pub user_id: String,
-    pub team_ids: Vec<String>,
     pub is_admin: bool,
 }
 
@@ -143,32 +122,30 @@ impl ScopeContext {
     /// pod watchers, adapter/webhook runtimes, and sandbox-pod-facing requests
     /// already authenticated by their own transport.
     ///
-    /// Semantically equivalent to an unscoped read: `is_admin = true` makes the
-    /// `access_filter` match every row (the `$is_admin` disjunct is always
-    /// true). Prefer this over unscoped `find_by_id_internal`-style queries so
-    /// every read still flows through the scoped DAO path and the intent
-    /// ("acting as the system") is explicit at the call site.
+    /// Semantically equivalent to an unscoped query: `is_admin = true` makes
+    /// the filters match every row (the `$is_admin` disjunct is always true).
+    /// Every call site is a deliberate access-control bypass and must carry
+    /// `#[allow(clippy::disallowed_methods)]` with a `// reason:` comment —
+    /// enforced via `disallowed-methods` in `clippy.toml`.
     pub fn system() -> Self {
         Self {
             user_id: Self::SYSTEM_USER_ID.to_string(),
-            team_ids: Vec::new(),
             is_admin: true,
         }
     }
 
-    /// Build an access-control SQL filter for the given entity.
+    /// Build a read SQL filter for the given entity.
     ///
-    /// Uses 3 positional parameters starting at `start`:
+    /// Uses 2 positional parameters starting at `start`:
     ///   - `$start`: `is_admin` (bool)
-    ///   - `$start+1`: `team_ids` (text[])
-    ///   - `$start+2`: `user_id` (text)
+    ///   - `$start+1`: `user_id` (text)
     ///
-    /// Caller must `.bind()` these from `self.is_admin`, `self.team_ids`, `self.user_id`.
+    /// Caller must `.bind()` these from `self.is_admin`, `self.user_id`.
     ///
     /// `prefix` is the table alias (e.g. `""` or `"t."`).
     /// The entity determines whether `visibility = 'public'` is included.
     pub fn access_filter(&self, entity: ScopedEntity, prefix: &str, start: usize) -> AccessFilter {
-        let (p1, p2, p3) = (start, start + 1, start + 2);
+        let (p1, p2) = (start, start + 1);
         let vis = if entity.has_visibility() {
             format!(" OR {prefix}visibility = 'public'")
         } else {
@@ -176,12 +153,11 @@ impl ScopeContext {
         };
         let sql = format!(
             "(${p1}{vis} OR {prefix}scope = 'global' \
-             OR ({prefix}scope = 'team' AND {prefix}team_id = ANY(${p2})) \
-             OR ({prefix}scope = 'user' AND COALESCE({prefix}owner_user_id, {prefix}created_by) = ${p3}))"
+             OR ({prefix}scope = 'user' AND COALESCE({prefix}owner_user_id, {prefix}created_by) = ${p2}))"
         );
         AccessFilter {
             sql,
-            next_param: start + 3,
+            next_param: start + 2,
         }
     }
 
@@ -214,19 +190,15 @@ impl ScopeContext {
     }
 
     /// Check if this context can read a resource with the given scope.
+    ///
+    /// Task visibility is not an input here: the public-task read arm lives
+    /// in [`Self::access_filter`] and in handlers that already hold the row.
     pub fn can_read(&self, resource: &ScopedResource) -> bool {
         if self.is_admin {
             return true;
         }
         match resource.scope {
             Scope::Global => true,
-            Scope::Team => {
-                if let Some(tid) = resource.team_id.as_deref() {
-                    self.team_ids.iter().any(|t| t == tid)
-                } else {
-                    false
-                }
-            }
             Scope::User => resource
                 .owner_user_id
                 .as_deref()
@@ -234,45 +206,31 @@ impl ScopeContext {
         }
     }
 
-    /// Backwards-compatible read check for call sites that have not yet been
-    /// converted to `ScopedResource`.
-    pub fn can_access(&self, scope: Scope, team_id: Option<&str>, owner_id: Option<&str>) -> bool {
-        self.can_read(&ScopedResource::borrowed(scope, team_id, owner_id))
-    }
-
-    /// Check if this context can write an existing resource.
+    /// Check if this context can control (mutate, operate) a resource.
     ///
-    /// `team_role` is the caller's role in `resource.team_id` when known.
-    pub fn can_write(&self, resource: &ScopedResource, team_role: Option<TeamRole>) -> bool {
+    /// Global rows are admin-controlled; user rows are owner-controlled.
+    /// Visibility never grants control.
+    pub fn can_control(&self, resource: &ScopedResource) -> bool {
         if self.is_admin {
             return true;
         }
-        match resource.scope {
-            Scope::Global => false,
-            Scope::Team => team_role.is_some_and(TeamRole::can_manage),
-            Scope::User => resource
+        resource.scope == Scope::User
+            && resource
                 .owner_user_id
                 .as_deref()
-                .is_some_and(|oid| oid == self.user_id),
-        }
+                .is_some_and(|oid| oid == self.user_id)
     }
 
     /// Check if this context can create a resource with the requested scope.
     ///
-    /// User-scoped resources must be created for the current user inside the
-    /// resolved team. Team/global resources require elevated privileges.
-    pub fn can_create_scope(
-        &self,
-        scope: Scope,
-        owner_user_id: Option<&str>,
-        team_role: Option<TeamRole>,
-    ) -> bool {
+    /// Global requires admin; user-scoped resources must be owned by the
+    /// caller.
+    pub fn can_create_scope(&self, scope: Scope, owner_user_id: Option<&str>) -> bool {
         if self.is_admin {
             return true;
         }
         match scope {
             Scope::Global => false,
-            Scope::Team => team_role.is_some_and(TeamRole::can_manage),
             Scope::User => owner_user_id.is_some_and(|oid| oid == self.user_id),
         }
     }
@@ -284,29 +242,6 @@ impl ScopeContext {
     /// generic reads.
     pub fn can_use_repository(&self, repository: &ScopedResource) -> bool {
         self.can_read(repository)
-    }
-
-    /// Explicit task-control helper for mutating or operating a task.
-    ///
-    /// Control is write access, plus one task-specific extension: the recorded
-    /// owner (creator) of a **team** task keeps control while they remain a
-    /// member of that team. Team tasks are creatable by any team member
-    /// (`create_task` inherits the repository's team scope on plain repo read
-    /// access), and the task's sandbox acts as its creator — so without this,
-    /// a member-created task would have a sandbox that cannot operate itself
-    /// (credentials, messages, lifecycle). Unrelated members still get
-    /// read-only access, and a creator who left the team loses control with
-    /// their role.
-    pub fn can_control_task(&self, task: &ScopedResource, team_role: Option<TeamRole>) -> bool {
-        if self.can_write(task, team_role) {
-            return true;
-        }
-        task.scope == Scope::Team
-            && team_role.is_some()
-            && task
-                .owner_user_id
-                .as_deref()
-                .is_some_and(|oid| oid == self.user_id)
     }
 
     /// Explicit run-as helper for automation rules.
@@ -322,52 +257,19 @@ mod tests {
     #[test]
     fn scope_serde_roundtrip() {
         assert_eq!(serde_json::to_string(&Scope::Global).unwrap(), "\"global\"");
-        assert_eq!(serde_json::to_string(&Scope::Team).unwrap(), "\"team\"");
         assert_eq!(serde_json::to_string(&Scope::User).unwrap(), "\"user\"");
 
-        let parsed: Scope = serde_json::from_str("\"team\"").unwrap();
-        assert_eq!(parsed, Scope::Team);
+        let parsed: Scope = serde_json::from_str("\"user\"").unwrap();
+        assert_eq!(parsed, Scope::User);
+        assert!(serde_json::from_str::<Scope>("\"team\"").is_err());
     }
 
     #[test]
     fn scope_try_from() {
         assert_eq!(Scope::try_from("global"), Ok(Scope::Global));
-        assert_eq!(Scope::try_from("team"), Ok(Scope::Team));
         assert_eq!(Scope::try_from("user"), Ok(Scope::User));
+        assert!(Scope::try_from("team").is_err());
         assert!(Scope::try_from("invalid").is_err());
-    }
-
-    #[test]
-    fn can_access_global() {
-        let ctx = ScopeContext {
-            user_id: "u1".into(),
-            team_ids: vec![],
-            is_admin: false,
-        };
-        assert!(ctx.can_access(Scope::Global, None, None));
-        assert!(ctx.can_read(&ScopedResource::borrowed(Scope::Global, None, None)));
-    }
-
-    #[test]
-    fn can_access_team_member() {
-        let ctx = ScopeContext {
-            user_id: "u1".into(),
-            team_ids: vec!["t1".into()],
-            is_admin: false,
-        };
-        assert!(ctx.can_access(Scope::Team, Some("t1"), None));
-        assert!(!ctx.can_access(Scope::Team, Some("t2"), None));
-    }
-
-    #[test]
-    fn can_access_user_owner() {
-        let ctx = ScopeContext {
-            user_id: "u1".into(),
-            team_ids: vec![],
-            is_admin: false,
-        };
-        assert!(ctx.can_access(Scope::User, None, Some("u1")));
-        assert!(!ctx.can_access(Scope::User, None, Some("u2")));
     }
 
     #[test]
@@ -375,15 +277,10 @@ mod tests {
         let ctx = ScopeContext::system();
         assert!(ctx.is_admin);
         assert_eq!(ctx.user_id, ScopeContext::SYSTEM_USER_ID);
-        // is_admin short-circuits every read/write policy, so the system
-        // principal can reach any scoped row regardless of team/owner.
-        assert!(ctx.can_read(&ScopedResource::borrowed(
-            Scope::User,
-            None,
-            Some("someone")
-        )));
-        assert!(ctx.can_read(&ScopedResource::borrowed(Scope::Team, Some("t99"), None)));
-        assert!(ctx.can_write(&ScopedResource::borrowed(Scope::Global, None, None), None));
+        // is_admin short-circuits every read/control policy, so the system
+        // principal can reach any scoped row regardless of owner.
+        assert!(ctx.can_read(&ScopedResource::borrowed(Scope::User, Some("someone"))));
+        assert!(ctx.can_control(&ScopedResource::borrowed(Scope::Global, None)));
     }
 
     #[test]
@@ -398,53 +295,27 @@ mod tests {
     }
 
     #[test]
-    fn admin_bypasses_all() {
+    fn create_policy_requires_admin_for_global_and_self_for_user() {
         let ctx = ScopeContext {
             user_id: "u1".into(),
-            team_ids: vec![],
+            is_admin: false,
+        };
+        assert!(ctx.can_create_scope(Scope::User, Some("u1")));
+        assert!(!ctx.can_create_scope(Scope::User, Some("u2")));
+        assert!(!ctx.can_create_scope(Scope::User, None));
+        assert!(!ctx.can_create_scope(Scope::Global, None));
+
+        let admin = ScopeContext {
+            user_id: "root".into(),
             is_admin: true,
         };
-        assert!(ctx.can_access(Scope::User, None, Some("u2")));
-        assert!(ctx.can_access(Scope::Team, Some("t99"), None));
-        assert!(ctx.can_write(
-            &ScopedResource::borrowed(Scope::Global, Some("system"), None),
-            None
-        ));
-    }
-
-    #[test]
-    fn write_policy_is_stricter_than_read_for_team_resources() {
-        let ctx = ScopeContext {
-            user_id: "u1".into(),
-            team_ids: vec!["t1".into()],
-            is_admin: false,
-        };
-        let resource = ScopedResource::borrowed(Scope::Team, Some("t1"), None);
-        assert!(ctx.can_read(&resource));
-        assert!(!ctx.can_write(&resource, Some(TeamRole::Member)));
-        assert!(ctx.can_write(&resource, Some(TeamRole::Admin)));
-        assert!(ctx.can_write(&resource, Some(TeamRole::Owner)));
-    }
-
-    #[test]
-    fn create_policy_uses_requested_scope() {
-        let ctx = ScopeContext {
-            user_id: "u1".into(),
-            team_ids: vec!["t1".into()],
-            is_admin: false,
-        };
-        assert!(ctx.can_create_scope(Scope::User, Some("u1"), None));
-        assert!(!ctx.can_create_scope(Scope::User, Some("u2"), None));
-        assert!(!ctx.can_create_scope(Scope::Team, None, Some(TeamRole::Member)));
-        assert!(ctx.can_create_scope(Scope::Team, None, Some(TeamRole::Admin)));
-        assert!(!ctx.can_create_scope(Scope::Global, None, None));
+        assert!(admin.can_create_scope(Scope::Global, None));
     }
 
     #[test]
     fn run_as_allows_self_or_admin_only() {
         let user = ScopeContext {
             user_id: "u1".into(),
-            team_ids: vec![],
             is_admin: false,
         };
         let admin = ScopeContext {
@@ -461,100 +332,35 @@ mod tests {
     fn repository_use_delegates_to_read_policy() {
         let ctx = ScopeContext {
             user_id: "u1".into(),
-            team_ids: vec!["t1".into()],
             is_admin: false,
         };
 
         for resource in [
-            ScopedResource::borrowed(Scope::Global, None, None),
-            ScopedResource::borrowed(Scope::Team, Some("t1"), None),
-            ScopedResource::borrowed(Scope::User, None, Some("u1")),
-            ScopedResource::borrowed(Scope::User, None, Some("u2")),
+            ScopedResource::borrowed(Scope::Global, None),
+            ScopedResource::borrowed(Scope::User, Some("u1")),
+            ScopedResource::borrowed(Scope::User, Some("u2")),
         ] {
             assert_eq!(ctx.can_use_repository(&resource), ctx.can_read(&resource));
         }
     }
 
     #[test]
-    fn task_control_delegates_to_write_policy_without_ownership() {
+    fn missing_owner_is_denied_for_user_scope() {
         let ctx = ScopeContext {
             user_id: "u1".into(),
-            team_ids: vec!["t1".into()],
             is_admin: false,
         };
-        // Not the creator (no recorded owner) — control is exactly write access.
-        let task = ScopedResource::borrowed(Scope::Team, Some("t1"), None);
+        let ownerless = ScopedResource::borrowed(Scope::User, None);
 
-        for role in [None, Some(TeamRole::Member), Some(TeamRole::Admin)] {
-            assert_eq!(
-                ctx.can_control_task(&task, role),
-                ctx.can_write(&task, role)
-            );
-        }
+        assert!(!ctx.can_read(&ownerless));
+        assert!(!ctx.can_control(&ownerless));
     }
 
-    #[test]
-    fn team_task_creator_controls_own_task_while_member() {
-        let creator = ScopeContext {
-            user_id: "creator".into(),
-            team_ids: vec!["t1".into()],
-            is_admin: false,
-        };
-        let task = ScopedResource::borrowed(Scope::Team, Some("t1"), Some("creator"));
-
-        // A plain member who created the task controls it (its sandbox acts as
-        // this user), even though write access alone would deny them.
-        assert!(!creator.can_write(&task, Some(TeamRole::Member)));
-        assert!(creator.can_control_task(&task, Some(TeamRole::Member)));
-
-        // A creator who left the team (no role) loses control.
-        assert!(!creator.can_control_task(&task, None));
-
-        // An unrelated plain member never gains control from someone else's
-        // ownership — no cross-member escalation.
-        let other = ScopeContext {
-            user_id: "other-member".into(),
-            ..creator.clone()
-        };
-        assert!(!other.can_control_task(&task, Some(TeamRole::Member)));
-    }
-
-    #[test]
-    fn creator_extension_is_team_scope_only() {
-        let creator = ScopeContext {
-            user_id: "creator".into(),
-            team_ids: vec![],
-            is_admin: false,
-        };
-        // Global tasks stay admin-controlled even for their creator.
-        let global_task = ScopedResource::borrowed(Scope::Global, None, Some("creator"));
-        assert!(!creator.can_control_task(&global_task, Some(TeamRole::Member)));
-    }
-
-    #[test]
-    fn missing_required_team_or_owner_ids_are_denied() {
-        let ctx = ScopeContext {
-            user_id: "u1".into(),
-            team_ids: vec!["t1".into()],
-            is_admin: false,
-        };
-        let team_resource = ScopedResource::borrowed(Scope::Team, None, None);
-        let user_resource = ScopedResource::borrowed(Scope::User, None, None);
-
-        assert!(!ctx.can_read(&team_resource));
-        assert!(!ctx.can_read(&user_resource));
-        assert!(!ctx.can_write(&team_resource, None));
-        assert!(!ctx.can_write(&user_resource, None));
-        assert!(!ctx.can_create_scope(Scope::Team, None, None));
-        assert!(!ctx.can_create_scope(Scope::User, None, None));
-    }
-
-    // -- access_filter tests --
+    // -- filter tests --
 
     fn test_ctx() -> ScopeContext {
         ScopeContext {
             user_id: "u1".into(),
-            team_ids: vec![],
             is_admin: false,
         }
     }
@@ -565,10 +371,9 @@ mod tests {
         assert_eq!(
             f.sql(),
             "($1 OR visibility = 'public' OR scope = 'global' \
-             OR (scope = 'team' AND team_id = ANY($2)) \
-             OR (scope = 'user' AND COALESCE(owner_user_id, created_by) = $3))"
+             OR (scope = 'user' AND COALESCE(owner_user_id, created_by) = $2))"
         );
-        assert_eq!(f.next_param(), 4);
+        assert_eq!(f.next_param(), 3);
     }
 
     #[test]
@@ -577,10 +382,9 @@ mod tests {
         assert_eq!(
             f.sql(),
             "($2 OR scope = 'global' \
-             OR (scope = 'team' AND team_id = ANY($3)) \
-             OR (scope = 'user' AND COALESCE(owner_user_id, created_by) = $4))"
+             OR (scope = 'user' AND COALESCE(owner_user_id, created_by) = $3))"
         );
-        assert_eq!(f.next_param(), 5);
+        assert_eq!(f.next_param(), 4);
     }
 
     #[test]
@@ -589,10 +393,9 @@ mod tests {
         assert_eq!(
             f.sql(),
             "($1 OR scope = 'global' \
-             OR (scope = 'team' AND team_id = ANY($2)) \
-             OR (scope = 'user' AND COALESCE(owner_user_id, created_by) = $3))"
+             OR (scope = 'user' AND COALESCE(owner_user_id, created_by) = $2))"
         );
-        assert_eq!(f.next_param(), 4);
+        assert_eq!(f.next_param(), 3);
     }
 
     #[test]
@@ -601,8 +404,7 @@ mod tests {
         assert_eq!(
             f.sql(),
             "($1 OR t.visibility = 'public' OR t.scope = 'global' \
-             OR (t.scope = 'team' AND t.team_id = ANY($2)) \
-             OR (t.scope = 'user' AND COALESCE(t.owner_user_id, t.created_by) = $3))"
+             OR (t.scope = 'user' AND COALESCE(t.owner_user_id, t.created_by) = $2))"
         );
     }
 
@@ -634,87 +436,51 @@ mod tests {
 
     #[test]
     fn policy_matrix() {
-        let team = "t1";
         let owner = "owner";
 
-        // (name, context, role in the task's team)
-        let actors: Vec<(&str, ScopeContext, Option<TeamRole>)> = vec![
+        let actors: Vec<(&str, ScopeContext)> = vec![
             (
                 "owner",
                 ScopeContext {
                     user_id: owner.into(),
-                    team_ids: vec![team.into()],
                     is_admin: false,
                 },
-                Some(TeamRole::Member),
-            ),
-            (
-                "member",
-                ScopeContext {
-                    user_id: "member".into(),
-                    team_ids: vec![team.into()],
-                    is_admin: false,
-                },
-                Some(TeamRole::Member),
-            ),
-            (
-                "manager",
-                ScopeContext {
-                    user_id: "manager".into(),
-                    team_ids: vec![team.into()],
-                    is_admin: false,
-                },
-                Some(TeamRole::Admin),
             ),
             (
                 "other",
                 ScopeContext {
                     user_id: "other".into(),
-                    team_ids: vec![],
                     is_admin: false,
                 },
-                None,
             ),
             (
                 "admin",
                 ScopeContext {
                     user_id: "root".into(),
-                    team_ids: vec![],
                     is_admin: true,
                 },
-                None,
             ),
         ];
 
         let tasks = [
-            (
-                "global",
-                ScopedResource::borrowed(Scope::Global, None, Some(owner)),
-            ),
-            (
-                "team",
-                ScopedResource::borrowed(Scope::Team, Some(team), Some(owner)),
-            ),
-            (
-                "user",
-                ScopedResource::borrowed(Scope::User, None, Some(owner)),
-            ),
+            ("global", ScopedResource::borrowed(Scope::Global, None)),
+            ("user", ScopedResource::borrowed(Scope::User, Some(owner))),
         ];
 
         let verdict = |allowed: bool| if allowed { "allow" } else { "deny" };
         let mut lines = Vec::new();
         for (scope_name, task) in &tasks {
             for public in [false, true] {
-                for (actor_name, ctx, role) in &actors {
+                for (actor_name, ctx) in &actors {
                     // read: pure policy plus the SQL filter's public-task arm.
                     let read = ctx.can_read(task) || public;
                     // interact (send message / follow / mark read) is read:
                     // a public task is collaborative by product rule.
                     let interact = read;
                     // control never follows from visibility.
-                    let control = ctx.can_control_task(task, *role);
+                    let control = ctx.can_control(task);
                     lines.push(format!(
-                        "{scope_name:<6} {vis:<7} {actor_name:<7} read={} interact={} control={}",
+                        "{scope_name:<6} {vis:<7} {actor_name:<5} read={} interact={} control={}",
                         verdict(read),
                         verdict(interact),
                         verdict(control),
@@ -725,36 +491,18 @@ mod tests {
         }
 
         let expected = "\
-global private owner   read=allow interact=allow control=deny
-global private member  read=allow interact=allow control=deny
-global private manager read=allow interact=allow control=deny
-global private other   read=allow interact=allow control=deny
-global private admin   read=allow interact=allow control=allow
-global public  owner   read=allow interact=allow control=deny
-global public  member  read=allow interact=allow control=deny
-global public  manager read=allow interact=allow control=deny
-global public  other   read=allow interact=allow control=deny
-global public  admin   read=allow interact=allow control=allow
-team   private owner   read=allow interact=allow control=allow
-team   private member  read=allow interact=allow control=deny
-team   private manager read=allow interact=allow control=allow
-team   private other   read=deny interact=deny control=deny
-team   private admin   read=allow interact=allow control=allow
-team   public  owner   read=allow interact=allow control=allow
-team   public  member  read=allow interact=allow control=deny
-team   public  manager read=allow interact=allow control=allow
-team   public  other   read=allow interact=allow control=deny
-team   public  admin   read=allow interact=allow control=allow
-user   private owner   read=allow interact=allow control=allow
-user   private member  read=deny interact=deny control=deny
-user   private manager read=deny interact=deny control=deny
-user   private other   read=deny interact=deny control=deny
-user   private admin   read=allow interact=allow control=allow
-user   public  owner   read=allow interact=allow control=allow
-user   public  member  read=allow interact=allow control=deny
-user   public  manager read=allow interact=allow control=deny
-user   public  other   read=allow interact=allow control=deny
-user   public  admin   read=allow interact=allow control=allow";
+global private owner read=allow interact=allow control=deny
+global private other read=allow interact=allow control=deny
+global private admin read=allow interact=allow control=allow
+global public  owner read=allow interact=allow control=deny
+global public  other read=allow interact=allow control=deny
+global public  admin read=allow interact=allow control=allow
+user   private owner read=allow interact=allow control=allow
+user   private other read=deny interact=deny control=deny
+user   private admin read=allow interact=allow control=allow
+user   public  owner read=allow interact=allow control=allow
+user   public  other read=allow interact=allow control=deny
+user   public  admin read=allow interact=allow control=allow";
         assert_eq!(lines.join("\n"), expected);
     }
 }

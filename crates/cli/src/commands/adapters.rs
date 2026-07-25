@@ -49,8 +49,6 @@ pub enum ConnectionAction {
         webhook_secret: Option<String>,
         #[arg(long)]
         transport_config: Option<String>,
-        #[arg(long)]
-        team_id: Option<String>,
     },
 }
 
@@ -155,7 +153,6 @@ async fn run_connections(
             connection_kind,
             webhook_secret,
             transport_config,
-            team_id,
         } => {
             let req = CreateAdapterConnectionRequest {
                 adapter_kind: parse_adapter_kind(&adapter)?,
@@ -164,7 +161,6 @@ async fn run_connections(
                 webhook_secret,
                 source_name: None,
                 transport_config: parse_json_opt(transport_config.as_deref())?,
-                team_id,
                 scope: None,
             };
             let created = client.api().create_adapter_connection(&req).await?;

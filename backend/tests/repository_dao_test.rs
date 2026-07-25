@@ -19,7 +19,6 @@ use common::{make_repository_row, seed_team};
 fn scope_ctx(user_id: &str) -> ScopeContext {
     ScopeContext {
         user_id: user_id.into(),
-        team_ids: vec![],
         is_admin: false,
     }
 }
@@ -71,7 +70,6 @@ async fn list_all_canonical_scope_filtering(pool: PgPool) {
 
     let mut global_repo = make_repository_row("repo-global", "system");
     global_repo.scope = Scope::Global;
-    global_repo.team_id = Some("system".to_string());
     global_repo.owner_user_id = None;
     global_repo.created_by = Some("system".to_string());
     repository_dao::insert(&pool, &global_repo).await.unwrap();
@@ -104,6 +102,7 @@ async fn update_partial(pool: PgPool) {
             description: Some(Some("new desc".to_string())),
             ..Default::default()
         },
+        &scope_ctx("user-1"),
     )
     .await
     .unwrap();
@@ -127,7 +126,7 @@ async fn soft_delete(pool: PgPool) {
     let row = make_repository_row("repo-del", "user-1");
     repository_dao::insert(&pool, &row).await.unwrap();
 
-    let deleted = repository_dao::soft_delete(&pool, "repo-del")
+    let deleted = repository_dao::soft_delete(&pool, "repo-del", &scope_ctx("user-1"))
         .await
         .unwrap();
     assert!(deleted);
@@ -139,7 +138,7 @@ async fn soft_delete(pool: PgPool) {
     assert!(found.is_none());
 
     // Double delete should be no-op
-    let deleted_again = repository_dao::soft_delete(&pool, "repo-del")
+    let deleted_again = repository_dao::soft_delete(&pool, "repo-del", &scope_ctx("user-1"))
         .await
         .unwrap();
     assert!(!deleted_again);
@@ -182,7 +181,6 @@ async fn canonical_url_can_be_reused_by_a_different_access_owner(pool: PgPool) {
     let user_repo = make_repository_row("repo-owner-user", "user-1");
     let mut global_repo = make_repository_row("repo-owner-global", "system");
     global_repo.scope = Scope::Global;
-    global_repo.team_id = Some("system".to_string());
     global_repo.owner_user_id = None;
     global_repo.created_by = Some("system".to_string());
     global_repo.remote_url = user_repo.remote_url.clone();
@@ -199,7 +197,9 @@ async fn soft_delete_releases_canonical_url(pool: PgPool) {
     replacement.remote_url = first.remote_url.clone();
 
     repository_dao::insert(&pool, &first).await.unwrap();
-    repository_dao::soft_delete(&pool, &first.id).await.unwrap();
+    repository_dao::soft_delete(&pool, &first.id, &scope_ctx("user-1"))
+        .await
+        .unwrap();
     repository_dao::insert(&pool, &replacement).await.unwrap();
 }
 
@@ -225,6 +225,7 @@ async fn update_access_fields(pool: PgPool) {
             access_error: Some(Some("remote returned 404".to_string())),
             ..Default::default()
         },
+        &scope_ctx("user-1"),
     )
     .await
     .unwrap();

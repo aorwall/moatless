@@ -27,6 +27,8 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
+use moatless_backend_core::scope::ScopeContext;
+
 use super::client::K8sClient;
 use super::deployment;
 use super::leader_election::LeaderElection;
@@ -1371,7 +1373,10 @@ async fn auto_disable_server(
     }
 
     // Merge the server into the per-task disabled set and persist.
-    let mut disabled = match tasks.find_by_id_internal(task_id).await {
+    // reason: pod watcher auto-disable reads task across all owners (system context)
+    #[allow(clippy::disallowed_methods)]
+    let sys = ScopeContext::system();
+    let mut disabled = match tasks.find_by_id(task_id, &sys).await {
         Ok(Some(task)) => crate::sandbox::auto_provision::parse_disabled_servers(&task),
         Ok(None) => {
             warn!(task_id = %task_id, "Task not found while auto-disabling server");
@@ -1390,7 +1395,7 @@ async fn auto_disable_server(
         disabled_servers: Some(disabled),
         ..Default::default()
     };
-    if let Err(e) = tasks.update_task(task_id, &patch).await {
+    if let Err(e) = tasks.update_task(task_id, &patch, &sys).await {
         warn!(task_id = %task_id, error = %e, "Failed to persist disabled_servers");
         return AutoDisableOutcome::Settled;
     }
