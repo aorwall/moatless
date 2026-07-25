@@ -374,8 +374,14 @@ pub trait Adapter: Send + Sync {
 ///
 /// Alongside the trait-object map, the registry keeps a typed handle for each
 /// adapter that has concrete-only methods, so code inside an adapter's own
-/// module reaches it without downcasting. Handles are populated by the typed
-/// `register_*` methods, which also insert into the map — the two cannot drift.
+/// module reaches it without downcasting.
+///
+/// For those four kinds the typed registrar is the only way in: it sets the
+/// handle and inserts into the map in one call. The trait-object insert is
+/// private to this module, so no caller can add one of them to the map and
+/// leave its handle unset. Its only callers are `register_webhook` — the
+/// Webhook adapter has no concrete-only methods, so it has no handle — and the
+/// tests.
 #[derive(Clone)]
 pub struct Adapters {
     providers: HashMap<AdapterKind, Arc<dyn Adapter>>,
@@ -499,10 +505,10 @@ impl Adapters {
 
     /// Insert into the trait-object map only.
     ///
-    /// Not public: every adapter kind that has a typed handle must go through
-    /// its typed registrar, or the map and the handle could disagree. Crate
-    /// visibility is what lets a test register a stand-in adapter.
-    pub(crate) fn register_trait_object(&mut self, provider: Arc<dyn Adapter>) {
+    /// Private: every adapter kind that has a typed handle must go through its
+    /// typed registrar, or the map and the handle could disagree. Widen this to
+    /// `pub(crate)` if a stand-in registry is ever needed from another module.
+    fn register_trait_object(&mut self, provider: Arc<dyn Adapter>) {
         self.providers.insert(provider.adapter_kind(), provider);
     }
 
@@ -674,11 +680,11 @@ mod tests {
     }
 
     #[test]
-    fn empty_registry_takes_a_stand_in_adapter_and_leaves_typed_handles_unset() {
+    fn empty_registry_takes_a_stand_in_adapter() {
         let mut providers = Adapters::new();
         providers.register_trait_object(Arc::new(DummyProvider));
 
+        assert_eq!(providers.registered_types(), vec![AdapterKind::Telegram]);
         assert!(providers.get(AdapterKind::Telegram).is_some());
-        assert!(providers.telegram().is_none());
     }
 }
