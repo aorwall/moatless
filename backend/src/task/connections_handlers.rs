@@ -21,7 +21,7 @@ use moatless_api_schemas::task_connections::{
 };
 
 use crate::adapters::models::{ExternalStatus, TaskBinding};
-use crate::adapters::Adapters;
+use crate::adapters::Adapter;
 use crate::bindings::dao::PgTaskBindingRepository;
 use crate::bindings::status_service;
 use crate::extractors::AuthUser;
@@ -164,7 +164,7 @@ pub async fn list_task_connections(
 
             let connections: Vec<Connection> = task_bindings
                 .iter()
-                .map(|b| decode_connection(state.adapters.as_deref(), b, &count_by_binding))
+                .map(|b| decode_connection(adapter_for(&state, &b.provider), b, &count_by_binding))
                 .collect();
 
             TaskConnectionRow {
@@ -260,7 +260,7 @@ pub async fn get_task_connections(
 
     let connections: Vec<Connection> = binding_refs
         .iter()
-        .map(|b| decode_connection(state.adapters.as_deref(), b, &count_by_binding))
+        .map(|b| decode_connection(adapter_for(&state, &b.provider), b, &count_by_binding))
         .collect();
 
     Ok(Json(connections))
@@ -420,23 +420,31 @@ fn match_counts(
     out
 }
 
+/// The adapter that owns a binding's provider, if one is configured.
+fn adapter_for<'a>(state: &'a AppState, provider: &str) -> Option<&'a dyn Adapter> {
+    state
+        .adapters
+        .as_ref()?
+        .get_by_name(provider)
+        .map(std::convert::AsRef::as_ref)
+}
+
 /// Decode a binding's `destination_config` + persisted status into a typed
 /// [`Connection`].
 ///
 /// The label and URL come from the binding's adapter, which is the only thing
-/// that knows the shape of its own destination config. An unconfigured or
-/// unknown provider falls back to the same default the trait gives.
+/// that knows the shape of its own destination config. `adapter` is the one
+/// resolved for this binding's provider; `None` (unconfigured or unknown
+/// provider) falls back to the same default the trait gives.
 fn decode_connection(
-    adapters: Option<&Adapters>,
+    adapter: Option<&dyn Adapter>,
     b: &TaskBinding,
     counts: &HashMap<String, (i64, i64)>,
 ) -> Connection {
-    let (label, url) = adapters
-        .and_then(|a| a.get_by_name(&b.provider))
-        .map_or_else(
-            || (b.subject_key.clone(), None),
-            |a| a.binding_label_and_url(b),
-        );
+    let (label, url) = adapter.map_or_else(
+        || (b.subject_key.clone(), None),
+        |a| a.binding_label_and_url(b),
+    );
     let (incoming, outgoing) = counts.get(&b.id).copied().unwrap_or((0, 0));
 
     Connection {
@@ -468,9 +476,6 @@ fn connection_kind(subject_kind: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::any::Any;
-    use std::sync::Arc;
-
     use chrono::Utc;
 
     use crate::adapters::error::AdapterError;
@@ -488,10 +493,6 @@ mod tests {
     impl Adapter for StubAdapter {
         fn adapter_kind(&self) -> AdapterKind {
             AdapterKind::Webhook
-        }
-
-        fn as_any(&self) -> &dyn Any {
-            self
         }
 
         fn binding_label_and_url(&self, binding: &TaskBinding) -> (String, Option<String>) {
@@ -517,12 +518,6 @@ mod tests {
         ) -> Result<Option<String>, AdapterError> {
             Ok(None)
         }
-    }
-
-    fn registry() -> Adapters {
-        let mut adapters = Adapters::new();
-        adapters.register(Arc::new(StubAdapter));
-        adapters
     }
 
     fn binding(id: &str, provider: &str, subject_kind: &str, subject_key: &str) -> TaskBinding {
@@ -634,7 +629,7 @@ mod tests {
         let counts: HashMap<String, (i64, i64)> = HashMap::new();
         let b = binding("b1", "webhook", "stub_subject", "o/r#1");
 
-        let decoded = decode_connection(Some(&registry()), &b, &counts);
+        let decoded = decode_connection(Some(&StubAdapter), &b, &counts);
         assert_eq!(decoded.label, "stub o/r#1");
         assert_eq!(decoded.url.as_deref(), Some("https://stub.example/1"));
     }
@@ -644,7 +639,7 @@ mod tests {
         let counts: HashMap<String, (i64, i64)> = HashMap::new();
         let b = binding("b1", "not_configured", "stub_subject", "o/r#1");
 
-        let decoded = decode_connection(Some(&registry()), &b, &counts);
+        let decoded = decode_connection(None, &b, &counts);
         assert_eq!(decoded.label, "o/r#1");
         assert!(decoded.url.is_none());
     }
@@ -654,14 +649,14 @@ mod tests {
         let counts: HashMap<String, (i64, i64)> = HashMap::new();
 
         let active = binding("b1", "github", "github_pr", "o/r#1");
-        let decoded = decode_connection(Some(&registry()), &active, &counts);
+        let decoded = decode_connection(Some(&StubAdapter), &active, &counts);
         assert!(decoded.active);
         assert_eq!(decoded.deactivated_at, None);
 
         let mut closed = binding("b2", "github", "github_pr", "o/r#2");
         closed.active = false;
         closed.deactivated_at = Some(Utc::now());
-        let decoded = decode_connection(Some(&registry()), &closed, &counts);
+        let decoded = decode_connection(Some(&StubAdapter), &closed, &counts);
         assert!(!decoded.active);
         assert!(decoded.deactivated_at.is_some());
     }

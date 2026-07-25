@@ -110,7 +110,6 @@ pub async fn get_or_fetch(
 
 #[cfg(test)]
 mod tests {
-    use std::any::Any;
 
     use chrono::Duration as ChronoDuration;
 
@@ -133,10 +132,6 @@ mod tests {
     impl Adapter for StubAdapter {
         fn adapter_kind(&self) -> AdapterKind {
             AdapterKind::Webhook
-        }
-
-        fn as_any(&self) -> &dyn Any {
-            self
         }
 
         fn binding_status_key(&self, binding: &TaskBinding) -> Option<String> {
