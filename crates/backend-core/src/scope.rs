@@ -185,6 +185,34 @@ impl ScopeContext {
         }
     }
 
+    /// Build a control (mutation) SQL filter.
+    ///
+    /// Control is stricter than read: global rows are admin-controlled and
+    /// task visibility never grants control, so the fragment is identical for
+    /// every entity.
+    ///
+    /// Uses 2 positional parameters starting at `start`:
+    ///   - `$start`: `is_admin` (bool)
+    ///   - `$start+1`: `user_id` (text)
+    ///
+    /// Caller must `.bind()` these from `self.is_admin`, `self.user_id`.
+    /// `prefix` is the table alias (e.g. `""` or `"t."`).
+    ///
+    /// Embedding this in a mutation's `WHERE` makes the check and the write a
+    /// single atomic statement; `rows_affected == 0` maps to the module's
+    /// NotFound error, matching the existence-hiding reads.
+    pub fn control_filter(&self, prefix: &str, start: usize) -> AccessFilter {
+        let (p1, p2) = (start, start + 1);
+        let sql = format!(
+            "(${p1} OR ({prefix}scope = 'user' \
+             AND COALESCE({prefix}owner_user_id, {prefix}created_by) = ${p2}))"
+        );
+        AccessFilter {
+            sql,
+            next_param: start + 2,
+        }
+    }
+
     /// Check if this context can read a resource with the given scope.
     pub fn can_read(&self, resource: &ScopedResource) -> bool {
         if self.is_admin {
@@ -576,5 +604,157 @@ mod tests {
              OR (t.scope = 'team' AND t.team_id = ANY($2)) \
              OR (t.scope = 'user' AND COALESCE(t.owner_user_id, t.created_by) = $3))"
         );
+    }
+
+    #[test]
+    fn control_filter_admin_or_owner_only() {
+        let f = test_ctx().control_filter("", 1);
+        assert_eq!(
+            f.sql(),
+            "($1 OR (scope = 'user' AND COALESCE(owner_user_id, created_by) = $2))"
+        );
+        assert_eq!(f.next_param(), 3);
+    }
+
+    #[test]
+    fn control_filter_with_table_prefix() {
+        let f = test_ctx().control_filter("t.", 3);
+        assert_eq!(
+            f.sql(),
+            "($3 OR (t.scope = 'user' AND COALESCE(t.owner_user_id, t.created_by) = $4))"
+        );
+        assert_eq!(f.next_param(), 5);
+    }
+
+    // -- policy matrix --
+    //
+    // Exhaustive allow/deny table over actor × scope × task visibility ×
+    // action. This test IS the policy's documentation: any behavioral change
+    // to access control must show up as a diff in the expected table below.
+
+    #[test]
+    fn policy_matrix() {
+        let team = "t1";
+        let owner = "owner";
+
+        // (name, context, role in the task's team)
+        let actors: Vec<(&str, ScopeContext, Option<TeamRole>)> = vec![
+            (
+                "owner",
+                ScopeContext {
+                    user_id: owner.into(),
+                    team_ids: vec![team.into()],
+                    is_admin: false,
+                },
+                Some(TeamRole::Member),
+            ),
+            (
+                "member",
+                ScopeContext {
+                    user_id: "member".into(),
+                    team_ids: vec![team.into()],
+                    is_admin: false,
+                },
+                Some(TeamRole::Member),
+            ),
+            (
+                "manager",
+                ScopeContext {
+                    user_id: "manager".into(),
+                    team_ids: vec![team.into()],
+                    is_admin: false,
+                },
+                Some(TeamRole::Admin),
+            ),
+            (
+                "other",
+                ScopeContext {
+                    user_id: "other".into(),
+                    team_ids: vec![],
+                    is_admin: false,
+                },
+                None,
+            ),
+            (
+                "admin",
+                ScopeContext {
+                    user_id: "root".into(),
+                    team_ids: vec![],
+                    is_admin: true,
+                },
+                None,
+            ),
+        ];
+
+        let tasks = [
+            (
+                "global",
+                ScopedResource::borrowed(Scope::Global, None, Some(owner)),
+            ),
+            (
+                "team",
+                ScopedResource::borrowed(Scope::Team, Some(team), Some(owner)),
+            ),
+            (
+                "user",
+                ScopedResource::borrowed(Scope::User, None, Some(owner)),
+            ),
+        ];
+
+        let verdict = |allowed: bool| if allowed { "allow" } else { "deny" };
+        let mut lines = Vec::new();
+        for (scope_name, task) in &tasks {
+            for public in [false, true] {
+                for (actor_name, ctx, role) in &actors {
+                    // read: pure policy plus the SQL filter's public-task arm.
+                    let read = ctx.can_read(task) || public;
+                    // interact (send message / follow / mark read) is read:
+                    // a public task is collaborative by product rule.
+                    let interact = read;
+                    // control never follows from visibility.
+                    let control = ctx.can_control_task(task, *role);
+                    lines.push(format!(
+                        "{scope_name:<6} {vis:<7} {actor_name:<7} read={} interact={} control={}",
+                        verdict(read),
+                        verdict(interact),
+                        verdict(control),
+                        vis = if public { "public" } else { "private" },
+                    ));
+                }
+            }
+        }
+
+        let expected = "\
+global private owner   read=allow interact=allow control=deny
+global private member  read=allow interact=allow control=deny
+global private manager read=allow interact=allow control=deny
+global private other   read=allow interact=allow control=deny
+global private admin   read=allow interact=allow control=allow
+global public  owner   read=allow interact=allow control=deny
+global public  member  read=allow interact=allow control=deny
+global public  manager read=allow interact=allow control=deny
+global public  other   read=allow interact=allow control=deny
+global public  admin   read=allow interact=allow control=allow
+team   private owner   read=allow interact=allow control=allow
+team   private member  read=allow interact=allow control=deny
+team   private manager read=allow interact=allow control=allow
+team   private other   read=deny interact=deny control=deny
+team   private admin   read=allow interact=allow control=allow
+team   public  owner   read=allow interact=allow control=allow
+team   public  member  read=allow interact=allow control=deny
+team   public  manager read=allow interact=allow control=allow
+team   public  other   read=allow interact=allow control=deny
+team   public  admin   read=allow interact=allow control=allow
+user   private owner   read=allow interact=allow control=allow
+user   private member  read=deny interact=deny control=deny
+user   private manager read=deny interact=deny control=deny
+user   private other   read=deny interact=deny control=deny
+user   private admin   read=allow interact=allow control=allow
+user   public  owner   read=allow interact=allow control=allow
+user   public  member  read=allow interact=allow control=deny
+user   public  manager read=allow interact=allow control=deny
+user   public  other   read=allow interact=allow control=deny
+user   public  admin   read=allow interact=allow control=allow";
+        assert_eq!(lines.join("\n"), expected);
     }
 }
