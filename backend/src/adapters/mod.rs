@@ -371,9 +371,18 @@ pub trait Adapter: Send + Sync {
 }
 
 /// Registry of external adapters keyed by AdapterKind.
+///
+/// Alongside the trait-object map, the registry keeps a typed handle for each
+/// adapter that has concrete-only methods, so code inside an adapter's own
+/// module reaches it without downcasting. Handles are populated by the typed
+/// `register_*` methods, which also insert into the map — the two cannot drift.
 #[derive(Clone)]
 pub struct Adapters {
     providers: HashMap<AdapterKind, Arc<dyn Adapter>>,
+    github_pr: Option<Arc<self::github_pr::adapter::GithubPrAdapter>>,
+    linear: Option<Arc<self::linear::adapter::LinearAdapter>>,
+    slack: Option<Arc<self::slack::adapter::SlackAdapter>>,
+    telegram: Option<Arc<self::telegram::adapter::TelegramAdapter>>,
 }
 
 impl Default for Adapters {
@@ -386,6 +395,10 @@ impl Adapters {
     pub fn new() -> Self {
         Self {
             providers: HashMap::new(),
+            github_pr: None,
+            linear: None,
+            slack: None,
+            telegram: None,
         }
     }
 
@@ -436,7 +449,7 @@ impl Adapters {
             let bot_user_id =
                 resolve_slack_bot_user_id(token, config.slack.bot_user_id.as_deref()).await;
             let slack = self::slack::adapter::SlackAdapter::new(token, secret, bot_user_id);
-            providers.register(Arc::new(slack));
+            providers.register_slack(Arc::new(slack));
             tracing::info!("Slack adapter configured");
         }
 
@@ -446,7 +459,7 @@ impl Adapters {
 
         if let Some(ref token) = config.telegram.bot_token {
             let telegram = self::telegram::adapter::TelegramAdapter::new(token);
-            providers.register(Arc::new(telegram));
+            providers.register_telegram(Arc::new(telegram));
             tracing::info!("Telegram adapter configured");
         }
 
@@ -463,7 +476,7 @@ impl Adapters {
                 github_apps.clone(),
             )
             .with_secrets(secrets.clone());
-            providers.register(Arc::new(github_pr));
+            providers.register_github_pr(Arc::new(github_pr));
             tracing::info!("GitHub PR adapter configured");
         }
 
@@ -477,7 +490,7 @@ impl Adapters {
                 config.linear.oauth_client_secret.clone(),
                 db,
             );
-            providers.register(Arc::new(linear));
+            providers.register_linear(Arc::new(linear));
             tracing::info!("Linear adapter configured");
         }
 
@@ -486,6 +499,46 @@ impl Adapters {
 
     pub fn register(&mut self, provider: Arc<dyn Adapter>) {
         self.providers.insert(provider.adapter_kind(), provider);
+    }
+
+    pub fn register_github_pr(&mut self, provider: Arc<self::github_pr::adapter::GithubPrAdapter>) {
+        self.register(provider.clone());
+        self.github_pr = Some(provider);
+    }
+
+    pub fn register_linear(&mut self, provider: Arc<self::linear::adapter::LinearAdapter>) {
+        self.register(provider.clone());
+        self.linear = Some(provider);
+    }
+
+    pub fn register_slack(&mut self, provider: Arc<self::slack::adapter::SlackAdapter>) {
+        self.register(provider.clone());
+        self.slack = Some(provider);
+    }
+
+    pub fn register_telegram(&mut self, provider: Arc<self::telegram::adapter::TelegramAdapter>) {
+        self.register(provider.clone());
+        self.telegram = Some(provider);
+    }
+
+    /// Typed handle to the GitHub PR adapter, for code inside its own module.
+    pub fn github_pr(&self) -> Option<&self::github_pr::adapter::GithubPrAdapter> {
+        self.github_pr.as_deref()
+    }
+
+    /// Typed handle to the Linear adapter, for code inside its own module.
+    pub fn linear(&self) -> Option<&self::linear::adapter::LinearAdapter> {
+        self.linear.as_deref()
+    }
+
+    /// Typed handle to the Slack adapter, for code inside its own module.
+    pub fn slack(&self) -> Option<&self::slack::adapter::SlackAdapter> {
+        self.slack.as_deref()
+    }
+
+    /// Typed handle to the Telegram adapter, for code inside its own module.
+    pub fn telegram(&self) -> Option<&self::telegram::adapter::TelegramAdapter> {
+        self.telegram.as_deref()
     }
 
     pub fn get(&self, adapter_kind: AdapterKind) -> Option<&Arc<dyn Adapter>> {
@@ -607,5 +660,14 @@ mod tests {
             }
             other => panic!("expected BadRequest, got: {other:?}"),
         }
+    }
+
+    #[test]
+    fn empty_registry_takes_a_stand_in_adapter_and_leaves_typed_handles_unset() {
+        let mut providers = Adapters::new();
+        providers.register(Arc::new(DummyProvider));
+
+        assert!(providers.get(AdapterKind::Telegram).is_some());
+        assert!(providers.telegram().is_none());
     }
 }

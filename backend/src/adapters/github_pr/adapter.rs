@@ -1802,12 +1802,7 @@ async fn check_pr_merge_conflict(
         }
     }
 
-    let Some(adapter) = state
-        .adapters
-        .as_ref()
-        .and_then(|a| a.get(AdapterKind::GithubPr))
-        .and_then(|a| a.as_any().downcast_ref::<GithubPrAdapter>())
-    else {
+    let Some(adapter) = state.adapters.as_ref().and_then(|a| a.github_pr()) else {
         return;
     };
 
@@ -2020,12 +2015,7 @@ async fn check_post_merge_ci(
     run: PostMergeRun,
     sender_login: String,
 ) {
-    let Some(adapter) = state
-        .adapters
-        .as_ref()
-        .and_then(|a| a.get(AdapterKind::GithubPr))
-        .and_then(|a| a.as_any().downcast_ref::<GithubPrAdapter>())
-    else {
+    let Some(adapter) = state.adapters.as_ref().and_then(|a| a.github_pr()) else {
         return;
     };
 

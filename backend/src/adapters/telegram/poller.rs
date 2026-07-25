@@ -7,10 +7,10 @@ use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
-use crate::adapters::{AdapterKind, Adapters};
+use crate::adapters::Adapters;
 use crate::state::AppState;
 
-use super::adapter::{resolve_and_process_telegram_update, TelegramAdapter};
+use super::adapter::resolve_and_process_telegram_update;
 
 const POLL_TIMEOUT_SECS: u32 = 30;
 const INITIAL_BACKOFF: Duration = Duration::from_secs(1);
@@ -24,13 +24,8 @@ pub fn spawn_telegram_poller(state: AppState, providers: Arc<Adapters>, cancel: 
     tokio::spawn(async move {
         info!("Telegram poller started");
 
-        let Some(telegram) = providers.get(AdapterKind::Telegram) else {
+        let Some(telegram_provider) = providers.telegram() else {
             error!("Telegram poller: provider not registered");
-            return;
-        };
-
-        let Some(telegram_provider) = telegram.as_any().downcast_ref::<TelegramAdapter>() else {
-            error!("Telegram poller: provider type mismatch");
             return;
         };
 

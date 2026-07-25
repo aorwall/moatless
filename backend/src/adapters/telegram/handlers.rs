@@ -5,7 +5,6 @@ use tracing::{info, warn};
 
 use crate::adapters::error::AdapterError;
 use crate::adapters::metrics::record_webhook;
-use crate::adapters::AdapterKind;
 use crate::state::AppState;
 
 #[utoipa::path(
@@ -27,14 +26,9 @@ pub async fn telegram_webhook(
         .as_ref()
         .ok_or_else(|| AdapterError::AdapterNotConfigured("telegram".into()))?;
 
-    let telegram = providers
-        .get(AdapterKind::Telegram)
+    let telegram_provider = providers
+        .telegram()
         .ok_or_else(|| AdapterError::AdapterNotConfigured("telegram".into()))?;
-
-    let telegram_provider = telegram
-        .as_any()
-        .downcast_ref::<super::adapter::TelegramAdapter>()
-        .ok_or_else(|| AdapterError::Internal("Provider type mismatch".into()))?;
 
     info!("Telegram webhook received");
 

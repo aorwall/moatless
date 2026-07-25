@@ -5,7 +5,6 @@ use tracing::warn;
 
 use crate::adapters::error::AdapterError;
 use crate::adapters::metrics::record_webhook;
-use crate::adapters::AdapterKind;
 use crate::state::AppState;
 
 #[utoipa::path(
@@ -25,14 +24,9 @@ pub async fn github_webhook(
         .as_ref()
         .ok_or_else(|| AdapterError::AdapterNotConfigured("github_pr".into()))?;
 
-    let github_pr = providers
-        .get(AdapterKind::GithubPr)
+    let github_pr_provider = providers
+        .github_pr()
         .ok_or_else(|| AdapterError::AdapterNotConfigured("github_pr".into()))?;
-
-    let github_pr_provider = github_pr
-        .as_any()
-        .downcast_ref::<super::adapter::GithubPrAdapter>()
-        .ok_or_else(|| AdapterError::Internal("Provider type mismatch".into()))?;
 
     match super::adapter::resolve_and_process_github_webhook(
         &state,

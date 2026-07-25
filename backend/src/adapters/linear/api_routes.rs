@@ -35,7 +35,6 @@ use crate::extractors::AuthUser;
 use crate::state::AppState;
 use moatless_backend_core::scope::ScopeContext;
 
-use super::adapter::LinearAdapter;
 use super::agent_api::{LinearAgentApi, LookupKind};
 use super::agent_runtime::task_url;
 use super::SUBJECT_KIND_ISSUE;
@@ -536,13 +535,9 @@ async fn resolve_linear_api(
         .adapters
         .as_ref()
         .ok_or_else(|| AdapterError::AdapterNotConfigured("linear".into()))?;
-    let provider = providers
-        .get(AdapterKind::Linear)
+    let linear = providers
+        .linear()
         .ok_or_else(|| AdapterError::AdapterNotConfigured("linear".into()))?;
-    let linear = provider
-        .as_any()
-        .downcast_ref::<LinearAdapter>()
-        .ok_or_else(|| AdapterError::Internal("Linear adapter downcast failed".into()))?;
     let api = linear.agent_api_for_org(&connection.scope_value);
     Ok((connection, api))
 }
