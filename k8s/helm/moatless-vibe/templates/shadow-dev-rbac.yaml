@@ -3,10 +3,9 @@ Shadow-dev ServiceAccount + RoleBindings.
 
 Opt-in identity for running the moatless-vibe backend inside a sandbox ("shadow
 mode") with the same Kubernetes rights as the real backend. Bound to the same
-Roles the backend uses (pod-manager, ingressroute-manager, observability) and
-the read-only node ClusterRole so a shadow backend can provision sandbox pods
-and place node archives. A repo opts in by setting its
-`sandboxServiceAccount` to this SA (see backend repository config).
+Roles the backend uses (pod-manager, ingressroute-manager, observability), plus
+the read-only node ClusterRole when node archives are enabled. A repo opts in by
+setting its `sandboxServiceAccount` to this SA (see backend repository config).
 
 Rendered only when shadowDev.enabled AND rbac.create (the Roles it binds to are
 created by rbac.yaml, which is itself gated on rbac.create).
@@ -48,6 +47,7 @@ roleRef:
   name: {{ include "moatless-vibe.fullname" $ }}-{{ $role }}
   apiGroup: rbac.authorization.k8s.io
 {{- end }}
+{{- if .Values.kubernetes.nodeArchive.enabled }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -64,4 +64,5 @@ roleRef:
   kind: ClusterRole
   name: {{ include "moatless-vibe.fullname" . }}-node-reader
   apiGroup: rbac.authorization.k8s.io
+{{- end }}
 {{- end }}

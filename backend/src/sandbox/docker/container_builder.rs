@@ -507,6 +507,7 @@ mod tests {
                 storage_size: "1Gi".into(),
                 storage_class: None,
                 default_storage_mode: "ebs".into(),
+                node_archive_enabled: false,
                 retain_storage_on_close: false,
                 pod_startup_timeout_secs: 10,
                 task_token_secret: Some("secret".into()),

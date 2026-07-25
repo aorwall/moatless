@@ -170,8 +170,9 @@ helm install moatless ./k8s/helm/moatless-vibe -n moatless -f k8s/local/values-l
 | `kubernetes.namespace` | Namespace for sandbox pods | Release namespace |
 | `kubernetes.sandboxStorage.enabled` | Enable per-task PVC | `true` |
 | `kubernetes.sandboxStorage.defaultMode` | Default workspace tier (`ebs`/`ephemeral`/`s3`/`node`) | `s3` |
+| `kubernetes.nodeArchive.enabled` | Track, retain, and clean node-local archives | `false` |
 | `kubernetes.imagePrepull.enabled` | DaemonSet that pre-pulls the sandbox image | `true` |
-| `kubernetes.nodeStorageJanitor.enabled` | Per-node cleanup of stale workspace/docker dirs | `true` |
+| `kubernetes.nodeStorageJanitor.enabled` | Per-node cleanup of stale workspace/docker dirs when node archives are enabled | `true` |
 
 #### Claude transcript persistence on S3
 
@@ -183,8 +184,9 @@ by design), on a timer and on graceful shutdown, and restores it on the next sta
 
 This persists transcripts off the per-task PVC or node disk and is the
 off-node durability path for all storage tiers. In `node` mode the same
-transcripts also live in the retained task hostPath and revive when the task
-is pinned back to that node; `ephemeral` relies on S3 for persistence.
+transcripts also live in the task hostPath. With node archive management
+enabled, retained tasks are pinned back to their recorded node; `ephemeral`
+relies on S3 for persistence.
 It reuses the existing uploads bucket and the backend IRSA — no extra bucket,
 IAM, or cluster infra. Objects land at
 `s3://<uploads-bucket>/<prefix>/<task_id>/transcripts.tar` and are deleted on task
@@ -204,11 +206,9 @@ described above.
 
 Set `storageMode` to `s3` to use the same node-local `emptyDir` plus git-tree
 sync to S3. Set `storageMode` to `node` to use node-local hostPath storage under
-`K8S_SANDBOX_CACHE_HOST_ROOT/workspaces/<task-id>`. The backend records scheduled
-nodes and operation generations in a deterministic task ConfigMap. A retained
-start pins to the newest recorded node that still exists; if no recorded node
-survives, start returns a retriable infrastructure error instead of silently
-mounting an empty directory. The `node` tier has no Kubernetes
+`K8S_SANDBOX_CACHE_HOST_ROOT/workspaces/<task-id>`. This best-effort mode needs
+no ConfigMap or node-reader permissions, but a replacement scheduled elsewhere
+sees a fresh directory. The `node` tier has no Kubernetes
 `emptyDir.sizeLimit`; it is bounded by node disk capacity.
 
 Docker-in-Docker storage is controlled separately with `dockerStorageMode`.
@@ -218,20 +218,19 @@ images, and volumes can survive stop/start on the same node. Use
 `dockerStorageMode: "emptyDir"` plus `dockerStorage` when you need a hard
 Kubernetes size cap instead.
 
-Kubernetes does not delete hostPath contents when sandbox pods are removed.
-Lifecycle `RetainArchives` deletes runtime resources, including any PVC, while
-preserving the node archive ConfigMap and task directories. `DeleteArchives`
-runs a deterministic, idempotent cleanup pod on every recorded node, waits for
-each pod to succeed and disappear, then removes the metadata ConfigMap. Cleanup
-pods mount the cache host root, run as an unprivileged-capability root process
-without a service-account token, and intentionally omit the sandbox task label
-so the pod watcher ignores them. Legacy tasks without metadata are cleaned on
-every node matching the sandbox selector.
+Set `kubernetes.nodeArchive.enabled=true` (environment variable
+`K8S_SANDBOX_NODE_ARCHIVE_ENABLED=true`) to manage node storage across
+lifecycles. The backend then records scheduled nodes and operation generations
+in a deterministic task ConfigMap. Retained starts pin to the newest recorded
+surviving node; hard deletion runs a deterministic cleanup pod on every
+recorded node before deleting the metadata.
 
-The chart also enables `kubernetes.nodeStorageJanitor` by default. It prunes old
-task directories only when their Deployment and retained-archive ConfigMap are
-both absent, so it cannot erase a retained close. `retentionHours` defaults to
-168.
+This opt-in also renders the namespace-scoped ConfigMap RBAC, read-only node
+ClusterRole, and—when `kubernetes.nodeStorageJanitor.enabled=true`—the janitor
+DaemonSet. The janitor removes old task directories only when both their
+Deployment and retained-archive ConfigMap are absent. When node archives are
+disabled, no janitor is deployed and stale hostPath directories require
+operator cleanup.
 
 Declaratively via `.moatless/config.json`, then sync:
 

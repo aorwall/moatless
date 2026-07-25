@@ -1,4 +1,4 @@
-{{- if and .Values.kubernetes.enabled .Values.kubernetes.nodeStorageJanitor.enabled }}
+{{- if and .Values.kubernetes.enabled .Values.kubernetes.nodeArchive.enabled .Values.kubernetes.nodeStorageJanitor.enabled }}
 {{- $sandboxNamespace := include "moatless-vibe.sandboxNamespace" . -}}
 {{- $janitorServiceAccount := printf "%s-node-storage-janitor" (include "moatless-vibe.fullname" .) | trunc 63 | trimSuffix "-" -}}
 apiVersion: v1

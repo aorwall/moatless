@@ -317,10 +317,17 @@ pub struct SandboxConfig {
     /// One of `ebs` / `ephemeral` / `s3` / `node`; unknown values fall back to `ebs`.
     /// A per-repo `storage_mode` always overrides this.
     pub default_storage_mode: String,
-    /// When `true`, closing a task preserves its archives (S3 plus Docker/K8s
-    /// node-local disk) instead of deleting them. This is what makes a closed
-    /// task revivable via `POST /tasks/{id}/reopen` — retained S3 archives are
-    /// restored and retained node archives are pinned on the next provision.
+    /// Whether Kubernetes node-local workspace/Docker archives are tracked and
+    /// managed across pod lifecycles. When disabled, `node` storage still uses
+    /// hostPath volumes, but the backend does not access archive ConfigMaps,
+    /// pin replacements to recorded nodes, or run deterministic node cleanup.
+    /// Env `K8S_SANDBOX_NODE_ARCHIVE_ENABLED` (default: `false`).
+    pub node_archive_enabled: bool,
+    /// When `true`, closing a task preserves its managed archives (S3 plus
+    /// Docker and opt-in K8s node-local disk) instead of deleting them. This is
+    /// what makes a closed task revivable via `POST /tasks/{id}/reopen` —
+    /// retained S3 archives are restored and managed node archives are pinned
+    /// on the next provision.
     /// K8s runtime resources (Deployment/Service/PVC/IngressRoutes) are still
     /// torn down.
     /// Env `SANDBOX_RETAIN_STORAGE_ON_CLOSE` (default: `false`). Permanent
@@ -964,6 +971,7 @@ impl Config {
                 storage_size: env_str("K8S_SANDBOX_STORAGE_SIZE", "3Gi"),
                 storage_class: env_opt("K8S_SANDBOX_STORAGE_CLASS"),
                 default_storage_mode: env_str("K8S_SANDBOX_DEFAULT_STORAGE_MODE", "ebs"),
+                node_archive_enabled: env_bool("K8S_SANDBOX_NODE_ARCHIVE_ENABLED", false),
                 retain_storage_on_close: env_bool("SANDBOX_RETAIN_STORAGE_ON_CLOSE", false),
                 pod_startup_timeout_secs: env_or("K8S_POD_STARTUP_TIMEOUT_SECS", 120),
                 task_token_secret: env_opt("TASK_TOKEN_SECRET"),
@@ -1328,6 +1336,7 @@ impl Config {
             storage_size: "1Gi".into(),
             storage_class: None,
             default_storage_mode: "ebs".into(),
+            node_archive_enabled: false,
             retain_storage_on_close: false,
             pod_startup_timeout_secs: 10,
             task_token_secret: None,

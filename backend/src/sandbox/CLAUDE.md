@@ -99,28 +99,28 @@ ready client, then invoke file methods directly.
 Both native adapters enforce observed absence before strict success and surface
 lingering resources as `RuntimeError::NotAbsent`. `DeleteArchives` removes the
 task's transcript and workspace prefixes through the configured S3 client and
-its provider-local disk directory/hostPaths, only after runtime absence
-succeeds. `RetainArchives` preserves both S3 and disk archives.
+its managed provider-local disk archives, only after runtime absence succeeds.
+`RetainArchives` preserves both S3 and managed disk archives.
 Kubernetes resource modules share the bounded absence poller in `k8s/wait.rs`;
 resource-specific code supplies only its authoritative lookup.
 
-For node-backed Kubernetes archives, `k8s/node_archive.rs` stores observed
-node/generation locations in a deterministic task ConfigMap. Stop/remove
-synchronously merge the current pod location. Replacement pods pin to the
-newest recorded node that still exists; if none survives, start returns a
-retriable infrastructure error instead of mounting an empty hostPath. A hard
-delete runs deterministic root-but-unprivileged cleanup pods on every recorded
-node, awaits success and pod absence, then deletes the ConfigMap. Legacy tasks
-without metadata fan out to sandbox-selector nodes.
+When `K8S_SANDBOX_NODE_ARCHIVE_ENABLED=true`, `k8s/node_archive.rs` stores
+observed node/generation locations in a deterministic task ConfigMap.
+Stop/remove synchronously merge the current pod location. Replacement pods pin
+to the newest recorded node that still exists; hard delete runs deterministic
+cleanup pods on every recorded node, then deletes the ConfigMap. Without the
+flag, node hostPaths remain available as best-effort storage, but the backend
+performs no ConfigMap, placement, or node-cleanup work.
 
 ### K8s resources per sandbox
 Provisioning creates (all labeled `moatless.io/task-id={task_id}`): a
 **Deployment** (enables stop = scale to 0 / start = scale to 1 without
 re-provisioning), its **Pod**, a ClusterIP **Service**, an optional **PVC**, and
 optional **IngressRoute** (Traefik CRD, one per server port, pattern
-`{task_id}--{port}.{proxy_domain}`). Node-backed tasks additionally gain a
-deterministic archive-metadata **ConfigMap** once scheduled. Hard-delete cleanup
-pods deliberately omit the task label so the pod watcher ignores them.
+`{task_id}--{port}.{proxy_domain}`). With node archives enabled, node-backed
+tasks additionally gain a deterministic archive-metadata **ConfigMap** once
+scheduled. Hard-delete cleanup pods deliberately omit the task label so the pod
+watcher ignores them.
 Deployment/Service names are deterministic:
 `moatless-ws-{sanitized_task_id}` (`k8s/naming.rs`, 63-char cap).
 

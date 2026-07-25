@@ -1406,6 +1406,7 @@ mod tests {
                 storage_size: "1Gi".into(),
                 storage_class: None,
                 default_storage_mode: "ebs".into(),
+                node_archive_enabled: false,
                 retain_storage_on_close: false,
                 pod_startup_timeout_secs: 10,
                 task_token_secret: Some("secret".into()),
@@ -1837,10 +1838,11 @@ mod tests {
     }
 
     #[test]
-    fn node_tier_mounts_best_effort_host_path_workspace() {
+    fn node_tier_remains_available_without_archive_management() {
         use crate::repository::models::ResourceConfig;
 
         let mut config = test_config();
+        assert!(!config.sandbox.node_archive_enabled);
         config.sandbox.cache_host_root = "/mnt/cache".into();
         let mut plan = test_plan();
         plan.repo_config.resources = Some(ResourceConfig {
@@ -2199,8 +2201,9 @@ mod tests {
     }
 
     #[test]
-    fn docker_storage_defaults_to_node_host_path() {
+    fn docker_storage_remains_node_backed_without_archive_management() {
         let mut config = test_config();
+        assert!(!config.sandbox.node_archive_enabled);
         config.sandbox.cache_host_root = "/mnt/cache".into();
         let mut plan = test_plan();
         plan.repo_config.docker_access = Some(true);

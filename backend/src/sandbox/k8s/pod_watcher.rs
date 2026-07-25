@@ -56,6 +56,9 @@ use crate::workspace::dao::WorkspaceRepository;
 /// remediation degrades to publishing a `Failed` event / raw scale-to-0).
 #[derive(Clone)]
 struct WatcherDeps {
+    /// Enables ConfigMap-backed node archive tracking for node-local workspace
+    /// and Docker volumes. When false, the watcher performs no archive writes.
+    node_archive_enabled: bool,
     /// Shared durable lifecycle handle — the sole writer of Sandbox intent. The
     /// watcher drives crash auto-stop (`stop`) and auto-disable redeploy
     /// (`redeploy`) through it. `None` in DB-less setups, where crash mitigation
@@ -206,14 +209,16 @@ impl PodObservedState {
 /// 2. If leader, start watching pods.
 /// 3. If not leader, sleep and retry.
 /// 4. On watch stream error, re-enter the leadership loop.
-// reason: the watcher wires eight collaborators (client, publisher, cancel, the
-// crash threshold, and four optional repositories) into one spawned task.
+// reason: the watcher wires nine collaborators (client, publisher, cancel, the
+// crash threshold, archive feature gate, and four optional repositories) into
+// one spawned task.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_pod_lifecycle_watcher(
     k8s: K8sClient,
     event_publisher: Arc<dyn EventPublisher>,
     cancel: CancellationToken,
     max_crash_restart_count: i32,
+    node_archive_enabled: bool,
     lifecycle: Option<Arc<Lifecycle>>,
     tasks: Option<Arc<dyn TaskRepository>>,
     workspaces: Option<Arc<dyn WorkspaceRepository>>,
@@ -229,6 +234,7 @@ pub fn spawn_pod_lifecycle_watcher(
         "Sandbox startup latency in seconds, measured from pod creation to the sandbox container's first Ready"
     );
     let deps = WatcherDeps {
+        node_archive_enabled,
         lifecycle,
         tasks,
         workspaces,
@@ -400,7 +406,8 @@ async fn process_watcher_event(
             // operation generation changes. Watcher persistence is best-effort;
             // start/remove also synchronously merge the current pod before a
             // load-bearing placement or deletion decision.
-            let should_record_node = new_state.node_name.is_some()
+            let should_record_node = deps.node_archive_enabled
+                && new_state.node_name.is_some()
                 && pod_states.get(&pod_name).is_none_or(|previous| {
                     previous.node_name != new_state.node_name
                         || previous.operation_generation != new_state.operation_generation

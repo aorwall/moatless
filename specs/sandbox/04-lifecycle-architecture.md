@@ -93,9 +93,11 @@ Typed surface requirements:
 - `ArchiveRetention::{RetainArchives, DeleteArchives}`: typed policy for S3 and
   provider-local disk archives replacing the bare `retain_storage: bool`;
   runtime resources are always removed. Disk archives are the Docker task
-  directory and Kubernetes node-backed workspace/Docker hostPaths. Persisted
-  alongside `Removed` intent in the same atomic write, so a crashed remove can
-  be retried with the original policy.
+  directory and, when `K8S_SANDBOX_NODE_ARCHIVE_ENABLED=true`, Kubernetes
+  node-backed workspace/Docker hostPaths. Persisted alongside `Removed` intent
+  in the same atomic write, so a crashed remove can be retried with the original
+  policy. With the K8s flag disabled, node hostPaths remain available as
+  best-effort storage but are outside the managed archive obligation.
 - `LifecycleError`: classifiable, not stringly — the reconciler's attempt cap and
   the schedule runner's failure metrics need error classes; HTTP callers map to
   strict failures, background callers to best-effort logging. Includes
@@ -294,10 +296,10 @@ intent and its retention carry.
   retrying, and the delete is idempotent to re-attempt. The Task row and its
   Sandbox row are the durable retry record — never deleted ahead of the
   infrastructure and archives they track. **Removal is strict:** every
-  deletion is load-bearing — Deployment and PVC, S3 archive deletion,
-  Kubernetes node-cleanup pods and metadata, Docker task-directory deletion,
-  and Docker force-removal — so a "successful" remove cannot leave invisible
-  archives behind. **Strict success means
+  deletion is load-bearing — Deployment and PVC, S3 archive deletion, enabled
+  Kubernetes node-archive cleanup and metadata, Docker task-directory deletion,
+  and Docker force-removal. Unmanaged K8s hostPaths are explicitly outside this
+  guarantee and require operator cleanup. **Strict success means
   observed absence, not accepted deletion:** Kubernetes delete calls return
   when the request is accepted, so `remove` awaits actual absence of every
   resource (as `wait_for_pods_deleted` already does for pods) before it
@@ -564,7 +566,9 @@ The interface is the test surface:
   does not succeed; an S3 or disk-archive failure after runtime absence retains
   the remove marker; stale remove markers are never age-cleared; Removed/absent
   with an incomplete marker retries with the persisted retention and
-  generation.
+  generation. Cover both K8s node-archive modes: enabled manages ConfigMap,
+  pinning, and cleanup obligations; disabled performs no archive API calls and
+  leaves hostPath cleanup to the operator.
 - **Correlation matrix:** `RuntimeOperationContext` reaches every adapter
   mutation; K8s restart labels the replacement pod under `Recreate`; Docker
   restart recreates and labels the sandbox container; server-container events

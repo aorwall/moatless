@@ -686,18 +686,25 @@ kubernetes:
   #         PLAYWRIGHT_BROWSERS_PATH: /playwright-cache
   sandboxCacheVolumes: []
   # -- Host root for node-local sandbox caches and best-effort hostPath storage
-  # (`workspaces/<task-id>` and `docker/<task-id>`). The node-storage janitor
-  # prunes old per-task directories under this root.
+  # (`workspaces/<task-id>` and `docker/<task-id>`). When node archive
+  # management is enabled, the janitor prunes old per-task directories here.
   sandboxCacheHostRoot: "/mnt/cache"
+  # -- Manage node-local workspace/Docker archives across pod lifecycles.
+  # When disabled, `node` storage still uses hostPath volumes, but the backend
+  # does not create archive ConfigMaps, pin replacements to recorded nodes, or
+  # run deterministic per-node cleanup. Enabling this also grants the backend
+  # ConfigMap/node-reader RBAC and allows the node-storage janitor to render.
+  nodeArchive:
+    enabled: false
   # -- Image for the privileged `nvme-setup` init container (only used when
   # sandboxCacheVolumes is non-empty). Must be allowlisted by the cluster's
   # restrict-image-registries policy for initContainers (the ECR-mirrored dind
   # ref). Leave empty to use the backend's built-in default.
   sandboxCacheInitImage: ""
-  # -- Janitor that bounds node-local hostPath storage growth. It runs on sandbox
-  # nodes and deletes per-task workspace/docker directories older than
-  # retentionHours. This is best-effort cache cleanup; S3 transcripts/workspaces
-  # remain the durable state.
+  # -- Janitor that bounds managed node-local hostPath storage growth. It renders
+  # only when nodeArchive.enabled is also true, runs on sandbox nodes, and
+  # deletes per-task workspace/docker directories older than retentionHours.
+  # S3 transcripts/workspaces remain the durable state.
   nodeStorageJanitor:
     enabled: true
     # -- Must include /bin/sh, find, awk, basename, sed, and wget with service-
@@ -966,9 +973,6 @@ rbac:
     - apiGroups: [""]
       resources: ["pods/status"]
       verbs: ["get"]
-    - apiGroups: [""]
-      resources: ["configmaps"]
-      verbs: ["create", "delete", "get", "list", "update"]
     - apiGroups: [""]
       resources: ["persistentvolumeclaims"]
       verbs: ["create", "delete", "get", "list"]

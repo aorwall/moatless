@@ -12,6 +12,11 @@ metadata:
     {{- include "moatless-vibe.labels" . | nindent 4 }}
 rules:
   {{- toYaml .Values.rbac.rules | nindent 2 }}
+  {{- if .Values.kubernetes.nodeArchive.enabled }}
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create", "delete", "get", "list", "update"]
+  {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -106,6 +111,7 @@ roleRef:
   kind: Role
   name: {{ include "moatless-vibe.fullname" . }}-observability
   apiGroup: rbac.authorization.k8s.io
+{{- if .Values.kubernetes.nodeArchive.enabled }}
 ---
 # Node-local archive placement needs only node discovery: retained starts
 # select the newest recorded node that still exists, and legacy hard deletion
@@ -135,4 +141,5 @@ roleRef:
   kind: ClusterRole
   name: {{ include "moatless-vibe.fullname" . }}-node-reader
   apiGroup: rbac.authorization.k8s.io
+{{- end }}
 {{- end }}

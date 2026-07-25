@@ -254,6 +254,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 publisher.clone(),
                 cancel.clone(),
                 config.sandbox.max_crash_restart_count,
+                config.sandbox.node_archive_enabled,
                 lifecycle.clone(),
                 sandbox_tasks.clone(),
                 sandbox_workspaces.clone(),

@@ -90,12 +90,12 @@ Notable behaviors:
   the DB (task + repository + credentials). This module also parses the
   repository's server config for the pod watcher; it is not a separate
   lifecycle owner.
-- **Node archive placement** (`k8s/node_archive.rs`): the pod watcher records
-  each scheduled node and operation generation in a deterministic task
-  ConfigMap. A retained `node`-mode start pins the pod to the newest recorded
-  node that still exists. If none of the recorded nodes survives, start
-  returns a retriable infrastructure error instead of mounting a new, empty
-  hostPath.
+- **Node archive placement** (`k8s/node_archive.rs`): when
+  `K8S_SANDBOX_NODE_ARCHIVE_ENABLED=true`, the pod watcher records each
+  scheduled node and operation generation in a deterministic task ConfigMap.
+  A retained `node`-mode start pins the pod to the newest recorded node that
+  still exists. Without the flag, node hostPaths remain available with
+  best-effort Kubernetes placement and no archive API access.
 - **Per-repo resource overrides**: the repository config's `resources` field
   overrides the global CPU/memory requests/limits. Defaults are deliberately
   Burstable: requests 1 CPU / 2Gi, limits 4 CPU / **16Gi** (raised from 8Gi
@@ -312,8 +312,8 @@ by lifecycle and the reconciler.
 | **Stop** | Graceful `StopAgent`, scale Deployment to 0. PVC, Service, Secret, IngressRoutes remain. | Yes — `start` scales back to 1 |
 | **Start** | Scale to 1; auto-provision from DB if resources are missing | — |
 | **Restart** | Delete pods; the Deployment recreates them | — |
-| **Close with retained archives** | Delete all runtime resources, including the PVC, but preserve S3 and provider-local disk archives. In K8s node mode the task archive ConfigMap and hostPath directories remain. | Yes — reopen, then start pins to retained node data |
-| **Cleanup / Delete** | Delete all runtime resources and archives. K8s node archives are removed by deterministic per-node cleanup pods before their metadata ConfigMap is deleted; Docker removes the task directory under `CONTAINER_DATA_DIR`. | No |
+| **Close with retained archives** | Delete all runtime resources, including the PVC, but preserve S3 and provider-local disk archives. Managed K8s node archives keep their ConfigMap and hostPath directories. | Yes — managed node archives pin reopened tasks to retained node data; unmanaged node storage is best-effort |
+| **Cleanup / Delete** | Delete all runtime resources and managed archives. Managed K8s node archives use deterministic per-node cleanup pods before metadata deletion; unmanaged hostPath directories require operator cleanup. Docker removes the task directory under `CONTAINER_DATA_DIR`. | No |
 
 These operations update persisted intent before or as they act: create/start
 and new messages set `running`; user stop sets `stopped/user`; idle reaping
@@ -388,13 +388,14 @@ All read from env at backend startup (`backend/src/config.rs`).
 | `TASK_INACTIVE_TIMEOUT_DAYS` | `7` | Auto-close floor for Open tasks (per-task override; 0 = never) |
 | `SANDBOX_MAX_CRASH_RESTART_COUNT` | `5` | Restarts before crash-loop classification |
 | `SANDBOX_ORPHAN_GC_ENABLED` | `true` | Taskless-resource GC pass |
-| `SANDBOX_RETAIN_STORAGE_ON_CLOSE` | `false` | Preserve S3 and provider-local disk archives on close so an explicit reopen can revive them |
+| `SANDBOX_RETAIN_STORAGE_ON_CLOSE` | `false` | Preserve S3 and managed provider-local disk archives on close so an explicit reopen can revive them |
 
 ### Sandbox storage
 
 | Env var | Default | Meaning |
 |---|---|---|
 | `K8S_SANDBOX_DEFAULT_STORAGE_MODE` | `ebs` | Default K8s workspace mode (`ebs`, `ephemeral`, `s3`, or `node`); per-repository config wins |
+| `K8S_SANDBOX_NODE_ARCHIVE_ENABLED` | `false` | Track node storage in ConfigMaps, pin retained replacements, and clean recorded hostPath directories |
 | `K8S_SANDBOX_CACHE_HOST_ROOT` | `/mnt/cache` | Host root containing `node`-mode `workspaces/<task-id>` and `docker/<task-id>` archives |
 | `CONTAINER_DATA_DIR` | `/data` | Docker provider data root; each task's disk archive is stored below `tasks/<task-id>` |
 

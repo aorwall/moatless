@@ -128,7 +128,9 @@ impl K8sSandboxAdapter {
                         )
                     })?;
                 let retained_node =
-                    if node_archive::deployment_uses_node_archives(&existing_deployment) {
+                    if self.config.sandbox.node_archive_enabled
+                        && node_archive::deployment_uses_node_archives(&existing_deployment)
+                    {
                         node_archive::record_current_pod_nodes(&self.k8s, task_id)
                             .await
                             .map_err(|error| SandboxError::Internal(error.to_string()))?;
@@ -223,7 +225,9 @@ impl K8sSandboxAdapter {
             Some(pod_builder::SandboxAuthTokens::from_minted(&minted_tokens)),
         )
         .map_err(SandboxError::PodBuildError)?;
-        if node_archive::pod_uses_node_archives(&pod) {
+        if self.config.sandbox.node_archive_enabled
+            && node_archive::pod_uses_node_archives(&pod)
+        {
             node_archive::record_current_pod_nodes(&self.k8s, task_id)
                 .await
                 .map_err(|error| SandboxError::Internal(error.to_string()))?;
@@ -333,7 +337,9 @@ impl SandboxRuntime for K8sSandboxAdapter {
                 RuntimeEffect::NoOp
             }
             Ok(Some(existing)) => {
-                if node_archive::deployment_uses_node_archives(&existing) {
+                if self.config.sandbox.node_archive_enabled
+                    && node_archive::deployment_uses_node_archives(&existing)
+                {
                     // Capture the scheduled location before scale-to-zero
                     // removes the only pod that can name the owning node.
                     node_archive::record_current_pod_nodes(&self.k8s, task_id).await?;
@@ -375,20 +381,22 @@ impl SandboxRuntime for K8sSandboxAdapter {
         let existing_deployment = deployment::find_deployment(&self.k8s, task_id)
             .await
             .map_err(|error| map_sandbox_error(SandboxError::KubeError(error)))?;
-        if let Some(existing) = existing_deployment.as_ref() {
-            if node_archive::deployment_uses_node_archives(existing) {
-                node_archive::record_current_pod_nodes(&self.k8s, task_id).await?;
-                let node_name = node_archive::retained_node(&self.k8s, task_id, true)
-                    .await?
-                    .ok_or_else(|| {
-                        crate::sandbox::lifecycle::RuntimeError::Infrastructure(format!(
-                            "retained node archive location is missing for task {task_id}"
-                        ))
-                    })?;
-                deployment::pin_to_node(&self.k8s, task_id, &node_name)
-                    .await
-                    .map_err(|error| map_sandbox_error(SandboxError::KubeError(error)))?;
-            }
+        if self.config.sandbox.node_archive_enabled
+            && existing_deployment
+                .as_ref()
+                .is_some_and(node_archive::deployment_uses_node_archives)
+        {
+            node_archive::record_current_pod_nodes(&self.k8s, task_id).await?;
+            let node_name = node_archive::retained_node(&self.k8s, task_id, true)
+                .await?
+                .ok_or_else(|| {
+                    crate::sandbox::lifecycle::RuntimeError::Infrastructure(format!(
+                        "retained node archive location is missing for task {task_id}"
+                    ))
+                })?;
+            deployment::pin_to_node(&self.k8s, task_id, &node_name)
+                .await
+                .map_err(|error| map_sandbox_error(SandboxError::KubeError(error)))?;
         }
 
         // Scale to 0, wait for the pod to terminate (releasing the RWO PVC),
@@ -413,11 +421,12 @@ impl SandboxRuntime for K8sSandboxAdapter {
         let existing_deployment = deployment::find_deployment(&self.k8s, task_id)
             .await
             .map_err(|error| map_sandbox_error(SandboxError::KubeError(error)))?;
-        node_archive::record_current_pod_nodes(&self.k8s, task_id).await?;
-        if existing_deployment
-            .as_ref()
-            .is_some_and(node_archive::deployment_uses_node_archives)
+        if self.config.sandbox.node_archive_enabled
+            && existing_deployment
+                .as_ref()
+                .is_some_and(node_archive::deployment_uses_node_archives)
         {
+            node_archive::record_current_pod_nodes(&self.k8s, task_id).await?;
             node_archive::retained_node(&self.k8s, task_id, true).await?;
         }
 
@@ -481,13 +490,19 @@ impl SandboxRuntime for K8sSandboxAdapter {
         // Capture the current scheduled node before deleting the Deployment.
         // This synchronous merge is load-bearing; the watcher's write is only a
         // latency optimization and may have failed.
-        let node_removal = node_archive::prepare_remove(
-            &self.k8s,
-            &self.config,
-            task_id,
-            existing_deployment.as_ref(),
-        )
-        .await?;
+        let node_removal = if self.config.sandbox.node_archive_enabled {
+            Some(
+                node_archive::prepare_remove(
+                    &self.k8s,
+                    &self.config,
+                    task_id,
+                    existing_deployment.as_ref(),
+                )
+                .await?,
+            )
+        } else {
+            None
+        };
         let had_runtime =
             existing_deployment.is_some() || pvc::find_task_pvc(&self.k8s, task_id).await.is_some();
         info!(task_id = %task_id, retain_storage, "Cleaning up sandbox (deleting all resources)");
@@ -578,30 +593,40 @@ impl SandboxRuntime for K8sSandboxAdapter {
         }
 
         if retain_storage {
-            // Soft close: keep S3 and node-local archives. The metadata
-            // ConfigMap is intentionally retained so a later node-mode start
-            // pins to the newest surviving location instead of mounting an
-            // empty hostPath elsewhere.
-            info!(
-                task_id = %task_id,
-                recorded_nodes = node_removal.nodes.len(),
-                "Retaining task archives on close (revivable)"
-            );
+            if let Some(node_removal) = &node_removal {
+                // Soft close with managed node archives: retain the metadata so
+                // a later node-mode start pins to the newest surviving location.
+                info!(
+                    task_id = %task_id,
+                    recorded_nodes = node_removal.nodes.len(),
+                    "Retaining task archives on close (revivable)"
+                );
+            } else {
+                // Without archive management the hostPath remains on disk, but
+                // placement is best-effort and no retained-node guarantee exists.
+                info!(
+                    task_id = %task_id,
+                    "Retaining S3 archives; node-local storage is unmanaged"
+                );
+            }
         } else if first_err.is_none() {
             // Delete node-local workspace and Docker archives on every recorded
             // node. Keep driving the other nodes after one failure so a retry
             // has the smallest remaining obligation.
-            for node_name in &node_removal.nodes {
-                if let Err(error) =
-                    node_archive::cleanup_node(&self.k8s, &self.config, task_id, node_name).await
-                {
-                    warn!(
-                        task_id,
-                        node_name,
-                        error = %error,
-                        "Failed to delete node-local task archives"
-                    );
-                    first_err.get_or_insert(error);
+            if let Some(node_removal) = &node_removal {
+                for node_name in &node_removal.nodes {
+                    if let Err(error) =
+                        node_archive::cleanup_node(&self.k8s, &self.config, task_id, node_name)
+                            .await
+                    {
+                        warn!(
+                            task_id,
+                            node_name,
+                            error = %error,
+                            "Failed to delete node-local task archives"
+                        );
+                        first_err.get_or_insert(error);
+                    }
                 }
             }
         }
@@ -622,7 +647,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
                 first_err.get_or_insert(map_sandbox_error(e));
             }
         }
-        if !retain_storage && first_err.is_none() {
+        if self.config.sandbox.node_archive_enabled && !retain_storage && first_err.is_none() {
             // Metadata is the durable node-cleanup obligation. Delete it last,
             // only after every cleanup pod succeeded and disappeared and after
             // the S3 obligations completed.
