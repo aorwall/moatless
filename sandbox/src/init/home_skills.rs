@@ -2,7 +2,8 @@
 //!
 //! The agent's cwd is `workspace_dir`, but the task repo is cloned one level
 //! down at `repo_dir`. Skills are discovered relative to cwd, so a repo that
-//! ships `.claude/skills/` at its root would be invisible with cwd one level up.
+//! ships `.claude/skills/` (or `.agents/skills/`) at its root would be invisible
+//! with cwd one level up.
 //!
 //! Rather than recreate the repo's config surface at the workspace root (which
 //! pollutes cwd and pulls `CLAUDE.md`/`AGENTS.md` into the agent's project
@@ -25,22 +26,40 @@ use tracing::{debug, warn};
 
 use super::dirs::copy_dir_contents;
 
-/// Copy the repo's root `.claude/skills/<name>` subdirs into the home-level skill
-/// directories for Claude (`<claude_config_dir>/skills`) and Codex
-/// (`<codex_home_dir>/skills`). Returns the number of skills copied across both.
+/// Repo-relative skill roots, in precedence order. Both are scanned and merged
+/// so a repo that authors its skills under `.agents/skills` is picked up whether
+/// or not it also exposes them via `.claude/skills` symlinks. Mirrors
+/// `WORKSPACE_SKILL_PREFIXES` in the backend's skill fetcher.
+const REPO_SKILL_ROOTS: [&str; 2] = [".claude/skills", ".agents/skills"];
+
+/// Copy the repo's `<root>/<name>` skill subdirs — for each root in
+/// [`REPO_SKILL_ROOTS`] — into the home-level skill directories for Claude
+/// (`<claude_config_dir>/skills`) and Codex (`<codex_home_dir>/skills`).
+/// Returns the number of skills copied across both.
 pub(crate) fn install_repo_skills_to_home(
     repo_dir: &Path,
     claude_config_dir: &Path,
     codex_home_dir: &Path,
 ) -> usize {
-    let repo_skills = repo_dir.join(".claude").join("skills");
-    if !repo_skills.is_dir() {
+    let repo_skills: Vec<_> = REPO_SKILL_ROOTS
+        .iter()
+        .map(|root| repo_dir.join(root))
+        .filter(|src| src.is_dir())
+        .collect();
+    if repo_skills.is_empty() {
         return 0;
     }
 
     let mut copied = 0usize;
-    copied += copy_repo_skills(&repo_skills, &claude_config_dir.join("skills"));
-    copied += copy_repo_skills(&repo_skills, &codex_home_dir.join("skills"));
+    for dst in [claude_config_dir.join("skills"), codex_home_dir.join("skills")] {
+        // Roots are walked in precedence order per destination, and
+        // `copy_repo_skills` skips names already present — so a skill exposed
+        // under both roots (typically a `.claude/skills/foo` symlink into
+        // `.agents/skills/foo`) is copied once, from `.claude/skills`.
+        for src in &repo_skills {
+            copied += copy_repo_skills(src, &dst);
+        }
+    }
     copied
 }
 
@@ -146,6 +165,58 @@ mod tests {
             fs::read_to_string(claude_cfg.join("skills/foo/SKILL.md")).unwrap(),
             "real",
         );
+    }
+
+    #[test]
+    fn copies_agents_skills_without_any_claude_skills_dir() {
+        // A repo that authors its skills under `.agents/skills` only, with no
+        // `.claude/skills` directory at all.
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        fs::create_dir_all(repo.join(".agents/skills/foo")).unwrap();
+        fs::write(repo.join(".agents/skills/foo/SKILL.md"), "agents").unwrap();
+
+        let claude_cfg = tmp.path().join("home/.claude");
+        let codex_home = tmp.path().join("home/.codex");
+
+        let count = install_repo_skills_to_home(&repo, &claude_cfg, &codex_home);
+        assert_eq!(count, 2);
+        for dst_skills in [claude_cfg.join("skills"), codex_home.join("skills")] {
+            assert_eq!(
+                fs::read_to_string(dst_skills.join("foo/SKILL.md")).unwrap(),
+                "agents",
+            );
+        }
+    }
+
+    #[test]
+    fn merges_both_roots_with_claude_skills_winning() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        // `shared` lives under both roots; `only_agents` under `.agents` alone.
+        fs::create_dir_all(repo.join(".claude/skills/shared")).unwrap();
+        fs::write(repo.join(".claude/skills/shared/SKILL.md"), "claude").unwrap();
+        fs::create_dir_all(repo.join(".agents/skills/shared")).unwrap();
+        fs::write(repo.join(".agents/skills/shared/SKILL.md"), "agents").unwrap();
+        fs::create_dir_all(repo.join(".agents/skills/only_agents")).unwrap();
+        fs::write(repo.join(".agents/skills/only_agents/SKILL.md"), "agents").unwrap();
+
+        let claude_cfg = tmp.path().join("home/.claude");
+        let codex_home = tmp.path().join("home/.codex");
+
+        let count = install_repo_skills_to_home(&repo, &claude_cfg, &codex_home);
+        // 2 distinct skills × 2 home dirs — `shared` is not copied twice.
+        assert_eq!(count, 4);
+        for dst_skills in [claude_cfg.join("skills"), codex_home.join("skills")] {
+            assert_eq!(
+                fs::read_to_string(dst_skills.join("shared/SKILL.md")).unwrap(),
+                "claude",
+            );
+            assert_eq!(
+                fs::read_to_string(dst_skills.join("only_agents/SKILL.md")).unwrap(),
+                "agents",
+            );
+        }
     }
 
     #[test]
