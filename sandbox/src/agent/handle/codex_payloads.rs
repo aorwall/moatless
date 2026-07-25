@@ -228,7 +228,7 @@ fn parse_file_update_kind(raw: &str) -> FileUpdateKind {
     }
 }
 
-fn build_shell_tool_use(cmd: &CommandExecutionItem) -> serde_json::Value {
+pub(crate) fn build_shell_tool_use(cmd: &CommandExecutionItem) -> serde_json::Value {
     let input = CodexShellInput {
         command: cmd.command.clone(),
         cwd: cmd.cwd.clone(),
@@ -237,7 +237,7 @@ fn build_shell_tool_use(cmd: &CommandExecutionItem) -> serde_json::Value {
     serde_json::to_value(input).unwrap_or_else(|_| serde_json::json!({}))
 }
 
-fn build_shell_tool_result(cmd: &CommandExecutionItem) -> (serde_json::Value, String, bool) {
+pub(crate) fn build_shell_tool_result(cmd: &CommandExecutionItem) -> (serde_json::Value, String, bool) {
     let status = command_execution_to_tool_status(cmd.status, cmd.exit_code);
     let is_error = matches!(status, CodexToolStatus::Failed | CodexToolStatus::Declined);
     let summary_text = cmd.aggregated_output.clone().unwrap_or_default();
@@ -252,7 +252,7 @@ fn build_shell_tool_result(cmd: &CommandExecutionItem) -> (serde_json::Value, St
     (value, summary_text, is_error)
 }
 
-fn build_edit_tool_use(edit: &FileChangeItem) -> serde_json::Value {
+pub(crate) fn build_edit_tool_use(edit: &FileChangeItem) -> serde_json::Value {
     let input = CodexEditInput {
         changes: edit
             .changes
@@ -267,7 +267,7 @@ fn build_edit_tool_use(edit: &FileChangeItem) -> serde_json::Value {
     serde_json::to_value(input).unwrap_or_else(|_| serde_json::json!({}))
 }
 
-fn build_edit_tool_result(edit: &FileChangeItem) -> (serde_json::Value, String, bool) {
+pub(crate) fn build_edit_tool_result(edit: &FileChangeItem) -> (serde_json::Value, String, bool) {
     let status = patch_apply_to_tool_status(edit.status);
     let is_error = matches!(status, CodexToolStatus::Failed | CodexToolStatus::Declined);
 
@@ -375,7 +375,7 @@ pub(super) async fn publish_codex_edit_call(
         .await;
 }
 
-fn build_codex_todo_list_input(todo: &TodoListItem) -> CodexTodoListInput {
+pub(crate) fn build_codex_todo_list_input(todo: &TodoListItem) -> CodexTodoListInput {
     CodexTodoListInput {
         items: todo
             .items
@@ -421,7 +421,7 @@ pub(super) async fn publish_codex_todo_list_call(
         .await;
 }
 
-fn build_mcp_tool_use(item: &McpToolCallItem) -> serde_json::Value {
+pub(crate) fn build_mcp_tool_use(item: &McpToolCallItem) -> serde_json::Value {
     let input = CodexMcpInput {
         server: item.server.clone(),
         tool: item.tool.clone(),
@@ -430,7 +430,7 @@ fn build_mcp_tool_use(item: &McpToolCallItem) -> serde_json::Value {
     serde_json::to_value(input).unwrap_or_else(|_| serde_json::json!({}))
 }
 
-fn build_mcp_tool_result(item: &McpToolCallItem) -> (serde_json::Value, String, bool) {
+pub(crate) fn build_mcp_tool_result(item: &McpToolCallItem) -> (serde_json::Value, String, bool) {
     let status = mcp_to_tool_status(item.status);
     let is_error = matches!(status, CodexToolStatus::Failed) || item.error.is_some();
 
@@ -504,7 +504,7 @@ pub(super) async fn publish_codex_mcp_call(
         .await;
 }
 
-fn build_collab_tool_use(item: &CollabToolCallItem) -> serde_json::Value {
+pub(crate) fn build_collab_tool_use(item: &CollabToolCallItem) -> serde_json::Value {
     let input = CodexCollabInput {
         tool: map_collab_tool(item.tool),
         sender_thread_id: item.sender_thread_id.clone(),
@@ -515,7 +515,7 @@ fn build_collab_tool_use(item: &CollabToolCallItem) -> serde_json::Value {
     serde_json::to_value(input).unwrap_or_else(|_| serde_json::json!({}))
 }
 
-fn build_collab_tool_result(item: &CollabToolCallItem) -> (serde_json::Value, String, bool) {
+pub(crate) fn build_collab_tool_result(item: &CollabToolCallItem) -> (serde_json::Value, String, bool) {
     let status = collab_to_tool_status(item.status);
     let agents_states = map_collab_agents_states(&item.agents_states);
     let any_errored = agents_states

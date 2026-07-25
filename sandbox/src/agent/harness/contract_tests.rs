@@ -19,6 +19,7 @@ fn assistant_block(source: &str, message: &str, session: &str, text: &str) -> So
         parent_tool_use_id: None,
         role: Role::Assistant,
         block: serde_json::json!({ "type": "text", "text": text }),
+        tool_use_result: None,
         usage: None,
         model: None,
         diagnostics: None,

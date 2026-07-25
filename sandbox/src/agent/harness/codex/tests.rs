@@ -72,7 +72,7 @@ fn thread_started_yields_session_ready_then_input_accepted() {
 }
 
 #[test]
-fn agent_message_and_reasoning_are_ordered_assistant_blocks() {
+fn agent_message_and_reasoning_are_ordered_assistant_text_blocks() {
     let mut p = process();
     p.absorb(parse(r#"{"type":"thread.started","thread_id":"t"}"#));
     drain(&mut p);
@@ -85,10 +85,10 @@ fn agent_message_and_reasoning_are_ordered_assistant_blocks() {
     let events = drain(&mut p);
     let s = sources(&events);
     assert_eq!(s.len(), 2);
-    // Native meaning is preserved verbatim in the block, in native order.
-    assert_eq!(s[0].block["type"], "reasoning");
+    // Reasoning and prose both normalize to renderable assistant text, in order.
+    assert_eq!(s[0].block["type"], "text");
     assert_eq!(s[0].block["text"], "think");
-    assert_eq!(s[1].block["type"], "agent_message");
+    assert_eq!(s[1].block["type"], "text");
     assert_eq!(s[1].block["text"], "hi");
     assert!(s.iter().all(|e| e.role == Role::Assistant));
     assert_ne!(s[0].source_id, s[1].source_id);
@@ -96,7 +96,7 @@ fn agent_message_and_reasoning_are_ordered_assistant_blocks() {
 }
 
 #[test]
-fn every_item_family_keeps_its_observable_meaning() {
+fn every_item_family_normalizes_to_canonical_blocks() {
     let mut p = process();
     p.absorb(parse(r#"{"type":"thread.started","thread_id":"t"}"#));
     drain(&mut p);
@@ -113,22 +113,50 @@ fn every_item_family_keeps_its_observable_meaning() {
     }
     let events = drain(&mut p);
     let s = sources(&events);
-    assert_eq!(s.len(), 6);
-    assert_eq!(s[0].block["type"], "command_execution");
-    assert_eq!(s[0].block["command"], "ls");
-    assert_eq!(s[0].block["exit_code"], 0);
-    assert_eq!(s[1].block["type"], "file_change");
-    assert_eq!(s[1].block["changes"][0]["path"], "/a.py");
-    assert_eq!(s[1].block["changes"][0]["diff"], "+x");
-    assert_eq!(s[2].block["type"], "mcp_tool_call");
-    assert_eq!(s[2].block["server"], "db");
-    assert_eq!(s[2].block["result"]["content"][0]["text"], "ok");
-    assert_eq!(s[3].block["type"], "collab_tool_call");
-    assert_eq!(s[3].block["sender_thread_id"], "main");
-    assert_eq!(s[4].block["type"], "web_search");
-    assert_eq!(s[4].block["query"], "rust");
-    assert_eq!(s[5].block["type"], "error");
-    assert_eq!(s[5].block["message"], "warned");
+    // Four tool families each expand to tool_use + tool_result; web_search is a
+    // lone tool_use; the non-fatal error becomes assistant text.
+    assert_eq!(s.len(), 10);
+
+    // command_execution → codex.shell tool_use + tool_result carrying the typed result.
+    assert_eq!(s[0].block["type"], "tool_use");
+    assert_eq!(s[0].block["name"], "codex.shell");
+    assert_eq!(s[0].block["input"]["command"], "ls");
+    assert_eq!(s[0].role, Role::Assistant);
+    assert!(s[0].tool_use_result.is_none());
+    assert_eq!(s[1].block["type"], "tool_result");
+    assert_eq!(s[1].block["tool_use_id"], s[0].block["id"]);
+    assert_eq!(s[1].block["is_error"], false);
+    assert_eq!(s[1].role, Role::User);
+    let shell_result = s[1].tool_use_result.as_ref().expect("typed shell result");
+    assert_eq!(shell_result["status"], "completed");
+    assert_eq!(shell_result["exitCode"], 0);
+
+    // file_change → codex.edit.
+    assert_eq!(s[2].block["name"], "codex.edit");
+    assert_eq!(s[2].block["input"]["changes"][0]["path"], "/a.py");
+    assert_eq!(s[3].block["type"], "tool_result");
+    assert!(s[3].tool_use_result.is_some());
+
+    // mcp_tool_call → codex.mcp_tool_call, typed result reflects the completion.
+    assert_eq!(s[4].block["name"], "codex.mcp_tool_call");
+    assert_eq!(s[4].block["input"]["server"], "db");
+    assert_eq!(s[5].tool_use_result.as_ref().unwrap()["status"], "completed");
+
+    // collab_tool_call → codex.collab_tool_call.
+    assert_eq!(s[6].block["name"], "codex.collab_tool_call");
+    assert_eq!(s[6].block["input"]["senderThreadId"], "main");
+    assert_eq!(s[7].block["type"], "tool_result");
+
+    // web_search → a lone codex.web_search tool_use (no result concept).
+    assert_eq!(s[8].block["type"], "tool_use");
+    assert_eq!(s[8].block["name"], "codex.web_search");
+    assert_eq!(s[8].block["input"]["query"], "rust");
+
+    // A non-fatal error item renders as assistant text.
+    assert_eq!(s[9].block["type"], "text");
+    assert_eq!(s[9].block["text"], "warned");
+    assert_eq!(s[9].role, Role::Assistant);
+
     // No diagnostics for known families.
     assert!(s.iter().all(|e| e.diagnostics.is_none()));
 }
@@ -176,8 +204,10 @@ fn todo_list_progress_updates_share_a_stable_source_id() {
     // Stable id across the running-plan updates so the backend upserts in place.
     assert_eq!(s[0].source_id, s[1].source_id);
     assert_eq!(s[1].source_id, s[2].source_id);
-    assert_eq!(s[0].block["items"][0]["completed"], false);
-    assert_eq!(s[2].block["items"][0]["completed"], true);
+    // Each emission is a codex.todo_list tool_use whose input tracks completion.
+    assert_eq!(s[0].block["name"], "codex.todo_list");
+    assert_eq!(s[0].block["input"]["items"][0]["completed"], false);
+    assert_eq!(s[2].block["input"]["items"][0]["completed"], true);
 }
 
 #[test]
@@ -536,6 +566,17 @@ async fn e2e_codex_turn_through_the_harness() {
     if let Ok(path) = std::env::var("SANDBOX_CODEX_EXECUTABLE_PATH") {
         config.codex_cli_path = path;
     }
+    // Point the CLI at the real credentials/home so it authenticates instead of
+    // hanging on an interactive login against the throwaway test home.
+    if let Ok(codex_home) = std::env::var("CODEX_HOME") {
+        config.codex_home_dir = codex_home;
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        config.home_dir = home;
+    }
+    if let Ok(model) = std::env::var("DEFAULT_CODEX_MODEL") {
+        config.default_codex_model = Some(model);
+    }
 
     let cfg = CodexConfig {
         config: Arc::new(config),
@@ -546,18 +587,28 @@ async fn e2e_codex_turn_through_the_harness() {
     harness
         .submit(Input::text(
             "in-1",
-            "What is 2+2? Reply with only the number.",
+            "Run the shell command `echo hello-from-codex` and then tell me its output.",
         ))
         .await
         .expect("submit input");
 
-    let (mut started, mut accepted, mut sources) = (false, false, 0usize);
+    let (mut started, mut accepted) = (false, false);
+    let mut blocks: Vec<serde_json::Value> = Vec::new();
     let mut outcome = None;
     while let Some(signal) = harness.next_signal().await {
         match signal {
             Signal::ExecutionStarted { .. } => started = true,
             Signal::InputAccepted { .. } => accepted = true,
-            Signal::Source(_) => sources += 1,
+            Signal::Source(event) => {
+                eprintln!(
+                    "SOURCE role={:?} type={} name={} tool_use_result={}",
+                    event.role,
+                    event.block["type"].as_str().unwrap_or("?"),
+                    event.block["name"].as_str().unwrap_or("-"),
+                    event.tool_use_result.is_some(),
+                );
+                blocks.push(event.block.clone());
+            }
             Signal::ExecutionFinished { outcome: finished } => {
                 outcome = Some(finished);
                 break;
@@ -568,9 +619,31 @@ async fn e2e_codex_turn_through_the_harness() {
 
     assert!(started, "expected ExecutionStarted");
     assert!(accepted, "expected InputAccepted");
-    assert!(sources > 0, "expected at least one source block");
+    assert!(!blocks.is_empty(), "expected at least one source block");
     assert!(
         matches!(outcome, Some(Outcome::Completed)),
         "expected Completed, got {outcome:?}"
+    );
+
+    // Every emitted block must be a canonical Anthropic-shaped block the UI can
+    // render — never a raw native Codex type.
+    let types: std::collections::HashSet<&str> = blocks
+        .iter()
+        .filter_map(|b| b["type"].as_str())
+        .collect();
+    eprintln!("DISTINCT BLOCK TYPES: {types:?}");
+    for raw in ["agent_message", "command_execution", "reasoning", "file_change"] {
+        assert!(!types.contains(raw), "raw native block type leaked: {raw}");
+    }
+    for b in &blocks {
+        let ty = b["type"].as_str().unwrap_or("");
+        assert!(
+            matches!(ty, "text" | "tool_use" | "tool_result" | "turn_result"),
+            "non-canonical block type: {ty}"
+        );
+    }
+    assert!(
+        blocks.iter().any(|b| b["type"] == "text"),
+        "expected at least one assistant text block"
     );
 }

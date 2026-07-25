@@ -17,6 +17,10 @@ use super::signal::{Input, InputId, SessionId};
 use super::source::SourceEvent;
 
 /// One scripted step the process yields, in order, from [`AgentProcess::next`].
+// reason: mirrors `ProcessEvent`, which carries one canonical `SourceEvent` by
+// value; boxing only the `Block` variant of this test scaffold would diverge from
+// the type it scripts.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum Step {
     /// Report the process ready with a known Session identity (an execution

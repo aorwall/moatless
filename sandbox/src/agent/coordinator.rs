@@ -515,6 +515,11 @@ fn message_payload(event: &SourceEvent, block_index: usize) -> Value {
     if let Some(parent) = &event.parent_tool_use_id {
         payload["parent_tool_use_id"] = json!(parent);
     }
+    // A tool_result block carries its typed result at the payload top level, where
+    // the backend reads it (`toolUseResult`) to enrich the UI's rendered output.
+    if let Some(tool_use_result) = &event.tool_use_result {
+        payload["toolUseResult"] = tool_use_result.clone();
+    }
     payload
 }
 

@@ -26,6 +26,11 @@ pub(crate) enum ProcessTermination {
 /// A raw event from an Agent process, before the ordering driver applies the
 /// external contract (execution-start gating, early-output buffering, and the
 /// exactly-one-terminal guarantee).
+// reason: the process/signal seam deliberately carries one canonical `SourceEvent`
+// by value throughout (`Signal::Source` and the driver's early-buffer `Vec` do the
+// same); boxing only the `Block` variant would be inconsistent and add an
+// allocation per content block on the hot path.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ProcessEvent {
     /// The process is ready and its real Session identity is known. Reports an

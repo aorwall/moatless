@@ -80,6 +80,7 @@ impl Normalizer {
             parent_tool_use_id: meta.parent_tool_use_id.clone(),
             role: meta.role,
             block: serde_json::to_value(block).unwrap_or(serde_json::Value::Null),
+            tool_use_result: None,
             usage: meta.usage.clone(),
             model: meta.model.clone(),
             diagnostics: None,

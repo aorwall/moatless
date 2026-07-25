@@ -35,6 +35,7 @@ use super::signal::{Input, InputId, SessionId};
 
 use self::normalize::Normalizer;
 
+mod blocks;
 mod classify;
 mod normalize;
 
@@ -100,6 +101,15 @@ impl CodexProcess {
             .is_some_and(CodexCliSession::is_cancelled)
     }
 
+    /// Normalize one native item into its canonical block(s) and append each as
+    /// a `ProcessEvent::Block` in native order (a tool item expands to a tool_use
+    /// plus its paired tool_result).
+    fn push_item_blocks(&mut self, item: &crate::agent::codex_exec::ThreadItem) {
+        for source in self.normalizer.item_sources(item) {
+            self.pending.push_back(ProcessEvent::Block(source));
+        }
+    }
+
     /// Turn one Codex event into zero or more `ProcessEvent`s, appended to the
     /// pending queue in native order. The one-shot lifecycle: `thread.started`
     /// proves the process is up (Session known + input accepted at spawn), and a
@@ -131,15 +141,11 @@ impl CodexProcess {
             // family commits its single block on `item.completed`.
             CodexExecEvent::ItemStarted(event) | CodexExecEvent::ItemUpdated(event) => {
                 if matches!(event.item.details, ThreadItemDetails::TodoList(_)) {
-                    self.pending.push_back(ProcessEvent::Block(
-                        self.normalizer.item_source(&event.item),
-                    ));
+                    self.push_item_blocks(&event.item);
                 }
             }
             CodexExecEvent::ItemCompleted(event) => {
-                self.pending.push_back(ProcessEvent::Block(
-                    self.normalizer.item_source(&event.item),
-                ));
+                self.push_item_blocks(&event.item);
             }
             CodexExecEvent::TurnCompleted(event) => {
                 // Retain the turn-level usage as a canonical source block before

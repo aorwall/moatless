@@ -11,10 +11,11 @@
 //! --resume`, so a per-spawn nonce is mixed into each `source_id` to keep two
 //! blocks from ever colliding across process replacement.
 
-use crate::agent::codex_exec::{ThreadItem, ThreadItemDetails, Usage};
+use crate::agent::codex_exec::{ThreadItem, Usage};
 
 use super::super::signal::SessionId;
 use super::super::source::{NativeMessageId, Role, SourceEvent, SourceId};
+use super::blocks;
 
 /// Upper bound on retained native diagnostics for an unknown item block.
 const MAX_DIAGNOSTIC_BYTES: usize = 2000;
@@ -59,31 +60,57 @@ impl Normalizer {
         format!("{}_{}_{native}", session.0, self.nonce)
     }
 
-    /// Canonical source event for one native Codex item. The block is the exact
-    /// native JSON; unknown item kinds additionally retain bounded diagnostics so
-    /// an upstream CLI addition is never silently discarded.
-    pub(super) fn item_source(&self, item: &ThreadItem) -> SourceEvent {
+    /// Canonical source events for one native Codex item, in native order. Each
+    /// native family is mapped to the `text` / `tool_use` / `tool_result` blocks
+    /// the backend assembler and UI understand (a tool item expands to a
+    /// tool_use plus a paired tool_result in its own user Message). An unknown
+    /// kind is forwarded as its raw native block with bounded diagnostics so an
+    /// upstream CLI addition is never silently discarded.
+    pub(super) fn item_sources(&self, item: &ThreadItem) -> Vec<SourceEvent> {
         let session = self.session_or(&item.id);
         let qualified = self.qualify(&session, &item.id);
-        let diagnostics = match &item.details {
-            ThreadItemDetails::Other { .. } => Some(bounded(&item.raw)),
-            _ => None,
+
+        let Some(blocks) = blocks::item_blocks(&item.details, &qualified) else {
+            // Unknown kind: preserve the raw native block, flagged with bounded
+            // diagnostics.
+            return vec![SourceEvent {
+                source_id: SourceId(qualified.clone()),
+                message_id: NativeMessageId(qualified),
+                session,
+                parent_tool_use_id: None,
+                role: Role::Assistant,
+                block: item.raw.clone(),
+                tool_use_result: None,
+                usage: None,
+                model: self.model.clone(),
+                diagnostics: Some(bounded(&item.raw)),
+            }];
         };
-        SourceEvent {
-            source_id: SourceId(qualified.clone()),
-            message_id: NativeMessageId(qualified),
-            session,
-            // Codex items carry no per-item parent tool attribution; collab
-            // relationships ride inside the item block itself.
-            parent_tool_use_id: None,
-            role: Role::Assistant,
-            block: item.raw.clone(),
-            // Codex reports usage once per turn, not per item — carried on the
-            // turn-result source event instead.
-            usage: None,
-            model: self.model.clone(),
-            diagnostics,
-        }
+
+        blocks
+            .into_iter()
+            .map(|canonical| {
+                // A tool_result lands in its own Message (`{id}_result`) so it is
+                // grouped and role-assigned separately from the tool_use.
+                let id = format!("{qualified}{}", canonical.id_suffix);
+                SourceEvent {
+                    source_id: SourceId(id.clone()),
+                    message_id: NativeMessageId(id),
+                    session: session.clone(),
+                    // Codex items carry no per-item parent tool attribution; collab
+                    // relationships ride inside the item block itself.
+                    parent_tool_use_id: None,
+                    role: canonical.role,
+                    block: canonical.block,
+                    tool_use_result: canonical.tool_use_result,
+                    // Codex reports usage once per turn, not per item — carried on
+                    // the turn-result source event instead.
+                    usage: None,
+                    model: self.model.clone(),
+                    diagnostics: None,
+                }
+            })
+            .collect()
     }
 
     /// Canonical source event for a completed turn, carrying the turn-level usage
@@ -99,6 +126,7 @@ impl Normalizer {
             parent_tool_use_id: None,
             role: Role::System,
             block: serde_json::json!({ "type": "turn_result" }),
+            tool_use_result: None,
             usage: Some(serde_json::json!({
                 "input_tokens": usage.input_tokens,
                 "output_tokens": usage.output_tokens,

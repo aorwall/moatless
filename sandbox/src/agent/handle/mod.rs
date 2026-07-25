@@ -18,7 +18,7 @@
 mod actor;
 mod claude;
 mod codex;
-mod codex_payloads;
+pub(crate) mod codex_payloads;
 pub(crate) mod credential_recovery;
 pub(crate) mod retry;
 pub(crate) mod session;

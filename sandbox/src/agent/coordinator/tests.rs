@@ -127,6 +127,7 @@ fn block(message_id: &str, block: serde_json::Value, role: Role) -> SourceEvent 
         parent_tool_use_id: None,
         role,
         block,
+        tool_use_result: None,
         usage: None,
         model: None,
         diagnostics: None,
@@ -285,6 +286,52 @@ async fn per_block_message_payload_matches_backend_assembly_contract() {
     assert_eq!(messages[1]["blockIndex"], 1);
     assert_eq!(messages[1]["message"]["content"][0]["type"], "tool_use");
     assert_eq!(messages[1]["message"]["content"][0]["name"], "Bash");
+}
+
+#[tokio::test]
+async fn tool_result_block_surfaces_typed_result_at_payload_top_level() {
+    let (events, received, _cancel) = recording_publisher();
+    let mut result = block(
+        "msg-r",
+        serde_json::json!({
+            "type": "tool_result",
+            "tool_use_id": "t1",
+            "content": "ok",
+            "is_error": false,
+        }),
+        Role::User,
+    );
+    result.tool_use_result = Some(serde_json::json!({ "status": "completed", "exitCode": 0 }));
+    let script = Script::new(vec![
+        Step::SessionReady(SessionId("sess-1".to_string())),
+        Step::AcceptInput,
+        Step::Block(result),
+        Step::Completed,
+    ]);
+    let mut coord = Coordinator::new(Harness::scripted(script), events.clone(), "task-1");
+    let (ack_tx, _ack_rx) = oneshot::channel();
+    coord
+        .submit(Input::text("in-1", "hi"), ack_tx)
+        .await
+        .expect("submit");
+    coord.pump_one_execution().await;
+    flush(&events).await;
+
+    let message = received
+        .lock()
+        .expect("lock")
+        .iter()
+        .filter(|r| r.sub_type == "message")
+        .map(|r| serde_json::from_str::<serde_json::Value>(&r.payload_json).expect("json"))
+        .next()
+        .expect("a message event");
+    // The typed result rides at the payload top level (`toolUseResult`), where the
+    // backend reads it to enrich the rendered tool output, separate from the
+    // block's own summary `content`.
+    assert_eq!(message["toolUseResult"]["status"], "completed");
+    assert_eq!(message["toolUseResult"]["exitCode"], 0);
+    assert_eq!(message["message"]["role"], "user");
+    assert_eq!(message["message"]["content"][0]["type"], "tool_result");
 }
 
 #[tokio::test]

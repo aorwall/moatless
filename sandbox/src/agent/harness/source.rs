@@ -45,6 +45,10 @@ pub struct SourceEvent {
     pub role: Role,
     /// The single canonical content block, as native JSON.
     pub block: serde_json::Value,
+    /// Typed tool result surfaced at the payload top level (`toolUseResult`) for
+    /// backend enrichment of a `tool_result` block — e.g. a Codex `CodexShellResult`
+    /// the UI renders as command output. `None` for every non-result block.
+    pub tool_use_result: Option<serde_json::Value>,
     /// Usage exactly as reported on this block (repeated usage is preserved for
     /// backend admission, never coalesced in the harness).
     pub usage: Option<serde_json::Value>,
