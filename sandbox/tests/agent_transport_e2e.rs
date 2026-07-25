@@ -377,7 +377,7 @@ async fn run_agent_roundtrip(use_tmux: bool) {
         "expected a non-empty session id"
     );
 
-    wait_until_not_running(&agent_state, Duration::from_secs(120), "roundtrip").await;
+    wait_until_not_running(&agent_state, Duration::from_mins(2), "roundtrip").await;
 
     let error = agent_state.last_error().await;
     assert!(error.is_none(), "agent finished with error: {error:?}");
@@ -424,7 +424,7 @@ async fn run_codex_roundtrip() {
     );
 
     // Codex's first turn (cold auth + model warmup) can be slower than Claude.
-    wait_until_not_running(&agent_state, Duration::from_secs(180), "codex roundtrip").await;
+    wait_until_not_running(&agent_state, Duration::from_mins(3), "codex roundtrip").await;
 
     let error = agent_state.last_error().await;
     assert!(
@@ -463,7 +463,7 @@ async fn run_agent_resume(use_tmux: bool) {
         .session_id;
     assert!(!session_id.is_empty(), "expected a non-empty session id");
 
-    wait_until_not_running(&agent_state, Duration::from_secs(120), "turn 1").await;
+    wait_until_not_running(&agent_state, Duration::from_mins(2), "turn 1").await;
     let error = agent_state.last_error().await;
     assert!(error.is_none(), "turn 1 finished with error: {error:?}");
 
@@ -490,7 +490,7 @@ async fn run_agent_resume(use_tmux: bool) {
         "expected a non-empty resumed session id"
     );
 
-    wait_until_not_running(&agent_state, Duration::from_secs(120), "turn 2").await;
+    wait_until_not_running(&agent_state, Duration::from_mins(2), "turn 2").await;
 
     let error = agent_state.last_error().await;
     assert!(
@@ -526,7 +526,7 @@ async fn run_agent_multi_turn(use_tmux: bool) {
         .session_id;
     assert!(!session_id.is_empty(), "expected a non-empty session id");
 
-    wait_until_not_running(&agent_state, Duration::from_secs(120), "turn 1").await;
+    wait_until_not_running(&agent_state, Duration::from_mins(2), "turn 1").await;
     let error = agent_state.last_error().await;
     assert!(error.is_none(), "turn 1 finished with error: {error:?}");
 
@@ -549,7 +549,7 @@ async fn run_agent_multi_turn(use_tmux: bool) {
         "turn 2 must run in the same persistent session"
     );
 
-    wait_until_not_running(&agent_state, Duration::from_secs(120), "turn 2").await;
+    wait_until_not_running(&agent_state, Duration::from_mins(2), "turn 2").await;
     let error = agent_state.last_error().await;
     assert!(error.is_none(), "turn 2 finished with error: {error:?}");
     assert_eq!(agent_state.status().await, AgentStatus::Idle);
@@ -597,7 +597,7 @@ async fn run_agent_internal_wakeup(use_tmux: bool) {
         .session_id;
     assert!(!session_id.is_empty(), "expected a non-empty session id");
 
-    wait_until_not_running(&agent_state, Duration::from_secs(120), "turn 1").await;
+    wait_until_not_running(&agent_state, Duration::from_mins(2), "turn 1").await;
     let error = agent_state.last_error().await;
     assert!(error.is_none(), "turn 1 finished with error: {error:?}");
     assert_eq!(count("EVENT_TYPE_AGENT/completed"), 1, "turn 1 completed");
@@ -605,7 +605,7 @@ async fn run_agent_internal_wakeup(use_tmux: bool) {
     // The CLI clamps `delaySeconds` to a 60s minimum (next minute boundary,
     // so up to ~2min), then fires the wakeup turn inside the live TUI. Wait
     // for the actor to surface it as a full second turn cycle.
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(240);
+    let deadline = tokio::time::Instant::now() + Duration::from_mins(4);
     loop {
         if count("EVENT_TYPE_AGENT/completed") >= 2 {
             break;

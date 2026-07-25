@@ -1,7 +1,7 @@
 //! A deterministic scripted Agent process for lifecycle tests.
 //!
 //! This is the mock adapter role for the private [`AgentProcess`] port. It lets
-//! contract tests drive Session starts, source blocks, activity, failures, EOF,
+//! contract tests drive Session starts, source blocks, failures, EOF,
 //! and cancellation through the real [`super::Harness`] interface without a CLI.
 //! The interface under test is the external command/signal seam, not this type —
 //! tests construct a [`Script`] and pass it to [`super::Harness::scripted`].
@@ -13,7 +13,7 @@ use tokio::sync::{Mutex, Notify};
 
 use super::error::HarnessError;
 use super::process::{AgentProcess, ProcessEvent, ProcessTermination};
-use super::signal::{Activity, Input, InputId, SessionId};
+use super::signal::{Input, InputId, SessionId};
 use super::source::SourceEvent;
 
 /// One scripted step the process yields, in order, from [`AgentProcess::next`].
@@ -36,8 +36,6 @@ pub enum Step {
     AwaitInput,
     /// Emit one native content block.
     Block(SourceEvent),
-    /// Emit liveness / tool-progress activity.
-    Activity(Activity),
     /// Terminate normally.
     Completed,
     /// Terminate with a classified failure.
@@ -127,17 +125,15 @@ impl ScriptedProcess {
 #[async_trait::async_trait]
 impl AgentProcess for ScriptedProcess {
     async fn submit(&mut self, input: Input) -> Result<(), HarnessError> {
-        match self.submit_error.take() {
-            Some(error) => Err(error),
-            None => {
-                if let Some(recorder) = &self.recorder {
-                    recorder.lock().await.push(input.clone());
-                }
-                self.inputs.push_back(input.id);
-                self.submit_notify.notify_one();
-                Ok(())
-            }
+        if let Some(error) = self.submit_error.take() {
+            return Err(error);
         }
+        if let Some(recorder) = &self.recorder {
+            recorder.lock().await.push(input.clone());
+        }
+        self.inputs.push_back(input.id);
+        self.submit_notify.notify_one();
+        Ok(())
     }
 
     async fn cancel(&mut self) {
@@ -196,7 +192,6 @@ impl AgentProcess for ScriptedProcess {
                     Some(ProcessEvent::InputAccepted { input })
                 }
                 Step::Block(block) => Some(ProcessEvent::Block(block)),
-                Step::Activity(activity) => Some(ProcessEvent::Activity(activity)),
                 Step::Completed => Some(ProcessEvent::Terminated {
                     termination: ProcessTermination::Completed,
                 }),

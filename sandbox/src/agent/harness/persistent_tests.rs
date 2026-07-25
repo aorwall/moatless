@@ -376,7 +376,7 @@ async fn eof_mid_execution_is_a_process_exit() {
         Signal::ExecutionFinished {
             outcome: Outcome::Failed(err),
         } => {
-            assert_eq!(err.class, ErrorClass::ProcessExit)
+            assert_eq!(err.class, ErrorClass::ProcessExit);
         }
         other => panic!("expected ExecutionFinished(Failed ProcessExit), got {other:?}"),
     }
@@ -410,7 +410,7 @@ async fn started_execution_stream_failure_finishes_failed_once() {
         Signal::ExecutionFinished {
             outcome: Outcome::Failed(err),
         } => {
-            assert_eq!(err.class, ErrorClass::NativeProtocol)
+            assert_eq!(err.class, ErrorClass::NativeProtocol);
         }
         other => panic!("expected ExecutionFinished(Failed), got {other:?}"),
     }

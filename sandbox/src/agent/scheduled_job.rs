@@ -348,7 +348,7 @@ mod tests {
             "toolu_wake_2".to_string(),
             "long build".to_string(),
             "should not fire".to_string(),
-            Instant::now() + Duration::from_secs(60),
+            Instant::now() + Duration::from_mins(1),
         );
         let registered = registry.register(Box::new(job), run_cancel.clone()).await;
         assert!(registered);
@@ -382,7 +382,7 @@ mod tests {
             "toolu_wake_5".to_string(),
             "first".to_string(),
             "first prompt".to_string(),
-            Instant::now() + Duration::from_secs(60),
+            Instant::now() + Duration::from_mins(1),
         );
         registry.register(Box::new(first), run_cancel.clone()).await;
 
@@ -401,7 +401,7 @@ mod tests {
             "toolu_wake_6".to_string(),
             "second".to_string(),
             "second prompt".to_string(),
-            Instant::now() + Duration::from_secs(60),
+            Instant::now() + Duration::from_mins(1),
         );
         registry
             .register(Box::new(second), run_cancel.clone())
@@ -498,13 +498,13 @@ mod tests {
             "toolu_dupe".to_string(),
             "r".to_string(),
             "p".to_string(),
-            Instant::now() + Duration::from_secs(60),
+            Instant::now() + Duration::from_mins(1),
         );
         let second = WakeupJob::new_for_test(
             "toolu_dupe".to_string(),
             "r2".to_string(),
             "p2".to_string(),
-            Instant::now() + Duration::from_secs(60),
+            Instant::now() + Duration::from_mins(1),
         );
 
         assert!(registry.register(Box::new(first), run_cancel.clone()).await);

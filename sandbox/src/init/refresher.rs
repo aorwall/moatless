@@ -316,6 +316,6 @@ mod tests {
         handle.await.unwrap();
 
         let calls = backend.call_count.load(Ordering::SeqCst);
-        assert!(calls >= 3, "expected at least 3 refresh calls, got {calls}",);
+        assert!(calls >= 3, "expected at least 3 refresh calls, got {calls}");
     }
 }

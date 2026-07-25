@@ -729,9 +729,10 @@ async fn coordinator_service_submit_completed_sets_idle_and_publishes_completed(
         if types.contains(&"completed".to_string()) {
             break;
         }
-        if tokio::time::Instant::now() >= deadline {
-            panic!("completed event not published within 5 s; got {types:?}");
-        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "completed event not published within 5 s; got {types:?}"
+        );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 
@@ -784,9 +785,10 @@ async fn coordinator_service_failed_execution_sets_error_on_agent_state() {
         if types.contains(&"error".to_string()) {
             break;
         }
-        if tokio::time::Instant::now() >= deadline {
-            panic!("error event not published within 5 s; got {types:?}");
-        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "error event not published within 5 s; got {types:?}"
+        );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 
@@ -863,9 +865,10 @@ async fn coordinator_service_retryable_failure_retries_then_completes() {
             !types.contains(&"error".to_string()),
             "retryable failure must not publish a terminal error; got {types:?}"
         );
-        if tokio::time::Instant::now() >= deadline {
-            panic!("retried turn did not complete within 30 s; got {types:?}");
-        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "retried turn did not complete within 30 s; got {types:?}"
+        );
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
 
@@ -977,12 +980,11 @@ async fn coordinator_service_arms_and_fires_scheduled_wakeup() {
         {
             break;
         }
-        if tokio::time::Instant::now() >= deadline {
-            panic!(
-                "wakeup prompt was not injected within 5 s; got {:?}",
-                injected.lock().expect("lock")
-            );
-        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "wakeup prompt was not injected within 5 s; got {:?}",
+            injected.lock().expect("lock")
+        );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 
@@ -1112,12 +1114,11 @@ async fn start_turn_and_wait_running(
         if sub_types(received).contains(&"session_init".to_string()) {
             break;
         }
-        if tokio::time::Instant::now() >= deadline {
-            panic!(
-                "turn did not start within 5 s; got {:?}",
-                sub_types(received)
-            );
-        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "turn did not start within 5 s; got {:?}",
+            sub_types(received)
+        );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
@@ -1300,12 +1301,11 @@ async fn coordinator_service_cancel_token_delivers_single_stopped() {
         if sub_types(&received).contains(&"stopped".to_string()) {
             break;
         }
-        if tokio::time::Instant::now() >= deadline {
-            panic!(
-                "stopped not published within 5 s; got {:?}",
-                sub_types(&received)
-            );
-        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "stopped not published within 5 s; got {:?}",
+            sub_types(&received)
+        );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     flush(&events).await;
@@ -1505,9 +1505,10 @@ async fn wait_until<F: Fn() -> bool>(events: &GrpcEventPublisher, cond: F, what:
         if cond() {
             return;
         }
-        if tokio::time::Instant::now() >= deadline {
-            panic!("timed out waiting for {what}");
-        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "timed out waiting for {what}"
+        );
         tokio::time::sleep(Duration::from_millis(30)).await;
     }
 }

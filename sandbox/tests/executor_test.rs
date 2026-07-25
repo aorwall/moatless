@@ -369,7 +369,7 @@ async fn redispatch_skipped_when_circuit_breaker_active() {
 
     // Advance well past the redispatch backoff. The gate must skip the
     // re-fetch, so the count stays at the initial dispatch's single fetch.
-    tokio::time::sleep(Duration::from_secs(60)).await;
+    tokio::time::sleep(Duration::from_mins(1)).await;
 
     assert_eq!(
         backend.get_pending_count(),
