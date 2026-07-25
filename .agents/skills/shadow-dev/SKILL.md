@@ -95,13 +95,14 @@ The plain sandbox image recompiles all deps on every provision (~6–10 min).
 `docker/Dockerfile.sandbox-dev` bakes warm caches — the cargo target + crate
 registry (so only changed workspace crates recompile, ~1–2 min) and bun's global
 install cache (so provision-time `bun install` links node_modules offline and the
-frontend dev server starts fast). CI publishes it as `moatless-dev:latest` via an
+frontend dev server starts fast). CI publishes it to Docker Hub as
+`aorwall/moatless-dev:dev` (plus `:latest` and `:sha-<short>`) via an
 **on-demand** job — the `Build dev sandbox image` workflow
 (`.github/workflows/build-dev-image.yml`), run manually from the Actions tab (not
 part of push-to-main). Normally just point the shadow repo at it:
 
 ```bash
-moat repos update <shadow_repo_id> --docker-image <ecr-registry>/moatless-dev:latest
+moat repos update <shadow_repo_id> --docker-image aorwall/moatless-dev:dev
 ```
 
 To build it by hand:

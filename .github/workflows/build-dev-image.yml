@@ -10,13 +10,14 @@
 # cd-ecr.yml flow — because the dev image is a heavy (multi-GB) build used only
 # by the opt-in shadow repo. Run it by hand from the Actions tab when the base
 # sandbox image or the shadow-dev dependency set has meaningfully changed. It
-# publishes `moatless-dev:latest` (mutable), which the shadow repo's dockerImage
-# points at, so a rebuild is picked up on the next provision with no config wiring.
+# publishes mutable `:dev` and `:latest` tags, which the shadow workspace's
+# dockerImage points at, so a rebuild is picked up on the next provision with no
+# config wiring.
 #
-# OIDC trust: GHA-ECRPush-moatless, which trusts this repo AND the reusable
-# workflow ref (build-push-ecr.yml@refs/heads/main). See soaplabs/soap-infra
-# `terraform/platform/ecr/services.yaml` (moatless-dev is in the moatless
-# service's ecr_repos).
+# Publishes to the Docker Hub REGISTRY_ORG namespace (defaults to `aorwall`,
+# same convention as build-sandbox-images.yml) — NOT to ECR. Pushing therefore
+# needs only the DOCKERHUB_* secrets with write access to that namespace; no
+# AWS OIDC and no GITHUB_TOKEN package scopes are involved.
 
 name: Build dev sandbox image
 
@@ -28,13 +29,18 @@ on:
         type: string
         default: 'latest'
       dev-tag:
-        description: 'Tag to publish moatless-dev as (also always tagged latest)'
+        description: 'Tag to publish moatless-dev as (also always tagged latest + sha-<short>)'
         type: string
-        default: 'latest'
+        default: 'dev'
 
 permissions:
   contents: read
-  id-token: write
+
+env:
+  # Registry org segment. Override per-fork via repo variable `REGISTRY_ORG`
+  # (Settings → Secrets and variables → Actions → Variables). Defaults to
+  # `aorwall` so upstream CI keeps working with no configuration.
+  REGISTRY_ORG: ${{ vars.REGISTRY_ORG || 'aorwall' }}
 
 concurrency:
   group: build-dev-image
@@ -42,19 +48,72 @@ concurrency:
 
 jobs:
   publish-sandbox-dev:
-    # Fork-only: targets soaplabs ECR. Off on aorwall/moatless.
-    if: github.repository == 'soaplabs/moatless-vibe'
-    uses: soaplabs/soap-platform-ci/.github/workflows/build-push-ecr.yml@main
-    with:
-      service-name: moatless
-      ecr-repository: moatless-dev
-      image-tag: ${{ inputs.dev-tag }}
-      dockerfile: docker/Dockerfile.sandbox-dev
-      tag-latest: true
-      build-args: |
-        SANDBOX_IMAGE=111111111111.dkr.ecr.eu-north-1.amazonaws.com/moatless-sandbox:${{ inputs.sandbox-tag }}
-        SOURCE_COMMIT=${{ github.sha }}
-      cache-mode: gha
-    secrets:
-      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+    name: Build & push moatless-dev
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      # The image bakes a full release cargo target dir + crate registry, which
+      # overruns the ~14 GB free on a stock ubuntu-latest runner. Reclaim the
+      # preinstalled toolchains we don't use before building.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup
+          df -h /
+
+      - name: Compute image refs
+        id: refs
+        env:
+          DEV_IMAGE: ${{ env.REGISTRY_ORG }}/moatless-dev
+          DEV_TAG: ${{ inputs.dev-tag }}
+          BASE_IMAGE: ${{ env.REGISTRY_ORG }}/moatless-sandbox:${{ inputs.sandbox-tag }}
+        run: |
+          SHORT="${GITHUB_SHA::7}"
+          {
+            echo "base-image=${BASE_IMAGE}"
+            echo "latest=${DEV_IMAGE}:latest"
+            echo "tag-list=${DEV_IMAGE}:${DEV_TAG}, ${DEV_IMAGE}:latest, ${DEV_IMAGE}:sha-${SHORT}"
+            echo "tags<<EOF"
+            echo "${DEV_IMAGE}:${DEV_TAG}"
+            echo "${DEV_IMAGE}:latest"
+            echo "${DEV_IMAGE}:sha-${SHORT}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Registry (inline) cache rather than type=gha: the exported layers here
+      # are multi-GB and would evict the sandbox-* GHA cache entries that the
+      # push-to-main build-sandbox-images.yml run depends on.
+      - name: Build and push moatless-dev
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          file: docker/Dockerfile.sandbox-dev
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.refs.outputs.tags }}
+          build-args: |
+            SANDBOX_IMAGE=${{ steps.refs.outputs.base-image }}
+            SOURCE_COMMIT=${{ github.sha }}
+          cache-from: type=registry,ref=${{ steps.refs.outputs.latest }}
+          cache-to: type=inline
+
+      - name: Summarize
+        if: always()
+        run: |
+          {
+            echo "## moatless-dev"
+            echo ""
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| base | \`${{ steps.refs.outputs.base-image }}\` |"
+            echo "| pushed | \`${{ steps.refs.outputs.tag-list }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
