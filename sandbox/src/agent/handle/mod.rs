@@ -591,26 +591,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn build_harness_selects_the_fixed_family_for_each_supported_type() {
-        use crate::agent::harness::HarnessFamily;
-        // `config.agent_type` selects the fixed production adapter: Codex -> Codex,
-        // every Claude variant -> Claude (tmux or subprocess). Asserting the
-        // composed family catches a mis-routed adapter, which mere construction
-        // would not.
-        for (agent_type, use_tmux, expected) in [
-            ("codex", false, HarnessFamily::Codex),
-            ("claude-code", false, HarnessFamily::Claude),
-            ("claude-code", true, HarnessFamily::Claude),
-            ("claude-code-cli", false, HarnessFamily::Claude),
+    async fn build_harness_constructs_each_supported_selection() {
+        // Every supported (agent_type, transport) composes a harness rather than
+        // panicking or erroring; the routing decision itself — which family each
+        // raw type collapses to — is asserted by the `resolve_agent_harness` tests
+        // below (the single source of truth `build_harness` matches on). The
+        // behavioural proof that the composed adapter is the intended family is an
+        // E2E concern (it requires actually running the CLI), covered in the
+        // gated `agent_e2e` fixed-selection test rather than by inspecting a
+        // private tag here.
+        for (agent_type, use_tmux) in [
+            ("codex", false),
+            ("claude-code", false),
+            ("claude-code", true),
+            ("claude-code-cli", false),
         ] {
             let (config, agent_state, failures) = harness_inputs(use_tmux);
-            let harness = build_harness(&config, &agent_state, &failures, agent_type)
-                .unwrap_or_else(|_| panic!("{agent_type} (tmux={use_tmux}) should construct"));
-            assert_eq!(
-                harness.family(),
-                expected,
-                "{agent_type} (tmux={use_tmux}) must compose its fixed family"
-            );
+            // `Harness` has no `Debug`, so match rather than `expect`.
+            if build_harness(&config, &agent_state, &failures, agent_type).is_err() {
+                panic!("{agent_type} (tmux={use_tmux}) should construct");
+            }
         }
     }
 

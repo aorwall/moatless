@@ -13,7 +13,6 @@
 //! from the moment the pod starts, so a call that races `run_init` is dropped
 //! (the messages stay pending and `run_init` dispatches them after restoration).
 
-use std::sync::Arc;
 use std::time::Duration;
 
 use tracing::{info, warn};
@@ -153,52 +152,40 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
     );
 
     if !uuids.is_empty() {
-        let task_id = task_id.to_string();
-        let backend = Arc::clone(&state.backend_client);
         let redelivery_state = state.clone();
         tokio::spawn(async move {
             // Held from the fetch above until the ack below prunes the rows.
             // Released before any re-dispatch, which re-acquires the same lock.
             let dispatch_guard = dispatch_guard;
-            let Ok(ack) = ack_rx.await else {
+            // Bound the wait for harness acceptance against shutdown, so a
+            // stopping pod that never reports acceptance does not pin the guard.
+            let ack = tokio::select! {
+                result = ack_rx => result,
+                () = redelivery_state.lifecycle_cancel.cancelled() => {
+                    info!("Dispatch ack wait aborted — sandbox is shutting down");
+                    drop(dispatch_guard);
+                    return;
+                }
+            };
+            let Ok(ack) = ack else {
                 warn!("Agent ack channel dropped — messages not acknowledged");
                 drop(dispatch_guard);
                 schedule_redispatch(redelivery_state).await;
                 return;
             };
-            // The harness has already accepted this Input, so the Message must not
-            // be resubmitted — only the ack RPC may still fail. Retry it (bounded,
-            // backoff, cancellation-aware) while holding the guard, so a waiting
-            // dispatcher cannot re-fetch and re-run the already-accepted Message
-            // during the ack outage.
-            let mut attempt = 1u32;
-            loop {
-                match backend
-                    .acknowledge_messages(&task_id, uuids.clone(), &ack.session_id, &ack.run_id)
-                    .await
-                {
-                    Ok(()) => break,
-                    Err(e) if attempt >= MAX_ACK_ATTEMPTS => {
-                        warn!(error = %e, attempt, "Giving up acknowledging messages after retries");
-                        break;
-                    }
-                    Err(e) => {
-                        warn!(error = %e, attempt, "Failed to acknowledge messages, retrying");
-                        tokio::select! {
-                            () = tokio::time::sleep(ACK_RETRY_BACKOFF) => {}
-                            () = redelivery_state.lifecycle_cancel.cancelled() => {
-                                info!("Acknowledgement retry aborted — sandbox is shutting down");
-                                return;
-                            }
-                        }
-                        attempt += 1;
-                    }
-                }
-            }
+            // The harness has already accepted this Input, so the Message must
+            // never be resubmitted — only the ack RPC may still fail. Retry it
+            // until it lands or the pod stops (a failed ack is never treated as
+            // success), holding the guard throughout so a waiting dispatcher
+            // cannot re-fetch and re-run the already-accepted Message.
+            let acked =
+                acknowledge_until_settled(&redelivery_state, uuids, &ack.session_id, &ack.run_id)
+                    .await;
             drop(dispatch_guard);
             // Messages held back by the start_fresh split are now the only
-            // pending ones, so re-dispatching picks up exactly those.
-            if deferred > 0 {
+            // pending ones — re-dispatch them, but only once this batch is
+            // durably acked and not while the pod is shutting down.
+            if acked && deferred > 0 {
                 schedule_dispatch(redelivery_state).await;
             }
         });
@@ -230,11 +217,11 @@ fn split_at_start_fresh(
 /// definitively, without hammering `GetPendingMessages` in a tight loop.
 const REDISPATCH_BACKOFF: Duration = Duration::from_secs(15);
 
-/// Bounded retries for the post-acceptance acknowledgement RPC. The harness has
-/// already accepted the Input, so the batch is never resubmitted — only the ack
-/// is re-attempted while the dispatch guard is held, so a waiter cannot re-run
-/// the accepted Message during a transient backend/ack outage.
-const MAX_ACK_ATTEMPTS: u32 = 5;
+/// Backoff between post-acceptance acknowledgement retries. The harness has
+/// already accepted the Input (or the prompt has already been answered), so the
+/// batch is never resubmitted — only the ack is re-attempted, and it is retried
+/// until it lands or the pod stops (a failed ack is never treated as success),
+/// so a waiter can never re-run the accepted Message during a transient outage.
 const ACK_RETRY_BACKOFF: Duration = Duration::from_secs(2);
 
 /// Skip re-dispatch once the agent has accumulated this many consecutive
@@ -277,6 +264,9 @@ fn schedule_redispatch(
 }
 
 /// Resolve a pending interactive prompt with the first pending message.
+///
+/// Runs under the dispatch guard held by the caller, so the prompt Message is
+/// answered and acknowledged before any concurrent dispatcher can re-fetch it.
 async fn resolve_pending_prompt(state: &SandboxState) {
     let task_id = &state.config.task_id;
 
@@ -288,23 +278,38 @@ async fn resolve_pending_prompt(state: &SandboxState) {
         }
     };
 
-    if proto_messages.is_empty() {
-        return;
-    }
-
     let Some(prompt_message) = proto_messages.first() else {
         return;
     };
     let prompt_response_uuid = prompt_message.uuid.clone();
     let has_remaining_messages = proto_messages.len() > 1;
 
+    // The answer joins the run that asked the question, so it is acknowledged
+    // against that run's identity. Resolve it *before* consuming the prompt:
+    // without it the answer cannot be acknowledged, and answering-then-failing-
+    // to-ack would leave the row pending to be re-fetched later as ordinary
+    // input (with no prompt outstanding). A pending prompt implies an active
+    // run, so this is present in practice; if it is somehow absent, leave the
+    // prompt and message pending for a later pass rather than answering
+    // unacknowledgeably.
+    let (Some(session_id), Some(run_id)) = (
+        state.agent.last_session_id().await,
+        state.agent.current_run_id().await,
+    ) else {
+        warn!(
+            task_id = %task_id,
+            "Cannot resolve prompt without an active run identity — leaving it pending"
+        );
+        return;
+    };
+
     let Some(prompt) = state.agent.take_pending_prompt().await else {
-        // Prompt was already consumed between our check and take —
-        // fall through to normal dispatch
+        // The prompt was consumed elsewhere between the guard's check and here,
+        // so this is no longer a prompt answer. Re-dispatch the messages through
+        // the normal acked path (spawned so it re-acquires the guard we still
+        // hold) rather than submitting unacknowledged input.
         info!("Pending prompt was already consumed, dispatching normally");
-        let text = extract_text_from_messages(&proto_messages);
-        // Drop the ack receiver — no UUIDs to acknowledge in this race path
-        drop(state.agent_handle.send(text, None, None, None, None, false));
+        tokio::spawn(schedule_dispatch(state.clone()));
         return;
     };
 
@@ -331,12 +336,14 @@ async fn resolve_pending_prompt(state: &SandboxState) {
     }
 
     if let Some(uuid) = prompt_response_uuid {
-        acknowledge_prompt_messages(state, vec![uuid]).await;
+        // Same post-acceptance ack policy as ordinary messages: retry until the
+        // ack lands or the pod stops, never converting the answered prompt into
+        // a re-run or an ordinary Agent input.
+        acknowledge_until_settled(state, vec![uuid], &session_id, &run_id).await;
     }
 
     if has_remaining_messages {
-        let state = state.clone();
-        tokio::spawn(schedule_dispatch(state));
+        tokio::spawn(schedule_dispatch(state.clone()));
     }
 }
 
@@ -348,31 +355,60 @@ fn schedule_dispatch(
     })
 }
 
-async fn acknowledge_prompt_messages(state: &SandboxState, uuids: Vec<String>) {
+/// Acknowledge accepted messages, retrying until the RPC lands or the sandbox
+/// shuts down. The harness has already accepted the Input (ordinary message) or
+/// the prompt has already been answered, so the batch is never resubmitted —
+/// only the ack is re-attempted. The caller holds the dispatch guard across the
+/// whole retry, so a waiting dispatcher cannot re-fetch and re-run the accepted
+/// Message (or re-submit an answered prompt as ordinary input) during a
+/// transient ack outage; and because a failed ack is never treated as success,
+/// the row is never dropped back to "pending" for a later notification to re-run.
+///
+/// Each RPC and each backoff is raced against lifecycle cancellation. Returns
+/// `true` once the ack lands; `false` only when cancellation interrupted it —
+/// the pod is stopping, so the still-pending row is left for the replacement
+/// pod's post-restore dispatch (the existing cross-pod at-least-once path).
+async fn acknowledge_until_settled(
+    state: &SandboxState,
+    uuids: Vec<String>,
+    session_id: &str,
+    run_id: &str,
+) -> bool {
     if uuids.is_empty() {
-        return;
+        return true;
     }
-
-    let (Some(session_id), Some(run_id)) = (
-        state.agent.last_session_id().await,
-        state.agent.current_run_id().await,
-    ) else {
-        warn!(
-            task_id = %state.config.task_id,
-            count = uuids.len(),
-            "Cannot acknowledge prompt response messages without an active run"
-        );
-        return;
-    };
-
-    // The response joins the run that asked the question, so it lands on that
-    // run's turn.
-    if let Err(e) = state
-        .backend_client
-        .acknowledge_messages(&state.config.task_id, uuids, &session_id, &run_id)
-        .await
-    {
-        warn!(error = %e, "Failed to acknowledge prompt response messages");
+    let mut attempt = 1u32;
+    loop {
+        let ack = tokio::select! {
+            result = state.backend_client.acknowledge_messages(
+                &state.config.task_id,
+                uuids.clone(),
+                session_id,
+                run_id,
+            ) => result,
+            () = state.lifecycle_cancel.cancelled() => {
+                info!("Acknowledgement aborted mid-RPC — sandbox is shutting down");
+                return false;
+            }
+        };
+        match ack {
+            Ok(()) => return true,
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    attempt,
+                    "Failed to acknowledge messages, retrying until acked or shutdown"
+                );
+                tokio::select! {
+                    () = tokio::time::sleep(ACK_RETRY_BACKOFF) => {}
+                    () = state.lifecycle_cancel.cancelled() => {
+                        info!("Acknowledgement retry aborted — sandbox is shutting down");
+                        return false;
+                    }
+                }
+                attempt += 1;
+            }
+        }
     }
 }
 

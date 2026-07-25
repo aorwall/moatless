@@ -80,28 +80,12 @@ fn supervise(handle: tokio::task::JoinHandle<()>) {
     });
 }
 
-/// The fixed adapter family a [`Harness`] was constructed with. Test-only: it
-/// lets the construction seam prove `config.agent_type` selects the intended
-/// production adapter (ticket: fixed harness selection across replacement),
-/// which is otherwise unobservable because the process type is private.
-#[cfg(test)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum HarnessFamily {
-    Claude,
-    Codex,
-    Scripted,
-}
-
 /// The deep Agent-harness module. Construction fixes the implementation for the
 /// Sandbox lifetime; the type is concrete, so there is no public harness trait.
 pub struct Harness {
     submit_tx: mpsc::Sender<Input>,
     cancel_tx: mpsc::Sender<()>,
     signal_rx: mpsc::Receiver<Signal>,
-    /// The fixed adapter family, recorded so a test can assert which production
-    /// process `build_harness` composed. Test-only — see [`HarnessFamily`].
-    #[cfg(test)]
-    family: HarnessFamily,
 }
 
 impl Harness {
@@ -130,7 +114,6 @@ impl Harness {
             submit_tx,
             cancel_tx,
             signal_rx,
-            family: HarnessFamily::Scripted,
         }
     }
 
@@ -157,7 +140,6 @@ impl Harness {
             submit_tx,
             cancel_tx,
             signal_rx,
-            family: HarnessFamily::Scripted,
         }
     }
 
@@ -182,7 +164,6 @@ impl Harness {
             submit_tx,
             cancel_tx,
             signal_rx,
-            family: HarnessFamily::Scripted,
         }
     }
 
@@ -204,7 +185,6 @@ impl Harness {
             submit_tx,
             cancel_tx,
             signal_rx,
-            family: HarnessFamily::Scripted,
         }
     }
 
@@ -225,8 +205,6 @@ impl Harness {
             submit_tx,
             cancel_tx,
             signal_rx,
-            #[cfg(test)]
-            family: HarnessFamily::Claude,
         }
     }
 
@@ -249,8 +227,6 @@ impl Harness {
             submit_tx,
             cancel_tx,
             signal_rx,
-            #[cfg(test)]
-            family: HarnessFamily::Codex,
         }
     }
 
@@ -273,17 +249,7 @@ impl Harness {
             submit_tx,
             cancel_tx,
             signal_rx,
-            #[cfg(test)]
-            family: HarnessFamily::Claude,
         }
-    }
-
-    /// The fixed adapter family this harness was constructed with. Test-only —
-    /// lets the construction seam assert `build_harness` composed the intended
-    /// production process.
-    #[cfg(test)]
-    pub(crate) fn family(&self) -> HarnessFamily {
-        self.family
     }
 
     /// Submit input. Awaits channel capacity (explicit backpressure); errors only

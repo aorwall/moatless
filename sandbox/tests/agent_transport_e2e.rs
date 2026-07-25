@@ -40,7 +40,11 @@ use std::time::Duration;
 
 use moatless_sandbox::agent::agent_state::AgentState;
 use moatless_sandbox::agent::handle::{spawn_agent, AgentHandle};
-use moatless_sandbox::agent::types::AgentStatus;
+use moatless_sandbox::agent::harness::{
+    ClaudeConfig, ErrorClass, Harness, HarnessError, Input, Outcome, Rejection, SessionImpact,
+    Signal,
+};
+use moatless_sandbox::agent::types::{AgentStatus, ResumeSession};
 use moatless_sandbox::backend_client::BackendClient;
 use moatless_sandbox::config::{AgentConfig, Config, ProxyConfig};
 use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
@@ -665,6 +669,89 @@ async fn test_spawn_agent_subprocess() {
         return;
     }
     run_agent_roundtrip(false).await;
+}
+
+/// The causal CLI-spawn join for the missing/corrupt-restore → `Lost` chain
+/// (Sandbox-recovery testing decision, restore.rs link 1→2): a restore that
+/// leaves no session on disk, then a real `--resume` against that now-absent
+/// transcript, must have the *production* Claude harness classify the CLI's
+/// startup failure as `(UnavailableSession, Lost)` — not merely start a fresh
+/// session. The classification is unit-tested in `claude::classify`; this drives
+/// the real binary so the spawn→classify join is exercised end to end, closing
+/// the gap that the three deterministic links were previously disconnected facts.
+async fn run_missing_session_resume_is_lost() {
+    let tmp = TempDir::new().expect("create tempdir");
+    for sub in ["workspace", "data", "uploads", "home/.claude", "claude-config"] {
+        std::fs::create_dir_all(tmp.path().join(sub)).expect("create dir");
+    }
+    let config = test_config(&tmp, false);
+
+    let mut harness = Harness::claude(ClaudeConfig {
+        config: Arc::new(config),
+        agent_state: Arc::new(AgentState::new()),
+        agent_type: Some("claude-code".to_string()),
+    });
+
+    // A syntactically valid session id that has no transcript on disk — the fresh
+    // `claude-config` dir above holds no sessions, so the resume target is absent.
+    harness
+        .submit(Input {
+            resume: Some(ResumeSession::WithId(
+                "00000000-0000-0000-0000-000000000000".to_string(),
+            )),
+            ..Input::text("resume-missing", "Continue the prior conversation.")
+        })
+        .await
+        .expect("submit to open harness");
+
+    // The startup failure surfaces as a classified error, whether the harness
+    // rejects the input pre-start or the opened execution fails.
+    let err = tokio::time::timeout(Duration::from_secs(90), async {
+        while let Some(signal) = harness.next_signal().await {
+            match signal {
+                Signal::InputRejected {
+                    reason: Rejection::Failed(err),
+                    ..
+                }
+                | Signal::ExecutionFinished {
+                    outcome: Outcome::Failed(err),
+                } => return err,
+                other => eprintln!("resume-missing: intermediate signal {other:?}"),
+            }
+        }
+        panic!("harness closed without a classified failure for the absent resume");
+    })
+    .await
+    .expect("resume-missing classification timed out");
+
+    let HarnessError {
+        class,
+        session_impact,
+        diagnostic,
+        ..
+    } = err;
+    assert_eq!(
+        session_impact,
+        SessionImpact::Lost,
+        "resuming an absent transcript must classify the Session as Lost (got {diagnostic})"
+    );
+    assert_eq!(
+        class,
+        ErrorClass::UnavailableSession,
+        "an absent resume target is an unavailable Session (got {diagnostic})"
+    );
+}
+
+/// Missing-restore → `Lost` causal join over the real CLI. Gated on
+/// `CLAUDE_SDK_E2E=1` (spawns `claude --resume` against an absent transcript).
+#[tokio::test]
+#[ignore]
+async fn test_missing_session_resume_classifies_lost() {
+    if std::env::var("CLAUDE_SDK_E2E").as_deref() != Ok("1") {
+        eprintln!("Skipping missing-resume E2E test (set CLAUDE_SDK_E2E=1 to run)");
+        return;
+    }
+    run_missing_session_resume_is_lost().await;
 }
 
 /// Codex CLI transport (`codex exec --json` subprocess). Gated on `CODEX_E2E=1`.

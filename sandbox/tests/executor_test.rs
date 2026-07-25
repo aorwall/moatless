@@ -430,14 +430,21 @@ async fn prompt_response_acknowledges_consumed_message() {
 }
 
 #[tokio::test]
-async fn prompt_response_without_session_is_not_acknowledged() {
+async fn prompt_without_run_identity_is_left_pending_not_answered_unackably() {
+    // A pending prompt with no resolvable run identity (session + run id) cannot
+    // be acknowledged. Answering it anyway is the BLOCKER this ticket closes:
+    // the answered row would stay pending and be re-fetched later as ordinary
+    // Agent input. So the dispatcher leaves the prompt and its message untouched
+    // for a later pass rather than answering unacknowledgeably. (In production a
+    // pending prompt always has an active run, so this is a defensive edge; the
+    // safe disposition is to not answer.)
     let backend = Arc::new(MockBackendClient::new(vec![vec![make_text_message(
         "yes, proceed",
         Some("prompt-reply-1"),
     )]]));
     let state = test_state(Arc::clone(&backend) as _);
 
-    let (tx, rx) = tokio::sync::oneshot::channel();
+    let (tx, mut rx) = tokio::sync::oneshot::channel();
     state
         .agent
         .set_pending_prompt(PendingPrompt {
@@ -450,13 +457,17 @@ async fn prompt_response_without_session_is_not_acknowledged() {
     moatless_sandbox::agent::dispatcher::dispatch_pending_messages(state.clone()).await;
 
     assert!(
-        rx.await.is_ok(),
-        "prompt response should still be delivered"
+        rx.try_recv().is_err(),
+        "an unacknowledgeable prompt must not be answered"
+    );
+    assert!(
+        state.agent.has_pending_prompt().await,
+        "the prompt stays pending for a later pass, not consumed"
     );
     assert_eq!(
         backend.ack_count(),
         0,
-        "cannot acknowledge without a session id"
+        "nothing is acknowledged without a session id"
     );
 }
 
