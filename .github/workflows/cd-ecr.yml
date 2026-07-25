@@ -76,12 +76,18 @@ jobs:
       promotion-image-tag-paths: ${{ steps.compute.outputs.promotion-image-tag-paths }}
       rust-packages: ${{ steps.compute.outputs.rust-packages }}
       rust-package-key: ${{ steps.compute.outputs.rust-package-key }}
+      claude-cli-version: ${{ steps.versions.outputs.CLAUDE_CLI_VERSION }}
+      codex-cli-version: ${{ steps.versions.outputs.CODEX_CLI_VERSION }}
     steps:
       # fetch-depth: 0 so `git describe --tags` can see the v* release history
       # used to compute the next monotonic semver on push-to-main.
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 0
+      # CLI versions baked into the sandbox image — single source of truth in
+      # docker/cli-versions.env, passed to Dockerfile.sandbox-soap as build-args.
+      - id: versions
+        run: grep -E '^[A-Z_]+=' docker/cli-versions.env >> "$GITHUB_OUTPUT"
       - id: compute
         env:
           INPUT_TAG: ${{ inputs.tag }}
@@ -706,6 +712,9 @@ jobs:
       binary-artifact-name: sandbox-binaries
       binary-context-name: binaries
       cache-mode: inline-registry
+      build-args: |
+        CLAUDE_CLI_VERSION=${{ needs.setup.outputs.claude-cli-version }}
+        CODEX_CLI_VERSION=${{ needs.setup.outputs.codex-cli-version }}
     # Sandbox base (aorwall/moatless-sandbox-base) + golang build stages all
     # pull from docker.io — the most rate-limit-exposed of the three images.
     secrets:

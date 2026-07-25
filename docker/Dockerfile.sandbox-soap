@@ -25,9 +25,10 @@ RUN git clone --depth 1 --branch ${TASK_VERSION} https://github.com/go-task/task
 
 FROM ${SANDBOX_BASE}
 
-# Override the Codex CLI version baked into the upstream sandbox-base.
-# Bump this when newer Codex models (e.g. gpt-5.5) need a CLI past what
-# upstream has shipped — avoids waiting on an upstream base rebuild.
+# Reinstall the Codex CLI so the fork's ECR image gets the pinned version even
+# though it does not build sandbox-base itself (that workflow is gated to the
+# aorwall repo). Version comes from docker/cli-versions.env via --build-arg
+# (cd-ecr.yml); the default below is an inert fallback.
 #
 # Do NOT re-run `ln -sf "$(which codex)" /usr/local/bin/codex` here: the base
 # layer already established that symlink to npm's bin path (`/usr/bin/codex`),
@@ -35,23 +36,19 @@ FROM ${SANDBOX_BASE}
 # `which codex` at this layer's build time would find the existing
 # `/usr/local/bin/codex` symlink first (PATH order), producing a self-loop
 # and ELOOP at runtime ("Too many levels of symbolic links").
-# renovate: datasource=npm depName=@openai/codex
-ARG CODEX_CLI_VERSION=0.144.3
+ARG CODEX_CLI_VERSION=0.145.0
 RUN npm install -g "@openai/codex@${CODEX_CLI_VERSION}" \
     && (codex --version 2>/dev/null || echo "unknown") > /opt/moatless/.codex-cli-version
 
-# Override the Claude Code CLI version baked into the upstream sandbox-base.
-# Bump this when a newer model alias (e.g. `fable`, added in 2.1.170) needs a
-# CLI past what upstream has shipped — avoids waiting on an upstream base
-# rebuild. The fork does not build sandbox-base itself (that workflow is gated
-# to the aorwall repo), so without this the deployed CLI stays at the base's
-# pinned version.
+# Reinstall the Claude Code CLI so the fork's ECR image gets the pinned version
+# even though it does not build sandbox-base itself (that workflow is gated to
+# the aorwall repo). Version comes from docker/cli-versions.env via --build-arg
+# (cd-ecr.yml); the default below is an inert fallback.
 #
 # Do NOT re-run `ln -sf "$(which claude)" /usr/local/bin/claude` here — same
 # self-loop/ELOOP hazard as the Codex note above; npm replaces the binary at the
 # existing symlink target.
-# renovate: datasource=npm depName=@anthropic-ai/claude-code
-ARG CLAUDE_CLI_VERSION=2.1.208
+ARG CLAUDE_CLI_VERSION=2.1.220
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}" \
     && (claude --version 2>/dev/null || echo "unknown") > /opt/moatless/.claude-cli-version
 

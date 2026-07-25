@@ -28,9 +28,13 @@ BUILD_SANDBOX=true
 SANDBOX_IMAGE_NAME="moatless-sandbox"
 SANDBOX_JS_ALIAS_NAME="moatless-sandbox-js"
 
-# Pinned CLI versions (kept in sync with .github/workflows/build-sandbox-images.yml)
-CLAUDE_CLI_VERSION="${CLAUDE_CLI_VERSION:-2.1.170}"
-CODEX_CLI_VERSION="${CODEX_CLI_VERSION:-0.121.0}"
+# CLI versions — single source of truth in docker/cli-versions.env. An env var
+# set before invoking this script still wins (e.g. CLAUDE_CLI_VERSION=x ./build).
+CLI_VERSIONS_FILE="$(cd "$(dirname "$0")" && pwd)/cli-versions.env"
+_default_claude="$(sed -n 's/^CLAUDE_CLI_VERSION=//p' "$CLI_VERSIONS_FILE")"
+_default_codex="$(sed -n 's/^CODEX_CLI_VERSION=//p' "$CLI_VERSIONS_FILE")"
+CLAUDE_CLI_VERSION="${CLAUDE_CLI_VERSION:-$_default_claude}"
+CODEX_CLI_VERSION="${CODEX_CLI_VERSION:-$_default_codex}"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do

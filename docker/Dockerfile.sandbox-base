@@ -138,10 +138,12 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no
     && echo 'export CARGO_HOME="/opt/cargo"' >> /etc/profile \
     && echo 'export PATH="/opt/cargo/bin:$PATH"' >> /etc/profile
 
-# Claude/Codex CLIs (pinned versions). Bump these args to upgrade the CLIs —
-# this is the only frequent reason this image will rebuild.
-ARG CLAUDE_CLI_VERSION=2.1.170
-ARG CODEX_CLI_VERSION=0.124.0
+# Claude/Codex CLIs. Version source of truth is docker/cli-versions.env, passed
+# in as --build-arg by every build path (build-sandbox-images.yml, build-sandbox.sh);
+# the defaults below are inert fallbacks for a bare `docker build`. Bumping the
+# CLIs is the only frequent reason this image will rebuild.
+ARG CLAUDE_CLI_VERSION=2.1.220
+ARG CODEX_CLI_VERSION=0.145.0
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}" "@openai/codex@${CODEX_CLI_VERSION}" \
     && ln -sf "$(which claude)" /usr/local/bin/claude \
     && ln -sf "$(which codex)" /usr/local/bin/codex \
