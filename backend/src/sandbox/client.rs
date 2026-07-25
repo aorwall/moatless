@@ -140,10 +140,18 @@ impl SandboxClient {
         Ok(())
     }
 
-    /// Stop the running agent.
-    pub async fn stop_agent(&self) -> Result<(), tonic::Status> {
+    /// Stop the running agent. `source` is echoed on the terminal
+    /// `agent.stopped` event so the stop is attributed to its initiator.
+    pub async fn stop_agent(
+        &self,
+        source: sandbox_proto::AgentStopSource,
+    ) -> Result<(), tonic::Status> {
         let mut client = self.client.clone();
-        client.stop_agent(StopAgentRequest {}).await?;
+        client
+            .stop_agent(StopAgentRequest {
+                source: source.into(),
+            })
+            .await?;
         Ok(())
     }
 

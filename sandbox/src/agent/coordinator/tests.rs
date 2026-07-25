@@ -24,7 +24,7 @@ use crate::agent::harness::{
     ErrorClass, Harness, HarnessError, Input, Role, Script, SessionId, SessionImpact, SourceEvent,
     Step,
 };
-use crate::agent::types::ResumeSession;
+use crate::agent::types::{ResumeSession, StopSource};
 use crate::backend_client::BackendClient;
 use crate::events::GrpcEventPublisher;
 use crate::outbox::EventOutbox;
@@ -1153,8 +1153,11 @@ async fn coordinator_service_active_stop_publishes_exactly_one_stopped() {
     start_turn_and_wait_running(&tx, &received, &events).await;
 
     let (stop_tx, stop_rx) = oneshot::channel::<()>();
-    tx.send(AgentCommand::Stop { ack: Some(stop_tx) })
-        .expect("channel open");
+    tx.send(AgentCommand::Stop {
+        source: StopSource::User,
+        ack: Some(stop_tx),
+    })
+    .expect("channel open");
     stop_rx
         .await
         .expect("stop ack resolves after Stopped is published");
@@ -1166,6 +1169,10 @@ async fn coordinator_service_active_stop_publishes_exactly_one_stopped() {
         "exactly one stopped; got {:?}",
         sub_types(&received)
     );
+    let stopped = only(&received, "stopped");
+    let payload: serde_json::Value =
+        serde_json::from_str(&stopped.payload_json).expect("valid payload");
+    assert_eq!(payload["source"], "user");
     assert_eq!(agent_state.status().await, AgentStatus::Stopped);
 
     cancel.cancel();
@@ -1194,8 +1201,11 @@ async fn coordinator_service_idle_stop_publishes_exactly_one_stopped() {
     );
 
     let (stop_tx, stop_rx) = oneshot::channel::<()>();
-    tx.send(AgentCommand::Stop { ack: Some(stop_tx) })
-        .expect("channel open");
+    tx.send(AgentCommand::Stop {
+        source: StopSource::IdleReaper,
+        ack: Some(stop_tx),
+    })
+    .expect("channel open");
     stop_rx.await.expect("idle stop ack resolves");
     flush(&events).await;
 
@@ -1205,6 +1215,10 @@ async fn coordinator_service_idle_stop_publishes_exactly_one_stopped() {
         "exactly one stopped; got {:?}",
         sub_types(&received)
     );
+    let stopped = only(&received, "stopped");
+    let payload: serde_json::Value =
+        serde_json::from_str(&stopped.payload_json).expect("valid payload");
+    assert_eq!(payload["source"], "idle_reaper");
     assert_eq!(agent_state.status().await, AgentStatus::Stopped);
 
     cancel.cancel();
@@ -1240,10 +1254,12 @@ async fn coordinator_service_duplicate_stop_emits_exactly_one_stopped() {
     let (stop_tx1, stop_rx1) = oneshot::channel::<()>();
     let (stop_tx2, stop_rx2) = oneshot::channel::<()>();
     tx.send(AgentCommand::Stop {
+        source: StopSource::User,
         ack: Some(stop_tx1),
     })
     .expect("channel open");
     tx.send(AgentCommand::Stop {
+        source: StopSource::User,
         ack: Some(stop_tx2),
     })
     .expect("channel open");

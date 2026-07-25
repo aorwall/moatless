@@ -118,6 +118,45 @@ pub enum AgentStatus {
     Stopped,
 }
 
+/// Who initiated an agent stop. Carried on the terminal `agent.stopped`
+/// event payload as `source` so the backend can attribute the stop instead
+/// of assuming every stop was user-requested.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StopSource {
+    User,
+    IdleReaper,
+    Cleanup,
+    System,
+    Error,
+}
+
+impl StopSource {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::User => "user",
+            Self::IdleReaper => "idle_reaper",
+            Self::Cleanup => "cleanup",
+            Self::System => "system",
+            Self::Error => "error",
+        }
+    }
+}
+
+impl From<sandbox_proto::AgentStopSource> for StopSource {
+    fn from(s: sandbox_proto::AgentStopSource) -> Self {
+        match s {
+            // Legacy backends predate the field; a bare StopAgent has always
+            // meant a user-visible stop.
+            sandbox_proto::AgentStopSource::Unspecified => Self::User,
+            sandbox_proto::AgentStopSource::User => Self::User,
+            sandbox_proto::AgentStopSource::IdleReaper => Self::IdleReaper,
+            sandbox_proto::AgentStopSource::Cleanup => Self::Cleanup,
+            sandbox_proto::AgentStopSource::System => Self::System,
+            sandbox_proto::AgentStopSource::Error => Self::Error,
+        }
+    }
+}
+
 /// Convert proto `ContentBlock`s to internal `ContentBlock`s.
 ///
 /// Shared by both `grpc_server.rs` (execute_agent) and `consumer.rs` (message polling).

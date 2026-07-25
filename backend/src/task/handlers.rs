@@ -1170,7 +1170,7 @@ pub async fn stop_task(
                 &task_id,
                 moatless_events::AgentSubType::Stopped,
                 None,
-                serde_json::json!({}),
+                serde_json::json!({"source": SandboxStopReason::User.as_str()}),
             )
             .await;
     }

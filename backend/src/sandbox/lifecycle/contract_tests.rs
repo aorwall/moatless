@@ -178,7 +178,7 @@ impl LifecycleEventSink for CollectSink {
 struct NoopAgentStop;
 #[async_trait]
 impl AgentStopPort for NoopAgentStop {
-    async fn stop_agent(&self, _task_id: &str) {}
+    async fn stop_agent(&self, _task_id: &str, _reason: SandboxStopReason) {}
 }
 
 struct Harness {

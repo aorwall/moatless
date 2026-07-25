@@ -42,6 +42,7 @@ use super::harness::{
     ClaudeConfig, CodexConfig, ErrorClass, FailureStage, Harness, HarnessError, SessionImpact,
 };
 use super::scheduled_job::ScheduledJobRegistry;
+use super::types::StopSource;
 
 pub(crate) const AGENT_TYPE_CLAUDE_CODE: &str = "claude-code";
 /// Claude Code over the tmux (interactive TUI) transport. Same executor family
@@ -211,7 +212,12 @@ pub(crate) enum AgentCommand {
     /// Stop the agent. The `ack` (when present) resolves once the lifecycle
     /// owner has published the single terminal `Stopped` event and closed the
     /// Turn, so the caller learns the stop was processed rather than queued.
-    Stop { ack: Option<oneshot::Sender<()>> },
+    /// `source` is echoed on the terminal event so the backend can attribute
+    /// the stop (user vs. idle reaper vs. cleanup).
+    Stop {
+        source: StopSource,
+        ack: Option<oneshot::Sender<()>>,
+    },
 }
 
 /// Queued turn waiting for a runtime to become idle.
@@ -272,11 +278,12 @@ impl AgentHandle {
     /// owner has published the single terminal `Stopped` event and closed the
     /// Turn — so a caller (e.g. the gRPC `stop_agent` handler) can wait for the
     /// stop to be *processed*, not merely queued.
-    pub fn stop(&self) -> oneshot::Receiver<()> {
+    pub fn stop(&self, source: StopSource) -> oneshot::Receiver<()> {
         let (ack_tx, ack_rx) = oneshot::channel();
-        let _ = self
-            .command_tx
-            .send(AgentCommand::Stop { ack: Some(ack_tx) });
+        let _ = self.command_tx.send(AgentCommand::Stop {
+            source,
+            ack: Some(ack_tx),
+        });
         ack_rx
     }
 

@@ -178,8 +178,9 @@ pub trait MessageRepository: Send + Sync {
     ) -> Result<Option<super::models::MessageType>, sqlx::Error>;
 
     /// Whether the most recent row for a task is a `Result` whose first text
-    /// block is "Stopped by user request". Used by `handle_agent_stopped` to
-    /// drop duplicate stop fan-out events before they accumulate phantom rows.
+    /// block is a stop-marker text (see [`super::models::stop_marker_text`]).
+    /// Used by `handle_agent_stopped` to drop duplicate stop fan-out events
+    /// before they accumulate phantom rows.
     async fn last_is_stopped_marker(&self, task_id: &str) -> Result<bool, sqlx::Error>;
 
     /// Whether a turn has already been satisfied by a final assistant reply.
@@ -768,7 +769,7 @@ impl MessageRepository for PgMessageRepository {
             .and_then(|arr| arr.first())
             .and_then(|b| b.get("text"))
             .and_then(|v| v.as_str())
-            == Some("Stopped by user request");
+            .is_some_and(super::models::is_stop_marker_text);
         Ok(is_stopped)
     }
 

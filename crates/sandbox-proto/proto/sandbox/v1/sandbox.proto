@@ -332,7 +332,22 @@ message ExecuteAgentRequest {
 
 message ExecuteAgentResponse {}
 
-message StopAgentRequest {}
+// Who initiated an agent stop. Mirrors the backend's `SandboxStopReason` and
+// is echoed as `source` on the terminal `agent.stopped` event payload so the
+// backend can attribute the stop (user vs. idle reaper vs. cleanup).
+enum AgentStopSource {
+  // Legacy caller that predates the field; treated as USER.
+  AGENT_STOP_SOURCE_UNSPECIFIED = 0;
+  AGENT_STOP_SOURCE_USER = 1;
+  AGENT_STOP_SOURCE_IDLE_REAPER = 2;
+  AGENT_STOP_SOURCE_CLEANUP = 3;
+  AGENT_STOP_SOURCE_SYSTEM = 4;
+  AGENT_STOP_SOURCE_ERROR = 5;
+}
+
+message StopAgentRequest {
+  AgentStopSource source = 1;
+}
 message StopAgentResponse {}
 
 message GetAgentStatusRequest {}

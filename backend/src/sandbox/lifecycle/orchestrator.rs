@@ -148,7 +148,9 @@ pub trait LifecycleStore: Send + Sync {
 /// effect so the pod exits promptly. Failures never block the transition.
 #[async_trait]
 pub trait AgentStopPort: Send + Sync {
-    async fn stop_agent(&self, task_id: &str);
+    /// `reason` is forwarded to the sandbox so the terminal `agent.stopped`
+    /// event attributes the stop to its initiator (user, idle reaper, ...).
+    async fn stop_agent(&self, task_id: &str, reason: SandboxStopReason);
 }
 
 /// Publishes derived lifecycle events through the outbox path.
@@ -598,7 +600,7 @@ impl Lifecycle {
         let intent_effect = self.persist(task_id, &write).await?;
 
         // Graceful agent stop BEFORE the runtime effect (best-effort).
-        self.agent_stop.stop_agent(task_id).await;
+        self.agent_stop.stop_agent(task_id, reason).await;
 
         let ctx = RuntimeOperationContext::new(generation);
         let runtime_result = self.runtime.stop(task_id, ctx).await;
@@ -659,7 +661,9 @@ impl Lifecycle {
         }
 
         // Graceful agent stop BEFORE the runtime effect (best-effort).
-        self.agent_stop.stop_agent(task_id).await;
+        self.agent_stop
+            .stop_agent(task_id, SandboxStopReason::Cleanup)
+            .await;
 
         let ctx = RuntimeOperationContext::new(generation);
         let runtime_result = self.runtime.remove(task_id, retention, ctx).await;
@@ -962,7 +966,7 @@ mod tests {
     }
     #[async_trait]
     impl AgentStopPort for RecordingAgentStop {
-        async fn stop_agent(&self, _task_id: &str) {
+        async fn stop_agent(&self, _task_id: &str, _reason: SandboxStopReason) {
             self.log.lock().expect("lock").push("stop_agent".into());
         }
     }

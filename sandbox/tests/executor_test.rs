@@ -15,7 +15,7 @@ use std::time::Duration;
 use moatless_sandbox::agent::agent_state::AgentState;
 use moatless_sandbox::agent::handle::spawn_agent;
 use moatless_sandbox::agent::prompt::{PendingPrompt, PromptResponse, PromptToolName};
-use moatless_sandbox::agent::types::AgentStatus;
+use moatless_sandbox::agent::types::{AgentStatus, StopSource};
 use moatless_sandbox::backend_client::BackendClient;
 use moatless_sandbox::config::Config;
 use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
@@ -496,7 +496,7 @@ async fn agent_handle_stop_exits_cleanly() {
     let backend = Arc::new(MockBackendClient::new(vec![]));
     let state = test_state(Arc::clone(&backend) as _);
 
-    state.agent_handle.stop();
+    state.agent_handle.stop(StopSource::User);
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -528,7 +528,7 @@ async fn agent_handle_rapid_fire_send_no_panic() {
     // Give the actor time to attempt processing
     tokio::time::sleep(Duration::from_secs(1)).await;
 
-    state.agent_handle.stop();
+    state.agent_handle.stop(StopSource::User);
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     assert_eq!(
@@ -543,7 +543,7 @@ async fn agent_handle_send_after_stop_does_not_panic() {
     let backend = Arc::new(MockBackendClient::new(vec![]));
     let state = test_state(Arc::clone(&backend) as _);
 
-    state.agent_handle.stop();
+    state.agent_handle.stop(StopSource::User);
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     // Sending after stop should be silently ignored (command channel closed,
@@ -599,7 +599,7 @@ async fn agent_handle_concurrent_send_from_multiple_tasks() {
 
     tokio::time::sleep(Duration::from_secs(1)).await;
 
-    state.agent_handle.stop();
+    state.agent_handle.stop(StopSource::User);
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     assert_eq!(

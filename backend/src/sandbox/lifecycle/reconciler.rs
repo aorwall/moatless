@@ -644,7 +644,7 @@ mod db_tests {
     struct NoopAgentStop;
     #[async_trait]
     impl AgentStopPort for NoopAgentStop {
-        async fn stop_agent(&self, _t: &str) {}
+        async fn stop_agent(&self, _t: &str, _reason: SandboxStopReason) {}
     }
 
     #[derive(Default)]

@@ -44,7 +44,7 @@ use moatless_sandbox::agent::harness::{
     ClaudeConfig, ErrorClass, Harness, HarnessError, Input, Outcome, Rejection, SessionImpact,
     Signal,
 };
-use moatless_sandbox::agent::types::{AgentStatus, ResumeSession};
+use moatless_sandbox::agent::types::{AgentStatus, ResumeSession, StopSource};
 use moatless_sandbox::backend_client::BackendClient;
 use moatless_sandbox::config::{AgentConfig, Config, ProxyConfig};
 use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
@@ -389,7 +389,7 @@ async fn run_agent_roundtrip(use_tmux: bool) {
         "first turn must not report lost session context: {published:?}"
     );
 
-    handle.stop();
+    handle.stop(StopSource::User);
 }
 
 /// Codex roundtrip body: drives the production `spawn_agent` path with
@@ -430,7 +430,7 @@ async fn run_codex_roundtrip() {
     );
     assert_eq!(agent_state.status().await, AgentStatus::Idle);
 
-    handle.stop();
+    handle.stop(StopSource::User);
 }
 
 /// Restart-resume body: turn 1 runs on actor A, then A is stopped (killing the
@@ -465,7 +465,7 @@ async fn run_agent_resume(use_tmux: bool) {
     assert!(error.is_none(), "turn 1 finished with error: {error:?}");
 
     // ── Simulated pod restart: stop actor A, spawn actor B on the same dirs ──
-    handle.stop();
+    handle.stop(StopSource::User);
     let (handle, agent_state, _events2) = spawn_test_agent_in(&tmp, use_tmux);
 
     // ── Turn 2: resume the turn-1 session by id on actor B ───────────────────
@@ -496,7 +496,7 @@ async fn run_agent_resume(use_tmux: bool) {
     );
     assert_eq!(agent_state.status().await, AgentStatus::Idle);
 
-    handle.stop();
+    handle.stop(StopSource::User);
 }
 
 /// Multi-turn persistent-session body (tmux): one actor, two sends. Turn 1
@@ -551,7 +551,7 @@ async fn run_agent_multi_turn(use_tmux: bool) {
     assert!(error.is_none(), "turn 2 finished with error: {error:?}");
     assert_eq!(agent_state.status().await, AgentStatus::Idle);
 
-    handle.stop();
+    handle.stop(StopSource::User);
 }
 
 /// CLI-internal wakeup body (tmux): the agent is told to call ScheduleWakeup
@@ -634,7 +634,7 @@ async fn run_agent_internal_wakeup(use_tmux: bool) {
     );
     assert_eq!(agent_state.status().await, AgentStatus::Idle);
 
-    handle.stop();
+    handle.stop(StopSource::User);
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────

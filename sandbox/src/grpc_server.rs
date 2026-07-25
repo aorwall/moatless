@@ -49,14 +49,15 @@ impl SandboxService for SandboxServiceImpl {
     #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
     async fn stop_agent(
         &self,
-        _request: Request<StopAgentRequest>,
+        request: Request<StopAgentRequest>,
     ) -> Result<Response<StopAgentResponse>, Status> {
         // Route the stop through the lifecycle owner (CoordinatorService for the
         // harness path, legacy actor for `agent_type = None`) — never publishing
         // the terminal event here, and never branching on harness selection. The
         // ack resolves once exactly one `agent.stopped` has been published and the
         // Turn closed, so returning Ok means the stop was processed, not queued.
-        let ack_rx = self.state.agent_handle.stop();
+        let source = crate::agent::types::StopSource::from(request.get_ref().source());
+        let ack_rx = self.state.agent_handle.stop(source);
         match tokio::time::timeout(std::time::Duration::from_secs(30), ack_rx).await {
             Ok(Ok(())) => {}
             Ok(Err(_)) => {

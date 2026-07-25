@@ -48,7 +48,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use crate::agent::heartbeat::{Heartbeat, HEARTBEAT_TICK_INTERVAL};
-use crate::agent::types::ResumeSession;
+use crate::agent::types::{ResumeSession, StopSource};
 use crate::backend_client::BackendClient;
 use crate::config::Config;
 use crate::credentials::recovery::CredentialFailureDetector;
@@ -611,6 +611,10 @@ pub(crate) struct CoordinatorService {
     /// The gRPC ack to resolve once the in-flight stop has published its single
     /// terminal event. `None` when the stop carried no ack (shutdown path).
     pending_stop_ack: Option<oneshot::Sender<()>>,
+    /// Who initiated the in-flight stop, echoed on the terminal `Stopped`
+    /// event. `None` when no `AgentCommand::Stop` set one (a shutdown-initiated
+    /// self-cancel), which publishes as `system`.
+    pending_stop_source: Option<StopSource>,
     /// Whether a harness execution is currently in flight (set on
     /// `ExecutionStarted`, cleared on the terminal outcome). Lets the Stop
     /// handler pick the active vs. idle path without an async `AgentState` read.
@@ -653,6 +657,7 @@ impl CoordinatorService {
             pending_wakeup: None,
             stopping: false,
             pending_stop_ack: None,
+            pending_stop_source: None,
             turn_active: false,
         }
     }
@@ -803,13 +808,17 @@ impl CoordinatorService {
                                     // `AgentState::stop()` — closes the Run and Turn
                                     // with exactly one `Stopped`, published here.
                                     self.agent_state.set_stopped().await;
+                                    let source = self
+                                        .pending_stop_source
+                                        .take()
+                                        .unwrap_or(StopSource::System);
                                     self.coordinator
                                         .events
                                         .for_run(self.coordinator.current_run_id())
                                         .publish_agent_event(
                                             &task_id,
                                             AgentSubType::Stopped,
-                                            json!({}),
+                                            json!({"source": source.as_str()}),
                                         )
                                         .await;
                                     // Resolve a waiting gRPC stop only after the
@@ -1048,7 +1057,7 @@ impl CoordinatorService {
                                 // HarnessClosed.
                             }
                         }
-                        Some(AgentCommand::Stop { ack }) => {
+                        Some(AgentCommand::Stop { source, ack }) => {
                             if self.stopping {
                                 // A Stop is already in flight; the terminal
                                 // `Cancelled` will publish the single `Stopped`.
@@ -1058,6 +1067,7 @@ impl CoordinatorService {
                             }
                             self.stopping = true;
                             self.pending_stop_ack = ack;
+                            self.pending_stop_source = Some(source);
                             self.pending_wakeup = None;
                             self.scheduled_jobs.cancel_all().await;
 
@@ -1075,13 +1085,17 @@ impl CoordinatorService {
                                 // `Stopped` directly and resolve the ack.
                                 info!(task_id = %task_id, "CoordinatorService: idle stop");
                                 self.agent_state.set_stopped().await;
+                                let source = self
+                                    .pending_stop_source
+                                    .take()
+                                    .unwrap_or(StopSource::System);
                                 self.coordinator
                                     .events
                                     .for_run(self.coordinator.current_run_id())
                                     .publish_agent_event(
                                         &task_id,
                                         AgentSubType::Stopped,
-                                        json!({}),
+                                        json!({"source": source.as_str()}),
                                     )
                                     .await;
                                 if let Some(ack) = self.pending_stop_ack.take() {

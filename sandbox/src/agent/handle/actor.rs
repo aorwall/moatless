@@ -19,6 +19,7 @@ use crate::agent::background_watch_job::BackgroundWatchJob;
 use crate::agent::codex_exec::CodexExecEvent;
 use crate::agent::heartbeat::{Heartbeat, HEARTBEAT_TICK_INTERVAL};
 use crate::agent::scheduled_job::{JobKind, ScheduledJobRegistry};
+use crate::agent::types::StopSource;
 use crate::agent::wakeup_job::WakeupJob;
 use crate::backend_client::BackendClient;
 use crate::config::Config;
@@ -985,10 +986,11 @@ pub(super) async fn agent_loop(
                     stop @ (Some(AgentCommand::Stop { .. }) | None) => {
                         info!("Agent actor stopping");
                         // A `Stop` may carry an ack the caller waits on; `None`
-                        // (channel closed) carries none.
-                        let stop_ack = match stop {
-                            Some(AgentCommand::Stop { ack }) => ack,
-                            _ => None,
+                        // (channel closed = process teardown) carries none and
+                        // publishes as a `system` stop.
+                        let (stop_source, stop_ack) = match stop {
+                            Some(AgentCommand::Stop { source, ack }) => (source, ack),
+                            _ => (StopSource::System, None),
                         };
                         drop(retry_state.take());
                         drop(pending_wakeup.take());
@@ -1005,7 +1007,7 @@ pub(super) async fn agent_loop(
                         events.for_run(&run_id).publish_agent_event(
                             &task_id,
                             AgentSubType::Stopped,
-                            serde_json::json!({}),
+                            serde_json::json!({"source": stop_source.as_str()}),
                         ).await;
                         // Resolve the ack after the terminal event is enqueued.
                         if let Some(ack) = stop_ack {

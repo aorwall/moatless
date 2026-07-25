@@ -7,6 +7,39 @@ use crate::shared_models::AgentMode;
 
 pub use moatless_api_schemas::enums::{MessageRole, MessageType};
 
+use moatless_api_schemas::enums::SandboxStopReason;
+
+// =============================================================================
+// Stop marker
+// =============================================================================
+
+/// The user-facing text of the `Result` row appended when an agent stop lands,
+/// keyed by the typed stop source the sandbox echoes on `agent.stopped`.
+pub fn stop_marker_text(source: SandboxStopReason) -> &'static str {
+    match source {
+        SandboxStopReason::User => "Stopped by user request",
+        SandboxStopReason::IdleReaper => "Stopped after sandbox idle timeout",
+        SandboxStopReason::Cleanup => "Stopped by sandbox cleanup",
+        SandboxStopReason::System => "Stopped by the system",
+        SandboxStopReason::Error => "Stopped after an error",
+    }
+}
+
+/// Whether `text` is one of the stop-marker texts. Used to dedupe stop
+/// fan-out: both the sandbox and the /stop handler publish `agent.stopped`
+/// for one user action.
+pub fn is_stop_marker_text(text: &str) -> bool {
+    [
+        SandboxStopReason::User,
+        SandboxStopReason::IdleReaper,
+        SandboxStopReason::Cleanup,
+        SandboxStopReason::System,
+        SandboxStopReason::Error,
+    ]
+    .iter()
+    .any(|s| stop_marker_text(*s) == text)
+}
+
 // =============================================================================
 // ContentBlockType
 // =============================================================================

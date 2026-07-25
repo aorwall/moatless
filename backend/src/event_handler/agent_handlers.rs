@@ -7,7 +7,7 @@ use crate::message::models::{TaskMessage, TaskMessageContentBlock, TaskMessageCo
 use crate::shared_models::AgentMode;
 use crate::state::AppState;
 use crate::task::dao::TaskPatch;
-use crate::task::models::TaskStatus;
+use crate::task::models::{SandboxStopReason, TaskStatus};
 
 use super::models::{AgentEvent, SdkResultMessage};
 
@@ -320,7 +320,13 @@ pub async fn handle_agent_session_init(_state: &AppState, event: &AgentEvent) {
     );
 }
 
-/// Handle `agent.stopped` event — user requested stop.
+/// Handle `agent.stopped` event — the agent was stopped before completing.
+///
+/// The payload's typed `source` field (echoed by the sandbox from the
+/// `StopAgent` request, mirroring `SandboxStopReason`) says who initiated the
+/// stop, and picks the marker text via `stop_marker_text`. A missing or
+/// unknown source is treated as a user stop — the pre-`source` behavior, kept
+/// for sandboxes that predate the field.
 pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
     // Idempotency: drop duplicate stop fan-out. Both the sandbox and the
     // /stop HTTP handler can publish `agent.stopped` for a single user
@@ -348,9 +354,17 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let msg_uuid = message_uuid_for_event(&event.event_id);
 
+    let source = event
+        .payload
+        .get("source")
+        .and_then(|v| v.as_str())
+        .and_then(|s| SandboxStopReason::try_from(s).ok())
+        .unwrap_or(SandboxStopReason::User);
+    let marker_text = crate::message::models::stop_marker_text(source);
+
     let content = serde_json::json!([{
         "type": "text",
-        "text": "Stopped by user request"
+        "text": marker_text
     }]);
 
     // Inherit agent_mode from the last user message
@@ -380,7 +394,7 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
         sort_order: 0,
         block_type: ContentBlockType::Text,
         show_in_ui: true,
-        text_content: Some("Stopped by user request".to_string()),
+        text_content: Some(marker_text.to_string()),
         tool_use_id: None,
         tool_result_content: None,
         tool_result_is_error: None,
