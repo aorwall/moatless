@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
 use crate::adapters::error::AdapterError;
-use crate::adapters::models::{BindingContext, InboundMessage, OutboundReply, LoopContext};
+use crate::adapters::models::{BindingContext, InboundMessage, LoopContext, OutboundReply};
 use crate::adapters::{Adapter, AdapterKind};
 use crate::db::DbPool;
 

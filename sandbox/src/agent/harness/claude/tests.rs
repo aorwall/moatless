@@ -437,7 +437,10 @@ async fn e2e_persistent_claude_two_turns_share_a_session() {
         while let Some(signal) = harness.next_signal().await {
             match signal {
                 Signal::ExecutionStarted { session: s, cause } => {
-                    assert!(matches!(cause, Cause::Input(_)), "user Turn is input-caused");
+                    assert!(
+                        matches!(cause, Cause::Input(_)),
+                        "user Turn is input-caused"
+                    );
                     session = Some(s);
                 }
                 Signal::ExecutionFinished { outcome: finished } => {
@@ -463,8 +466,13 @@ async fn e2e_persistent_claude_two_turns_share_a_session() {
     );
     let first_session = first_session.expect("first Turn reports a Session");
 
-    let (second_session, second_outcome) =
-        run_turn(&mut harness, &env, "in-2", "And what is that number times 3?").await;
+    let (second_session, second_outcome) = run_turn(
+        &mut harness,
+        &env,
+        "in-2",
+        "And what is that number times 3?",
+    )
+    .await;
     assert!(
         matches!(second_outcome, Some(Outcome::Completed)),
         "second Turn should complete, got {second_outcome:?}"

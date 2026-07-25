@@ -191,7 +191,9 @@ mod tests {
         assert_eq!(username, "admin");
         assert!(!must_change);
         assert_ne!(hash, "hunter2-hunter2", "plaintext must never be persisted");
-        assert!(verify_password("hunter2-hunter2".into(), hash).await.unwrap());
+        assert!(verify_password("hunter2-hunter2".into(), hash)
+            .await
+            .unwrap());
     }
 
     #[tokio::test]
@@ -209,11 +211,17 @@ mod tests {
     #[tokio::test]
     async fn configured_password_overwrites_existing_credential() {
         let (users, credentials, captured) = mocks(true);
-        ensure_local_admin(&users, &credentials, &auth_config(Some("new-password-1234")))
-            .await
-            .unwrap();
+        ensure_local_admin(
+            &users,
+            &credentials,
+            &auth_config(Some("new-password-1234")),
+        )
+        .await
+        .unwrap();
         let (_, _, hash, _) = captured.lock().unwrap().clone().expect("upsert not called");
-        assert!(verify_password("new-password-1234".into(), hash).await.unwrap());
+        assert!(verify_password("new-password-1234".into(), hash)
+            .await
+            .unwrap());
     }
 
     #[tokio::test]
@@ -274,7 +282,10 @@ mod tests {
             .unwrap();
         let (_, _, hash, must_change) =
             captured.lock().unwrap().clone().expect("upsert not called");
-        assert!(must_change, "a generated password must be flagged for rotation");
+        assert!(
+            must_change,
+            "a generated password must be flagged for rotation"
+        );
         assert!(hash.starts_with("$argon2id$"));
     }
 }

@@ -11,11 +11,10 @@ pub mod sandbox_helpers;
 use moatless_api_schemas::adapters::{AdapterConnectionResponse, CreateAdapterConnectionRequest};
 use moatless_api_schemas::enums::RepositoryKind;
 use moatless_api_schemas::enums::{AdapterKind, RoutingMode};
-use moatless_api_schemas::repository::CreateRepositoryRequest;
 use moatless_api_schemas::loops::{
-    CreateSubscription, CreateLoopRequest, CreateLoopConfig, CreateLoopSource,
-    LoopKind, Loop,
+    CreateLoopConfig, CreateLoopRequest, CreateLoopSource, CreateSubscription, Loop, LoopKind,
 };
+use moatless_api_schemas::repository::CreateRepositoryRequest;
 use moatless_cli::client::MoatClient;
 
 /// A test user plus a client authenticated as them.
@@ -66,7 +65,8 @@ pub async fn login_cookie(username: &str, password: &str) -> String {
         .filter_map(|v| v.to_str().ok())
         .find_map(|raw| {
             let pair = raw.split(';').next()?.trim();
-            pair.starts_with("moatless_session=").then(|| pair.to_string())
+            pair.starts_with("moatless_session=")
+                .then(|| pair.to_string())
         })
         .expect("login response set no moatless_session cookie")
 }
@@ -162,7 +162,10 @@ pub async fn client_as_user_with_teams(login: &str, role: &str, team_ids: &[&str
 }
 
 fn is_conflict(error: &moatless_api_client::ApiError) -> bool {
-    matches!(error, moatless_api_client::ApiError::Api { status: 409, .. })
+    matches!(
+        error,
+        moatless_api_client::ApiError::Api { status: 409, .. }
+    )
 }
 
 /// Log a user back in, picking up team memberships granted since their last

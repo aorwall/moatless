@@ -25,8 +25,8 @@ use crate::db::DbPool;
 
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
-    AdapterConnection, BindingContext, InboundMessage, NewThreadInfo, OutboundReply, TaskBinding,
-    SubscriptionMatch, LoopContext,
+    AdapterConnection, BindingContext, InboundMessage, LoopContext, NewThreadInfo, OutboundReply,
+    SubscriptionMatch, TaskBinding,
 };
 
 pub use moatless_api_schemas::enums::AdapterKind;

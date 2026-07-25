@@ -1682,9 +1682,17 @@ mod db_tests {
         let mut rows = tasks_with_pending_user_messages(&pool).await.unwrap();
         rows.sort_by(|l, r| l.task_id.cmp(&r.task_id));
 
-        assert_eq!(rows.len(), 2, "only tasks with a pending user message appear");
+        assert_eq!(
+            rows.len(),
+            2,
+            "only tasks with a pending user message appear"
+        );
         assert_eq!(rows[0].task_id, "a");
-        assert_eq!(rows[0].newest_created_at, at(2_000), "newest pending, not the acked one");
+        assert_eq!(
+            rows[0].newest_created_at,
+            at(2_000),
+            "newest pending, not the acked one"
+        );
         assert_eq!(rows[1].task_id, "b");
         assert_eq!(rows[1].newest_created_at, at(500));
     }

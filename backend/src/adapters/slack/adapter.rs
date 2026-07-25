@@ -10,7 +10,7 @@ use tracing::{debug, info, warn};
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AccessDecision, MessageTrigger};
 use crate::adapters::models::{
-    AdapterConnection, BindingContext, TaskBinding, SubscriptionMatch, LoopContext,
+    AdapterConnection, BindingContext, LoopContext, SubscriptionMatch, TaskBinding,
 };
 use crate::adapters::models::{InboundMessage, NewThreadInfo, OutboundReply};
 use crate::adapters::{Adapter, AdapterKind, BindingDestination, DestinationPostResult};

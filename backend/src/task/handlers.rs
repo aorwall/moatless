@@ -1636,7 +1636,8 @@ async fn resolve_task_bindings(state: &AppState, task_id: &str) -> Vec<TaskBindi
     let mut summaries = Vec::new();
     for binding in &bindings {
         let trigger = if let Some(ref trigger_id) = binding.trigger_id {
-            state.loops
+            state
+                .loops
                 .find_subscription_by_id(trigger_id)
                 .await
                 .ok()

@@ -224,10 +224,7 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
 fn split_at_start_fresh(
     mut messages: Vec<sandbox_proto::PendingMessage>,
 ) -> (Vec<sandbox_proto::PendingMessage>, usize) {
-    let Some(idx) = messages
-        .iter()
-        .position(|m| m.start_fresh.unwrap_or(false))
-    else {
+    let Some(idx) = messages.iter().position(|m| m.start_fresh.unwrap_or(false)) else {
         return (messages, 0);
     };
     let keep = if idx == 0 { 1 } else { idx };
@@ -395,7 +392,10 @@ async fn resolve_pending_prompt(state: &SandboxState) {
     }
 
     if has_remaining_messages {
-        spawn_supervised("prompt-remaining-redispatch", schedule_dispatch(state.clone()));
+        spawn_supervised(
+            "prompt-remaining-redispatch",
+            schedule_dispatch(state.clone()),
+        );
     }
 }
 

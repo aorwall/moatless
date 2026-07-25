@@ -26,8 +26,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use moatless_events::{SandboxEventPayload, SandboxStatus, TaskSubType};
 use moatless_backend_core::scope::Scope;
+use moatless_events::{SandboxEventPayload, SandboxStatus, TaskSubType};
 
 use crate::events::EventPublisher;
 use crate::repository::dao::RepoRepository;

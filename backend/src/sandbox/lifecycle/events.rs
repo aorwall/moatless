@@ -74,7 +74,12 @@ pub struct LifecycleEvent {
 }
 
 impl LifecycleEvent {
-    fn new(task_id: &str, generation: OperationGeneration, fact: EventFact, stop_reason: Option<SandboxStopReason>) -> Self {
+    fn new(
+        task_id: &str,
+        generation: OperationGeneration,
+        fact: EventFact,
+        stop_reason: Option<SandboxStopReason>,
+    ) -> Self {
         Self {
             event_id: event_id(task_id, generation, fact),
             generation,
@@ -202,7 +207,12 @@ impl EventContext {
 pub fn acceptance_events(task_id: &str, ctx: &EventContext) -> Vec<LifecycleEvent> {
     let mut out = Vec::new();
     if ctx.op == OperationKind::Remove && ctx.intent_changed {
-        out.push(LifecycleEvent::new(task_id, ctx.generation, EventFact::Removing, None));
+        out.push(LifecycleEvent::new(
+            task_id,
+            ctx.generation,
+            EventFact::Removing,
+            None,
+        ));
     }
     out
 }
@@ -232,7 +242,12 @@ pub fn outcome_events(task_id: &str, ctx: &EventContext) -> Vec<LifecycleEvent> 
         }
         OperationKind::Remove => {
             if ctx.newly_establishes(ObservedStatus::Removed) {
-                out.push(LifecycleEvent::new(task_id, ctx.generation, EventFact::Removed, None));
+                out.push(LifecycleEvent::new(
+                    task_id,
+                    ctx.generation,
+                    EventFact::Removed,
+                    None,
+                ));
             }
         }
         OperationKind::Start | OperationKind::Restart | OperationKind::Redeploy => {}
@@ -240,7 +255,12 @@ pub fn outcome_events(task_id: &str, ctx: &EventContext) -> Vec<LifecycleEvent> 
 
     // Infrastructure-effect event — only when the adapter did work.
     if ctx.op.is_toward_running() && ctx.runtime_applied {
-        out.push(LifecycleEvent::new(task_id, ctx.generation, EventFact::Initializing, None));
+        out.push(LifecycleEvent::new(
+            task_id,
+            ctx.generation,
+            EventFact::Initializing,
+            None,
+        ));
     }
 
     out
@@ -285,9 +305,18 @@ mod tests {
 
     #[test]
     fn event_id_is_deterministic_and_generation_scoped() {
-        assert_eq!(event_id("task-1", gen(5), EventFact::Removed), "sandbox:task-1:5:removed");
-        assert_eq!(event_id("task-1", gen(6), EventFact::Removed), "sandbox:task-1:6:removed");
-        assert_eq!(event_id("task-1", gen(5), EventFact::Error), "sandbox:task-1:5:error");
+        assert_eq!(
+            event_id("task-1", gen(5), EventFact::Removed),
+            "sandbox:task-1:5:removed"
+        );
+        assert_eq!(
+            event_id("task-1", gen(6), EventFact::Removed),
+            "sandbox:task-1:6:removed"
+        );
+        assert_eq!(
+            event_id("task-1", gen(5), EventFact::Error),
+            "sandbox:task-1:5:error"
+        );
     }
 
     #[test]
@@ -302,8 +331,26 @@ mod tests {
     fn retries_of_one_generation_share_the_completion_id() {
         // Two retries of the same generation produce the same Removed id, so the
         // outbox's ON CONFLICT dedups them to one persisted event.
-        let a = outcome_events("t", &ctx(OperationKind::Remove, true, true, ObservedStatus::Removed, false));
-        let b = outcome_events("t", &ctx(OperationKind::Remove, false, true, ObservedStatus::Removed, false));
+        let a = outcome_events(
+            "t",
+            &ctx(
+                OperationKind::Remove,
+                true,
+                true,
+                ObservedStatus::Removed,
+                false,
+            ),
+        );
+        let b = outcome_events(
+            "t",
+            &ctx(
+                OperationKind::Remove,
+                false,
+                true,
+                ObservedStatus::Removed,
+                false,
+            ),
+        );
         assert_eq!(a[0].event_id, b[0].event_id);
     }
 
@@ -311,20 +358,46 @@ mod tests {
 
     #[test]
     fn removing_acceptance_fires_only_when_intent_moves() {
-        let changed = acceptance_events("t", &ctx(OperationKind::Remove, true, false, ObservedStatus::Removed, false));
+        let changed = acceptance_events(
+            "t",
+            &ctx(
+                OperationKind::Remove,
+                true,
+                false,
+                ObservedStatus::Removed,
+                false,
+            ),
+        );
         assert_eq!(changed.len(), 1);
         assert_eq!(changed[0].fact, EventFact::Removing);
         assert_eq!(changed[0].status, SandboxStatus::Removing);
 
         // A retry (intent unchanged) emits no fresh acceptance event.
-        let unchanged = acceptance_events("t", &ctx(OperationKind::Remove, false, true, ObservedStatus::Removed, false));
+        let unchanged = acceptance_events(
+            "t",
+            &ctx(
+                OperationKind::Remove,
+                false,
+                true,
+                ObservedStatus::Removed,
+                false,
+            ),
+        );
         assert!(unchanged.is_empty());
     }
 
     #[test]
     fn non_remove_ops_emit_no_acceptance() {
-        for op in [OperationKind::Start, OperationKind::Stop, OperationKind::Restart, OperationKind::Redeploy] {
-            assert!(acceptance_events("t", &ctx(op, true, true, ObservedStatus::Ready, false)).is_empty());
+        for op in [
+            OperationKind::Start,
+            OperationKind::Stop,
+            OperationKind::Restart,
+            OperationKind::Redeploy,
+        ] {
+            assert!(
+                acceptance_events("t", &ctx(op, true, true, ObservedStatus::Ready, false))
+                    .is_empty()
+            );
         }
     }
 
@@ -333,14 +406,29 @@ mod tests {
     #[test]
     fn stopping_already_stopped_compute_still_publishes_stopped() {
         // Changed intent + NoOp runtime + observed Stopped → a real stop.
-        let events = outcome_events("t", &ctx(OperationKind::Stop, true, false, ObservedStatus::Stopped, false));
+        let events = outcome_events(
+            "t",
+            &ctx(
+                OperationKind::Stop,
+                true,
+                false,
+                ObservedStatus::Stopped,
+                false,
+            ),
+        );
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].fact, EventFact::Stopped);
     }
 
     #[test]
     fn stop_carries_reason_tag() {
-        let mut c = ctx(OperationKind::Stop, true, true, ObservedStatus::Stopped, false);
+        let mut c = ctx(
+            OperationKind::Stop,
+            true,
+            true,
+            ObservedStatus::Stopped,
+            false,
+        );
         c.stop_reason = Some(SandboxStopReason::IdleReaper);
         let events = outcome_events("t", &c);
         assert_eq!(events[0].stop_reason, Some(SandboxStopReason::IdleReaper));
@@ -352,7 +440,16 @@ mod tests {
     fn recovery_retry_unchanged_applied_publishes_removed() {
         // First attempt persisted Removed and failed (Error). The reconciler's
         // retry is Unchanged + Applied yet newly establishes convergence.
-        let events = outcome_events("t", &ctx(OperationKind::Remove, false, true, ObservedStatus::Removed, false));
+        let events = outcome_events(
+            "t",
+            &ctx(
+                OperationKind::Remove,
+                false,
+                true,
+                ObservedStatus::Removed,
+                false,
+            ),
+        );
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].fact, EventFact::Removed);
     }
@@ -361,7 +458,16 @@ mod tests {
     fn recovery_retry_unchanged_noop_with_incomplete_marker_publishes_removed() {
         // Even a fully idempotent retry (Unchanged + NoOp) publishes Removed
         // when an incomplete marker proves the obligation was outstanding.
-        let events = outcome_events("t", &ctx(OperationKind::Remove, false, false, ObservedStatus::Removed, true));
+        let events = outcome_events(
+            "t",
+            &ctx(
+                OperationKind::Remove,
+                false,
+                false,
+                ObservedStatus::Removed,
+                true,
+            ),
+        );
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].fact, EventFact::Removed);
     }
@@ -371,10 +477,28 @@ mod tests {
     #[test]
     fn pure_unchanged_noop_publishes_nothing() {
         // Reusing an already-Ready sandbox on a message-wake.
-        let events = outcome_events("t", &ctx(OperationKind::Start, false, false, ObservedStatus::Ready, false));
+        let events = outcome_events(
+            "t",
+            &ctx(
+                OperationKind::Start,
+                false,
+                false,
+                ObservedStatus::Ready,
+                false,
+            ),
+        );
         assert!(events.is_empty());
         // And a remove no-op against an already-converged (no marker) target.
-        let events = outcome_events("t", &ctx(OperationKind::Remove, false, false, ObservedStatus::Removed, false));
+        let events = outcome_events(
+            "t",
+            &ctx(
+                OperationKind::Remove,
+                false,
+                false,
+                ObservedStatus::Removed,
+                false,
+            ),
+        );
         assert!(events.is_empty());
     }
 
@@ -383,18 +507,45 @@ mod tests {
     #[test]
     fn initializing_gates_on_runtime_applied() {
         // start that did work → Initializing.
-        let events = outcome_events("t", &ctx(OperationKind::Start, true, true, ObservedStatus::Starting, false));
+        let events = outcome_events(
+            "t",
+            &ctx(
+                OperationKind::Start,
+                true,
+                true,
+                ObservedStatus::Starting,
+                false,
+            ),
+        );
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].fact, EventFact::Initializing);
 
         // start that reused Ready (NoOp) → nothing.
-        let events = outcome_events("t", &ctx(OperationKind::Start, false, false, ObservedStatus::Ready, false));
+        let events = outcome_events(
+            "t",
+            &ctx(
+                OperationKind::Start,
+                false,
+                false,
+                ObservedStatus::Ready,
+                false,
+            ),
+        );
         assert!(events.is_empty());
     }
 
     #[test]
     fn restart_that_applies_publishes_initializing_not_ready() {
-        let events = outcome_events("t", &ctx(OperationKind::Restart, false, true, ObservedStatus::Starting, false));
+        let events = outcome_events(
+            "t",
+            &ctx(
+                OperationKind::Restart,
+                false,
+                true,
+                ObservedStatus::Starting,
+                false,
+            ),
+        );
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].fact, EventFact::Initializing);
         // Lifecycle never publishes Ready.
@@ -414,7 +565,13 @@ mod tests {
 
     #[test]
     fn first_successful_remove_emits_removing_then_removed() {
-        let c = ctx(OperationKind::Remove, true, true, ObservedStatus::Removed, false);
+        let c = ctx(
+            OperationKind::Remove,
+            true,
+            true,
+            ObservedStatus::Removed,
+            false,
+        );
         let acc = acceptance_events("t", &c);
         let out = outcome_events("t", &c);
         assert_eq!(acc[0].fact, EventFact::Removing);
@@ -455,8 +612,18 @@ mod tests {
 
     #[test]
     fn from_outcome_maps_effect_axes() {
-        let outcome = LifecycleOutcome::new(IntentEffect::Changed, RuntimeEffect::NoOp, ObservedStatus::Stopped);
-        let c = EventContext::from_outcome(OperationKind::Stop, gen(9), &outcome, false, Some(SandboxStopReason::User));
+        let outcome = LifecycleOutcome::new(
+            IntentEffect::Changed,
+            RuntimeEffect::NoOp,
+            ObservedStatus::Stopped,
+        );
+        let c = EventContext::from_outcome(
+            OperationKind::Stop,
+            gen(9),
+            &outcome,
+            false,
+            Some(SandboxStopReason::User),
+        );
         assert!(c.intent_changed);
         assert!(!c.runtime_applied);
         let events = outcome_events("t", &c);

@@ -129,11 +129,10 @@ async fn agent_execution_and_multi_turn() {
 
     // AGENT-02.2: Send follow-up message (multi-turn)
     let follow_up = SendMessageRequest {
-        message:
-            "Create another file named e2e-multiturn.txt directly in your current working \
+        message: "Create another file named e2e-multiturn.txt directly in your current working \
              directory — not inside the cloned repository subdirectory — with the content \
              'Multi-Turn Success'"
-                .into(),
+            .into(),
         agent_mode: None,
         contexts: vec![],
         file_ids: vec![],

@@ -275,10 +275,7 @@ mod tests {
     #[test]
     fn agent_id_is_parsed_from_the_transcript_filename() {
         let p = PathBuf::from("/x/sess/subagents/agent-afaa9b2d9aab65250.jsonl");
-        assert_eq!(
-            agent_id_from_path(&p).as_deref(),
-            Some("afaa9b2d9aab65250")
-        );
+        assert_eq!(agent_id_from_path(&p).as_deref(), Some("afaa9b2d9aab65250"));
     }
 
     #[test]

@@ -80,8 +80,8 @@ pub async fn verify_password(password: String, phc: String) -> Result<bool, Pass
 /// Called when the username is unknown so response timing does not leak
 /// account existence.
 pub async fn verify_dummy(password: String) {
-    let _ = tokio::task::spawn_blocking(move || verify_password_blocking(&password, DUMMY_HASH))
-        .await;
+    let _ =
+        tokio::task::spawn_blocking(move || verify_password_blocking(&password, DUMMY_HASH)).await;
 }
 
 /// Generate a random password of `len` characters from [`PASSWORD_ALPHABET`].

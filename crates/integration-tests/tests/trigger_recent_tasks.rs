@@ -10,8 +10,7 @@ use integration_tests::{
 };
 use moatless_api_schemas::enums::RoutingMode;
 use moatless_api_schemas::loops::{
-    CreateSchedule, CreateLoopRequest, CreateLoopConfig, CreateLoopSource,
-    LoopKind,
+    CreateLoopConfig, CreateLoopRequest, CreateLoopSource, CreateSchedule, LoopKind,
 };
 use pretty_assertions::assert_eq;
 

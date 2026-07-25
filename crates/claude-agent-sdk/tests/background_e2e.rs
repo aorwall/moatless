@@ -368,8 +368,8 @@ async fn monitor_retriggers_turn_under_tmux() {
     while let Some(remaining) = overall_timeout.checked_sub(started.elapsed()) {
         let recv = tokio::time::timeout(remaining, handle.messages.recv()).await;
         let msg = match recv {
-            Err(_) => break,               // overall window elapsed
-            Ok(None) => break,             // stream closed
+            Err(_) => break,   // overall window elapsed
+            Ok(None) => break, // stream closed
             Ok(Some(m)) => m.expect("error receiving message"),
         };
         match msg {

@@ -130,11 +130,7 @@ pub trait TaskTurnRepository: Send + Sync {
     /// Idempotent and order-independent: whichever of the run's signals arrives
     /// first (the ack, `taskTurn.active`, or a terminal event that overtook
     /// them in the outbox) allocates, and the rest join.
-    async fn resolve_turn_for_run(
-        &self,
-        task_id: &str,
-        run_id: &str,
-    ) -> Result<i32, sqlx::Error>;
+    async fn resolve_turn_for_run(&self, task_id: &str, run_id: &str) -> Result<i32, sqlx::Error>;
 
     /// The task's highest turn number, or `None` when it has none yet.
     ///
@@ -144,10 +140,8 @@ pub trait TaskTurnRepository: Send + Sync {
 
     /// Every turn's stored metrics, oldest first. Turns that never completed
     /// (or predate the column) are omitted.
-    async fn list_turn_metrics(
-        &self,
-        task_id: &str,
-    ) -> Result<Vec<serde_json::Value>, sqlx::Error>;
+    async fn list_turn_metrics(&self, task_id: &str)
+        -> Result<Vec<serde_json::Value>, sqlx::Error>;
 
     /// Store the SDK result message's turn totals on the turn row.
     ///
@@ -281,11 +275,7 @@ impl TaskTurnRepository for PgTaskTurnRepository {
             .collect())
     }
 
-    async fn resolve_turn_for_run(
-        &self,
-        task_id: &str,
-        run_id: &str,
-    ) -> Result<i32, sqlx::Error> {
+    async fn resolve_turn_for_run(&self, task_id: &str, run_id: &str) -> Result<i32, sqlx::Error> {
         // Fast path: most calls are the second and later signals of a run whose
         // turn already exists (every `agent.message` it emits comes through
         // here), and those need no lock.

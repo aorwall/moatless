@@ -162,9 +162,10 @@ async fn fetch_github_file(
         )));
     }
 
-    let body = resp.text().await.map_err(|e| {
-        RepositoryError::ProviderError(format!("Failed to read {path} body: {e}"))
-    })?;
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| RepositoryError::ProviderError(format!("Failed to read {path} body: {e}")))?;
     Ok(Some(body))
 }
 
@@ -208,9 +209,10 @@ async fn fetch_gitlab_file(
         )));
     }
 
-    let body = resp.text().await.map_err(|e| {
-        RepositoryError::ProviderError(format!("Failed to read {path} body: {e}"))
-    })?;
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| RepositoryError::ProviderError(format!("Failed to read {path} body: {e}")))?;
     Ok(Some(body))
 }
 
@@ -221,7 +223,9 @@ fn gitlab_project_path(remote_url: &str) -> Result<String, RepositoryError> {
         .strip_prefix("https://gitlab.com/")
         .or_else(|| url_trimmed.strip_prefix("http://gitlab.com/"))
         .map(str::to_string)
-        .ok_or_else(|| RepositoryError::BadRequest(format!("Cannot parse GitLab URL: {remote_url}")))
+        .ok_or_else(|| {
+            RepositoryError::BadRequest(format!("Cannot parse GitLab URL: {remote_url}"))
+        })
 }
 
 /// Validate that a persisted remote URL can be checked by the wired provider
@@ -232,11 +236,13 @@ pub(crate) fn validate_repository_access_target(
     provider: RepositoryProvider,
 ) -> Result<(), RepositoryError> {
     match provider {
-        RepositoryProvider::Github => parse_github_owner_repo(remote_url)
-            .map(|_| ())
-            .ok_or_else(|| {
-                RepositoryError::BadRequest(format!("Cannot parse GitHub URL: {remote_url}"))
-            }),
+        RepositoryProvider::Github => {
+            parse_github_owner_repo(remote_url)
+                .map(|_| ())
+                .ok_or_else(|| {
+                    RepositoryError::BadRequest(format!("Cannot parse GitHub URL: {remote_url}"))
+                })
+        }
         RepositoryProvider::Gitlab => {
             let path = gitlab_project_path(remote_url)?;
             if path.split('/').filter(|part| !part.is_empty()).count() < 2 {
@@ -281,7 +287,9 @@ pub async fn verify_repository_access(
     };
 
     let client = reqwest::Client::new();
-    let mut req = client.get(&url).header("User-Agent", "moatless-vibe-backend");
+    let mut req = client
+        .get(&url)
+        .header("User-Agent", "moatless-vibe-backend");
     req = match provider {
         RepositoryProvider::Github => {
             let mut r = req.header("Accept", "application/vnd.github+json");

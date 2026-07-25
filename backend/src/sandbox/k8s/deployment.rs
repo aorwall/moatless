@@ -486,7 +486,11 @@ pub async fn wait_for_deployment_deleted(
         task_id,
         "Deployment",
         std::time::Duration::from_mins(1),
-        || async { find_deployment(k8s, task_id).await.map(|item| item.is_none()) },
+        || async {
+            find_deployment(k8s, task_id)
+                .await
+                .map(|item| item.is_none())
+        },
     )
     .await
 }

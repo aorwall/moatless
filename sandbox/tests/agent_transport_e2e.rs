@@ -362,8 +362,8 @@ async fn run_agent_roundtrip(use_tmux: bool) {
     let ack = handle.send(
         TEST_PROMPT.to_string(),
         Some(TEST_MODEL.to_string()),
-        None, // agent_type → claude-code
-        None, // agent_mode
+        None,  // agent_type → claude-code
+        None,  // agent_mode
         None,  // resume_session_id
         false, // start_fresh
     );
@@ -372,10 +372,7 @@ async fn run_agent_roundtrip(use_tmux: bool) {
         .expect("timed out waiting for session start")
         .expect("session failed to start (ack sender dropped)")
         .session_id;
-    assert!(
-        !ack.is_empty(),
-        "expected a non-empty session id"
-    );
+    assert!(!ack.is_empty(), "expected a non-empty session id");
 
     wait_until_not_running(&agent_state, Duration::from_mins(2), "roundtrip").await;
 
@@ -451,8 +448,8 @@ async fn run_agent_resume(use_tmux: bool) {
     let ack = handle.send(
         TEST_PROMPT.to_string(),
         Some(TEST_MODEL.to_string()),
-        None, // agent_type → claude-code
-        None, // agent_mode
+        None,  // agent_type → claude-code
+        None,  // agent_mode
         None,  // resume_session_id → fresh
         false, // start_fresh
     );

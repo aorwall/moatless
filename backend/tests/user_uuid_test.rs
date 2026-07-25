@@ -43,7 +43,9 @@ async fn resolves_users_by_provider_and_legacy_id(pool: PgPool) {
     repo.upsert_user(&make_user(gh, "octocat", "github", "609489"))
         .await
         .unwrap();
-    repo.upsert_provider_id(&gh, "github", "609489").await.unwrap();
+    repo.upsert_provider_id(&gh, "github", "609489")
+        .await
+        .unwrap();
 
     // Auth0 user.
     let a0 = Uuid::new_v4();
@@ -65,26 +67,88 @@ async fn resolves_users_by_provider_and_legacy_id(pool: PgPool) {
 
     // Bot: `github_app` collapses to the `github` lookup key at the call site.
     let bot = Uuid::new_v4();
-    repo.upsert_user(&make_user(bot, "reviewer[bot]", "github_app", "bot:reviewer"))
-        .await
-        .unwrap();
+    repo.upsert_user(&make_user(
+        bot,
+        "reviewer[bot]",
+        "github_app",
+        "bot:reviewer",
+    ))
+    .await
+    .unwrap();
     repo.upsert_provider_id(&bot, "github", "bot:reviewer")
         .await
         .unwrap();
 
     // Login path: (provider, provider_user_id) -> internal uuid.
-    assert_eq!(repo.find_user_by_provider_id("github", "609489").await.unwrap().unwrap().id, gh);
-    assert_eq!(repo.find_user_by_provider_id("auth0", "auth0|abc").await.unwrap().unwrap().id, a0);
-    assert_eq!(repo.find_user_by_provider_id("github", "bot:reviewer").await.unwrap().unwrap().id, bot);
-    assert!(repo.find_user_by_provider_id("github", "does-not-exist").await.unwrap().is_none());
+    assert_eq!(
+        repo.find_user_by_provider_id("github", "609489")
+            .await
+            .unwrap()
+            .unwrap()
+            .id,
+        gh
+    );
+    assert_eq!(
+        repo.find_user_by_provider_id("auth0", "auth0|abc")
+            .await
+            .unwrap()
+            .unwrap()
+            .id,
+        a0
+    );
+    assert_eq!(
+        repo.find_user_by_provider_id("github", "bot:reviewer")
+            .await
+            .unwrap()
+            .unwrap()
+            .id,
+        bot
+    );
+    assert!(repo
+        .find_user_by_provider_id("github", "does-not-exist")
+        .await
+        .unwrap()
+        .is_none());
     // A github user is not reachable under the auth0 provider key.
-    assert!(repo.find_user_by_provider_id("auth0", "609489").await.unwrap().is_none());
+    assert!(repo
+        .find_user_by_provider_id("auth0", "609489")
+        .await
+        .unwrap()
+        .is_none());
 
     // Legacy path: provider_user_id alone, regardless of provider.
-    assert_eq!(repo.find_user_by_legacy_id("609489").await.unwrap().unwrap().id, gh);
-    assert_eq!(repo.find_user_by_legacy_id("auth0|abc").await.unwrap().unwrap().id, a0);
-    assert_eq!(repo.find_user_by_legacy_id("local:bob").await.unwrap().unwrap().id, loc);
-    assert_eq!(repo.find_user_by_legacy_id("bot:reviewer").await.unwrap().unwrap().id, bot);
+    assert_eq!(
+        repo.find_user_by_legacy_id("609489")
+            .await
+            .unwrap()
+            .unwrap()
+            .id,
+        gh
+    );
+    assert_eq!(
+        repo.find_user_by_legacy_id("auth0|abc")
+            .await
+            .unwrap()
+            .unwrap()
+            .id,
+        a0
+    );
+    assert_eq!(
+        repo.find_user_by_legacy_id("local:bob")
+            .await
+            .unwrap()
+            .unwrap()
+            .id,
+        loc
+    );
+    assert_eq!(
+        repo.find_user_by_legacy_id("bot:reviewer")
+            .await
+            .unwrap()
+            .unwrap()
+            .id,
+        bot
+    );
     assert!(repo.find_user_by_legacy_id("nope").await.unwrap().is_none());
 
     // The provider id is preserved on the user row.
@@ -116,12 +180,14 @@ async fn native_uuid_foreign_keys_resolve_and_enforce(pool: PgPool) {
         .unwrap();
 
     // Personal team; membership rides the native-uuid FK to users.
-    sqlx::query("INSERT INTO teams (id, name, slug) VALUES ($1, $2, $1) ON CONFLICT (id) DO NOTHING")
-        .bind(format!("personal-{uid_s}"))
-        .bind(format!("{uid_s} Personal"))
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO teams (id, name, slug) VALUES ($1, $2, $1) ON CONFLICT (id) DO NOTHING",
+    )
+    .bind(format!("personal-{uid_s}"))
+    .bind(format!("{uid_s} Personal"))
+    .execute(&pool)
+    .await
+    .unwrap();
     teams
         .add_member(&format!("personal-{uid_s}"), &uid, "owner")
         .await
@@ -137,15 +203,25 @@ async fn native_uuid_foreign_keys_resolve_and_enforce(pool: PgPool) {
     );
 
     // user_credentials.user_id is also a native-uuid FK to users.
-    creds.upsert(&uid, "carol", "$argon2id$hash", false).await.unwrap();
-    assert_eq!(creds.find_by_user_id(&uid).await.unwrap().unwrap().user_id, uid);
+    creds
+        .upsert(&uid, "carol", "$argon2id$hash", false)
+        .await
+        .unwrap();
+    assert_eq!(
+        creds.find_by_user_id(&uid).await.unwrap().unwrap().user_id,
+        uid
+    );
 
     // The FK is load-bearing: a membership for an unknown user is rejected.
     let orphan = Uuid::new_v4();
-    let err = sqlx::query("INSERT INTO team_members (team_id, user_id, role) VALUES ($1, $2, 'member')")
-        .bind(format!("personal-{uid_s}"))
-        .bind(orphan)
-        .execute(&pool)
-        .await;
-    assert!(err.is_err(), "team_members.user_id FK must reject an unknown user");
+    let err =
+        sqlx::query("INSERT INTO team_members (team_id, user_id, role) VALUES ($1, $2, 'member')")
+            .bind(format!("personal-{uid_s}"))
+            .bind(orphan)
+            .execute(&pool)
+            .await;
+    assert!(
+        err.is_err(),
+        "team_members.user_id FK must reject an unknown user"
+    );
 }

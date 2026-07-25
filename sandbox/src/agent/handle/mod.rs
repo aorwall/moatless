@@ -68,7 +68,9 @@ const AGENT_TYPE_CODEX: &str = "codex";
 pub(crate) fn resolve_agent_harness(raw: &str) -> Result<&'static str, String> {
     match raw {
         AGENT_TYPE_CODEX => Ok(AGENT_TYPE_CODEX),
-        AGENT_TYPE_CLAUDE_CODE | AGENT_TYPE_CLAUDE_CODE_TUI | AGENT_TYPE_CLAUDE_CODE_CLI
+        AGENT_TYPE_CLAUDE_CODE
+        | AGENT_TYPE_CLAUDE_CODE_TUI
+        | AGENT_TYPE_CLAUDE_CODE_CLI
         | AGENT_TYPE_CLAUDE_CODE_FABLE => Ok(AGENT_TYPE_CLAUDE_CODE),
         other => Err(format!(
             "unsupported Agent harness '{other}' (expected one of: \

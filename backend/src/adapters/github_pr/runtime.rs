@@ -8,8 +8,8 @@ use tracing::{debug, info, warn};
 use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
-    AdapterConnection, InboundMessage, TaskBinding, SubscriptionMatch, ADAPTER_EVENT_BINDING_ORIGIN,
-    CONNECTED_THREAD_BINDING_ORIGIN,
+    AdapterConnection, InboundMessage, SubscriptionMatch, TaskBinding,
+    ADAPTER_EVENT_BINDING_ORIGIN, CONNECTED_THREAD_BINDING_ORIGIN,
 };
 use crate::adapters::AdapterKind;
 use crate::bindings::dao::PgTaskBindingRepository;
@@ -57,7 +57,8 @@ pub async fn resolve_provider_event(
         return Ok(None);
     };
 
-    let rule = state.loops
+    let rule = state
+        .loops
         .find_subscription_by_source_matcher(ADAPTER, repo_full_name)
         .await?
         .filter(|rule| {
@@ -539,9 +540,16 @@ pub async fn record_merge_state_and_notify(
                 subject_key,
                 "Delivering merge-conflict notification"
             );
-            if let Err(e) =
-                deliver_to_binding(state, Some(rule), connection, &binding, conflict_msg, false, true)
-                    .await
+            if let Err(e) = deliver_to_binding(
+                state,
+                Some(rule),
+                connection,
+                &binding,
+                conflict_msg,
+                false,
+                true,
+            )
+            .await
             {
                 warn!(
                     task_id = %binding.task_id,
@@ -1223,7 +1231,9 @@ mod tests {
             assert!(is_author_only_signal(&external_id::check_run(1)));
             assert!(is_author_only_signal(&external_id::check_suite(2)));
             assert!(is_author_only_signal(&external_id::workflow_run(3)));
-            assert!(is_author_only_signal(&external_id::merge_conflict(4, "sha")));
+            assert!(is_author_only_signal(&external_id::merge_conflict(
+                4, "sha"
+            )));
         }
 
         #[test]

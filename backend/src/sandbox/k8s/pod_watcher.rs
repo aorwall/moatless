@@ -36,12 +36,8 @@ use super::pod_status::{
 };
 use crate::events::EventPublisher;
 use crate::sandbox::lifecycle::classify::ObservedTransition;
-use crate::sandbox::lifecycle::runtime::{
-    generation_from_label, OPERATION_GENERATION_LABEL,
-};
-use crate::sandbox::lifecycle::watcher::{
-    classify_observation, publish_sandbox_observation,
-};
+use crate::sandbox::lifecycle::runtime::{generation_from_label, OPERATION_GENERATION_LABEL};
+use crate::sandbox::lifecycle::watcher::{classify_observation, publish_sandbox_observation};
 use crate::sandbox::lifecycle::Lifecycle;
 use crate::sandbox::lifecycle::OperationGeneration;
 use crate::task::dao::{TaskPatch, TaskRepository};
@@ -636,9 +632,7 @@ async fn process_watcher_event(
                 }
 
                 let mut event_generation = new_state.operation_generation;
-                if let Some(transition) =
-                    lifecycle_observed_transition(sandbox_status, sub_type)
-                {
+                if let Some(transition) = lifecycle_observed_transition(sandbox_status, sub_type) {
                     let decision = classify_observation(
                         deps.lifecycle.as_ref(),
                         &task_id,
@@ -683,10 +677,7 @@ async fn process_watcher_event(
                     &task_id,
                     sandbox_status,
                     &SandboxEventPayload {
-                        message: format_sandbox_lifecycle_message(
-                            sub_type,
-                            error_msg.as_deref(),
-                        ),
+                        message: format_sandbox_lifecycle_message(sub_type, error_msg.as_deref()),
                         lifecycle_event: Some(sub_type.clone()),
                         error: if is_intentional_stop {
                             None
@@ -1112,11 +1103,8 @@ async fn process_watcher_event(
                 return;
             };
             let pod_name = pod.metadata.name.as_deref().unwrap_or("unknown");
-            let operation_generation = pod
-                .metadata
-                .labels
-                .as_ref()
-                .and_then(|labels| {
+            let operation_generation =
+                pod.metadata.labels.as_ref().and_then(|labels| {
                     generation_from_label(labels.get(OPERATION_GENERATION_LABEL))
                 });
 

@@ -103,7 +103,13 @@ impl EventPublisher for RecordingPublisher {
     async fn publish_task_event(&self, _: &str, sub_type: TaskSubType, _: Option<&str>, _: Value) {
         self.push(RecordedEvent::Task(sub_type));
     }
-    async fn publish_agent_event(&self, _: &str, sub_type: AgentSubType, _: Option<&str>, _: Value) {
+    async fn publish_agent_event(
+        &self,
+        _: &str,
+        sub_type: AgentSubType,
+        _: Option<&str>,
+        _: Value,
+    ) {
         self.push(RecordedEvent::Agent(sub_type));
     }
     async fn publish_task_turn_event(

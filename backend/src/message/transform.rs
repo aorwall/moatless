@@ -32,9 +32,7 @@ impl RenderScope<'_> {
     fn includes(&self, msg: &TaskMessage) -> bool {
         match self {
             RenderScope::TopLevel => msg.parent_uuid.is_none(),
-            RenderScope::Subagent(tool_use_id) => {
-                msg.parent_uuid.as_deref() == Some(*tool_use_id)
-            }
+            RenderScope::Subagent(tool_use_id) => msg.parent_uuid.as_deref() == Some(*tool_use_id),
         }
     }
 }
@@ -287,8 +285,10 @@ pub(crate) fn inject_subagent_summaries(
             };
             let (message_count, tokens) = aggregates.get(&id).copied().unwrap_or((0, 0));
             let outer_result = result_status.get(&id).copied();
-            let status =
-                SubagentStatus::from_outer_result(outer_result.is_some(), outer_result == Some(true));
+            let status = SubagentStatus::from_outer_result(
+                outer_result.is_some(),
+                outer_result == Some(true),
+            );
             b.subagent_summary = Some(SubagentSummary {
                 message_count,
                 tokens,
@@ -324,7 +324,10 @@ pub(crate) fn resolve_affected_parent_uuid(
 
     for tool_use_id in &folded {
         if let Some(parent) = rows.iter().find(|m| {
-            m.parent_uuid.is_none() && tool_use_ids(&m.message_content).iter().any(|id| id == tool_use_id)
+            m.parent_uuid.is_none()
+                && tool_use_ids(&m.message_content)
+                    .iter()
+                    .any(|id| id == tool_use_id)
         }) {
             return Some(parent.uuid.clone());
         }
@@ -1291,7 +1294,14 @@ mod tests {
     }
 
     fn tool_result_row(id: i32, uuid: &str, content: serde_json::Value) -> TaskMessage {
-        let mut m = make_msg(id, uuid, MessageType::System, MessageRole::User, Some(1), "");
+        let mut m = make_msg(
+            id,
+            uuid,
+            MessageType::System,
+            MessageRole::User,
+            Some(1),
+            "",
+        );
         m.message_content = content;
         m
     }
@@ -1399,11 +1409,14 @@ mod tests {
 
     #[test]
     fn inject_subagent_summary_derives_count_tokens_and_status() {
-        let agent_block =
-            json!([{"type": "tool_use", "id": "toolu_agent", "name": "Agent", "input": {"description": "do work"}}]);
+        let agent_block = json!([{"type": "tool_use", "id": "toolu_agent", "name": "Agent", "input": {"description": "do work"}}]);
 
         // Running: no outer Agent tool_result present.
-        let mut ui = transform_to_ui(&[assistant_with_content(1, "a1", agent_block.clone())], &[], &[]);
+        let mut ui = transform_to_ui(
+            &[assistant_with_content(1, "a1", agent_block.clone())],
+            &[],
+            &[],
+        );
         let mut agg = HashMap::new();
         agg.insert("toolu_agent".to_string(), (5u32, 1234u32));
         inject_subagent_summaries(&mut ui, &agg);
@@ -1444,7 +1457,11 @@ mod tests {
             "sys1",
             json!([{"type": "tool_result", "tool_use_id": "toolu_agent", "content": "boom", "is_error": true}]),
         );
-        let mut ui3 = transform_to_ui(&[assistant_with_content(1, "a1", agent_block), err], &[], &[]);
+        let mut ui3 = transform_to_ui(
+            &[assistant_with_content(1, "a1", agent_block), err],
+            &[],
+            &[],
+        );
         // Missing aggregate entry → zeroed count.
         inject_subagent_summaries(&mut ui3, &HashMap::new());
         let s3 = ui3[0]

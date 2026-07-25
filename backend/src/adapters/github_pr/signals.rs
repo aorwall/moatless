@@ -116,7 +116,10 @@ impl ReviewDecision {
     /// decision with. A plain `commented` review must not clobber an existing
     /// `approved` / `changes_requested`, so it is not a verdict.
     pub fn is_verdict(self) -> bool {
-        matches!(self, Self::Approved | Self::ChangesRequested | Self::Dismissed)
+        matches!(
+            self,
+            Self::Approved | Self::ChangesRequested | Self::Dismissed
+        )
     }
 }
 
@@ -126,14 +129,25 @@ mod tests {
 
     #[test]
     fn mergeable_state_roundtrips_known_values() {
-        for raw in ["clean", "dirty", "blocked", "behind", "unstable", "has_hooks", "draft"] {
+        for raw in [
+            "clean",
+            "dirty",
+            "blocked",
+            "behind",
+            "unstable",
+            "has_hooks",
+            "draft",
+        ] {
             assert_eq!(MergeableState::from_github(raw).as_str(), raw);
         }
     }
 
     #[test]
     fn mergeable_state_unknown_for_unrecognized() {
-        assert_eq!(MergeableState::from_github("weird"), MergeableState::Unknown);
+        assert_eq!(
+            MergeableState::from_github("weird"),
+            MergeableState::Unknown
+        );
         assert!(!MergeableState::Unknown.is_settled());
         assert!(MergeableState::Clean.is_settled());
         assert!(MergeableState::Dirty.is_conflicted());

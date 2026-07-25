@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::adapters::models::{MessageTrigger, SourceAccessPolicy, LoopContext};
+use crate::adapters::models::{LoopContext, MessageTrigger, SourceAccessPolicy};
 
 /// Typed representation of `provider_config` JSONB for Slack channels.
 #[derive(Debug, Clone, Deserialize, Serialize)]

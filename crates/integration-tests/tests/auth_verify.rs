@@ -120,7 +120,8 @@ async fn auth_verify_preview_host_is_scoped_to_the_task() {
     let resp = raw_api::verify_auth_with_headers(&owner_http, &[preview_host(&task.task_id)]).await;
     assert_eq!(resp.status().as_u16(), 200, "owner must reach its preview");
 
-    let resp = raw_api::verify_auth_with_headers(&stranger_http, &[preview_host(&task.task_id)]).await;
+    let resp =
+        raw_api::verify_auth_with_headers(&stranger_http, &[preview_host(&task.task_id)]).await;
     assert_eq!(
         resp.status().as_u16(),
         403,
@@ -145,7 +146,10 @@ async fn auth_verify_preview_host_allows_admin() {
     let repo_id = ensure_template_repo(&admin).await;
     let task = admin
         .api()
-        .create_task(&task_request(repo_id, &format!("Admin preview task {suffix}")))
+        .create_task(&task_request(
+            repo_id,
+            &format!("Admin preview task {suffix}"),
+        ))
         .await
         .unwrap();
 

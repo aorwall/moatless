@@ -172,11 +172,7 @@ impl TmuxSessionInfo {
 ///
 /// `run_id` is what the backend maps to a turn number, so the caller must have
 /// minted a fresh one before calling this.
-pub(super) async fn publish_turn_start(
-    events: &GrpcEventPublisher,
-    task_id: &str,
-    run_id: &str,
-) {
+pub(super) async fn publish_turn_start(events: &GrpcEventPublisher, task_id: &str, run_id: &str) {
     let events = events.for_run(run_id);
     events
         .publish_agent_event(task_id, AgentSubType::Started, serde_json::json!({}))

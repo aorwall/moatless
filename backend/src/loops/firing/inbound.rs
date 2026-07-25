@@ -3,9 +3,7 @@
 use crate::adapters::models::LoopContext;
 use crate::shared_models::AgentType;
 use crate::state::AppState;
-use crate::task::creation::{
-    FirstMessage, NewTaskRequest, TaskCreationError, TaskCreationOutcome,
-};
+use crate::task::creation::{FirstMessage, NewTaskRequest, TaskCreationError, TaskCreationOutcome};
 use crate::task::models::Visibility;
 use crate::task::relations::RelatedTask;
 

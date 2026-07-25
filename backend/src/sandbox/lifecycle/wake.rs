@@ -36,10 +36,7 @@ pub struct WakeIntent {
 /// - a newer message may supersede Removed **only** when the removal retention
 ///   is `RetainArchives` (the durable explicit wake after a soft removal) — an
 ///   in-progress `DeleteArchives` removal is never superseded, deletion wins.
-pub fn message_supersedes_intent(
-    intent: WakeIntent,
-    message_created_at: DateTime<Utc>,
-) -> bool {
+pub fn message_supersedes_intent(intent: WakeIntent, message_created_at: DateTime<Utc>) -> bool {
     // Closed is never resurrected by a pending message.
     if intent.task_status == TaskStatus::Closed {
         return false;
@@ -92,7 +89,11 @@ mod tests {
             SandboxDesiredState::Stopped,
             SandboxDesiredState::Removed,
         ] {
-            let i = intent(TaskStatus::Closed, desired, Some(ArchiveRetention::RetainArchives));
+            let i = intent(
+                TaskStatus::Closed,
+                desired,
+                Some(ArchiveRetention::RetainArchives),
+            );
             // Even a message far newer than the intent cannot wake a Closed task.
             assert!(!message_supersedes_intent(i, at(9_999)), "{desired:?}");
         }
@@ -127,20 +128,32 @@ mod tests {
     #[test]
     fn newer_message_supersedes_soft_removed() {
         // RetainArchives removal + newer message → durable explicit wake.
-        let i = intent(TaskStatus::Open, SandboxDesiredState::Removed, Some(ArchiveRetention::RetainArchives));
+        let i = intent(
+            TaskStatus::Open,
+            SandboxDesiredState::Removed,
+            Some(ArchiveRetention::RetainArchives),
+        );
         assert!(message_supersedes_intent(i, at(1_001)));
     }
 
     #[test]
     fn delete_archives_removal_is_never_superseded() {
         // Deletion wins — a newer message cannot undo a hard removal.
-        let i = intent(TaskStatus::Open, SandboxDesiredState::Removed, Some(ArchiveRetention::DeleteArchives));
+        let i = intent(
+            TaskStatus::Open,
+            SandboxDesiredState::Removed,
+            Some(ArchiveRetention::DeleteArchives),
+        );
         assert!(!message_supersedes_intent(i, at(9_999)));
     }
 
     #[test]
     fn older_message_cannot_supersede_soft_removed() {
-        let i = intent(TaskStatus::Open, SandboxDesiredState::Removed, Some(ArchiveRetention::RetainArchives));
+        let i = intent(
+            TaskStatus::Open,
+            SandboxDesiredState::Removed,
+            Some(ArchiveRetention::RetainArchives),
+        );
         assert!(!message_supersedes_intent(i, at(999)));
     }
 

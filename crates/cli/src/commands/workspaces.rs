@@ -173,9 +173,8 @@ pub async fn run(
             repos_json,
         } => {
             let repos: Vec<WorkspaceRepoInput> = match repos_json.as_deref() {
-                Some(s) => serde_json::from_str(s).map_err(|e| {
-                    ClientError::Other(format!("Invalid --repos-json: {e}"))
-                })?,
+                Some(s) => serde_json::from_str(s)
+                    .map_err(|e| ClientError::Other(format!("Invalid --repos-json: {e}")))?,
                 None => vec![],
             };
             let req = CreateWorkspaceRequest {

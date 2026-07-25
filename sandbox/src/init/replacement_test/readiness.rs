@@ -48,17 +48,18 @@ async fn dispatch_drives_the_pending_message_after_ready_per_family() {
     // `--continue`); Codex has no `--continue` and starts fresh. Asserting the
     // family-specific resume proves selection actually flows from config through
     // the coordinator to the harness, not that the loop merely runs twice.
-    for (family, expected_resume) in [
-        ("claude-code", Some(ResumeSession::Last)),
-        ("codex", None),
-    ] {
+    for (family, expected_resume) in [("claude-code", Some(ResumeSession::Last)), ("codex", None)] {
         let backend = ReplayBackend::new(Ok(vec![text_message("hello", "uuid-1")]), None);
         let (state, recorder) = recording_state(Some(family), InitPhase::Ready, backend.clone());
 
         dispatch_pending_messages(state).await;
 
         let inputs = recorded_inputs(&recorder, 1).await;
-        assert_eq!(inputs.len(), 1, "family {family}: exactly the pending message");
+        assert_eq!(
+            inputs.len(),
+            1,
+            "family {family}: exactly the pending message"
+        );
         assert_eq!(
             inputs[0].text, "hello",
             "family {family}: the pending message text is what the harness accepted"
@@ -180,7 +181,10 @@ async fn prompt_resolution_is_serialised_under_the_dispatch_guard() {
     // Message text, and it never leaks into the harness as normal Input.
     drop(held);
     dispatch.await.expect("dispatch task panicked");
-    match rx.await.expect("the prompt must be answered once the guard is free") {
+    match rx
+        .await
+        .expect("the prompt must be answered once the guard is free")
+    {
         PromptResponse::AskUserAnswer { answers } => assert_eq!(answers["text"], "approve it"),
         other => panic!("unexpected prompt response: {other:?}"),
     }

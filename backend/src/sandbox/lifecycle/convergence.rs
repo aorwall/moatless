@@ -177,20 +177,35 @@ mod tests {
 
     #[test]
     fn running_starts_from_stopped_missing_and_error() {
-        assert_eq!(reconcile_action(D::Running, O::Stopped, false), ReconcileAction::Start);
-        assert_eq!(reconcile_action(D::Running, O::Absent, false), ReconcileAction::Start);
+        assert_eq!(
+            reconcile_action(D::Running, O::Stopped, false),
+            ReconcileAction::Start
+        );
+        assert_eq!(
+            reconcile_action(D::Running, O::Absent, false),
+            ReconcileAction::Start
+        );
         // Running/error repairs through ensure_running.
-        assert_eq!(reconcile_action(D::Running, O::Error, false), ReconcileAction::Start);
+        assert_eq!(
+            reconcile_action(D::Running, O::Error, false),
+            ReconcileAction::Start
+        );
     }
 
     #[test]
     fn running_waits_on_starting_then_times_out() {
-        assert_eq!(reconcile_action(D::Running, O::Starting, false), ReconcileAction::Wait);
+        assert_eq!(
+            reconcile_action(D::Running, O::Starting, false),
+            ReconcileAction::Wait
+        );
     }
 
     #[test]
     fn running_ready_is_no_action() {
-        assert_eq!(reconcile_action(D::Running, O::Ready, false), ReconcileAction::None);
+        assert_eq!(
+            reconcile_action(D::Running, O::Ready, false),
+            ReconcileAction::None
+        );
     }
 
     // ---- Convergence matrix (Stopped) ----
@@ -207,11 +222,26 @@ mod tests {
 
     #[test]
     fn stopped_stops_any_live_status() {
-        assert_eq!(reconcile_action(D::Stopped, O::Ready, false), ReconcileAction::Stop);
-        assert_eq!(reconcile_action(D::Stopped, O::Starting, false), ReconcileAction::Stop);
-        assert_eq!(reconcile_action(D::Stopped, O::Error, false), ReconcileAction::Stop);
-        assert_eq!(reconcile_action(D::Stopped, O::Stopped, false), ReconcileAction::None);
-        assert_eq!(reconcile_action(D::Stopped, O::Absent, false), ReconcileAction::None);
+        assert_eq!(
+            reconcile_action(D::Stopped, O::Ready, false),
+            ReconcileAction::Stop
+        );
+        assert_eq!(
+            reconcile_action(D::Stopped, O::Starting, false),
+            ReconcileAction::Stop
+        );
+        assert_eq!(
+            reconcile_action(D::Stopped, O::Error, false),
+            ReconcileAction::Stop
+        );
+        assert_eq!(
+            reconcile_action(D::Stopped, O::Stopped, false),
+            ReconcileAction::None
+        );
+        assert_eq!(
+            reconcile_action(D::Stopped, O::Absent, false),
+            ReconcileAction::None
+        );
     }
 
     // ---- Convergence matrix (Removed) + removal obligation ----
@@ -232,15 +262,25 @@ mod tests {
     fn removed_absent_incomplete_marker_retries_remove() {
         // The load-bearing marker branch: no resources live, but the archive
         // obligation is unmet, so the reconciler retries remove.
-        assert_eq!(reconcile_action(D::Removed, O::Absent, true), ReconcileAction::Remove);
+        assert_eq!(
+            reconcile_action(D::Removed, O::Absent, true),
+            ReconcileAction::Remove
+        );
         // Complete obligation → nothing to do.
-        assert_eq!(reconcile_action(D::Removed, O::Absent, false), ReconcileAction::None);
+        assert_eq!(
+            reconcile_action(D::Removed, O::Absent, false),
+            ReconcileAction::None
+        );
     }
 
     #[test]
     fn removed_removes_every_live_status() {
         for o in [O::Ready, O::Starting, O::Stopped, O::Error, O::Terminating] {
-            assert_eq!(reconcile_action(D::Removed, o, false), ReconcileAction::Remove, "observed {o:?}");
+            assert_eq!(
+                reconcile_action(D::Removed, o, false),
+                ReconcileAction::Remove,
+                "observed {o:?}"
+            );
         }
     }
 
@@ -269,17 +309,41 @@ mod tests {
     fn accepted_but_terminating_removed_is_not_converged() {
         // Kubernetes delete returns on acceptance; terminating is not absence.
         assert!(!converged(D::Removed, O::Terminating, false));
-        assert_eq!(reconcile_action(D::Removed, O::Terminating, false), ReconcileAction::Remove);
+        assert_eq!(
+            reconcile_action(D::Removed, O::Terminating, false),
+            ReconcileAction::Remove
+        );
     }
 
     #[test]
     fn display_status_normalizes_into_observed_vocab() {
-        assert_eq!(SandboxObservedStatus::from_display(SandboxStatus::Ready), O::Ready);
-        assert_eq!(SandboxObservedStatus::from_display(SandboxStatus::Initializing), O::Starting);
-        assert_eq!(SandboxObservedStatus::from_display(SandboxStatus::Stopped), O::Stopped);
-        assert_eq!(SandboxObservedStatus::from_display(SandboxStatus::NotCreated), O::Absent);
-        assert_eq!(SandboxObservedStatus::from_display(SandboxStatus::Removed), O::Absent);
-        assert_eq!(SandboxObservedStatus::from_display(SandboxStatus::Removing), O::Terminating);
-        assert_eq!(SandboxObservedStatus::from_display(SandboxStatus::Error), O::Error);
+        assert_eq!(
+            SandboxObservedStatus::from_display(SandboxStatus::Ready),
+            O::Ready
+        );
+        assert_eq!(
+            SandboxObservedStatus::from_display(SandboxStatus::Initializing),
+            O::Starting
+        );
+        assert_eq!(
+            SandboxObservedStatus::from_display(SandboxStatus::Stopped),
+            O::Stopped
+        );
+        assert_eq!(
+            SandboxObservedStatus::from_display(SandboxStatus::NotCreated),
+            O::Absent
+        );
+        assert_eq!(
+            SandboxObservedStatus::from_display(SandboxStatus::Removed),
+            O::Absent
+        );
+        assert_eq!(
+            SandboxObservedStatus::from_display(SandboxStatus::Removing),
+            O::Terminating
+        );
+        assert_eq!(
+            SandboxObservedStatus::from_display(SandboxStatus::Error),
+            O::Error
+        );
     }
 }

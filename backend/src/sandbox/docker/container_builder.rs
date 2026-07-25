@@ -18,9 +18,7 @@ use super::naming::{
 };
 use crate::config::Config;
 use crate::sandbox::k8s::pod_reader::{parse_cpu_to_millicores, parse_memory_to_bytes};
-use crate::sandbox::lifecycle::runtime::{
-    RuntimeOperationContext, OPERATION_GENERATION_LABEL,
-};
+use crate::sandbox::lifecycle::runtime::{RuntimeOperationContext, OPERATION_GENERATION_LABEL};
 use crate::sandbox::models::{ProvisionPlan, ServerConfig};
 
 pub(crate) const CREATED_BY_LABEL: &str = "created-by";
@@ -246,14 +244,11 @@ fn sandbox_resource_limits(plan: &ProvisionPlan) -> (Option<i64>, Option<i64>) {
 /// Stamp lifecycle's operation identity onto a sandbox container before
 /// creation. Docker labels are immutable, so every replacing operation creates
 /// a new container carrying its own generation.
-pub fn stamp_operation_generation(
-    config: &mut ContainerConfig,
-    ctx: RuntimeOperationContext,
-) {
-    config
-        .labels
-        .get_or_insert_with(HashMap::new)
-        .insert(OPERATION_GENERATION_LABEL.to_string(), ctx.generation_label());
+pub fn stamp_operation_generation(config: &mut ContainerConfig, ctx: RuntimeOperationContext) {
+    config.labels.get_or_insert_with(HashMap::new).insert(
+        OPERATION_GENERATION_LABEL.to_string(),
+        ctx.generation_label(),
+    );
 }
 
 /// Build REPO_CONFIG JSON string for the sandbox container.
@@ -759,9 +754,7 @@ mod tests {
         let mut cc = build_container_config(&config, "task-1", &plan, None);
         stamp_operation_generation(
             &mut cc,
-            RuntimeOperationContext::new(
-                crate::sandbox::lifecycle::OperationGeneration(17),
-            ),
+            RuntimeOperationContext::new(crate::sandbox::lifecycle::OperationGeneration(17)),
         );
         assert_eq!(
             cc.labels

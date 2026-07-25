@@ -351,12 +351,11 @@ impl WorkspaceRepository for PgWorkspaceRepository {
         workspace_id: &str,
         placement_id: &str,
     ) -> Result<bool, sqlx::Error> {
-        let result =
-            sqlx::query("DELETE FROM workspace_repos WHERE id = $1 AND workspace_id = $2")
-                .bind(placement_id)
-                .bind(workspace_id)
-                .execute(&self.0)
-                .await?;
+        let result = sqlx::query("DELETE FROM workspace_repos WHERE id = $1 AND workspace_id = $2")
+            .bind(placement_id)
+            .bind(workspace_id)
+            .execute(&self.0)
+            .await?;
         Ok(result.rows_affected() > 0)
     }
 

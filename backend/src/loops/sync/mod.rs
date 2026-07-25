@@ -9,8 +9,8 @@
 use std::collections::HashSet;
 
 use chrono::{DateTime, Utc};
-use moatless_api_schemas::loops::{LoopSyncSkip, LoopSyncSummary};
 use moatless_api_schemas::loops::LoopKind;
+use moatless_api_schemas::loops::{LoopSyncSkip, LoopSyncSummary};
 use tracing::{debug, warn};
 
 mod error;

@@ -93,7 +93,12 @@ async fn task_connections_scope_respected() {
     );
     req.scope = Some(Scope::Team);
     req.team_id = Some(team_id.clone());
-    let team_repo = alice_with_team.client.api().create_repository(&req).await.unwrap();
+    let team_repo = alice_with_team
+        .client
+        .api()
+        .create_repository(&req)
+        .await
+        .unwrap();
 
     let task = alice_with_team
         .client

@@ -286,7 +286,12 @@ mod tests {
         // owed `Stopped` fact commits and the marker clears.
         let marker = CorrelationMarker::new(OperationKind::Stop, OperationGeneration(3), at(1_000));
         let d = decide(&input(
-            intent(TaskStatus::Open, SandboxDesiredState::Stopped, None, Some(marker)),
+            intent(
+                TaskStatus::Open,
+                SandboxDesiredState::Stopped,
+                None,
+                Some(marker),
+            ),
             SandboxObservedStatus::Stopped,
             None,
         ));
@@ -307,9 +312,15 @@ mod tests {
     #[test]
     fn a_non_remove_marker_does_not_signal_an_incomplete_removal() {
         // A stray Start-kind marker on a Removed intent is not a remove obligation.
-        let marker = CorrelationMarker::new(OperationKind::Start, OperationGeneration(2), at(1_000));
+        let marker =
+            CorrelationMarker::new(OperationKind::Start, OperationGeneration(2), at(1_000));
         let d = decide(&input(
-            intent(TaskStatus::Open, SandboxDesiredState::Removed, None, Some(marker)),
+            intent(
+                TaskStatus::Open,
+                SandboxDesiredState::Removed,
+                None,
+                Some(marker),
+            ),
             SandboxObservedStatus::Absent,
             None,
         ));

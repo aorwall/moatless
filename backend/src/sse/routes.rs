@@ -52,11 +52,14 @@ impl<S: Send + Sync> FromRequestParts<S> for SseAuth {
     type Rejection = std::convert::Infallible;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        let ctx = parts.extensions.get::<AuthIdentity>().map(|id| ScopeContext {
-            user_id: id.user_id.clone().to_string(),
-            team_ids: id.team_ids.clone(),
-            is_admin: id.role == UserRole::Admin,
-        });
+        let ctx = parts
+            .extensions
+            .get::<AuthIdentity>()
+            .map(|id| ScopeContext {
+                user_id: id.user_id.clone().to_string(),
+                team_ids: id.team_ids.clone(),
+                is_admin: id.role == UserRole::Admin,
+            });
         Ok(SseAuth(ctx))
     }
 }
@@ -257,7 +260,11 @@ async fn task_events_handler(
     // `find_by_id` bakes the scope filter into SQL and returns `None` when the
     // user has no access — so an unauthorized (or unknown) task id yields an
     // empty list, never another tenant's events.
-    match state.tasks.find_by_id(&task_id, &auth.scope_context()).await {
+    match state
+        .tasks
+        .find_by_id(&task_id, &auth.scope_context())
+        .await
+    {
         Ok(Some(_)) => {}
         Ok(None) => return Json(vec![]),
         Err(e) => {

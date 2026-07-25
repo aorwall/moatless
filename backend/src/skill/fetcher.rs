@@ -182,13 +182,8 @@ impl SkillFetcher for GitHubSkillFetcher {
                     let file_url = format!(
                         "https://api.github.com/repos/{owner}/{repo}/contents/{dir_path}/SKILL.md"
                     );
-                    let content = fetch_github_raw(
-                        &client,
-                        &file_url,
-                        token.as_deref(),
-                        &remote_url,
-                    )
-                    .await?;
+                    let content =
+                        fetch_github_raw(&client, &file_url, token.as_deref(), &remote_url).await?;
                     Ok::<Option<FetchedSkillFile>, SkillError>(
                         content.map(|content| FetchedSkillFile { dir_name, content }),
                     )
@@ -213,7 +208,8 @@ async fn resolve_symlink_dir(
     token: Option<&str>,
     git_url: &str,
 ) -> Result<Option<String>, SkillError> {
-    let url = format!("https://api.github.com/repos/{owner}/{repo}/contents/{skills_prefix}/{name}");
+    let url =
+        format!("https://api.github.com/repos/{owner}/{repo}/contents/{skills_prefix}/{name}");
     let Some(link) = send_github_json::<SymlinkObject>(
         client,
         &url,

@@ -9,8 +9,8 @@ use tracing::{debug, info, warn};
 
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
-    AdapterConnection, BindingContext, InboundMessage, OutboundReply, TaskBinding,
-    SubscriptionMatch, LoopContext,
+    AdapterConnection, BindingContext, InboundMessage, LoopContext, OutboundReply,
+    SubscriptionMatch, TaskBinding,
 };
 use crate::adapters::{Adapter, AdapterKind, BindingDestination};
 use crate::auth::credentials::resolve_user_github_token;
@@ -1790,7 +1790,10 @@ async fn check_pr_merge_conflict(
     {
         Ok(bindings) if bindings.iter().any(|b| b.active) => {}
         Ok(_) => {
-            debug!(subject_key, "No active bindings; skipping merge-conflict check");
+            debug!(
+                subject_key,
+                "No active bindings; skipping merge-conflict check"
+            );
             return;
         }
         Err(e) => {
@@ -1833,7 +1836,10 @@ async fn check_pr_merge_conflict(
 
     // `unknown` means GitHub never finished computing within our budget —
     // inconclusive, so leave the persisted value untouched and stay quiet.
-    let mergeable = pr.mergeable_state.as_deref().map(MergeableState::from_github);
+    let mergeable = pr
+        .mergeable_state
+        .as_deref()
+        .map(MergeableState::from_github);
     let Some(mergeable) = mergeable.filter(|m| m.is_settled()) else {
         debug!(
             subject_key,
@@ -1856,7 +1862,12 @@ async fn check_pr_merge_conflict(
         thread_id: Some(pr_number.to_string()),
         message_thread_id: pr_number.to_string(),
         user_id,
-        text: merge_conflict_text(&owner, &repo, pr_number, pr.html_url.as_deref().unwrap_or("")),
+        text: merge_conflict_text(
+            &owner,
+            &repo,
+            pr_number,
+            pr.html_url.as_deref().unwrap_or(""),
+        ),
         file_ids: vec![],
         thread_properties: serde_json::json!({
             "owner": owner,
@@ -1946,7 +1957,10 @@ fn parse_post_merge_run(payload: &serde_json::Value) -> Option<PostMergeRun> {
     }
 
     Some(PostMergeRun {
-        run_id: wr.get("id").and_then(serde_json::Value::as_u64).unwrap_or(0),
+        run_id: wr
+            .get("id")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0),
         name: wr
             .get("name")
             .and_then(serde_json::Value::as_str)
@@ -2066,7 +2080,10 @@ async fn check_post_merge_ci(
     {
         Ok(bindings) if bindings.iter().any(|b| b.active) => {}
         Ok(_) => {
-            debug!(subject_key, "No active bindings; skipping post-merge CI notice");
+            debug!(
+                subject_key,
+                "No active bindings; skipping post-merge CI notice"
+            );
             return;
         }
         Err(e) => {
@@ -2206,7 +2223,10 @@ pub async fn resolve_and_process_github_webhook(
     // The cache *insert* stays in `parse_webhook`, so the first delivery (a
     // cache miss here) still flows through untouched.
     if github_provider.is_duplicate_delivery(delivery_id).await {
-        debug!(delivery_id, "GitHub webhook redelivery ignored (deduplicated)");
+        debug!(
+            delivery_id,
+            "GitHub webhook redelivery ignored (deduplicated)"
+        );
         return Ok(GithubWebhookOutcome::Ignored {
             event_type: event_type.to_string(),
             reason: "duplicate_delivery",
@@ -2236,7 +2256,10 @@ pub async fn resolve_and_process_github_webhook(
         .and_then(serde_json::Value::as_str)
         .unwrap_or("");
     if rule_config.event_filtered_out(event_type) {
-        debug!(event_type, "GitHub webhook ignored: event filtered by trigger");
+        debug!(
+            event_type,
+            "GitHub webhook ignored: event filtered by trigger"
+        );
         return Ok(GithubWebhookOutcome::Ignored {
             event_type: event_type.to_string(),
             reason: "event_filtered",
@@ -2516,7 +2539,9 @@ mod tests {
     fn review_text_renders_placeholder_for_empty_body() {
         // A bare approval (no summary text) must still read cleanly.
         let text = review_text("alice", "Approved", 555, "", "o", "r", 42);
-        assert!(text.starts_with("**@alice** — Approved (review id: 555):\n\n_(no review comment)_"));
+        assert!(
+            text.starts_with("**@alice** — Approved (review id: 555):\n\n_(no review comment)_")
+        );
         assert!(!text.contains("\n\n\n"));
     }
 
@@ -2547,7 +2572,10 @@ mod tests {
 
         // review / review_comment → PR number
         let review = serde_json::json!({"pull_request": {"number": 34}});
-        assert_eq!(merge_conflict_pr_number("pull_request_review", &review), Some(34));
+        assert_eq!(
+            merge_conflict_pr_number("pull_request_review", &review),
+            Some(34)
+        );
         assert_eq!(
             merge_conflict_pr_number("pull_request_review_comment", &review),
             Some(34)
@@ -2555,9 +2583,15 @@ mod tests {
 
         // issue_comment on a PR → number; on a plain issue → None
         let pr_comment = serde_json::json!({"issue": {"number": 5, "pull_request": {"url": "x"}}});
-        assert_eq!(merge_conflict_pr_number("issue_comment", &pr_comment), Some(5));
+        assert_eq!(
+            merge_conflict_pr_number("issue_comment", &pr_comment),
+            Some(5)
+        );
         let issue_comment = serde_json::json!({"issue": {"number": 5}});
-        assert_eq!(merge_conflict_pr_number("issue_comment", &issue_comment), None);
+        assert_eq!(
+            merge_conflict_pr_number("issue_comment", &issue_comment),
+            None
+        );
 
         // check_run / check_suite → first associated PR
         let check = serde_json::json!({"check_run": {"pull_requests": [{"number": 9}]}});
@@ -2664,18 +2698,19 @@ mod tests {
 
     #[test]
     fn pr_info_deserializes_mergeable_fields() {
-        let pr: crate::adapters::github_pr::api::PrInfo = serde_json::from_value(serde_json::json!({
-            "number": 1,
-            "title": "t",
-            "body": null,
-            "state": "open",
-            "mergeable": false,
-            "mergeable_state": "dirty",
-            "user": {"login": "alice"},
-            "head": {"ref": "feat", "sha": "abc"},
-            "base": {"ref": "main", "sha": "def"},
-        }))
-        .expect("PrInfo parses mergeable fields");
+        let pr: crate::adapters::github_pr::api::PrInfo =
+            serde_json::from_value(serde_json::json!({
+                "number": 1,
+                "title": "t",
+                "body": null,
+                "state": "open",
+                "mergeable": false,
+                "mergeable_state": "dirty",
+                "user": {"login": "alice"},
+                "head": {"ref": "feat", "sha": "abc"},
+                "base": {"ref": "main", "sha": "def"},
+            }))
+            .expect("PrInfo parses mergeable fields");
         assert_eq!(pr.mergeable, Some(false));
         assert_eq!(pr.mergeable_state.as_deref(), Some("dirty"));
 

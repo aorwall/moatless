@@ -4,9 +4,8 @@ use chrono::Utc;
 use integration_tests::{create_webhook_integration, ensure_template_repo, test_client};
 use moatless_api_schemas::enums::RoutingMode;
 use moatless_api_schemas::loops::{
-    CreateSchedule, CreateLoopRequest, CreateLoopConfig, CreateLoopSource,
-    LoopKind, LoopSource, UpdateSchedule, UpdateLoopRequest,
-    UpdateLoopConfig, UpdateLoopSource,
+    CreateLoopConfig, CreateLoopRequest, CreateLoopSource, CreateSchedule, LoopKind, LoopSource,
+    UpdateLoopConfig, UpdateLoopRequest, UpdateLoopSource, UpdateSchedule,
 };
 use pretty_assertions::assert_eq;
 

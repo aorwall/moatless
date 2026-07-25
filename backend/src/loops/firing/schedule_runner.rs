@@ -7,13 +7,13 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::adapters::common::next_fire_at;
-use crate::adapters::models::{InboundMessage, Schedule, LoopSpawnConfig, LoopContext};
+use crate::adapters::models::{InboundMessage, LoopContext, LoopSpawnConfig, Schedule};
 use crate::adapters::AdapterKind;
 use crate::leader::LeaderGuard;
+use crate::loops::firing::metrics::record_job;
 use crate::shared_models::AgentMode;
 use crate::state::AppState;
 use crate::task::models::TaskStatus;
-use crate::loops::firing::metrics::record_job;
 
 /// Spawn the scheduled-job background task.
 pub fn spawn_cron_scheduler(

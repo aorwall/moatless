@@ -327,12 +327,12 @@ impl EventHandlerConsumer {
     /// `dispatch_event`) to build the Message store, and must never accumulate
     /// as a second copy in the append-only `task_events` log.
     async fn persist_event(&self, event: &AgentEvent) {
-        let payload = if super::skeleton::is_agent_message(event.event_type.as_str(), &event.sub_type)
-        {
-            super::skeleton::agent_message_skeleton(&event.payload)
-        } else {
-            event.payload.clone()
-        };
+        let payload =
+            if super::skeleton::is_agent_message(event.event_type.as_str(), &event.sub_type) {
+                super::skeleton::agent_message_skeleton(&event.payload)
+            } else {
+                event.payload.clone()
+            };
         let insert = InsertTaskEvent {
             event_id: event.event_id.clone(),
             task_id: event.task_id.clone(),

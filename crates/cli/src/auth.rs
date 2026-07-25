@@ -218,7 +218,8 @@ fn extract_session_cookie(resp: &reqwest::Response) -> Option<String> {
         .filter_map(|v| v.to_str().ok())
         .find_map(|raw| {
             let pair = raw.split(';').next()?.trim();
-            pair.starts_with("moatless_session=").then(|| pair.to_string())
+            pair.starts_with("moatless_session=")
+                .then(|| pair.to_string())
         })
 }
 

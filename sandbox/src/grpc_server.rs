@@ -131,32 +131,31 @@ impl SandboxService for SandboxServiceImpl {
         // alive even at idle, which would read as always-busy, so report empty
         // there as before.
         let tmux_pane_pid = self.state.agent.tmux_pane_pid().await;
-        let background_processes: Vec<BackgroundProcess> =
-            if should_report_background_processes(
-                self.state.config.use_tmux,
-                agent_status,
-                tmux_pane_pid,
-            ) {
-                tokio::task::spawn_blocking(move || {
-                    let root = std::process::id();
-                    match tmux_pane_pid {
-                        Some(pane) => {
-                            crate::process_tree::live_descendants_excluding_session(root, pane)
-                        }
-                        None => crate::process_tree::live_descendants(root),
+        let background_processes: Vec<BackgroundProcess> = if should_report_background_processes(
+            self.state.config.use_tmux,
+            agent_status,
+            tmux_pane_pid,
+        ) {
+            tokio::task::spawn_blocking(move || {
+                let root = std::process::id();
+                match tmux_pane_pid {
+                    Some(pane) => {
+                        crate::process_tree::live_descendants_excluding_session(root, pane)
                     }
-                })
-                .await
-                .unwrap_or_default()
-                .into_iter()
-                .map(|p| BackgroundProcess {
-                    pid: p.pid,
-                    command: p.command,
-                })
-                .collect()
-            } else {
-                Vec::new()
-            };
+                    None => crate::process_tree::live_descendants(root),
+                }
+            })
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|p| BackgroundProcess {
+                pid: p.pid,
+                command: p.command,
+            })
+            .collect()
+        } else {
+            Vec::new()
+        };
         let busy_processes = !background_processes.is_empty();
 
         Ok(Response::new(GetAgentStatusResponse {

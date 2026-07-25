@@ -10,8 +10,8 @@ use tracing::warn;
 
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
-    AdapterConnection, BindingContext, InboundMessage, OutboundReply, TaskBinding,
-    SubscriptionMatch, LoopContext,
+    AdapterConnection, BindingContext, InboundMessage, LoopContext, OutboundReply,
+    SubscriptionMatch, TaskBinding,
 };
 use crate::adapters::{Adapter, AdapterKind};
 use crate::db::DbPool;

@@ -122,10 +122,7 @@ impl Harness {
     /// input the harness received (text + resume), not merely that a command was
     /// enqueued. The same `script` runs for each execution.
     #[cfg(test)]
-    pub(crate) fn scripted_recording(
-        script: Script,
-        recorder: scripted::InputRecorder,
-    ) -> Self {
+    pub(crate) fn scripted_recording(script: Script, recorder: scripted::InputRecorder) -> Self {
         let (submit_tx, submit_rx) = mpsc::channel(SUBMIT_CAPACITY);
         let (cancel_tx, cancel_rx) = mpsc::channel(1);
         let (signal_tx, signal_rx) = mpsc::channel(SIGNAL_CAPACITY);

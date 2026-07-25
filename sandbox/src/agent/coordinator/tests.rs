@@ -1534,8 +1534,7 @@ async fn coordinator_service_credential_recovery_redrives_same_run_on_fresher_cr
     use crate::agent::types::AgentStatus;
 
     let cancel = CancellationToken::new();
-    let (_tmp, config, auth_path) =
-        codex_config_with_auth(r#"{"tokens":{"refresh_token":"old"}}"#);
+    let (_tmp, config, auth_path) = codex_config_with_auth(r#"{"tokens":{"refresh_token":"old"}}"#);
     let agent_state = Arc::new(AgentState::new());
     let detector = CredentialFailureDetector::default();
 

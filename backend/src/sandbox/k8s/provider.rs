@@ -56,16 +56,12 @@ where
     F: std::future::Future<Output = Result<(), SandboxError>>,
 {
     wait.await.map_err(|error| {
-        crate::sandbox::lifecycle::RuntimeError::NotAbsent(format!(
-            "{resource}: {error}"
-        ))
+        crate::sandbox::lifecycle::RuntimeError::NotAbsent(format!("{resource}: {error}"))
     })
 }
 
 impl K8sSandboxAdapter {
-    fn require_plan(
-        &self,
-    ) -> Result<&ProvisionDeps, crate::sandbox::lifecycle::RuntimeError> {
+    fn require_plan(&self) -> Result<&ProvisionDeps, crate::sandbox::lifecycle::RuntimeError> {
         self.plan.as_ref().ok_or_else(|| {
             crate::sandbox::lifecycle::RuntimeError::Infrastructure(
                 "sandbox plan repositories unavailable".to_string(),
@@ -584,8 +580,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
         // Strict absence: a delete request returns before reclaim completes, so
         // await the PVC actually vanishing before reporting success.
         if first_err.is_none() {
-            if let Err(e) =
-                wait_absent("PVC", pvc::wait_for_pvc_deleted(&self.k8s, task_id)).await
+            if let Err(e) = wait_absent("PVC", pvc::wait_for_pvc_deleted(&self.k8s, task_id)).await
             {
                 warn!(task_id = %task_id, error = %e, "PVC did not vanish after delete");
                 first_err.get_or_insert(e);

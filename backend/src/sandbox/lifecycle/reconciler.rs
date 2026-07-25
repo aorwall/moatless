@@ -325,11 +325,7 @@ impl Reconciler {
             }
 
             if marker.kind.is_edge() {
-                if !super::marker::is_stale(
-                    &marker,
-                    now,
-                    super::marker::EDGE_ABANDON_AFTER,
-                ) {
+                if !super::marker::is_stale(&marker, now, super::marker::EDGE_ABANDON_AFTER) {
                     // Caller-owned edges are never replayed. Give the fresh
                     // replacement time to appear before level recovery acts.
                     return;

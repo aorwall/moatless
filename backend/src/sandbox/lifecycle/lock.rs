@@ -220,7 +220,10 @@ mod db_tests {
 
         let a = PgLifecycleLock::new(replica_a);
         let b = PgLifecycleLock::new(replica_b);
-        let guard = a.try_acquire("t1", OperationKind::Start).await.expect("a acquires");
+        let guard = a
+            .try_acquire("t1", OperationKind::Start)
+            .await
+            .expect("a acquires");
         assert!(
             b.try_acquire("t1", OperationKind::Start).await.is_err(),
             "replica B is serialized behind replica A"

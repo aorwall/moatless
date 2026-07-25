@@ -201,10 +201,9 @@ impl ScheduledJob for BackgroundWatchJob {
 
         let initial = self.watched_pids.clone();
         let settle_liveness = Arc::clone(&self.liveness);
-        let watched =
-            tokio::task::spawn_blocking(move || settle_liveness.live_pids(&initial))
-                .await
-                .unwrap_or_default();
+        let watched = tokio::task::spawn_blocking(move || settle_liveness.live_pids(&initial))
+            .await
+            .unwrap_or_default();
         if watched.is_empty() {
             debug!(
                 id = %self.id,

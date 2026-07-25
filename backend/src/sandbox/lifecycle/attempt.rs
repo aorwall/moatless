@@ -169,6 +169,9 @@ mod tests {
         let mut b = AttemptBudget::new(5);
         b.begin(gen(1));
         b.record_failure();
-        assert_eq!(b.backoff(Duration::from_secs(1), Duration::from_secs(60)), Duration::from_secs(2));
+        assert_eq!(
+            b.backoff(Duration::from_secs(1), Duration::from_secs(60)),
+            Duration::from_secs(2)
+        );
     }
 }

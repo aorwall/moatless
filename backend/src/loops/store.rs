@@ -17,7 +17,7 @@ use sqlx::AssertSqlSafe;
 
 use moatless_backend_core::scope::{Scope, ScopeContext, ScopedEntity};
 
-use crate::adapters::models::{RoutingMode, Schedule, LoopSpawnConfig, SubscriptionMatch};
+use crate::adapters::models::{LoopSpawnConfig, RoutingMode, Schedule, SubscriptionMatch};
 use crate::db::DbPool;
 
 // =============================================================================
@@ -1027,7 +1027,10 @@ impl LoopStore {
     }
 
     /// Resolve the `LoopSpawnConfig` (trigger + rule) for a schedule job.
-    pub async fn find_loop_spawn_config(&self, trigger_id: &str) -> Result<LoopSpawnConfig, sqlx::Error> {
+    pub async fn find_loop_spawn_config(
+        &self,
+        trigger_id: &str,
+    ) -> Result<LoopSpawnConfig, sqlx::Error> {
         sqlx::query_as::<_, LoopSpawnConfig>(
             r#"SELECT t.id,
                       r.repository_id,
@@ -1056,11 +1059,7 @@ impl LoopStore {
 
     /// Point a Loop's rule at an ongoing task and bump the trigger's
     /// `updated_at`. The single home for the `ongoing_task_id` update.
-    pub async fn set_ongoing_task(
-        &self,
-        loop_id: &str,
-        task_id: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn set_ongoing_task(&self, loop_id: &str, task_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"WITH updated_rule AS (
                    UPDATE trigger_rules

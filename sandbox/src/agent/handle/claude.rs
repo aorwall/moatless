@@ -827,7 +827,9 @@ mod tests {
     #[test]
     fn buffer_take_is_empty_once_drained() {
         let mut buffer = AssistantBuffer::default();
-        assert!(buffer.absorb(block_line(Some("msg_1"), text_block("x"))).is_none());
+        assert!(buffer
+            .absorb(block_line(Some("msg_1"), text_block("x")))
+            .is_none());
         assert!(buffer.take().is_some());
         assert!(buffer.take().is_none());
     }

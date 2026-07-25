@@ -452,11 +452,13 @@ async fn resync_preserves_ongoing_task_id(pool: PgPool) {
     .fetch_one(&pool)
     .await
     .unwrap();
-    sqlx::query("UPDATE trigger_rules SET ongoing_task_id = 'task-ongoing-1' WHERE trigger_id = $1")
-        .bind(&trigger_id)
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE trigger_rules SET ongoing_task_id = 'task-ongoing-1' WHERE trigger_id = $1",
+    )
+    .bind(&trigger_id)
+    .execute(&pool)
+    .await
+    .unwrap();
 
     // Re-sync the same loop; the reconciler must preserve the runtime link.
     let loops = vec![parse_loop(GITHUB_LOOP, "java-review").unwrap()];

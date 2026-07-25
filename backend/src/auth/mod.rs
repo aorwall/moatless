@@ -8,8 +8,6 @@ pub mod api_keys;
 pub mod cache;
 pub mod cookie;
 pub mod credentials;
-#[cfg(test)]
-pub mod test_support;
 pub mod error;
 pub mod github_app_registry;
 pub mod github_app_service;
@@ -27,6 +25,8 @@ pub mod schemas;
 pub mod secrets;
 pub mod session;
 pub mod sessions;
+#[cfg(test)]
+pub mod test_support;
 pub mod test_user;
 pub mod token_refresh;
 pub mod users;

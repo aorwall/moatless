@@ -544,7 +544,10 @@ pub async fn add_workspace_repo(
 
     let existing = state.workspaces.find_repos(&workspace_id).await?;
     if let Some(mount) = req.mount_name.as_deref() {
-        if existing.iter().any(|r| r.mount_name.as_deref() == Some(mount)) {
+        if existing
+            .iter()
+            .any(|r| r.mount_name.as_deref() == Some(mount))
+        {
             return Err(WorkspaceError::BadRequest(format!(
                 "Duplicate mount name '{mount}' in workspace"
             )));
@@ -723,7 +726,12 @@ mod tests {
 
     #[test]
     fn unique_mount_names_accepts_distinct_and_nulls() {
-        let placements = vec![input(Some("api")), input(Some("web")), input(None), input(None)];
+        let placements = vec![
+            input(Some("api")),
+            input(Some("web")),
+            input(None),
+            input(None),
+        ];
         assert!(ensure_unique_mount_names(&placements).is_ok());
     }
 

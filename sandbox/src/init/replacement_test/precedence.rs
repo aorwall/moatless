@@ -21,14 +21,22 @@ async fn no_pending_message_replays_the_interrupted_run_for_each_family() {
     for family in ["claude-code", "codex"] {
         let backend = ReplayBackend::new(
             Ok(vec![]),
-            Some(interrupted_turn("restored-sess", "prior work", Some(family))),
+            Some(interrupted_turn(
+                "restored-sess",
+                "prior work",
+                Some(family),
+            )),
         );
         let (state, recorder) = recording_state(Some(family), InitPhase::Ready, backend.clone());
 
         recover_interrupted_run_unless_pending(&state, WorkspaceOrigin::Persisted).await;
 
         let inputs = recorded_inputs(&recorder, 1).await;
-        assert_eq!(inputs.len(), 1, "family {family}: exactly the interrupted run");
+        assert_eq!(
+            inputs.len(),
+            1,
+            "family {family}: exactly the interrupted run"
+        );
         assert_eq!(
             inputs[0].text, "prior work",
             "family {family}: the harness runs the restored prompt"
@@ -57,8 +65,7 @@ async fn pending_message_supersedes_the_interrupted_run() {
             Some("claude-code"),
         )),
     );
-    let (state, recorder) =
-        recording_state(Some("claude-code"), InitPhase::Ready, backend.clone());
+    let (state, recorder) = recording_state(Some("claude-code"), InitPhase::Ready, backend.clone());
 
     recover_interrupted_run_unless_pending(&state, WorkspaceOrigin::Persisted).await;
     assert!(
@@ -96,8 +103,7 @@ async fn pending_probe_error_fails_closed_and_skips_replay() {
             Some("claude-code"),
         )),
     );
-    let (state, recorder) =
-        recording_state(Some("claude-code"), InitPhase::Ready, backend.clone());
+    let (state, recorder) = recording_state(Some("claude-code"), InitPhase::Ready, backend.clone());
 
     recover_interrupted_run_unless_pending(&state, WorkspaceOrigin::Persisted).await;
 

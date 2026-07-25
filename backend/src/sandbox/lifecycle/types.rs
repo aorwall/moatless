@@ -236,7 +236,11 @@ pub struct CorrelationMarker {
 }
 
 impl CorrelationMarker {
-    pub fn new(kind: OperationKind, generation: OperationGeneration, started_at: DateTime<Utc>) -> Self {
+    pub fn new(
+        kind: OperationKind,
+        generation: OperationGeneration,
+        started_at: DateTime<Utc>,
+    ) -> Self {
         Self {
             kind,
             generation,
@@ -291,7 +295,10 @@ mod tests {
         }
         assert_eq!(OperationKind::from_db_str("bogus"), None);
 
-        for r in [ArchiveRetention::RetainArchives, ArchiveRetention::DeleteArchives] {
+        for r in [
+            ArchiveRetention::RetainArchives,
+            ArchiveRetention::DeleteArchives,
+        ] {
             assert_eq!(ArchiveRetention::from_db_str(r.as_str()), Some(r));
         }
         assert_eq!(ArchiveRetention::from_db_str("bogus"), None);

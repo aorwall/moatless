@@ -26,7 +26,8 @@ pub async fn webhook_inbound(
 
     info!(trigger_id = %trigger_id, "Webhook inbound received");
 
-    let rule = state.loops
+    let rule = state
+        .loops
         .find_subscription_by_id(&trigger_id)
         .await?
         .ok_or_else(|| AdapterError::ConfigNotFound(trigger_id.clone()))?;

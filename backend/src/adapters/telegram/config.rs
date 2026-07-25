@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::adapters::models::{SourceAccessPolicy, LoopContext};
+use crate::adapters::models::{LoopContext, SourceAccessPolicy};
 
 /// Typed representation of `provider_config` JSONB for Telegram channels.
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]

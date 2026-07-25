@@ -29,8 +29,11 @@ pub trait UserCredentialRepository: Send + Sync {
         user_id: &Uuid,
         password_hash: &str,
     ) -> Result<bool, sqlx::Error>;
-    async fn record_login_success(&self, user_id: &Uuid, at: DateTime<Utc>)
-        -> Result<(), sqlx::Error>;
+    async fn record_login_success(
+        &self,
+        user_id: &Uuid,
+        at: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error>;
     async fn record_login_failure(&self, user_id: &Uuid) -> Result<(), sqlx::Error>;
     async fn delete(&self, user_id: &Uuid) -> Result<bool, sqlx::Error>;
 }

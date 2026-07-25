@@ -530,8 +530,7 @@ async fn test_cancel_during_pending_prompt() {
         // Wait for the pending prompt, then cancel instead of resolving
         let state_for_canceller = agent_state.clone();
         let canceller = tokio::spawn(async move {
-            let found =
-                wait_for_pending_prompt(&state_for_canceller, Duration::from_mins(1)).await;
+            let found = wait_for_pending_prompt(&state_for_canceller, Duration::from_mins(1)).await;
             assert!(found, "Timed out waiting for pending prompt before cancel");
 
             eprintln!("Pending prompt detected, cancelling agent...");

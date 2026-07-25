@@ -19,12 +19,8 @@ use super::container_builder::{
 };
 use crate::events::EventPublisher;
 use crate::sandbox::lifecycle::classify::ObservedTransition;
-use crate::sandbox::lifecycle::runtime::{
-    generation_from_label, OPERATION_GENERATION_LABEL,
-};
-use crate::sandbox::lifecycle::watcher::{
-    classify_observation, publish_sandbox_observation,
-};
+use crate::sandbox::lifecycle::runtime::{generation_from_label, OPERATION_GENERATION_LABEL};
+use crate::sandbox::lifecycle::watcher::{classify_observation, publish_sandbox_observation};
 use crate::sandbox::lifecycle::Lifecycle;
 
 /// Spawn a background task that watches Docker container events and publishes
@@ -116,8 +112,7 @@ async fn handle_docker_event(
     };
 
     let container_name = attributes.get("name").map_or("unknown", String::as_str);
-    let operation_generation =
-        generation_from_label(attributes.get(OPERATION_GENERATION_LABEL));
+    let operation_generation = generation_from_label(attributes.get(OPERATION_GENERATION_LABEL));
 
     debug!(
         task_id,
@@ -183,14 +178,9 @@ async fn handle_docker_event(
                 }
             }
 
-            if classify_observation(
-                lifecycle,
-                task_id,
-                transition,
-                operation_generation,
-            )
-            .await
-            .publishes
+            if classify_observation(lifecycle, task_id, transition, operation_generation)
+                .await
+                .publishes
             {
                 let (status, message) = match transition {
                     ObservedTransition::Crash | ObservedTransition::NonZeroStop => {
@@ -247,9 +237,7 @@ async fn handle_docker_event(
     }
 }
 
-fn stopped_transition(
-    info: &bollard::models::ContainerInspectResponse,
-) -> ObservedTransition {
+fn stopped_transition(info: &bollard::models::ContainerInspectResponse) -> ObservedTransition {
     if info
         .state
         .as_ref()

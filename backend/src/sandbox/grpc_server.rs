@@ -2181,7 +2181,8 @@ mod tests {
             rec: rec.clone(),
             fail: false,
         });
-        let publisher: Arc<dyn EventPublisher> = Arc::new(RecordingPublisher::with_order_log(rec.clone()));
+        let publisher: Arc<dyn EventPublisher> =
+            Arc::new(RecordingPublisher::with_order_log(rec.clone()));
 
         write_state_then_publish(
             Some(&turns),
@@ -2209,7 +2210,8 @@ mod tests {
             rec: rec.clone(),
             fail: true,
         });
-        let publisher: Arc<dyn EventPublisher> = Arc::new(RecordingPublisher::with_order_log(rec.clone()));
+        let publisher: Arc<dyn EventPublisher> =
+            Arc::new(RecordingPublisher::with_order_log(rec.clone()));
 
         write_state_then_publish(
             Some(&turns),
@@ -2252,7 +2254,8 @@ mod tests {
             fail: false,
         });
         let events = recording_events(&rec, false);
-        let publisher: Arc<dyn EventPublisher> = Arc::new(RecordingPublisher::with_order_log(rec.clone()));
+        let publisher: Arc<dyn EventPublisher> =
+            Arc::new(RecordingPublisher::with_order_log(rec.clone()));
 
         // No TurnStateEvent → no turn projection, but the event row must still
         // land before the fan-out so the published payload stays disposable.

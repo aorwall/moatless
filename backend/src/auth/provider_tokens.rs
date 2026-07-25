@@ -58,7 +58,6 @@ pub trait ProviderTokenAuthRepository: Send + Sync {
         user_id: &str,
         provider: &str,
     ) -> Result<Option<String>, sqlx::Error>;
-
 }
 
 /// PostgreSQL implementation of [`ProviderTokenAuthRepository`].
@@ -121,5 +120,4 @@ impl ProviderTokenAuthRepository for PgProviderTokenAuthRepository {
         .await?;
         Ok(row.and_then(|r| r.0))
     }
-
 }

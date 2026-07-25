@@ -8,7 +8,7 @@ use tracing::{info, warn};
 
 use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::error::AdapterError;
-use crate::adapters::models::{AdapterConnection, BindingContext, TaskBinding, SubscriptionMatch};
+use crate::adapters::models::{AdapterConnection, BindingContext, SubscriptionMatch, TaskBinding};
 use crate::adapters::{Adapter, AdapterKind};
 use crate::state::AppState;
 

@@ -24,7 +24,10 @@ where
     loop {
         match observe_absent().await {
             Ok(true) => return Ok(()),
-            Ok(false) => debug!(task_id, resource, "Waiting for Kubernetes resource deletion"),
+            Ok(false) => debug!(
+                task_id,
+                resource, "Waiting for Kubernetes resource deletion"
+            ),
             Err(error) => {
                 warn!(task_id, resource, error = %error, "Failed to observe resource deletion; retrying");
             }

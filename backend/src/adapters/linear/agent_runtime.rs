@@ -17,7 +17,7 @@ use tracing::{debug, info, warn};
 use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
-    AdapterConnection, TaskBinding, SubscriptionMatch, ADAPTER_EVENT_BINDING_ORIGIN,
+    AdapterConnection, SubscriptionMatch, TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN,
 };
 use crate::bindings::dao::PgTaskBindingRepository;
 use crate::sandbox::lifecycle::ArchiveRetention;
@@ -42,7 +42,8 @@ pub async fn resolve_rules_for_team(
     connection: &AdapterConnection,
     team_id: &str,
 ) -> Result<Vec<SubscriptionMatch>, AdapterError> {
-    let rules = state.loops
+    let rules = state
+        .loops
         .list_subscriptions_by_source_matcher(ADAPTER, team_id)
         .await?;
     Ok(rules
@@ -1453,9 +1454,7 @@ async fn insert_event_task(
     )
     .await
     .map_err(|e| match e {
-        crate::task::creation::TaskCreationError::Preflight(msg) => {
-            AdapterError::AccessDenied(msg)
-        }
+        crate::task::creation::TaskCreationError::Preflight(msg) => AdapterError::AccessDenied(msg),
         other => AdapterError::Internal(format!("Failed to create task: {other}")),
     })?;
 
@@ -1503,9 +1502,7 @@ async fn rule_for_binding(
     binding: &TaskBinding,
 ) -> Result<Option<SubscriptionMatch>, AdapterError> {
     if let Some(ref trigger_id) = binding.trigger_id {
-        Ok(state.loops
-            .find_subscription_by_id(trigger_id)
-            .await?)
+        Ok(state.loops.find_subscription_by_id(trigger_id).await?)
     } else {
         Ok(None)
     }

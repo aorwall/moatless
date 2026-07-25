@@ -345,7 +345,9 @@ mod tests {
     use chrono::TimeZone;
 
     fn ts() -> DateTime<Utc> {
-        Utc.timestamp_opt(1_700_000_000, 0).single().expect("valid ts")
+        Utc.timestamp_opt(1_700_000_000, 0)
+            .single()
+            .expect("valid ts")
     }
 
     #[test]
@@ -384,9 +386,18 @@ mod db_tests {
     async fn allocate_generation_is_monotonic(pool: PgPool) {
         seed(&pool, "t1").await;
         let store = PgLifecycleStore::new(pool);
-        assert_eq!(store.allocate_generation("t1").await.unwrap(), OperationGeneration(1));
-        assert_eq!(store.allocate_generation("t1").await.unwrap(), OperationGeneration(2));
-        assert_eq!(store.allocate_generation("t1").await.unwrap(), OperationGeneration(3));
+        assert_eq!(
+            store.allocate_generation("t1").await.unwrap(),
+            OperationGeneration(1)
+        );
+        assert_eq!(
+            store.allocate_generation("t1").await.unwrap(),
+            OperationGeneration(2)
+        );
+        assert_eq!(
+            store.allocate_generation("t1").await.unwrap(),
+            OperationGeneration(3)
+        );
     }
 
     #[sqlx::test]
@@ -399,11 +410,20 @@ mod db_tests {
             retention: None,
             marker: marker(OperationKind::Stop, 1),
         };
-        assert_eq!(store.persist_intent("t1", &write).await.unwrap(), IntentEffect::Changed);
+        assert_eq!(
+            store.persist_intent("t1", &write).await.unwrap(),
+            IntentEffect::Changed
+        );
         // Same intent, fresh marker → the intent axis is Unchanged even though the
         // marker moved (Changed covers only desired-state / reason / retention).
-        let write2 = IntentWrite { marker: marker(OperationKind::Stop, 2), ..write.clone() };
-        assert_eq!(store.persist_intent("t1", &write2).await.unwrap(), IntentEffect::Unchanged);
+        let write2 = IntentWrite {
+            marker: marker(OperationKind::Stop, 2),
+            ..write.clone()
+        };
+        assert_eq!(
+            store.persist_intent("t1", &write2).await.unwrap(),
+            IntentEffect::Unchanged
+        );
 
         let loaded = store.load("t1").await.unwrap().expect("intent");
         assert_eq!(loaded.desired_state, SandboxDesiredState::Stopped);
@@ -453,12 +473,11 @@ mod db_tests {
         assert_eq!(after.desired_state, SandboxDesiredState::Removed);
         assert_eq!(after.retention, Some(ArchiveRetention::RetainArchives));
 
-        let count: i64 =
-            sqlx::query_scalar("SELECT count(*) FROM task_events WHERE event_id = $1")
-                .bind("sandbox:t1:5:removed")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM task_events WHERE event_id = $1")
+            .bind("sandbox:t1:5:removed")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
         assert_eq!(count, 1, "deterministic id persists exactly once");
     }
 
@@ -578,7 +597,10 @@ mod db_tests {
             .await
             .unwrap()
         };
-        assert!(started_at(pool.clone()).await.is_none(), "seed leaves it unset");
+        assert!(
+            started_at(pool.clone()).await.is_none(),
+            "seed leaves it unset"
+        );
 
         store
             .persist_intent(
@@ -592,7 +614,9 @@ mod db_tests {
             )
             .await
             .unwrap();
-        let stamped = started_at(pool.clone()).await.expect("toward-running stamps started_at");
+        let stamped = started_at(pool.clone())
+            .await
+            .expect("toward-running stamps started_at");
 
         // A later stop keeps the original start timestamp — only toward-running writes it.
         store
@@ -607,7 +631,11 @@ mod db_tests {
             )
             .await
             .unwrap();
-        assert_eq!(started_at(pool).await, Some(stamped), "non-running persist preserves started_at");
+        assert_eq!(
+            started_at(pool).await,
+            Some(stamped),
+            "non-running persist preserves started_at"
+        );
     }
 
     // ---- Persistence matrix ----
@@ -625,7 +653,11 @@ mod db_tests {
         // The atomic intent write is the row's lazy birth: a Task with no
         // Sandbox row gains one on its first lifecycle operation.
         seed_bare_task(&pool, "t1", "open").await;
-        assert_eq!(sandbox_row_count(&pool, "t1").await, 0, "no row before any operation");
+        assert_eq!(
+            sandbox_row_count(&pool, "t1").await,
+            0,
+            "no row before any operation"
+        );
 
         let store = PgLifecycleStore::new(pool.clone());
         let effect = store
@@ -640,8 +672,16 @@ mod db_tests {
             )
             .await
             .unwrap();
-        assert_eq!(effect, IntentEffect::Changed, "first write is a change from absence");
-        assert_eq!(sandbox_row_count(&pool, "t1").await, 1, "the upsert created the row");
+        assert_eq!(
+            effect,
+            IntentEffect::Changed,
+            "first write is a change from absence"
+        );
+        assert_eq!(
+            sandbox_row_count(&pool, "t1").await,
+            1,
+            "the upsert created the row"
+        );
     }
 
     #[sqlx::test]

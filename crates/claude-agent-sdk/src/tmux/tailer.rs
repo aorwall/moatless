@@ -312,9 +312,8 @@ async fn run_supervisor(
 
     // Sub-agent transcripts live beside the main one; the watcher tails them
     // and the main loop supplies the tool_use_id that threads them back on.
-    let registry: SubagentRegistry = Arc::new(tokio::sync::Mutex::new(
-        std::collections::HashMap::new(),
-    ));
+    let registry: SubagentRegistry =
+        Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
     let subagent_task = target.path.parent().map(|project_dir| {
         spawn_subagent_watcher(
             subagent_dir(project_dir, &target.session_id),

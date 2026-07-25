@@ -256,7 +256,12 @@ fn translate_assistant(mut value: Value, acc: &mut TurnAccumulator) -> Translate
                 _ => None,
             });
             if let Some(usage) = &msg.message.usage {
-                acc.accumulate(usage, last_text, msg.uuid.clone(), msg.message.id.as_deref());
+                acc.accumulate(
+                    usage,
+                    last_text,
+                    msg.uuid.clone(),
+                    msg.message.id.as_deref(),
+                );
             } else {
                 // Some assistant records (e.g. error fallbacks) have no usage —
                 // still update last_text / last_uuid.

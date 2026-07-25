@@ -127,11 +127,7 @@ impl BackendClient for ReplayBackend {
         // Prune acked messages so a subsequent probe no longer returns them —
         // exactly what lets the startup race manifest if ordering is wrong.
         if let Ok(msgs) = &mut *self.pending.lock().await {
-            msgs.retain(|m| {
-                m.uuid
-                    .as_ref()
-                    .is_none_or(|u| !message_uuids.contains(u))
-            });
+            msgs.retain(|m| m.uuid.as_ref().is_none_or(|u| !message_uuids.contains(u)));
         }
         Ok(())
     }

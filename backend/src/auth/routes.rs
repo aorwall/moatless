@@ -35,17 +35,16 @@ use super::provider_token_dao::{PgProviderTokenRepository, ProviderTokenReposito
 use super::provider_tokens::ProviderTokenAuthRepository;
 use moatless_api_schemas::user::{SetProviderIdRequest, UserProviderIdItem};
 
-use super::schemas::{
-    format_datetime, format_datetime_opt, ApiKeyCreateResponse, ApiKeyListItem, CliLoginQuery,
-    AdminResetPasswordRequest, AuthMode, AuthModeResponse, ChangePasswordRequest,
-    CreateApiKeyRequest, CreateUserRequest, CreateUserResponse, MessageResponse,
-    OAuthCallbackQuery, PasswordLoginRequest, ProviderConnection, SessionResponse,
-    TokenSessionResponse, AdminUpdateUserRequest, UpdateUserRequest, UserInfo, UserListItem,
-    UserListResponse,
-};
 use super::password::dao::UserCredentialRepository;
 use super::password::hash;
 use super::password::throttle::LoginThrottle;
+use super::schemas::{
+    format_datetime, format_datetime_opt, AdminResetPasswordRequest, AdminUpdateUserRequest,
+    ApiKeyCreateResponse, ApiKeyListItem, AuthMode, AuthModeResponse, ChangePasswordRequest,
+    CliLoginQuery, CreateApiKeyRequest, CreateUserRequest, CreateUserResponse, MessageResponse,
+    OAuthCallbackQuery, PasswordLoginRequest, ProviderConnection, SessionResponse,
+    TokenSessionResponse, UpdateUserRequest, UserInfo, UserListItem, UserListResponse,
+};
 use super::session;
 use super::sessions::SessionRepository;
 use super::users::UserRepository;
@@ -166,7 +165,9 @@ impl AuthState {
             sessions: Arc::new(PgSessionRepository(pool.clone())),
             api_keys: Arc::new(PgApiKeyRepository(pool.clone())),
             users: Arc::new(PgUserRepository(pool.clone())),
-            credentials: Arc::new(super::password::dao::PgUserCredentialRepository(pool.clone())),
+            credentials: Arc::new(super::password::dao::PgUserCredentialRepository(
+                pool.clone(),
+            )),
             login_throttle: LoginThrottle::new(),
             provider_tokens: Arc::new(PgProviderTokenAuthRepository(pool.clone())),
             provider_tokens_dao: Arc::new(PgProviderTokenRepository(pool.clone())),
@@ -265,7 +266,6 @@ pub fn auth_router(state: AuthState) -> (axum::Router, utoipa::openapi::OpenApi)
     (router, api)
 }
 
-
 // ============================================================================
 // Local username/password authentication
 // ============================================================================
@@ -289,7 +289,9 @@ fn require_local_auth(state: &AuthState) -> Result<(), AuthError> {
     if state.config.auth.provider == AuthProvider::Local {
         Ok(())
     } else {
-        Err(AuthError::NotFound("password authentication is not enabled".into()))
+        Err(AuthError::NotFound(
+            "password authentication is not enabled".into(),
+        ))
     }
 }
 
@@ -1109,11 +1111,9 @@ async fn login_handler(State(state): State<AuthState>) -> Result<Response, AuthE
     match state.config.auth.provider {
         // Local password auth has no OAuth redirect — send the browser to the
         // frontend login form.
-        AuthProvider::Local => Ok(Redirect::to(&format!(
-            "{}/login",
-            state.config.auth.frontend_url
-        ))
-        .into_response()),
+        AuthProvider::Local => {
+            Ok(Redirect::to(&format!("{}/login", state.config.auth.frontend_url)).into_response())
+        }
         AuthProvider::GitHub => Ok(Redirect::to("/api/v1/auth/github").into_response()),
         AuthProvider::GitHubApp => Ok(Redirect::to("/api/v1/auth/github-app").into_response()),
         AuthProvider::Auth0 => Ok(Redirect::to("/api/v1/auth/auth0").into_response()),
@@ -1272,8 +1272,13 @@ async fn handle_oauth_callback(
 
     // Resolve team memberships
     let team_ids = if let Some(ref teams_repo) = state.teams {
-        resolve_team_ids_on_login(teams_repo.as_ref(), &user_id, group_id.as_deref(), &state.config)
-            .await
+        resolve_team_ids_on_login(
+            teams_repo.as_ref(),
+            &user_id,
+            group_id.as_deref(),
+            &state.config,
+        )
+        .await
     } else {
         vec![]
     };
@@ -1799,7 +1804,8 @@ async fn revoke_api_key_handler(
     Path(key_id): Path<String>,
 ) -> Result<Json<MessageResponse>, AuthError> {
     let claims = authenticate_from_cookie(&state.config, &headers)?;
-    let result = api_key::revoke_key(state.api_keys.as_ref(), &key_id, &claims.sub.to_string()).await?;
+    let result =
+        api_key::revoke_key(state.api_keys.as_ref(), &key_id, &claims.sub.to_string()).await?;
 
     match result {
         Some(key_hash) => {
@@ -2200,10 +2206,7 @@ async fn update_user_handler(
 // ============================================================================
 
 /// Resolve a login to a user ID, returning 404 if not found.
-async fn resolve_login_to_user_id(
-    state: &AuthState,
-    login: &str,
-) -> Result<uuid::Uuid, AuthError> {
+async fn resolve_login_to_user_id(state: &AuthState, login: &str) -> Result<uuid::Uuid, AuthError> {
     let user = state
         .users
         .get_user_by_login(login)

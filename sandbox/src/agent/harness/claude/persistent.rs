@@ -116,8 +116,10 @@ impl ClaudePersistentProcess {
         }
         match &input.resume {
             Some(ResumeSession::Last) => {
-                match claude_agent_sdk::has_resumable_transcript(Some(&self.cfg.config.workspace_dir))
-                    .await
+                match claude_agent_sdk::has_resumable_transcript(Some(
+                    &self.cfg.config.workspace_dir,
+                ))
+                .await
                 {
                     Ok(false) => None,
                     Ok(true) => Some(ResumeSession::Last),
@@ -177,9 +179,10 @@ impl ClaudePersistentProcess {
 
     /// Paste `input` into the live TUI without respawning.
     async fn paste(&self, input: &Input) -> Result<(), HarnessError> {
-        let handle = self.handle.as_ref().ok_or_else(|| {
-            classify_stream_error(&claude_agent_sdk::SdkError::TransportClosed)
-        })?;
+        let handle = self
+            .handle
+            .as_ref()
+            .ok_or_else(|| classify_stream_error(&claude_agent_sdk::SdkError::TransportClosed))?;
         let session = self
             .fingerprint
             .as_ref()

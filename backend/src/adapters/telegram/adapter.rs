@@ -6,8 +6,8 @@ use tracing::{debug, info, warn};
 
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
-    AccessDecision, AdapterConnection, BindingContext, InboundMessage, NewThreadInfo,
-    OutboundReply, TaskBinding, SubscriptionMatch, LoopContext,
+    AccessDecision, AdapterConnection, BindingContext, InboundMessage, LoopContext, NewThreadInfo,
+    OutboundReply, SubscriptionMatch, TaskBinding,
 };
 use crate::adapters::{Adapter, AdapterKind, BindingDestination};
 use crate::db::DbPool;

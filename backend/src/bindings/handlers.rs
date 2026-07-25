@@ -10,8 +10,7 @@ use moatless_api_schemas::message::{
 };
 
 use crate::adapters::common::{
-    ensure_task_access, load_adapter_connection_for_auth, load_loop_for_auth,
-    task_binding_response,
+    ensure_task_access, load_adapter_connection_for_auth, load_loop_for_auth, task_binding_response,
 };
 use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::error::AdapterError;
@@ -282,9 +281,7 @@ pub async fn reply_to_message(
             ))
         })?;
     let rule = if let Some(ref rule_id) = binding.trigger_id {
-        state.loops
-            .find_subscription_by_id(rule_id)
-            .await?
+        state.loops.find_subscription_by_id(rule_id).await?
     } else {
         None
     };

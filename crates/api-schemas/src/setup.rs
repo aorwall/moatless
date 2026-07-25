@@ -120,7 +120,10 @@ mod tests {
         assert_eq!(json["requirements"][0]["id"], "github_token");
         assert_eq!(json["requirements"][0]["status"], "missing");
         assert_eq!(json["requirements"][0]["severity"], "required");
-        assert_eq!(json["requirements"][0]["actions"][0]["kind"], "open_settings");
+        assert_eq!(
+            json["requirements"][0]["actions"][0]["kind"],
+            "open_settings"
+        );
     }
 
     #[test]

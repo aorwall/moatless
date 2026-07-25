@@ -180,7 +180,9 @@ pub async fn resolve_task_secrets(
     let credentials = state
         .secrets
         .resolve_accessible_plaintext(
-            task.created_by.as_deref().unwrap_or(&auth.user_id.to_string()),
+            task.created_by
+                .as_deref()
+                .unwrap_or(&auth.user_id.to_string()),
             task.team_id.as_deref(),
         )
         .await?;

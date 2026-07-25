@@ -144,7 +144,11 @@ async fn restore_precedes_the_harness_accepting_the_resumed_turn() {
         open_for_work(&state, WorkspaceOrigin::Persisted).await;
 
         let inputs = recorded_inputs(&recorder, 1).await;
-        assert_eq!(inputs.len(), 1, "family {family}: exactly the interrupted run");
+        assert_eq!(
+            inputs.len(),
+            1,
+            "family {family}: exactly the interrupted run"
+        );
         assert_eq!(
             inputs[0].text, "prior work",
             "family {family}: the harness runs the restored prompt"

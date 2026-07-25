@@ -3,8 +3,7 @@ use moatless_api_schemas::adapters::AdapterConnectionResponse;
 use moatless_api_schemas::bindings::{ReplyTargetDescriptor, TaskBindingResponse};
 use moatless_api_schemas::enums::{AdapterKind, Scope};
 use moatless_api_schemas::loops::{
-    Subscription, ManualSource, Schedule, LoopKind,
-    Loop, LoopConfig, LoopSource,
+    Loop, LoopConfig, LoopKind, LoopSource, ManualSource, Schedule, Subscription,
 };
 use serde::Deserialize;
 
@@ -15,8 +14,8 @@ use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, TaskBinding};
 use crate::extractors::AuthUser;
-use crate::state::AppState;
 use crate::loops::store::{LoopRecord, LoopSourceRow};
+use crate::state::AppState;
 use moatless_backend_core::scope::{ScopeContext, ScopedResource};
 
 #[derive(Debug, Deserialize)]
@@ -62,19 +61,17 @@ pub(crate) fn adapter_connection_response(row: &AdapterConnection) -> AdapterCon
 pub(crate) fn loop_response(record: &LoopRecord) -> Loop {
     let kind = LoopKind::try_from(record.trigger.kind.as_str()).unwrap_or(LoopKind::Manual);
     let source = match &record.source {
-        LoopSourceRow::AdapterEvent(source) => {
-            LoopSource::AdapterEvent(Subscription {
-                adapter_kind: parse_adapter_kind(&source.adapter_kind),
-                connection_id: source.connection_id.clone(),
-                source_matcher: source.source_matcher.clone(),
-                source_name: source.source_name.clone(),
-                event_filter: source.event_filter.clone(),
-                adapter_config: source.adapter_config.clone(),
-                allow_direct_send: source.allow_direct_send,
-                close_task_on_close: source.close_task_on_close,
-                notify_on_success: source.notify_on_success,
-            })
-        }
+        LoopSourceRow::AdapterEvent(source) => LoopSource::AdapterEvent(Subscription {
+            adapter_kind: parse_adapter_kind(&source.adapter_kind),
+            connection_id: source.connection_id.clone(),
+            source_matcher: source.source_matcher.clone(),
+            source_name: source.source_name.clone(),
+            event_filter: source.event_filter.clone(),
+            adapter_config: source.adapter_config.clone(),
+            allow_direct_send: source.allow_direct_send,
+            close_task_on_close: source.close_task_on_close,
+            notify_on_success: source.notify_on_success,
+        }),
         LoopSourceRow::Schedule(source) => LoopSource::Schedule(Schedule {
             cron_expression: source.cron_expression.clone(),
             timezone: source.timezone.clone(),

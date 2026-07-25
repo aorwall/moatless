@@ -349,7 +349,11 @@ mod tests {
         assert_eq!(ctx.user_id, ScopeContext::SYSTEM_USER_ID);
         // is_admin short-circuits every read/write policy, so the system
         // principal can reach any scoped row regardless of team/owner.
-        assert!(ctx.can_read(&ScopedResource::borrowed(Scope::User, None, Some("someone"))));
+        assert!(ctx.can_read(&ScopedResource::borrowed(
+            Scope::User,
+            None,
+            Some("someone")
+        )));
         assert!(ctx.can_read(&ScopedResource::borrowed(Scope::Team, Some("t99"), None)));
         assert!(ctx.can_write(&ScopedResource::borrowed(Scope::Global, None, None), None));
     }

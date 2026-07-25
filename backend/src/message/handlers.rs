@@ -44,7 +44,11 @@ pub async fn send_message(
     // list. Best-effort — a follow failure must never block sending. Skip
     // agent/system contexts, which don't map to a followable user.
     if !auth.is_agent_context {
-        if let Err(e) = state.tasks.follow_task(&auth.user_id.to_string(), &task_id).await {
+        if let Err(e) = state
+            .tasks
+            .follow_task(&auth.user_id.to_string(), &task_id)
+            .await
+        {
             tracing::warn!(error = %e, task_id = %task_id, "Failed to auto-follow task on message send");
         }
     }
@@ -53,40 +57,39 @@ pub async fn send_message(
     // `message_uuid` is the persisted user Message's uuid so the client can
     // reconcile its optimistic entry with the later `message.upsert`. The
     // tool-response branch produces no single user Message, hence `None`.
-    let message_uuid = if let (Some(_tool_use_id), Some(_tool_name)) =
-        (&req.tool_use_id, &req.tool_name)
-    {
-        send::send_tool_response_flow(
-            &state,
-            &task_id,
-            req.tool_use_id.as_deref().unwrap_or_default(),
-            req.tool_name.as_deref().unwrap_or_default(),
-            req.tool_response.as_ref(),
-            Some(&auth.user_id.to_string()),
-        )
-        .await?;
-        None
-    } else {
-        // Regular message — frontend sends the prompt text directly.
-        send::send_message_flow(
-            &state,
-            &task_id,
-            &req.message,
-            req.model.as_deref(),
-            req.agent_mode.as_ref(),
-            &req.file_ids,
-            &req.contexts,
-            req.resume.unwrap_or(true),
-            None,
-            None,
-            None,
-            None,
-            req.source_task_id.as_deref(),
-            req.start_fresh.unwrap_or(false),
-            Some(&auth.user_id.to_string()),
-        )
-        .await?
-    };
+    let message_uuid =
+        if let (Some(_tool_use_id), Some(_tool_name)) = (&req.tool_use_id, &req.tool_name) {
+            send::send_tool_response_flow(
+                &state,
+                &task_id,
+                req.tool_use_id.as_deref().unwrap_or_default(),
+                req.tool_name.as_deref().unwrap_or_default(),
+                req.tool_response.as_ref(),
+                Some(&auth.user_id.to_string()),
+            )
+            .await?;
+            None
+        } else {
+            // Regular message — frontend sends the prompt text directly.
+            send::send_message_flow(
+                &state,
+                &task_id,
+                &req.message,
+                req.model.as_deref(),
+                req.agent_mode.as_ref(),
+                &req.file_ids,
+                &req.contexts,
+                req.resume.unwrap_or(true),
+                None,
+                None,
+                None,
+                None,
+                req.source_task_id.as_deref(),
+                req.start_fresh.unwrap_or(false),
+                Some(&auth.user_id.to_string()),
+            )
+            .await?
+        };
 
     // Ensure the sandbox is running (auto-provisions if needed) and notify it.
     if let Err(error_msg) =
@@ -367,12 +370,8 @@ pub async fn get_subagent_transcript(
         .get_subagent_messages(&task_id, &tool_use_id)
         .await?;
 
-    let ui_messages = transform::transform_subagent_transcript(
-        &messages,
-        &contexts,
-        &blocks,
-        &tool_use_id,
-    );
+    let ui_messages =
+        transform::transform_subagent_transcript(&messages, &contexts, &blocks, &tool_use_id);
 
     Ok(Json(SubagentTranscriptResponse {
         messages: ui_messages,

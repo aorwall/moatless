@@ -30,8 +30,12 @@ pub trait TeamRepository: Send + Sync {
     async fn find_teams_for_user(&self, user_id: &Uuid) -> Result<Vec<Team>, sqlx::Error>;
     async fn find_team_ids_for_user(&self, user_id: &Uuid) -> Result<Vec<String>, sqlx::Error>;
     async fn find_members(&self, team_id: &str) -> Result<Vec<TeamMember>, sqlx::Error>;
-    async fn add_member(&self, team_id: &str, user_id: &Uuid, role: &str)
-        -> Result<(), sqlx::Error>;
+    async fn add_member(
+        &self,
+        team_id: &str,
+        user_id: &Uuid,
+        role: &str,
+    ) -> Result<(), sqlx::Error>;
     async fn remove_member(&self, team_id: &str, user_id: &Uuid) -> Result<(), sqlx::Error>;
     async fn is_member(&self, team_id: &str, user_id: &Uuid) -> Result<bool, sqlx::Error>;
 

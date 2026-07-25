@@ -3,7 +3,7 @@
 use tracing::{debug, info};
 
 use crate::adapters::error::AdapterError;
-use crate::adapters::models::{AccessDecision, SourceAccessPolicy, LoopContext};
+use crate::adapters::models::{AccessDecision, LoopContext, SourceAccessPolicy};
 use crate::db::DbPool;
 
 use super::api::TelegramApi;

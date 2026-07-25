@@ -168,7 +168,10 @@ async fn backfill_fills_last_assistant_usage_once(pool: PgPool) {
     )
     .await
     .unwrap();
-    assert!(!again, "second backfill must be a no-op (usage already set)");
+    assert!(
+        !again,
+        "second backfill must be a no-op (usage already set)"
+    );
 }
 
 /// Claude reports usage inline, but one API response can span several rows when
@@ -767,7 +770,6 @@ async fn backfill_slims_fat_agent_message_events(pool: PgPool) {
     .unwrap();
     assert_eq!(stored_before, stored_after);
 }
-
 
 async fn seed_acknowledged_turn(pool: &PgPool, task_id: &str, uuid: &str, turn_number: i32) {
     let mut msg = make_message_row(task_id, uuid);

@@ -19,6 +19,7 @@ use crate::db::DbPool;
 use crate::events::EventPublisher;
 use crate::feedback::dao::{FeedbackRepository, PgFeedbackRepository};
 use crate::file_storage::dao::{FileRepository, PgFileRepository};
+use crate::loops::store::LoopStore;
 use crate::message::dao::{MessageRepository, PgMessageRepository};
 use crate::plugin_repo::dao::{PgPluginRepoRepository, PluginRepoRepository};
 use crate::repository::dao::{PgRepoRepository, RepoRepository};
@@ -28,16 +29,15 @@ use crate::sandbox::lifecycle::{
     FleetObserver, GrpcAgentStop, Lifecycle, NotifyPort, OutboxEventSink, PgLifecycleLock,
     PgLifecycleStore, ProvisionDeps, Reconciler, ReconcilerConfig, SystemWallClock,
 };
+use crate::sandbox::preflight::{PreflightCredentials, RealGithubValidator};
 use crate::secret::audit::{PgSecretAuditRepository, SecretAuditRepository};
 use crate::secret::dao::{PgSecretRepository, SecretRepository};
 use crate::secret::service::{LocalEnvelopeSecretCipher, SecretService};
 use crate::skill::fetcher::{GitHubSkillFetcher, SkillFetcher};
 use crate::skill::service::SkillService;
 use crate::tag::dao::{PgTagRepository, TagRepository};
-use crate::sandbox::preflight::{PreflightCredentials, RealGithubValidator};
 use crate::task::creation::{RealPreflight, TaskCreationService};
 use crate::task::dao::{PgTaskRepository, TaskRepository};
-use crate::loops::store::LoopStore;
 use crate::task::reaper::AgentStatusPort;
 use crate::task::relations::{PgTaskRelationRepository, TaskRelationRepository};
 use crate::task_event::dao::{PgTaskEventRepository, TaskEventRepository};

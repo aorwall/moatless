@@ -1054,7 +1054,9 @@ mod tests {
         ]);
 
         assert_eq!(
-            svc.resolve_user_secret("u1", "DISABLED", None).await.unwrap(),
+            svc.resolve_user_secret("u1", "DISABLED", None)
+                .await
+                .unwrap(),
             None
         );
         // Single-key reads are user-scoped only — no fallback to global.
@@ -1073,7 +1075,13 @@ mod tests {
     #[tokio::test]
     async fn internal_secrets_never_reach_a_sandbox() {
         let svc = service_with(vec![
-            secret("user", Some("u1"), "internal", "GITHUB_OAUTH_ACCESS_TOKEN", "gho_x"),
+            secret(
+                "user",
+                Some("u1"),
+                "internal",
+                "GITHUB_OAUTH_ACCESS_TOKEN",
+                "gho_x",
+            ),
             secret("user", Some("u1"), "env", "NORMAL", "v"),
             secret("user", Some("u1"), "ssh_key", "DEPLOY_KEY", "k"),
         ]);

@@ -16,11 +16,9 @@ use tracing::{debug, info};
 
 use super::naming::generate_pod_name;
 use crate::config::Config;
-use crate::sandbox::lifecycle::runtime::{
-    RuntimeOperationContext, OPERATION_GENERATION_LABEL,
-};
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::jwt::{self, MintedSandboxTokens};
+use crate::sandbox::lifecycle::runtime::{RuntimeOperationContext, OPERATION_GENERATION_LABEL};
 use crate::sandbox::models::ProvisionPlan;
 
 /// Auth tokens delivered to a sandbox pod.
@@ -369,7 +367,10 @@ pub fn stamp_operation_generation(pod: &mut Pod, ctx: RuntimeOperationContext) {
     pod.metadata
         .labels
         .get_or_insert_with(BTreeMap::new)
-        .insert(OPERATION_GENERATION_LABEL.to_string(), ctx.generation_label());
+        .insert(
+            OPERATION_GENERATION_LABEL.to_string(),
+            ctx.generation_label(),
+        );
 }
 
 /// Resolve the sandbox image for a plan: per-repo override → default sandbox image.
@@ -1361,9 +1362,7 @@ mod tests {
         let mut pod = Pod::default();
         stamp_operation_generation(
             &mut pod,
-            RuntimeOperationContext::new(
-                crate::sandbox::lifecycle::OperationGeneration(31),
-            ),
+            RuntimeOperationContext::new(crate::sandbox::lifecycle::OperationGeneration(31)),
         );
         assert_eq!(
             pod.metadata

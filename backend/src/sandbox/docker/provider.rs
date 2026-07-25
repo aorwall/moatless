@@ -73,9 +73,7 @@ async fn apply_disk_archive_retention(
 }
 
 impl DockerSandboxAdapter {
-    fn require_plan(
-        &self,
-    ) -> Result<&ProvisionDeps, crate::sandbox::lifecycle::RuntimeError> {
+    fn require_plan(&self) -> Result<&ProvisionDeps, crate::sandbox::lifecycle::RuntimeError> {
         self.plan.as_ref().ok_or_else(|| {
             crate::sandbox::lifecycle::RuntimeError::Infrastructure(
                 "sandbox plan repositories unavailable".to_string(),
@@ -122,7 +120,8 @@ impl DockerSandboxAdapter {
                             ))
                         })?;
                     let container_config = recreate_config(inspected, ctx)?;
-                    self.force_remove_container(&container_name, task_id).await?;
+                    self.force_remove_container(&container_name, task_id)
+                        .await?;
                     self.client
                         .docker
                         .create_container(
@@ -984,9 +983,9 @@ impl DockerSandboxAdapter {
             .await
             .map_err(map_sandbox_error)?
         {
-            Err(crate::sandbox::lifecycle::RuntimeError::NotAbsent(
-                format!("container {container_name} for task {task_id}"),
-            ))
+            Err(crate::sandbox::lifecycle::RuntimeError::NotAbsent(format!(
+                "container {container_name} for task {task_id}"
+            )))
         } else {
             Ok(())
         }

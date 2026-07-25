@@ -29,11 +29,10 @@ use moatless_api_schemas::enums::{AdapterKind, RoutingMode};
 use moatless_api_schemas::github::{
     GithubCommentRequest, GithubCreatePrRequest, GithubReplyRequest,
 };
-use moatless_api_schemas::task::CreateTaskRequest;
 use moatless_api_schemas::loops::{
-    CreateSubscription, CreateLoopRequest, CreateLoopConfig, CreateLoopSource,
-    LoopKind,
+    CreateLoopConfig, CreateLoopRequest, CreateLoopSource, CreateSubscription, LoopKind,
 };
+use moatless_api_schemas::task::CreateTaskRequest;
 use moatless_cli::client::MoatClient;
 use pretty_assertions::assert_eq;
 

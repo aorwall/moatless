@@ -5,27 +5,26 @@ use chrono::Utc;
 use moatless_api_schemas::bindings::TaskBindingResponse;
 use moatless_api_schemas::enums::TaskStatus;
 use moatless_api_schemas::loops::{
-    CreateLoopRequest, LoopKind, LoopRecentTaskItem, LoopRecentTaskSummary,
-    Loop, UpdateLoopRequest, UpdateLoopSource,
+    CreateLoopRequest, Loop, LoopKind, LoopRecentTaskItem, LoopRecentTaskSummary,
+    UpdateLoopRequest, UpdateLoopSource,
 };
 use serde::Deserialize;
 use utoipa::ToSchema;
 
 use crate::adapters::common::{
     ensure_can_run_as, ensure_can_write_adapter_resource, ensure_repository_exists,
-    load_adapter_connection_for_auth, load_loop_for_auth, next_fire_at, parse_adapter_kind,
-    resolve_scope_for_adapter_create, resolve_scope_for_adapter_update, scoped_resource,
-    loop_response, TeamIdUpdate, LoopFilter,
+    load_adapter_connection_for_auth, load_loop_for_auth, loop_response, next_fire_at,
+    parse_adapter_kind, resolve_scope_for_adapter_create, resolve_scope_for_adapter_update,
+    scoped_resource, LoopFilter, TeamIdUpdate,
 };
 use crate::adapters::error::AdapterError;
-use crate::bindings::dao::{PgTaskBindingRepository, LoopRecentTaskRow};
+use crate::bindings::dao::{LoopRecentTaskRow, PgTaskBindingRepository};
 use crate::extractors::AuthUser;
-use crate::state::AppState;
 use crate::loops::store::{
-    AdapterSourceUpdate, LoopUpdate, NewAdapterEventSource, NewLoop, NewLoopConfig,
-    NewLoopSource, NewScheduleSource, LoopListFilter, LoopSourceRow,
-    UpdateLoopSource as StoreUpdateSource,
+    AdapterSourceUpdate, LoopListFilter, LoopSourceRow, LoopUpdate, NewAdapterEventSource, NewLoop,
+    NewLoopConfig, NewLoopSource, NewScheduleSource, UpdateLoopSource as StoreUpdateSource,
 };
+use crate::state::AppState;
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct RecentTasksQuery {
@@ -139,10 +138,9 @@ pub async fn create_loop(
         _ => None,
     };
     let schedule_source = match (&req.kind, &req.source) {
-        (
-            LoopKind::Schedule,
-            moatless_api_schemas::loops::CreateLoopSource::Schedule(source),
-        ) => Some(source),
+        (LoopKind::Schedule, moatless_api_schemas::loops::CreateLoopSource::Schedule(source)) => {
+            Some(source)
+        }
         _ => None,
     };
     if matches!(req.kind, LoopKind::AdapterEvent) && adapter_source.is_none() {

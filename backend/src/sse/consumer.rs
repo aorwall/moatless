@@ -523,9 +523,7 @@ fn orphan_candidates(groups: &Value, own_group: &str) -> Vec<String> {
             Value::Array(fields) => extract_field(fields, "name"),
             _ => None,
         })
-        .filter(|name| {
-            name.starts_with(&format!("{CONSUMER_GROUP_PREFIX}-")) && name != own_group
-        })
+        .filter(|name| name.starts_with(&format!("{CONSUMER_GROUP_PREFIX}-")) && name != own_group)
         .collect()
 }
 

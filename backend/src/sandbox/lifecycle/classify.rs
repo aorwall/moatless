@@ -53,7 +53,10 @@ pub struct Observation {
 }
 
 impl Observation {
-    pub fn new(transition: ObservedTransition, observed_generation: Option<OperationGeneration>) -> Self {
+    pub fn new(
+        transition: ObservedTransition,
+        observed_generation: Option<OperationGeneration>,
+    ) -> Self {
         Self {
             transition,
             observed_generation,
@@ -199,7 +202,9 @@ mod tests {
         CorrelationMarker::new(
             kind,
             OperationGeneration(gen),
-            Utc.timestamp_opt(1_700_000_000, 0).single().expect("valid ts"),
+            Utc.timestamp_opt(1_700_000_000, 0)
+                .single()
+                .expect("valid ts"),
         )
     }
 
@@ -211,7 +216,12 @@ mod tests {
 
     #[test]
     fn ready_while_running_is_convergence_and_publishes() {
-        let c = classify(obs(T::Ready, Some(5)), D::Running, Some(marker(OperationKind::Start, 5)), true);
+        let c = classify(
+            obs(T::Ready, Some(5)),
+            D::Running,
+            Some(marker(OperationKind::Start, 5)),
+            true,
+        );
         assert_eq!(c, Classification::Convergence);
         assert!(c.publishes());
     }
@@ -226,8 +236,7 @@ mod tests {
         );
         assert_eq!(result.classification, Classification::Convergence);
         assert_eq!(result.event_generation, Some(OperationGeneration(4)));
-        let after_ack =
-            classify_with_correlation(obs(T::Ready, Some(4)), D::Running, None, false);
+        let after_ack = classify_with_correlation(obs(T::Ready, Some(4)), D::Running, None, false);
         assert_eq!(after_ack.event_generation, result.event_generation);
     }
 
@@ -247,14 +256,24 @@ mod tests {
 
     #[test]
     fn clean_stop_while_stopped_is_echo_and_suppressed() {
-        let c = classify(obs(T::CleanStop, Some(3)), D::Stopped, Some(marker(OperationKind::Stop, 3)), true);
+        let c = classify(
+            obs(T::CleanStop, Some(3)),
+            D::Stopped,
+            Some(marker(OperationKind::Stop, 3)),
+            true,
+        );
         assert_eq!(c, Classification::OperationEcho);
         assert!(!c.publishes());
     }
 
     #[test]
     fn deletion_while_removed_is_echo_and_suppressed() {
-        let c = classify(obs(T::Deleted, Some(4)), D::Removed, Some(marker(OperationKind::Remove, 4)), true);
+        let c = classify(
+            obs(T::Deleted, Some(4)),
+            D::Removed,
+            Some(marker(OperationKind::Remove, 4)),
+            true,
+        );
         assert_eq!(c, Classification::OperationEcho);
         assert!(!c.publishes());
     }
@@ -264,14 +283,24 @@ mod tests {
     #[test]
     fn superseded_pod_stop_during_restart_is_expected_intermediate() {
         // Restart bumped the generation to 7; the old pod (gen 6) is stopping.
-        let c = classify(obs(T::CleanStop, Some(6)), D::Running, Some(marker(OperationKind::Restart, 7)), true);
+        let c = classify(
+            obs(T::CleanStop, Some(6)),
+            D::Running,
+            Some(marker(OperationKind::Restart, 7)),
+            true,
+        );
         assert_eq!(c, Classification::ExpectedIntermediate);
         assert!(!c.publishes());
     }
 
     #[test]
     fn superseded_pod_deletion_during_redeploy_is_expected_intermediate() {
-        let c = classify(obs(T::Deleted, Some(9)), D::Running, Some(marker(OperationKind::Redeploy, 10)), true);
+        let c = classify(
+            obs(T::Deleted, Some(9)),
+            D::Running,
+            Some(marker(OperationKind::Redeploy, 10)),
+            true,
+        );
         assert_eq!(c, Classification::ExpectedIntermediate);
     }
 
@@ -279,7 +308,12 @@ mod tests {
     fn new_pod_crash_during_restart_is_divergence_not_suppressed() {
         // The new pod carries the marker generation (7); a crash on it is a
         // real divergence, not the old pod's expected death.
-        let c = classify(obs(T::Crash, Some(7)), D::Running, Some(marker(OperationKind::Restart, 7)), true);
+        let c = classify(
+            obs(T::Crash, Some(7)),
+            D::Running,
+            Some(marker(OperationKind::Restart, 7)),
+            true,
+        );
         assert_eq!(c, Classification::Divergence);
         assert!(c.publishes());
     }
@@ -288,7 +322,12 @@ mod tests {
     fn restart_deliberate_stop_is_not_a_crash() {
         // The whole point of case 3: a restart's deliberate pod stop must not
         // read as a crash. Same superseded stop, asserted to NOT diverge.
-        let c = classify(obs(T::CleanStop, Some(6)), D::Running, Some(marker(OperationKind::Restart, 7)), true);
+        let c = classify(
+            obs(T::CleanStop, Some(6)),
+            D::Running,
+            Some(marker(OperationKind::Restart, 7)),
+            true,
+        );
         assert_ne!(c, Classification::Divergence);
     }
 
@@ -329,7 +368,12 @@ mod tests {
     fn oom_eviction_crash_always_publish_even_under_edge_marker() {
         // A superseded generation must NOT hide a hard failure.
         for t in [T::OomKilled, T::Evicted, T::Crash] {
-            let c = classify(obs(t, Some(6)), D::Running, Some(marker(OperationKind::Restart, 7)), true);
+            let c = classify(
+                obs(t, Some(6)),
+                D::Running,
+                Some(marker(OperationKind::Restart, 7)),
+                true,
+            );
             assert_eq!(c, Classification::Divergence, "{t:?}");
             assert!(c.publishes(), "{t:?}");
         }
@@ -338,7 +382,12 @@ mod tests {
     #[test]
     fn hard_failure_publishes_even_while_stopped() {
         // OOM/crash are real even when desired Stopped — never an echo.
-        let c = classify(obs(T::OomKilled, Some(3)), D::Stopped, Some(marker(OperationKind::Stop, 3)), true);
+        let c = classify(
+            obs(T::OomKilled, Some(3)),
+            D::Stopped,
+            Some(marker(OperationKind::Stop, 3)),
+            true,
+        );
         assert_eq!(c, Classification::Divergence);
     }
 
@@ -348,21 +397,36 @@ mod tests {
     fn level_op_marker_does_not_grant_expected_intermediate() {
         // Only edge operations declare pod stop/deletion expected. A stop
         // marker with a superseded generation does not suppress a Running echo.
-        let c = classify(obs(T::CleanStop, Some(6)), D::Running, Some(marker(OperationKind::Stop, 7)), true);
+        let c = classify(
+            obs(T::CleanStop, Some(6)),
+            D::Running,
+            Some(marker(OperationKind::Stop, 7)),
+            true,
+        );
         assert_eq!(c, Classification::Divergence);
     }
 
     #[test]
     fn missing_observed_generation_is_never_suppressed_as_superseded() {
         // Cannot prove superseded without a generation label → publish.
-        let c = classify(obs(T::CleanStop, None), D::Running, Some(marker(OperationKind::Restart, 7)), true);
+        let c = classify(
+            obs(T::CleanStop, None),
+            D::Running,
+            Some(marker(OperationKind::Restart, 7)),
+            true,
+        );
         assert_eq!(c, Classification::Divergence);
     }
 
     #[test]
     fn same_generation_stop_is_not_superseded() {
         // observed == marker (not <) is the current pod, not the old one.
-        let c = classify(obs(T::CleanStop, Some(7)), D::Running, Some(marker(OperationKind::Restart, 7)), true);
+        let c = classify(
+            obs(T::CleanStop, Some(7)),
+            D::Running,
+            Some(marker(OperationKind::Restart, 7)),
+            true,
+        );
         assert_eq!(c, Classification::Divergence);
     }
 
@@ -372,7 +436,12 @@ mod tests {
     fn stale_edge_marker_with_disabled_suppression_publishes_old_stop() {
         // Once the reconciler flags the edge stale, suppression is off; the
         // same superseded stop now falls through to divergence and publishes.
-        let c = classify(obs(T::CleanStop, Some(6)), D::Running, Some(marker(OperationKind::Restart, 7)), false);
+        let c = classify(
+            obs(T::CleanStop, Some(6)),
+            D::Running,
+            Some(marker(OperationKind::Restart, 7)),
+            false,
+        );
         assert_eq!(c, Classification::Divergence);
         assert!(c.publishes());
     }

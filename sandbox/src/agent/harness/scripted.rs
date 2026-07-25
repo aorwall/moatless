@@ -186,9 +186,10 @@ impl AgentProcess for ScriptedProcess {
                 Step::InternalStart(session) => Some(ProcessEvent::InternalStart { session }),
                 Step::InputAccepted(input) => Some(ProcessEvent::InputAccepted { input }),
                 Step::AcceptInput => {
-                    let input = self.inputs.pop_front().unwrap_or_else(|| {
-                        InputId("scripted-accept-without-submit".to_string())
-                    });
+                    let input = self
+                        .inputs
+                        .pop_front()
+                        .unwrap_or_else(|| InputId("scripted-accept-without-submit".to_string()));
                     Some(ProcessEvent::InputAccepted { input })
                 }
                 Step::Block(block) => Some(ProcessEvent::Block(block)),

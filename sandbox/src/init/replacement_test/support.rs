@@ -208,9 +208,12 @@ pub(super) async fn combined_archive() -> Vec<u8> {
     tokio::fs::write(claude_src.join("session.jsonl"), b"{\"turn\":1}\n")
         .await
         .unwrap();
-    tokio::fs::write(codex_src.join("rollout-xyz.jsonl"), b"{\"thread\":\"xyz\"}\n")
-        .await
-        .unwrap();
+    tokio::fs::write(
+        codex_src.join("rollout-xyz.jsonl"),
+        b"{\"thread\":\"xyz\"}\n",
+    )
+    .await
+    .unwrap();
     let root = staging.path().to_path_buf();
     tokio::task::spawn_blocking(move || {
         let mut b = tar::Builder::new(Vec::new());

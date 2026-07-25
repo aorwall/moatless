@@ -271,10 +271,7 @@ impl GithubPrApi {
         repo: &str,
         sha: &str,
     ) -> Result<Vec<CommitPr>, AdapterError> {
-        let url = format!(
-            "{}/repos/{owner}/{repo}/commits/{sha}/pulls",
-            self.base_url
-        );
+        let url = format!("{}/repos/{owner}/{repo}/commits/{sha}/pulls", self.base_url);
 
         let resp = self
             .request(reqwest::Method::GET, &url)
@@ -401,7 +398,10 @@ impl GithubPrApi {
         let mut pr = self.get_pr(owner, repo, pr_number).await?;
         for _ in 0..MERGEABLE_POLL_RETRIES {
             let settled = pr.mergeable.is_some()
-                && pr.mergeable_state.as_deref().is_some_and(|s| s != "unknown");
+                && pr
+                    .mergeable_state
+                    .as_deref()
+                    .is_some_and(|s| s != "unknown");
             // A closed/merged PR never gets a mergeable state — stop early.
             if settled || !pr.state.eq_ignore_ascii_case("open") {
                 return Ok(pr);

@@ -1,6 +1,5 @@
 pub mod adapters;
 pub mod bots;
-pub mod workspaces;
 pub mod docker;
 pub mod events;
 pub mod feedback;
@@ -19,3 +18,4 @@ pub mod settings;
 pub mod tasks;
 pub mod teams;
 pub mod users;
+pub mod workspaces;

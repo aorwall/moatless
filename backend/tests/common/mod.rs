@@ -13,7 +13,6 @@ use moatless_vibe_backend::config::{
     SandboxProviderType, SecretsConfig, ServerConfig, SkillConfig, SlackConfig, SseConfig,
     TelegramConfig,
 };
-use moatless_vibe_backend::scope::ScopeContext;
 use moatless_vibe_backend::message::models::{MessageRole, MessageType, TaskMessage};
 use moatless_vibe_backend::repository::models::{Repository, RepositoryKind, RepositoryProvider};
 use moatless_vibe_backend::sandbox::access::SandboxConnector;
@@ -23,6 +22,7 @@ use moatless_vibe_backend::sandbox::lifecycle::{
     ArchiveRetention, NotifyPort, ObservedStatus, ProvisionDeps, RuntimeOperationContext,
     RuntimeOutcome, SandboxRuntime,
 };
+use moatless_vibe_backend::scope::ScopeContext;
 use moatless_vibe_backend::shared_models::AgentType;
 use moatless_vibe_backend::state::{build_lifecycle, AppState};
 use moatless_vibe_backend::task::models::{Task, TaskStatus, Visibility};

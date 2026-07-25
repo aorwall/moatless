@@ -499,10 +499,8 @@ impl ApiClient {
         &self,
         repo_id: &str,
     ) -> Result<moatless_api_schemas::repository::RepositoryResponse, ApiError> {
-        self.post_no_body(&format!(
-            "/api/v1/repositories/{repo_id}/verify-access"
-        ))
-        .await
+        self.post_no_body(&format!("/api/v1/repositories/{repo_id}/verify-access"))
+            .await
     }
 
     /// DELETE /api/v1/repositories/{repo_id}
@@ -536,7 +534,8 @@ impl ApiClient {
         &self,
         workspace_id: &str,
     ) -> Result<moatless_api_schemas::workspace::WorkspaceResponse, ApiError> {
-        self.get(&format!("/api/v1/workspaces/{workspace_id}")).await
+        self.get(&format!("/api/v1/workspaces/{workspace_id}"))
+            .await
     }
 
     /// POST /api/v1/workspaces
@@ -572,11 +571,8 @@ impl ApiClient {
         workspace_id: &str,
         req: &moatless_api_schemas::workspace::UpdateWorkspaceRequest,
     ) -> Result<moatless_api_schemas::workspace::WorkspaceResponse, ApiError> {
-        self.patch(
-            &format!("/api/v1/workspaces/{workspace_id}/override"),
-            req,
-        )
-        .await
+        self.patch(&format!("/api/v1/workspaces/{workspace_id}/override"), req)
+            .await
     }
 
     /// POST /api/v1/workspaces/{workspace_id}/reset-git
@@ -732,7 +728,8 @@ impl ApiClient {
         kind: Option<&str>,
         adapter_kind: Option<&str>,
     ) -> Result<Vec<moatless_api_schemas::loops::Loop>, ApiError> {
-        self.list_loops_at("/api/v1/loops", kind, adapter_kind).await
+        self.list_loops_at("/api/v1/loops", kind, adapter_kind)
+            .await
     }
 
     /// POST /api/v1/loops
@@ -744,10 +741,7 @@ impl ApiClient {
     }
 
     /// GET /api/v1/loops/{id}
-    pub async fn get_loop(
-        &self,
-        id: &str,
-    ) -> Result<moatless_api_schemas::loops::Loop, ApiError> {
+    pub async fn get_loop(&self, id: &str) -> Result<moatless_api_schemas::loops::Loop, ApiError> {
         self.get(&format!("/api/v1/loops/{id}")).await
     }
 

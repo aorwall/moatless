@@ -7,15 +7,15 @@ use tracing::{debug, info, warn};
 use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
-    AdapterConnection, BindingContext, InboundMessage, RoutingMode, TaskBinding, SubscriptionMatch,
-    LoopContext,
+    AdapterConnection, BindingContext, InboundMessage, LoopContext, RoutingMode, SubscriptionMatch,
+    TaskBinding,
 };
 use crate::bindings::dao::PgTaskBindingRepository;
 use crate::bindings::metrics::record_inbound;
+use crate::loops::firing::inbound;
 use crate::state::AppState;
 use crate::task::creation::TaskCreationError;
 use crate::task::models::TaskStatus;
-use crate::loops::firing::inbound;
 
 pub use crate::adapters::models::{
     ADAPTER_EVENT_BINDING_ORIGIN as ORIGIN_ADAPTER_EVENT,
@@ -278,7 +278,11 @@ pub async fn route_inbound_message(
             }
             // Transient failure (Db / ShortId / RepoNotFound) — propagate so the
             // source retries, exactly as before this migration.
-            Err(e) => return Err(AdapterError::Internal(format!("Failed to create task: {e}"))),
+            Err(e) => {
+                return Err(AdapterError::Internal(format!(
+                    "Failed to create task: {e}"
+                )))
+            }
         }
     }
 
@@ -335,16 +339,7 @@ pub async fn route_inbound_message(
         }
 
         let this_is_new = is_new_task && binding.origin == ORIGIN_ADAPTER_EVENT;
-        match deliver_to_binding(
-            state,
-            rule,
-            &binding,
-            &msg,
-            provider_label,
-            this_is_new,
-        )
-        .await
-        {
+        match deliver_to_binding(state, rule, &binding, &msg, provider_label, this_is_new).await {
             Ok(()) => {
                 let reason = if this_is_new {
                     "new_task"

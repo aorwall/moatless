@@ -1571,7 +1571,10 @@ mod tests {
 
         assert_eq!(blocks.len(), 2, "thinking block must not persist");
         assert_eq!(blocks[0].block_type, ContentBlockType::Text);
-        assert_eq!(blocks[0].text_content.as_deref(), Some("Creating the file."));
+        assert_eq!(
+            blocks[0].text_content.as_deref(),
+            Some("Creating the file.")
+        );
         assert_eq!(blocks[1].block_type, ContentBlockType::ToolUse);
         assert_eq!(blocks[1].tool_use_id.as_deref(), Some("toolu_1"));
         // sort_order is assigned after filtering, so it stays gap-free.
@@ -1623,7 +1626,11 @@ mod tests {
             { "type": "text", "text": "a" },
             { "type": "text", "text": "b" },
         ]);
-        let merged = merge_block_at_index(Some(&existing), 0, &json!([{ "type": "text", "text": "a" }]));
+        let merged = merge_block_at_index(
+            Some(&existing),
+            0,
+            &json!([{ "type": "text", "text": "a" }]),
+        );
 
         let arr = merged.as_array().unwrap();
         assert_eq!(arr.len(), 2, "redelivery must not grow the message");
@@ -1633,8 +1640,7 @@ mod tests {
 
     #[test]
     fn merge_block_into_empty_existing_seeds_the_message() {
-        let merged =
-            merge_block_at_index(None, 0, &json!([{ "type": "tool_use", "id": "tu-1" }]));
+        let merged = merge_block_at_index(None, 0, &json!([{ "type": "tool_use", "id": "tu-1" }]));
         let arr = merged.as_array().unwrap();
         assert_eq!(arr.len(), 1);
         assert_eq!(arr[0]["id"], "tu-1");
