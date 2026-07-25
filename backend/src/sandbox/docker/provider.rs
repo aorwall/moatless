@@ -187,6 +187,7 @@ impl DockerSandboxAdapter {
         let user_auth_token = jwt::generate_user_auth_token(
             &request.user_id,
             &request.user_id,
+            task_id,
             &task_token_secret,
             self.config.sandbox.user_token_ttl_secs,
         )

@@ -114,8 +114,12 @@ pub struct BackendSandboxServiceImpl {
     /// payload even when the live tail carries a truncated stub.
     pub task_events: Option<Arc<dyn TaskEventRepository>>,
     pub task_relations: Option<Arc<dyn TaskRelationRepository>>,
-    /// JWT signing key for verifying sandbox auth tokens.
+    /// JWT signing key for *minting* the user token delivered over
+    /// `GetCredentials`. Token *verification* lives entirely in `authorizer`.
     pub task_token_secret: Option<String>,
+    /// The single verification layer: every RPC resolves its bearer token to a
+    /// [`TaskGrant`] through this before touching task data.
+    pub(crate) authorizer: SandboxAuthorizer,
     /// GitHub App service for refreshing expired user access tokens
     /// (default user-auth App). Convenience handle to
     /// `github_apps.default_service()`.
@@ -164,46 +168,123 @@ pub struct BackendSandboxServiceImpl {
     pub event_dedup: Arc<crate::sandbox::event_dedup::EventDedup>,
 }
 
-impl BackendSandboxServiceImpl {
-    /// Verify the authorization header from gRPC metadata.
-    ///
-    /// Extracts `Bearer <token>` from the `authorization` metadata key,
-    /// verifies the JWT, and returns the claims.
-    #[allow(clippy::result_large_err)]
-    fn verify_auth<T>(&self, request: &Request<T>) -> Result<jwt::UserTokenClaims, Status> {
-        let secret = self
-            .task_token_secret
-            .as_ref()
-            .ok_or_else(|| Status::internal("TASK_TOKEN_SECRET not configured"))?;
+/// A resolved authorization to act on one task over the sandbox gRPC API.
+///
+/// Produced by [`SandboxAuthorizer`]. Carries the *authoritative* task id (the
+/// token's binding, never the raw attacker-controllable request field) plus the
+/// caller's scope context, so handlers can run scoped DB work as the caller.
+#[derive(Debug)]
+pub(crate) struct TaskGrant {
+    /// The task the caller is authorized to operate on.
+    pub task_id: String,
+    /// The caller's scope context (user id + platform-admin flag).
+    pub ctx: ScopeContext,
+    /// The caller's login. Needed by `GetCredentials` to mint the delivered user
+    /// token and resolve provider credentials. Empty for the dev bypass.
+    pub login: String,
+}
 
-        let auth_header = request
-            .metadata()
-            .get("authorization")
-            .ok_or_else(|| Status::unauthenticated("Missing authorization header"))?
-            .to_str()
-            .map_err(|_| Status::unauthenticated("Invalid authorization header"))?;
+/// Token-level verdict from verifying a bearer token's signature, before the
+/// DB-backed task-grant resolution in [`SandboxAuthorizer::resolve_grant`].
+enum VerifiedToken {
+    /// No `TASK_TOKEN_SECRET` configured: dev/test bypass. Constructed only via
+    /// [`SandboxAuthorizer::dev_unauthenticated`], so the bypass has one origin.
+    DevBypass,
+    /// A token carrying a `taskId` claim (the post-binding norm). The claim is
+    /// authoritative; the request's `task_id` must equal it.
+    TaskBound {
+        claims: jwt::UserTokenClaims,
+        task_id: String,
+    },
+    /// A legacy claim-less token accepted under the grace flag. Its request
+    /// `task_id` is authorized purely by the DB control check (pre-binding path).
+    Claimless { claims: jwt::UserTokenClaims },
+}
 
-        let token = auth_header
-            .strip_prefix("Bearer ")
-            .ok_or_else(|| Status::unauthenticated("Invalid authorization format"))?;
+/// The single verification layer for the sandbox gRPC API (Decision 7).
+///
+/// Every RPC begins by calling [`authorize`](Self::authorize) (or, for the one
+/// `GetCredentials` exception, [`authorize_bootstrap`](Self::authorize_bootstrap)).
+/// It verifies the bearer token in the request metadata, resolves it to a
+/// [`TaskGrant`], and rejects any request whose in-band `task_id` disagrees with
+/// the token's `taskId` claim — closing the former gap where the task id was
+/// entirely attacker-controlled. A concrete type, not a trait: there is exactly
+/// one verification path, and the dev-mode bypass lives in exactly one
+/// constructor ([`dev_unauthenticated`](Self::dev_unauthenticated)).
+pub(crate) struct SandboxAuthorizer {
+    /// JWT signing secret. Enforcing mode has one; the dev bypass has none.
+    secret: Option<String>,
+    /// Accept legacy claim-less tokens via the DB fallback (rollout grace flag).
+    accept_claimless: bool,
+    /// Task DAO — the claim-less DB fallback and the control gate.
+    tasks: Option<Arc<dyn TaskRepository>>,
+    /// User DAO — the platform-admin lookup.
+    users: Option<Arc<dyn UserRepository>>,
+}
 
-        jwt::verify_user_auth_token(token, secret)
-            .map_err(|e| Status::unauthenticated(format!("Invalid token: {e}")))
+impl SandboxAuthorizer {
+    /// Production constructor: verify every token against `secret`.
+    pub(crate) fn enforcing(
+        secret: String,
+        accept_claimless: bool,
+        tasks: Option<Arc<dyn TaskRepository>>,
+        users: Option<Arc<dyn UserRepository>>,
+    ) -> Self {
+        Self {
+            secret: Some(secret),
+            accept_claimless,
+            tasks,
+            users,
+        }
     }
 
-    /// Verify auth for the `GetCredentials` call, which uniquely also accepts a
-    /// short-lived bootstrap token (the sandbox presents it before it has the
-    /// long-lived user token). During the sandbox-image rollout an old sandbox
-    /// still presents its long-lived token here, so both are honoured.
-    #[allow(clippy::result_large_err)]
-    fn verify_auth_bootstrap_or_user<T>(
+    /// Dev/test constructor: no signing secret, so every request is trusted and
+    /// mapped to a system-scope grant for whatever task it names. This is the
+    /// **only** place the bypass is constructed; production refuses to boot
+    /// without `TASK_TOKEN_SECRET` (see `Config::validate`), so it never runs
+    /// there.
+    pub(crate) fn dev_unauthenticated(
+        tasks: Option<Arc<dyn TaskRepository>>,
+        users: Option<Arc<dyn UserRepository>>,
+    ) -> Self {
+        Self {
+            secret: None,
+            accept_claimless: true,
+            tasks,
+            users,
+        }
+    }
+
+    /// Select the mode from config: `Some(secret)` → enforcing, `None` → the dev
+    /// bypass. The single branch that decides authenticated-vs-bypass.
+    pub(crate) fn from_config(
+        secret: Option<String>,
+        accept_claimless: bool,
+        tasks: Option<Arc<dyn TaskRepository>>,
+        users: Option<Arc<dyn UserRepository>>,
+    ) -> Self {
+        match secret {
+            Some(secret) => Self::enforcing(secret, accept_claimless, tasks, users),
+            None => Self::dev_unauthenticated(tasks, users),
+        }
+    }
+
+    /// Extract and verify the bearer token from request metadata.
+    ///
+    /// `allow_bootstrap` is set only for `GetCredentials`, which uniquely accepts
+    /// the short-lived bootstrap token (and, during rollout, a legacy long-lived
+    /// token). Returns the token-level verdict; the task grant is resolved
+    /// separately by [`resolve_grant`](Self::resolve_grant) once the request's
+    /// `task_id` is known (it arrives in-band on the streaming RPCs).
+    #[allow(clippy::result_large_err)] // reason: tonic::Status is the required gRPC error type
+    fn verify_token<T>(
         &self,
         request: &Request<T>,
-    ) -> Result<jwt::UserTokenClaims, Status> {
-        let secret = self
-            .task_token_secret
-            .as_ref()
-            .ok_or_else(|| Status::internal("TASK_TOKEN_SECRET not configured"))?;
+        allow_bootstrap: bool,
+    ) -> Result<VerifiedToken, Status> {
+        let Some(secret) = self.secret.as_deref() else {
+            return Ok(VerifiedToken::DevBypass);
+        };
 
         let auth_header = request
             .metadata()
@@ -211,35 +292,99 @@ impl BackendSandboxServiceImpl {
             .ok_or_else(|| Status::unauthenticated("Missing authorization header"))?
             .to_str()
             .map_err(|_| Status::unauthenticated("Invalid authorization header"))?;
-
         let token = auth_header
             .strip_prefix("Bearer ")
             .ok_or_else(|| Status::unauthenticated("Invalid authorization format"))?;
 
-        jwt::verify_bootstrap_or_user_token(token, secret)
-            .map_err(|e| Status::unauthenticated(format!("Invalid token: {e}")))
+        let claims = if allow_bootstrap {
+            jwt::verify_bootstrap_or_user_token(token, secret)
+        } else {
+            jwt::verify_user_auth_token(token, secret)
+        }
+        .map_err(|e| Status::unauthenticated(format!("Invalid token: {e}")))?;
+
+        match claims.task_id.clone() {
+            Some(task_id) => Ok(VerifiedToken::TaskBound { claims, task_id }),
+            None if self.accept_claimless => Ok(VerifiedToken::Claimless { claims }),
+            None => Err(Status::unauthenticated(
+                "Token missing task binding (taskId claim)",
+            )),
+        }
     }
 
-    /// Assert that the authenticated caller may operate on `task_id`, returning
-    /// the loaded task on success.
+    /// Resolve a verified token to a [`TaskGrant`] for `request_task_id`.
     ///
-    /// The sandbox JWT authenticates *who* is calling (`claims.user_id` — the
-    /// task's creator, minted at provision time) but carries no task binding —
-    /// `task_id` arrives in the request body and is attacker-controllable.
-    /// Without this check a sandbox provisioned for one task could pass a
-    /// different task's id to read its credentials, pending messages, or
-    /// transcripts (cross-tenant escalation). Every RPC that acts on a
-    /// caller-supplied `task_id` must gate on this.
-    ///
-    /// Two-step: load the task through the scoped DAO read (an invisible task is
-    /// a plain NotFound, like the HTTP 404), then apply `ctx.can_control` (admin
-    /// or owner). Public *visibility* grants viewing over HTTP but never sandbox
-    /// control — credentials, messages, and workspace writes stay owner-only.
-    async fn assert_task_access(
+    /// - `TaskBound`: the request's task must equal the claim's task, then the
+    ///   claim's user must control it (owner or admin).
+    /// - `Claimless`: the request's task is authorized by the DB control check
+    ///   alone (the pre-binding behaviour).
+    /// - `DevBypass`: trusted; a system-scope grant for the requested task.
+    async fn resolve_grant(
+        &self,
+        verified: VerifiedToken,
+        request_task_id: &str,
+    ) -> Result<TaskGrant, Status> {
+        match verified {
+            VerifiedToken::DevBypass => {
+                // reason: dev bypass grant — no TASK_TOKEN_SECRET configured, caller is
+                // trusted (only reachable via SandboxAuthorizer::dev_unauthenticated).
+                #[allow(clippy::disallowed_methods)]
+                let ctx = ScopeContext::system();
+                Ok(TaskGrant {
+                    task_id: request_task_id.to_string(),
+                    ctx,
+                    login: String::new(),
+                })
+            }
+            VerifiedToken::TaskBound { claims, task_id } => {
+                if task_id != request_task_id {
+                    warn!(
+                        claim_task_id = %task_id,
+                        request_task_id,
+                        user_id = %claims.user_id,
+                        "Rejected sandbox gRPC call: token task binding does not match request"
+                    );
+                    return Err(Status::permission_denied("Token is not valid for this task"));
+                }
+                self.resolve_control(&claims, request_task_id).await
+            }
+            VerifiedToken::Claimless { claims } => {
+                self.resolve_control(&claims, request_task_id).await
+            }
+        }
+    }
+
+    /// Verify + resolve in one step: the standard entrypoint for task-scoped RPCs.
+    async fn authorize<T>(
+        &self,
+        request: &Request<T>,
+        request_task_id: &str,
+    ) -> Result<TaskGrant, Status> {
+        let verified = self.verify_token(request, false)?;
+        self.resolve_grant(verified, request_task_id).await
+    }
+
+    /// Like [`authorize`](Self::authorize) but also accepts the bootstrap token —
+    /// used by `GetCredentials` alone.
+    async fn authorize_bootstrap<T>(
+        &self,
+        request: &Request<T>,
+        request_task_id: &str,
+    ) -> Result<TaskGrant, Status> {
+        let verified = self.verify_token(request, true)?;
+        self.resolve_grant(verified, request_task_id).await
+    }
+
+    /// The DB-backed control gate: load the task through the caller's scoped read
+    /// (an invisible task is a plain NotFound, like the HTTP 404), then require
+    /// `ctx.can_control` (owner or admin). Public *visibility* lets a task be
+    /// viewed over HTTP but never grants sandbox control — credentials, messages,
+    /// and workspace writes stay owner-only.
+    async fn resolve_control(
         &self,
         claims: &jwt::UserTokenClaims,
         task_id: &str,
-    ) -> Result<crate::task::models::Task, Status> {
+    ) -> Result<TaskGrant, Status> {
         let tasks = self
             .tasks
             .as_ref()
@@ -250,13 +395,17 @@ impl BackendSandboxServiceImpl {
             .find_by_id(task_id, &ctx)
             .await
             .map_err(|e| {
-                warn!(error = %e, task_id, "assert_task_access: task lookup failed");
+                warn!(error = %e, task_id, "resolve_control: task lookup failed");
                 Status::internal("Failed to load task")
             })?
             .ok_or_else(|| Status::not_found("Task not found"))?;
 
         if ctx.can_control(&task.scoped_resource()) {
-            Ok(task)
+            Ok(TaskGrant {
+                task_id: task_id.to_string(),
+                login: claims.login.clone(),
+                ctx,
+            })
         } else {
             warn!(
                 task_id,
@@ -284,8 +433,8 @@ impl BackendSandboxServiceImpl {
         })
     }
 
-    /// Platform-admin check for `assert_task_access`. Missing repo or a lookup
-    /// error is treated as "not admin" (fail closed).
+    /// Platform-admin check for the control gate. Missing repo or a lookup error
+    /// is treated as "not admin" (fail closed).
     async fn user_is_admin(&self, user_id: &uuid::Uuid) -> bool {
         match self.users.as_ref() {
             Some(users) => {
@@ -294,19 +443,23 @@ impl BackendSandboxServiceImpl {
             None => false,
         }
     }
+}
 
+impl BackendSandboxServiceImpl {
     /// Mint the long-lived user auth token delivered over `GetCredentials`.
     ///
     /// The sandbox swaps this in for its bootstrap token and uses it for all
-    /// subsequent gRPC calls. Returns `None` (with a warning) if the secret is
-    /// unset — the sandbox then falls back to whatever token it already holds.
-    fn mint_user_auth_token(&self, user_id: &str, login: &str) -> Option<String> {
+    /// subsequent gRPC calls. Bound to `task_id` (the grant's task) so the
+    /// delivered token carries the same per-task binding the verification layer
+    /// enforces. Returns `None` (with a warning) if the secret is unset — the
+    /// sandbox then falls back to whatever token it already holds.
+    fn mint_user_auth_token(&self, user_id: &str, login: &str, task_id: &str) -> Option<String> {
         let secret = self.task_token_secret.as_ref()?;
         let ttl = self
             .backend_config
             .as_ref()
             .map_or(7 * 24 * 3600, |c| c.sandbox.user_token_ttl_secs);
-        match jwt::generate_user_auth_token(user_id, login, secret, ttl) {
+        match jwt::generate_user_auth_token(user_id, login, task_id, secret, ttl) {
             Ok(token) => Some(token),
             Err(e) => {
                 warn!(error = %e, user_id, "Failed to mint user auth token for credentials");
@@ -484,7 +637,10 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
     /// The backend writes them to Redis in the same format so existing
     /// SSE consumers and event handlers continue to work unchanged.
     ///
-    /// No auth verification — fire-and-forget, can't risk event loss.
+    /// Authenticated like every other RPC: the caller's task-bound token must
+    /// match `event.task_id`. The sandbox outbox retries on transient failures,
+    /// so authenticating here does not risk event loss — a legitimate sandbox
+    /// always holds a valid token for the task it publishes for.
     #[tracing::instrument(
         skip_all,
         fields(request_id = %uuid::Uuid::new_v4(), task_id = tracing::field::Empty)
@@ -493,6 +649,8 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         &self,
         request: Request<PublishEventRequest>,
     ) -> Result<Response<PublishEventResponse>, Status> {
+        let task_id = request.get_ref().task_id.clone();
+        self.authorizer.authorize(&request, &task_id).await?;
         let event = request.into_inner();
         tracing::Span::current().record("task_id", event.task_id.as_str());
 
@@ -636,23 +794,14 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         &self,
         request: Request<GetPendingMessagesRequest>,
     ) -> Result<Response<GetPendingMessagesResponse>, Status> {
-        // Verify auth if secret is configured
-        let claims = if self.task_token_secret.is_some() {
-            let claims = self.verify_auth(&request)?;
-            tracing::Span::current().record("user_id", claims.user_id.as_str());
-            Some(claims)
-        } else {
-            None
-        };
+        // Verify the token and confirm the caller may operate on this task before
+        // we hand back its queued messages.
+        let task_id = request.get_ref().task_id.clone();
+        let grant = self.authorizer.authorize(&request, &task_id).await?;
+        tracing::Span::current().record("user_id", grant.ctx.user_id.as_str());
 
         let req = request.into_inner();
         tracing::Span::current().record("task_id", req.task_id.as_str());
-
-        // Cross-tenant guard: the authenticated caller must own/have access to
-        // the requested task before we hand back its queued messages.
-        if let Some(ref claims) = claims {
-            self.assert_task_access(claims, &req.task_id).await?;
-        }
 
         let Some(ref messages) = self.messages else {
             return Ok(Response::new(GetPendingMessagesResponse {
@@ -831,19 +980,12 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         &self,
         request: Request<AcknowledgeMessagesRequest>,
     ) -> Result<Response<AcknowledgeMessagesResponse>, Status> {
-        let claims = if self.task_token_secret.is_some() {
-            Some(self.verify_auth(&request)?)
-        } else {
-            None
-        };
+        // Cross-tenant guard: only the task's owner/admin may acknowledge
+        // (mark sent) its queued messages.
+        let task_id = request.get_ref().task_id.clone();
+        self.authorizer.authorize(&request, &task_id).await?;
 
         let req = request.into_inner();
-
-        // Cross-tenant guard: only the task's owner/members may acknowledge
-        // (mark sent) its queued messages.
-        if let Some(ref claims) = claims {
-            self.assert_task_access(claims, &req.task_id).await?;
-        }
 
         let Some(ref messages) = self.messages else {
             return Ok(Response::new(AcknowledgeMessagesResponse {}));
@@ -914,22 +1056,20 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
     ) -> Result<Response<GetCredentialsResponse>, Status> {
         // GetCredentials uniquely accepts the short-lived bootstrap token (and,
         // during rollout, the legacy long-lived token) — this is where the
-        // sandbox trades up to the long-lived user token delivered below.
-        let claims = self.verify_auth_bootstrap_or_user(&request)?;
+        // sandbox trades up to the long-lived user token delivered below. The
+        // grant confirms the caller may operate on this task before we resolve
+        // and return its provider credentials.
+        let task_id = request.get_ref().task_id.clone();
+        let grant = self.authorizer.authorize_bootstrap(&request, &task_id).await?;
         let req = request.into_inner();
         tracing::Span::current().record("task_id", req.task_id.as_str());
-        tracing::Span::current().record("user_id", claims.user_id.as_str());
+        tracing::Span::current().record("user_id", grant.ctx.user_id.as_str());
 
         debug!(
             task_id = %req.task_id,
-            user_id = %claims.user_id,
+            user_id = %grant.ctx.user_id,
             "GetCredentials request"
         );
-
-        // Cross-tenant guard: the caller must own/have access to this task
-        // before we resolve and return its provider credentials.
-        // Without this a sandbox could request another user's tokens by id.
-        self.assert_task_access(&claims, &req.task_id).await?;
 
         let repository = resolve_task_repository(
             self.tasks.as_ref(),
@@ -939,7 +1079,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         .await;
         let mut credentials = resolve_task_credentials(TaskCredentialInputs {
             task_id: &req.task_id,
-            user_id: &claims.user_id,
+            user_id: &grant.ctx.user_id,
             secrets: self.secrets.as_ref(),
             provider_tokens: self.provider_tokens.as_ref(),
             github_app_service: self.github_app_service.as_ref(),
@@ -954,16 +1094,17 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         // Deliver the long-lived user auth token over this channel rather than
         // the pod spec. The sandbox swaps its bootstrap token for this one and
         // re-fetches on the 15-min refresh loop, so a rotated token propagates.
-        if let Some(user_token) = self.mint_user_auth_token(&claims.user_id, &claims.login) {
+        if let Some(user_token) =
+            self.mint_user_auth_token(&grant.ctx.user_id, &grant.login, &grant.task_id)
+        {
             credentials.insert(CredentialKey::USER_AUTH_TOKEN.to_string(), user_token);
         }
-        let server_env = resolve_server_env(&claims.user_id, self.secrets.as_ref()).await;
-        let ssh_keys =
-            resolve_task_ssh_keys(self.secrets.as_ref(), &claims.user_id).await;
+        let server_env = resolve_server_env(&grant.ctx.user_id, self.secrets.as_ref()).await;
+        let ssh_keys = resolve_task_ssh_keys(self.secrets.as_ref(), &grant.ctx.user_id).await;
 
         info!(
             task_id = %req.task_id,
-            user_id = %claims.user_id,
+            user_id = %grant.ctx.user_id,
             has_github = credentials.contains_key(CredentialKey::GITHUB_TOKEN),
             has_gitlab = credentials.contains_key(CredentialKey::GITLAB_TOKEN),
             has_gitness = credentials.contains_key(CredentialKey::GITNESS_TOKEN),
@@ -1004,14 +1145,13 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         &self,
         request: Request<UpdateCredentialRequest>,
     ) -> Result<Response<UpdateCredentialResponse>, Status> {
-        let claims = self.verify_auth(&request)?;
-        let req = request.into_inner();
-        tracing::Span::current().record("task_id", req.task_id.as_str());
-        tracing::Span::current().record("user_id", claims.user_id.as_str());
-
         // Cross-tenant guard: the caller must own/have access to this task
         // before we persist a rotated credential against its user row.
-        self.assert_task_access(&claims, &req.task_id).await?;
+        let task_id = request.get_ref().task_id.clone();
+        let grant = self.authorizer.authorize(&request, &task_id).await?;
+        let req = request.into_inner();
+        tracing::Span::current().record("task_id", req.task_id.as_str());
+        tracing::Span::current().record("user_id", grant.ctx.user_id.as_str());
 
         let Some(provider) = credential_key_to_provider(&req.key) else {
             warn!(
@@ -1039,7 +1179,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                 // Routes GITHUB_TOKEN into the encrypted store instead of writing
                 // it plaintext to `provider_tokens.access_token`.
                 svc.store(
-                    &claims.user_id,
+                    &grant.ctx.user_id,
                     &req.key,
                     &req.value,
                     WriteSource::SandboxRotation {
@@ -1053,7 +1193,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                 // than resurrect a plaintext GitHub token.
                 warn!(
                     task_id = %req.task_id,
-                    user_id = %claims.user_id,
+                    user_id = %grant.ctx.user_id,
                     "UpdateCredential rejected: cannot persist a GitHub token without the credential service"
                 );
                 return Err(Status::failed_precondition(
@@ -1061,7 +1201,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                 ));
             } else {
                 provider_tokens
-                    .upsert_token(&claims.user_id, provider, &req.value, None, None, None)
+                    .upsert_token(&grant.ctx.user_id, provider, &req.value, None, None, None)
                     .await
                     .map_err(Into::into)
             };
@@ -1070,7 +1210,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             warn!(
                 error = %e,
                 task_id = %req.task_id,
-                user_id = %claims.user_id,
+                user_id = %grant.ctx.user_id,
                 provider,
                 "Failed to persist rotated credential"
             );
@@ -1079,7 +1219,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
 
         info!(
             task_id = %req.task_id,
-            user_id = %claims.user_id,
+            user_id = %grant.ctx.user_id,
             provider,
             scope = "user",
             "Persisted rotated credential"
@@ -1098,12 +1238,21 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         &self,
         request: Request<GetSystemPromptRequest>,
     ) -> Result<Response<GetSystemPromptResponse>, Status> {
-        let claims = self.verify_auth(&request)?;
+        // Cross-tenant guard: the assembled system prompt embeds task/repo
+        // details, so only the task's owner/admin may fetch it.
+        let task_id = request.get_ref().task_id.clone();
+        let grant = self.authorizer.authorize(&request, &task_id).await?;
         let req = request.into_inner();
 
-        // Cross-tenant guard: the assembled system prompt embeds task/repo
-        // details, so only the task's owner/members may fetch it.
-        let task = Some(self.assert_task_access(&claims, &req.task_id).await?);
+        // Load the task for prompt assembly through the caller's scope context.
+        let task = match self.tasks {
+            Some(ref tasks) => tasks
+                .find_by_id(&req.task_id, &grant.ctx)
+                .await
+                .ok()
+                .flatten(),
+            None => None,
+        };
 
         let system_prompt = prompt::build_for_task(
             &req.task_id,
@@ -1131,9 +1280,9 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         &self,
         request: Request<DownloadUploadRequest>,
     ) -> Result<Response<DownloadUploadResponse>, Status> {
-        let claims = self.verify_auth(&request)?;
+        let task_id = request.get_ref().task_id.clone();
+        self.authorizer.authorize(&request, &task_id).await?;
         let req = request.into_inner();
-        self.assert_task_access(&claims, &req.task_id).await?;
 
         let Some(ref s3_client) = self.s3 else {
             return Err(Status::failed_precondition("S3 not configured"));
@@ -1210,7 +1359,9 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         &self,
         request: Request<Streaming<TranscriptChunk>>,
     ) -> Result<Response<UploadTranscriptResponse>, Status> {
-        let claims = self.verify_auth(&request)?;
+        // Verify the token up front (from metadata), but defer the task grant:
+        // the task_id arrives in-band from the stream below.
+        let verified = self.authorizer.verify_token(&request, false)?;
 
         let Some(ref s3_client) = self.s3 else {
             return Err(Status::failed_precondition("S3 not configured"));
@@ -1235,9 +1386,9 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             ));
         }
 
-        // The task_id arrives in-band from the stream, so authorize only once it
-        // is known — a valid JWT must still own the task it is writing to.
-        self.assert_task_access(&claims, &task_id).await?;
+        // Now that the task is known, resolve the grant — the token's binding
+        // must match it and the caller must control it.
+        self.authorizer.resolve_grant(verified, &task_id).await?;
 
         let bytes_received = data.len() as i64;
         let key = transcript_key(&self.transcript_s3_prefix, &task_id);
@@ -1264,9 +1415,9 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         &self,
         request: Request<DownloadTranscriptRequest>,
     ) -> Result<Response<Self::DownloadTranscriptStream>, Status> {
-        let claims = self.verify_auth(&request)?;
+        let task_id = request.get_ref().task_id.clone();
+        self.authorizer.authorize(&request, &task_id).await?;
         let req = request.into_inner();
-        self.assert_task_access(&claims, &req.task_id).await?;
 
         let Some(ref s3_client) = self.s3 else {
             return Err(Status::failed_precondition("S3 not configured"));
@@ -1313,9 +1464,9 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         &self,
         request: Request<GetWorkspaceSyncUrlsRequest>,
     ) -> Result<Response<GetWorkspaceSyncUrlsResponse>, Status> {
-        let claims = self.verify_auth(&request)?;
+        let task_id = request.get_ref().task_id.clone();
+        self.authorizer.authorize(&request, &task_id).await?;
         let req = request.into_inner();
-        self.assert_task_access(&claims, &req.task_id).await?;
 
         let Some(ref s3_client) = self.s3 else {
             return Err(Status::failed_precondition("S3 not configured"));
@@ -1356,7 +1507,8 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         &self,
         request: Request<ReportWorkspaceSyncRequest>,
     ) -> Result<Response<ReportWorkspaceSyncResponse>, Status> {
-        let _claims = self.verify_auth(&request)?;
+        let task_id = request.get_ref().task_id.clone();
+        self.authorizer.authorize(&request, &task_id).await?;
         let req = request.into_inner();
 
         crate::sandbox::metrics::record_workspace_sync(
@@ -1401,19 +1553,12 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         &self,
         request: Request<RecoverInterruptedRunRequest>,
     ) -> Result<Response<RecoverInterruptedRunResponse>, Status> {
-        let claims = if self.task_token_secret.is_some() {
-            Some(self.verify_auth(&request)?)
-        } else {
-            None
-        };
-
-        let req = request.into_inner();
-
         // Cross-tenant guard: recovery replays another turn's messages and burns
         // a recovery attempt on the task, so gate it on task access.
-        if let Some(ref claims) = claims {
-            self.assert_task_access(claims, &req.task_id).await?;
-        }
+        let task_id = request.get_ref().task_id.clone();
+        self.authorizer.authorize(&request, &task_id).await?;
+
+        let req = request.into_inner();
 
         let Some(ref messages) = self.messages else {
             return Ok(Response::new(RecoverInterruptedRunResponse { turn: None }));
@@ -2216,17 +2361,18 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------
-    // assert_task_access — cross-tenant authorization gate shared by every
+    // SandboxAuthorizer — the single verification layer shared by every
     // task-scoped gRPC handler (credentials, messages, transcripts, uploads,
-    // workspace-sync URLs). Scoped read + `ctx.can_control` (admin or owner).
-    // The scoped read's SQL filter is covered by `scope.rs` tests; these
-    // exercise the control-gate composition on tasks the read returned.
+    // workspace-sync URLs). `resolve_control` = scoped read + `ctx.can_control`
+    // (admin or owner); `resolve_grant` additionally enforces the token's task
+    // binding. The scoped read's SQL filter is covered by `scope.rs` tests;
+    // these exercise the control-gate composition and the binding check.
     // ---------------------------------------------------------------------
 
     use moatless_backend_core::scope::Scope;
 
-    use crate::auth::users::{MockUserRepository, User};
-    use crate::task::dao::MockTaskRepository;
+    use crate::auth::users::{MockUserRepository, User, UserRepository};
+    use crate::task::dao::{MockTaskRepository, TaskRepository};
     use crate::task::models::{Task, Visibility};
 
     fn epoch() -> chrono::DateTime<chrono::Utc> {
@@ -2296,6 +2442,7 @@ mod tests {
         jwt::UserTokenClaims {
             user_id: uid(user_id).to_string(),
             login: user_id.to_string(),
+            task_id: None,
             iat: 0,
             exp: u64::MAX,
             iss: "moatless-vibe-backend".to_string(),
@@ -2303,18 +2450,24 @@ mod tests {
         }
     }
 
-    /// Build a service with only the repositories `assert_task_access` consults
-    /// wired; everything else is `None`/default.
+    /// Build a service whose authorizer has only the repositories the control
+    /// gate consults wired; everything else is `None`/default.
     fn service_with(tasks: MockTaskRepository, users: MockUserRepository) -> BackendSandboxServiceImpl {
+        let tasks: Arc<dyn TaskRepository> = Arc::new(tasks);
+        let users: Arc<dyn UserRepository> = Arc::new(users);
         BackendSandboxServiceImpl {
             events: None,
             messages: None,
             provider_tokens: None,
-            tasks: Some(Arc::new(tasks)),
+            tasks: Some(tasks.clone()),
             task_turns: None,
             task_events: None,
             task_relations: None,
             task_token_secret: None,
+            authorizer: SandboxAuthorizer::dev_unauthenticated(
+                Some(tasks.clone()),
+                Some(users.clone()),
+            ),
             github_app_service: None,
             github_apps: Arc::new(GitHubAppRegistry::default()),
             provider_token_auth: None,
@@ -2329,7 +2482,7 @@ mod tests {
             s3_key_prefix: String::new(),
             transcript_s3_prefix: String::new(),
             workspace_s3_prefix: String::new(),
-            users: Some(Arc::new(users)),
+            users: Some(users),
             event_dedup: Arc::new(crate::sandbox::event_dedup::EventDedup::default()),
         }
     }
@@ -2365,7 +2518,8 @@ mod tests {
             users_regular(),
         );
         assert!(svc
-            .assert_task_access(&claims_for("owner"), "task-1")
+            .authorizer
+            .resolve_control(&claims_for("owner"), "task-1")
             .await
             .is_ok());
     }
@@ -2379,7 +2533,8 @@ mod tests {
             users_regular(),
         );
         let err = svc
-            .assert_task_access(&claims_for("attacker"), "task-1")
+            .authorizer
+            .resolve_control(&claims_for("attacker"), "task-1")
             .await
             .expect_err("non-owner must be denied");
         assert_eq!(err.code(), tonic::Code::PermissionDenied);
@@ -2395,7 +2550,8 @@ mod tests {
         task.visibility = Visibility::Public;
         let svc = service_with(tasks_returning(Some(task)), users_regular());
         let err = svc
-            .assert_task_access(&claims_for("stranger"), "task-1")
+            .authorizer
+            .resolve_control(&claims_for("stranger"), "task-1")
             .await
             .expect_err("public visibility must not grant sandbox control");
         assert_eq!(err.code(), tonic::Code::PermissionDenied);
@@ -2410,7 +2566,8 @@ mod tests {
             users_regular(),
         );
         let err = denied
-            .assert_task_access(&claims_for("stranger"), "task-1")
+            .authorizer
+            .resolve_control(&claims_for("stranger"), "task-1")
             .await
             .expect_err("non-admin must not control a global task");
         assert_eq!(err.code(), tonic::Code::PermissionDenied);
@@ -2420,7 +2577,8 @@ mod tests {
             users_admin(),
         );
         assert!(allowed
-            .assert_task_access(&claims_for("admin"), "task-1")
+            .authorizer
+            .resolve_control(&claims_for("admin"), "task-1")
             .await
             .is_ok());
     }
@@ -2433,7 +2591,8 @@ mod tests {
             users_admin(),
         );
         assert!(svc
-            .assert_task_access(&claims_for("admin"), "task-1")
+            .authorizer
+            .resolve_control(&claims_for("admin"), "task-1")
             .await
             .is_ok());
     }
@@ -2445,9 +2604,51 @@ mod tests {
         // HTTP 404.
         let svc = service_with(tasks_returning(None), users_regular());
         let err = svc
-            .assert_task_access(&claims_for("anyone"), "ghost")
+            .authorizer
+            .resolve_control(&claims_for("anyone"), "ghost")
             .await
             .expect_err("missing task must error");
         assert_eq!(err.code(), tonic::Code::NotFound);
+    }
+
+    /// Build a `TaskBound` verdict for the given owner + claimed task, as
+    /// `verify_token` would produce from a task-bound JWT.
+    fn task_bound(user_id: &str, claim_task_id: &str) -> VerifiedToken {
+        let mut claims = claims_for(user_id);
+        claims.task_id = Some(claim_task_id.to_string());
+        VerifiedToken::TaskBound {
+            claims,
+            task_id: claim_task_id.to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn task_bound_token_mismatch_is_denied() {
+        // A token minted for task-1 must not act on task-2, even if its user
+        // owns task-2 — the binding is the first, request-independent gate. The
+        // control check never runs (no task load), so the repo returns nothing.
+        let svc = service_with(tasks_returning(None), users_regular());
+        let err = svc
+            .authorizer
+            .resolve_grant(task_bound("owner", "task-1"), "task-2")
+            .await
+            .expect_err("token bound to a different task must be denied");
+        assert_eq!(err.code(), tonic::Code::PermissionDenied);
+    }
+
+    #[tokio::test]
+    async fn task_bound_token_match_allows_owner() {
+        // Matching binding + owner control → granted, with the authoritative
+        // task id echoed back on the grant.
+        let svc = service_with(
+            tasks_returning(Some(task_fixture(Scope::User, Some("owner")))),
+            users_regular(),
+        );
+        let grant = svc
+            .authorizer
+            .resolve_grant(task_bound("owner", "task-1"), "task-1")
+            .await
+            .expect("matching binding + owner must be granted");
+        assert_eq!(grant.task_id, "task-1");
     }
 }

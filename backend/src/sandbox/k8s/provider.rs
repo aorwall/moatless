@@ -190,7 +190,8 @@ impl K8sSandboxAdapter {
         // 2. Mint the pod's auth tokens (short-lived bootstrap + optional legacy
         //    user token during rollout) from user_id directly (no DB lookup). The
         //    long-lived user token is delivered over the credential channel.
-        let minted_tokens = pod_builder::mint_sandbox_tokens(&self.config, &request.user_id)?;
+        let minted_tokens =
+            pod_builder::mint_sandbox_tokens(&self.config, task_id, &request.user_id)?;
 
         // 3. Create PVC. A 409 is handled inside create_task_pvc (reuse the
         //    existing PVC), so an Err here is a genuine failure — degrading to

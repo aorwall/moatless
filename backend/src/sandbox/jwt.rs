@@ -29,6 +29,13 @@ pub struct UserTokenClaims {
     pub user_id: String,
     /// User login name
     pub login: String,
+    /// The task this token is minted for. A sandbox is provisioned per task, so
+    /// its token is bound to exactly one task id; the verification layer rejects
+    /// any RPC whose in-band `task_id` disagrees with this claim. `None` only for
+    /// legacy claim-less tokens minted before this binding existed — accepted
+    /// during the rollout when the grace flag is on (see `SandboxAuthorizer`).
+    #[serde(rename = "taskId", default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
     /// Issued at (unix timestamp)
     pub iat: u64,
     /// Expiration (unix timestamp)
@@ -69,6 +76,7 @@ fn encode_claims(
 pub fn generate_user_auth_token(
     user_id: &str,
     login: &str,
+    task_id: &str,
     secret: &str,
     ttl_secs: u64,
 ) -> Result<String, jsonwebtoken::errors::Error> {
@@ -76,6 +84,7 @@ pub fn generate_user_auth_token(
     let claims = UserTokenClaims {
         user_id: user_id.to_string(),
         login: login.to_string(),
+        task_id: Some(task_id.to_string()),
         iat: now,
         exp: now + ttl_secs,
         iss: "moatless-vibe-backend".to_string(),
@@ -83,7 +92,7 @@ pub fn generate_user_auth_token(
     };
 
     let token = encode_claims(&claims, secret)?;
-    debug!(user_id, ttl_secs, "Generated user auth token");
+    debug!(user_id, task_id, ttl_secs, "Generated user auth token");
     Ok(token)
 }
 
@@ -95,6 +104,7 @@ pub fn generate_user_auth_token(
 pub fn generate_bootstrap_token(
     user_id: &str,
     login: &str,
+    task_id: &str,
     secret: &str,
     ttl_secs: u64,
 ) -> Result<String, jsonwebtoken::errors::Error> {
@@ -102,6 +112,7 @@ pub fn generate_bootstrap_token(
     let claims = UserTokenClaims {
         user_id: user_id.to_string(),
         login: login.to_string(),
+        task_id: Some(task_id.to_string()),
         iat: now,
         exp: now + ttl_secs,
         iss: "moatless-vibe-backend".to_string(),
@@ -109,7 +120,7 @@ pub fn generate_bootstrap_token(
     };
 
     let token = encode_claims(&claims, secret)?;
-    debug!(user_id, ttl_secs, "Generated sandbox bootstrap token");
+    debug!(user_id, task_id, ttl_secs, "Generated sandbox bootstrap token");
     Ok(token)
 }
 
@@ -132,16 +143,18 @@ pub struct MintedSandboxTokens {
 pub fn mint_sandbox_tokens(
     user_id: &str,
     login: &str,
+    task_id: &str,
     secret: &str,
     bootstrap_ttl_secs: u64,
     user_ttl_secs: u64,
     emit_legacy: bool,
 ) -> Result<MintedSandboxTokens, jsonwebtoken::errors::Error> {
-    let bootstrap = generate_bootstrap_token(user_id, login, secret, bootstrap_ttl_secs)?;
+    let bootstrap = generate_bootstrap_token(user_id, login, task_id, secret, bootstrap_ttl_secs)?;
     let legacy_user_token = if emit_legacy {
         Some(generate_user_auth_token(
             user_id,
             login,
+            task_id,
             secret,
             user_ttl_secs,
         )?)
@@ -225,31 +238,32 @@ mod tests {
 
     #[test]
     fn test_generate_user_auth_token() {
-        let token = generate_user_auth_token("user-456", "john", "test-secret", TTL).unwrap();
+        let token = generate_user_auth_token("user-456", "john", "task-1", "test-secret", TTL).unwrap();
         assert!(!token.is_empty());
         assert_eq!(token.split('.').count(), 3);
     }
 
     #[test]
     fn test_verify_user_auth_token() {
-        let token = generate_user_auth_token("user-456", "john", "test-secret", TTL).unwrap();
+        let token = generate_user_auth_token("user-456", "john", "task-1", "test-secret", TTL).unwrap();
         let claims = verify_user_auth_token(&token, "test-secret").unwrap();
         assert_eq!(claims.user_id, "user-456");
         assert_eq!(claims.login, "john");
+        assert_eq!(claims.task_id.as_deref(), Some("task-1"));
         assert_eq!(claims.iss, "moatless-vibe-backend");
         assert_eq!(claims.aud, None);
     }
 
     #[test]
     fn test_verify_user_auth_token_wrong_secret() {
-        let token = generate_user_auth_token("user-456", "john", "test-secret", TTL).unwrap();
+        let token = generate_user_auth_token("user-456", "john", "task-1", "test-secret", TTL).unwrap();
         let result = verify_user_auth_token(&token, "wrong-secret");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_is_token_near_expiry_fresh_token() {
-        let token = generate_user_auth_token("user-456", "john", "test-secret", TTL).unwrap();
+        let token = generate_user_auth_token("user-456", "john", "task-1", "test-secret", TTL).unwrap();
         // Fresh 7-day token should NOT be near expiry with a 1-day threshold.
         assert!(!is_token_near_expiry(&token, "test-secret", 24 * 3600));
     }
@@ -261,16 +275,17 @@ mod tests {
 
     #[test]
     fn bootstrap_token_carries_audience() {
-        let token = generate_bootstrap_token("user-456", "john", "test-secret", 600).unwrap();
+        let token = generate_bootstrap_token("user-456", "john", "task-1", "test-secret", 600).unwrap();
         let claims = verify_bootstrap_or_user_token(&token, "test-secret").unwrap();
         assert_eq!(claims.aud.as_deref(), Some(AUDIENCE_BOOTSTRAP));
         assert_eq!(claims.user_id, "user-456");
+        assert_eq!(claims.task_id.as_deref(), Some("task-1"));
     }
 
     #[test]
     fn bootstrap_token_rejected_by_user_verifier() {
         // A bootstrap token must not authenticate the long-lived RPCs.
-        let token = generate_bootstrap_token("user-456", "john", "test-secret", 600).unwrap();
+        let token = generate_bootstrap_token("user-456", "john", "task-1", "test-secret", 600).unwrap();
         assert!(verify_user_auth_token(&token, "test-secret").is_err());
     }
 
@@ -278,7 +293,7 @@ mod tests {
     fn user_token_accepted_by_bootstrap_verifier() {
         // Transition compat: an old sandbox presents its long-lived token to
         // GetCredentials, which must still accept it.
-        let token = generate_user_auth_token("user-456", "john", "test-secret", TTL).unwrap();
+        let token = generate_user_auth_token("user-456", "john", "task-1", "test-secret", TTL).unwrap();
         let claims = verify_bootstrap_or_user_token(&token, "test-secret").unwrap();
         assert_eq!(claims.user_id, "user-456");
         assert_eq!(claims.aud, None);

@@ -156,6 +156,7 @@ pub fn test_config() -> Config {
             user_token_ttl_secs: 7 * 24 * 3600,
             bootstrap_token_ttl_secs: 1800,
             emit_legacy_user_token_env: true,
+            accept_claimless_tokens: true,
             file_mount_path: "/tmp/test".into(),
             idle_reaper_enabled: false,
             liveness_enabled: false,

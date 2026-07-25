@@ -331,7 +331,7 @@ pub async fn redeploy_with_plan(
 
     // Mint a fresh bootstrap token (+ legacy user token during rollout) for the
     // rebuilt pod. The long-lived token is delivered over the credential channel.
-    let minted = pod_builder::mint_sandbox_tokens(config, &request.user_id)?;
+    let minted = pod_builder::mint_sandbox_tokens(config, task_id, &request.user_id)?;
 
     let mut pod = pod_builder::build_pod(
         config,

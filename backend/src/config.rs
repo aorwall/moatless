@@ -354,6 +354,13 @@ pub struct SandboxConfig {
     /// consumes the credential-channel token, removing the long-lived secret from
     /// etcd entirely. Env `SANDBOX_EMIT_LEGACY_USER_TOKEN` (default: true).
     pub emit_legacy_user_token_env: bool,
+    /// Whether the sandbox gRPC verification layer accepts legacy claim-less
+    /// tokens (those minted before the per-task `taskId` binding existed). When
+    /// `true`, such a token falls back to the DB task-access check; when `false`,
+    /// every token must carry a matching `taskId` claim. Grace flag for the
+    /// rollout — flip to `false` once every live sandbox holds a task-bound
+    /// token. Env `SANDBOX_ACCEPT_CLAIMLESS_TOKENS` (default: true).
+    pub accept_claimless_tokens: bool,
     /// Mount path inside sandbox pods for uploaded files (default: "/mnt/uploads")
     pub file_mount_path: String,
     /// Whether the idle sandbox reaper is enabled (default: true)
@@ -978,6 +985,7 @@ impl Config {
                 user_token_ttl_secs: env_or("SANDBOX_USER_TOKEN_TTL_SECS", 7 * 24 * 3600),
                 bootstrap_token_ttl_secs: env_or("SANDBOX_BOOTSTRAP_TOKEN_TTL_SECS", 1800),
                 emit_legacy_user_token_env: env_bool("SANDBOX_EMIT_LEGACY_USER_TOKEN", true),
+                accept_claimless_tokens: env_bool("SANDBOX_ACCEPT_CLAIMLESS_TOKENS", true),
                 file_mount_path: env_str("SANDBOX_FILE_MOUNT_PATH", "/mnt/uploads"),
                 idle_reaper_enabled: env_bool("SANDBOX_IDLE_REAPER_ENABLED", true),
                 liveness_enabled: env_bool("K8S_SANDBOX_LIVENESS_ENABLED", false),
@@ -1181,6 +1189,18 @@ impl Config {
     ///
     /// Made `pub(crate)` so tests can call it directly without env vars.
     pub(crate) fn validate(&self) -> Result<(), ConfigError> {
+        // Production must be able to authenticate sandbox gRPC calls. Without the
+        // signing secret the verification layer would fall back to its dev bypass
+        // (trusting every caller), so refuse to boot. Dev/local may omit it and
+        // run unauthenticated.
+        if self.auth.is_production && self.sandbox.task_token_secret.is_none() {
+            return Err(ConfigError::Invalid(
+                "TASK_TOKEN_SECRET required in production (APP_ENV=production) — sandbox gRPC \
+                 authentication cannot be enforced without it."
+                    .into(),
+            ));
+        }
+
         // Local password auth signs session cookies and stores credentials in
         // Postgres — without either, nobody can log in.
         if self.auth.provider == AuthProvider::Local {
@@ -1343,6 +1363,7 @@ impl Config {
                 user_token_ttl_secs: 7 * 24 * 3600,
                 bootstrap_token_ttl_secs: 1800,
                 emit_legacy_user_token_env: true,
+                accept_claimless_tokens: true,
                 file_mount_path: "/tmp".into(),
                 idle_reaper_enabled: false,
                 liveness_enabled: false,
@@ -1670,7 +1691,22 @@ mod tests {
         config.auth.provider = AuthProvider::GitHub;
         config.auth.github_client_id = Some("id".into());
         config.auth.github_client_secret = Some("secret".into());
+        config.sandbox.task_token_secret = Some("task-secret".into());
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_production_without_task_token_secret_fails() {
+        // Production must be able to authenticate sandbox gRPC calls; without the
+        // signing secret the verification layer would fall back to its dev bypass.
+        let mut config = minimal_config();
+        config.auth.is_production = true;
+        config.auth.provider = AuthProvider::GitHub;
+        config.auth.github_client_id = Some("id".into());
+        config.auth.github_client_secret = Some("secret".into());
+        config.sandbox.task_token_secret = None;
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("TASK_TOKEN_SECRET"));
     }
 
     #[test]

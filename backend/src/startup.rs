@@ -320,6 +320,16 @@ pub fn spawn_grpc_server(
         Arc::new(svc)
     });
 
+    // The single verification layer. `Some(secret)` → enforcing, `None` → the
+    // dev bypass (production refuses to boot without the secret; see
+    // `Config::validate`).
+    let authorizer = crate::sandbox::grpc_server::SandboxAuthorizer::from_config(
+        token_secret.clone(),
+        config.sandbox.accept_claimless_tokens,
+        tasks.clone(),
+        users.clone(),
+    );
+
     tokio::spawn(async move {
         let svc = BackendSandboxServiceImpl {
             events: event_publisher,
@@ -330,6 +340,7 @@ pub fn spawn_grpc_server(
             task_events: grpc_task_events,
             task_relations,
             task_token_secret: token_secret,
+            authorizer,
             github_app_service,
             github_apps,
             provider_token_auth,
