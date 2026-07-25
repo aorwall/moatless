@@ -213,9 +213,10 @@ async fn transient_ack_failure_retries_without_re_running_the_message() {
 
     dispatch_pending_messages(state.clone()).await;
 
-    // Wait past one ack-retry backoff so the retry has landed.
+    // Wait past one full ack-retry backoff (base 2s + up to 25% jitter) so the
+    // retry has landed.
     let first = recorded_inputs(&recorder, 1).await;
-    tokio::time::sleep(Duration::from_millis(2500)).await;
+    tokio::time::sleep(Duration::from_millis(3200)).await;
     stop.cancel();
     racer.await.expect("waiter task panicked");
 

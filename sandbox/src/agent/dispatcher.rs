@@ -23,6 +23,19 @@ use crate::state::SandboxState;
 use super::prompt::PromptResponse;
 use super::types::{content_blocks_from_proto, ContentBlock};
 
+/// Spawn a detached dispatcher task whose termination is never silent (Sandbox
+/// spawned-task rule). The task itself logs every ordinary terminal branch; this
+/// watcher additionally surfaces an abnormal end (a panic) at `error` with the
+/// task's name, which a bare `tokio::spawn` would swallow.
+fn spawn_supervised(what: &'static str, fut: impl std::future::Future<Output = ()> + Send + 'static) {
+    let handle = tokio::spawn(fut);
+    tokio::spawn(async move {
+        if let Err(error) = handle.await {
+            warn!(%error, task = what, "dispatcher task terminated abnormally");
+        }
+    });
+}
+
 /// Dispatch pending messages to the agent.
 ///
 /// If the agent is waiting for user input (AskUserQuestion/ExitPlanMode),
@@ -140,6 +153,14 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
         "Dispatching messages to agent"
     );
 
+    // The fetch + upload work above awaited, so the pod may have begun shutting
+    // down since the post-acquire recheck. Recheck immediately before opening a
+    // turn so we don't submit work that would just be torn down.
+    if state.lifecycle_cancel.is_cancelled() {
+        info!("Dispatch aborted before send — sandbox is shutting down");
+        return;
+    }
+
     // Send to agent actor — it handles injection vs new session.
     // Ack is deferred until the agent confirms it processed the message.
     let ack_rx = state.agent_handle.send(
@@ -153,7 +174,7 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
 
     if !uuids.is_empty() {
         let redelivery_state = state.clone();
-        tokio::spawn(async move {
+        spawn_supervised("dispatch-ack", async move {
             // Held from the fetch above until the ack below prunes the rows.
             // Released before any re-dispatch, which re-acquires the same lock.
             let dispatch_guard = dispatch_guard;
@@ -217,12 +238,40 @@ fn split_at_start_fresh(
 /// definitively, without hammering `GetPendingMessages` in a tight loop.
 const REDISPATCH_BACKOFF: Duration = Duration::from_secs(15);
 
-/// Backoff between post-acceptance acknowledgement retries. The harness has
-/// already accepted the Input (or the prompt has already been answered), so the
-/// batch is never resubmitted — only the ack is re-attempted, and it is retried
-/// until it lands or the pod stops (a failed ack is never treated as success),
-/// so a waiter can never re-run the accepted Message during a transient outage.
-const ACK_RETRY_BACKOFF: Duration = Duration::from_secs(2);
+/// Post-acceptance acknowledgement retry backoff: exponential from the base,
+/// capped at the ceiling, plus per-attempt jitter seeded by `task_id` so a
+/// fleet of pods riding out the same backend/ack outage does not retry in
+/// lockstep. The harness has already accepted the Input (or the prompt has been
+/// answered), so the batch is never resubmitted — only the ack is re-attempted,
+/// retried until it lands or the pod stops (a failed ack is never treated as
+/// success), so a waiter can never re-run the accepted Message during an outage.
+const ACK_RETRY_BASE_BACKOFF: Duration = Duration::from_secs(2);
+const ACK_RETRY_MAX_BACKOFF: Duration = Duration::from_mins(1);
+
+/// Compute the capped exponential backoff for a 1-based retry `attempt`, plus up
+/// to 25% jitter derived from `task_id` + `attempt` (no `rand` dependency; the
+/// `task_id` seed decorrelates retries across the fleet).
+fn ack_retry_delay(task_id: &str, attempt: u32) -> Duration {
+    use std::hash::{Hash, Hasher};
+    // Cap the exponent so the shift can't overflow; 2^5 * base already saturates
+    // past the 60s ceiling.
+    let exp = (attempt - 1).min(5);
+    let backoff = ACK_RETRY_BASE_BACKOFF
+        .saturating_mul(1u32 << exp)
+        .min(ACK_RETRY_MAX_BACKOFF);
+    let jitter_span_ms = (backoff.as_millis() / 4) as u64;
+    if jitter_span_ms == 0 {
+        return backoff;
+    }
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    task_id.hash(&mut hasher);
+    attempt.hash(&mut hasher);
+    backoff + Duration::from_millis(hasher.finish() % (jitter_span_ms + 1))
+}
+
+/// Warn on the first ack failure and then only every 10th attempt, so a
+/// prolonged outage does not flood the log with a line per retry.
+const ACK_RETRY_WARN_EVERY: u32 = 10;
 
 /// Skip re-dispatch once the agent has accumulated this many consecutive
 /// errors — mirrors the agent actor's `MAX_CONSECUTIVE_ERRORS` circuit
@@ -309,7 +358,7 @@ async fn resolve_pending_prompt(state: &SandboxState) {
         // the normal acked path (spawned so it re-acquires the guard we still
         // hold) rather than submitting unacknowledged input.
         info!("Pending prompt was already consumed, dispatching normally");
-        tokio::spawn(schedule_dispatch(state.clone()));
+        spawn_supervised("prompt-redispatch", schedule_dispatch(state.clone()));
         return;
     };
 
@@ -343,7 +392,7 @@ async fn resolve_pending_prompt(state: &SandboxState) {
     }
 
     if has_remaining_messages {
-        tokio::spawn(schedule_dispatch(state.clone()));
+        spawn_supervised("prompt-remaining-redispatch", schedule_dispatch(state.clone()));
     }
 }
 
@@ -394,13 +443,17 @@ async fn acknowledge_until_settled(
         match ack {
             Ok(()) => return true,
             Err(e) => {
-                warn!(
-                    error = %e,
-                    attempt,
-                    "Failed to acknowledge messages, retrying until acked or shutdown"
-                );
+                // Rate-limit the warnings so a long outage doesn't flood the log.
+                if attempt == 1 || attempt.is_multiple_of(ACK_RETRY_WARN_EVERY) {
+                    warn!(
+                        error = %e,
+                        attempt,
+                        "Failed to acknowledge messages, retrying until acked or shutdown"
+                    );
+                }
+                let delay = ack_retry_delay(&state.config.task_id, attempt);
                 tokio::select! {
-                    () = tokio::time::sleep(ACK_RETRY_BACKOFF) => {}
+                    () = tokio::time::sleep(delay) => {}
                     () = state.lifecycle_cancel.cancelled() => {
                         info!("Acknowledgement retry aborted — sandbox is shutting down");
                         return false;

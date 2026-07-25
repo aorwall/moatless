@@ -682,9 +682,32 @@ async fn test_spawn_agent_subprocess() {
 async fn run_missing_session_resume_is_lost() {
     let tmp = TempDir::new().expect("create tempdir");
     for sub in ["workspace", "data", "uploads", "home/.claude", "claude-config"] {
-        std::fs::create_dir_all(tmp.path().join(sub)).expect("create dir");
+        tokio::fs::create_dir_all(tmp.path().join(sub))
+            .await
+            .expect("create dir");
     }
     let config = test_config(&tmp, false);
+
+    // The absent restore target: the fresh, isolated CLAUDE_CONFIG_DIR holds no
+    // sessions, so `projects/` (where the CLI writes and looks up transcripts,
+    // per `transcript_sync::transcript_dir`) does not exist and the resumed
+    // session id cannot resolve to any transcript.
+    let projects_dir = std::path::Path::new(&config.claude_config_dir).join("projects");
+    assert!(
+        !projects_dir.exists(),
+        "the isolated session store must contain no transcript to resume"
+    );
+
+    // Pin HOME and CLAUDE_CONFIG_DIR into the child env: `build_options` does NOT
+    // derive them from `Config`, so without this the `claude` subprocess would
+    // inherit the runner's real session store and the "absent target" would not
+    // hold. The auth env is what the CLI needs to reach startup.
+    let mut env = auth_credentials();
+    env.insert("HOME".to_string(), config.home_dir.clone());
+    env.insert(
+        "CLAUDE_CONFIG_DIR".to_string(),
+        config.claude_config_dir.clone(),
+    );
 
     let mut harness = Harness::claude(ClaudeConfig {
         config: Arc::new(config),
@@ -692,13 +715,14 @@ async fn run_missing_session_resume_is_lost() {
         agent_type: Some("claude-code".to_string()),
     });
 
-    // A syntactically valid session id that has no transcript on disk — the fresh
-    // `claude-config` dir above holds no sessions, so the resume target is absent.
+    // A syntactically valid session id with no transcript under the isolated
+    // store above — so the resume target is provably absent.
     harness
         .submit(Input {
             resume: Some(ResumeSession::WithId(
                 "00000000-0000-0000-0000-000000000000".to_string(),
             )),
+            env: Some(env),
             ..Input::text("resume-missing", "Continue the prior conversation.")
         })
         .await

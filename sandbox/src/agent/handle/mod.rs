@@ -559,9 +559,10 @@ mod tests {
             if handle.is_closed() {
                 break;
             }
-            if tokio::time::Instant::now() >= deadline {
-                panic!("handle channel did not close within 2 s");
-            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "handle channel did not close within 2 s"
+            );
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
 
@@ -597,8 +598,11 @@ mod tests {
         // raw type collapses to — is asserted by the `resolve_agent_harness` tests
         // below (the single source of truth `build_harness` matches on). The
         // behavioural proof that the composed adapter is the intended family is an
-        // E2E concern (it requires actually running the CLI), covered in the
-        // gated `agent_e2e` fixed-selection test rather than by inspecting a
+        // E2E concern (it requires actually running the CLI): the Claude selection
+        // is exercised by `agent_transport_e2e::run_missing_session_resume_is_lost`
+        // (gated `CLAUDE_SDK_E2E`), and fixed selection surviving a restart is
+        // covered by the compose replacement-ordering test
+        // (`replacement_ordering_e2e`, gated `SANDBOX_E2E`) — not by inspecting a
         // private tag here.
         for (agent_type, use_tmux) in [
             ("codex", false),
@@ -607,10 +611,11 @@ mod tests {
             ("claude-code-cli", false),
         ] {
             let (config, agent_state, failures) = harness_inputs(use_tmux);
-            // `Harness` has no `Debug`, so match rather than `expect`.
-            if build_harness(&config, &agent_state, &failures, agent_type).is_err() {
-                panic!("{agent_type} (tmux={use_tmux}) should construct");
-            }
+            // `Harness` has no `Debug`, so assert on the `is_ok()` bool.
+            assert!(
+                build_harness(&config, &agent_state, &failures, agent_type).is_ok(),
+                "{agent_type} (tmux={use_tmux}) should construct"
+            );
         }
     }
 
