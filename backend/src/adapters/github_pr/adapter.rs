@@ -1462,10 +1462,6 @@ impl Adapter for GithubPrAdapter {
         false
     }
 
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-
     /// GitHub allows up to 65536 chars per issue/PR comment. Leave headroom for
     /// the optional `Moatless task:` footer that `send_reply_for_binding`
     /// appends.

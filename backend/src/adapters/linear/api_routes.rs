@@ -36,7 +36,6 @@ use crate::state::AppState;
 use moatless_backend_core::scope::ScopeContext;
 
 use super::agent_api::{LinearAgentApi, LookupKind};
-use super::agent_runtime::task_url;
 use super::SUBJECT_KIND_ISSUE;
 
 /// Origin recorded on `task_bindings.origin` for bindings created by these
@@ -902,21 +901,7 @@ pub(crate) async fn attach_moatless_task(
         warn!(task_id = %task_id, "attach_moatless_task: issue missing id");
         return;
     };
-    let url = task_url(state, task_id);
-    let title = super::agent_runtime::task_attachment_title(
-        state,
-        task_id,
-        super::agent_runtime::ATTACHMENT_TITLE_PARENT,
-    )
-    .await;
-    if let Err(e) = api.attachment_link_url(issue_uuid, &url, &title).await {
-        warn!(
-            error = %e,
-            task_id = %task_id,
-            issue = %issue_uuid,
-            "Failed to attach Moatless task URL to Linear issue"
-        );
-    }
+    super::agent_runtime::attach_parent_task_link(state, api, issue_uuid, task_id).await;
 }
 
 #[cfg(test)]

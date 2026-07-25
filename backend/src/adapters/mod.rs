@@ -18,10 +18,9 @@ pub mod webhook;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use std::any::Any;
-
 use crate::auth::github_app_registry::GitHubAppRegistry;
 use crate::db::DbPool;
+use crate::state::AppState;
 
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
@@ -152,9 +151,6 @@ pub trait Adapter: Send + Sync {
         4000
     }
 
-    /// Downcast support for provider-specific operations.
-    fn as_any(&self) -> &dyn Any;
-
     /// Resolve an external identity (Slack user ID, email address) to a system user ID.
     async fn resolve_user(
         &self,
@@ -229,6 +225,38 @@ pub trait Adapter: Send + Sync {
             "{:?} provider does not support direct destination sends",
             self.adapter_kind()
         )))
+    }
+
+    /// Resolve the destination that addresses a single external user directly,
+    /// given that user's provider-side id.
+    ///
+    /// The returned string is a [`Adapter::post_to_destination`] destination, so
+    /// a provider that has to call its API to open the conversation (Slack) does
+    /// it here, and one that can compute the destination outright (Telegram)
+    /// simply formats it.
+    ///
+    /// Default: `Ok(None)` — this provider has no direct-message surface.
+    async fn dm_destination(
+        &self,
+        _provider_user_id: &str,
+    ) -> Result<Option<String>, AdapterError> {
+        Ok(None)
+    }
+
+    /// Follow-up the provider runs after an outbound send created a binding.
+    ///
+    /// Called once the binding row exists, so a provider can link the moatless
+    /// task back onto the external subject. Failures are the provider's to log
+    /// and swallow — the send has already succeeded by this point.
+    ///
+    /// Default: does nothing.
+    async fn on_binding_created(
+        &self,
+        _state: &AppState,
+        _connection: &AdapterConnection,
+        _binding: &TaskBinding,
+        _task_id: &str,
+    ) {
     }
 
     /// Send a new top-level message to an external destination (no existing thread).
@@ -669,10 +697,6 @@ mod tests {
             AdapterKind::Telegram
         }
 
-        fn as_any(&self) -> &dyn Any {
-            self
-        }
-
         async fn resolve_user(
             &self,
             _identity: &str,
@@ -715,6 +739,20 @@ mod tests {
             }
             other => panic!("expected BadRequest, got: {other:?}"),
         }
+    }
+
+    /// The user-DM handler turns `None` into the "not supported" rejection, so
+    /// an adapter with no DM surface keeps rejecting by inheriting this default.
+    #[tokio::test]
+    async fn default_dm_destination_is_none() {
+        let provider = DummyProvider;
+        assert_eq!(
+            provider
+                .dm_destination("U123")
+                .await
+                .expect("default impl should not error"),
+            None
+        );
     }
 
     #[test]

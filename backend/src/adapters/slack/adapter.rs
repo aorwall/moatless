@@ -762,10 +762,6 @@ impl Adapter for SlackAdapter {
         AdapterKind::Slack
     }
 
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-
     fn supports_files(&self) -> bool {
         true
     }
@@ -976,6 +972,13 @@ impl Adapter for SlackAdapter {
             |r| crate::bindings::runtime::trigger_context(r, "slack"),
         );
         self.send_reply(&thread, &config, message).await
+    }
+
+    /// Slack has to ask its API for the DM channel that pairs the bot with the
+    /// user before anything can be posted there.
+    async fn dm_destination(&self, provider_user_id: &str) -> Result<Option<String>, AdapterError> {
+        let dm_channel = self.open_dm(provider_user_id).await?;
+        Ok(Some(format!("dm:{dm_channel}")))
     }
 
     async fn post_to_destination(
