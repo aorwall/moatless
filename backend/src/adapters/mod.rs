@@ -454,7 +454,7 @@ impl Adapters {
         }
 
         // Webhook adapter is always available (config is per trigger source).
-        providers.register(Arc::new(self::webhook::adapter::WebhookAdapter::new()));
+        providers.register_webhook(Arc::new(self::webhook::adapter::WebhookAdapter::new()));
         tracing::info!("Webhook adapter configured");
 
         if let Some(ref token) = config.telegram.bot_token {
@@ -497,27 +497,38 @@ impl Adapters {
         Some(providers)
     }
 
-    pub fn register(&mut self, provider: Arc<dyn Adapter>) {
+    /// Insert into the trait-object map only.
+    ///
+    /// Not public: every adapter kind that has a typed handle must go through
+    /// its typed registrar, or the map and the handle could disagree. Crate
+    /// visibility is what lets a test register a stand-in adapter.
+    pub(crate) fn register_trait_object(&mut self, provider: Arc<dyn Adapter>) {
         self.providers.insert(provider.adapter_kind(), provider);
     }
 
+    /// The Webhook adapter has no concrete-only methods, so it has no typed
+    /// handle and lives in the map alone.
+    pub fn register_webhook(&mut self, provider: Arc<self::webhook::adapter::WebhookAdapter>) {
+        self.register_trait_object(provider);
+    }
+
     pub fn register_github_pr(&mut self, provider: Arc<self::github_pr::adapter::GithubPrAdapter>) {
-        self.register(provider.clone());
+        self.register_trait_object(provider.clone());
         self.github_pr = Some(provider);
     }
 
     pub fn register_linear(&mut self, provider: Arc<self::linear::adapter::LinearAdapter>) {
-        self.register(provider.clone());
+        self.register_trait_object(provider.clone());
         self.linear = Some(provider);
     }
 
     pub fn register_slack(&mut self, provider: Arc<self::slack::adapter::SlackAdapter>) {
-        self.register(provider.clone());
+        self.register_trait_object(provider.clone());
         self.slack = Some(provider);
     }
 
     pub fn register_telegram(&mut self, provider: Arc<self::telegram::adapter::TelegramAdapter>) {
-        self.register(provider.clone());
+        self.register_trait_object(provider.clone());
         self.telegram = Some(provider);
     }
 
@@ -665,7 +676,7 @@ mod tests {
     #[test]
     fn empty_registry_takes_a_stand_in_adapter_and_leaves_typed_handles_unset() {
         let mut providers = Adapters::new();
-        providers.register(Arc::new(DummyProvider));
+        providers.register_trait_object(Arc::new(DummyProvider));
 
         assert!(providers.get(AdapterKind::Telegram).is_some());
         assert!(providers.telegram().is_none());
