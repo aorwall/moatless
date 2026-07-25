@@ -4,6 +4,7 @@
 //! — the same interface the coordinator uses — and assert the ordering and
 //! terminal invariants every harness must satisfy.
 
+use moatless_api_schemas::content::CanonicalContentBlock;
 use tokio::sync::mpsc;
 
 use super::error::{ErrorClass, FailureStage, HarnessError, SessionImpact};
@@ -18,7 +19,9 @@ fn assistant_block(source: &str, message: &str, session: &str, text: &str) -> So
         session: SessionId(session.to_string()),
         parent_tool_use_id: None,
         role: Role::Assistant,
-        block: serde_json::json!({ "type": "text", "text": text }),
+        block: CanonicalContentBlock::Text {
+            text: text.to_string(),
+        },
         tool_use_result: None,
         usage: None,
         model: None,

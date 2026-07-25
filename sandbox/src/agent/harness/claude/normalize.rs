@@ -6,11 +6,76 @@
 //! Both the one-shot subprocess adapter and the persistent tmux adapter share
 //! this normalizer, so neither owns a second copy of the native mapping.
 
-use claude_agent_sdk::types::content::ContentBlock;
+use claude_agent_sdk::types::content::{ContentBlock, ImageSource, ImageSourceType};
 use claude_agent_sdk::types::messages::{AssistantMessage, ToolProgressMessage, UserMessage};
+use moatless_api_schemas::content::{
+    CanonicalContentBlock, ImageSource as CanonicalImageSource,
+    ImageSourceType as CanonicalImageSourceType,
+};
 
 use super::super::signal::{Activity, SessionId};
 use super::super::source::{NativeMessageId, Role, SourceEvent, SourceId};
+
+/// Map a native Claude `ContentBlock` into the shared [`CanonicalContentBlock`].
+/// The two enums share the Anthropic content-block shape variant-for-variant, so
+/// this is a total, lossless projection — the sandbox owns it because the orphan
+/// rule bars a `From` impl between two foreign types.
+fn canonical_from_claude(block: &ContentBlock) -> CanonicalContentBlock {
+    match block {
+        ContentBlock::Text { text } => CanonicalContentBlock::Text { text: text.clone() },
+        ContentBlock::ToolUse { id, name, input } => CanonicalContentBlock::ToolUse {
+            id: id.clone(),
+            name: name.clone(),
+            input: input.clone(),
+        },
+        ContentBlock::ToolResult {
+            tool_use_id,
+            content,
+            is_error,
+        } => CanonicalContentBlock::ToolResult {
+            tool_use_id: tool_use_id.clone(),
+            content: content.clone(),
+            is_error: *is_error,
+        },
+        ContentBlock::Thinking {
+            thinking,
+            signature,
+        } => CanonicalContentBlock::Thinking {
+            thinking: thinking.clone(),
+            signature: signature.clone(),
+        },
+        ContentBlock::Image { source } => CanonicalContentBlock::Image {
+            source: canonical_image_source(source),
+        },
+        ContentBlock::ServerToolUse { id, name, input } => CanonicalContentBlock::ServerToolUse {
+            id: id.clone(),
+            name: name.clone(),
+            input: input.clone(),
+        },
+        ContentBlock::WebSearchToolResult {
+            tool_use_id,
+            content,
+        } => CanonicalContentBlock::WebSearchToolResult {
+            tool_use_id: tool_use_id.clone(),
+            content: content.clone(),
+        },
+        ContentBlock::RedactedThinking { data } => {
+            CanonicalContentBlock::RedactedThinking { data: data.clone() }
+        }
+    }
+}
+
+fn canonical_image_source(source: &ImageSource) -> CanonicalImageSource {
+    CanonicalImageSource {
+        source_type: match source.source_type {
+            ImageSourceType::Base64 => CanonicalImageSourceType::Base64,
+            ImageSourceType::Url => CanonicalImageSourceType::Url,
+            ImageSourceType::Unknown => CanonicalImageSourceType::Unknown,
+        },
+        media_type: source.media_type.clone(),
+        data: source.data.clone(),
+    }
+}
 
 /// The per-message metadata shared by every content block of one native
 /// `SdkMessage`, so a whole assistant/user envelope's blocks are normalized with
@@ -79,7 +144,7 @@ impl Normalizer {
             session: meta.session.clone(),
             parent_tool_use_id: meta.parent_tool_use_id.clone(),
             role: meta.role,
-            block: serde_json::to_value(block).unwrap_or(serde_json::Value::Null),
+            block: canonical_from_claude(block),
             tool_use_result: None,
             usage: meta.usage.clone(),
             model: meta.model.clone(),

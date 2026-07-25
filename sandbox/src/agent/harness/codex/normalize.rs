@@ -11,6 +11,8 @@
 //! --resume`, so a per-spawn nonce is mixed into each `source_id` to keep two
 //! blocks from ever colliding across process replacement.
 
+use moatless_api_schemas::content::CanonicalContentBlock;
+
 use crate::agent::codex_exec::{ThreadItem, Usage};
 
 use super::super::signal::SessionId;
@@ -79,7 +81,9 @@ impl Normalizer {
                 session,
                 parent_tool_use_id: None,
                 role: Role::Assistant,
-                block: item.raw.clone(),
+                block: CanonicalContentBlock::Unknown {
+                    raw: item.raw.clone(),
+                },
                 tool_use_result: None,
                 usage: None,
                 model: self.model.clone(),
@@ -125,7 +129,7 @@ impl Normalizer {
             session,
             parent_tool_use_id: None,
             role: Role::System,
-            block: serde_json::json!({ "type": "turn_result" }),
+            block: CanonicalContentBlock::TurnResult,
             tool_use_result: None,
             usage: Some(serde_json::json!({
                 "input_tokens": usage.input_tokens,

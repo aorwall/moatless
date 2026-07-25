@@ -7,6 +7,8 @@
 //! input. The coordinator sees only the same [`Signal`] contract as the one-shot
 //! path; nothing here is tmux-specific.
 
+use moatless_api_schemas::content::CanonicalContentBlock;
+
 use super::error::{ErrorClass, FailureStage, HarnessError, SessionImpact};
 use super::source::SourceId;
 use super::*;
@@ -18,7 +20,9 @@ fn assistant_block(source: &str, session: &str, text: &str) -> SourceEvent {
         session: SessionId(session.to_string()),
         parent_tool_use_id: None,
         role: Role::Assistant,
-        block: serde_json::json!({ "type": "text", "text": text }),
+        block: CanonicalContentBlock::Text {
+            text: text.to_string(),
+        },
         tool_use_result: None,
         usage: None,
         model: None,

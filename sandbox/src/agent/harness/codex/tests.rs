@@ -86,10 +86,10 @@ fn agent_message_and_reasoning_are_ordered_assistant_text_blocks() {
     let s = sources(&events);
     assert_eq!(s.len(), 2);
     // Reasoning and prose both normalize to renderable assistant text, in order.
-    assert_eq!(s[0].block["type"], "text");
-    assert_eq!(s[0].block["text"], "think");
-    assert_eq!(s[1].block["type"], "text");
-    assert_eq!(s[1].block["text"], "hi");
+    assert_eq!(s[0].block_json()["type"], "text");
+    assert_eq!(s[0].block_json()["text"], "think");
+    assert_eq!(s[1].block_json()["type"], "text");
+    assert_eq!(s[1].block_json()["text"], "hi");
     assert!(s.iter().all(|e| e.role == Role::Assistant));
     assert_ne!(s[0].source_id, s[1].source_id);
     assert_eq!(s[0].model.as_deref(), None); // model set only after submit
@@ -118,43 +118,46 @@ fn every_item_family_normalizes_to_canonical_blocks() {
     assert_eq!(s.len(), 10);
 
     // command_execution → codex.shell tool_use + tool_result carrying the typed result.
-    assert_eq!(s[0].block["type"], "tool_use");
-    assert_eq!(s[0].block["name"], "codex.shell");
-    assert_eq!(s[0].block["input"]["command"], "ls");
+    assert_eq!(s[0].block_json()["type"], "tool_use");
+    assert_eq!(s[0].block_json()["name"], "codex.shell");
+    assert_eq!(s[0].block_json()["input"]["command"], "ls");
     assert_eq!(s[0].role, Role::Assistant);
     assert!(s[0].tool_use_result.is_none());
-    assert_eq!(s[1].block["type"], "tool_result");
-    assert_eq!(s[1].block["tool_use_id"], s[0].block["id"]);
-    assert_eq!(s[1].block["is_error"], false);
+    assert_eq!(s[1].block_json()["type"], "tool_result");
+    assert_eq!(s[1].block_json()["tool_use_id"], s[0].block_json()["id"]);
+    assert_eq!(s[1].block_json()["is_error"], false);
     assert_eq!(s[1].role, Role::User);
     let shell_result = s[1].tool_use_result.as_ref().expect("typed shell result");
     assert_eq!(shell_result["status"], "completed");
     assert_eq!(shell_result["exitCode"], 0);
 
     // file_change → codex.edit.
-    assert_eq!(s[2].block["name"], "codex.edit");
-    assert_eq!(s[2].block["input"]["changes"][0]["path"], "/a.py");
-    assert_eq!(s[3].block["type"], "tool_result");
+    assert_eq!(s[2].block_json()["name"], "codex.edit");
+    assert_eq!(s[2].block_json()["input"]["changes"][0]["path"], "/a.py");
+    assert_eq!(s[3].block_json()["type"], "tool_result");
     assert!(s[3].tool_use_result.is_some());
 
     // mcp_tool_call → codex.mcp_tool_call, typed result reflects the completion.
-    assert_eq!(s[4].block["name"], "codex.mcp_tool_call");
-    assert_eq!(s[4].block["input"]["server"], "db");
-    assert_eq!(s[5].tool_use_result.as_ref().unwrap()["status"], "completed");
+    assert_eq!(s[4].block_json()["name"], "codex.mcp_tool_call");
+    assert_eq!(s[4].block_json()["input"]["server"], "db");
+    assert_eq!(
+        s[5].tool_use_result.as_ref().unwrap()["status"],
+        "completed"
+    );
 
     // collab_tool_call → codex.collab_tool_call.
-    assert_eq!(s[6].block["name"], "codex.collab_tool_call");
-    assert_eq!(s[6].block["input"]["senderThreadId"], "main");
-    assert_eq!(s[7].block["type"], "tool_result");
+    assert_eq!(s[6].block_json()["name"], "codex.collab_tool_call");
+    assert_eq!(s[6].block_json()["input"]["senderThreadId"], "main");
+    assert_eq!(s[7].block_json()["type"], "tool_result");
 
     // web_search → a lone codex.web_search tool_use (no result concept).
-    assert_eq!(s[8].block["type"], "tool_use");
-    assert_eq!(s[8].block["name"], "codex.web_search");
-    assert_eq!(s[8].block["input"]["query"], "rust");
+    assert_eq!(s[8].block_json()["type"], "tool_use");
+    assert_eq!(s[8].block_json()["name"], "codex.web_search");
+    assert_eq!(s[8].block_json()["input"]["query"], "rust");
 
     // A non-fatal error item renders as assistant text.
-    assert_eq!(s[9].block["type"], "text");
-    assert_eq!(s[9].block["text"], "warned");
+    assert_eq!(s[9].block_json()["type"], "text");
+    assert_eq!(s[9].block_json()["text"], "warned");
     assert_eq!(s[9].role, Role::Assistant);
 
     // No diagnostics for known families.
@@ -172,10 +175,13 @@ fn unknown_item_kind_retains_bounded_diagnostics() {
     let events = drain(&mut p);
     let s = sources(&events);
     assert_eq!(s.len(), 1);
-    // The raw block is preserved and flagged with bounded diagnostics so an
-    // upstream CLI addition is never silently dropped.
-    assert_eq!(s[0].block["type"], "brand_new");
-    assert_eq!(s[0].block["foo"], "bar");
+    // The raw native block is preserved verbatim inside the canonical `unknown`
+    // block and flagged with bounded diagnostics so an upstream CLI addition is
+    // never silently dropped.
+    let block = s[0].block_json();
+    assert_eq!(block["type"], "unknown");
+    assert_eq!(block["raw"]["type"], "brand_new");
+    assert_eq!(block["raw"]["foo"], "bar");
     let diag = s[0].diagnostics.as_ref().expect("diagnostics retained");
     assert_eq!(diag["type"], "brand_new");
 }
@@ -205,9 +211,9 @@ fn todo_list_progress_updates_share_a_stable_source_id() {
     assert_eq!(s[0].source_id, s[1].source_id);
     assert_eq!(s[1].source_id, s[2].source_id);
     // Each emission is a codex.todo_list tool_use whose input tracks completion.
-    assert_eq!(s[0].block["name"], "codex.todo_list");
-    assert_eq!(s[0].block["input"]["items"][0]["completed"], false);
-    assert_eq!(s[2].block["input"]["items"][0]["completed"], true);
+    assert_eq!(s[0].block_json()["name"], "codex.todo_list");
+    assert_eq!(s[0].block_json()["input"]["items"][0]["completed"], false);
+    assert_eq!(s[2].block_json()["input"]["items"][0]["completed"], true);
 }
 
 #[test]
@@ -603,11 +609,11 @@ async fn e2e_codex_turn_through_the_harness() {
                 eprintln!(
                     "SOURCE role={:?} type={} name={} tool_use_result={}",
                     event.role,
-                    event.block["type"].as_str().unwrap_or("?"),
-                    event.block["name"].as_str().unwrap_or("-"),
+                    event.block_json()["type"].as_str().unwrap_or("?"),
+                    event.block_json()["name"].as_str().unwrap_or("-"),
                     event.tool_use_result.is_some(),
                 );
-                blocks.push(event.block.clone());
+                blocks.push(event.block_json());
             }
             Signal::ExecutionFinished { outcome: finished } => {
                 outcome = Some(finished);
@@ -627,12 +633,15 @@ async fn e2e_codex_turn_through_the_harness() {
 
     // Every emitted block must be a canonical Anthropic-shaped block the UI can
     // render — never a raw native Codex type.
-    let types: std::collections::HashSet<&str> = blocks
-        .iter()
-        .filter_map(|b| b["type"].as_str())
-        .collect();
+    let types: std::collections::HashSet<&str> =
+        blocks.iter().filter_map(|b| b["type"].as_str()).collect();
     eprintln!("DISTINCT BLOCK TYPES: {types:?}");
-    for raw in ["agent_message", "command_execution", "reasoning", "file_change"] {
+    for raw in [
+        "agent_message",
+        "command_execution",
+        "reasoning",
+        "file_change",
+    ] {
         assert!(!types.contains(raw), "raw native block type leaked: {raw}");
     }
     for b in &blocks {

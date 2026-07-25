@@ -126,7 +126,7 @@ fn block(message_id: &str, block: serde_json::Value, role: Role) -> SourceEvent 
         session: SessionId("sess-1".to_string()),
         parent_tool_use_id: None,
         role,
-        block,
+        block: serde_json::from_value(block).expect("test block is a canonical content block"),
         tool_use_result: None,
         usage: None,
         model: None,

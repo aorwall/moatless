@@ -41,6 +41,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use moatless_api_schemas::content::CanonicalContentBlock;
 use moatless_events::{AgentSubType, SandboxStatus, TaskTurnSubType};
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot, RwLock};
@@ -474,18 +475,15 @@ fn new_run_id() -> String {
 }
 
 /// Extract a [`WakeupJob`] from a canonical Source block when it is a
-/// `ScheduleWakeup` tool_use. The harness serializes tool_use blocks verbatim as
-/// `{"type":"tool_use","id":..,"name":"ScheduleWakeup","input":{..}}`, so this is
-/// the JSON analog of the legacy `handle::claude::extract_wakeup_job`.
-fn extract_wakeup_from_block(block: &Value) -> Option<WakeupJob> {
-    if block.get("type").and_then(Value::as_str) != Some("tool_use") {
+/// `ScheduleWakeup` tool_use — the typed analog of the legacy
+/// `handle::claude::extract_wakeup_job`.
+fn extract_wakeup_from_block(block: &CanonicalContentBlock) -> Option<WakeupJob> {
+    let CanonicalContentBlock::ToolUse { id, name, input } = block else {
+        return None;
+    };
+    if name != "ScheduleWakeup" {
         return None;
     }
-    if block.get("name").and_then(Value::as_str) != Some("ScheduleWakeup") {
-        return None;
-    }
-    let id = block.get("id").and_then(Value::as_str)?;
-    let input = block.get("input")?;
     WakeupJob::from_tool_use(id, input)
 }
 
@@ -497,7 +495,7 @@ fn message_payload(event: &SourceEvent, block_index: usize) -> Value {
     let mut message = json!({
         "role": role_str(event.role),
         "id": event.message_id.0,
-        "content": [event.block.clone()],
+        "content": [event.block_json()],
     });
     if let Some(model) = &event.model {
         message["model"] = json!(model);

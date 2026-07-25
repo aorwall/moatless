@@ -140,8 +140,8 @@ fn each_content_block_is_one_source_event_in_native_order() {
     // Same native grouping id, distinct collision-safe source ids, order kept.
     assert_eq!(sources[0].message_id, sources[1].message_id);
     assert_ne!(sources[0].source_id, sources[1].source_id);
-    assert_eq!(sources[0].block["text"], "first");
-    assert_eq!(sources[1].block["text"], "second");
+    assert_eq!(sources[0].block_json()["text"], "first");
+    assert_eq!(sources[1].block_json()["text"], "second");
 }
 
 #[test]

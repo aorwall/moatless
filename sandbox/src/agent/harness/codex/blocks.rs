@@ -12,11 +12,11 @@
 //! `handle::codex_payloads` builders — this module only wires those shapes into
 //! canonical blocks with the right tool name, role, and shared tool-use id.
 //!
-//! Blocks are built through the same [`claude_agent_sdk::ContentBlock`] enum the
-//! Claude harness normalizes into, so both agents converge on one type-checked
-//! Anthropic-shaped wire format rather than parallel hand-rolled JSON.
+//! Blocks are built through the shared [`CanonicalContentBlock`] enum the Claude
+//! harness also normalizes into, so both agents converge on one type-checked
+//! canonical format rather than parallel hand-rolled JSON.
 
-use claude_agent_sdk::ContentBlock;
+use moatless_api_schemas::content::CanonicalContentBlock;
 use serde_json::{json, Value};
 
 use moatless_api_schemas::codex::{
@@ -34,59 +34,52 @@ use crate::agent::handle::codex_payloads::{
 use super::super::source::Role;
 
 /// One canonical content block derived from a native Codex item.
-pub(super) struct CanonicalBlock {
+pub(super) struct ItemBlock {
     pub role: Role,
     /// Suffix distinguishing this block's Message identity from the item's
     /// qualified id — empty for the primary block, `_result` for a paired
     /// tool_result so it lands in its own user Message row (mirroring the legacy
     /// `{id}` / `{id}_result` uuid split).
     pub id_suffix: &'static str,
-    pub block: Value,
+    pub block: CanonicalContentBlock,
     /// Typed Codex result, surfaced at the payload top level (`toolUseResult`)
     /// for backend enrichment. `None` for every non-result block.
     pub tool_use_result: Option<Value>,
 }
 
-/// Serialize a canonical [`ContentBlock`] to its Anthropic-shaped JSON. The
-/// serialization is infallible for these variants; `Null` is a defensive floor
-/// mirroring the Claude normalizer.
-fn to_value(block: ContentBlock) -> Value {
-    serde_json::to_value(block).unwrap_or(Value::Null)
-}
-
-fn text(role: Role, text: &str) -> CanonicalBlock {
-    CanonicalBlock {
+fn text(role: Role, text: &str) -> ItemBlock {
+    ItemBlock {
         role,
         id_suffix: "",
-        block: to_value(ContentBlock::Text {
+        block: CanonicalContentBlock::Text {
             text: text.to_string(),
-        }),
+        },
         tool_use_result: None,
     }
 }
 
-fn tool_use(tool_use_id: &str, name: &str, input: Value) -> CanonicalBlock {
-    CanonicalBlock {
+fn tool_use(tool_use_id: &str, name: &str, input: Value) -> ItemBlock {
+    ItemBlock {
         role: Role::Assistant,
         id_suffix: "",
-        block: to_value(ContentBlock::ToolUse {
+        block: CanonicalContentBlock::ToolUse {
             id: tool_use_id.to_string(),
             name: name.to_string(),
             input,
-        }),
+        },
         tool_use_result: None,
     }
 }
 
-fn tool_result(tool_use_id: &str, content: String, is_error: bool, typed: Value) -> CanonicalBlock {
-    CanonicalBlock {
+fn tool_result(tool_use_id: &str, content: String, is_error: bool, typed: Value) -> ItemBlock {
+    ItemBlock {
         role: Role::User,
         id_suffix: "_result",
-        block: to_value(ContentBlock::ToolResult {
+        block: CanonicalContentBlock::ToolResult {
             tool_use_id: tool_use_id.to_string(),
             content: Some(Value::String(content)),
             is_error: Some(is_error),
-        }),
+        },
         tool_use_result: Some(typed),
     }
 }
@@ -97,7 +90,7 @@ fn tool_call(
     name: &str,
     input: Value,
     result: (Value, String, bool),
-) -> Vec<CanonicalBlock> {
+) -> Vec<ItemBlock> {
     let (typed, summary, is_error) = result;
     vec![
         tool_use(tool_use_id, name, input),
@@ -112,7 +105,7 @@ fn tool_call(
 pub(super) fn item_blocks(
     details: &ThreadItemDetails,
     tool_use_id: &str,
-) -> Option<Vec<CanonicalBlock>> {
+) -> Option<Vec<ItemBlock>> {
     let blocks = match details {
         // Assistant prose, model reasoning, and non-fatal item errors all render
         // as assistant text (matching the legacy path; the turn is not failed).

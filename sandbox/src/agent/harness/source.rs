@@ -5,6 +5,8 @@
 //! return an already-assembled Message: Message assembly is exclusively the
 //! backend's job (ADR-0002, ADR-0003, ADR-0005).
 
+use moatless_api_schemas::content::CanonicalContentBlock;
+
 use super::signal::SessionId;
 
 /// The producer role of a native content block.
@@ -43,8 +45,9 @@ pub struct SourceEvent {
     pub parent_tool_use_id: Option<String>,
     /// Producer role.
     pub role: Role,
-    /// The single canonical content block, as native JSON.
-    pub block: serde_json::Value,
+    /// The single canonical content block. Both agent harnesses transform their
+    /// native output into this one type-checked shape.
+    pub block: CanonicalContentBlock,
     /// Typed tool result surfaced at the payload top level (`toolUseResult`) for
     /// backend enrichment of a `tool_result` block — e.g. a Codex `CodexShellResult`
     /// the UI renders as command output. `None` for every non-result block.
@@ -57,4 +60,13 @@ pub struct SourceEvent {
     /// Bounded native diagnostics preserved for unknown or new block types so an
     /// upstream CLI update does not silently discard output.
     pub diagnostics: Option<serde_json::Value>,
+}
+
+impl SourceEvent {
+    /// The block serialized to its Anthropic-shaped wire JSON — the form the
+    /// coordinator forwards to the backend assembler. Serialization is infallible
+    /// for these variants; `Null` is a defensive floor.
+    pub fn block_json(&self) -> serde_json::Value {
+        serde_json::to_value(&self.block).unwrap_or(serde_json::Value::Null)
+    }
 }
