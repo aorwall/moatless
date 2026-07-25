@@ -1,4 +1,4 @@
-//! External status for Linear issue bindings.
+//! External status and display fields for Linear issue bindings.
 //!
 //! Free functions so they can be unit-tested without constructing a
 //! [`LinearAdapter`](super::adapter::LinearAdapter) (which needs a database
@@ -75,6 +75,29 @@ pub(crate) fn is_terminal_state_kind(state_kind: &str) -> bool {
     TERMINAL_STATE_KINDS.contains(&state_kind)
 }
 
+/// Human label and web URL for the issue a binding points at.
+///
+/// The label prefers the issue identifier (`SP-1721`) the destination config
+/// records under either of the two keys it has used, falling back to the
+/// binding's `subject_key` — which for agent-session bindings is an opaque
+/// UUID, hence the preference.
+pub(crate) fn binding_label_and_url(binding: &TaskBinding) -> (String, Option<String>) {
+    let cfg = &binding.destination_config;
+    let label = config_str(cfg, "identifier")
+        .or_else(|| config_str(cfg, "issue_identifier"))
+        .unwrap_or_else(|| binding.subject_key.clone());
+    let url = config_str(cfg, "issue_url").or_else(|| config_str(cfg, "url"));
+    (label, url)
+}
+
+/// Read a non-empty string field out of a destination config.
+fn config_str(cfg: &serde_json::Value, key: &str) -> Option<String> {
+    cfg.get(key)
+        .and_then(serde_json::Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -142,6 +165,44 @@ mod tests {
     fn status_key_is_none_without_an_issue() {
         let binding = binding_with_config(serde_json::json!({ "session_id": "s1" }));
         assert!(binding_status_key(&binding).is_none());
+    }
+
+    #[test]
+    fn label_prefers_identifier() {
+        let binding = binding_with_config(serde_json::json!({
+            "identifier": "SP-1721",
+            "issue_url": "https://linear.app/x/issue/SP-1721",
+        }));
+        let (label, url) = binding_label_and_url(&binding);
+        assert_eq!(label, "SP-1721");
+        assert_eq!(url.as_deref(), Some("https://linear.app/x/issue/SP-1721"));
+    }
+
+    #[test]
+    fn label_falls_back_through_both_identifier_keys_then_subject_key() {
+        let legacy = binding_with_config(serde_json::json!({ "issue_identifier": "SP-9" }));
+        assert_eq!(binding_label_and_url(&legacy).0, "SP-9");
+
+        let bare = binding_with_config(serde_json::json!({}));
+        assert_eq!(binding_label_and_url(&bare).0, "issue-uuid");
+
+        // Empty strings are not labels.
+        let empty = binding_with_config(serde_json::json!({ "identifier": "" }));
+        assert_eq!(binding_label_and_url(&empty).0, "issue-uuid");
+    }
+
+    #[test]
+    fn url_falls_back_from_issue_url_to_url() {
+        let binding = binding_with_config(serde_json::json!({
+            "url": "https://linear.app/x/issue/SP-2",
+        }));
+        assert_eq!(
+            binding_label_and_url(&binding).1.as_deref(),
+            Some("https://linear.app/x/issue/SP-2")
+        );
+
+        let none = binding_with_config(serde_json::json!({}));
+        assert!(binding_label_and_url(&none).1.is_none());
     }
 
     #[test]

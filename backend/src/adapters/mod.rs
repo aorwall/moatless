@@ -394,6 +394,17 @@ pub trait Adapter: Send + Sync {
         None
     }
 
+    /// Human label and web URL for the external subject a binding points at,
+    /// for read paths that render a binding without knowing which provider it
+    /// belongs to. Only the adapter knows the shape of its own
+    /// `destination_config`, so only the adapter can read a label or a link out
+    /// of it.
+    ///
+    /// Default: the binding's `subject_key` as the label and no URL.
+    fn binding_label_and_url(&self, binding: &TaskBinding) -> (String, Option<String>) {
+        (binding.subject_key.clone(), None)
+    }
+
     /// Whether a normalized `external_state_kind` means the external subject is
     /// finished and can no longer change on its own (a merged PR, a completed
     /// issue).

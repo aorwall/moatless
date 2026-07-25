@@ -1727,6 +1727,10 @@ impl Adapter for GithubPrAdapter {
         status::binding_status_key(binding)
     }
 
+    fn binding_label_and_url(&self, binding: &TaskBinding) -> (String, Option<String>) {
+        status::binding_label_and_url(binding)
+    }
+
     fn is_terminal_state_kind(&self, state_kind: &str) -> bool {
         status::is_terminal_state_kind(state_kind)
     }

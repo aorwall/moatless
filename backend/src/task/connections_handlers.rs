@@ -4,8 +4,8 @@
 //! Slack thread), each connection's persisted external status, and
 //! per-connection inbound/outgoing message counts. Modeled on
 //! [`super::handlers::list_tasks`]: list tasks → batch bindings → batch message
-//! counts → decode `destination_config` into typed connections → optional live
-//! status refresh.
+//! counts → ask each binding's adapter to name and link its subject → optional
+//! live status refresh.
 
 use std::collections::{HashMap, HashSet};
 
@@ -160,12 +160,11 @@ pub async fn list_task_connections(
                 .map_or(&[], Vec::as_slice);
             let empty = Vec::new();
             let task_counts = counts_by_task.get(task.task_id.as_str()).unwrap_or(&empty);
-            let count_by_binding =
-                match_counts(state.adapters.as_deref(), task_bindings, task_counts);
+            let count_by_binding = match_counts(task_bindings, task_counts);
 
             let connections: Vec<Connection> = task_bindings
                 .iter()
-                .map(|b| decode_connection(b, &count_by_binding))
+                .map(|b| decode_connection(state.adapters.as_deref(), b, &count_by_binding))
                 .collect();
 
             TaskConnectionRow {
@@ -257,11 +256,11 @@ pub async fn get_task_connections(
 
     let binding_refs: Vec<&TaskBinding> = bindings.iter().collect();
     let count_refs: Vec<&ConnectionMessageCount> = counts.iter().collect();
-    let count_by_binding = match_counts(state.adapters.as_deref(), &binding_refs, &count_refs);
+    let count_by_binding = match_counts(&binding_refs, &count_refs);
 
     let connections: Vec<Connection> = binding_refs
         .iter()
-        .map(|b| decode_connection(b, &count_by_binding))
+        .map(|b| decode_connection(state.adapters.as_deref(), b, &count_by_binding))
         .collect();
 
     Ok(Json(connections))
@@ -331,14 +330,19 @@ async fn refresh_stale_statuses(
     }
 }
 
-/// Normalize an adapter/provider string to a canonical bucket, so that the two
-/// keys an adapter may be spelled with — the one bindings use and the one
-/// message metadata uses — compare equal. The registry owns that mapping; names
-/// it does not know pass through unchanged.
-fn normalize_adapter<'a>(adapters: Option<&Adapters>, s: &'a str) -> &'a str {
-    adapters
-        .and_then(|a| a.provider_key_for_name(s))
-        .unwrap_or(s)
+/// Normalize an adapter/provider string to a canonical bucket so that the
+/// GitHub binding provider (`github`) and the GitHub message adapter label
+/// (`github_pr`) compare equal.
+///
+/// Deliberately a total, registry-independent fold: both sides of the join in
+/// [`match_counts`] go through it and the bucket never leaves this module, so
+/// resolving it through the adapter registry would only add a way for the join
+/// to miss (and message counts to read zero) when that adapter is unconfigured.
+fn normalize_adapter(s: &str) -> &str {
+    match s {
+        "github" | "github_pr" => "github",
+        other => other,
+    }
 }
 
 fn group_counts_by_task(
@@ -363,7 +367,6 @@ fn group_bindings_by_task(bindings: &[TaskBinding]) -> HashMap<&str, Vec<&TaskBi
 /// counts whose subject_key matches no binding fall back to a per-adapter
 /// bucket, applied only when that adapter has a single binding on the task.
 fn match_counts(
-    adapters: Option<&Adapters>,
     task_bindings: &[&TaskBinding],
     rows: &[&ConnectionMessageCount],
 ) -> HashMap<String, (i64, i64)> {
@@ -379,7 +382,7 @@ fn match_counts(
     let mut bindings_by_adapter: HashMap<&str, Vec<&TaskBinding>> = HashMap::new();
     for b in task_bindings {
         bindings_by_adapter
-            .entry(normalize_adapter(adapters, &b.provider))
+            .entry(normalize_adapter(&b.provider))
             .or_default()
             .push(b);
     }
@@ -397,7 +400,7 @@ fn match_counts(
         let adapter = row
             .external_adapter
             .as_deref()
-            .map_or("", |a| normalize_adapter(adapters, a))
+            .map_or("", normalize_adapter)
             .to_string();
         let entry = leftover.entry(adapter).or_insert((0, 0));
         entry.0 += row.incoming;
@@ -419,8 +422,21 @@ fn match_counts(
 
 /// Decode a binding's `destination_config` + persisted status into a typed
 /// [`Connection`].
-fn decode_connection(b: &TaskBinding, counts: &HashMap<String, (i64, i64)>) -> Connection {
-    let (label, url) = label_and_url(b);
+///
+/// The label and URL come from the binding's adapter, which is the only thing
+/// that knows the shape of its own destination config. An unconfigured or
+/// unknown provider falls back to the same default the trait gives.
+fn decode_connection(
+    adapters: Option<&Adapters>,
+    b: &TaskBinding,
+    counts: &HashMap<String, (i64, i64)>,
+) -> Connection {
+    let (label, url) = adapters
+        .and_then(|a| a.get_by_name(&b.provider))
+        .map_or_else(
+            || (b.subject_key.clone(), None),
+            |a| a.binding_label_and_url(b),
+        );
     let (incoming, outgoing) = counts.get(&b.id).copied().unwrap_or((0, 0));
 
     Connection {
@@ -450,46 +466,6 @@ fn connection_kind(subject_kind: &str) -> String {
     }
 }
 
-/// Build a human label and web URL from a binding's destination config.
-fn label_and_url(b: &TaskBinding) -> (String, Option<String>) {
-    let cfg = &b.destination_config;
-    match b.provider.as_str() {
-        "github" | "github_pr" => {
-            // subject_key is already "owner/repo#N".
-            let url = github_pr_url(cfg).or_else(|| {
-                b.external_status_raw
-                    .as_ref()
-                    .and_then(|r| r.get("url"))
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_string)
-            });
-            (b.subject_key.clone(), url)
-        }
-        "linear" => {
-            let label = json_str(cfg, "identifier")
-                .or_else(|| json_str(cfg, "issue_identifier"))
-                .unwrap_or_else(|| b.subject_key.clone());
-            let url = json_str(cfg, "issue_url").or_else(|| json_str(cfg, "url"));
-            (label, url)
-        }
-        _ => (b.subject_key.clone(), None),
-    }
-}
-
-fn github_pr_url(cfg: &serde_json::Value) -> Option<String> {
-    let owner = cfg.get("owner").and_then(serde_json::Value::as_str)?;
-    let repo = cfg.get("repo").and_then(serde_json::Value::as_str)?;
-    let number = cfg.get("pr_number").and_then(serde_json::Value::as_u64)?;
-    Some(format!("https://github.com/{owner}/{repo}/pull/{number}"))
-}
-
-fn json_str(cfg: &serde_json::Value, key: &str) -> Option<String> {
-    cfg.get(key)
-        .and_then(serde_json::Value::as_str)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-}
-
 #[cfg(test)]
 mod tests {
     use std::any::Any;
@@ -504,27 +480,25 @@ mod tests {
 
     use super::*;
 
-    /// Stand-in adapter spelled two ways — one key for connections and
-    /// bindings, another for message metadata — which is the case
-    /// [`normalize_adapter`] exists to fold.
-    struct TwoKeyedAdapter;
+    /// Stand-in adapter: names its own bindings, which is all this module asks
+    /// of an adapter when it decodes a connection.
+    struct StubAdapter;
 
     #[async_trait::async_trait]
-    impl Adapter for TwoKeyedAdapter {
+    impl Adapter for StubAdapter {
         fn adapter_kind(&self) -> AdapterKind {
-            AdapterKind::GithubPr
-        }
-
-        fn provider_key(&self) -> &'static str {
-            "github_pr"
-        }
-
-        fn connection_provider_key(&self) -> &'static str {
-            "github"
+            AdapterKind::Webhook
         }
 
         fn as_any(&self) -> &dyn Any {
             self
+        }
+
+        fn binding_label_and_url(&self, binding: &TaskBinding) -> (String, Option<String>) {
+            (
+                format!("stub {}", binding.subject_key),
+                Some("https://stub.example/1".to_string()),
+            )
         }
 
         async fn resolve_user(
@@ -547,7 +521,7 @@ mod tests {
 
     fn registry() -> Adapters {
         let mut adapters = Adapters::new();
-        adapters.register(Arc::new(TwoKeyedAdapter));
+        adapters.register(Arc::new(StubAdapter));
         adapters
     }
 
@@ -594,27 +568,6 @@ mod tests {
     }
 
     #[test]
-    fn github_label_is_subject_key_and_url_is_derived() {
-        let mut b = binding("b1", "github", "github_pr", "o/r#42");
-        b.destination_config = serde_json::json!({"owner": "o", "repo": "r", "pr_number": 42});
-        let (label, url) = label_and_url(&b);
-        assert_eq!(label, "o/r#42");
-        assert_eq!(url.as_deref(), Some("https://github.com/o/r/pull/42"));
-    }
-
-    #[test]
-    fn linear_label_prefers_identifier() {
-        let mut b = binding("b1", "linear", "linear_agent_session", "session-uuid");
-        b.destination_config = serde_json::json!({
-            "identifier": "SP-1721",
-            "issue_url": "https://linear.app/x/issue/SP-1721",
-        });
-        let (label, url) = label_and_url(&b);
-        assert_eq!(label, "SP-1721");
-        assert_eq!(url.as_deref(), Some("https://linear.app/x/issue/SP-1721"));
-    }
-
-    #[test]
     fn linear_kind_normalizes_both_subject_kinds() {
         assert_eq!(connection_kind("linear_agent_session"), "linear_issue");
         assert_eq!(connection_kind("linear_issue"), "linear_issue");
@@ -631,7 +584,7 @@ mod tests {
         let c2 = count(Some("o/r#2"), Some("github_pr"), 5, 2);
         let rows = vec![&c1, &c2];
 
-        let matched = match_counts(Some(&registry()), &bindings, &rows);
+        let matched = match_counts(&bindings, &rows);
         assert_eq!(matched.get("b1").copied(), Some((3, 1)));
         assert_eq!(matched.get("b2").copied(), Some((5, 2)));
     }
@@ -645,20 +598,20 @@ mod tests {
         let legacy = count(None, Some("linear"), 4, 6);
         let rows = vec![&legacy];
 
-        let matched = match_counts(Some(&registry()), &bindings, &rows);
+        let matched = match_counts(&bindings, &rows);
         assert_eq!(matched.get("b1").copied(), Some((4, 6)));
     }
 
     #[test]
-    fn adapters_two_keys_fold_through_the_registry() {
+    fn two_provider_spellings_fold_together() {
         // The binding is stored under the connection key, the message row under
-        // the message key; only the registry knows they are the same adapter.
+        // the message key; `normalize_adapter` folds them so the join lands.
         let b1 = binding("b1", "github", "github_pr", "o/r#1");
         let bindings = vec![&b1];
         let legacy = count(None, Some("github_pr"), 2, 3);
         let rows = vec![&legacy];
 
-        let matched = match_counts(Some(&registry()), &bindings, &rows);
+        let matched = match_counts(&bindings, &rows);
         assert_eq!(matched.get("b1").copied(), Some((2, 3)));
     }
 
@@ -672,8 +625,28 @@ mod tests {
         let orphan = count(None, Some("github_pr"), 9, 9);
         let rows = vec![&orphan];
 
-        let matched = match_counts(Some(&registry()), &bindings, &rows);
+        let matched = match_counts(&bindings, &rows);
         assert!(matched.is_empty());
+    }
+
+    #[test]
+    fn decode_connection_takes_label_and_url_from_the_adapter() {
+        let counts: HashMap<String, (i64, i64)> = HashMap::new();
+        let b = binding("b1", "webhook", "stub_subject", "o/r#1");
+
+        let decoded = decode_connection(Some(&registry()), &b, &counts);
+        assert_eq!(decoded.label, "stub o/r#1");
+        assert_eq!(decoded.url.as_deref(), Some("https://stub.example/1"));
+    }
+
+    #[test]
+    fn decode_connection_falls_back_when_no_adapter_answers() {
+        let counts: HashMap<String, (i64, i64)> = HashMap::new();
+        let b = binding("b1", "not_configured", "stub_subject", "o/r#1");
+
+        let decoded = decode_connection(Some(&registry()), &b, &counts);
+        assert_eq!(decoded.label, "o/r#1");
+        assert!(decoded.url.is_none());
     }
 
     #[test]
@@ -681,14 +654,14 @@ mod tests {
         let counts: HashMap<String, (i64, i64)> = HashMap::new();
 
         let active = binding("b1", "github", "github_pr", "o/r#1");
-        let decoded = decode_connection(&active, &counts);
+        let decoded = decode_connection(Some(&registry()), &active, &counts);
         assert!(decoded.active);
         assert_eq!(decoded.deactivated_at, None);
 
         let mut closed = binding("b2", "github", "github_pr", "o/r#2");
         closed.active = false;
         closed.deactivated_at = Some(Utc::now());
-        let decoded = decode_connection(&closed, &counts);
+        let decoded = decode_connection(Some(&registry()), &closed, &counts);
         assert!(!decoded.active);
         assert!(decoded.deactivated_at.is_some());
     }
