@@ -406,7 +406,7 @@ pub fn make_repository_row(id: &str, user_id: &str) -> Repository {
         id: id.to_string(),
         name: format!("repo-{id}"),
         kind: RepositoryKind::Git,
-        remote_url: Some("https://github.com/test/repo.git".to_string()),
+        remote_url: Some(format!("https://github.com/test/{id}.git")),
         default_branch: Some("main".to_string()),
         description: None,
         provider: Some(RepositoryProvider::Github),

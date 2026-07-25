@@ -1,5 +1,5 @@
 /**
- * Repository step functions (REPO-01 through REPO-07).
+ * Repository step functions (REPO-01 through REPO-14).
  *
  * Each function performs an action and returns a result.
  * Tests add assertions; preconditions skip them.
@@ -36,6 +36,13 @@ export async function createRepository(
 	return { repositoryId: repository.id, repository };
 }
 
+export async function createRepositoryRaw(
+	api: ApiClient,
+	config: CreateRepositoryRequest,
+): Promise<Response> {
+	return api.createRepositoryRaw(config);
+}
+
 // =============================================================================
 // REPO-02: Get repository by ID
 // =============================================================================
@@ -57,6 +64,14 @@ export async function updateRepository(
 	data: UpdateRepositoryRequest,
 ): Promise<RepositoryResponse> {
 	return api.updateRepository(repositoryId, data);
+}
+
+export async function updateRepositoryRaw(
+	api: ApiClient,
+	repositoryId: string,
+	data: UpdateRepositoryRequest,
+): Promise<Response> {
+	return api.updateRepositoryRaw(repositoryId, data);
 }
 
 // =============================================================================

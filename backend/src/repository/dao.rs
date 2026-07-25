@@ -40,14 +40,9 @@ pub trait RepoRepository: Send + Sync {
     async fn insert(&self, row: &Repository) -> Result<(), sqlx::Error>;
     async fn update(&self, id: &str, patch: &RepositoryPatch) -> Result<bool, sqlx::Error>;
     async fn soft_delete(&self, id: &str) -> Result<bool, sqlx::Error>;
-    async fn find_by_name_and_user(
-        &self,
-        name: &str,
-        user_id: &str,
-    ) -> Result<Option<Repository>, sqlx::Error>;
     /// Find a non-deleted repository whose `remote_url` normalizes to `url_key`
-    /// (trailing `/`/`.git` stripped, lowercased), scoped to the given
-    /// scope/team/owner so resolution never crosses tenants. `url_key` must be
+    /// (trimmed, trailing `/`/`.git` stripped, lowercased), scoped to the given
+    /// access owner so resolution never crosses tenants. `url_key` must be
     /// pre-normalized by [`super::handlers::normalize_remote_url`].
     async fn find_by_normalized_remote_url(
         &self,
@@ -58,11 +53,13 @@ pub trait RepoRepository: Send + Sync {
     ) -> Result<Option<Repository>, sqlx::Error>;
     async fn find_names_by_ids(&self, ids: &[String])
         -> Result<Vec<(String, String)>, sqlx::Error>;
-    /// Check if a repository exists by name and creator, **including** soft-deleted rows.
-    async fn exists_by_name_including_deleted(
+    /// Check for a canonical URL within an access owner, including soft-deleted rows.
+    async fn exists_by_normalized_remote_url_including_deleted(
         &self,
-        name: &str,
-        created_by: &str,
+        url_key: &str,
+        scope: Scope,
+        team_id: Option<String>,
+        owner_user_id: Option<String>,
     ) -> Result<bool, sqlx::Error>;
 }
 
@@ -234,22 +231,6 @@ impl RepoRepository for PgRepoRepository {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn find_by_name_and_user(
-        &self,
-        name: &str,
-        user_id: &str,
-    ) -> Result<Option<Repository>, sqlx::Error> {
-        sqlx::query_as::<_, Repository>(
-            "SELECT * FROM repositories \
-             WHERE name = $1 AND created_by = $2 \
-             AND (deleted IS NULL OR deleted = false)",
-        )
-        .bind(name)
-        .bind(user_id)
-        .fetch_optional(&self.0)
-        .await
-    }
-
     async fn find_by_normalized_remote_url(
         &self,
         url_key: &str,
@@ -258,17 +239,15 @@ impl RepoRepository for PgRepoRepository {
         owner_user_id: Option<String>,
     ) -> Result<Option<Repository>, sqlx::Error> {
         // Normalize the stored URL the same way `normalize_remote_url` does:
-        // strip trailing slashes, drop a trailing `.git`, strip trailing slashes
-        // again, then lowercase — so the comparison matches the pre-normalized
-        // `url_key`. Scoped to (scope, team, owner) to keep resolution within a
-        // single tenant.
+        // trim, strip trailing slashes, drop a trailing `.git`, strip trailing
+        // slashes again, then lowercase. Scope the lookup to one access owner.
         sqlx::query_as::<_, Repository>(
             r#"SELECT * FROM repositories
                WHERE (deleted IS NULL OR deleted = false)
                  AND lower(
                        regexp_replace(
                          regexp_replace(
-                           regexp_replace(coalesce(remote_url, ''), '/+$', ''),
+                           regexp_replace(btrim(coalesce(remote_url, '')), '/+$', ''),
                            '\.git$', ''),
                          '/+$', '')
                      ) = $1
@@ -301,16 +280,32 @@ impl RepoRepository for PgRepoRepository {
         .await
     }
 
-    async fn exists_by_name_including_deleted(
+    async fn exists_by_normalized_remote_url_including_deleted(
         &self,
-        name: &str,
-        created_by: &str,
+        url_key: &str,
+        scope: Scope,
+        team_id: Option<String>,
+        owner_user_id: Option<String>,
     ) -> Result<bool, sqlx::Error> {
         let row: Option<(i32,)> = sqlx::query_as(
-            "SELECT 1 FROM repositories WHERE name = $1 AND created_by = $2 LIMIT 1",
+            r#"SELECT 1
+               FROM repositories
+               WHERE lower(
+                       regexp_replace(
+                         regexp_replace(
+                           regexp_replace(btrim(coalesce(remote_url, '')), '/+$', ''),
+                           '\.git$', ''),
+                         '/+$', '')
+                     ) = $1
+                 AND scope = $2
+                 AND team_id IS NOT DISTINCT FROM $3
+                 AND owner_user_id IS NOT DISTINCT FROM $4
+               LIMIT 1"#,
         )
-        .bind(name)
-        .bind(created_by)
+        .bind(url_key)
+        .bind(scope)
+        .bind(team_id)
+        .bind(owner_user_id)
         .fetch_optional(&self.0)
         .await?;
         Ok(row.is_some())
@@ -348,15 +343,4 @@ pub async fn update(pool: &DbPool, id: &str, patch: &RepositoryPatch) -> Result<
 /// Soft-delete a repository (convenience wrapper).
 pub async fn soft_delete(pool: &DbPool, id: &str) -> Result<bool, sqlx::Error> {
     PgRepoRepository(pool.clone()).soft_delete(id).await
-}
-
-/// Find by name and user (convenience wrapper).
-pub async fn find_by_name_and_user(
-    pool: &DbPool,
-    name: &str,
-    user_id: &str,
-) -> Result<Option<Repository>, sqlx::Error> {
-    PgRepoRepository(pool.clone())
-        .find_by_name_and_user(name, user_id)
-        .await
 }

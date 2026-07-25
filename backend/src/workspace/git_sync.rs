@@ -25,7 +25,7 @@ use crate::repository::config_reader::{
     fetch_provider_file, verify_repository_access, AccessStatus,
 };
 use crate::repository::dao::RepositoryPatch;
-use crate::repository::error::RepositoryError;
+use crate::repository::error::{is_remote_url_conflict, RepositoryError};
 use crate::repository::handlers::{normalize_remote_url, validate_non_secret_env_vars};
 use crate::repository::models::{Repository, RepositoryKind, RepositoryProvider, ResourceConfig};
 use crate::sandbox::models::ServerConfig;
@@ -685,8 +685,21 @@ async fn resolve_or_create_repo(
     } else {
         warn!(repository_id = %id, %url, status = status.as_str(), "Auto-created repository is unreachable");
     }
-    state.repositories.insert(&row).await?;
-    Ok(id)
+    match state.repositories.insert(&row).await {
+        Ok(()) => Ok(id),
+        Err(error) if is_remote_url_conflict(&error) => state
+            .repositories
+            .find_by_normalized_remote_url(
+                &key,
+                source_repo.scope,
+                source_repo.team_id.clone(),
+                source_repo.owner_user_id.clone(),
+            )
+            .await?
+            .map(|existing| existing.id)
+            .ok_or_else(|| RepositoryError::Db(error)),
+        Err(error) => Err(RepositoryError::Db(error)),
+    }
 }
 
 /// Best-effort stamp of a repository's `access_status`.

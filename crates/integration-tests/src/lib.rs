@@ -331,16 +331,45 @@ pub fn create_repo_request(name: &str, kind: RepositoryKind) -> CreateRepository
 
 /// Ensure a template repository exists for tests that need one. Returns the repository ID.
 pub async fn ensure_template_repo(client: &MoatClient) -> String {
+    const TEMPLATE_URL: &str = "https://github.com/aorwall/hello-world-ui.git";
+
     let repos = client.api().list_repositories().await.unwrap();
-    if let Some(repo) = repos
-        .iter()
-        .find(|r| r.kind == RepositoryKind::Template && r.name == "E2E Template Repository")
-    {
+    if let Some(repo) = repos.iter().find(|r| {
+        r.remote_url
+            .as_deref()
+            .is_some_and(|url| canonical_repo_url(url) == canonical_repo_url(TEMPLATE_URL))
+    }) {
         return repo.id.clone();
     }
     let mut req = create_repo_request("E2E Template Repository", RepositoryKind::Template);
-    req.remote_url = Some("https://github.com/aorwall/hello-world-ui.git".into());
-    client.api().create_repository(&req).await.unwrap().id
+    req.remote_url = Some(TEMPLATE_URL.into());
+    match client.api().create_repository(&req).await {
+        Ok(repo) => repo.id,
+        Err(error) if is_conflict(&error) => {
+            client
+                .api()
+                .list_repositories()
+                .await
+                .unwrap()
+                .into_iter()
+                .find(|repo| {
+                    repo.remote_url.as_deref().is_some_and(|url| {
+                        canonical_repo_url(url) == canonical_repo_url(TEMPLATE_URL)
+                    })
+                })
+                .unwrap_or_else(|| panic!("template URL conflicted but no repository is visible"))
+                .id
+        }
+        Err(error) => panic!("failed to create template repository: {error}"),
+    }
+}
+
+fn canonical_repo_url(url: &str) -> String {
+    url.trim()
+        .trim_end_matches('/')
+        .trim_end_matches(".git")
+        .trim_end_matches('/')
+        .to_ascii_lowercase()
 }
 
 /// Canonical webhook integration fixture: one integration connection and one

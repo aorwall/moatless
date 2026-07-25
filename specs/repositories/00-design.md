@@ -29,6 +29,12 @@ Repositories define the codebase and configuration that tasks work against. Each
 | Access scope | Who can discover and use a repository: global, one team, or its owning user |
 | Access status | The latest persisted provider reachability check and its completion time |
 
+Active repositories are identified by their canonical Git URL within an access
+owner. URL matching ignores case and trailing `/` or `.git`; repository names
+are labels and may repeat. Global, Team, and User owners may each register the
+same URL independently, and deleting a repository releases its URL for reuse by
+that owner.
+
 User ownership is immutable on the repository edit surface. Saving a
 user-scoped repository keeps its existing owner; an ownerless repository cannot
 be moved to user scope until a future explicit ownership workflow exists.

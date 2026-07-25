@@ -363,6 +363,13 @@ export class ApiClient {
 		});
 	}
 
+	async updateRepositoryRaw(id: string, data: UpdateRepositoryRequest): Promise<Response> {
+		return this.fetchRaw(`${this.baseURL}/api/v1/repositories/${id}`, {
+			method: "PUT",
+			body: JSON.stringify(data),
+		});
+	}
+
 	async deleteRepository(id: string): Promise<void> {
 		try {
 			await this.fetchRaw(`${this.baseURL}/api/v1/repositories/${id}`, { method: "DELETE" });
