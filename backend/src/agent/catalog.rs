@@ -58,20 +58,20 @@ pub const CLAUDE_CODE: AgentEntry = AgentEntry {
             label: "Default",
         },
         ModelEntry {
-            id: "claude-opus-4-8",
-            label: "Opus 4.8",
+            id: "opus",
+            label: "Claude Opus",
         },
         ModelEntry {
-            id: "claude-sonnet-5",
-            label: "Sonnet 5",
+            id: "sonnet",
+            label: "Claude Sonnet",
         },
         ModelEntry {
-            id: "claude-haiku-4-5",
-            label: "Haiku 4.5",
+            id: "haiku",
+            label: "Claude Haiku",
         },
         ModelEntry {
-            id: "claude-fable-5",
-            label: "Fable 5",
+            id: "fable",
+            label: "Claude Fable",
         },
     ],
     missing_credential_hint:
@@ -92,20 +92,20 @@ pub const CLAUDE_CODE_TUI: AgentEntry = AgentEntry {
             label: "Default",
         },
         ModelEntry {
-            id: "claude-opus-4-8",
-            label: "Opus 4.8",
+            id: "opus",
+            label: "Claude Opus",
         },
         ModelEntry {
-            id: "claude-sonnet-5",
-            label: "Sonnet 5",
+            id: "sonnet",
+            label: "Claude Sonnet",
         },
         ModelEntry {
-            id: "claude-haiku-4-5",
-            label: "Haiku 4.5",
+            id: "haiku",
+            label: "Claude Haiku",
         },
         ModelEntry {
-            id: "claude-fable-5",
-            label: "Fable 5",
+            id: "fable",
+            label: "Claude Fable",
         },
     ],
     missing_credential_hint:
@@ -126,20 +126,20 @@ pub const CLAUDE_CODE_CLI: AgentEntry = AgentEntry {
             label: "Default",
         },
         ModelEntry {
-            id: "claude-opus-4-8",
-            label: "Opus 4.8",
+            id: "opus",
+            label: "Claude Opus",
         },
         ModelEntry {
-            id: "claude-sonnet-5",
-            label: "Sonnet 5",
+            id: "sonnet",
+            label: "Claude Sonnet",
         },
         ModelEntry {
-            id: "claude-haiku-4-5",
-            label: "Haiku 4.5",
+            id: "haiku",
+            label: "Claude Haiku",
         },
         ModelEntry {
-            id: "claude-fable-5",
-            label: "Fable 5",
+            id: "fable",
+            label: "Claude Fable",
         },
     ],
     missing_credential_hint:
@@ -156,7 +156,7 @@ pub const CLAUDE_CODE_FABLE: AgentEntry = AgentEntry {
     default_model: "fable",
     models: &[ModelEntry {
         id: "fable",
-        label: "Fable",
+        label: "Claude Fable",
     }],
     missing_credential_hint:
         "Add CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in Settings \u{2192} Secrets",

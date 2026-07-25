@@ -51,13 +51,13 @@ describe('useCodeTaskSubmit', () => {
     result.current.submit(
       baseInput({
         branch: 'main',
-        model: 'claude-opus-4-8',
+        model: 'opus',
       }),
     )
 
     const payload = createTaskMutate.mock.calls[0]![0]
     expect(payload.branch).toBe('main')
-    expect(payload.model).toBe('claude-opus-4-8')
+    expect(payload.model).toBe('opus')
   })
 
   it('omits undefined optional fields from the payload', () => {
