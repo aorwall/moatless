@@ -10,13 +10,19 @@
 //! the authoring task id from the footer URL so we can drop only that task's
 //! own echo (no hidden HTML marker required).
 
-use crate::message::hooks::FOOTER_MARKER;
 use crate::state::AppState;
 use moatless_backend_core::scope::ScopeContext;
 
+/// Footer marker so we can detect if the URL was already appended (and skip
+/// re-appending on retries). Stable across runs. Shared with the GitHub PR-body
+/// footer (`adapters::github_pr::shell_reconcile::compose_footer` and the typed
+/// `/api/v1/github/*` endpoints), which embed the same marker.
+pub(crate) const FOOTER_MARKER: &str = "Moatless task:";
+
 /// Format the footer suffix from already-resolved inputs. Returns `None` when
 /// `frontend_url` is empty (matches the PR-body footer behaviour in
-/// `message::hooks`). The string includes the leading separator, e.g.
+/// `adapters::github_pr::shell_reconcile`). The string includes the leading
+/// separator, e.g.
 /// `"\n\n---\nMoatless task: [My task](https://app/tasks/abc)"`.
 fn render_footer(frontend_url: &str, task_id: &str, name: Option<&str>) -> Option<String> {
     let base = frontend_url.trim_end_matches('/');

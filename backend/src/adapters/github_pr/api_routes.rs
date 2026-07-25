@@ -24,15 +24,16 @@ use tracing::{info, warn};
 
 use crate::adapters::common::ensure_task_access;
 use crate::adapters::error::AdapterError;
+use crate::adapters::footer::FOOTER_MARKER;
 use crate::adapters::AdapterKind;
 use crate::extractors::AuthUser;
-use crate::message::hooks::{compose_footer, FOOTER_MARKER};
 use crate::state::AppState;
 use moatless_backend_core::scope::ScopeContext;
 
 use super::adapter::GithubPrAdapter;
 use super::api::{GithubPrApi, MAX_COMMENT_LENGTH};
 use super::external_id;
+use super::shell_reconcile::compose_footer;
 
 #[utoipa::path(
     post,
