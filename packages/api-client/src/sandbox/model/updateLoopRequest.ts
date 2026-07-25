@@ -17,6 +17,4 @@ export interface UpdateLoopRequest {
   rule?: null | UpdateLoopConfig;
   scope?: null | Scope;
   source?: null | UpdateLoopSource;
-  /** @nullable */
-  teamId?: string | null;
 }

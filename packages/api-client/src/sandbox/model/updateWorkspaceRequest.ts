@@ -35,9 +35,4 @@ export interface UpdateWorkspaceRequest {
   setupCommands?: string[] | null;
   /** @nullable */
   systemPrompt?: string | null;
-  /**
-   * Target team when moving to `team` scope. Ignored for `global`/`user`.
-   * @nullable
-   */
-  teamId?: string | null;
 }

@@ -42,13 +42,6 @@ vi.mock('@/features/repositories/hooks/use-repositories', () => ({
 }))
 
 vi.mock('@/features/admin/hooks/use-admin-users-teams', () => ({
-  useAdminTeamsList: () => ({
-    data: [
-      { id: 'team-1', name: 'Original', slug: 'original' },
-      { id: 'team-2', name: 'Platform', slug: 'platform' },
-    ],
-    isLoading: false,
-  }),
   useAdminUsersList: () => ({
     data: {
       users: [{ id: 'owner-1', login: 'alice', name: 'Alice Example' }],
@@ -64,7 +57,6 @@ function repository(overrides: Partial<RepositoryResponse> = {}): RepositoryResp
     remoteUrl: 'https://github.com/acme/repo.git',
     provider: 'github',
     scope: 'user',
-    teamId: 'team-1',
     ownerUserId: 'owner-1',
     accessStatus: 'unchecked',
     ...overrides,
@@ -98,36 +90,10 @@ describe('RepositoryConfigEditSection', () => {
     )
   })
 
-  it('requires a target team and sends the selected scope cleanly', async () => {
-    const user = userEvent.setup()
-    render(<RepositoryConfigEditSection repositoryId="repo-1" />)
-
-    screen.getByLabelText('Repository access scope').focus()
-    await user.keyboard('{ArrowDown}')
-    await user.click(screen.getByRole('option', { name: 'Team' }))
-
-    expect(screen.getByRole('button', { name: 'Save Changes' })).toBeDisabled()
-    expect(screen.getByText('Select a team to save.')).toBeInTheDocument()
-
-    screen.getByLabelText('Repository access team').focus()
-    await user.keyboard('{ArrowDown}')
-    await user.click(screen.getByRole('option', { name: 'Platform (platform)' }))
-    await user.click(screen.getByRole('button', { name: 'Save Changes' }))
-
-    expect(mocks.updateMutate).toHaveBeenCalledWith(
-      {
-        repoId: 'repo-1',
-        request: { scope: 'team', teamId: 'team-2' },
-      },
-      expect.any(Object),
-    )
-  })
-
   it('disables User scope for a repository without an owner', async () => {
     const user = userEvent.setup()
     currentRepository = repository({
       scope: 'global',
-      teamId: 'system',
       ownerUserId: null,
     })
     render(<RepositoryConfigEditSection repositoryId="repo-1" />)

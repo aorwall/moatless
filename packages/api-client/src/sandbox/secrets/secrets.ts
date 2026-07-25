@@ -151,7 +151,7 @@ export type listSecretsResponseError = (listSecretsResponse403) & {
 
 export type listSecretsResponse = (listSecretsResponseSuccess | listSecretsResponseError)
 
-export const getListSecretsUrl = (params: ListSecretsParams,) => {
+export const getListSecretsUrl = (params?: ListSecretsParams,) => {
   const normalizedParams = new URLSearchParams();
 
   Object.entries(params || {}).forEach(([key, value]) => {
@@ -166,7 +166,7 @@ export const getListSecretsUrl = (params: ListSecretsParams,) => {
   return stringifiedParams.length > 0 ? `/api/v1/secrets?${stringifiedParams}` : `/api/v1/secrets`
 }
 
-export const listSecrets = async (params: ListSecretsParams, options?: RequestInit): Promise<listSecretsResponse> => {
+export const listSecrets = async (params?: ListSecretsParams, options?: RequestInit): Promise<listSecretsResponse> => {
   
   return customInstance<listSecretsResponse>(getListSecretsUrl(params),
   {      
@@ -188,7 +188,7 @@ export const getListSecretsQueryKey = (params?: ListSecretsParams,) => {
     }
 
     
-export const getListSecretsQueryOptions = <TData = Awaited<ReturnType<typeof listSecrets>>, TError = ErrorType<ErrorBody>>(params: ListSecretsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSecrets>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export const getListSecretsQueryOptions = <TData = Awaited<ReturnType<typeof listSecrets>>, TError = ErrorType<ErrorBody>>(params?: ListSecretsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSecrets>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
@@ -211,7 +211,7 @@ export type ListSecretsQueryError = ErrorType<ErrorBody>
 
 
 export function useListSecrets<TData = Awaited<ReturnType<typeof listSecrets>>, TError = ErrorType<ErrorBody>>(
- params: ListSecretsParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSecrets>>, TError, TData>> & Pick<
+ params: undefined |  ListSecretsParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSecrets>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof listSecrets>>,
           TError,
@@ -221,7 +221,7 @@ export function useListSecrets<TData = Awaited<ReturnType<typeof listSecrets>>, 
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 export function useListSecrets<TData = Awaited<ReturnType<typeof listSecrets>>, TError = ErrorType<ErrorBody>>(
- params: ListSecretsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSecrets>>, TError, TData>> & Pick<
+ params?: ListSecretsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSecrets>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof listSecrets>>,
           TError,
@@ -231,12 +231,12 @@ export function useListSecrets<TData = Awaited<ReturnType<typeof listSecrets>>, 
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 export function useListSecrets<TData = Awaited<ReturnType<typeof listSecrets>>, TError = ErrorType<ErrorBody>>(
- params: ListSecretsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSecrets>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ params?: ListSecretsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSecrets>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 
 export function useListSecrets<TData = Awaited<ReturnType<typeof listSecrets>>, TError = ErrorType<ErrorBody>>(
- params: ListSecretsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSecrets>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ params?: ListSecretsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSecrets>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
 
@@ -248,7 +248,7 @@ export function useListSecrets<TData = Awaited<ReturnType<typeof listSecrets>>, 
 }
 
 export const prefetchListSecretsQuery = async <TData = Awaited<ReturnType<typeof listSecrets>>, TError = ErrorType<ErrorBody>>(
- queryClient: QueryClient, params: ListSecretsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSecrets>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ queryClient: QueryClient, params?: ListSecretsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSecrets>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 
   ): Promise<QueryClient> => {
 

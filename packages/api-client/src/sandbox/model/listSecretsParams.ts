@@ -5,9 +5,8 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
-import type { SecretScopeType } from './secretScopeType';
+import type { Scope } from './scope';
 
 export type ListSecretsParams = {
-scope: SecretScopeType;
-scopeId?: string;
+scope?: Scope;
 };

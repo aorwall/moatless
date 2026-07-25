@@ -11,7 +11,7 @@ function workspace(overrides: Partial<WorkspaceResponse>): WorkspaceResponse {
     id: 'ws-1',
     name: 'Synced Workspace',
     kind: 'single',
-    scope: 'team',
+    scope: 'user',
     repos: [],
     ...overrides,
   }

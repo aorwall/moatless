@@ -1,13 +1,11 @@
-import { SecretKind, type SecretMetadataResponse, SecretScopeType } from '@moatless/api-client'
+import { Scope, SecretKind, type SecretMetadataResponse } from '@moatless/api-client'
 import { Loader2 } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { useAuth } from '@/features/auth/hooks/use-auth'
-import { TeamSelect } from '@/features/secrets/components/team-select'
 import {
   type PatchSecretRequest,
   type PutSecretRequest,
-  type TeamResponse,
   usePatchSecret,
   usePutSecret,
 } from '@/features/secrets/hooks/use-secrets'
@@ -32,32 +30,25 @@ import {
 import { Textarea } from '@/lib/components/ui/textarea'
 import { getErrorMessage } from '@/lib/utils/error'
 
-type EditorScope = 'user' | 'team' | 'global'
+type EditorScope = 'user' | 'global'
 
 interface SecretEditorDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   editSecret?: SecretMetadataResponse | null
   defaultScope?: EditorScope
-  teams?: TeamResponse[]
-  teamsError?: Error | null
-  teamsLoading?: boolean
 }
 
 interface FormState {
   scope: EditorScope
-  scopeId: string
   key: string
   kind: SecretKind
   value: string
 }
 
-const EMPTY_TEAMS: TeamResponse[] = []
-
 function initialForm(defaultScope: EditorScope): FormState {
   return {
     scope: defaultScope,
-    scopeId: '',
     key: '',
     kind: SecretKind.env,
     value: '',
@@ -66,8 +57,7 @@ function initialForm(defaultScope: EditorScope): FormState {
 
 function formFromSecret(secret: SecretMetadataResponse): FormState {
   return {
-    scope: secret.scopeType as EditorScope,
-    scopeId: secret.scopeId ?? '',
+    scope: secret.scope as EditorScope,
     key: secret.key,
     kind: secret.kind,
     value: '',
@@ -79,9 +69,6 @@ export function SecretEditorDialog({
   onOpenChange,
   editSecret,
   defaultScope = 'user',
-  teams = EMPTY_TEAMS,
-  teamsError = null,
-  teamsLoading = false,
 }: SecretEditorDialogProps) {
   const { isAdmin } = useAuth()
   const isEditing = !!editSecret
@@ -93,19 +80,13 @@ export function SecretEditorDialog({
   const patchSecret = usePatchSecret()
   const isPending = putSecret.isPending || patchSecret.isPending
 
-  const needsScopeId = form.scope === SecretScopeType.team
   const missingValue = !(isEditing || form.value)
   const missingKey = !form.key.trim()
-  const missingScopeId = needsScopeId && !form.scopeId.trim()
-  const submitDisabled = isPending || missingKey || missingValue || missingScopeId
+  const submitDisabled = isPending || missingKey || missingValue
 
   const handleSubmit = () => {
     if (missingKey) {
       toast.error('Key is required')
-      return
-    }
-    if (missingScopeId) {
-      toast.error('Team is required for team-scoped secrets')
       return
     }
     if (missingValue) {
@@ -135,7 +116,6 @@ export function SecretEditorDialog({
 
     const request: PutSecretRequest = {
       scope: form.scope,
-      scopeId: needsScopeId ? form.scopeId : null,
       key: form.key.trim(),
       kind: form.kind,
       value: form.value,
@@ -168,37 +148,20 @@ export function SecretEditorDialog({
             <Label>Scope</Label>
             <Select
               value={form.scope}
-              onValueChange={(v) =>
-                setForm((prev) => ({ ...prev, scope: v as EditorScope, scopeId: '' }))
-              }
+              onValueChange={(v) => setForm((prev) => ({ ...prev, scope: v as EditorScope }))}
               disabled={isEditing}
             >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={SecretScopeType.user}>User (only me)</SelectItem>
-                <SelectItem value={SecretScopeType.team}>Team</SelectItem>
-                <SelectItem value={SecretScopeType.global} disabled={!isAdmin}>
+                <SelectItem value={Scope.user}>User (only me)</SelectItem>
+                <SelectItem value={Scope.global} disabled={!isAdmin}>
                   Global {isAdmin ? '' : '(admins only)'}
                 </SelectItem>
               </SelectContent>
             </Select>
           </div>
-
-          {needsScopeId && (
-            <div className="space-y-2">
-              <Label>Team</Label>
-              <TeamSelect
-                value={form.scopeId}
-                onValueChange={(value) => setForm((prev) => ({ ...prev, scopeId: value }))}
-                disabled={isEditing || teamsLoading || !!teamsError}
-                teams={teams}
-                isLoading={teamsLoading}
-                error={teamsError}
-              />
-            </div>
-          )}
 
           <div className="space-y-2">
             <Label>Key</Label>

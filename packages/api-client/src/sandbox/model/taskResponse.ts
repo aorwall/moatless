@@ -83,8 +83,6 @@ task has never had a sandbox running.
   tags: TagResponse[];
   taskId: string;
   /** @nullable */
-  teamId?: string | null;
-  /** @nullable */
   templateId?: string | null;
   title: string;
   totalCostUsd: number;

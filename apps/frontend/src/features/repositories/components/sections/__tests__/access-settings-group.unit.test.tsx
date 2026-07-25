@@ -4,24 +4,19 @@ import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@/test-utils/render'
 import { AccessSettingsGroup } from '../access-settings-group'
 
-const teams = [{ id: 'team-1', name: 'Platform', slug: 'platform' }]
 const users = [{ id: 'user-1', login: 'alice', name: 'Alice Example' }]
 
 function renderGroup(overrides: Partial<ComponentProps<typeof AccessSettingsGroup>> = {}) {
   const props: ComponentProps<typeof AccessSettingsGroup> = {
     scope: 'user',
-    teamId: 'team-1',
     ownerUserId: 'user-1',
-    teams,
     users,
-    teamsLoading: false,
     accessStatus: 'ok',
     accessCheckedAt: '2026-07-24T10:00:00Z',
     accessError: null,
     isDirty: false,
     isVerifying: false,
     onScopeChange: vi.fn(),
-    onTeamChange: vi.fn(),
     onVerify: vi.fn(),
     ...overrides,
   }
@@ -44,13 +39,6 @@ describe('AccessSettingsGroup', () => {
     renderGroup({ users: [] })
 
     expect(screen.getByLabelText('Repository owner')).toHaveValue('user-1')
-  })
-
-  it('requires a team for team scope', () => {
-    renderGroup({ scope: 'team', teamId: null })
-
-    expect(screen.getByText('Select a team to save.')).toBeInTheDocument()
-    expect(screen.getByText(/bound GitHub App installation/)).toBeInTheDocument()
   })
 
   it('disables verification while persisted fields are dirty', () => {

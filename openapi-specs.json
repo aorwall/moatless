@@ -3668,17 +3668,9 @@
           {
             "name": "scope",
             "in": "query",
-            "required": true,
-            "schema": {
-              "$ref": "#/components/schemas/SecretScopeType"
-            }
-          },
-          {
-            "name": "scopeId",
-            "in": "query",
             "required": false,
             "schema": {
-              "type": "string"
+              "$ref": "#/components/schemas/Scope"
             }
           }
         ],
@@ -5339,7 +5331,7 @@
           "tasks"
         ],
         "summary": "Reopen a previously closed task.",
-        "description": "Flips a `Closed` task back to `Open` so it can be started and chatted with\nagain. No sandbox is provisioned here — that happens on the next `start` or\ninbound message, at which point the sandbox restores retained S3 state or\npins retained node-local state keyed by `task_id`. Whether that\nstate still exists depends on `SANDBOX_RETAIN_STORAGE_ON_CLOSE` having been\nset when the task was closed; if not, the task reopens with a fresh\nsandbox. External bindings deactivated on close are left inactive.",
+        "description": "Flips a `Closed` task back to `Open` so it can be started and chatted with\nagain. No sandbox is provisioned here — that happens on the next `start` or\ninbound message, at which point the sandbox restores any retained S3 state\n(Claude transcript + `s3`-mode workspace) keyed by `task_id`. Whether that\nstate still exists depends on `SANDBOX_RETAIN_STORAGE_ON_CLOSE` having been\nset when the task was closed; if not, the task reopens with a fresh\nsandbox. External bindings deactivated on close are left inactive.",
         "operationId": "reopen_task",
         "parameters": [
           {
@@ -6018,147 +6010,6 @@
         }
       }
     },
-    "/api/v1/teams/{team_id}/credentials": {
-      "get": {
-        "tags": [
-          "teams"
-        ],
-        "summary": "List credentials for a team.",
-        "operationId": "list_credentials",
-        "parameters": [
-          {
-            "name": "team_id",
-            "in": "path",
-            "description": "Team identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "List of team credentials",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/TeamCredentialResponse"
-                  }
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Team not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/teams/{team_id}/credentials/{provider}": {
-      "put": {
-        "tags": [
-          "teams"
-        ],
-        "summary": "Upsert a credential for a team.",
-        "operationId": "upsert_credential",
-        "parameters": [
-          {
-            "name": "team_id",
-            "in": "path",
-            "description": "Team identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "provider",
-            "in": "path",
-            "description": "Provider name (github, gitlab, claude, etc.)",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpsertTeamCredentialRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "204": {
-            "description": "Credential upserted"
-          },
-          "404": {
-            "description": "Team not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "teams"
-        ],
-        "summary": "Delete a credential for a team.",
-        "operationId": "delete_credential",
-        "parameters": [
-          {
-            "name": "team_id",
-            "in": "path",
-            "description": "Team identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "provider",
-            "in": "path",
-            "description": "Provider name",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Credential deleted"
-          },
-          "404": {
-            "description": "Team not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/teams/{team_id}/members": {
       "get": {
         "tags": [
@@ -6267,291 +6118,6 @@
         "responses": {
           "204": {
             "description": "Member removed"
-          },
-          "404": {
-            "description": "Team not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/teams/{team_id}/settings/codex/config": {
-      "put": {
-        "tags": [
-          "teams"
-        ],
-        "summary": "Save a team-scoped Codex `auth.json`.",
-        "description": "The team blob shadows the global blob but is itself shadowed by any\nmember's user-scoped row (precedence: user > team > global). Resolution\n+ just-in-time refresh share one code path with the user / global\nendpoints via [`crate::credentials::codex::save_codex_auth_for_scope`].",
-        "operationId": "put_team_codex_config",
-        "parameters": [
-          {
-            "name": "team_id",
-            "in": "path",
-            "description": "Team identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SaveCodexAuthRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Team codex auth saved",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CodexConfigResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid auth JSON",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not a team manager",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Team not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "teams"
-        ],
-        "summary": "Delete the team's Codex blob.",
-        "operationId": "delete_team_codex_config",
-        "parameters": [
-          {
-            "name": "team_id",
-            "in": "path",
-            "description": "Team identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Team codex disconnected"
-          },
-          "403": {
-            "description": "Not a team manager",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Team not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/teams/{team_id}/settings/github/installation": {
-      "get": {
-        "tags": [
-          "provider-settings"
-        ],
-        "operationId": "admin_get_team_github_installation",
-        "parameters": [
-          {
-            "name": "team_id",
-            "in": "path",
-            "description": "Team identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Team GitHub installation binding",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GitHubInstallationBindingResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Admin only",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Team not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      },
-      "put": {
-        "tags": [
-          "provider-settings"
-        ],
-        "operationId": "admin_put_team_github_installation",
-        "parameters": [
-          {
-            "name": "team_id",
-            "in": "path",
-            "description": "Team identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/GitHubInstallationBindingRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Team GitHub installation bound",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GitHubInstallationBindingResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid App or installation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Admin only",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Team not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "provider-settings"
-        ],
-        "operationId": "admin_delete_team_github_installation",
-        "parameters": [
-          {
-            "name": "team_id",
-            "in": "path",
-            "description": "Team identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Team GitHub installation unbound",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GitHubInstallationBindingResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Admin only",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
           },
           "404": {
             "description": "Team not found",
@@ -7761,12 +7327,6 @@
           },
           "scope": {
             "$ref": "#/components/schemas/Scope"
-          },
-          "teamId": {
-            "type": [
-              "string",
-              "null"
-            ]
           },
           "updatedAt": {
             "type": "string"
@@ -9018,7 +8578,7 @@
               },
               {
                 "$ref": "#/components/schemas/Scope",
-                "description": "Access scope for this connection. Defaults to `user`, or `team` when\nonly `teamId` is supplied."
+                "description": "Access scope for this connection. Defaults to `user`."
               }
             ]
           },
@@ -9028,13 +8588,6 @@
               "null"
             ],
             "description": "Optional human-readable name for the connection."
-          },
-          "teamId": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Required when the caller belongs to multiple teams."
           },
           "transportConfig": {
             "type": [
@@ -9213,12 +8766,6 @@
           },
           "source": {
             "$ref": "#/components/schemas/CreateLoopSource"
-          },
-          "teamId": {
-            "type": [
-              "string",
-              "null"
-            ]
           }
         }
       },
@@ -9285,12 +8832,6 @@
               {
                 "$ref": "#/components/schemas/Scope"
               }
-            ]
-          },
-          "teamId": {
-            "type": [
-              "string",
-              "null"
             ]
           }
         }
@@ -9744,12 +9285,6 @@
             }
           },
           "systemPrompt": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "teamId": {
             "type": [
               "string",
               "null"
@@ -11066,12 +10601,6 @@
           "source": {
             "$ref": "#/components/schemas/LoopSource"
           },
-          "teamId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "updatedAt": {
             "type": "string"
           }
@@ -11686,7 +11215,6 @@
       "PutSecretRequest": {
         "type": "object",
         "required": [
-          "scope",
           "key",
           "kind"
         ],
@@ -11710,12 +11238,13 @@
             ]
           },
           "scope": {
-            "$ref": "#/components/schemas/SecretScopeType"
-          },
-          "scopeId": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
             ]
           },
           "value": {
@@ -11937,12 +11466,6 @@
           },
           "scope": {
             "$ref": "#/components/schemas/Scope"
-          },
-          "teamId": {
-            "type": [
-              "string",
-              "null"
-            ]
           },
           "updatedAt": {
             "type": [
@@ -12638,10 +12161,9 @@
       },
       "Scope": {
         "type": "string",
-        "description": "3-level scope for repositories, tasks, integrations, and credentials.",
+        "description": "Access scope for repositories, tasks, integrations, and credentials.\n\nReads: `global` is readable by every authenticated user; `user` only by\nits owner (and admins). Control: `global` is admin-managed; `user` is\nowner-managed. Task `visibility = 'public'` additionally grants\nread/interact on tasks — never control.",
         "enum": [
           "global",
-          "team",
           "user"
         ]
       },
@@ -12706,7 +12228,7 @@
         "type": "object",
         "required": [
           "id",
-          "scopeType",
+          "scope",
           "key",
           "kind",
           "source",
@@ -12733,20 +12255,20 @@
               "null"
             ]
           },
+          "ownerUserId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "provider": {
             "type": [
               "string",
               "null"
             ]
           },
-          "scopeId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "scopeType": {
-            "$ref": "#/components/schemas/SecretScopeType"
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
           },
           "source": {
             "$ref": "#/components/schemas/SecretSource"
@@ -12770,15 +12292,6 @@
             "$ref": "#/components/schemas/SecretMetadataResponse"
           }
         }
-      },
-      "SecretScopeType": {
-        "type": "string",
-        "description": "Scope type for application-managed secrets.",
-        "enum": [
-          "global",
-          "team",
-          "user"
-        ]
       },
       "SecretSource": {
         "type": "string",
@@ -14149,12 +13662,6 @@
           "taskId": {
             "type": "string"
           },
-          "teamId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "templateId": {
             "type": [
               "string",
@@ -14348,27 +13855,6 @@
           "stopped",
           "turn_interrupted"
         ]
-      },
-      "TeamCredentialResponse": {
-        "type": "object",
-        "required": [
-          "provider",
-          "hasRefreshToken"
-        ],
-        "properties": {
-          "hasRefreshToken": {
-            "type": "boolean"
-          },
-          "provider": {
-            "type": "string"
-          },
-          "tokenType": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
       },
       "TeamMemberResponse": {
         "type": "object",
@@ -14936,12 +14422,6 @@
                 "$ref": "#/components/schemas/UpdateLoopSource"
               }
             ]
-          },
-          "teamId": {
-            "type": [
-              "string",
-              "null"
-            ]
           }
         }
       },
@@ -14992,16 +14472,9 @@
               },
               {
                 "$ref": "#/components/schemas/Scope",
-                "description": "Change the repository's access scope (`global`, `team`, or `user`).\nRe-submitting `user` preserves the repository's existing immutable\nowner and team. An ownerless repository cannot move to `user`.\nTeam/global targets are resolved from `team_id` and clear the owner."
+                "description": "Change the repository's access scope (`global` or `user`).\nRe-submitting `user` preserves the repository's existing immutable owner.\nAn ownerless repository cannot move to `user`.\nRequesting `global` requires admin."
               }
             ]
-          },
-          "teamId": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Target team when moving to `team` scope. Ignored for `global`/`user`."
           }
         }
       },
@@ -15244,7 +14717,7 @@
               },
               {
                 "$ref": "#/components/schemas/Scope",
-                "description": "Change the workspace's access scope (`global`, `team`, or `user`). When\nset, `team_id`/`owner_user_id` are re-resolved from the new scope."
+                "description": "Change the workspace's access scope (`global` or `user`). When set,\n`owner_user_id` is re-resolved from the new scope. Requesting `global`\nrequires admin."
               }
             ]
           },
@@ -15271,13 +14744,6 @@
               "string",
               "null"
             ]
-          },
-          "teamId": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Target team when moving to `team` scope. Ignored for `global`/`user`."
           }
         }
       },
@@ -15315,30 +14781,6 @@
           "size": {
             "type": "integer",
             "format": "int64"
-          }
-        }
-      },
-      "UpsertTeamCredentialRequest": {
-        "type": "object",
-        "required": [
-          "accessToken"
-        ],
-        "properties": {
-          "accessToken": {
-            "type": "string"
-          },
-          "metadata": {},
-          "refreshToken": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "tokenType": {
-            "type": [
-              "string",
-              "null"
-            ]
           }
         }
       },
@@ -15540,7 +14982,6 @@
       "ValidateSecretsRequest": {
         "type": "object",
         "required": [
-          "scope",
           "required"
         ],
         "properties": {
@@ -15551,12 +14992,13 @@
             }
           },
           "scope": {
-            "$ref": "#/components/schemas/SecretScopeType"
-          },
-          "scopeId": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
             ]
           }
         }
@@ -15880,12 +15322,6 @@
             "description": "Convenience flag derived from `source == \"git\"`."
           },
           "systemPrompt": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "teamId": {
             "type": [
               "string",
               "null"

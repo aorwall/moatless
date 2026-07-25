@@ -9,14 +9,11 @@ describe('invalidateGitHubInstallationCaches', () => {
     const queryClient = new QueryClient()
     const invalidate = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue()
 
-    await invalidateGitHubInstallationCaches(queryClient, 'team-1')
+    await invalidateGitHubInstallationCaches(queryClient)
 
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.admin.github() })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.repositories.all() })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.auth.session() })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.tasks.all })
-    expect(invalidate).toHaveBeenCalledWith({
-      queryKey: queryKeys.admin.teamGithubInstallation('team-1'),
-    })
   })
 })

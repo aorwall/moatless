@@ -68,7 +68,7 @@ function GitHubPATOverrideSection({
   return (
     <ConfigurationItem
       label="Personal Access Token Override"
-      description="Used only for repositories persisted with User scope. A PAT overrides your OAuth token; Team and Global repositories use their bound GitHub App installation."
+      description="Used only for repositories persisted with User scope. A PAT overrides your OAuth token; Global repositories use their bound GitHub App installation."
     >
       <div className="space-y-3">
         {hasOverride && (
@@ -290,7 +290,7 @@ export function GitHubConfigurationSection() {
       <ConfigurationGroup title="GitHub Configuration" showSeparator={false}>
         <p className="text-sm text-muted-foreground mb-4">
           Connect credentials for repositories with User scope that you own. A Personal Access Token
-          overrides OAuth; Team and Global repositories use GitHub App installations.
+          overrides OAuth; Global repositories use GitHub App installations.
         </p>
 
         {/* Connection Status */}

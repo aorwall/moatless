@@ -65,7 +65,6 @@ function ConnectionDetailPage() {
             value={<span className="break-all">{connection.externalAccountId}</span>}
           />
           <DetailItem label="Scope" value={connection.scope} />
-          <DetailItem label="Team ID" value={connection.teamId ?? '-'} />
           <DetailItem label="Created" value={formatTimestamp(connection.createdAt)} />
           <DetailItem label="Updated" value={formatTimestamp(connection.updatedAt)} />
         </CardContent>

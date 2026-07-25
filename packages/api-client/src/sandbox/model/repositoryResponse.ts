@@ -36,7 +36,5 @@ git-synced workspace. */
   remoteUrl?: string | null;
   scope: Scope;
   /** @nullable */
-  teamId?: string | null;
-  /** @nullable */
   updatedAt?: string | null;
 }

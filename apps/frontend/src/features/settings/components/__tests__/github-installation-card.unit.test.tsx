@@ -73,13 +73,4 @@ describe('GitHubInstallationCard', () => {
     expect(screen.getByRole('button', { name: 'Unbind' })).toBeEnabled()
     expect(screen.getByText(/does not uninstall the App/)).toBeInTheDocument()
   })
-
-  it('renders the same installation selector for a team', () => {
-    mockHooks(false)
-    render(<GitHubInstallationCard teamId="team-1" />)
-
-    expect(useAdminGitHubInstallation).toHaveBeenCalledWith('team-1')
-    expect(screen.getByText('Team GitHub access')).toBeInTheDocument()
-    expect(screen.getByText('No installation bound')).toBeInTheDocument()
-  })
 })

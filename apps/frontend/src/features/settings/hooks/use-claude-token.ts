@@ -1,4 +1,4 @@
-import { SecretKind, SecretScopeType } from '@moatless/api-client'
+import { Scope, SecretKind } from '@moatless/api-client'
 import type { ErrorType } from '@moatless/api-client/custom-instance'
 import { toast } from 'sonner'
 import { useAuth } from '@/features/auth/hooks/use-auth'
@@ -26,10 +26,7 @@ export function useClaudeToken() {
 
   // Listed with the user id (writes send null) so this shares a cache entry
   // with the secrets page: `queryKeys.secrets.list` embeds the params.
-  const secretsQuery = useSecretsList(
-    { scope: SecretScopeType.user, ...(userId !== undefined && { scopeId: userId }) },
-    { enabled: !!userId },
-  )
+  const secretsQuery = useSecretsList({ scope: Scope.user }, { enabled: !!userId })
 
   // A disabled row reads as not configured; saving re-enables it.
   const claudeSecret =
@@ -54,8 +51,7 @@ export function useClaudeToken() {
   const saveToken = (token: string, callbacks?: { onSuccess?: () => void }) => {
     putSecret.mutate(
       {
-        scope: SecretScopeType.user,
-        scopeId: null,
+        scope: Scope.user,
         key: CLAUDE_TOKEN_SECRET_KEY,
         kind: SecretKind.env,
         value: token,

@@ -16,12 +16,6 @@ import {
   SelectValue,
 } from '@/lib/components/ui/select'
 
-interface AccessTeam {
-  id: string
-  name: string
-  slug: string
-}
-
 interface AccessUser {
   id: string
   login: string
@@ -30,18 +24,14 @@ interface AccessUser {
 
 interface AccessSettingsGroupProps {
   scope: Scope
-  teamId: string | null | undefined
   ownerUserId: string | null | undefined
-  teams: AccessTeam[]
   users: AccessUser[]
-  teamsLoading: boolean
   accessStatus: string | undefined
   accessCheckedAt: string | null | undefined
   accessError: string | null | undefined
   isDirty: boolean
   isVerifying: boolean
   onScopeChange: (scope: Scope) => void
-  onTeamChange: (teamId: string) => void
   onVerify: () => void
 }
 
@@ -68,37 +58,27 @@ function credentialSourceLabel(
   scope: Scope,
   ownerUserId: string | null | undefined,
   users: AccessUser[],
-  selectedTeam: AccessTeam | undefined,
-  teamId: string | null | undefined,
 ): string {
   if (scope === 'user') {
     return `${ownerDisplayName(ownerUserId, users)}'s Personal Access Token, or their OAuth token when no PAT is set`
-  }
-  if (scope === 'team') {
-    return `${selectedTeam?.name ?? teamId ?? 'Selected team'}'s bound GitHub App installation`
   }
   return 'The globally bound GitHub App installation'
 }
 
 export function AccessSettingsGroup({
   scope,
-  teamId,
   ownerUserId,
-  teams,
   users,
-  teamsLoading,
   accessStatus,
   accessCheckedAt,
   accessError,
   isDirty,
   isVerifying,
   onScopeChange,
-  onTeamChange,
   onVerify,
 }: AccessSettingsGroupProps) {
-  const selectedTeam = teams.find((team) => team.id === teamId)
   const statusIsFailure = isAccessFailure(accessStatus)
-  const credentialSource = credentialSourceLabel(scope, ownerUserId, users, selectedTeam, teamId)
+  const credentialSource = credentialSourceLabel(scope, ownerUserId, users)
 
   return (
     <ConfigurationGroup title="Access">
@@ -112,7 +92,6 @@ export function AccessSettingsGroup({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="global">Global</SelectItem>
-            <SelectItem value="team">Team</SelectItem>
             <SelectItem value="user" disabled={!ownerUserId}>
               User
             </SelectItem>
@@ -124,36 +103,6 @@ export function AccessSettingsGroup({
           </p>
         )}
       </ConfigurationItem>
-
-      {scope === 'team' && (
-        <ConfigurationItem
-          label="Team"
-          description="The team whose members can access this repository"
-        >
-          <Select value={teamId ?? ''} onValueChange={onTeamChange} disabled={teamsLoading}>
-            <SelectTrigger
-              aria-label="Repository access team"
-              aria-invalid={!teamId}
-              className="w-full"
-            >
-              <SelectValue placeholder={teamsLoading ? 'Loading teams...' : 'Select a team'} />
-            </SelectTrigger>
-            <SelectContent>
-              {teams.map((team) => (
-                <SelectItem key={team.id} value={team.id}>
-                  {team.name} ({team.slug})
-                </SelectItem>
-              ))}
-              {teamId && !selectedTeam && (
-                <SelectItem value={teamId} disabled>
-                  Selected team ({teamId})
-                </SelectItem>
-              )}
-            </SelectContent>
-          </Select>
-          {!teamId && <p className="mt-2 text-sm text-destructive">Select a team to save.</p>}
-        </ConfigurationItem>
-      )}
 
       {scope === 'user' && (
         <ConfigurationItem

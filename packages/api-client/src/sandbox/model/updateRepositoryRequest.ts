@@ -17,9 +17,4 @@ export interface UpdateRepositoryRequest {
   /** @nullable */
   remoteUrl?: string | null;
   scope?: null | Scope;
-  /**
-   * Target team when moving to `team` scope. Ignored for `global`/`user`.
-   * @nullable
-   */
-  teamId?: string | null;
 }

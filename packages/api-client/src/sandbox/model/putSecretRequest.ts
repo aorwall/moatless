@@ -5,8 +5,8 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { Scope } from './scope';
 import type { SecretKind } from './secretKind';
-import type { SecretScopeType } from './secretScopeType';
 
 export interface PutSecretRequest {
   /** @nullable */
@@ -15,9 +15,7 @@ export interface PutSecretRequest {
   kind: SecretKind;
   /** @nullable */
   provider?: string | null;
-  scope: SecretScopeType;
-  /** @nullable */
-  scopeId?: string | null;
+  scope?: null | Scope;
   /** @nullable */
   value?: string | null;
 }

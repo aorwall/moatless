@@ -6,12 +6,9 @@ import type {
 } from '@moatless/api-client/sandbox/model'
 import {
   adminDeleteGlobalGithubInstallation,
-  adminDeleteTeamGithubInstallation,
   adminGetGlobalGithubInstallation,
-  adminGetTeamGithubInstallation,
   adminListGithubApps,
   adminPutGlobalGithubInstallation,
-  adminPutTeamGithubInstallation,
 } from '@moatless/api-client/sandbox/provider-settings/provider-settings'
 
 export const adminGithubConnectionApi = {
@@ -30,20 +27,4 @@ export const adminGithubConnectionApi = {
 
   removeGlobalInstallation: async (): Promise<GitHubInstallationBindingResponse> =>
     await unwrapResponse<GitHubInstallationBindingResponse>(adminDeleteGlobalGithubInstallation()),
-
-  getTeamInstallation: async (teamId: string): Promise<GitHubInstallationBindingResponse> =>
-    await unwrapResponse<GitHubInstallationBindingResponse>(adminGetTeamGithubInstallation(teamId)),
-
-  saveTeamInstallation: async (
-    teamId: string,
-    request: GitHubInstallationBindingRequest,
-  ): Promise<GitHubInstallationBindingResponse> =>
-    await unwrapResponse<GitHubInstallationBindingResponse>(
-      adminPutTeamGithubInstallation(teamId, request),
-    ),
-
-  removeTeamInstallation: async (teamId: string): Promise<GitHubInstallationBindingResponse> =>
-    await unwrapResponse<GitHubInstallationBindingResponse>(
-      adminDeleteTeamGithubInstallation(teamId),
-    ),
 }

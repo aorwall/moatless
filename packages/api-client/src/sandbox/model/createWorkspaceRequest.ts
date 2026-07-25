@@ -37,6 +37,4 @@ export interface CreateWorkspaceRequest {
   setupCommands?: string[] | null;
   /** @nullable */
   systemPrompt?: string | null;
-  /** @nullable */
-  teamId?: string | null;
 }

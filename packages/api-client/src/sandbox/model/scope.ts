@@ -7,13 +7,17 @@
  */
 
 /**
- * 3-level scope for repositories, tasks, integrations, and credentials.
+ * Access scope for repositories, tasks, integrations, and credentials.
+
+Reads: `global` is readable by every authenticated user; `user` only by
+its owner (and admins). Control: `global` is admin-managed; `user` is
+owner-managed. Task `visibility = 'public'` additionally grants
+read/interact on tasks — never control.
  */
 export type Scope = typeof Scope[keyof typeof Scope];
 
 
 export const Scope = {
   global: 'global',
-  team: 'team',
   user: 'user',
 } as const;

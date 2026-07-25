@@ -25,10 +25,6 @@ import {
 } from '@/lib/components/ui/select'
 import { getErrorMessage } from '@/lib/utils/error'
 
-interface GitHubInstallationCardProps {
-  teamId?: string
-}
-
 function InstallationStatus({
   binding,
 }: {
@@ -74,11 +70,11 @@ function InstallAppLink({ app }: { app: GitHubAppOption | undefined }) {
   )
 }
 
-export function GitHubInstallationCard({ teamId }: GitHubInstallationCardProps) {
+export function GitHubInstallationCard() {
   const appsQuery = useAdminGitHubApps()
-  const bindingQuery = useAdminGitHubInstallation(teamId)
-  const saveBinding = useSaveAdminGitHubInstallation(teamId)
-  const removeBinding = useRemoveAdminGitHubInstallation(teamId)
+  const bindingQuery = useAdminGitHubInstallation()
+  const saveBinding = useSaveAdminGitHubInstallation()
+  const removeBinding = useRemoveAdminGitHubInstallation()
   const [appKey, setAppKey] = useState('')
   const [installationId, setInstallationId] = useState('')
 
@@ -138,7 +134,7 @@ export function GitHubInstallationCard({ teamId }: GitHubInstallationCardProps) 
 
   const isLoading = appsQuery.isLoading || bindingQuery.isLoading
   const binding = bindingQuery.data
-  const title = teamId ? 'Team GitHub access' : 'Global GitHub access'
+  const title = 'Global GitHub access'
 
   return (
     <Card>
@@ -165,11 +161,11 @@ export function GitHubInstallationCard({ teamId }: GitHubInstallationCardProps) 
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <label className="text-sm font-medium" htmlFor={`github-app-${teamId ?? 'global'}`}>
+                <label className="text-sm font-medium" htmlFor="github-app-global">
                   GitHub App
                 </label>
                 <Select value={appKey} onValueChange={handleAppChange}>
-                  <SelectTrigger id={`github-app-${teamId ?? 'global'}`}>
+                  <SelectTrigger id="github-app-global">
                     <SelectValue placeholder="Select an App" />
                   </SelectTrigger>
                   <SelectContent>
@@ -183,10 +179,7 @@ export function GitHubInstallationCard({ teamId }: GitHubInstallationCardProps) 
               </div>
 
               <div className="space-y-2">
-                <label
-                  className="text-sm font-medium"
-                  htmlFor={`github-installation-${teamId ?? 'global'}`}
-                >
+                <label className="text-sm font-medium" htmlFor="github-installation-global">
                   Installation
                 </label>
                 <Select
@@ -194,7 +187,7 @@ export function GitHubInstallationCard({ teamId }: GitHubInstallationCardProps) 
                   onValueChange={setInstallationId}
                   disabled={!selectedApp}
                 >
-                  <SelectTrigger id={`github-installation-${teamId ?? 'global'}`}>
+                  <SelectTrigger id="github-installation-global">
                     <SelectValue placeholder="Select an installation" />
                   </SelectTrigger>
                   <SelectContent>

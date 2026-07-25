@@ -2,7 +2,7 @@ import type { Scope, UpdateRepositoryRequest } from '@moatless/api-client'
 import { ArrowRight, FileCode, Loader2, RefreshCw, Save, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { useAdminTeamsList, useAdminUsersList } from '@/features/admin/hooks/use-admin-users-teams'
+import { useAdminUsersList } from '@/features/admin/hooks/use-admin-users-teams'
 import {
   useConvertToTemplate,
   useDeleteRepository,
@@ -55,7 +55,6 @@ export function RepositoryConfigEditSection({
   const deleteRepository = useDeleteRepository()
   const convertToTemplate = useConvertToTemplate()
   const syncRepositoryConfig = useSyncRepositoryConfig()
-  const teamsQuery = useAdminTeamsList()
   const usersQuery = useAdminUsersList()
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [showConvertDialog, setShowConvertDialog] = useState(false)
@@ -78,7 +77,6 @@ export function RepositoryConfigEditSection({
       description: repository.description || '',
       remoteUrl: repository.remoteUrl || '',
       scope: repository.scope,
-      teamId: repository.teamId ?? null,
     }
   })()
 
@@ -107,23 +105,13 @@ export function RepositoryConfigEditSection({
       return
     }
 
-    // Send only fields the user changed. Ownership is intentionally absent
-    // from the edit contract, and teamId only accompanies a team-scope update.
-    const { teamId: _omittedTeamId, ...nonTeamModifications } = userModifications
-    const payload: UpdateRepositoryRequest =
-      formData.scope === 'team' ? { ...userModifications } : nonTeamModifications
+    // Send only fields the user changed.
+    const payload: UpdateRepositoryRequest = { ...userModifications }
     if ('description' in userModifications) {
       payload.description = formData.description?.trim() || null
     }
     if ('remoteUrl' in userModifications) {
       payload.remoteUrl = formData.remoteUrl?.trim() || null
-    }
-    if (
-      formData.scope === 'team' &&
-      ('scope' in userModifications || 'teamId' in userModifications)
-    ) {
-      payload.scope = 'team'
-      payload.teamId = formData.teamId ?? null
     }
 
     updateRepository.mutate(
@@ -148,21 +136,11 @@ export function RepositoryConfigEditSection({
   }
 
   const hasChanges = Object.keys(userModifications).length > 0
-  const teamSelectionMissing = formData.scope === 'team' && !formData.teamId
 
   const handleScopeChange = (scope: Scope) => {
     setUserModifications((prev) => ({
       ...prev,
       scope,
-      ...(scope === 'team' && formData.scope !== 'team' ? { teamId: null } : {}),
-    }))
-  }
-
-  const handleTeamChange = (teamId: string) => {
-    setUserModifications((prev) => ({
-      ...prev,
-      scope: 'team',
-      teamId,
     }))
   }
 
@@ -244,18 +222,14 @@ export function RepositoryConfigEditSection({
 
       <AccessSettingsGroup
         scope={formData.scope ?? repository.scope}
-        teamId={formData.teamId}
         ownerUserId={repository.ownerUserId}
-        teams={teamsQuery.data ?? []}
         users={usersQuery.data?.users ?? []}
-        teamsLoading={teamsQuery.isLoading}
         accessStatus={repository.accessStatus}
         accessCheckedAt={repository.accessCheckedAt}
         accessError={repository.accessError}
         isDirty={hasChanges}
         isVerifying={verifyRepositoryAccess.isPending}
         onScopeChange={handleScopeChange}
-        onTeamChange={handleTeamChange}
         onVerify={handleVerifyAccess}
       />
 
@@ -320,7 +294,7 @@ export function RepositoryConfigEditSection({
           <Button
             type="button"
             onClick={handleSave}
-            disabled={!hasChanges || teamSelectionMissing || updateRepository.isPending}
+            disabled={!hasChanges || updateRepository.isPending}
           >
             {updateRepository.isPending ? (
               <>

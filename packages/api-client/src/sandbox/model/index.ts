@@ -230,7 +230,6 @@ export * from './searchByNameResponse';
 export * from './secretKind';
 export * from './secretMetadataResponse';
 export * from './secretMutationResponse';
-export * from './secretScopeType';
 export * from './secretSource';
 export * from './sendDmRequest';
 export * from './sendDmResponse';

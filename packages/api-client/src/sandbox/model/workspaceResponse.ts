@@ -63,7 +63,5 @@ Retained even after a manual override so the origin remains visible.
   /** @nullable */
   systemPrompt?: string | null;
   /** @nullable */
-  teamId?: string | null;
-  /** @nullable */
   updatedAt?: string | null;
 }

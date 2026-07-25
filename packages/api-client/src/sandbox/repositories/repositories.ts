@@ -401,11 +401,16 @@ export type updateRepositoryResponse404 = {
   data: ErrorBody
   status: 404
 }
+
+export type updateRepositoryResponse409 = {
+  data: ErrorBody
+  status: 409
+}
     
 export type updateRepositoryResponseSuccess = (updateRepositoryResponse200) & {
   headers: Headers;
 };
-export type updateRepositoryResponseError = (updateRepositoryResponse404) & {
+export type updateRepositoryResponseError = (updateRepositoryResponse404 | updateRepositoryResponse409) & {
   headers: Headers;
 };
 

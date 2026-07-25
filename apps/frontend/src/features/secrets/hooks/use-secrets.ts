@@ -4,14 +4,12 @@ import type {
   PutSecretRequest,
   SecretMetadataResponse,
   SecretMutationResponse,
-  TeamResponse,
 } from '@moatless/api-client'
 
 export type {
   PatchSecretRequest,
   PutSecretRequest,
   SecretMetadataResponse,
-  TeamResponse,
 } from '@moatless/api-client'
 
 import { type ErrorType, unwrapResponse } from '@moatless/api-client/custom-instance'
@@ -21,7 +19,6 @@ import {
   patchSecret,
   putSecret,
 } from '@moatless/api-client/sandbox/secrets/secrets'
-import { listTeams } from '@moatless/api-client/sandbox/teams/teams'
 import {
   type UseMutationOptions,
   useMutation,
@@ -31,23 +28,11 @@ import {
 import { queryKeys } from '@/lib/api/query-keys'
 
 /**
- * List teams available to the current user. Admins receive all teams from the backend.
- */
-export function useTeamsList(options?: { enabled?: boolean }) {
-  return useQuery({
-    queryKey: queryKeys.teams.list(),
-    queryFn: () => unwrapResponse<TeamResponse[]>(listTeams()),
-    enabled: options?.enabled ?? true,
-    staleTime: 5 * 60 * 1000,
-  })
-}
-
-/**
  * List secret metadata for a given scope. Values are never returned by the API.
  */
 export function useSecretsList(params: ListSecretsParams, options?: { enabled?: boolean }) {
   return useQuery({
-    queryKey: queryKeys.secrets.list({ scope: params.scope, scopeId: params.scopeId }),
+    queryKey: queryKeys.secrets.list({ scope: params.scope }),
     queryFn: () => unwrapResponse<SecretMetadataResponse[]>(listSecrets(params)),
     enabled: options?.enabled ?? true,
   })

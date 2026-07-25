@@ -29,11 +29,6 @@ export interface CreateAdapterConnectionRequest {
    */
   sourceName?: string | null;
   /**
-   * Required when the caller belongs to multiple teams.
-   * @nullable
-   */
-  teamId?: string | null;
-  /**
    * Optional transport-specific metadata.
    * @nullable
    */

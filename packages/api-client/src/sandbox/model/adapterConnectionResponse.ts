@@ -21,7 +21,5 @@ export interface AdapterConnectionResponse {
   /** @nullable */
   ownerUserId?: string | null;
   scope: Scope;
-  /** @nullable */
-  teamId?: string | null;
   updatedAt: string;
 }

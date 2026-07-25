@@ -24,6 +24,4 @@ export interface CreateRepositoryRequest {
   /** @nullable */
   remoteUrl?: string | null;
   scope?: null | Scope;
-  /** @nullable */
-  teamId?: string | null;
 }

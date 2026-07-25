@@ -23,7 +23,5 @@ export interface Loop {
   rule: LoopConfig;
   scope: Scope;
   source: LoopSource;
-  /** @nullable */
-  teamId?: string | null;
   updatedAt: string;
 }

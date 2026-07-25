@@ -19,6 +19,4 @@ export interface CreateLoopRequest {
   rule: CreateLoopConfig;
   scope?: null | Scope;
   source: CreateLoopSource;
-  /** @nullable */
-  teamId?: string | null;
 }

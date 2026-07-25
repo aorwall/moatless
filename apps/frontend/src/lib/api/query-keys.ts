@@ -122,8 +122,6 @@ export const queryKeys = {
     githubApps: () => [...queryKeys.admin.github(), 'apps'] as const,
     globalGithubInstallation: () =>
       [...queryKeys.admin.github(), 'installation', 'global'] as const,
-    teamGithubInstallation: (teamId: string) =>
-      [...queryKeys.admin.github(), 'installation', 'team', teamId] as const,
   },
 
   settings: {
@@ -150,7 +148,7 @@ export const queryKeys = {
 
   secrets: {
     all: () => [...queryKeys.all, 'secrets'] as const,
-    list: (params?: { scope: string; scopeId?: string | undefined } | undefined) =>
+    list: (params?: { scope?: string | undefined } | undefined) =>
       [...queryKeys.secrets.all(), 'list', params] as const,
   },
 
