@@ -14,19 +14,6 @@ on:
       - 'docker/sync-plugins.sh'
       - 'docker/moatless-git-cred.sh'
       - '.github/workflows/build-sandbox-images.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'sandbox/**'
-      - 'crates/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'rust-toolchain.toml'
-      - 'docker/Dockerfile.sandbox*'
-      - 'docker/docker-entrypoint-sandbox.sh'
-      - 'docker/sync-plugins.sh'
-      - 'docker/moatless-git-cred.sh'
-      - '.github/workflows/build-sandbox-images.yml'
   workflow_dispatch:
     inputs:
       build_all:

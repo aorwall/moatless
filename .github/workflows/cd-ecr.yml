@@ -22,8 +22,6 @@ on:
   push:
     branches: [main]
     tags: ['fp-v*']
-  pull_request:
-    branches: [main]
   workflow_dispatch:
     inputs:
       images:
@@ -47,7 +45,7 @@ on:
 # previous tag-release has pushed, so they compute the next version correctly.
 # Note GitHub keeps at most one run queued per group: rapid-fire merges may
 # skip intermediate commits, which is fine — the newest queued commit contains
-# them all. PR refs each get their own group and stay parallel.
+# them all.
 concurrency:
   group: cd-ecr-${{ github.ref }}
   cancel-in-progress: false
