@@ -378,7 +378,7 @@ pub async fn fetch_container_resource_usage(
 }
 
 /// Parse K8s CPU quantity (e.g. "250m", "1", "100n") to millicores.
-fn parse_cpu_to_millicores(s: &str) -> u64 {
+pub(crate) fn parse_cpu_to_millicores(s: &str) -> u64 {
     if let Some(nano) = s.strip_suffix('n') {
         // Nanocores → millicores
         nano.parse::<u64>().unwrap_or(0) / 1_000_000
@@ -393,7 +393,7 @@ fn parse_cpu_to_millicores(s: &str) -> u64 {
 }
 
 /// Parse K8s memory quantity (e.g. "128Mi", "1Gi", "256000Ki") to bytes.
-fn parse_memory_to_bytes(s: &str) -> u64 {
+pub(crate) fn parse_memory_to_bytes(s: &str) -> u64 {
     if let Some(v) = s.strip_suffix("Ki") {
         v.parse::<u64>().unwrap_or(0) * 1024
     } else if let Some(v) = s.strip_suffix("Mi") {

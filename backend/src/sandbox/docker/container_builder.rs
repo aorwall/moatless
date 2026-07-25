@@ -17,6 +17,7 @@ use super::naming::{
     generate_sandbox_host_path, generate_server_container_name,
 };
 use crate::config::Config;
+use crate::sandbox::k8s::pod_reader::{parse_cpu_to_millicores, parse_memory_to_bytes};
 use crate::sandbox::lifecycle::runtime::{
     RuntimeOperationContext, OPERATION_GENERATION_LABEL,
 };
@@ -189,6 +190,11 @@ pub fn build_container_config(
     }
 
     // ── Host config ───────────────────────────────────────────────
+    // Per-repo resource limits (K8s quantity strings, e.g. "8Gi" / "4"). The
+    // K8s provider applies the whole ResourceConfig; Docker has no
+    // requests/eviction concept, so only the limits map onto the container
+    // cgroup — unset limits leave the container unconstrained, as before.
+    let (memory_limit, nano_cpus) = sandbox_resource_limits(plan);
     let host_config = HostConfig {
         network_mode: Some(config.docker.network.clone()),
         mounts: Some(mounts),
@@ -197,6 +203,8 @@ pub fn build_container_config(
             name: Some(RestartPolicyNameEnum::UNLESS_STOPPED),
             maximum_retry_count: None,
         }),
+        memory: memory_limit,
+        nano_cpus,
         ..Default::default()
     };
 
@@ -211,6 +219,28 @@ pub fn build_container_config(
         cmd: Some(vec!["/usr/local/bin/sandbox".to_string()]),
         ..Default::default()
     }
+}
+
+/// Map the plan's `resources.limits` (memory/cpu K8s quantities) to Docker
+/// cgroup limits: memory in bytes and CPU in nanocpus. Missing or unparsable
+/// quantities yield `None` (unconstrained), matching prior behaviour.
+fn sandbox_resource_limits(plan: &ProvisionPlan) -> (Option<i64>, Option<i64>) {
+    let limits = plan
+        .repo_config
+        .resources
+        .as_ref()
+        .and_then(|r| r.limits.as_ref());
+    let memory = limits
+        .and_then(|l| l.get("memory"))
+        .map(|q| parse_memory_to_bytes(q))
+        .filter(|b| *b > 0)
+        .map(|b| b as i64);
+    let nano_cpus = limits
+        .and_then(|l| l.get("cpu"))
+        .map(|q| parse_cpu_to_millicores(q).saturating_mul(1_000_000))
+        .filter(|n| *n > 0)
+        .map(|n| n as i64);
+    (memory, nano_cpus)
 }
 
 /// Stamp lifecycle's operation identity onto a sandbox container before
@@ -678,6 +708,37 @@ mod tests {
         assert!(env.iter().any(|e| e == "USER_AUTH_TOKEN=jwt-token"));
         assert!(!env.iter().any(|e| e.starts_with("GIT_TOKEN=")));
         assert!(!env.iter().any(|e| e.starts_with("ANTHROPIC_API_KEY=")));
+    }
+
+    #[test]
+    fn container_config_applies_resource_limits_from_repo_config() {
+        let config = test_config();
+        let mut plan = test_plan();
+        plan.repo_config.resources = Some(crate::repository::models::ResourceConfig {
+            requests: None,
+            limits: Some(HashMap::from([
+                ("memory".to_string(), "8Gi".to_string()),
+                ("cpu".to_string(), "4".to_string()),
+            ])),
+            storage: None,
+            storage_mode: None,
+            docker_storage: None,
+            docker_storage_mode: None,
+        });
+        let cc = build_container_config(&config, "task-1", &plan, None);
+        let hc = cc.host_config.unwrap();
+        assert_eq!(hc.memory, Some(8 * 1024 * 1024 * 1024));
+        assert_eq!(hc.nano_cpus, Some(4_000_000_000));
+    }
+
+    #[test]
+    fn container_config_without_resources_leaves_limits_unset() {
+        let config = test_config();
+        let plan = test_plan();
+        let cc = build_container_config(&config, "task-1", &plan, None);
+        let hc = cc.host_config.unwrap();
+        assert_eq!(hc.memory, None);
+        assert_eq!(hc.nano_cpus, None);
     }
 
     #[test]
