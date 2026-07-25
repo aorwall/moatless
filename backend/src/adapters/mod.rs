@@ -379,9 +379,10 @@ pub trait Adapter: Send + Sync {
 /// For those four kinds the typed registrar is the only way in: it sets the
 /// handle and inserts into the map in one call. The trait-object insert is
 /// private to this module, so no caller can add one of them to the map and
-/// leave its handle unset. Its only callers are `register_webhook` — the
-/// Webhook adapter has no concrete-only methods, so it has no handle — and the
-/// tests.
+/// leave its handle unset. Apart from those registrars, the only callers that
+/// reach it — and so the only ones that insert without a handle — are
+/// `register_webhook`, whose adapter has no concrete-only methods and hence no
+/// handle, and the tests.
 #[derive(Clone)]
 pub struct Adapters {
     providers: HashMap<AdapterKind, Arc<dyn Adapter>>,
