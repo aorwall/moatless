@@ -127,6 +127,17 @@ impl ScopeContext {
     /// Every call site is a deliberate access-control bypass and must carry
     /// `#[allow(clippy::disallowed_methods)]` with a `// reason:` comment —
     /// enforced via `disallowed-methods` in `clippy.toml`.
+    ///
+    /// The required form at a call site:
+    ///
+    /// ```
+    /// use moatless_backend_core::scope::ScopeContext;
+    ///
+    /// // reason: reaper sweeps idle sandboxes across all owners (no user ctx)
+    /// #[allow(clippy::disallowed_methods)]
+    /// let sys = ScopeContext::system();
+    /// assert!(sys.is_admin);
+    /// ```
     pub fn system() -> Self {
         Self {
             user_id: Self::SYSTEM_USER_ID.to_string(),
