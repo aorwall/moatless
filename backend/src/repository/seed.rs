@@ -3,6 +3,7 @@
 use tracing::info;
 
 use super::dao::RepoRepository;
+use super::handlers::normalize_remote_url;
 use super::models::{Repository, RepositoryKind, RepositoryProvider};
 use crate::access_control::SYSTEM_TEAM_ID;
 use moatless_backend_core::scope::Scope;
@@ -10,7 +11,7 @@ use moatless_backend_core::scope::Scope;
 /// Insert default template repositories if they don't already exist.
 ///
 /// Called once during startup. Idempotent — skips if a row with the
-/// same name and `created_by = "system"` already exists.
+/// same canonical URL and access owner already exists.
 pub async fn seed_default_repositories(repos: &dyn RepoRepository) {
     if let Err(e) = seed_moatable(repos).await {
         tracing::warn!(error = %e, "Failed to seed default Moatable repository");
@@ -18,9 +19,16 @@ pub async fn seed_default_repositories(repos: &dyn RepoRepository) {
 }
 
 async fn seed_moatable(repos: &dyn RepoRepository) -> Result<(), sqlx::Error> {
+    const MOATABLE_URL: &str = "https://github.com/aorwall/moatable";
+
     // Check including soft-deleted rows so we don't re-create a repo the user removed.
     if repos
-        .exists_by_name_including_deleted("Moatable", "system")
+        .exists_by_normalized_remote_url_including_deleted(
+            &normalize_remote_url(MOATABLE_URL),
+            Scope::Global,
+            Some(SYSTEM_TEAM_ID.to_string()),
+            None,
+        )
         .await?
     {
         info!("Default repository 'Moatable' already exists, skipping seed");
@@ -35,7 +43,7 @@ async fn seed_moatable(repos: &dyn RepoRepository) -> Result<(), sqlx::Error> {
         id: uuid::Uuid::new_v4().to_string(),
         name: "Moatable".to_string(),
         kind: RepositoryKind::Template,
-        remote_url: Some("https://github.com/aorwall/moatable".to_string()),
+        remote_url: Some(MOATABLE_URL.to_string()),
         default_branch: Some("main".to_string()),
         description: Some("React + TypeScript + Vite + Tailwind CSS starter template".to_string()),
         provider: Some(RepositoryProvider::Github),

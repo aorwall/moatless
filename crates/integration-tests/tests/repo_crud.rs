@@ -5,7 +5,7 @@
 
 use integration_tests::{create_repo_request, test_client};
 use moatless_api_schemas::{
-    enums::{RepositoryKind, RepositoryProvider},
+    enums::{RepositoryKind, RepositoryProvider, Scope},
     repository::UpdateRepositoryRequest,
 };
 use pretty_assertions::assert_eq;
@@ -17,10 +17,11 @@ use pretty_assertions::assert_eq;
 #[tokio::test]
 async fn repo_crud_chain() {
     let client = test_client().await;
+    let suffix = uuid::Uuid::new_v4();
 
     // REPO-01: Create repository
     let mut req = create_repo_request("E2E Test Repository", RepositoryKind::Template);
-    req.remote_url = Some("https://github.com/aorwall/hello-world-ui.git".into());
+    req.remote_url = Some(format!("https://github.com/aorwall/repo-crud-{suffix}.git"));
     req.description = Some("Created by API integration test".into());
 
     let created = client.api().create_repository(&req).await.unwrap();
@@ -75,6 +76,90 @@ async fn repo_crud_chain() {
     // REPO-05.1: Repository removed from listing
     let repos = client.api().list_repositories().await.unwrap();
     assert!(!repos.iter().any(|r| r.id == repo_id));
+}
+
+// REPO-10 through REPO-14: Repository URL identity.
+#[tokio::test]
+async fn repo_url_identity_rules() {
+    let client = test_client().await;
+    let suffix = uuid::Uuid::new_v4();
+    let first_url = format!("https://gitness.invalid/acme/{suffix}");
+    let second_url = format!("https://gitness.invalid/acme/{suffix}-other");
+    let shared_name = format!("Shared repository name {suffix}");
+
+    let mut first_request = create_repo_request(&shared_name, RepositoryKind::Remote);
+    first_request.remote_url = Some(first_url.clone());
+    first_request.provider = Some(RepositoryProvider::Gitness);
+    let first = client
+        .api()
+        .create_repository(&first_request)
+        .await
+        .unwrap();
+
+    // REPO-10: The same name is valid when URLs differ.
+    let mut second_request = create_repo_request(&shared_name, RepositoryKind::Remote);
+    second_request.remote_url = Some(second_url);
+    second_request.provider = Some(RepositoryProvider::Gitness);
+    let second = client
+        .api()
+        .create_repository(&second_request)
+        .await
+        .unwrap();
+
+    // REPO-11: Canonical URL spellings collide for the same access owner.
+    let mut duplicate_request =
+        create_repo_request(&format!("Duplicate URL {suffix}"), RepositoryKind::Remote);
+    duplicate_request.remote_url = Some(format!("  HTTPS://GITNESS.INVALID/ACME/{suffix}.git/  "));
+    duplicate_request.provider = Some(RepositoryProvider::Gitness);
+    let error = client
+        .api()
+        .create_repository(&duplicate_request)
+        .await
+        .expect_err("canonical duplicate URL must be rejected");
+    assert!(matches!(
+        error,
+        moatless_api_client::ApiError::Api { status: 409, .. }
+    ));
+
+    // REPO-12: An update cannot collide with another active repository.
+    let update = UpdateRepositoryRequest {
+        remote_url: duplicate_request.remote_url.clone(),
+        ..Default::default()
+    };
+    let error = client
+        .api()
+        .update_repository(&second.id, &update)
+        .await
+        .expect_err("URL update collision must be rejected");
+    assert!(matches!(
+        error,
+        moatless_api_client::ApiError::Api { status: 409, .. }
+    ));
+
+    // REPO-14: A different access owner may use the same URL.
+    let mut global_request =
+        create_repo_request(&format!("Global URL {suffix}"), RepositoryKind::Remote);
+    global_request.remote_url = Some(first_url.clone());
+    global_request.provider = Some(RepositoryProvider::Gitness);
+    global_request.scope = Some(Scope::Global);
+    let global = client
+        .api()
+        .create_repository(&global_request)
+        .await
+        .unwrap();
+
+    client.api().delete_repository(&first.id).await.unwrap();
+
+    // REPO-13: Soft deletion releases the URL for the same access owner.
+    let replacement = client
+        .api()
+        .create_repository(&duplicate_request)
+        .await
+        .unwrap();
+
+    for repository_id in [&second.id, &global.id, &replacement.id] {
+        client.api().delete_repository(repository_id).await.unwrap();
+    }
 }
 
 // =============================================================================

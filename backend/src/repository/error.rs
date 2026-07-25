@@ -7,12 +7,21 @@ use tracing::{error, warn};
 use crate::access_control::AccessControlError;
 use crate::error::error_response;
 
+pub(crate) const REMOTE_URL_UNIQUE_INDEX: &str = "repositories_active_owner_remote_url_uq";
+
+pub(crate) fn is_remote_url_conflict(error: &sqlx::Error) -> bool {
+    error
+        .as_database_error()
+        .and_then(|database_error| database_error.constraint())
+        == Some(REMOTE_URL_UNIQUE_INDEX)
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum RepositoryError {
     #[error("Repository not found: {0}")]
     NotFound(String),
 
-    #[error("Repository name already exists: {0}")]
+    #[error("Repository URL already exists: {0}")]
     Conflict(String),
 
     #[error("Invalid request: {0}")]
@@ -26,6 +35,17 @@ pub enum RepositoryError {
 
     #[error("Access denied: {0}")]
     Forbidden(String),
+}
+
+impl RepositoryError {
+    pub(crate) fn from_write_error(error: sqlx::Error, remote_url: Option<&str>) -> Self {
+        match remote_url {
+            Some(remote_url) if is_remote_url_conflict(&error) => {
+                Self::Conflict(remote_url.to_string())
+            }
+            _ => Self::Db(error),
+        }
+    }
 }
 
 impl From<AccessControlError> for RepositoryError {

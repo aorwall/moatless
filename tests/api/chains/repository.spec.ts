@@ -19,8 +19,10 @@ import { ChainContext } from "../context/chain-context";
 import { createTestRepo, deleteTestRepo } from "../helpers/gh-repo";
 import {
 	createRepository,
+	createRepositoryRaw,
 	getRepository,
 	updateRepository,
+	updateRepositoryRaw,
 	listRepositories,
 	deleteRepository,
 	createRepositoryWithMissingFields,
@@ -146,6 +148,129 @@ test.describe("Chain: Repository CRUD", () => {
 		// Prevent afterAll from trying to delete again
 		ctx.repositoryId = undefined;
 	});
+});
+
+// =============================================================================
+// Standalone: Repository URL identity
+// =============================================================================
+
+test("REPO-10: Allow repositories with the same name", async ({ api }) => {
+	const suffix = randomUUID();
+	const name = `Shared repository name ${suffix}`;
+	const first = await createRepository(api, {
+		name,
+		remoteUrl: `https://gitness.invalid/acme/${suffix}`,
+		provider: "gitness",
+	});
+	const second = await createRepository(api, {
+		name,
+		remoteUrl: `https://gitness.invalid/acme/${suffix}-other`,
+		provider: "gitness",
+	});
+
+	try {
+		expect(first.repository.name).toBe(name);
+		expect(second.repository.name).toBe(name);
+	} finally {
+		await api.deleteRepository(first.repositoryId);
+		await api.deleteRepository(second.repositoryId);
+	}
+});
+
+test("REPO-11: Reject an equivalent repository URL", async ({ api }) => {
+	const suffix = randomUUID();
+	const first = await createRepository(api, {
+		name: `Canonical URL ${suffix}`,
+		remoteUrl: `https://gitness.invalid/acme/${suffix}`,
+		provider: "gitness",
+	});
+
+	try {
+		const response = await createRepositoryRaw(api, {
+			name: `Canonical duplicate ${suffix}`,
+			kind: "remote",
+			remoteUrl: `  HTTPS://GITNESS.INVALID/ACME/${suffix}.git/  `,
+			provider: "gitness",
+		});
+		expect(response.status).toBe(409);
+		expect(await response.text()).toContain("Repository URL already exists");
+	} finally {
+		await api.deleteRepository(first.repositoryId);
+	}
+});
+
+test("REPO-12: Reject a URL collision during update", async ({ api }) => {
+	const suffix = randomUUID();
+	const first = await createRepository(api, {
+		name: `Update target ${suffix}`,
+		remoteUrl: `https://gitness.invalid/acme/${suffix}`,
+		provider: "gitness",
+	});
+	const second = await createRepository(api, {
+		name: `Update source ${suffix}`,
+		remoteUrl: `https://gitness.invalid/acme/${suffix}-other`,
+		provider: "gitness",
+	});
+
+	try {
+		const response = await updateRepositoryRaw(api, second.repositoryId, {
+			remoteUrl: ` HTTPS://GITNESS.INVALID/ACME/${suffix}.git/ `,
+		});
+		expect(response.status).toBe(409);
+		const unchanged = await getRepository(api, second.repositoryId);
+		expect(unchanged.remoteUrl).toBe(`https://gitness.invalid/acme/${suffix}-other`);
+	} finally {
+		await api.deleteRepository(first.repositoryId);
+		await api.deleteRepository(second.repositoryId);
+	}
+});
+
+test("REPO-13: Reuse a deleted repository URL", async ({ api }) => {
+	const suffix = randomUUID();
+	const first = await createRepository(api, {
+		name: `Deleted URL ${suffix}`,
+		remoteUrl: `https://gitness.invalid/acme/${suffix}`,
+		provider: "gitness",
+	});
+	await api.deleteRepository(first.repositoryId);
+
+	const replacement = await createRepository(api, {
+		name: `Replacement URL ${suffix}`,
+		remoteUrl: ` HTTPS://GITNESS.INVALID/ACME/${suffix}.git/ `,
+		provider: "gitness",
+	});
+	try {
+		expect(replacement.repositoryId).toBeTruthy();
+	} finally {
+		await api.deleteRepository(replacement.repositoryId);
+	}
+});
+
+test("REPO-14: Allow the same URL for a different access owner", async ({ api }) => {
+	const suffix = randomUUID();
+	const remoteUrl = `https://gitness.invalid/acme/${suffix}`;
+	const userRepository = await api.createRepository({
+		name: `User URL ${suffix}`,
+		kind: "remote",
+		remoteUrl,
+		provider: "gitness",
+		scope: "user",
+	});
+	const globalRepository = await api.createRepository({
+		name: `Global URL ${suffix}`,
+		kind: "remote",
+		remoteUrl: ` HTTPS://GITNESS.INVALID/ACME/${suffix}.git/ `,
+		provider: "gitness",
+		scope: "global",
+	});
+
+	try {
+		expect(userRepository.scope).toBe("user");
+		expect(globalRepository.scope).toBe("global");
+	} finally {
+		await api.deleteRepository(userRepository.id);
+		await api.deleteRepository(globalRepository.id);
+	}
 });
 
 // =============================================================================

@@ -57,18 +57,6 @@ pub async fn create_repository(
     auth: AuthUser,
     Json(req): Json<CreateRepositoryRequest>,
 ) -> Result<(StatusCode, Json<RepositoryResponse>), RepositoryError> {
-    // Check for name uniqueness
-    if let Some(_existing) = state
-        .repositories
-        .find_by_name_and_user(&req.name, &auth.user_id.to_string())
-        .await?
-    {
-        return Err(RepositoryError::Conflict(format!(
-            "Repository '{}' already exists",
-            req.name
-        )));
-    }
-
     let id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now();
     let user_id = auth.user_id;
@@ -76,6 +64,17 @@ pub async fn create_repository(
     let resolved_scope =
         resolve_scope_for_create(&state, &auth, req.scope, req.team_id.clone()).await?;
     let scope_ctx = auth.scope_context();
+    let team_id = Some(resolved_scope.team_id);
+
+    ensure_unique_remote_url(
+        state.repositories.as_ref(),
+        None,
+        req.remote_url.as_deref(),
+        resolved_scope.scope,
+        team_id.clone(),
+        resolved_scope.owner_user_id.clone(),
+    )
+    .await?;
 
     let row = Repository {
         id: id.clone(),
@@ -86,7 +85,7 @@ pub async fn create_repository(
         description: req.description,
         provider: req.provider,
         scope: resolved_scope.scope,
-        team_id: Some(resolved_scope.team_id),
+        team_id,
         owner_user_id: resolved_scope.owner_user_id,
         created_by: Some(user_id.to_string()),
         access_status: "unchecked".to_string(),
@@ -97,7 +96,11 @@ pub async fn create_repository(
         updated_at: Some(now),
     };
 
-    state.repositories.insert(&row).await?;
+    state
+        .repositories
+        .insert(&row)
+        .await
+        .map_err(|error| RepositoryError::from_write_error(error, row.remote_url.as_deref()))?;
 
     // A repository is only a git connection; its run-config flows to the
     // workspace via the git sync below, not into repo columns.
@@ -220,7 +223,8 @@ pub async fn get_repository(
     request_body = UpdateRepositoryRequest,
     responses(
         (status = 200, description = "Repository updated", body = RepositoryResponse),
-        (status = 404, description = "Repository not found", body = crate::error::ErrorBody)
+        (status = 404, description = "Repository not found", body = crate::error::ErrorBody),
+        (status = 409, description = "Repository URL already exists", body = crate::error::ErrorBody)
     )
 )]
 pub async fn update_repository(
@@ -280,6 +284,26 @@ pub async fn update_repository(
         None => (None, None, None),
     };
 
+    let target_scope = scope.unwrap_or(existing.scope);
+    let target_team_id = team_id.clone().unwrap_or_else(|| existing.team_id.clone());
+    let target_owner_user_id = owner_user_id
+        .clone()
+        .unwrap_or_else(|| existing.owner_user_id.clone());
+    let target_remote_url = req
+        .remote_url
+        .clone()
+        .or_else(|| existing.remote_url.clone());
+
+    ensure_unique_remote_url(
+        state.repositories.as_ref(),
+        Some(&repository_id),
+        target_remote_url.as_deref(),
+        target_scope,
+        target_team_id,
+        target_owner_user_id,
+    )
+    .await?;
+
     let patch = RepositoryPatch {
         scope,
         team_id,
@@ -294,7 +318,11 @@ pub async fn update_repository(
         ..Default::default()
     };
 
-    state.repositories.update(&repository_id, &patch).await?;
+    state
+        .repositories
+        .update(&repository_id, &patch)
+        .await
+        .map_err(|error| RepositoryError::from_write_error(error, target_remote_url.as_deref()))?;
 
     // Re-fetch updated row
     let updated = state
@@ -304,6 +332,30 @@ pub async fn update_repository(
         .ok_or_else(|| RepositoryError::NotFound(repository_id))?;
 
     Ok(Json(updated.into()))
+}
+
+async fn ensure_unique_remote_url(
+    repositories: &dyn super::dao::RepoRepository,
+    repository_id: Option<&str>,
+    remote_url: Option<&str>,
+    scope: Scope,
+    team_id: Option<String>,
+    owner_user_id: Option<String>,
+) -> Result<(), RepositoryError> {
+    let Some(remote_url) = remote_url else {
+        return Ok(());
+    };
+    let url_key = normalize_remote_url(remote_url);
+    let existing = repositories
+        .find_by_normalized_remote_url(&url_key, scope, team_id, owner_user_id)
+        .await?;
+    if existing
+        .as_ref()
+        .is_some_and(|existing| Some(existing.id.as_str()) != repository_id)
+    {
+        return Err(RepositoryError::Conflict(remote_url.to_string()));
+    }
+    Ok(())
 }
 
 /// Preserve the immutable owner/team when a repository is submitted as

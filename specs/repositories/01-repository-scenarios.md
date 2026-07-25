@@ -24,7 +24,12 @@ This spec defines all testable scenarios for repository management: creation fro
 ├── REPO-06: Create repository with missing required fields
 ├── REPO-07: Get non-existent repository
 ├── REPO-08: Reject an unverifiable repository target
-└── REPO-09: Manually verify repository access
+├── REPO-09: Manually verify repository access
+├── REPO-10: Allow repositories with the same name
+├── REPO-11: Reject an equivalent repository URL
+├── REPO-12: Reject a URL collision during update
+├── REPO-13: Reuse a deleted repository URL
+└── REPO-14: Allow the same URL for a different access owner
 ```
 
 ---
@@ -185,3 +190,57 @@ The stored access state reflects the provider's current response using credentia
   * **And** the response records when the check completed
   * **And** a reachability failure is returned as repository status rather than a request failure
   * **And** credentials from any other repository scope are not used as fallback
+
+### REPO-10: Allow repositories with the same name
+
+Repository names are labels and do not identify the remote codebase.
+
+* **Given** an active repository exists
+
+* **When** the user creates another repository with the same name and a different URL
+
+* **Then** the second repository is created
+  * **And** both repositories retain the shared name
+
+### REPO-11: Reject an equivalent repository URL
+
+Equivalent spellings of one Git URL identify the same repository for an access owner.
+
+* **Given** an active repository exists
+
+* **When** the user creates another repository for the same access owner using a URL that differs only by case, a trailing slash, or `.git`
+
+* **Then** the system returns an error indicating that the repository URL already exists
+  * **And** no second repository is created
+
+### REPO-12: Reject a URL collision during update
+
+Editing repository metadata cannot bypass URL identity.
+
+* **Given** two active repositories with different URLs exist for the same access owner
+
+* **When** the user changes one repository to an equivalent spelling of the other's URL
+
+* **Then** the system returns an error indicating that the repository URL already exists
+  * **And** the repository keeps its previous URL
+
+### REPO-13: Reuse a deleted repository URL
+
+Deleting a repository releases its URL for that access owner.
+
+* **Given** a repository has been deleted
+
+* **When** the user creates a repository for the same access owner with an equivalent URL
+
+* **Then** the new repository is created
+
+### REPO-14: Allow the same URL for a different access owner
+
+Repository URL identity does not cross access-owner boundaries.
+
+* **Given** an active User-scoped repository exists
+
+* **When** an administrator creates a Global repository with an equivalent URL
+
+* **Then** the Global repository is created
+  * **And** both repositories remain available within their own access scopes

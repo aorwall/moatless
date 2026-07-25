@@ -44,7 +44,9 @@ async fn task_create_survives_git_sync_reelected_primary() {
         &format!("shadow-primary-regression-{unique}"),
         RepositoryKind::Template,
     );
-    repo_req.remote_url = Some("https://github.com/aorwall/hello-world-ui.git".into());
+    repo_req.remote_url = Some(format!(
+        "https://github.com/aorwall/shadow-primary-regression-{unique}.git"
+    ));
     let repo_id = client.api().create_repository(&repo_req).await.unwrap().id;
     let ws_id = format!("ws_{repo_id}");
 

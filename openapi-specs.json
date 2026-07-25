@@ -3330,6 +3330,16 @@
                 }
               }
             }
+          },
+          "409": {
+            "description": "Repository URL already exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
           }
         }
       },

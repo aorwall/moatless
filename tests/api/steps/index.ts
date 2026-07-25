@@ -57,15 +57,17 @@ export {
 	writeFile,
 } from "./file.steps";
 
-// Repository steps (REPO-01 through REPO-07)
+// Repository steps (REPO-01 through REPO-14)
 export {
 	createRepository,
+	createRepositoryRaw,
 	createRepositoryWithMissingFields,
 	deleteRepository,
 	getRepository,
 	getNonExistentRepository,
 	listRepositories,
 	updateRepository,
+	updateRepositoryRaw,
 } from "./repository.steps";
 
 // Integration steps (INT-01 through INT-54)
