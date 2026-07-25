@@ -101,6 +101,7 @@ done
 
 # ── Environment defaults ──────────────────────────────────────────────────
 export DATA_DIR="${DATA_DIR:-${HOME}/.moatless/data}"
+export DOCKER_NETWORK="${DOCKER_NETWORK:-docker-compose_moatless}"
 mkdir -p "$DATA_DIR"
 
 if [ -z "${TASK_TOKEN_SECRET:-}" ]; then
