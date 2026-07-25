@@ -2,7 +2,11 @@
 //!
 //! Supports two layouts:
 //!
-//! - [`SkillLayout::Workspace`] — skills live at `.claude/skills/{name}/SKILL.md`.
+//! - [`SkillLayout::Workspace`] — skills live at `{name}/SKILL.md` under either
+//!   `.claude/skills` (Claude) or `.agents/skills` (Codex). Both roots are
+//!   listed and merged; a skill exposed in both (typically `.claude/skills/foo`
+//!   symlinking to `../../.agents/skills/foo`) is de-duplicated by directory
+//!   name, with `.claude/skills` winning.
 //! - [`SkillLayout::Plugin`] — Claude Code plugin repo. Probes
 //!   `.claude-plugin/plugin.json` to resolve the skills directory, defaulting
 //!   to `skills/` at the repo root per the plugin spec.
@@ -18,6 +22,8 @@
 //! and the API refuses to traverse paths through a symlinked directory
 //! (404). Each symlink entry is therefore resolved via its contents object's
 //! `target` field before fetching `SKILL.md` from the real path.
+
+use std::collections::HashSet;
 
 use async_trait::async_trait;
 use futures::future::try_join_all;
@@ -95,6 +101,11 @@ struct PluginManifest {
     skills: Option<String>,
 }
 
+/// Workspace skill roots, in precedence order. Both are listed and merged so a
+/// repo that stores its real skills under `.agents/skills` (Codex) is picked up
+/// whether or not it also exposes them via `.claude/skills` (Claude) symlinks.
+const WORKSPACE_SKILL_PREFIXES: [&str; 2] = [".claude/skills", ".agents/skills"];
+
 #[async_trait]
 impl SkillFetcher for GitHubSkillFetcher {
     async fn fetch_skill_files(
@@ -116,13 +127,55 @@ impl SkillFetcher for GitHubSkillFetcher {
                 message: "cannot parse owner/repo from URL".to_string(),
             })?;
 
-        let skills_prefix = match layout {
-            SkillLayout::Workspace => ".claude/skills".to_string(),
-            SkillLayout::Plugin => {
-                resolve_plugin_skills_prefix(&self.client, &owner, &repo, token, remote_url).await?
+        match layout {
+            SkillLayout::Workspace => {
+                let mut groups: Vec<Vec<FetchedSkillFile>> = Vec::new();
+                for prefix in WORKSPACE_SKILL_PREFIXES {
+                    if let Some(files) = self
+                        .fetch_skills_at_prefix(&owner, &repo, prefix, token, remote_url)
+                        .await?
+                    {
+                        groups.push(files);
+                    } else {
+                        debug!(remote_url, prefix, "No skills directory on remote");
+                    }
+                }
+                Ok(dedup_by_dir_name(groups))
             }
-        };
+            SkillLayout::Plugin => {
+                let prefix =
+                    resolve_plugin_skills_prefix(&self.client, &owner, &repo, token, remote_url)
+                        .await?;
+                if let Some(files) = self
+                    .fetch_skills_at_prefix(&owner, &repo, &prefix, token, remote_url)
+                    .await?
+                {
+                    Ok(files)
+                } else {
+                    warn!(
+                        git_url = %remote_url,
+                        skills_prefix = %prefix,
+                        "Plugin repo has no skills directory — skipping"
+                    );
+                    Ok(Vec::new())
+                }
+            }
+        }
+    }
+}
 
+impl GitHubSkillFetcher {
+    /// List one skills root (`skills_prefix`) and fetch every skill's `SKILL.md`.
+    /// Returns `Ok(None)` when the root directory itself is absent (404), so the
+    /// caller can distinguish "no such root" from "root present but empty".
+    async fn fetch_skills_at_prefix(
+        &self,
+        owner: &str,
+        repo: &str,
+        skills_prefix: &str,
+        token: Option<&str>,
+        remote_url: &str,
+    ) -> Result<Option<Vec<FetchedSkillFile>>, SkillError> {
         let list_url =
             format!("https://api.github.com/repos/{owner}/{repo}/contents/{skills_prefix}");
         let Some(entries) = send_github_json::<Vec<ContentEntry>>(
@@ -134,31 +187,19 @@ impl SkillFetcher for GitHubSkillFetcher {
         )
         .await?
         else {
-            match layout {
-                SkillLayout::Workspace => {
-                    debug!(remote_url, "No .claude/skills directory on remote");
-                }
-                SkillLayout::Plugin => {
-                    warn!(
-                        git_url = %remote_url,
-                        skills_prefix = %skills_prefix,
-                        "Plugin repo has no skills directory — skipping"
-                    );
-                }
-            }
-            return Ok(Vec::new());
+            return Ok(None);
         };
 
         let fetches = entries
             .into_iter()
             .filter(|e| e.entry_type == "dir" || e.entry_type == "symlink")
             .map(|entry| {
-                let owner = owner.clone();
-                let repo = repo.clone();
+                let owner = owner.to_string();
+                let repo = repo.to_string();
                 let remote_url = remote_url.to_string();
                 let client = self.client.clone();
                 let token = token.map(str::to_string);
-                let skills_prefix = skills_prefix.clone();
+                let skills_prefix = skills_prefix.to_string();
                 async move {
                     let dir_name = entry.name;
                     let dir_path = if entry.entry_type == "symlink" {
@@ -191,8 +232,24 @@ impl SkillFetcher for GitHubSkillFetcher {
             });
 
         let results: Vec<Option<FetchedSkillFile>> = try_join_all(fetches).await?;
-        Ok(results.into_iter().flatten().collect())
+        Ok(Some(results.into_iter().flatten().collect()))
     }
+}
+
+/// Merge skill-file groups in priority order, keeping the first occurrence of
+/// each `dir_name`. Collapses the symlink duplicates a repo exposes when the
+/// same skill appears under both `.claude/skills` and `.agents/skills`.
+fn dedup_by_dir_name(groups: Vec<Vec<FetchedSkillFile>>) -> Vec<FetchedSkillFile> {
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut merged: Vec<FetchedSkillFile> = Vec::new();
+    for group in groups {
+        for file in group {
+            if seen.insert(file.dir_name.clone()) {
+                merged.push(file);
+            }
+        }
+    }
+    merged
 }
 
 /// Resolve a symlinked skill entry to the repo-relative directory it points
@@ -435,6 +492,24 @@ mod tests {
             .unwrap();
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].dir_name, "alpha");
+    }
+
+    #[test]
+    fn dedup_by_dir_name_merges_claude_and_agents_prefixes() {
+        let file = |dir: &str, body: &str| FetchedSkillFile {
+            dir_name: dir.into(),
+            content: body.into(),
+        };
+        // `.claude/skills` first (wins on conflict), then `.agents/skills`.
+        let claude = vec![file("foo", "claude-foo"), file("shared", "claude-shared")];
+        let agents = vec![file("shared", "agents-shared"), file("bar", "agents-bar")];
+
+        let merged = dedup_by_dir_name(vec![claude, agents]);
+        let names: Vec<&str> = merged.iter().map(|f| f.dir_name.as_str()).collect();
+        assert_eq!(names, vec!["foo", "shared", "bar"]);
+        // The `.claude/skills` copy of the shared skill wins.
+        let shared = merged.iter().find(|f| f.dir_name == "shared").unwrap();
+        assert_eq!(shared.content, "claude-shared");
     }
 
     #[tokio::test]

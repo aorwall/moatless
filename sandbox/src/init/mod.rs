@@ -18,6 +18,7 @@ pub(crate) mod credentials;
 mod dirs;
 pub(crate) mod gh_hosts;
 mod git;
+mod home_skills;
 mod plugin_skills;
 pub(crate) mod refresher;
 pub(crate) mod server_env;
@@ -27,7 +28,6 @@ pub(crate) mod transcript_sync;
 #[cfg(test)]
 mod replacement_test;
 mod workspace;
-mod workspace_bridge;
 pub(crate) mod workspace_sync;
 
 use moatless_events::SandboxStatus;
@@ -612,7 +612,7 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
     // instructions Claude does (Codex reads the AGENTS.md in the directory of
     // files it edits). Runs unconditionally — agent type is decided per-message;
     // symlinks are cheap, idempotent, and harmless when Claude is the active
-    // agent. Skills are handled at the workspace level below, not mirrored here.
+    // agent. Skills are installed into the home dirs below, not mirrored here.
     if !state.config.repo_dir.is_empty() {
         let agents_md = codex_compat::mirror_claude_md_to_agents_md(std::path::Path::new(
             &state.config.repo_dir,
@@ -628,24 +628,21 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
         }
     }
 
-    // 8b. Bridge the repo's root agent config up to the workspace root: skills for
-    // both agents (`.claude/skills` for Claude, `.agents/skills` for Codex) plus
-    // `CLAUDE.md`/`AGENTS.md`. The agent's cwd is `workspace_dir`, but these are
-    // discovered relative to cwd, so a repo checked out one level down at
-    // `repo_dir` would otherwise be invisible. Symlinks only — the repo stays the
-    // source of truth; they sit outside `repo_dir` so the S3 snapshot skips them,
-    // and they're regenerated every init. No-op when there is no separate checkout
-    // (`repo_dir == workspace_dir`).
+    // 8b. Install the repo's skills into the home-level skill dirs for both
+    // agents: `<claude_config_dir>/skills` for Claude and `<codex_home_dir>/skills`
+    // for Codex. Skills are discovered relative to cwd (`workspace_dir`), so a
+    // repo checked out one level down at `repo_dir` would otherwise be invisible;
+    // copying into the home dirs (alongside the staged image skills) makes them
+    // discoverable without polluting the workspace root or pulling the repo's
+    // `CLAUDE.md`/`AGENTS.md` into the agent's project context.
     if !state.config.repo_dir.is_empty() {
-        let bridged = workspace_bridge::bridge_repo_config_to_workspace(
-            std::path::Path::new(&state.config.workspace_dir),
+        let installed = home_skills::install_repo_skills_to_home(
             std::path::Path::new(&state.config.repo_dir),
+            std::path::Path::new(&state.config.claude_config_dir),
+            std::path::Path::new(&state.config.codex_home_dir),
         );
-        if bridged > 0 {
-            info!(
-                count = bridged,
-                "Bridged repo agent config (skills/CLAUDE.md/AGENTS.md) to workspace root"
-            );
+        if installed > 0 {
+            info!(count = installed, "Installed repo skills into home skill dirs");
         }
     }
 

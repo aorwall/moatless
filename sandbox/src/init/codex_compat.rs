@@ -12,8 +12,8 @@
 //!
 //! Skills are **not** mirrored here. Skills are discovered relative to the
 //! agent's cwd (the workspace), not throughout the repo tree, so
-//! [`super::workspace_bridge`] surfaces them once at the workspace root for both
-//! Claude (`.claude/skills`) and Codex (`.agents/skills`).
+//! [`super::home_skills`] copies them into the home-level skill dirs for both
+//! Claude (`<claude_config_dir>/skills`) and Codex (`<codex_home_dir>/skills`).
 //!
 //! Runs unconditionally in `run_core_init()` after the repo is on disk.
 //! Agent type is decided per-message, so we always pre-stage. Operations
