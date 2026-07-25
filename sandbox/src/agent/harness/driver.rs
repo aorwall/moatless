@@ -415,8 +415,14 @@ async fn run_execution<P: AgentProcess>(
                     // injection fails — the input is queued in order and opens a
                     // later execution once this one terminates, so it is never
                     // dropped.
+                    //
+                    // Never inject into an execution that is already unwinding:
+                    // its terminal is `Cancelled` whatever the process reports,
+                    // so an accepted injection would be acknowledged against a
+                    // Turn that produces nothing and would never open the
+                    // follow-up execution the input was meant for.
                     Some(next) => {
-                        if process.accepts_injection() {
+                        if !cancel_requested && process.accepts_injection() {
                             if let Err(error) = process.submit(next.clone()).await {
                                 warn!(
                                     input = %next.id.0,

@@ -532,6 +532,83 @@ async fn input_submitted_mid_execution_joins_it_when_the_process_injects() {
 }
 
 #[tokio::test]
+async fn input_submitted_after_cancel_is_queued_rather_than_injected() {
+    // A cancelled execution finishes `Cancelled` whatever the process reports, so
+    // input arriving while it unwinds must not join it — it opens the next
+    // execution instead, even though the process would accept an injection.
+    let mut harness = Harness::scripted_sequence(vec![
+        Script::injecting(vec![
+            Step::SessionReady(SessionId("sess-1".into())),
+            Step::AcceptInput,
+            Step::WaitForCancel,
+        ]),
+        Script::injecting(vec![
+            Step::SessionReady(SessionId("sess-2".into())),
+            Step::AcceptInput,
+            Step::Completed,
+        ]),
+    ]);
+    harness
+        .submit(Input::text("in-1", "first"))
+        .await
+        .expect("submit");
+
+    assert!(matches!(
+        harness.next_signal().await,
+        Some(Signal::ExecutionStarted { .. })
+    ));
+    assert!(matches!(
+        harness.next_signal().await,
+        Some(Signal::InputAccepted { ref input }) if input.0 == "in-1"
+    ));
+
+    harness.cancel();
+    harness
+        .submit(Input::text("in-2", "after cancel"))
+        .await
+        .expect("submit");
+
+    // The cancelled execution's terminal comes first, with no acceptance of the
+    // late input on it.
+    let cancelled = drain_to_terminal(&mut harness).await;
+    assert_eq!(
+        cancelled.len(),
+        1,
+        "the late input must not join the cancelled execution, got {cancelled:?}"
+    );
+    assert!(matches!(
+        cancelled[0],
+        Signal::ExecutionFinished {
+            outcome: Outcome::Cancelled
+        }
+    ));
+
+    // Bounded: without the guard the input is injected into the dying execution
+    // and never opens one of its own, so this would otherwise hang rather than
+    // fail.
+    let recovered = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        drain_to_terminal(&mut harness),
+    )
+    .await
+    .expect("the late input must open a follow-up execution");
+    assert!(matches!(
+        recovered[0],
+        Signal::ExecutionStarted {
+            cause: Cause::Input(ref id),
+            ..
+        } if id.0 == "in-2"
+    ));
+    assert!(matches!(recovered[1], Signal::InputAccepted { ref input } if input.0 == "in-2"));
+    assert!(matches!(
+        recovered[2],
+        Signal::ExecutionFinished {
+            outcome: Outcome::Completed
+        }
+    ));
+}
+
+#[tokio::test]
 async fn input_submitted_mid_execution_is_queued_when_the_process_cannot_inject() {
     // A process that opens a fresh execution per submit must not be handed
     // mid-execution input: it is queued and opens the next execution instead.
