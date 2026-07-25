@@ -1,6 +1,6 @@
 //! `GET /api/v1/auth/me` setup-requirement reporting.
 
-use integration_tests::mock_github::{MockGithub, MOCK_LOGIN};
+use integration_tests::mock_github::MockGithub;
 use integration_tests::{base_url, query_psql, raw_client_as_user};
 use pretty_assertions::assert_eq;
 
