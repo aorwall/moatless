@@ -579,7 +579,16 @@ async fn request_trace_middleware(
         span.record("status", res.status().as_u16());
         span.record("latency_ms", latency_ms);
         if !is_probe {
-            tracing::info!("request completed");
+            // Successful requests are high-volume access-log noise → log at
+            // DEBUG. Escalate failures so they stay visible by default: 5xx at
+            // ERROR, 4xx at WARN.
+            if res.status().is_server_error() {
+                tracing::error!("request completed");
+            } else if res.status().is_client_error() {
+                tracing::warn!("request completed");
+            } else {
+                tracing::debug!("request completed");
+            }
         }
         if let Ok(value) = axum::http::HeaderValue::from_str(&request_id) {
             res.headers_mut().insert("x-request-id", value);
