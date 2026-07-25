@@ -1246,8 +1246,8 @@ export const useMarkTaskRead = <TError = ErrorType<ErrorBody>,
     /**
  * Flips a `Closed` task back to `Open` so it can be started and chatted with
 again. No sandbox is provisioned here — that happens on the next `start` or
-inbound message, at which point the sandbox restores any retained S3 state
-(Claude transcript + `s3`-mode workspace) keyed by `task_id`. Whether that
+inbound message, at which point the sandbox restores retained S3 state or
+pins retained node-local state keyed by `task_id`. Whether that
 state still exists depends on `SANDBOX_RETAIN_STORAGE_ON_CLOSE` having been
 set when the task was closed; if not, the task reopens with a fresh
 sandbox. External bindings deactivated on close are left inactive.

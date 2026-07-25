@@ -6,8 +6,7 @@ Rust (Axum) service managing the full lifecycle of Kubernetes- and Docker-based 
 
 ### Lifecycle module (`lifecycle/`)
 Deep module owning durable lifecycle intent and orchestration per Task, per
-`specs/sandbox/04-lifecycle-architecture.md`. **Migration status: step 3 runtime
-seams landed; step 4 shallow-path deletion remains.** The typed surface
+`specs/sandbox/04-lifecycle-architecture.md`. The typed surface
 (`LifecycleOutcome` with independent
 intent/runtime effect axes, `ArchiveRetention`, classifiable
 `LifecycleError`/`RuntimeError`, `OperationGeneration`/`CorrelationMarker`), the
@@ -45,7 +44,8 @@ The status handlers and reaper read desired state through the store
 Sandbox-intent projection, including the no-row Stopped-at-epoch semantic. The
 transactional outbox is in place.
 
-The pending-Message query/index and the desired-state reconciler are in place:
+The pending-Message query/index and the desired-state reconciler are the
+recovery machinery:
 the reconciler is lease-elected on K8s / lease-free single-replica on Docker,
 re-notifies a woken Ready sandbox of its undelivered pending messages, and
 subsumes the `Removed`-intent orphan rule. `RuntimeOperationContext` reaches
@@ -65,7 +65,7 @@ marker clear compares the acknowledged generation, so a late completion cannot
 erase a newer operation's marker. The reconciler is the only desired-vs-actual
 recovery owner.
 Runtime mutations use the native adapters directly through `SandboxRuntime`;
-step 4 removes the remaining caller wrappers that already delegate to lifecycle.
+callers invoke `state.sandbox` without provisioning wrappers.
 
 ### Runtime and access seams
 `SandboxRuntime` is lifecycle's mutation seam: `ensure_running`, `stop`,
@@ -98,13 +98,31 @@ task/team authorization repositories. File handlers ask the connector for a
 ready client, then invoke file methods directly.
 Both native adapters enforce observed absence before strict success and surface
 lingering resources as `RuntimeError::NotAbsent`. `DeleteArchives` removes the
-task's transcript and workspace prefixes through the configured S3 client in
-both runtime modes, only after runtime absence succeeds.
+task's transcript and workspace prefixes through the configured S3 client and
+its provider-local disk directory/hostPaths, only after runtime absence
+succeeds. `RetainArchives` preserves both S3 and disk archives.
 Kubernetes resource modules share the bounded absence poller in `k8s/wait.rs`;
 resource-specific code supplies only its authoritative lookup.
 
+For node-backed Kubernetes archives, `k8s/node_archive.rs` stores observed
+node/generation locations in a deterministic task ConfigMap. Stop/remove
+synchronously merge the current pod location. Replacement pods pin to the
+newest recorded node that still exists; if none survives, start returns a
+retriable infrastructure error instead of mounting an empty hostPath. A hard
+delete runs deterministic root-but-unprivileged cleanup pods on every recorded
+node, awaits success and pod absence, then deletes the ConfigMap. Legacy tasks
+without metadata fan out to sandbox-selector nodes.
+
 ### K8s resources per sandbox
-Provisioning creates (all labeled `moatless.io/task-id={task_id}`): a **Deployment** (enables stop = scale to 0 / start = scale to 1 without re-provisioning), its **Pod**, a ClusterIP **Service**, an optional **PVC**, and optional **IngressRoute** (Traefik CRD, one per server port, pattern `{task_id}--{port}.{proxy_domain}`). Deployment/Service names are deterministic: `moatless-ws-{sanitized_task_id}` (`k8s/naming.rs`, 63-char cap).
+Provisioning creates (all labeled `moatless.io/task-id={task_id}`): a
+**Deployment** (enables stop = scale to 0 / start = scale to 1 without
+re-provisioning), its **Pod**, a ClusterIP **Service**, an optional **PVC**, and
+optional **IngressRoute** (Traefik CRD, one per server port, pattern
+`{task_id}--{port}.{proxy_domain}`). Node-backed tasks additionally gain a
+deterministic archive-metadata **ConfigMap** once scheduled. Hard-delete cleanup
+pods deliberately omit the task label so the pod watcher ignores them.
+Deployment/Service names are deterministic:
+`moatless-ws-{sanitized_task_id}` (`k8s/naming.rs`, 63-char cap).
 
 ### Pod structure
 - **`sandbox` container**: agent environment (image configurable per-repo), ports 8001 (HTTP) + gRPC, talks back to the backend via gRPC.
@@ -131,10 +149,11 @@ idle-eligibility agent status — goes through the consumer-owned
 `SandboxClient` (`client.rs`) calls sandbox pods: execute-agent, stop-agent, notify-messages, file ops, search-files. Lazy connection, 5s connect / 10s request timeout. `classify_grpc_error()` maps gRPC → `SandboxError`: Unavailable/DeadlineExceeded/Cancelled → NotReady/503, NotFound → 404, FailedPrecondition/InvalidArgument → 400, else → Internal/500. `notify.rs` is fire-and-forget message notification.
 
 ### Auto-provisioning
-`auto_provision.rs` resolves a fresh provision plan for lifecycle
-`ensure_running`/`redeploy` by reading task, workspace, repository, credentials,
-secrets, plugins, and servers from the DB. Expected-image selection is exposed
-through `Lifecycle`, not through an adapter.
+`auto_provision.rs` has two honest consumers: it resolves a fresh provision
+plan for lifecycle `ensure_running`/`redeploy` by reading Task, Workspace,
+repository, credentials, plugins, and servers from the DB; and it exposes the
+server-config/disabled-server parsers used by the pod watcher. Expected-image
+selection is exposed through `Lifecycle`, not through an adapter.
 
 ### JWT auth
 `jwt.rs` generates/verifies HS256 JWTs (90-day expiry, issuer `moatless-vibe-backend`) that sandbox pods use to authenticate back to the backend.

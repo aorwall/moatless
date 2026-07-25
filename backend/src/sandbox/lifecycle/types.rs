@@ -136,18 +136,19 @@ impl fmt::Display for ObservedStatus {
     }
 }
 
-/// Typed policy for S3-backed archives, replacing the bare `retain_storage:
-/// bool`. Runtime resources (Deployment, Service, IngressRoutes, **and the
-/// PVC**) are always removed regardless of this policy; it governs only the S3
-/// transcript + `s3`-mode workspace archives.
+/// Typed policy for task archives, replacing the bare `retain_storage: bool`.
+/// Runtime resources (Deployment, Service, IngressRoutes, **and the PVC**) are
+/// always removed regardless of this policy; it governs S3 archives and
+/// provider-local disk archives (Kubernetes node hostPaths and Docker task
+/// directories).
 ///
 /// Persisted alongside `Removed` intent in the same atomic write so a crashed
 /// remove can be retried with the *original* policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArchiveRetention {
-    /// Soft removal: keep S3 archives so the task can be revived (reopen).
+    /// Soft removal: keep archives so the task can be revived (reopen).
     RetainArchives,
-    /// Permanent deletion: remove S3 archives too. Never superseded by a
+    /// Permanent deletion: remove all archives too. Never superseded by a
     /// later message-wake — deletion wins.
     DeleteArchives,
 }

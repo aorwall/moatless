@@ -151,7 +151,8 @@ pub trait SandboxRuntime: Send + Sync {
     ) -> Result<RuntimeOutcome, RuntimeError>;
 
     /// Delete all runtime resources (Deployment, Service, IngressRoutes, and
-    /// the PVC unconditionally), honoring `retention` only for S3 archives.
+    /// the PVC unconditionally), honoring `retention` for S3 and local-disk
+    /// archives.
     ///
     /// **Strict success means observed absence, not accepted deletion**: the
     /// implementation awaits actual absence of every resource before returning

@@ -578,8 +578,8 @@ kubernetes:
     #    gitignored build output (target/, node_modules/, ...) is NOT synced, so
     #    it must be rebuilt after a cold stop. Requires the S3 uploads bucket to
     #    be configured (same one used by transcriptStorage). `node` uses a
-    #    per-task hostPath under K8S_SANDBOX_CACHE_HOST_ROOT/workspaces and
-    #    reuses data only when the replacement pod lands on the same node.
+    #    per-task hostPath under K8S_SANDBOX_CACHE_HOST_ROOT/workspaces; retained
+    #    replacements are pinned to the newest surviving recorded node.
     #    A per-repo `storageMode` always overrides this.
     defaultMode: "s3"
   # Sandbox Claude transcript sync to S3.
@@ -966,6 +966,9 @@ rbac:
     - apiGroups: [""]
       resources: ["pods/status"]
       verbs: ["get"]
+    - apiGroups: [""]
+      resources: ["configmaps"]
+      verbs: ["create", "delete", "get", "list", "update"]
     - apiGroups: [""]
       resources: ["persistentvolumeclaims"]
       verbs: ["create", "delete", "get", "list"]

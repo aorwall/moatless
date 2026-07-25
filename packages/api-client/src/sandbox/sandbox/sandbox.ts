@@ -57,31 +57,31 @@ type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 /**
  * @summary Clean up a sandbox and all associated resources.
  */
-export type cleanupHandlerResponse204 = {
+export type removeHandlerResponse204 = {
   data: void
   status: 204
 }
 
-export type cleanupHandlerResponse409 = {
+export type removeHandlerResponse409 = {
   data: ErrorBody
   status: 409
 }
 
-export type cleanupHandlerResponse500 = {
+export type removeHandlerResponse500 = {
   data: ErrorBody
   status: 500
 }
     
-export type cleanupHandlerResponseSuccess = (cleanupHandlerResponse204) & {
+export type removeHandlerResponseSuccess = (removeHandlerResponse204) & {
   headers: Headers;
 };
-export type cleanupHandlerResponseError = (cleanupHandlerResponse409 | cleanupHandlerResponse500) & {
+export type removeHandlerResponseError = (removeHandlerResponse409 | removeHandlerResponse500) & {
   headers: Headers;
 };
 
-export type cleanupHandlerResponse = (cleanupHandlerResponseSuccess | cleanupHandlerResponseError)
+export type removeHandlerResponse = (removeHandlerResponseSuccess | removeHandlerResponseError)
 
-export const getCleanupHandlerUrl = (taskId: string,) => {
+export const getRemoveHandlerUrl = (taskId: string,) => {
 
 
   
@@ -89,9 +89,9 @@ export const getCleanupHandlerUrl = (taskId: string,) => {
   return `/api/sandbox/v1/tasks/${taskId}/cleanup`
 }
 
-export const cleanupHandler = async (taskId: string, options?: RequestInit): Promise<cleanupHandlerResponse> => {
+export const removeHandler = async (taskId: string, options?: RequestInit): Promise<removeHandlerResponse> => {
   
-  return customInstance<cleanupHandlerResponse>(getCleanupHandlerUrl(taskId),
+  return customInstance<removeHandlerResponse>(getRemoveHandlerUrl(taskId),
   {      
     ...options,
     method: 'POST'
@@ -103,11 +103,11 @@ export const cleanupHandler = async (taskId: string, options?: RequestInit): Pro
 
 
 
-export const getCleanupHandlerMutationOptions = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cleanupHandler>>, TError,{taskId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
-): UseMutationOptions<Awaited<ReturnType<typeof cleanupHandler>>, TError,{taskId: string}, TContext> => {
+export const getRemoveHandlerMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeHandler>>, TError,{taskId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof removeHandler>>, TError,{taskId: string}, TContext> => {
 
-const mutationKey = ['cleanupHandler'];
+const mutationKey = ['removeHandler'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -117,10 +117,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof cleanupHandler>>, {taskId: string}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof removeHandler>>, {taskId: string}> = (props) => {
           const {taskId} = props ?? {};
 
-          return  cleanupHandler(taskId,requestOptions)
+          return  removeHandler(taskId,requestOptions)
         }
 
 
@@ -130,22 +130,22 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
   return  { mutationFn, ...mutationOptions }}
 
-    export type CleanupHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof cleanupHandler>>>
+    export type RemoveHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof removeHandler>>>
     
-    export type CleanupHandlerMutationError = ErrorType<ErrorBody>
+    export type RemoveHandlerMutationError = ErrorType<ErrorBody>
 
     /**
  * @summary Clean up a sandbox and all associated resources.
  */
-export const useCleanupHandler = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cleanupHandler>>, TError,{taskId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+export const useRemoveHandler = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeHandler>>, TError,{taskId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof cleanupHandler>>,
+        Awaited<ReturnType<typeof removeHandler>>,
         TError,
         {taskId: string},
         TContext
       > => {
-      return useMutation(getCleanupHandlerMutationOptions(options), queryClient);
+      return useMutation(getRemoveHandlerMutationOptions(options), queryClient);
     }
     /**
  * @summary List files in the sandbox workspace.

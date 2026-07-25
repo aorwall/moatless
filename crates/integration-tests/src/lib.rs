@@ -441,7 +441,6 @@ pub fn reset_database() {
         "provider_tokens",
         "secret_audit_events",
         "secrets",
-        "commands",
         "file_metadata",
         "tags",
     ];

@@ -269,7 +269,7 @@ pub async fn redeploy_handler(
         (status = 500, description = "Cleanup failed", body = crate::error::ErrorBody)
     )
 )]
-pub async fn cleanup_handler(
+pub async fn remove_handler(
     State(state): State<SandboxApiState>,
     OptionalScope(scope): OptionalScope,
     Path(task_id): Path<String>,

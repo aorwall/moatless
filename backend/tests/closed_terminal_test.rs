@@ -225,33 +225,3 @@ async fn reconcile_error_keeps_closed_but_appends_message(pool: PgPool) {
         "the synthetic error message row should still be appended"
     );
 }
-
-// =========================================================================
-// Auto-provision gate (Fix B) — direct fix for the "close started it again" race
-// =========================================================================
-
-#[sqlx::test]
-async fn build_provision_request_rejects_closed_task(pool: PgPool) {
-    use moatless_vibe_backend::auth::provider_token_dao::PgProviderTokenRepository;
-    use moatless_vibe_backend::plugin_repo::dao::PgPluginRepoRepository;
-    use moatless_vibe_backend::repository::dao::PgRepoRepository;
-    use moatless_vibe_backend::sandbox::auto_provision::build_provision_request;
-    use moatless_vibe_backend::workspace::dao::PgWorkspaceRepository;
-
-    seed_with_status(&pool, "task-prov", TaskStatus::Closed).await;
-
-    let result = build_provision_request(
-        &PgTaskRepository(pool.clone()),
-        &PgRepoRepository(pool.clone()),
-        &PgProviderTokenRepository(pool.clone()),
-        &PgPluginRepoRepository(pool.clone()),
-        &PgWorkspaceRepository(pool.clone()),
-        "task-prov",
-    )
-    .await;
-
-    assert!(
-        result.is_err(),
-        "a closed task must not be provisioned — a webhook racing a close is rejected"
-    );
-}

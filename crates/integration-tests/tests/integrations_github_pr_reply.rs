@@ -1,7 +1,8 @@
 //! Canonical task reply routing tests for task bindings.
 
 use integration_tests::{
-    base_url, create_webhook_integration, ensure_template_repo, raw_api, test_client,
+    base_url, create_webhook_integration, ensure_template_repo, raw_admin_client, raw_api,
+    test_client,
 };
 use moatless_api_schemas::bindings::{
     CreateTaskBindingRequest, MultipleTargetsErrorBody, SendTaskReplyRequest,
@@ -50,11 +51,12 @@ async fn cleanup(client: &MoatClient, task_id: &str) {
 #[tokio::test]
 async fn reply_returns_404_when_no_bindings() {
     let client = test_client().await;
+    let http = raw_admin_client().await;
     let repo_id = ensure_template_repo(&client).await;
     let task_id = create_bare_task(&client, &repo_id).await;
 
     let resp = raw_api::send_task_reply_raw(
-        &reqwest::Client::new(),
+        &http,
         &task_id,
         &serde_json::json!({
             "text": "should fail - no bindings",
@@ -130,6 +132,7 @@ async fn reply_succeeds_with_single_binding() {
 #[tokio::test]
 async fn reply_returns_400_when_multiple_bindings() {
     let client = test_client().await;
+    let http = raw_admin_client().await;
     let repo_id = ensure_template_repo(&client).await;
     let suffix = timestamp_suffix();
     let task_id = create_bare_task(&client, &repo_id).await;
@@ -164,7 +167,7 @@ async fn reply_returns_400_when_multiple_bindings() {
     }
 
     let resp = raw_api::send_task_reply_raw(
-        &reqwest::Client::new(),
+        &http,
         &task_id,
         &serde_json::json!({
             "text": "should fail - multiple bindings",
@@ -195,6 +198,7 @@ async fn reply_returns_400_when_multiple_bindings() {
 #[tokio::test]
 async fn reply_succeeds_with_explicit_binding_flag() {
     let client = test_client().await;
+    let http = raw_admin_client().await;
     let repo_id = ensure_template_repo(&client).await;
     let suffix = timestamp_suffix();
     let task_id = create_bare_task(&client, &repo_id).await;
@@ -227,7 +231,7 @@ async fn reply_succeeds_with_explicit_binding_flag() {
         .unwrap();
 
     let resp = raw_api::send_task_reply_to_binding_raw(
-        &reqwest::Client::new(),
+        &http,
         &task_id,
         &binding.id,
         "explicit-binding reply",
@@ -243,10 +247,11 @@ async fn reply_succeeds_with_explicit_binding_flag() {
 #[tokio::test]
 async fn reply_binding_route_returns_404_for_unknown_binding() {
     let client = test_client().await;
+    let http = raw_admin_client().await;
     let repo_id = ensure_template_repo(&client).await;
     let task_id = create_bare_task(&client, &repo_id).await;
 
-    let resp = reqwest::Client::new()
+    let resp = http
         .post(format!("{}/api/v1/tasks/{}/reply", base_url(), task_id))
         .json(&serde_json::json!({
             "text": "binding that does not exist",

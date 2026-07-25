@@ -12,7 +12,7 @@
           "sandbox"
         ],
         "summary": "Clean up a sandbox and all associated resources.",
-        "operationId": "cleanup_handler",
+        "operationId": "remove_handler",
         "parameters": [
           {
             "name": "task_id",
@@ -5329,7 +5329,7 @@
           "tasks"
         ],
         "summary": "Reopen a previously closed task.",
-        "description": "Flips a `Closed` task back to `Open` so it can be started and chatted with\nagain. No sandbox is provisioned here — that happens on the next `start` or\ninbound message, at which point the sandbox restores any retained S3 state\n(Claude transcript + `s3`-mode workspace) keyed by `task_id`. Whether that\nstate still exists depends on `SANDBOX_RETAIN_STORAGE_ON_CLOSE` having been\nset when the task was closed; if not, the task reopens with a fresh\nsandbox. External bindings deactivated on close are left inactive.",
+        "description": "Flips a `Closed` task back to `Open` so it can be started and chatted with\nagain. No sandbox is provisioned here — that happens on the next `start` or\ninbound message, at which point the sandbox restores retained S3 state or\npins retained node-local state keyed by `task_id`. Whether that\nstate still exists depends on `SANDBOX_RETAIN_STORAGE_ON_CLOSE` having been\nset when the task was closed; if not, the task reopens with a fresh\nsandbox. External bindings deactivated on close are left inactive.",
         "operationId": "reopen_task",
         "parameters": [
           {

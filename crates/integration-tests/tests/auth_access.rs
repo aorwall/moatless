@@ -3,10 +3,14 @@
 //! Mirrors: tests/api/chains/auth-access-control.spec.ts
 //! Spec IDs: AUTH-20 through AUTH-26
 
+use futures_util::future::join_all;
 use integration_tests::{
-    base_url, client_as_user, create_repo_request, raw_client_as_user, relogin, seed_test_users,
+    admin_client, base_url, client_as_user, create_repo_request, raw_client_as_user, relogin,
+    seed_test_users,
 };
-use moatless_api_schemas::enums::{RepositoryKind, Scope};
+use moatless_api_client::ApiError;
+use moatless_api_schemas::auth::CreateUserRequest;
+use moatless_api_schemas::enums::{RepositoryKind, Scope, UserRole};
 use moatless_api_schemas::repository::UpdateRepositoryRequest;
 use moatless_api_schemas::task::CreateTaskRequest;
 use moatless_api_schemas::team::{AddTeamMemberRequest, CreateTeamRequest};
@@ -18,6 +22,37 @@ fn timestamp_suffix() -> String {
         .unwrap()
         .as_millis()
         .to_string()
+}
+
+#[tokio::test]
+async fn concurrent_local_user_creation_returns_conflict_not_internal_error() {
+    let login = format!("concurrent-user-{}", timestamp_suffix());
+    let results = join_all((0..8).map(|_| {
+        let login = login.clone();
+        async move {
+            admin_client()
+                .await
+                .api()
+                .create_user(&CreateUserRequest {
+                    is_bot: false,
+                    github_app_key: None,
+                    login: Some(login),
+                    password: Some("integration-test-password".to_string()),
+                    role: Some(UserRole::User),
+                    must_change_password: Some(false),
+                })
+                .await
+        }
+    }))
+    .await;
+
+    assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+    for error in results.into_iter().filter_map(Result::err) {
+        assert!(
+            matches!(error, ApiError::Api { status: 409, .. }),
+            "racing local-user creation returned {error}"
+        );
+    }
 }
 
 // AUTH-27

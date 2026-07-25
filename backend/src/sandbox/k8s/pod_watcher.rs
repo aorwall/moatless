@@ -42,8 +42,8 @@ use crate::sandbox::lifecycle::runtime::{
 use crate::sandbox::lifecycle::watcher::{
     classify_observation, publish_sandbox_observation,
 };
-use crate::sandbox::lifecycle::OperationGeneration;
 use crate::sandbox::lifecycle::Lifecycle;
+use crate::sandbox::lifecycle::OperationGeneration;
 use crate::task::dao::{TaskPatch, TaskRepository};
 use crate::task::models::SandboxStopReason;
 use crate::task_event::dao::TaskEventRepository;
@@ -394,6 +394,29 @@ async fn process_watcher_event(
                 .to_string();
 
             let mut new_state = extract_pod_observed_state(pod, &pod_name, &task_id);
+
+            // Node-backed workspace/Docker archives outlive the pod. Record a
+            // scheduled location on first observation and whenever the node or
+            // operation generation changes. Watcher persistence is best-effort;
+            // start/remove also synchronously merge the current pod before a
+            // load-bearing placement or deletion decision.
+            let should_record_node = new_state.node_name.is_some()
+                && pod_states.get(&pod_name).is_none_or(|previous| {
+                    previous.node_name != new_state.node_name
+                        || previous.operation_generation != new_state.operation_generation
+                });
+            if should_record_node {
+                if let Err(error) =
+                    super::node_archive::record_observed_pod(k8s, &task_id, pod).await
+                {
+                    warn!(
+                        task_id,
+                        pod_name,
+                        error = %error,
+                        "Failed to record node-local sandbox archive location"
+                    );
+                }
+            }
 
             // During InitApply, populate the map silently without publishing events
             if is_init {

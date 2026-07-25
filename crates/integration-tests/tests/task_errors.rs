@@ -3,13 +3,13 @@
 //! Mirrors: tests/api/chains/task-errors.spec.ts
 //! Spec IDs: TASK-10 through TASK-11
 
-use integration_tests::{ensure_template_repo, raw_api, test_client};
+use integration_tests::{ensure_template_repo, raw_admin_client, raw_api, test_client};
 use moatless_api_schemas::task::CreateTaskRequest;
 
 // TASK-10: Create task with invalid repository (404)
 #[tokio::test]
 async fn task_create_invalid_repository() {
-    let http = reqwest::Client::new();
+    let http = raw_admin_client().await;
     let resp = raw_api::create_task_raw(
         &http,
         &serde_json::json!({
@@ -26,7 +26,7 @@ async fn task_create_invalid_repository() {
 #[tokio::test]
 async fn task_send_message_to_closed_task() {
     let client = test_client().await;
-    let http = reqwest::Client::new();
+    let http = raw_admin_client().await;
     let repo_id = ensure_template_repo(&client).await;
 
     // Create a task

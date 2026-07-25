@@ -27,6 +27,9 @@ rules:
   - apiGroups: ["apps"]
     resources: ["deployments"]
     verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -96,6 +99,18 @@ spec:
                   "$url" 2>&1 | awk '/^  HTTP\// { code=$2 } END { print code }'
               }
 
+              archive_metadata_status() {
+                task_id="$1"
+                sanitized="$(sanitize_task_id "$task_id")"
+                config_map_name="$(printf 'moatless-archive-%s' "$sanitized" | cut -c1-63)"
+                url="$api_server/api/v1/namespaces/$SANDBOX_NAMESPACE/configmaps/$config_map_name"
+
+                wget -S -O /dev/null \
+                  --header "Authorization: Bearer $token" \
+                  --ca-certificate "$ca_path" \
+                  "$url" 2>&1 | awk '/^  HTTP\// { code=$2 } END { print code }'
+              }
+
               while true; do
                 for dir in /host-cache/workspaces /host-cache/docker; do
                   mkdir -p "$dir"
@@ -103,7 +118,12 @@ spec:
                     task_id="$(basename "$path")"
                     status="$(deployment_status "$task_id")"
                     if [ "$status" = "404" ]; then
-                      rm -rf "$path"
+                      archive_status="$(archive_metadata_status "$task_id")"
+                      if [ "$archive_status" = "404" ]; then
+                        rm -rf "$path"
+                      elif [ "$archive_status" != "200" ]; then
+                        echo "Skipping $path: could not confirm archive metadata absence (HTTP ${archive_status:-unknown})"
+                      fi
                     elif [ "$status" != "200" ]; then
                       echo "Skipping $path: could not confirm Deployment deletion (HTTP ${status:-unknown})"
                     fi

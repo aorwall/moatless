@@ -1,8 +1,6 @@
 # Sandbox Lifecycle Architecture
 
-**Status:** Accepted 2026-07-21 · implementation in progress. Order-of-work
-step 1 — the lifecycle module foundation — is on PR #154; steps 2–4 remain. An
-ADR for the ordering/serialization choices ships with the implementation PR.
+**Status:** Accepted 2026-07-21 · implemented 2026-07-24.
 
 A deep `sandbox::lifecycle` module owns durable lifecycle intent and
 orchestration for a Task's Sandbox. Kubernetes and Docker are infrastructure
@@ -45,6 +43,10 @@ Three traits, all implemented by the K8s and Docker adapters:
   (agent idle status) goes through a consumer-owned one-method
   `AgentStatusPort` whose implementation wraps the connector.
 
+`SandboxApiState` contains exactly the observer, connector, lifecycle handle,
+and the Task/Team authorization repositories. The landed state does not expose
+plan-construction repositories or a runtime adapter to handlers.
+
 The seam line is unchanged: infrastructure state transitions (lifecycle only)
 vs. interior access and observation — consistent with Agent/Turn lifecycle
 sitting outside the module. `expected_sandbox_image` is plan knowledge and
@@ -52,8 +54,11 @@ belongs to lifecycle, not observation: the status handler's image-freshness
 hint obtains it through the lifecycle handle. Observer and Connector are
 deliberate interface segregation — capability restrictions, not deep modules;
 the depth claim in this document applies to `sandbox::lifecycle`. `AppState`
-carries exactly one sandbox value — the lifecycle handle, named `sandbox`, so
-callers read `state.sandbox.stop(..)`.
+carries exactly one Sandbox domain value — the lifecycle handle, named
+`sandbox`, so callers read `state.sandbox.stop(..)`. Consumer-owned capability
+ports (`SandboxObserver`, `SandboxConnector`, and the reaper's
+`AgentStatusPort`) live beside that value only in the consumer state that needs
+them; they are not additional Sandbox domain values on `AppState`.
 
 Repository seams stay internal to the lifecycle implementation.
 
@@ -85,10 +90,12 @@ Typed surface requirements:
   infrastructure did nothing. Adapters legitimately differ:
   Docker completes transitions synchronously and reports `Ready`; Kubernetes
   returns `Starting` and readiness arrives through observation.
-- `ArchiveRetention::{RetainArchives, DeleteArchives}`: typed policy for S3
-  archives replacing the bare `retain_storage: bool`; runtime resources are
-  always removed. Persisted alongside `Removed` intent in the same atomic write,
-  so a crashed remove can be retried with the original policy.
+- `ArchiveRetention::{RetainArchives, DeleteArchives}`: typed policy for S3 and
+  provider-local disk archives replacing the bare `retain_storage: bool`;
+  runtime resources are always removed. Disk archives are the Docker task
+  directory and Kubernetes node-backed workspace/Docker hostPaths. Persisted
+  alongside `Removed` intent in the same atomic write, so a crashed remove can
+  be retried with the original policy.
 - `LifecycleError`: classifiable, not stringly — the reconciler's attempt cap and
   the schedule runner's failure metrics need error classes; HTTP callers map to
   strict failures, background callers to best-effort logging. Includes
@@ -223,10 +230,13 @@ intent and its retention carry.
   above). Marker age is a recovery signal, never proof of completion: stale
   level-operation markers are reconciled and **never cleared merely because of
   age**; in particular, an incomplete remove marker survives until strict
-  success. A stale edge marker first disables event suppression, then is cleared
-  only after the replacement generation is observed Ready or the edge is
-  durably classified as abandoned with its deterministic `Error` fact
-  persisted. Its
+  success. Edge staleness has **two bounds**: the first disables watcher
+  suppression so failures become visible; the later abandonment bound permits
+  the deterministic `Error` fact and marker clear. Even after the second bound,
+  a matching replacement generation observed `Starting` is never abandoned —
+  age cannot prove that an in-flight replacement failed. The marker clears only
+  after that generation is observed Ready or is durably classified as abandoned
+  under those rules. Its
   **leader-local attempt cap** (deliberately not called a durable budget — it
   resets on leader failover, accepted looseness) uses exponential backoff,
   retries only transient error classes (runtime/infra), never permanent ones
@@ -238,7 +248,7 @@ intent and its retention carry.
   never bare "state"): desired **Running** ↔ observed `Ready`; desired **Stopped** ↔
   observed `Stopped` **or absent** (a missing runtime satisfies Stopped);
   desired **Removed** ↔ **every runtime resource absent, PVC unconditionally
-  included** (`ArchiveRetention` governs S3 archives only, never PVCs) —
+  included** (`ArchiveRetention` governs S3 and disk archives, never PVCs) —
   accepted-but-still-terminating is not converged. Non-converged states all
   have a rule: desired Running + observed `Starting` → wait, remediated by
   the pending-timeout pass after its deadline; desired Running + observed
@@ -284,10 +294,10 @@ intent and its retention carry.
   retrying, and the delete is idempotent to re-attempt. The Task row and its
   Sandbox row are the durable retry record — never deleted ahead of the
   infrastructure and archives they track. **Removal is strict:** every
-  deletion is load-bearing — Deployment and PVC (already strict today), S3
-  archive deletion (today logged-and-swallowed in
-  `delete_task_transcripts`), and Docker force-removal — so a "successful"
-  remove cannot leave invisible archives behind. **Strict success means
+  deletion is load-bearing — Deployment and PVC, S3 archive deletion,
+  Kubernetes node-cleanup pods and metadata, Docker task-directory deletion,
+  and Docker force-removal — so a "successful" remove cannot leave invisible
+  archives behind. **Strict success means
   observed absence, not accepted deletion:** Kubernetes delete calls return
   when the request is accepted, so `remove` awaits actual absence of every
   resource (as `wait_for_pods_deleted` already does for pods) before it
@@ -464,16 +474,15 @@ Notes that bound the migration:
 - The Message repository gains a runtime-neutral query for Tasks with
   unacknowledged user Messages and a supporting partial index on pending rows;
   reconciliation must not scan Task Messages one Task at a time.
-- The failure event `insert_and_provision_task` publishes today moves into
-  lifecycle.
+- Task-creation failures are published through lifecycle rather than a
+  task-handler provisioning workflow.
 - The plan-construction repositories (`repos`, `provider_tokens`,
-  `plugin_repos`) move behind lifecycle. `SandboxApiState` keeps `tasks` and
-  `teams` (authorization), `workspaces` (status/server-config reads), and
-  `secrets`, alongside the lifecycle handle and the observer/connector traits.
-  `AppState` carries exactly one sandbox value — the lifecycle handle as
-  `state.sandbox`; the provider handle leaves `AppState` (its only non-route
-  consumer, the reaper's idle-eligibility read, goes through the
-  consumer-owned one-method `AgentStatusPort`).
+  `plugin_repos`) live behind lifecycle. The landed `SandboxApiState` contains
+  `tasks` and `teams` for authorization alongside the lifecycle handle and the
+  observer/connector capability ports. `AppState` carries exactly one Sandbox
+  domain value — the lifecycle handle as `state.sandbox`; the reaper's
+  idle-eligibility read goes through its consumer-owned one-method
+  `AgentStatusPort`.
 - The public `/cleanup` HTTP route path is stable; internals rename to
   `remove`.
 
@@ -521,7 +530,7 @@ Order of work:
    `expected_sandbox_image` moves behind lifecycle with the rest of plan
    knowledge.
 4. **Delete shallow paths** — plan orchestration and intent helpers in callers
-   (`record_sandbox_*`, adapter `provision_task` clones, watcher side door).
+   (`record_sandbox_*`, adapter start clones, watcher side door).
 
 Each step lands only its own machinery — no unwired abstractions ahead of
 their step beyond the foundation above. Corners discovered during
@@ -552,9 +561,10 @@ The interface is the test surface:
   times out, Running/error repairs through `ensure_running`, Stopped/absent
   converges, Stopped/any-live-status stops, and Removed/any-live-status removes.
 - **Removal-obligation matrix:** accepted-but-not-absent Kubernetes deletion
-  does not succeed; an archive failure after runtime absence retains the remove
-  marker; stale remove markers are never age-cleared; Removed/absent with an
-  incomplete marker retries with the persisted retention and generation.
+  does not succeed; an S3 or disk-archive failure after runtime absence retains
+  the remove marker; stale remove markers are never age-cleared; Removed/absent
+  with an incomplete marker retries with the persisted retention and
+  generation.
 - **Correlation matrix:** `RuntimeOperationContext` reaches every adapter
   mutation; K8s restart labels the replacement pod under `Recreate`; Docker
   restart recreates and labels the sandbox container; server-container events

@@ -1,8 +1,10 @@
-//! Provider-agnostic auto-provisioning logic.
+//! Provider-agnostic lifecycle plan construction and pod-watcher config reads.
 //!
-//! Reads task + repository from DB, resolves credentials, and builds
-//! a `ProvisionRequest`. Used by handlers and other modules that need
-//! to ensure a sandbox is running without knowing provisioning details.
+//! Lifecycle uses [`build_provision_request`] to assemble a fresh runtime plan
+//! from durable Task, Workspace, repository, and plugin state. The Kubernetes
+//! pod watcher also uses the server-config/disabled-server parsing helpers when
+//! classifying and remediating server failures. HTTP and adapter callers do not
+//! provision through this module; they call `state.sandbox`.
 
 use tracing::{info, warn};
 
@@ -16,8 +18,8 @@ use crate::task::dao::TaskRepository;
 use crate::task::models::Task;
 use crate::workspace::dao::WorkspaceRepository;
 
-// Re-export the workspace-sourced config builders from k8s/auto_provision so
-// existing callers can use the same path.
+// Re-export the workspace-sourced config builders from k8s/auto_provision. They
+// are shared by lifecycle plan construction and pod-watcher parsing.
 pub use crate::sandbox::k8s::auto_provision::{
     build_repo_config_from_workspace, build_server_configs_from_workspace, filter_disabled_servers,
     parse_disabled_servers, parse_env_vars_from_workspace,

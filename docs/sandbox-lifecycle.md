@@ -29,10 +29,10 @@ document covers the *control plane*: the lifecycle machinery in
 ## Lifecycle at a Glance
 
 Each task owns at most one sandbox: a Kubernetes **Deployment** (plus
-Service, PVC, Secret, IngressRoutes) named `moatless-ws-{task_id}` in the
-sandbox namespace. The Deployment's `replicas` field is the on/off switch —
-stop is *scale to 0*, start is *scale to 1* — so a stopped sandbox keeps its
-PVC and restarts cheaply.
+Service, optional PVC, Secret, IngressRoutes) named `moatless-ws-{task_id}` in
+the sandbox namespace. The Deployment's `replicas` field is the on/off switch
+— stop is *scale to 0*, start is *scale to 1* — so ordinary stop/start keeps
+the task's configured storage.
 
 The lazily-created `sandboxes` row persists control-plane intent:
 `desired_state` is `running`, `stopped`, or `removed`, with `stop_reason`
@@ -73,7 +73,8 @@ These background subsystems drive everything that isn't a direct API call:
    ports 8001 HTTP / 50052 gRPC) plus one container per configured server
    (`{name}-server`, data-driven from the repository's `servers` config).
 3. **Service** (ClusterIP) — sandbox HTTP/gRPC + all server ports.
-4. **PVC** — persistent `/opt/moatless/workspace` (default 3Gi, `ebs` mode).
+4. **Workspace storage** — a PVC in `ebs` mode, `emptyDir` in `ephemeral` or
+   `s3` mode, or task-scoped hostPath data in `node` mode.
 5. **Secret** — git credentials, backend JWT, agent credentials.
 6. **IngressRoute** (Traefik CRD) — one per server port:
    `{task_id}--{port}.{proxy_domain}`.
@@ -86,7 +87,15 @@ Notable behaviors:
 
 - **Auto-provisioning** (`auto_provision.rs`): `start` on a
   never-provisioned or cleaned-up task rebuilds the full provision plan from
-  the DB (task + repository + credentials), so "start" always works.
+  the DB (task + repository + credentials). This module also parses the
+  repository's server config for the pod watcher; it is not a separate
+  lifecycle owner.
+- **Node archive placement** (`k8s/node_archive.rs`): the pod watcher records
+  each scheduled node and operation generation in a deterministic task
+  ConfigMap. A retained `node`-mode start pins the pod to the newest recorded
+  node that still exists. If none of the recorded nodes survives, start
+  returns a retriable infrastructure error instead of mounting a new, empty
+  hostPath.
 - **Per-repo resource overrides**: the repository config's `resources` field
   overrides the global CPU/memory requests/limits. Defaults are deliberately
   Burstable: requests 1 CPU / 2Gi, limits 4 CPU / **16Gi** (raised from 8Gi
@@ -148,10 +157,12 @@ only pod-level failures are treated as dead.
   carry `moatless.io/operation-generation`. Watchers publish Ready convergence
   and unexpected divergence, suppress operation echoes, and suppress only the
   superseded generation's deliberate stop/delete during a fresh
-  restart/redeploy. Crashes, OOM kills, and evictions always publish. A stale
-  edge stops suppressing; the reconciler clears it only after matching
-  replacement Ready or after atomically persisting its deterministic Error
-  fact as abandonment.
+  restart/redeploy. Crashes, OOM kills, and evictions always publish. Suppression
+  has two bounds: the edge expires by age and cannot suppress a newer
+  operation generation. A stale edge stops suppressing; the reconciler clears
+  it only after matching replacement Ready or after atomically persisting its
+  deterministic Error fact as abandonment. It never abandons an operation
+  while that same generation is still observed as `Starting`.
 - **Spot-node removal is not fatal** (PR #306): when a pod disappears with
   `pod_status_reason` in `DeletionByPodGC` / `NodeLost` / `NodeShutdown` /
   `Terminated`, or exits cleanly while the Deployment still desires a
@@ -301,18 +312,21 @@ by lifecycle and the reconciler.
 | **Stop** | Graceful `StopAgent`, scale Deployment to 0. PVC, Service, Secret, IngressRoutes remain. | Yes — `start` scales back to 1 |
 | **Start** | Scale to 1; auto-provision from DB if resources are missing | — |
 | **Restart** | Delete pods; the Deployment recreates them | — |
-| **Cleanup / Close / Delete** | Delete *all* task resources (Deployment, Service, PVC, Secret, IngressRoutes — the Service deletion was a missing cascade step fixed in PR #287) | No |
+| **Close with retained archives** | Delete all runtime resources, including the PVC, but preserve S3 and provider-local disk archives. In K8s node mode the task archive ConfigMap and hostPath directories remain. | Yes — reopen, then start pins to retained node data |
+| **Cleanup / Delete** | Delete all runtime resources and archives. K8s node archives are removed by deterministic per-node cleanup pods before their metadata ConfigMap is deleted; Docker removes the task directory under `CONTAINER_DATA_DIR`. | No |
 
 These operations update persisted intent before or as they act: create/start
 and new messages set `running`; user stop sets `stopped/user`; idle reaping
 sets `stopped/idle_reaper`; crash-loop auto-stop sets `stopped/error`; cleanup
 and close set `removed/cleanup`.
 
-**Closed is terminal.** Sending a message to a Closed task returns **409
-Conflict** (PR #295) instead of silently reviving nothing — the sandbox is
-gone and the task will not reopen. External adapters (GitHub PR comments,
-Linear, Slack, scheduled triggers) still drop the message silently, since a
-409 means nothing to a webhook. Tasks in `Error` status remain sendable.
+**Closed rejects lifecycle starts and messages.** Sending a message to a
+Closed task returns **409 Conflict** (PR #295); external adapters (GitHub PR
+comments, Linear, Slack, scheduled triggers) drop it silently because a 409
+means nothing to a webhook. An explicit task reopen changes the task back to
+Open. Its next start can restore retained archives when
+`SANDBOX_RETAIN_STORAGE_ON_CLOSE=true`; otherwise it provisions fresh state.
+Tasks in `Error` status remain sendable.
 
 ## Credential Handling
 
@@ -338,7 +352,8 @@ than baking them into the pod. Two flows matter for lifecycle:
 
 ## Build Caches & Toolchain
 
-- Volumes per pod: `workspace-data` (PVC, survives stop/start),
+- Volumes per pod: `workspace-data` (PVC, emptyDir, or task hostPath according
+  to storage mode),
   `shared-data` (emptyDir), `build-cache` (emptyDir, sized by
   `K8S_SANDBOX_BUILD_CACHE_SIZE`, default 1536Mi — lost on pod restart),
   `tmp` (memory-backed).
@@ -373,6 +388,15 @@ All read from env at backend startup (`backend/src/config.rs`).
 | `TASK_INACTIVE_TIMEOUT_DAYS` | `7` | Auto-close floor for Open tasks (per-task override; 0 = never) |
 | `SANDBOX_MAX_CRASH_RESTART_COUNT` | `5` | Restarts before crash-loop classification |
 | `SANDBOX_ORPHAN_GC_ENABLED` | `true` | Taskless-resource GC pass |
+| `SANDBOX_RETAIN_STORAGE_ON_CLOSE` | `false` | Preserve S3 and provider-local disk archives on close so an explicit reopen can revive them |
+
+### Sandbox storage
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `K8S_SANDBOX_DEFAULT_STORAGE_MODE` | `ebs` | Default K8s workspace mode (`ebs`, `ephemeral`, `s3`, or `node`); per-repository config wins |
+| `K8S_SANDBOX_CACHE_HOST_ROOT` | `/mnt/cache` | Host root containing `node`-mode `workspaces/<task-id>` and `docker/<task-id>` archives |
+| `CONTAINER_DATA_DIR` | `/data` | Docker provider data root; each task's disk archive is stored below `tasks/<task-id>` |
 
 ### Resources & storage
 

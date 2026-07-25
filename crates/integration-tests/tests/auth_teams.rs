@@ -124,13 +124,13 @@ async fn team_membership_chain() {
     alice
         .client
         .api()
-        .remove_member(&team_id, "bob-test")
+        .remove_member(&team_id, &bob.id)
         .await
         .unwrap();
 
     // AUTH-07.1: Removed member no longer in listing
     let members = alice.client.api().list_members(&team_id).await.unwrap();
-    assert!(!members.iter().any(|m| m.user_id == "bob-test"));
+    assert!(!members.iter().any(|m| m.user_id == bob.id));
 
     // Cleanup
     let _ = alice.client.api().delete_team(&team_id).await;
@@ -164,9 +164,9 @@ async fn team_credentials_chain() {
         .api()
         .upsert_credential(
             &team_id,
-            "github",
+            "gitlab",
             &UpsertTeamCredentialRequest {
-                access_token: "ghp_test_token_12345".into(),
+                access_token: "glpat_test_token_12345".into(),
                 metadata: None,
                 refresh_token: None,
                 token_type: None,
@@ -177,23 +177,23 @@ async fn team_credentials_chain() {
 
     // AUTH-08.1: Credential appears in listing
     let creds = alice.client.api().list_credentials(&team_id).await.unwrap();
-    let github = creds.iter().find(|c| c.provider == "github");
-    assert!(github.is_some());
+    let gitlab = creds.iter().find(|c| c.provider == "gitlab");
+    assert!(gitlab.is_some());
     // Access token must NOT be exposed in listing
-    let cred_json = serde_json::to_string(&github.unwrap()).unwrap();
-    assert!(!cred_json.contains("ghp_test_token"));
+    let cred_json = serde_json::to_string(&gitlab.unwrap()).unwrap();
+    assert!(!cred_json.contains("glpat_test_token"));
 
     // AUTH-08.2: Delete team credential
     alice
         .client
         .api()
-        .delete_credential(&team_id, "github")
+        .delete_credential(&team_id, "gitlab")
         .await
         .unwrap();
 
     // AUTH-08.2.1: Credential removed from listing
     let creds = alice.client.api().list_credentials(&team_id).await.unwrap();
-    assert!(!creds.iter().any(|c| c.provider == "github"));
+    assert!(!creds.iter().any(|c| c.provider == "gitlab"));
 
     // Cleanup
     let _ = alice.client.api().delete_team(&team_id).await;

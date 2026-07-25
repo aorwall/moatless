@@ -47,9 +47,10 @@ kubernetes:
   imagePrepull:
     enabled: false
   sandboxStorage:
-    # Default 's3' needs a real bucket; 'ephemeral' runs on a node-local emptyDir
-    # and avoids per-task PVC churn.
-    defaultMode: "ephemeral"
+    # Default 's3' needs a real bucket. Node mode keeps workspaces and
+    # transcripts on Docker Desktop's node disk across pod replacement and
+    # retained close/reopen flows.
+    defaultMode: "node"
   # Drop the tcp_keepalive_* entries: some kubelets reject them as unsafe, which
   # blocks sandbox pod admission. Keep only the safe local-port-range sysctl.
   sandboxSysctls:

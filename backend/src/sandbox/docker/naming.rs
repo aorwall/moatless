@@ -89,6 +89,28 @@ pub fn generate_claude_config_host_path(data_dir: &str, task_id: &str) -> String
     path.to_string_lossy().to_string()
 }
 
+/// Generate the task-scoped data directory that owns every Docker-mode disk
+/// archive (`repo`, `data`, and `claude-config`).
+///
+/// Reject path separators and traversal components before this path is used by
+/// hard deletion.
+pub fn generate_task_host_path(data_dir: &str, task_id: &str) -> Result<PathBuf, String> {
+    let task_path = std::path::Path::new(task_id);
+    let mut components = task_path.components();
+    let valid = matches!(
+        (components.next(), components.next()),
+        (Some(std::path::Component::Normal(_)), None)
+    );
+    if !valid {
+        return Err(format!("invalid task id for disk archive path: {task_id}"));
+    }
+
+    let mut path = PathBuf::from(data_dir);
+    path.push("tasks");
+    path.push(task_id);
+    Ok(path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -141,6 +163,16 @@ mod tests {
         let path = generate_sandbox_host_path("/data/", "task-123");
         assert!(path.contains("tasks"));
         assert!(path.contains("task-123"));
+    }
+
+    #[test]
+    fn task_path_rejects_traversal() {
+        assert!(generate_task_host_path("/data", "../escape").is_err());
+        assert!(generate_task_host_path("/data", "nested/task").is_err());
+        assert_eq!(
+            generate_task_host_path("/data", "task-123").unwrap(),
+            PathBuf::from("/data/tasks/task-123")
+        );
     }
 
     #[test]

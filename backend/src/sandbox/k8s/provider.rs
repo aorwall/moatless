@@ -14,6 +14,7 @@ use super::client::K8sClient;
 use super::deployment;
 use super::ingress;
 use super::naming::generate_service_name;
+use super::node_archive;
 use super::owner_ref;
 use super::pod_builder;
 use super::pod_reader;
@@ -118,6 +119,25 @@ impl K8sSandboxAdapter {
                 });
             }
             ExistingPodResult::Stopped { current_image } => {
+                let existing_deployment = deployment::find_deployment(&self.k8s, task_id)
+                    .await
+                    .map_err(SandboxError::KubeError)?
+                    .ok_or_else(|| {
+                        SandboxError::Internal(
+                            "stopped sandbox Deployment vanished before start".to_string(),
+                        )
+                    })?;
+                let retained_node =
+                    if node_archive::deployment_uses_node_archives(&existing_deployment) {
+                        node_archive::record_current_pod_nodes(&self.k8s, task_id)
+                            .await
+                            .map_err(|error| SandboxError::Internal(error.to_string()))?;
+                        node_archive::retained_node(&self.k8s, task_id, true)
+                            .await
+                            .map_err(|error| SandboxError::Internal(error.to_string()))?
+                    } else {
+                        None
+                    };
                 let expected = pod_builder::resolve_sandbox_image(&self.config, plan);
                 if current_image.as_deref() == Some(expected.as_str()) {
                     // Tag unchanged — fast path: scale back up.
@@ -131,6 +151,11 @@ impl K8sSandboxAdapter {
                     // A timeout here surfaces as an environment error rather than
                     // scheduling a new pod straight into the stall.
                     deployment::wait_for_pods_deleted(&self.k8s, task_id).await?;
+                    if let Some(node_name) = retained_node.as_deref() {
+                        deployment::pin_to_node(&self.k8s, task_id, node_name)
+                            .await
+                            .map_err(SandboxError::KubeError)?;
+                    }
                     deployment::stamp_operation_generation(&self.k8s, task_id, ctx)
                         .await
                         .map_err(SandboxError::KubeError)?;
@@ -151,6 +176,7 @@ impl K8sSandboxAdapter {
                         task_id,
                         request,
                         ctx,
+                        retained_node.as_deref(),
                     )
                     .await?;
                 }
@@ -197,6 +223,20 @@ impl K8sSandboxAdapter {
             Some(pod_builder::SandboxAuthTokens::from_minted(&minted_tokens)),
         )
         .map_err(SandboxError::PodBuildError)?;
+        if node_archive::pod_uses_node_archives(&pod) {
+            node_archive::record_current_pod_nodes(&self.k8s, task_id)
+                .await
+                .map_err(|error| SandboxError::Internal(error.to_string()))?;
+            if let Some(node_name) = node_archive::retained_node(&self.k8s, task_id, false)
+                .await
+                .map_err(|error| SandboxError::Internal(error.to_string()))?
+            {
+                pod.spec
+                    .as_mut()
+                    .ok_or_else(|| SandboxError::PodBuildError("Pod has no spec".to_string()))?
+                    .node_name = Some(node_name);
+            }
+        }
         pod_builder::stamp_operation_generation(&mut pod, ctx);
 
         // Build servers map for service port exposure
@@ -292,7 +332,12 @@ impl SandboxRuntime for K8sSandboxAdapter {
             {
                 RuntimeEffect::NoOp
             }
-            Ok(Some(_)) => {
+            Ok(Some(existing)) => {
+                if node_archive::deployment_uses_node_archives(&existing) {
+                    // Capture the scheduled location before scale-to-zero
+                    // removes the only pod that can name the owning node.
+                    node_archive::record_current_pod_nodes(&self.k8s, task_id).await?;
+                }
                 deployment::scale_deployment(&self.k8s, task_id, 0)
                     .await
                     .map_err(|error| map_sandbox_error(SandboxError::KubeError(error)))?;
@@ -327,6 +372,24 @@ impl SandboxRuntime for K8sSandboxAdapter {
         // running Deployment's env rather than a plan (restart has no plan).
         let backend = self.deployment_storage_backend(task_id).await;
         let started = std::time::Instant::now();
+        let existing_deployment = deployment::find_deployment(&self.k8s, task_id)
+            .await
+            .map_err(|error| map_sandbox_error(SandboxError::KubeError(error)))?;
+        if let Some(existing) = existing_deployment.as_ref() {
+            if node_archive::deployment_uses_node_archives(existing) {
+                node_archive::record_current_pod_nodes(&self.k8s, task_id).await?;
+                let node_name = node_archive::retained_node(&self.k8s, task_id, true)
+                    .await?
+                    .ok_or_else(|| {
+                        crate::sandbox::lifecycle::RuntimeError::Infrastructure(format!(
+                            "retained node archive location is missing for task {task_id}"
+                        ))
+                    })?;
+                deployment::pin_to_node(&self.k8s, task_id, &node_name)
+                    .await
+                    .map_err(|error| map_sandbox_error(SandboxError::KubeError(error)))?;
+            }
+        }
 
         // Scale to 0, wait for the pod to terminate (releasing the RWO PVC),
         // then scale back to 1. This also covers the "was stopped" case since
@@ -347,6 +410,16 @@ impl SandboxRuntime for K8sSandboxAdapter {
         info!(task_id = %task_id, "Redeploying sandbox (deleting Deployment/Service/IngressRoutes, preserving PVC)");
         let plan = self.require_plan()?;
         let request = plan.build_request(task_id).await?;
+        let existing_deployment = deployment::find_deployment(&self.k8s, task_id)
+            .await
+            .map_err(|error| map_sandbox_error(SandboxError::KubeError(error)))?;
+        node_archive::record_current_pod_nodes(&self.k8s, task_id).await?;
+        if existing_deployment
+            .as_ref()
+            .is_some_and(node_archive::deployment_uses_node_archives)
+        {
+            node_archive::retained_node(&self.k8s, task_id, true).await?;
+        }
 
         // 1. Delete Deployment (cascades to pods + ReplicaSets). Fail hard on
         //    error: if the delete fails, the reprovision below hits 409 and
@@ -402,11 +475,21 @@ impl SandboxRuntime for K8sSandboxAdapter {
         _ctx: RuntimeOperationContext,
     ) -> Result<RuntimeOutcome, crate::sandbox::lifecycle::RuntimeError> {
         let retain_storage = retention.retains();
-        let had_runtime = deployment::find_deployment(&self.k8s, task_id)
+        let existing_deployment = deployment::find_deployment(&self.k8s, task_id)
             .await
-            .map_err(|error| map_sandbox_error(SandboxError::KubeError(error)))?
-            .is_some()
-            || pvc::find_task_pvc(&self.k8s, task_id).await.is_some();
+            .map_err(|error| map_sandbox_error(SandboxError::KubeError(error)))?;
+        // Capture the current scheduled node before deleting the Deployment.
+        // This synchronous merge is load-bearing; the watcher's write is only a
+        // latency optimization and may have failed.
+        let node_removal = node_archive::prepare_remove(
+            &self.k8s,
+            &self.config,
+            task_id,
+            existing_deployment.as_ref(),
+        )
+        .await?;
+        let had_runtime =
+            existing_deployment.is_some() || pvc::find_task_pvc(&self.k8s, task_id).await.is_some();
         info!(task_id = %task_id, retain_storage, "Cleaning up sandbox (deleting all resources)");
 
         // Delete the Deployment first. Its ownerReferences make the Service and
@@ -416,7 +499,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
         // Every load-bearing step feeds `first_err`: a failure returns an error
         // so the caller retries and the `Removed` completion is withheld. Removal
         // is strict — it reports success only once every resource is observed
-        // absent (pods drained, PVC gone) and every owed S3 archive is deleted.
+        // absent (pods drained, PVC gone) and every owed archive is deleted.
         let mut first_err: Option<crate::sandbox::lifecycle::RuntimeError> = None;
 
         if let Err(e) = deployment::delete_deployment(&self.k8s, task_id).await {
@@ -495,13 +578,35 @@ impl SandboxRuntime for K8sSandboxAdapter {
         }
 
         if retain_storage {
-            // Soft close: keep the S3 archives so the task can be revived. The
-            // sandbox's restore-on-start (workspace) and download-on-start
-            // (transcript) are keyed purely by task_id, so a later reprovision
-            // picks them back up transparently. K8s resources (incl. PVC) are
-            // still gone — only the S3-backed state survives.
-            info!(task_id = %task_id, "Retaining S3 archives on close (revivable)");
+            // Soft close: keep S3 and node-local archives. The metadata
+            // ConfigMap is intentionally retained so a later node-mode start
+            // pins to the newest surviving location instead of mounting an
+            // empty hostPath elsewhere.
+            info!(
+                task_id = %task_id,
+                recorded_nodes = node_removal.nodes.len(),
+                "Retaining task archives on close (revivable)"
+            );
         } else if first_err.is_none() {
+            // Delete node-local workspace and Docker archives on every recorded
+            // node. Keep driving the other nodes after one failure so a retry
+            // has the smallest remaining obligation.
+            for node_name in &node_removal.nodes {
+                if let Err(error) =
+                    node_archive::cleanup_node(&self.k8s, &self.config, task_id, node_name).await
+                {
+                    warn!(
+                        task_id,
+                        node_name,
+                        error = %error,
+                        "Failed to delete node-local task archives"
+                    );
+                    first_err.get_or_insert(error);
+                }
+            }
+        }
+
+        if !retain_storage && first_err.is_none() {
             // Delete this task's transcript and `s3`-backend workspace archives
             // (`<prefix>/<task_id>/...`). These live in the uploads bucket, not
             // the PVC, so the per-task PVC delete above doesn't cover them. The
@@ -515,6 +620,15 @@ impl SandboxRuntime for K8sSandboxAdapter {
             if let Err(e) = self.delete_task_sandbox(task_id).await {
                 warn!(task_id = %task_id, error = %e, "Failed to delete task workspace from S3");
                 first_err.get_or_insert(map_sandbox_error(e));
+            }
+        }
+        if !retain_storage && first_err.is_none() {
+            // Metadata is the durable node-cleanup obligation. Delete it last,
+            // only after every cleanup pod succeeded and disappeared and after
+            // the S3 obligations completed.
+            if let Err(error) = node_archive::delete_metadata(&self.k8s, task_id).await {
+                warn!(task_id, error = %error, "Failed to delete node archive metadata");
+                first_err.get_or_insert(error);
             }
         }
 

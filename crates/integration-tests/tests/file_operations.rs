@@ -54,7 +54,7 @@ async fn file_operations_chain() {
         "Sandbox did not become ready"
     );
 
-    // FILE-01: List files, poll until non-empty, assert package.json
+    // FILE-01: List files and wait for the repository mount to appear.
     assert!(
         sandbox_helpers::wait_for_files_available(&client, task_id, Duration::from_secs(30)).await,
         "Files did not become available"
@@ -75,6 +75,27 @@ async fn file_operations_chain() {
         });
     let package_json_path = format!("{repo_dir}package.json");
 
+    // FILE-04: Search recursively for package.json and confirm the mounted
+    // repository file is visible through the search API.
+    let search_req = SearchByNameRequest {
+        query: "package.json".into(),
+        case_sensitive: None,
+        max_results: None,
+    };
+    let search_result = client
+        .api()
+        .search_by_name(task_id, &search_req)
+        .await
+        .unwrap();
+    assert!(
+        search_result
+            .files
+            .iter()
+            .any(|file| file.path == package_json_path),
+        "Expected to find {package_json_path} via search: {:?}",
+        search_result.files
+    );
+
     // FILE-02: Read package.json, assert non-empty content
     let content = client
         .api()
@@ -89,22 +110,6 @@ async fn file_operations_chain() {
     // FILE-03: File tree, assert has entries
     let tree = client.api().file_tree(task_id).await.unwrap();
     assert!(!tree.tree.is_empty(), "File tree should have entries");
-
-    // FILE-04: Search by name "package.json", assert found
-    let search_req = SearchByNameRequest {
-        query: "package.json".into(),
-        case_sensitive: None,
-        max_results: None,
-    };
-    let search_result = client
-        .api()
-        .search_by_name(task_id, &search_req)
-        .await
-        .unwrap();
-    assert!(
-        search_result.total_matches > 0,
-        "Expected to find package.json via search"
-    );
 
     // FILE-05: Write file and read back to verify
     let write_req = WriteFileRequestBody {

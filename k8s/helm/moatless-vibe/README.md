@@ -181,8 +181,10 @@ which `--resume` reads. The sandbox tars that directory and ships it to S3 **thr
 the backend** over the existing JWT-authed gRPC (sandbox pods are AWS-credential-less
 by design), on a timer and on graceful shutdown, and restores it on the next start.
 
-This persists transcripts off the per-task PVC and is the **only** guaranteed
-transcript durability for non-EBS storage tiers (`ephemeral`, `s3`, and `node`).
+This persists transcripts off the per-task PVC or node disk and is the
+off-node durability path for all storage tiers. In `node` mode the same
+transcripts also live in the retained task hostPath and revive when the task
+is pinned back to that node; `ephemeral` relies on S3 for persistence.
 It reuses the existing uploads bucket and the backend IRSA — no extra bucket,
 IAM, or cluster infra. Objects land at
 `s3://<uploads-bucket>/<prefix>/<task_id>/transcripts.tar` and are deleted on task
@@ -201,11 +203,13 @@ that repo then provision with **no PVC**; transcripts persist only via the S3 sy
 described above.
 
 Set `storageMode` to `s3` to use the same node-local `emptyDir` plus git-tree
-sync to S3. Set `storageMode` to `node` to use best-effort node-local hostPath
-storage under `K8S_SANDBOX_CACHE_HOST_ROOT/workspaces/<task-id>`: stop/start on
-the same node reuses the workspace, while scheduling on another node starts with
-an empty directory. The `node` tier has no Kubernetes `emptyDir.sizeLimit`; it is
-bounded by node disk capacity.
+sync to S3. Set `storageMode` to `node` to use node-local hostPath storage under
+`K8S_SANDBOX_CACHE_HOST_ROOT/workspaces/<task-id>`. The backend records scheduled
+nodes and operation generations in a deterministic task ConfigMap. A retained
+start pins to the newest recorded node that still exists; if no recorded node
+survives, start returns a retriable infrastructure error instead of silently
+mounting an empty directory. The `node` tier has no Kubernetes
+`emptyDir.sizeLimit`; it is bounded by node disk capacity.
 
 Docker-in-Docker storage is controlled separately with `dockerStorageMode`.
 For repos with `dockerAccess`, `dockerStorageMode: "node"` stores
@@ -214,13 +218,20 @@ images, and volumes can survive stop/start on the same node. Use
 `dockerStorageMode: "emptyDir"` plus `dockerStorage` when you need a hard
 Kubernetes size cap instead.
 
-Kubernetes does not delete hostPath contents when sandbox pods are removed. The
-chart enables `kubernetes.nodeStorageJanitor` by default, which runs on sandbox
-nodes and prunes stale per-task directories under
-`kubernetes.sandboxCacheHostRoot/workspaces` and
-`kubernetes.sandboxCacheHostRoot/docker` after the task's Deployment is gone and
-the directory is older than `retentionHours` (default 168). This bounds node disk
-growth while preserving best-effort same-node reuse for recently stopped tasks.
+Kubernetes does not delete hostPath contents when sandbox pods are removed.
+Lifecycle `RetainArchives` deletes runtime resources, including any PVC, while
+preserving the node archive ConfigMap and task directories. `DeleteArchives`
+runs a deterministic, idempotent cleanup pod on every recorded node, waits for
+each pod to succeed and disappear, then removes the metadata ConfigMap. Cleanup
+pods mount the cache host root, run as an unprivileged-capability root process
+without a service-account token, and intentionally omit the sandbox task label
+so the pod watcher ignores them. Legacy tasks without metadata are cleaned on
+every node matching the sandbox selector.
+
+The chart also enables `kubernetes.nodeStorageJanitor` by default. It prunes old
+task directories only when their Deployment and retained-archive ConfigMap are
+both absent, so it cannot erase a retained close. `retentionHours` defaults to
+168.
 
 Declaratively via `.moatless/config.json`, then sync:
 

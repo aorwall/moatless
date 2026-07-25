@@ -222,7 +222,7 @@ done
 
 echo -e "${BLUE}Resetting database...${NC}"
 docker exec moatless-postgres psql -U moatless -d moatless -c \
-  "TRUNCATE task_message_content_blocks, task_message_contexts, task_messages, task_events, task_tags, tasks, repository_plugin_repos, plugin_repos, repositories, trigger_receipts, task_bindings, adapter_event_trigger_sources, schedule_trigger_sources, trigger_rules, triggers, integration_connections, integration_pairing_requests, team_members, teams, sessions, api_keys, provider_tokens, users, commands, file_metadata, tags CASCADE;" \
+  "TRUNCATE task_message_content_blocks, task_message_contexts, task_messages, task_events, task_tags, tasks, repository_plugin_repos, plugin_repos, repositories, trigger_receipts, task_bindings, adapter_event_trigger_sources, schedule_trigger_sources, trigger_rules, triggers, integration_connections, integration_pairing_requests, team_members, teams, sessions, api_keys, provider_tokens, file_metadata, tags CASCADE; DELETE FROM users WHERE login <> '${ADMIN_USERNAME:-admin}';" \
   2>/dev/null || echo -e "${YELLOW}Database reset skipped${NC}"
 
 # ── Test phase ─────────────────────────────────────────────────────────────

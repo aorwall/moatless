@@ -189,9 +189,10 @@ pub fn build_pod(
             ..Default::default()
         });
     } else if storage_backend == super::storage::StorageBackend::Node {
-        // Best-effort node-local tier — a hostPath keyed by task id. Kubernetes
-        // may schedule the task on another node after stop/start; in that case a
-        // fresh directory is created there. Same-node restarts reuse the tree.
+        // Node-local tier — a hostPath keyed by task id. Lifecycle records the
+        // scheduled node and pins retained replacements back to the newest
+        // surviving archive location instead of silently mounting an empty tree
+        // elsewhere.
         volumes.push(Volume {
             name: "workspace-data".to_string(),
             host_path: Some(HostPathVolumeSource {

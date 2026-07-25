@@ -3,7 +3,9 @@
 //! Mirrors: tests/api/chains/integrations-errors.spec.ts
 //! Spec IDs: INT-50 through INT-54
 
-use integration_tests::{create_webhook_integration, ensure_template_repo, raw_api, test_client};
+use integration_tests::{
+    create_webhook_integration, ensure_template_repo, raw_admin_client, raw_api, test_client,
+};
 use moatless_api_schemas::adapters::CreateAdapterConnectionRequest;
 use moatless_api_schemas::enums::{AdapterKind, RoutingMode};
 use moatless_api_schemas::loops::UpdateLoopRequest;
@@ -119,6 +121,7 @@ async fn webhook_invalid_signature() {
 #[tokio::test]
 async fn integration_create_nonexistent_repo() {
     let client = test_client().await;
+    let http = raw_admin_client().await;
     let suffix = timestamp_suffix();
     let source = format!("no-repo-{suffix}");
     let connection = client
@@ -137,7 +140,7 @@ async fn integration_create_nonexistent_repo() {
         .unwrap();
 
     let resp = raw_api::create_trigger_raw(
-        &reqwest::Client::new(),
+        &http,
         &serde_json::json!({
             "name": source,
             "kind": "adapter_event",

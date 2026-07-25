@@ -225,6 +225,35 @@ pub async fn stamp_operation_generation(
     Ok(())
 }
 
+/// Pin a stopped/restarting node-backed sandbox to the node that owns its
+/// retained hostPath data. The merge patch preserves the rest of the pod
+/// template.
+pub async fn pin_to_node(
+    k8s: &K8sClient,
+    task_id: &str,
+    node_name: &str,
+) -> Result<(), kube::Error> {
+    let deployments: Api<Deployment> = Api::namespaced(k8s.client.clone(), k8s.namespace());
+    let deployment_name = generate_deployment_name(task_id);
+    let patch = serde_json::json!({
+        "spec": {
+            "template": {
+                "spec": {
+                    "nodeName": node_name,
+                }
+            }
+        }
+    });
+    deployments
+        .patch(
+            &deployment_name,
+            &PatchParams::apply("moatless-vibe-backend"),
+            &Patch::Merge(&patch),
+        )
+        .await?;
+    Ok(())
+}
+
 /// Delete a Deployment for a task. Handles 404 gracefully.
 pub async fn delete_deployment(k8s: &K8sClient, task_id: &str) -> Result<(), kube::Error> {
     let deployments: Api<Deployment> = Api::namespaced(k8s.client.clone(), k8s.namespace());
@@ -296,6 +325,7 @@ pub async fn redeploy_with_plan(
     task_id: &str,
     request: &ProvisionRequest,
     ctx: RuntimeOperationContext,
+    retained_node: Option<&str>,
 ) -> Result<(), SandboxError> {
     let pvc_name = pvc::find_task_pvc(k8s, task_id).await;
 
@@ -311,6 +341,12 @@ pub async fn redeploy_with_plan(
         Some(pod_builder::SandboxAuthTokens::from_minted(&minted)),
     )
     .map_err(SandboxError::PodBuildError)?;
+    if let Some(node_name) = retained_node {
+        pod.spec
+            .as_mut()
+            .ok_or_else(|| SandboxError::PodBuildError("Pod has no spec".to_string()))?
+            .node_name = Some(node_name.to_string());
+    }
     pod_builder::stamp_operation_generation(&mut pod, ctx);
 
     let deployments: Api<Deployment> = Api::namespaced(k8s.client.clone(), k8s.namespace());

@@ -20,7 +20,9 @@ use tracing::{error, info, warn};
 
 use super::client::DockerClient;
 use super::container_builder;
-use super::naming::{generate_container_name, generate_server_container_name};
+use super::naming::{
+    generate_container_name, generate_server_container_name, generate_task_host_path,
+};
 use super::status_resolver::DockerStatusResolver;
 use crate::config::Config;
 use crate::sandbox::access::{SandboxConnector, SandboxObserver};
@@ -42,6 +44,32 @@ pub struct DockerSandboxAdapter {
     pub status_resolver: DockerStatusResolver,
     pub(crate) plan: Option<ProvisionDeps>,
     pub s3: Option<Arc<aws_sdk_s3::Client>>,
+}
+
+async fn apply_disk_archive_retention(
+    container_data_dir: &str,
+    task_id: &str,
+    retention: ArchiveRetention,
+) -> Result<(), crate::sandbox::lifecycle::RuntimeError> {
+    if retention.retains() {
+        return Ok(());
+    }
+
+    let task_path = generate_task_host_path(container_data_dir, task_id)
+        .map_err(crate::sandbox::lifecycle::RuntimeError::Rejected)?;
+    match tokio::fs::remove_dir_all(&task_path).await {
+        Ok(()) => {
+            info!(task_id, path = %task_path.display(), "Deleted Docker task disk archives");
+            Ok(())
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(crate::sandbox::lifecycle::RuntimeError::Infrastructure(
+            format!(
+                "delete Docker task disk archives at {}: {error}",
+                task_path.display()
+            ),
+        )),
+    }
 }
 
 impl DockerSandboxAdapter {
@@ -520,6 +548,12 @@ impl SandboxRuntime for DockerSandboxAdapter {
             ));
         }
         if !retention.retains() {
+            apply_disk_archive_retention(
+                &self.config.docker.container_data_dir,
+                task_id,
+                retention,
+            )
+            .await?;
             self.delete_archive_prefix(task_id, &self.config.s3.transcript_prefix, "transcripts")
                 .await?;
             self.delete_archive_prefix(task_id, &self.config.s3.workspace_prefix, "workspace")
@@ -1076,5 +1110,71 @@ mod tests {
             .networking_config
             .and_then(|networking| networking.endpoints_config)
             .is_some_and(|networks| networks.contains_key("preview")));
+    }
+
+    #[tokio::test]
+    async fn docker_retain_preserves_task_directory() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let root = root.path().to_string_lossy().to_string();
+        let task_path = generate_task_host_path(&root, "task-1").expect("task path");
+        tokio::fs::create_dir_all(task_path.join("repo"))
+            .await
+            .expect("create task data");
+        tokio::fs::write(task_path.join("repo/evidence.txt"), b"retained")
+            .await
+            .expect("write evidence");
+
+        apply_disk_archive_retention(&root, "task-1", ArchiveRetention::RetainArchives)
+            .await
+            .expect("retain");
+
+        assert!(tokio::fs::try_exists(task_path.join("repo/evidence.txt"))
+            .await
+            .expect("stat evidence"));
+    }
+
+    #[tokio::test]
+    async fn docker_delete_removes_task_directory_idempotently() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let root = root.path().to_string_lossy().to_string();
+        let task_path = generate_task_host_path(&root, "task-1").expect("task path");
+        tokio::fs::create_dir_all(task_path.join("claude-config"))
+            .await
+            .expect("create task data");
+        tokio::fs::write(task_path.join("claude-config/transcript.jsonl"), b"deleted")
+            .await
+            .expect("write transcript");
+
+        for _ in 0..2 {
+            apply_disk_archive_retention(&root, "task-1", ArchiveRetention::DeleteArchives)
+                .await
+                .expect("delete is idempotent");
+        }
+
+        assert!(!tokio::fs::try_exists(&task_path)
+            .await
+            .expect("stat task directory"));
+    }
+
+    #[tokio::test]
+    async fn docker_delete_propagates_filesystem_failure() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let root = root.path().to_string_lossy().to_string();
+        let task_path = generate_task_host_path(&root, "task-1").expect("task path");
+        tokio::fs::create_dir_all(task_path.parent().expect("tasks parent"))
+            .await
+            .expect("create tasks directory");
+        tokio::fs::write(&task_path, b"not a directory")
+            .await
+            .expect("create blocking file");
+
+        let error = apply_disk_archive_retention(&root, "task-1", ArchiveRetention::DeleteArchives)
+            .await
+            .expect_err("filesystem failure must propagate");
+
+        assert!(matches!(
+            error,
+            crate::sandbox::lifecycle::RuntimeError::Infrastructure(_)
+        ));
     }
 }

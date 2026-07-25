@@ -317,11 +317,12 @@ pub struct SandboxConfig {
     /// One of `ebs` / `ephemeral` / `s3` / `node`; unknown values fall back to `ebs`.
     /// A per-repo `storage_mode` always overrides this.
     pub default_storage_mode: String,
-    /// When `true`, closing a task preserves its S3-backed storage (Claude
-    /// transcript archive + `s3`-mode workspace archive) instead of deleting it.
-    /// This is what makes a closed task revivable via `POST /tasks/{id}/reopen`
-    /// — the retained archives are restored on the next provision. K8s
-    /// resources (Deployment/Service/PVC/IngressRoutes) are still torn down.
+    /// When `true`, closing a task preserves its archives (S3 plus Docker/K8s
+    /// node-local disk) instead of deleting them. This is what makes a closed
+    /// task revivable via `POST /tasks/{id}/reopen` — retained S3 archives are
+    /// restored and retained node archives are pinned on the next provision.
+    /// K8s runtime resources (Deployment/Service/PVC/IngressRoutes) are still
+    /// torn down.
     /// Env `SANDBOX_RETAIN_STORAGE_ON_CLOSE` (default: `false`). Permanent
     /// task deletion always removes storage regardless of this flag.
     pub retain_storage_on_close: bool,

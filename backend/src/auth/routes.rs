@@ -638,7 +638,7 @@ async fn create_local_user(
     sqlx::query(
         r#"INSERT INTO user_provider_ids (user_id, provider, provider_user_id, created_at)
            VALUES ($1, 'local', $2, NOW())
-           ON CONFLICT (user_id, provider) DO NOTHING"#,
+           ON CONFLICT DO NOTHING"#,
     )
     .bind(user_id)
     .bind(&provider_user_id)

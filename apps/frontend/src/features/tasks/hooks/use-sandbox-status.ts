@@ -1,7 +1,7 @@
 import type { TaskResponse } from '@moatless/api-client'
 import {
-  cleanupHandler,
   redeployHandler,
+  removeHandler,
   restartHandler,
   stopHandler,
 } from '@moatless/api-client/sandbox/sandbox/sandbox'
@@ -86,7 +86,7 @@ export function useSandboxRedeploy(taskId: string) {
 export function useSandboxCleanup(taskId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: () => cleanupHandler(taskId),
+    mutationFn: () => removeHandler(taskId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.sandboxStatus(taskId) })
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.liveStatus(taskId) })
