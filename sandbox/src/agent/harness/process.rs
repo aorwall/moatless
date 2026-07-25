@@ -64,6 +64,18 @@ pub(crate) trait AgentProcess: Send {
     /// terminal (after execution start).
     async fn submit(&mut self, input: Input) -> Result<(), HarnessError>;
 
+    /// Whether input submitted while an execution is already active is injected
+    /// into that execution (reported as a bare `InputAccepted`) rather than
+    /// having to wait for a later one.
+    ///
+    /// Consulted only by the one-execution-per-process driver, which otherwise
+    /// queues mid-execution input. A process that opens a fresh execution per
+    /// submit must leave this `false` so its input is queued instead of
+    /// clobbering the running execution.
+    fn accepts_injection(&self) -> bool {
+        false
+    }
+
     /// Request cancellation of the process tree. Idempotent; the process is
     /// expected to terminate afterwards.
     async fn cancel(&mut self);

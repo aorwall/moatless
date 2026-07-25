@@ -568,3 +568,140 @@ async fn test_cancel_during_pending_prompt() {
 
     result.expect("Test timed out");
 }
+
+// ===========================================================================
+// Test 7: Mid-turn injection folds into the running turn (E2E)
+// ===========================================================================
+
+/// The load-bearing assumption behind `ClaudeProcess`'s injection path: a user
+/// message written into a running Session with `MessagePriority::Now` joins the
+/// Turn already in flight rather than opening a second one.
+///
+/// If the CLI instead treated it as a following Turn it would emit a second
+/// `Result`, which the one-shot orchestrator never reads (it ends the stream at
+/// the first) — so the injected message's output would be silently lost. This
+/// asserts both halves: exactly one `Result`, and the injected instruction
+/// visibly influencing that same Result.
+#[tokio::test]
+#[ignore]
+async fn test_mid_turn_injection_joins_the_running_turn() {
+    skip_unless_e2e!();
+    init_tracing();
+
+    let result = tokio::time::timeout(Duration::from_mins(3), async {
+        let agent_state = Arc::new(AgentState::new());
+        let cancel_token = CancellationToken::new();
+        agent_state.set_running(cancel_token.clone()).await;
+
+        let options = ClaudeOptions {
+            model: Some(TEST_MODEL.to_string()),
+            allow_dangerously_skip_permissions: Some(true),
+            cancellation_token: Some(cancel_token),
+            env: auth_env(),
+            ..Default::default()
+        };
+
+        // The sleep holds the Turn open long enough to inject into it.
+        let mut handle = query(
+            "Run the bash command `sleep 20`. After it finishes, reply with the \
+             single word DONE and nothing else.",
+            options,
+        )
+        .await
+        .expect("Failed to start query");
+
+        let mut messages: Vec<SdkMessage> = Vec::new();
+        let mut session_id: Option<String> = None;
+        let mut injected = false;
+
+        while let Some(msg) = handle.messages.recv().await {
+            let msg = msg.expect("stream error");
+
+            if let SdkMessage::System(ref init) = msg {
+                session_id = Some(init.session_id.clone());
+            }
+
+            // Inject once the Turn is demonstrably in flight: the CLI has
+            // reported its Session and produced its first assistant output
+            // (the tool call), so the sleep is running.
+            if !injected && matches!(msg, SdkMessage::Assistant(_)) {
+                if let Some(ref session) = session_id {
+                    handle
+                        .send_user_message(&injected_user_message(
+                            "Change of plan: instead of DONE, reply with the single \
+                             word BANANA and nothing else.",
+                            session,
+                        ))
+                        .await
+                        .expect("failed to inject user message mid-turn");
+                    injected = true;
+                }
+            }
+
+            let terminal = matches!(msg, SdkMessage::Result(_));
+            messages.push(msg);
+            if terminal {
+                break;
+            }
+        }
+
+        assert!(injected, "test never reached a point where it could inject");
+
+        let results = messages
+            .iter()
+            .filter(|m| matches!(m, SdkMessage::Result(_)))
+            .count();
+        assert_eq!(
+            results, 1,
+            "expected the injected message to share the running Turn's single Result"
+        );
+
+        let result_text = extract_result_text(&messages).expect("Expected successful result");
+        assert!(
+            result_text.to_uppercase().contains("BANANA"),
+            "expected the injected instruction to steer the same Turn's result, got: {result_text}"
+        );
+    })
+    .await;
+
+    result.expect("Test timed out");
+}
+
+/// Build the same `UserMessage` frame `ClaudeProcess` injects with.
+fn injected_user_message(
+    text: &str,
+    session_id: &str,
+) -> claude_agent_sdk::types::messages::UserMessage {
+    use claude_agent_sdk::types::content::{ApiMessage, ContentBlock};
+    use claude_agent_sdk::types::messages::{MessagePriority, UserMessage};
+
+    UserMessage {
+        uuid: None,
+        session_id: session_id.to_string(),
+        message: ApiMessage {
+            role: "user".to_string(),
+            content: vec![ContentBlock::Text {
+                text: text.to_string(),
+            }],
+            usage: None,
+            model: None,
+            id: None,
+            stop_reason: None,
+            stop_sequence: None,
+        },
+        parent_tool_use_id: None,
+        is_synthetic: None,
+        tool_use_result: None,
+        is_meta: None,
+        is_compact_summary: None,
+        is_visible_in_transcript_only: None,
+        plan_content: None,
+        thinking_metadata: None,
+        todos: None,
+        summarize_metadata: None,
+        source_tool_assistant_uuid: None,
+        source_tool_use_id: None,
+        permission_mode: None,
+        priority: MessagePriority::Next,
+    }
+}
