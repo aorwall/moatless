@@ -1,6 +1,6 @@
 # Authentication & Authorization
 
-Auth controls who can access Moatless Vibe and what they can do. It supports local username/password login, OAuth login, session management, API keys for programmatic access, secure storage of provider tokens, and team-based access control.
+Auth controls who can access Moatless Vibe and what they can do. It supports local username/password login, OAuth login, session management, API keys for programmatic access, secure storage of provider tokens, and per-user access control.
 
 Exactly one login provider is active per deployment. When no OAuth provider is configured the server uses local username/password auth, with an admin account seeded on first boot. Every API route requires a session cookie or an API key — there is no unauthenticated mode.
 
@@ -12,8 +12,7 @@ Exactly one login provider is active per deployment. When no OAuth provider is c
 - **Manage sessions** — sessions are cookie-based JWTs; they expire after a configurable period.
 - **Use API keys** — create long-lived keys for CI/CD or programmatic access.
 - **Store provider tokens** — securely save third-party tokens (e.g., GitHub PATs) for use by the agent in sandboxes.
-- **Create and manage teams** — organize users into teams for shared access to resources.
-- **Store team credentials** — save provider tokens at the team level so all team members' sandboxes can use them.
+- **Create and manage teams** — admins organize users into teams. Teams are an org/directory concept for grouping people; they do **not** grant access to any resource.
 
 ## How It Works
 
@@ -25,32 +24,34 @@ Exactly one login provider is active per deployment. When no OAuth provider is c
 
 ## Access Control Model
 
-Resources (repositories, tasks, channel configs) have a **scope** that controls who can see them:
+Resources (repositories, tasks, channel configs, workspaces, secrets, credentials) have a two-value **scope** — `Global` or `User` — and an owner (`owner_user_id`, falling back to `created_by`). Access is a pure function of scope, ownership, and the caller:
 
-- **Global** — visible to all authenticated users.
-- **Team** — visible only to members of the owning team (and admins).
-- **User** — visible only to the user who created the resource (and admins).
+- **Read** is allowed when the caller is an admin, **or** the scope is `Global`, **or** the caller owns the resource, **or** (for a Task) its `visibility` is `public`.
+- **Control** (mutating, deleting, or running lifecycle/sandbox operations) is allowed when the caller is an admin, **or** the scope is `User` and the caller owns it.
 
-Admins bypass all scope restrictions and can see every resource.
+So `Global` resources are readable by everyone but controlled only by admins; `User` resources are read and controlled by their owner. Admins bypass both checks.
+
+### Public tasks
+
+A task with `visibility = 'public'` is readable and interactable (viewing, sending messages, following) by **any** authenticated user. Public visibility never grants **control** — lifecycle and sandbox operations stay owner-or-admin. There are exactly two access grants for a public task: read+interact for everyone, control for owner-or-admin.
 
 ### Teams
 
-Users belong to one or more teams. Teams are created manually or auto-provisioned from Auth0 group claims on login. Each team can have its own credentials (provider tokens) that are shared across all team members' sandboxes.
+Admins organize users into teams for directory/grouping purposes. Teams are created manually or auto-provisioned from Auth0 group claims on login. **Teams grant no resource access** — there is no team scope, and there are no team credentials. (Team-based access control was removed; see ADR 0006.)
 
 ### Credential Resolution
 
 When a sandbox needs credentials (e.g., a GitHub token for git operations), the system resolves them using a priority chain:
 
 1. **Environment variables** — admin-configured, highest priority.
-2. **Team credentials** — shared tokens set at the team level.
-3. **User credentials** — personal tokens linked to the individual user.
+2. **User credentials** — personal tokens linked to the individual user; a user-scoped secret shadows a global one of the same key.
 
 The first match wins for each credential type.
 
 ### Scope Inheritance
 
-- Tasks inherit scope and team from their parent repository.
-- Tasks created via channel messages inherit scope and team from the channel config.
+- Tasks inherit scope and ownership from their parent repository.
+- Tasks created via channel messages inherit scope and ownership from the channel config.
 
 ## Key Concepts
 
@@ -62,6 +63,6 @@ The first match wins for each credential type.
 | API key | A long-lived token for programmatic access |
 | Provider token | A third-party credential (e.g., GitHub PAT) stored for sandbox use |
 | Role | User permission level: regular user or admin |
-| Team | A group of users who share access to team-scoped resources |
-| Scope | Access level of a resource: global, team, or user |
-| Team credential | A provider token stored at the team level, shared by all members |
+| Team | An org/directory grouping of users; grants no resource access |
+| Scope | Access level of a resource: global or user |
+| Visibility | A task-only flag; `public` grants read/interact to any authenticated user (never control) |

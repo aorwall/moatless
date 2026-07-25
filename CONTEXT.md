@@ -2,7 +2,7 @@
 
 The ubiquitous language for Moatless Vibe — a platform that runs coding agents
 (Claude Code, Codex) inside on-demand sandboxes against git repositories, driven
-by people directly or by Loops (recurring agent work), scoped to users and teams.
+by people directly or by Loops (recurring agent work), scoped to users (or global).
 
 This file is a glossary, not a spec. It records what each term means and which
 synonyms to avoid — not how anything is implemented.
@@ -242,8 +242,13 @@ nested into the parent Message nor streamed on the wire.
 
 **Scope**:
 The access boundary applied to Repositories, Workspaces, Tasks, Adapters, Secrets,
-and Credentials: `Global`, `Team`, or `User`. `SecretScopeType` is this same Scope
-applied to Secrets.
+and Credentials: `Global` or `User` (two values only). `Global` is readable by every
+authenticated user and controlled by admins; `User` is readable and controlled by its
+owner (admins bypass both). Ownership is `COALESCE(owner_user_id, created_by)`. A Task
+additionally readable when its `visibility = 'public'` — read/interact only, never
+control. Secrets use this same Scope.
+_Note_: `Team` is **not** a scope — teams are an org/entity concept and grant no
+resource access (removed in the access-scope redesign, ADR 0006).
 _Avoid_: conflating with `OAuth scope` (a permission grant) — always qualify that.
 
 **Command**:
