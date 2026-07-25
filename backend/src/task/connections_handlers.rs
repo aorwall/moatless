@@ -21,6 +21,7 @@ use moatless_api_schemas::task_connections::{
 };
 
 use crate::adapters::models::{ExternalStatus, TaskBinding};
+use crate::adapters::Adapters;
 use crate::bindings::dao::PgTaskBindingRepository;
 use crate::bindings::status_service;
 use crate::extractors::AuthUser;
@@ -159,7 +160,8 @@ pub async fn list_task_connections(
                 .map_or(&[], Vec::as_slice);
             let empty = Vec::new();
             let task_counts = counts_by_task.get(task.task_id.as_str()).unwrap_or(&empty);
-            let count_by_binding = match_counts(task_bindings, task_counts);
+            let count_by_binding =
+                match_counts(state.adapters.as_deref(), task_bindings, task_counts);
 
             let connections: Vec<Connection> = task_bindings
                 .iter()
@@ -247,14 +249,15 @@ pub async fn get_task_connections(
         });
 
     if query.refresh == Some(true) {
-        // `refresh_stale_statuses` has its own 300s staleness guard, so this
-        // stays cheap and bounded even when called per-request.
+        // `refresh_stale_statuses` has its own 300s staleness guard and skips
+        // finished subjects entirely, so this stays cheap and bounded even when
+        // called per-request.
         refresh_stale_statuses(&state, std::slice::from_ref(&row), &mut bindings).await;
     }
 
     let binding_refs: Vec<&TaskBinding> = bindings.iter().collect();
     let count_refs: Vec<&ConnectionMessageCount> = counts.iter().collect();
-    let count_by_binding = match_counts(&binding_refs, &count_refs);
+    let count_by_binding = match_counts(state.adapters.as_deref(), &binding_refs, &count_refs);
 
     let connections: Vec<Connection> = binding_refs
         .iter()
@@ -264,8 +267,10 @@ pub async fn get_task_connections(
     Ok(Json(connections))
 }
 
-/// Live-refresh bindings whose persisted status is missing or stale. Mutates
-/// `bindings` in place with the freshly fetched status. Bounded concurrency.
+/// Live-refresh the bindings [`status_service::should_refresh`] selects —
+/// missing or stale status, and not already in a state the adapter calls
+/// terminal. Mutates `bindings` in place with the freshly fetched status.
+/// Bounded concurrency.
 async fn refresh_stale_statuses(
     state: &AppState,
     rows: &[crate::task::models::Task],
@@ -279,9 +284,19 @@ async fn refresh_stale_statuses(
     let now = chrono::Utc::now();
     let cutoff = now - chrono::Duration::seconds(STATUS_STALE_SECS);
 
+    let Some(adapters) = state.adapters.as_ref() else {
+        return;
+    };
+
+    // Which bindings are worth polling is the adapter's answer, not ours: it
+    // names the subject and classifies terminal state kinds.
     let targets: Vec<TaskBinding> = bindings
         .iter()
-        .filter(|b| is_refreshable(b) && b.external_status_updated_at.is_none_or(|ts| ts < cutoff))
+        .filter(|b| {
+            adapters
+                .get_by_name(&b.provider)
+                .is_some_and(|adapter| status_service::should_refresh(adapter.as_ref(), b, cutoff))
+        })
         .cloned()
         .collect();
 
@@ -316,19 +331,14 @@ async fn refresh_stale_statuses(
     }
 }
 
-/// Whether a binding has a live status we know how to fetch.
-fn is_refreshable(b: &TaskBinding) -> bool {
-    matches!(b.provider.as_str(), "github" | "github_pr" | "linear")
-}
-
-/// Normalize an adapter/provider string to a canonical bucket so that the
-/// GitHub binding provider (`github`) and the GitHub message adapter label
-/// (`github_pr`) compare equal.
-fn normalize_adapter(s: &str) -> &str {
-    match s {
-        "github" | "github_pr" => "github",
-        other => other,
-    }
+/// Normalize an adapter/provider string to a canonical bucket, so that the two
+/// keys an adapter may be spelled with — the one bindings use and the one
+/// message metadata uses — compare equal. The registry owns that mapping; names
+/// it does not know pass through unchanged.
+fn normalize_adapter<'a>(adapters: Option<&Adapters>, s: &'a str) -> &'a str {
+    adapters
+        .and_then(|a| a.provider_key_for_name(s))
+        .unwrap_or(s)
 }
 
 fn group_counts_by_task(
@@ -353,6 +363,7 @@ fn group_bindings_by_task(bindings: &[TaskBinding]) -> HashMap<&str, Vec<&TaskBi
 /// counts whose subject_key matches no binding fall back to a per-adapter
 /// bucket, applied only when that adapter has a single binding on the task.
 fn match_counts(
+    adapters: Option<&Adapters>,
     task_bindings: &[&TaskBinding],
     rows: &[&ConnectionMessageCount],
 ) -> HashMap<String, (i64, i64)> {
@@ -368,7 +379,7 @@ fn match_counts(
     let mut bindings_by_adapter: HashMap<&str, Vec<&TaskBinding>> = HashMap::new();
     for b in task_bindings {
         bindings_by_adapter
-            .entry(normalize_adapter(&b.provider))
+            .entry(normalize_adapter(adapters, &b.provider))
             .or_default()
             .push(b);
     }
@@ -386,7 +397,7 @@ fn match_counts(
         let adapter = row
             .external_adapter
             .as_deref()
-            .map_or("", normalize_adapter)
+            .map_or("", |a| normalize_adapter(adapters, a))
             .to_string();
         let entry = leftover.entry(adapter).or_insert((0, 0));
         entry.0 += row.incoming;
@@ -481,8 +492,64 @@ fn json_str(cfg: &serde_json::Value, key: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::any::Any;
+    use std::sync::Arc;
+
     use chrono::Utc;
+
+    use crate::adapters::error::AdapterError;
+    use crate::adapters::models::{BindingContext, LoopContext, OutboundReply};
+    use crate::adapters::{Adapter, AdapterKind};
+    use crate::db::DbPool;
+
+    use super::*;
+
+    /// Stand-in adapter spelled two ways — one key for connections and
+    /// bindings, another for message metadata — which is the case
+    /// [`normalize_adapter`] exists to fold.
+    struct TwoKeyedAdapter;
+
+    #[async_trait::async_trait]
+    impl Adapter for TwoKeyedAdapter {
+        fn adapter_kind(&self) -> AdapterKind {
+            AdapterKind::GithubPr
+        }
+
+        fn provider_key(&self) -> &'static str {
+            "github_pr"
+        }
+
+        fn connection_provider_key(&self) -> &'static str {
+            "github"
+        }
+
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+
+        async fn resolve_user(
+            &self,
+            _identity: &str,
+            _db: &DbPool,
+        ) -> Result<Option<String>, AdapterError> {
+            Ok(None)
+        }
+
+        async fn send_reply(
+            &self,
+            _thread: &BindingContext,
+            _config: &LoopContext,
+            _message: &OutboundReply,
+        ) -> Result<Option<String>, AdapterError> {
+            Ok(None)
+        }
+    }
+
+    fn registry() -> Adapters {
+        let mut adapters = Adapters::new();
+        adapters.register(Arc::new(TwoKeyedAdapter));
+        adapters
+    }
 
     fn binding(id: &str, provider: &str, subject_kind: &str, subject_key: &str) -> TaskBinding {
         let now = Utc::now();
@@ -564,7 +631,7 @@ mod tests {
         let c2 = count(Some("o/r#2"), Some("github_pr"), 5, 2);
         let rows = vec![&c1, &c2];
 
-        let matched = match_counts(&bindings, &rows);
+        let matched = match_counts(Some(&registry()), &bindings, &rows);
         assert_eq!(matched.get("b1").copied(), Some((3, 1)));
         assert_eq!(matched.get("b2").copied(), Some((5, 2)));
     }
@@ -578,8 +645,21 @@ mod tests {
         let legacy = count(None, Some("linear"), 4, 6);
         let rows = vec![&legacy];
 
-        let matched = match_counts(&bindings, &rows);
+        let matched = match_counts(Some(&registry()), &bindings, &rows);
         assert_eq!(matched.get("b1").copied(), Some((4, 6)));
+    }
+
+    #[test]
+    fn adapters_two_keys_fold_through_the_registry() {
+        // The binding is stored under the connection key, the message row under
+        // the message key; only the registry knows they are the same adapter.
+        let b1 = binding("b1", "github", "github_pr", "o/r#1");
+        let bindings = vec![&b1];
+        let legacy = count(None, Some("github_pr"), 2, 3);
+        let rows = vec![&legacy];
+
+        let matched = match_counts(Some(&registry()), &bindings, &rows);
+        assert_eq!(matched.get("b1").copied(), Some((2, 3)));
     }
 
     #[test]
@@ -592,7 +672,7 @@ mod tests {
         let orphan = count(None, Some("github_pr"), 9, 9);
         let rows = vec![&orphan];
 
-        let matched = match_counts(&bindings, &rows);
+        let matched = match_counts(Some(&registry()), &bindings, &rows);
         assert!(matched.is_empty());
     }
 

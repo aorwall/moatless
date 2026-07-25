@@ -3,17 +3,54 @@
 //! Everything adapter-specific — which subject a binding points at, how to
 //! reach it, how to normalize what comes back — lives behind the `Adapter`
 //! trait. What is left here is what is genuinely shared: a process-wide cache
-//! keyed by external subject, and the write-through that keeps the persisted
-//! value on the binding warm.
+//! keyed by external subject, the write-through that keeps the persisted value
+//! on the binding warm, and the decision of whether a binding is worth polling
+//! at all.
 
 use std::sync::OnceLock;
 use std::time::Duration;
 
+use chrono::{DateTime, Utc};
 use moka::future::Cache;
 
 use crate::adapters::models::{ExternalStatus, TaskBinding};
+use crate::adapters::Adapter;
 use crate::bindings::dao::PgTaskBindingRepository;
 use crate::state::AppState;
+
+/// Whether a binding's live external status is worth fetching again.
+///
+/// Pure: an adapter, a binding and a staleness cutoff in, a decision out — no
+/// database, no HTTP, no application state. A binding is refreshed when all
+/// three hold:
+///
+/// - the adapter can name the external subject the binding points at (adapters
+///   without live status, and bindings the adapter cannot resolve, say `None`);
+/// - the persisted state kind is not terminal — a merged pull request or a
+///   completed issue can no longer change on its own, so its persisted status
+///   stands and is never polled again;
+/// - the persisted status is older than `cutoff`, or was never fetched.
+///
+/// The terminal rule is a *polling* rule only. Webhook persistence stays
+/// unconditional, so a reopened pull request or a reactivated issue overwrites
+/// a terminal status and becomes refreshable again. If that webhook is missed
+/// nothing re-polls (see ADR-0007 — a backstop poll was considered and
+/// rejected).
+pub fn should_refresh(adapter: &dyn Adapter, binding: &TaskBinding, cutoff: DateTime<Utc>) -> bool {
+    if adapter.binding_status_key(binding).is_none() {
+        return false;
+    }
+    let terminal = binding
+        .external_state_kind
+        .as_deref()
+        .is_some_and(|kind| adapter.is_terminal_state_kind(kind));
+    if terminal {
+        return false;
+    }
+    binding
+        .external_status_updated_at
+        .is_none_or(|updated_at| updated_at < cutoff)
+}
 
 /// Process-global cache keyed by the external subject a binding points at (see
 /// [`crate::adapters::Adapter::binding_status_key`]), so several tasks bound to
@@ -69,4 +106,165 @@ pub async fn get_or_fetch(
     }
 
     Some(fetched)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::any::Any;
+
+    use chrono::Duration as ChronoDuration;
+
+    use crate::adapters::error::AdapterError;
+    use crate::adapters::models::{BindingContext, LoopContext, OutboundReply};
+    use crate::adapters::AdapterKind;
+    use crate::db::DbPool;
+
+    use super::*;
+
+    /// Stand-in adapter: answers the three interface questions the refresh
+    /// decision asks, and nothing else. `keyed` mirrors a real adapter failing
+    /// to name a binding's subject (no live status, or a binding it cannot
+    /// resolve).
+    struct StubAdapter {
+        keyed: bool,
+    }
+
+    #[async_trait::async_trait]
+    impl Adapter for StubAdapter {
+        fn adapter_kind(&self) -> AdapterKind {
+            AdapterKind::Webhook
+        }
+
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+
+        fn binding_status_key(&self, binding: &TaskBinding) -> Option<String> {
+            self.keyed.then(|| format!("stub:{}", binding.subject_key))
+        }
+
+        fn is_terminal_state_kind(&self, state_kind: &str) -> bool {
+            state_kind == "done"
+        }
+
+        async fn resolve_user(
+            &self,
+            _identity: &str,
+            _db: &DbPool,
+        ) -> Result<Option<String>, AdapterError> {
+            Ok(None)
+        }
+
+        async fn send_reply(
+            &self,
+            _thread: &BindingContext,
+            _config: &LoopContext,
+            _message: &OutboundReply,
+        ) -> Result<Option<String>, AdapterError> {
+            Ok(None)
+        }
+    }
+
+    fn binding(state_kind: Option<&str>, updated_at: Option<DateTime<Utc>>) -> TaskBinding {
+        let now = Utc::now();
+        TaskBinding {
+            id: "b1".into(),
+            task_id: "t1".into(),
+            provider: "stub".into(),
+            subject_kind: "stub_subject".into(),
+            subject_key: "acme/web#7".into(),
+            connection_id: "c1".into(),
+            trigger_id: None,
+            destination_config: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+            last_external_event_id: None,
+            origin: "ingress".into(),
+            created_at: now,
+            last_event_at: now,
+            external_status: state_kind.map(str::to_string),
+            external_state_kind: state_kind.map(str::to_string),
+            external_status_raw: None,
+            external_review_decision: None,
+            external_mergeable_state: None,
+            external_status_updated_at: updated_at,
+            active: true,
+            deactivated_at: None,
+        }
+    }
+
+    /// The staleness cutoff the read path uses: statuses older than this are
+    /// stale.
+    fn cutoff() -> DateTime<Utc> {
+        Utc::now() - ChronoDuration::seconds(300)
+    }
+
+    #[test]
+    fn terminal_state_kind_is_never_polled() {
+        // Stale by a mile, but finished — its persisted status stands.
+        let binding = binding(Some("done"), Some(Utc::now() - ChronoDuration::days(30)));
+        assert!(!should_refresh(
+            &StubAdapter { keyed: true },
+            &binding,
+            cutoff()
+        ));
+    }
+
+    #[test]
+    fn binding_the_adapter_cannot_name_is_skipped() {
+        let binding = binding(Some("open"), None);
+        assert!(!should_refresh(
+            &StubAdapter { keyed: false },
+            &binding,
+            cutoff()
+        ));
+    }
+
+    #[test]
+    fn fresh_non_terminal_binding_is_skipped() {
+        let binding = binding(Some("open"), Some(Utc::now() - ChronoDuration::seconds(10)));
+        assert!(!should_refresh(
+            &StubAdapter { keyed: true },
+            &binding,
+            cutoff()
+        ));
+    }
+
+    #[test]
+    fn stale_non_terminal_binding_is_refreshed() {
+        let binding = binding(Some("open"), Some(Utc::now() - ChronoDuration::hours(1)));
+        assert!(should_refresh(
+            &StubAdapter { keyed: true },
+            &binding,
+            cutoff()
+        ));
+    }
+
+    #[test]
+    fn never_fetched_binding_is_stale() {
+        let binding = binding(None, None);
+        assert!(should_refresh(
+            &StubAdapter { keyed: true },
+            &binding,
+            cutoff()
+        ));
+    }
+
+    #[test]
+    fn reopened_binding_becomes_refreshable_again() {
+        // A webhook overwrote the terminal status unconditionally; polling
+        // resumes from the state kind it wrote.
+        let mut binding = binding(Some("done"), Some(Utc::now() - ChronoDuration::hours(1)));
+        assert!(!should_refresh(
+            &StubAdapter { keyed: true },
+            &binding,
+            cutoff()
+        ));
+
+        binding.external_state_kind = Some("open".into());
+        assert!(should_refresh(
+            &StubAdapter { keyed: true },
+            &binding,
+            cutoff()
+        ));
+    }
 }
