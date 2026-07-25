@@ -10,6 +10,7 @@ pub mod api_routes;
 pub mod config;
 pub mod handlers;
 pub mod signature;
+pub mod status;
 pub mod webhook_payloads;
 
 /// `task_bindings.subject_kind` for bindings that point to a Linear issue

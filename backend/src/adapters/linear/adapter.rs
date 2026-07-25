@@ -10,13 +10,14 @@ use tracing::warn;
 
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
-    AdapterConnection, BindingContext, InboundMessage, LoopContext, OutboundReply,
+    AdapterConnection, BindingContext, ExternalStatus, InboundMessage, LoopContext, OutboundReply,
     SubscriptionMatch, TaskBinding,
 };
 use crate::adapters::{Adapter, AdapterKind};
 use crate::db::DbPool;
 
 use super::agent_api::{default_http_client, LinearAgentApi};
+use super::status;
 use super::SUBJECT_KIND_ISSUE;
 
 /// Linear adapter.
@@ -333,6 +334,36 @@ impl Adapter for LinearAdapter {
 
     fn thread_reply_hint(&self, _msg: &InboundMessage) -> Option<String> {
         Some("[Linear Agent prompt]".to_string())
+    }
+
+    fn binding_status_key(&self, binding: &TaskBinding) -> Option<String> {
+        status::binding_status_key(binding)
+    }
+
+    fn is_terminal_state_kind(&self, state_kind: &str) -> bool {
+        status::is_terminal_state_kind(state_kind)
+    }
+
+    /// Linear workspace tokens are per-org, not per-user, so `acting_user` is
+    /// unused here.
+    async fn fetch_binding_status(
+        &self,
+        binding: &TaskBinding,
+        _acting_user: &str,
+    ) -> Option<ExternalStatus> {
+        let (issue_id, org_id) = status::binding_subject(binding)?;
+
+        match self.agent_api_for_org(org_id).get_issue(issue_id).await {
+            Ok(issue) => Some(status::status_from_issue(&issue)),
+            Err(e) => {
+                warn!(
+                    binding_id = %binding.id,
+                    error = %e,
+                    "Failed to fetch live Linear issue status"
+                );
+                None
+            }
+        }
     }
 
     // `add_reaction` / `remove_reaction` intentionally not implemented; the

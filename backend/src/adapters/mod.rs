@@ -25,8 +25,8 @@ use crate::db::DbPool;
 
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
-    AdapterConnection, BindingContext, InboundMessage, LoopContext, NewThreadInfo, OutboundReply,
-    SubscriptionMatch, TaskBinding,
+    AdapterConnection, BindingContext, ExternalStatus, InboundMessage, LoopContext, NewThreadInfo,
+    OutboundReply, SubscriptionMatch, TaskBinding,
 };
 
 pub use moatless_api_schemas::enums::AdapterKind;
@@ -351,6 +351,43 @@ pub trait Adapter: Send + Sync {
     ///
     /// Default: `None` — no hint prepended.
     fn thread_reply_hint(&self, _msg: &InboundMessage) -> Option<String> {
+        None
+    }
+
+    /// Stable key naming the **external subject** a binding points at (the pull
+    /// request, the issue), not the binding itself — so several tasks bound to
+    /// the same subject share one cached status and one API call.
+    ///
+    /// Returned before any fetch happens, which is why it is a method of its
+    /// own rather than a by-product of [`Adapter::fetch_binding_status`].
+    ///
+    /// Default: `None` — this provider has no live external status.
+    fn binding_status_key(&self, _binding: &TaskBinding) -> Option<String> {
+        None
+    }
+
+    /// Whether a normalized `external_state_kind` means the external subject is
+    /// finished and can no longer change on its own (a merged PR, a completed
+    /// issue).
+    ///
+    /// Default: `false` — nothing this provider reports is terminal.
+    fn is_terminal_state_kind(&self, _state_kind: &str) -> bool {
+        false
+    }
+
+    /// Fetch the live external status for a binding, calling the provider's API.
+    ///
+    /// `acting_user` is the owning task's creator, used by providers that
+    /// resolve a per-user token. Returns `None` when no live status can be
+    /// obtained (unsupported binding, no token, API error) — callers fall back
+    /// to whatever is already persisted.
+    ///
+    /// Default: `None` — this provider has no live external status.
+    async fn fetch_binding_status(
+        &self,
+        _binding: &TaskBinding,
+        _acting_user: &str,
+    ) -> Option<ExternalStatus> {
         None
     }
 

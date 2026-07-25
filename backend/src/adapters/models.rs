@@ -232,6 +232,21 @@ pub struct TaskBinding {
     pub deactivated_at: Option<DateTime<Utc>>,
 }
 
+/// Normalized external status for the subject a [`TaskBinding`] points at.
+///
+/// Produced by each adapter's own derivation (GitHub PR fields, Linear workflow
+/// state) and persisted onto the binding's `external_status*` columns.
+#[derive(Debug, Clone)]
+pub struct ExternalStatus {
+    /// Display string (GitHub: `open`/`merged`/`closed`/`draft`; Linear: the
+    /// workflow state name).
+    pub status: Option<String>,
+    /// Normalized bucket used for color-coding / filtering.
+    pub state_kind: Option<String>,
+    /// Full detail blob persisted to `external_status_raw`.
+    pub raw: serde_json::Value,
+}
+
 /// Row from the `schedule_trigger_sources` table.
 #[derive(sqlx::FromRow, Debug, Clone)]
 pub struct Schedule {

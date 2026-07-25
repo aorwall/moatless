@@ -886,7 +886,7 @@ async fn persist_issue_status(
     issue: &IssuePayload,
 ) {
     let repo = PgTaskBindingRepository(state.db.clone());
-    let status = crate::bindings::status_service::linear_external_status(
+    let status = super::status::linear_external_status(
         issue.state_name(),
         issue.state_kind(),
         Some(issue.title.as_str()),
