@@ -574,14 +574,14 @@ async fn test_cancel_during_pending_prompt() {
 // ===========================================================================
 
 /// The load-bearing assumption behind `ClaudeProcess`'s injection path: a user
-/// message written into a running Session with `MessagePriority::Now` joins the
-/// Turn already in flight rather than opening a second one.
+/// message written into a running Session with `MessagePriority::Next` is folded
+/// into the execution already in flight rather than opening a second one.
 ///
-/// If the CLI instead treated it as a following Turn it would emit a second
-/// `Result`, which the one-shot orchestrator never reads (it ends the stream at
-/// the first) — so the injected message's output would be silently lost. This
-/// asserts both halves: exactly one `Result`, and the injected instruction
-/// visibly influencing that same Result.
+/// If the CLI instead started a fresh execution it would emit a second `Result`,
+/// which the one-shot orchestrator never reads (it ends the stream at the first)
+/// — so the injected message's output would be silently lost. This asserts both
+/// halves: exactly one `Result`, and the injected instruction visibly
+/// influencing that same Result.
 #[tokio::test]
 #[ignore]
 async fn test_mid_turn_injection_joins_the_running_turn() {
