@@ -274,6 +274,12 @@ impl AgentProcess for ClaudePersistentProcess {
 
         // No live session yet: spawn one and paste the opening prompt.
         if self.handle.is_none() {
+            super::session::ensure_explicit_resume_is_available(
+                &self.cfg.config,
+                &input.resume,
+                input.start_fresh,
+            )
+            .await?;
             self.spawn(&input, None).await?;
             self.awaiting_init = Some(input_id);
             // Suppress internal-turn detection on this Turn's blocks; the real

@@ -598,12 +598,10 @@ mod tests {
         // raw type collapses to — is asserted by the `resolve_agent_harness` tests
         // below (the single source of truth `build_harness` matches on). The
         // behavioural proof that the composed adapter is the intended family is an
-        // E2E concern (it requires actually running the CLI): the Claude selection
-        // is exercised by `agent_transport_e2e::run_missing_session_resume_is_lost`
-        // (gated `CLAUDE_SDK_E2E`), and fixed selection surviving a restart is
-        // covered by the compose replacement-ordering test
-        // (`replacement_ordering_e2e`, gated `SANDBOX_E2E`) — not by inspecting a
-        // private tag here.
+        // E2E concern (it requires actually running each CLI): fixed selection
+        // surviving a restart is covered for both families by
+        // `sandbox_replacement_ordering` (gated `SANDBOX_REPLACEMENT_E2E`) — not
+        // by inspecting a private tag here.
         for (agent_type, use_tmux) in [
             ("codex", false),
             ("claude-code", false),

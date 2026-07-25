@@ -110,7 +110,7 @@ if [ -z "${TASK_TOKEN_SECRET:-}" ]; then
 fi
 
 export APP_IMAGE="aorwall/moatless-vibe-backend:latest"
-export SANDBOX_IMAGE="${SANDBOX_IMAGE:-aorwall/moatless-vibe-sandbox-js:latest}"
+export SANDBOX_IMAGE="${SANDBOX_IMAGE:-aorwall/moatless-sandbox-js:latest}"
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 LOG_DIR="test-logs"

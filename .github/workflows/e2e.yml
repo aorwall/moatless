@@ -28,7 +28,11 @@ on:
         type: boolean
         default: false
       run_claude_sandbox_transport:
-        description: 'Run moatless-sandbox Claude transport E2E in Docker (subprocess + tmux; incl. missing-session resume)'
+        description: 'Run moatless-sandbox Claude transport E2E in Docker (subprocess + tmux)'
+        type: boolean
+        default: false
+      run_sandbox_replacement:
+        description: 'Run Claude + Codex Session continuity across Sandbox replacement'
         type: boolean
         default: false
       run_codex_sdk:
@@ -50,6 +54,8 @@ jobs:
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
           GITHUB_PAT: ${{ secrets.E2E_GITHUB_PAT }}
           SECRETS_ENCRYPTION_KEY: ${{ secrets.SECRETS_ENCRYPTION_KEY }}
         run: docker-compose/test-runner.sh --tier "${{ inputs.integration_tier }}"
@@ -110,6 +116,30 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: ./crates/claude-agent-sdk/scripts/test-docker.sh sandbox-transport
+
+  sandbox-replacement:
+    name: Sandbox replacement (Claude + Codex E2E)
+    if: inputs.run_sandbox_replacement
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install test toolchains
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+          rustup target add x86_64-unknown-linux-gnu
+          cargo install --locked cargo-zigbuild
+          pipx install ziglang || pip3 install ziglang
+      - name: Run Sandbox replacement E2E
+        env:
+          SANDBOX_REPLACEMENT_E2E: '1'
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+          GITHUB_PAT: ${{ secrets.E2E_GITHUB_PAT }}
+          SECRETS_ENCRYPTION_KEY: ${{ secrets.SECRETS_ENCRYPTION_KEY }}
+        run: docker-compose/test-runner.sh --tier agent --test sandbox_replacement_ordering
 
   # ── Codex CLI E2E in Docker ──
   # Runs the production `codex exec` path (sandbox/tests/agent_transport_e2e.rs::

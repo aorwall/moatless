@@ -44,6 +44,7 @@ use self::normalize::Normalizer;
 mod classify;
 mod normalize;
 mod persistent;
+mod session;
 
 pub(crate) use persistent::ClaudePersistentProcess;
 
@@ -176,6 +177,12 @@ impl ClaudeProcess {
 #[async_trait::async_trait]
 impl AgentProcess for ClaudeProcess {
     async fn submit(&mut self, input: Input) -> Result<(), HarnessError> {
+        session::ensure_explicit_resume_is_available(
+            &self.cfg.config,
+            &input.resume,
+            input.start_fresh,
+        )
+        .await?;
         let resume = self.resolve_resume(&input).await;
         self.resuming = resume.is_some();
 

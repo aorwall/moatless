@@ -30,6 +30,7 @@ fn is_session_unavailable(error: &SdkError) -> bool {
         SdkError::TmuxSessionDied { .. }
             | SdkError::SessionStartTimeout { .. }
             | SdkError::ProcessExit { .. }
+            | SdkError::TransportClosed
             | SdkError::JsonlNotFound { .. }
     )
 }

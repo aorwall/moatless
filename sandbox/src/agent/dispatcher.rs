@@ -15,7 +15,7 @@
 
 use std::time::Duration;
 
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use crate::files::uploads::fetch_uploads_for_messages;
 use crate::state::SandboxState;
@@ -27,11 +27,14 @@ use super::types::{content_blocks_from_proto, ContentBlock};
 /// spawned-task rule). The task itself logs every ordinary terminal branch; this
 /// watcher additionally surfaces an abnormal end (a panic) at `error` with the
 /// task's name, which a bare `tokio::spawn` would swallow.
-fn spawn_supervised(what: &'static str, fut: impl std::future::Future<Output = ()> + Send + 'static) {
+fn spawn_supervised(
+    what: &'static str,
+    fut: impl std::future::Future<Output = ()> + Send + 'static,
+) {
     let handle = tokio::spawn(fut);
     tokio::spawn(async move {
-        if let Err(error) = handle.await {
-            warn!(%error, task = what, "dispatcher task terminated abnormally");
+        if let Err(join_error) = handle.await {
+            error!(error = %join_error, task = what, "dispatcher task terminated abnormally");
         }
     });
 }

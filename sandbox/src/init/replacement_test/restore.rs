@@ -11,9 +11,10 @@
 //!   3. a `Lost` verdict drives one fresh same-family turn and keeps the ack —
 //!      `coordinator::tests::lost_resume_recovers_with_a_fresh_turn_and_keeps_the_ack`.
 //!
-//! Only the CLI-spawn join of links 1→2 (the real `--resume` process emitting the
-//! startup failure when the jsonl is gone) needs the binary, so it lives in the
-//! gated E2E tier — not the classification itself, which link 2 pins down.
+//! Link 2 is deterministic: the Claude Session module checks the restored
+//! transcript before spawning the CLI, while the native `TransportClosed` resume
+//! path is classified separately. Real CLI launch compatibility remains in the
+//! small transport smoke suite; it is not needed to prove missing-file policy.
 
 use std::sync::Arc;
 

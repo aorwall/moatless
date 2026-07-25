@@ -272,6 +272,14 @@ fn resume_startup_failure_is_unavailable_session_and_lost() {
 }
 
 #[test]
+fn resume_transport_close_is_unavailable_session_and_lost() {
+    let classified = classify_startup_error(&SdkError::TransportClosed, true);
+    assert_eq!(classified.class, ErrorClass::UnavailableSession);
+    assert_eq!(classified.session_impact, SessionImpact::Lost);
+    assert_eq!(classified.stage, FailureStage::Startup);
+}
+
+#[test]
 fn non_resume_process_exit_stays_a_process_exit() {
     let error = SdkError::ProcessExit {
         code: Some(1),

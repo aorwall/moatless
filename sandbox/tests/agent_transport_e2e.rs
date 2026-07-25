@@ -681,7 +681,13 @@ async fn test_spawn_agent_subprocess() {
 /// the gap that the three deterministic links were previously disconnected facts.
 async fn run_missing_session_resume_is_lost() {
     let tmp = TempDir::new().expect("create tempdir");
-    for sub in ["workspace", "data", "uploads", "home/.claude", "claude-config"] {
+    for sub in [
+        "workspace",
+        "data",
+        "uploads",
+        "home/.claude",
+        "claude-config",
+    ] {
         tokio::fs::create_dir_all(tmp.path().join(sub))
             .await
             .expect("create dir");
@@ -694,19 +700,10 @@ async fn run_missing_session_resume_is_lost() {
     // session id cannot resolve to any transcript.
     let projects_dir = std::path::Path::new(&config.claude_config_dir).join("projects");
     assert!(
-        !projects_dir.exists(),
+        !tokio::fs::try_exists(&projects_dir)
+            .await
+            .expect("inspect isolated Claude project directory"),
         "the isolated session store must contain no transcript to resume"
-    );
-
-    // Pin HOME and CLAUDE_CONFIG_DIR into the child env: `build_options` does NOT
-    // derive them from `Config`, so without this the `claude` subprocess would
-    // inherit the runner's real session store and the "absent target" would not
-    // hold. The auth env is what the CLI needs to reach startup.
-    let mut env = auth_credentials();
-    env.insert("HOME".to_string(), config.home_dir.clone());
-    env.insert(
-        "CLAUDE_CONFIG_DIR".to_string(),
-        config.claude_config_dir.clone(),
     );
 
     let mut harness = Harness::claude(ClaudeConfig {
@@ -722,7 +719,6 @@ async fn run_missing_session_resume_is_lost() {
             resume: Some(ResumeSession::WithId(
                 "00000000-0000-0000-0000-000000000000".to_string(),
             )),
-            env: Some(env),
             ..Input::text("resume-missing", "Continue the prior conversation.")
         })
         .await
@@ -766,15 +762,11 @@ async fn run_missing_session_resume_is_lost() {
     );
 }
 
-/// Missing-restore → `Lost` causal join over the real CLI. Gated on
-/// `CLAUDE_SDK_E2E=1` (spawns `claude --resume` against an absent transcript).
+/// Missing-restore → `Lost` through the production harness. The harness rejects
+/// the absent restored transcript before spawning the CLI, so this regression is
+/// deterministic and needs neither credentials nor an installed executable.
 #[tokio::test]
-#[ignore]
 async fn test_missing_session_resume_classifies_lost() {
-    if std::env::var("CLAUDE_SDK_E2E").as_deref() != Ok("1") {
-        eprintln!("Skipping missing-resume E2E test (set CLAUDE_SDK_E2E=1 to run)");
-        return;
-    }
     run_missing_session_resume_is_lost().await;
 }
 

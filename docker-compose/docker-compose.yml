@@ -85,6 +85,8 @@ services:
       # Claude Authentication (at least one REQUIRED)
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      CODEX_AUTH_JSON: ${CODEX_AUTH_JSON:-}
 
       # GitHub PAT (for repository access)
       GITHUB_PAT: ${GITHUB_PAT:-}
