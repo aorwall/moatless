@@ -108,6 +108,11 @@ pub struct ServerConfig {
     /// Per-server environment variables.
     #[serde(default)]
     pub env_vars: Option<HashMap<String, String>>,
+    /// Per-server resource requests/limits. Falls back to the repo-wide
+    /// `resources` when unset. Only `requests`/`limits` apply; storage fields
+    /// are repo-wide and ignored here.
+    #[serde(default)]
+    pub resources: Option<ResourceConfig>,
 }
 
 // =============================================================================

@@ -143,13 +143,24 @@ resource sizing (memory/storage for heavy builds), servers, and Docker access.
 Spawning by `--repo` lands the child on the repo's bare shadow workspace, which
 may have none of that.
 
-Choose per ticket:
+Choose per ticket — **default to the sandbox-only workspace**:
 
-- **Default**: the repo's standard workspace (e.g. `Moatless`).
+- **Default**: the sandbox-only workspace (e.g. `Moatless`) — agent container,
+  no dev server. Child tasks write code, run tests, and open a PR; almost none
+  of them need a running frontend. A sandbox-only pod is a fraction of the size
+  of one carrying a dev server, so several fit per node instead of one, and
+  children stop queueing behind each other for capacity. Pick this unless the
+  ticket gives you a concrete reason not to.
+- **Preview needed**: the dev-server workspace (e.g. `Moatless Preview`) only
+  when the ticket needs the app actually running — visual/UI verification, or
+  acceptance criteria written against a live preview URL.
 - **Docker needed**: the docker-enabled workspace (e.g. `Moatless Fullstack`,
   `dockerAccess: true`) when the ticket runs compose-based integration tests,
   builds images, or otherwise needs a Docker daemon. Check the ticket's
   acceptance criteria for compose/E2E test commands.
+
+Sizing follows that choice automatically — each workspace carries its own
+resource config, and servers are sized separately from the agent container.
 
 Pass `--workspace <ws-id-or-name>` to `moat tasks create` (it replaces
 `--repo`). If your `moat` build predates the flag (`moat tasks create --help`

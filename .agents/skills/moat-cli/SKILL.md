@@ -49,6 +49,12 @@ Full command list with flags and examples: [references/command-reference.md](ref
 Gotchas:
 - Send to a task: `moat send --task <id> --text "…"` — there is NO `moat messages send`.
 - `moat tasks create` auto-starts the sandbox; `moat tasks start` resumes a stopped one.
+- `moat tasks create --workspace <id-or-name>` replaces `--repo` and carries the
+  sandbox's run-config (resources, servers, Docker access). For **child tasks,
+  default to the sandbox-only workspace** (e.g. `Moatless`) — no dev server, so
+  the pod is small and many fit per node instead of one. Use `Moatless Preview`
+  only when the app must actually run, `Moatless Fullstack` only when a Docker
+  daemon is needed.
 - Cron triggers take 7-field cron (`sec min hour dom month dow year`); 5-field crontab is rejected.
 - `moat gh pr reply` is moat-only (real `gh` has no such subcommand).
 

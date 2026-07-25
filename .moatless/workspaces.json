@@ -4,7 +4,7 @@
     {
       "key": "moatless",
       "name": "Moatless",
-      "description": "Regular dev — the Vite dev server on port 3000.",
+      "description": "Agent sandbox only — no dev server or preview.",
       "repos": [
         { "url": "https://github.com/soaplabs/moatless.git", "primary": true }
       ],
@@ -17,7 +17,29 @@
         "CARGO_PROFILE_TEST_DEBUG": "0"
       },
       "resources": {
-        "requests": { "cpu": "1", "memory": "4Gi" },
+        "requests": { "cpu": "1", "memory": "2Gi" },
+        "limits": { "cpu": "4", "memory": "8Gi" },
+        "storage": "20Gi"
+      },
+      "servers": []
+    },
+    {
+      "key": "moatless-preview",
+      "name": "Moatless Preview",
+      "description": "Agent sandbox plus the Vite dev server on port 3000.",
+      "repos": [
+        { "url": "https://github.com/soaplabs/moatless.git", "primary": true }
+      ],
+      "codeExecution": {
+        "setupCommands": ["bun install"]
+      },
+      "envVars": {
+        "CARGO_BUILD_JOBS": "2",
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0"
+      },
+      "resources": {
+        "requests": { "cpu": "1", "memory": "2Gi" },
         "limits": { "cpu": "4", "memory": "8Gi" },
         "storage": "20Gi"
       },
@@ -30,30 +52,11 @@
           "startupTimeoutSeconds": 30,
           "autoReload": true,
           "enableInspector": true,
-          "default": true
-        }
-      ]
-    },
-    {
-      "key": "moatless-storybook",
-      "name": "Moatless Storybook",
-      "description": "Storybook component explorer on port 6006.",
-      "repos": [
-        { "url": "https://github.com/soaplabs/moatless.git", "primary": true }
-      ],
-      "codeExecution": {
-        "setupCommands": ["bun install"]
-      },
-      "servers": [
-        {
-          "name": "storybook",
-          "label": "Storybook",
-          "port": 6006,
-          "startCommands": ["bun run storybook -- -p 6006 --host 0.0.0.0 --no-open"],
-          "startupTimeoutSeconds": 60,
-          "autoReload": false,
-          "enableInspector": false,
-          "default": true
+          "default": true,
+          "resources": {
+            "requests": { "cpu": "200m", "memory": "1Gi" },
+            "limits": { "cpu": "1", "memory": "2Gi" }
+          }
         }
       ]
     },
@@ -80,7 +83,7 @@
         "CARGO_PROFILE_TEST_DEBUG": "0"
       },
       "resources": {
-        "requests": { "cpu": "1", "memory": "4Gi" },
+        "requests": { "cpu": "1", "memory": "2Gi" },
         "limits": { "cpu": "4", "memory": "8Gi" },
         "storage": "20Gi",
         "dockerStorageMode": "node",
@@ -95,7 +98,11 @@
           "startupTimeoutSeconds": 120,
           "autoReload": true,
           "enableInspector": true,
-          "default": true
+          "default": true,
+          "resources": {
+            "requests": { "cpu": "200m", "memory": "1Gi" },
+            "limits": { "cpu": "1", "memory": "2Gi" }
+          }
         },
         {
           "name": "backend",
@@ -106,6 +113,29 @@
           "autoReload": false,
           "enableInspector": false,
           "default": false
+        }
+      ]
+    },
+    {
+      "key": "moatless-storybook",
+      "name": "Moatless Storybook",
+      "description": "Storybook component explorer on port 6006.",
+      "repos": [
+        { "url": "https://github.com/soaplabs/moatless.git", "primary": true }
+      ],
+      "codeExecution": {
+        "setupCommands": ["bun install"]
+      },
+      "servers": [
+        {
+          "name": "storybook",
+          "label": "Storybook",
+          "port": 6006,
+          "startCommands": ["bun run storybook -- -p 6006 --host 0.0.0.0 --no-open"],
+          "startupTimeoutSeconds": 60,
+          "autoReload": false,
+          "enableInspector": false,
+          "default": true
         }
       ]
     }

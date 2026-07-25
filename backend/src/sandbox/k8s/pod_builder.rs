@@ -1099,8 +1099,14 @@ fn build_server_containers(
             ..Default::default()
         };
 
-        // Resource limits: use per-repo override if set, otherwise global defaults
-        let resources = if let Some(ref res) = plan.repo_config.resources {
+        // Resource limits: per-server override wins, then per-repo, then global
+        // defaults. Servers are typically far lighter than the agent container,
+        // so sizing them separately is what keeps pod density honest.
+        let server_resources = server
+            .resources
+            .as_ref()
+            .or(plan.repo_config.resources.as_ref());
+        let resources = if let Some(res) = server_resources {
             ResourceRequirements {
                 limits: res.limits.as_ref().map(|l| {
                     l.iter()

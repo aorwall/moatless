@@ -153,6 +153,40 @@ moat repos update <repo-id> --storage-mode s3 --storage 30Gi --docker-storage-mo
 
 ---
 
+## Workspace Commands
+
+A workspace is the run-config a task's sandbox uses: resource sizing, servers,
+Docker access, setup commands, env vars. Pass one to `moat tasks create` with
+`--workspace` (see below).
+
+Most workspaces are **git-synced** from the repo's `.moatless/workspaces.json`
+and are read-only here — edit that file and re-sync with
+`moat repos sync-config <repo-id>`. `override` breaks a workspace off git sync
+so the CLI can edit it; `reset-git` puts it back under sync.
+
+| Command | Description |
+|---------|-------------|
+| `moat workspaces list` | List workspaces |
+| `moat workspaces get <workspace-id>` | Workspace details |
+| `moat workspaces create --name <name> [...]` | Create a manual workspace |
+| `moat workspaces update <workspace-id> [...]` | Update (manual workspaces only) |
+| `moat workspaces override <workspace-id> [...]` | Edit a git-synced workspace; stops future git sync |
+| `moat workspaces reset-git <workspace-id>` | Return an overridden workspace to git sync |
+| `moat workspaces delete <workspace-id>` | Soft-delete (manual workspaces only) |
+
+- **API**: `GET /api/v1/workspaces`
+
+```bash
+# Find the workspace to spawn into
+moat workspaces list --json | jq '.[] | {id, name, source, dockerAccess}'
+```
+
+Structured fields on `create`/`update` take JSON strings: `--servers-json`,
+`--resources-json`, `--env-vars-json`, `--setup-commands-json`,
+`--plugins-json`, `--repos-json`.
+
+---
+
 ## Task Commands
 
 ### `moat tasks list`
@@ -197,29 +231,49 @@ Create a new task.
 
 | Flag | Required | Default | Description |
 |------|----------|---------|-------------|
-| `--repo` | Yes | — | Repository ID |
+| `--workspace` | No | — | Workspace ID (`ws_...`) or name; wins over `--repo` |
+| `--repo` | Unless `--workspace` | — | Repository ID or name |
 | `--name` | Yes | — | Task name/title |
 | `--message` | No | — | Initial message/instructions |
 | `--parent` | No | `$TASK_ID` env | Parent task ID |
 | `--no-parent` | No | — | Explicitly create without parent |
 | `--branch` | No | — | Git branch name |
+| `--mode` | No | — | Agent mode: `edit` or `plan` |
 
 - **API**: `POST /api/v1/tasks`
 
 **Auto-parent behavior**: If `TASK_ID` env var is set and `--no-parent` is not specified, the new task automatically gets `TASK_ID` as its parent. This enables hierarchical task trees inside sandbox pods.
 
+**Workspace vs repo**: `--workspace` takes a workspace ID or a name (matched
+case-insensitively; must be unique) and supplies the run-config the sandbox
+needs — resource sizing, servers, Docker access. It replaces `--repo`, since
+the workspace's primary repository is used. Spawning by `--repo` alone lands on
+the repo's bare shadow workspace, which carries none of that.
+
+For **child tasks, default to the sandbox-only workspace** (e.g. `Moatless`) —
+no dev server, so the pod is small and many fit per node. Use a dev-server
+workspace (`Moatless Preview`) only when the work needs the app running, and
+the Docker-enabled one (`Moatless Fullstack`) only when it needs a Docker
+daemon.
+
 ```bash
-# Basic creation
+# Sandbox-only workspace — the default for child tasks
+moat tasks create --workspace Moatless --name "Build feature X"
+
+# Preview workspace, only when a running frontend is needed
+moat tasks create --workspace "Moatless Preview" --name "Fix header layout"
+
+# Bare repo (no workspace run-config)
 moat tasks create --repo <repo-id> --name "Build feature X"
 
 # With initial instructions
-moat tasks create --repo <repo-id> --name "Fix bug" --message "The login form crashes on submit"
+moat tasks create --workspace Moatless --name "Fix bug" --message "The login form crashes on submit"
 
 # Explicit parent
-moat tasks create --repo <repo-id> --name "Subtask" --parent <parent-task-id>
+moat tasks create --workspace Moatless --name "Subtask" --parent <parent-task-id>
 
 # No parent (override $TASK_ID)
-moat tasks create --repo <repo-id> --name "Independent task" --no-parent
+moat tasks create --workspace Moatless --name "Independent task" --no-parent
 ```
 
 ### `moat tasks children [task_id]`
