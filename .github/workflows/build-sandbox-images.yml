@@ -44,10 +44,10 @@ jobs:
   detect-changes:
     name: Detect changes
     runs-on: ubuntu-latest
-    # Fork (soaplabs/moatless-vibe) doesn't publish any sandbox-* images
-    # from this workflow — see the publish jobs below. Skip the whole
-    # chain on the fork to avoid building Rust binaries we throw away.
-    if: github.event_name == 'push' && github.repository_owner == 'aorwall'
+    # Runs on any repo's push. Images publish to the REGISTRY_ORG Docker Hub
+    # namespace (defaults to aorwall), so pushing requires the DOCKERHUB_*
+    # secrets to be present with access to that org.
+    if: github.event_name == 'push'
     outputs:
       binaries: ${{ steps.filter.outputs.binaries }}
       tools: ${{ steps.filter.outputs.tools }}
@@ -87,11 +87,10 @@ jobs:
   build-binaries:
     name: Build sandbox + CLI binaries
     needs: detect-changes
-    # Fork-side: not published anywhere from this workflow (cd-ecr.yml owns
-    # the sandbox build). Gate avoids compiling Rust we'd throw away.
+    # On the soaplabs/moatless-vibe fork the sandbox is built via cd-ecr.yml
+    # (ECR); this workflow is the Docker Hub path used by other repos.
     if: >-
       always() &&
-      github.repository_owner == 'aorwall' &&
       (
         needs.detect-changes.outputs.binaries == 'true' ||
         needs.detect-changes.outputs.sandbox == 'true' ||
@@ -175,13 +174,12 @@ jobs:
   build-tools-image:
     name: Build & push sandbox-tools
     needs: [detect-changes, build-binaries]
-    # Fork (soaplabs/moatless-vibe) doesn't publish sandbox-* images
-    # — it pulls aorwall/moatless-sandbox-{base,tools} from Docker Hub
-    # and only builds/pushes the leaf moatless-sandbox image to ECR
-    # (via cd-ecr.yml). Gate keeps these jobs upstream-only.
+    # The soaplabs/moatless-vibe fork doesn't publish sandbox-* images from
+    # this workflow — it pulls aorwall/moatless-sandbox-{base,tools} from
+    # Docker Hub and builds/pushes the leaf moatless-sandbox image to ECR
+    # (via cd-ecr.yml).
     if: >-
       always() &&
-      github.repository_owner == 'aorwall' &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') &&
       (needs.detect-changes.outputs.binaries == 'true' || needs.detect-changes.outputs.tools == 'true' || github.event_name == 'workflow_dispatch') &&
       needs.build-binaries.result == 'success'
@@ -240,7 +238,6 @@ jobs:
     # Fork-side: see note on build-tools-image.
     if: >-
       always() &&
-      github.repository_owner == 'aorwall' &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') &&
       (
         needs.detect-changes.outputs.base == 'true' ||
@@ -292,7 +289,6 @@ jobs:
     # Fork-side: published via cd-ecr.yml (publish-sandbox job) to ECR.
     if: >-
       always() &&
-      github.repository_owner == 'aorwall' &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') &&
       (
         needs.detect-changes.outputs.binaries == 'true' ||
@@ -362,7 +358,6 @@ jobs:
     # aorwall's Docker Hub image directly.
     if: >-
       always() &&
-      github.repository_owner == 'aorwall' &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') &&
       (
         needs.detect-changes.outputs.tools == 'true' ||
