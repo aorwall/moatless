@@ -574,3 +574,74 @@ async fn increment_recovery_attempts_counts_per_turn(pool: PgPool) {
         2
     );
 }
+
+// ── latest_closed_turn_status — the resume-suppression signal ───────────────
+
+#[sqlx::test]
+async fn latest_closed_turn_status_skips_the_turn_still_running(pool: PgPool) {
+    seed_task(&pool, "task-a").await;
+    let repo = PgTaskTurnRepository(pool.clone());
+
+    assert_eq!(
+        repo.latest_closed_turn_status("task-a").await.unwrap(),
+        None,
+        "a task with no turns has nothing to report"
+    );
+
+    // Turn 1 is stopped, turn 2 is the run asking whether it may resume. The
+    // open turn must not mask the stop that precedes it.
+    repo.apply_ingress_event(&ingress_event(
+        "task-a",
+        1,
+        "e1",
+        "stopped",
+        TurnTransition::Terminal(TurnStatus::Stopped),
+    ))
+    .await
+    .unwrap();
+    repo.apply_ingress_event(&ingress_event(
+        "task-a",
+        2,
+        "e2",
+        "active",
+        TurnTransition::Open,
+    ))
+    .await
+    .unwrap();
+
+    assert_eq!(
+        repo.latest_closed_turn_status("task-a").await.unwrap(),
+        Some(TurnStatus::Stopped)
+    );
+}
+
+#[sqlx::test]
+async fn latest_closed_turn_status_tracks_the_newest_closed_turn(pool: PgPool) {
+    seed_task(&pool, "task-a").await;
+    let repo = PgTaskTurnRepository(pool.clone());
+
+    repo.apply_ingress_event(&ingress_event(
+        "task-a",
+        1,
+        "e1",
+        "stopped",
+        TurnTransition::Terminal(TurnStatus::Stopped),
+    ))
+    .await
+    .unwrap();
+    repo.apply_ingress_event(&ingress_event(
+        "task-a",
+        2,
+        "e2",
+        "completed",
+        TurnTransition::Terminal(TurnStatus::Completed),
+    ))
+    .await
+    .unwrap();
+
+    assert_eq!(
+        repo.latest_closed_turn_status("task-a").await.unwrap(),
+        Some(TurnStatus::Completed),
+        "a clean turn after a stop makes the session resumable again"
+    );
+}

@@ -31,6 +31,26 @@ impl TurnStatus {
             Self::Interrupted => "interrupted",
         }
     }
+
+    /// Parse a `task_turns.status` string back into the enum. `None` for a
+    /// value this build doesn't know (a row written by a newer backend).
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "active" => Some(Self::Active),
+            "completed" => Some(Self::Completed),
+            "error" => Some(Self::Error),
+            "stopped" => Some(Self::Stopped),
+            "interrupted" => Some(Self::Interrupted),
+            _ => None,
+        }
+    }
+
+    /// Whether a turn that ended in this state left the agent session cut off
+    /// mid-flight. Resuming such a session replays a transcript whose last
+    /// entry is an unanswered tool call, so the next run must start fresh.
+    pub fn cut_off_session(self) -> bool {
+        matches!(self, Self::Error | Self::Stopped)
+    }
 }
 
 /// A turn state transition derived from an inbound event's `(type, sub_type)`.
@@ -136,5 +156,29 @@ mod tests {
         assert!(TurnTransition::Terminal(TurnStatus::Completed).is_terminal());
         assert!(!TurnTransition::Open.is_terminal());
         assert!(!TurnTransition::Interrupted.is_terminal());
+    }
+
+    #[test]
+    fn status_parses_back_from_its_stored_string() {
+        for status in [
+            TurnStatus::Active,
+            TurnStatus::Completed,
+            TurnStatus::Error,
+            TurnStatus::Stopped,
+            TurnStatus::Interrupted,
+        ] {
+            assert_eq!(TurnStatus::parse(status.as_str()), Some(status));
+        }
+        assert_eq!(TurnStatus::parse("abandoned"), None);
+    }
+
+    #[test]
+    fn stopped_and_errored_turns_cut_the_session_off() {
+        assert!(TurnStatus::Stopped.cut_off_session());
+        assert!(TurnStatus::Error.cut_off_session());
+        assert!(!TurnStatus::Completed.cut_off_session());
+        // An interrupted turn resumes on reschedule — it is not cut off.
+        assert!(!TurnStatus::Interrupted.cut_off_session());
+        assert!(!TurnStatus::Active.cut_off_session());
     }
 }

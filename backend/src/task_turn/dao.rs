@@ -13,7 +13,7 @@ use sqlx::postgres::PgArguments;
 use sqlx::query::Query;
 use sqlx::Postgres;
 
-use super::models::{TurnTransition, UnclosedTurn};
+use super::models::{TurnStatus, TurnTransition, UnclosedTurn};
 use crate::db::DbPool;
 
 /// A state-bearing event applied transactionally at the gRPC ingress.
@@ -137,6 +137,18 @@ pub trait TaskTurnRepository: Send + Sync {
     /// For rows the backend writes outside any run (harness errors, internal
     /// replies, outbound stubs), which belong to the turn already in progress.
     async fn latest_turn_number(&self, task_id: &str) -> Result<Option<i32>, sqlx::Error>;
+
+    /// The status of the task's most recently *closed* turn, or `None` when it
+    /// has none. Open turns (`active`/`interrupted`) are skipped, so the answer
+    /// doesn't flip once the next run opens its own turn.
+    ///
+    /// Read when deriving `--resume`: a turn that ended `stopped` or `error`
+    /// cut its agent session off mid-flight (see
+    /// [`TurnStatus::cut_off_session`]).
+    async fn latest_closed_turn_status(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<TurnStatus>, sqlx::Error>;
 
     /// Every turn's stored metrics, oldest first. Turns that never completed
     /// (or predate the column) are omitted.
@@ -353,6 +365,23 @@ impl TaskTurnRepository for PgTaskTurnRepository {
         .fetch_one(&self.0)
         .await?;
         Ok(latest)
+    }
+
+    async fn latest_closed_turn_status(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<TurnStatus>, sqlx::Error> {
+        let row: Option<(String,)> = sqlx::query_as(
+            r#"SELECT status FROM task_turns
+               WHERE task_id = $1
+                 AND status IN ('completed', 'error', 'stopped')
+               ORDER BY turn_number DESC
+               LIMIT 1"#,
+        )
+        .bind(task_id)
+        .fetch_optional(&self.0)
+        .await?;
+        Ok(row.and_then(|(status,)| TurnStatus::parse(&status)))
     }
 
     async fn increment_recovery_attempts(

@@ -56,6 +56,23 @@ pub trait TaskEventRepository: Send + Sync {
         task_id: &str,
     ) -> Result<Option<UnclosedTurn>, sqlx::Error>;
 
+    /// Whether the task's agent run had already reached a terminal state
+    /// (`completed` | `stopped` | `error`) by the time `event_id` was logged —
+    /// i.e. the newest run-state event *older* than it is not `started`.
+    ///
+    /// The stop fan-out dedupe: one user stop publishes `agent.stopped` twice
+    /// (the `/stop` handler, and the sandbox answering the graceful
+    /// `StopAgent`), and only the first should count. Both rows can already be
+    /// in the log by dispatch time — the consumer persists an event before
+    /// dispatching it, and the sandbox's ingress commits its row before
+    /// publishing — so the comparison is against the log's own order, not
+    /// against "any event but mine".
+    async fn agent_run_already_terminal(
+        &self,
+        task_id: &str,
+        event_id: &str,
+    ) -> Result<bool, sqlx::Error>;
+
     /// For each task in `task_ids`, return its single most-recent agent
     /// lifecycle event as `(sub_type, created_at)`.
     ///
@@ -178,6 +195,38 @@ impl TaskEventRepository for PgTaskEventRepository {
             turn_number,
             agent_type,
         }))
+    }
+
+    async fn agent_run_already_terminal(
+        &self,
+        task_id: &str,
+        event_id: &str,
+    ) -> Result<bool, sqlx::Error> {
+        // The newest run-state event strictly *older* than this one. Ordering on
+        // `id` rides `idx_task_events_task_id (task_id, id)` and gives the two
+        // stop publishers a stable order — `created_at` need not, and "older
+        // than me" rather than "not me" is what makes exactly one of them win
+        // whichever the consumer dispatches first.
+        //
+        // The `id <` comparison is NULL when this event has no row (persistence
+        // is best-effort), so the query returns nothing and the caller proceeds
+        // — the same fail-open the guard has always had.
+        let row: Option<(String,)> = sqlx::query_as(
+            r#"SELECT sub_type
+               FROM task_events
+               WHERE task_id = $1
+                 AND type = 'agent'
+                 AND sub_type IN ('started', 'completed', 'stopped', 'error')
+                 AND id < (SELECT id FROM task_events WHERE event_id = $2)
+               ORDER BY id DESC
+               LIMIT 1"#,
+        )
+        .bind(task_id)
+        .bind(event_id)
+        .fetch_optional(&self.0)
+        .await?;
+
+        Ok(matches!(row, Some((ref sub_type,)) if sub_type != "started"))
     }
 
     async fn get_latest_agent_lifecycle(

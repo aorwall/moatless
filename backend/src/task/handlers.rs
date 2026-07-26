@@ -1173,8 +1173,8 @@ pub async fn stop_task(
         .await?;
 
     // Signal the user stop. `handle_agent_stopped` owns the task-status flip
-    // (→ Open unless Closed), the "Stopped by user request" message, and the
-    // taskTurn.stopped fan-out. Its idempotency guard dedupes this against the
+    // (→ Open unless Closed) and the taskTurn.stopped fan-out; a user stop is
+    // routine, so it writes no transcript row. Its idempotency guard dedupes this against the
     // agent.stopped the sandbox publishes in response to the graceful StopAgent,
     // so the stop still lands cleanly when the sandbox is already gone.
     if let Some(ref events) = state.events {

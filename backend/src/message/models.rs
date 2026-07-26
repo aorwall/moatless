@@ -25,19 +25,16 @@ pub fn stop_marker_text(source: SandboxStopReason) -> &'static str {
     }
 }
 
-/// Whether `text` is one of the stop-marker texts. Used to dedupe stop
-/// fan-out: both the sandbox and the /stop handler publish `agent.stopped`
-/// for one user action.
-pub fn is_stop_marker_text(text: &str) -> bool {
-    [
-        SandboxStopReason::User,
-        SandboxStopReason::IdleReaper,
-        SandboxStopReason::Cleanup,
-        SandboxStopReason::System,
-        SandboxStopReason::Error,
-    ]
-    .iter()
-    .any(|s| stop_marker_text(*s) == text)
+/// Whether a stop with this reason earns a `Result` row in the transcript.
+///
+/// Only an error stop does. The other reasons are routine lifecycle — the user
+/// hit stop, the idle reaper or cleanup reclaimed the sandbox, the system stood
+/// it down — and the reader already knows: the task's live status and turn
+/// state say so, and for externally-bound tasks a "Stopped by user request"
+/// line is pure noise on Slack or Linear. An error stop is the one the
+/// transcript can't otherwise explain.
+pub fn stop_is_reported(source: SandboxStopReason) -> bool {
+    matches!(source, SandboxStopReason::Error)
 }
 
 // =============================================================================
@@ -285,6 +282,22 @@ pub struct TaskMessageContentBlock {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_error_stops_reach_the_transcript() {
+        assert!(stop_is_reported(SandboxStopReason::Error));
+        for routine in [
+            SandboxStopReason::User,
+            SandboxStopReason::IdleReaper,
+            SandboxStopReason::Cleanup,
+            SandboxStopReason::System,
+        ] {
+            assert!(
+                !stop_is_reported(routine),
+                "{routine:?} should not append a message"
+            );
+        }
+    }
 
     #[test]
     fn message_type_serde_roundtrip() {

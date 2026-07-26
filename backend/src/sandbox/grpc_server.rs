@@ -51,7 +51,7 @@ use crate::task::dao::TaskRepository;
 use crate::task::relations::TaskRelationRepository;
 use crate::task_event::dao::{InsertTaskEvent, TaskEventRepository};
 use crate::task_turn::dao::{TaskTurnRepository, TurnStateEvent};
-use crate::task_turn::models::classify_turn_transition;
+use crate::task_turn::models::{classify_turn_transition, TurnStatus};
 use crate::workspace::dao::WorkspaceRepository;
 
 /// Known credential env var names.
@@ -851,12 +851,36 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             .await
             .unwrap_or(None);
 
+        // Check the last closed turn — a turn that ended `stopped` or `error`
+        // cut its agent session off mid-flight, so the next run starts fresh
+        // rather than `--resume` into a transcript ending on an unanswered tool
+        // call. Turn state is authoritative here: routine stops leave no result
+        // row behind (see `message::models::stop_is_reported`).
+        let cut_off = match self.task_turns.as_ref() {
+            Some(turns) => match turns.latest_closed_turn_status(&req.task_id).await {
+                Ok(status) => status.is_some_and(TurnStatus::cut_off_session),
+                Err(e) => {
+                    warn!(error = %e, task_id = %req.task_id, "Failed to read last closed turn; assuming resumable");
+                    false
+                }
+            },
+            None => false,
+        };
+
         // Check will_not_resume on the last result — if explicitly set,
         // don't pass a resume session ID. Also
         // auto-skip resume when the last result row was an error: the prior
         // turn blew up (e.g. codex `--resume` against a missing rollout) and
         // resuming again would just loop the same failure.
-        let task_resume_session_id = if task_resume_session_id.is_some() {
+        let task_resume_session_id = if task_resume_session_id.is_none() {
+            None
+        } else if cut_off {
+            debug!(
+                task_id = %req.task_id,
+                "Last closed turn was stopped or errored, clearing resume_session_id"
+            );
+            None
+        } else {
             match messages.get_last_result(&req.task_id).await {
                 Ok(Some(last_result)) if last_result.will_not_resume == Some(true) => {
                     debug!(
@@ -876,8 +900,6 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                 }
                 _ => task_resume_session_id,
             }
-        } else {
-            None
         };
 
         // Pre-resolve sent_by user logins for *internal* rows. External rows
@@ -2121,6 +2143,13 @@ mod tests {
 
         async fn latest_turn_number(&self, _task_id: &str) -> Result<Option<i32>, sqlx::Error> {
             Ok(Some(1))
+        }
+
+        async fn latest_closed_turn_status(
+            &self,
+            _task_id: &str,
+        ) -> Result<Option<TurnStatus>, sqlx::Error> {
+            unreachable!("latest_closed_turn_status is the pending-message path")
         }
 
         async fn set_turn_metrics(

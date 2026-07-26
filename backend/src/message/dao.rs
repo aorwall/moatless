@@ -177,12 +177,6 @@ pub trait MessageRepository: Send + Sync {
         task_id: &str,
     ) -> Result<Option<super::models::MessageType>, sqlx::Error>;
 
-    /// Whether the most recent row for a task is a `Result` whose first text
-    /// block is a stop-marker text (see [`super::models::stop_marker_text`]).
-    /// Used by `handle_agent_stopped` to drop duplicate stop fan-out events
-    /// before they accumulate phantom rows.
-    async fn last_is_stopped_marker(&self, task_id: &str) -> Result<bool, sqlx::Error>;
-
     /// Whether a turn has already been satisfied by a final assistant reply.
     /// The primary check is scoped to `turn_number`: the most recent row for
     /// that turn must be an `assistant` message with
@@ -745,32 +739,6 @@ impl MessageRepository for PgMessageRepository {
         .fetch_optional(&self.0)
         .await?;
         Ok(row.map(|r| r.0))
-    }
-
-    async fn last_is_stopped_marker(&self, task_id: &str) -> Result<bool, sqlx::Error> {
-        let row: Option<(super::models::MessageType, serde_json::Value)> = sqlx::query_as(
-            r#"SELECT message_type, message_content FROM task_messages
-               WHERE task_id = $1
-               ORDER BY timestamp DESC, id DESC
-               LIMIT 1"#,
-        )
-        .bind(task_id)
-        .fetch_optional(&self.0)
-        .await?;
-
-        let Some((msg_type, content)) = row else {
-            return Ok(false);
-        };
-        if msg_type != super::models::MessageType::Result {
-            return Ok(false);
-        }
-        let is_stopped = content
-            .as_array()
-            .and_then(|arr| arr.first())
-            .and_then(|b| b.get("text"))
-            .and_then(|v| v.as_str())
-            .is_some_and(super::models::is_stop_marker_text);
-        Ok(is_stopped)
     }
 
     async fn last_message_is_completed_reply(

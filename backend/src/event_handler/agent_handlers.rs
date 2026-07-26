@@ -331,27 +331,45 @@ pub async fn handle_agent_session_init(_state: &AppState, event: &AgentEvent) {
 /// stop, and picks the marker text via `stop_marker_text`. A missing or
 /// unknown source is treated as a user stop — the pre-`source` behavior, kept
 /// for sandboxes that predate the field.
+///
+/// Only an error stop is written to the transcript (see
+/// [`crate::message::models::stop_is_reported`]); the routine reasons update
+/// task and turn state and stay out of the conversation. The turn is closed
+/// either way, so the next run still starts a fresh agent session — that is
+/// derived from the turn's terminal status, not from this row.
 pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
     // reason: agent-lifecycle event handler runs as background system with no caller identity
     #[allow(clippy::disallowed_methods)]
     let sys_ctx = ScopeContext::system();
+    let source = event
+        .payload
+        .get("source")
+        .and_then(|v| v.as_str())
+        .and_then(|s| SandboxStopReason::try_from(s).ok())
+        .unwrap_or(SandboxStopReason::User);
+
     // Idempotency: drop duplicate stop fan-out. Both the sandbox and the
     // /stop HTTP handler can publish `agent.stopped` for a single user
-    // action, and a hammered /stop endpoint must never accumulate phantom
-    // rows. If the most recent message is already a stopped marker, this
-    // event has nothing to add.
-    match state.messages.last_is_stopped_marker(&event.task_id).await {
+    // action, and a hammered /stop endpoint must never re-run the stop. The
+    // event log is the guard — a routine stop leaves no transcript row behind
+    // to recognise, so an already-terminal run means this event has nothing to
+    // add.
+    match state
+        .task_events
+        .agent_run_already_terminal(&event.task_id, &event.event_id)
+        .await
+    {
         Ok(true) => {
             tracing::debug!(
                 task_id = %event.task_id,
                 event_id = %event.event_id,
-                "Dropping duplicate agent.stopped — task already stopped"
+                "Dropping duplicate agent.stopped — run already terminal"
             );
             return;
         }
         Ok(false) => {}
         Err(e) => {
-            tracing::warn!(task_id = %event.task_id, error = %e, "Failed to check last message; proceeding with stop append");
+            tracing::warn!(task_id = %event.task_id, error = %e, "Failed to check run state; proceeding with stop");
         }
     }
 
@@ -359,59 +377,61 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
     super::metrics::record_run("stopped", event.agent_type.as_deref());
 
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    let msg_uuid = message_uuid_for_event(&event.event_id);
 
-    let source = event
-        .payload
-        .get("source")
-        .and_then(|v| v.as_str())
-        .and_then(|s| SandboxStopReason::try_from(s).ok())
-        .unwrap_or(SandboxStopReason::User);
-    let marker_text = crate::message::models::stop_marker_text(source);
+    if crate::message::models::stop_is_reported(source) {
+        let msg_uuid = message_uuid_for_event(&event.event_id);
+        let marker_text = crate::message::models::stop_marker_text(source);
 
-    let content = serde_json::json!([{
-        "type": "text",
-        "text": marker_text
-    }]);
+        let content = serde_json::json!([{
+            "type": "text",
+            "text": marker_text
+        }]);
 
-    // Inherit agent_mode from the last user message
-    let agent_mode = match state.messages.get_last_user_message(&event.task_id).await {
-        Ok(Some(user_msg)) => user_msg.agent_mode,
-        _ => None,
-    };
+        // Inherit agent_mode from the last user message
+        let agent_mode = match state.messages.get_last_user_message(&event.task_id).await {
+            Ok(Some(user_msg)) => user_msg.agent_mode,
+            _ => None,
+        };
 
-    let turn_number = resolve_turn_number(state, &event.task_id, event.turn_number).await;
+        let turn_number = resolve_turn_number(state, &event.task_id, event.turn_number).await;
 
-    let msg_row = build_result_message_row(
-        &event.task_id,
-        &msg_uuid,
-        &now,
-        content,
-        MessageType::Result,
-        true,
-        None,
-        agent_mode,
-        None,
-        turn_number,
-    );
-    let contexts: Vec<TaskMessageContext> = vec![];
-    let blocks = vec![TaskMessageContentBlock {
-        id: 0,
-        task_message_id: 0,
-        sort_order: 0,
-        block_type: ContentBlockType::Text,
-        show_in_ui: true,
-        text_content: Some(marker_text.to_string()),
-        tool_use_id: None,
-        tool_result_content: None,
-        tool_result_is_error: None,
-        image_media_type: None,
-        image_data: None,
-        created_at: None,
-    }];
+        let msg_row = build_result_message_row(
+            &event.task_id,
+            &msg_uuid,
+            &now,
+            content,
+            MessageType::Result,
+            true,
+            None,
+            agent_mode,
+            None,
+            turn_number,
+        );
+        let contexts: Vec<TaskMessageContext> = vec![];
+        let blocks = vec![TaskMessageContentBlock {
+            id: 0,
+            task_message_id: 0,
+            sort_order: 0,
+            block_type: ContentBlockType::Text,
+            show_in_ui: true,
+            text_content: Some(marker_text.to_string()),
+            tool_use_id: None,
+            tool_result_content: None,
+            tool_result_is_error: None,
+            image_media_type: None,
+            image_data: None,
+            created_at: None,
+        }];
 
-    if let Err(e) = state.messages.append(&msg_row, &contexts, &blocks).await {
-        tracing::warn!(task_id = %event.task_id, error = %e, "Failed to append stopped message");
+        if let Err(e) = state.messages.append(&msg_row, &contexts, &blocks).await {
+            tracing::warn!(task_id = %event.task_id, error = %e, "Failed to append stopped message");
+        }
+    } else {
+        tracing::debug!(
+            task_id = %event.task_id,
+            source = %source.as_str(),
+            "Routine stop — not appending a transcript row"
+        );
     }
 
     if let Err(e) = state

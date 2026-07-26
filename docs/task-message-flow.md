@@ -660,13 +660,20 @@ Now persists full SDK messages to DB (both assistant and tool_result messages):
    Create tags like "skill-{name}" via tag_dao::find_or_create_tags()
 ```
 
-#### handle_agent_stopped() (lines 207-274)
+#### handle_agent_stopped()
 ```
-1. Idempotency: has_result_for_current_turn()? → skip
-2. Inherit agent_mode from last user message (via get_last_user_message)
-3. Create result message: turn_status="stopped", will_not_resume=true
-4. Persist + update task + emit TaskTurnEvent(Stopped)
+1. Read the typed stop `source` from the payload (defaults to User)
+2. Idempotency: agent run already terminal in the event log? → skip
+   (one user stop publishes `agent.stopped` twice — /stop handler + sandbox)
+3. Only when source == Error (message::models::stop_is_reported):
+     - Inherit agent_mode from last user message (via get_last_user_message)
+     - Create result message ("Stopped after an error", will_not_resume=true)
+   Routine stops — user, idle reaper, cleanup, system — write no message.
+4. Update task + emit TaskTurnEvent(Stopped)
 ```
+The turn is closed as `stopped` either way, and that turn status — not the
+message row — is what suppresses `--resume` on the next run (see
+`TaskTurnRepository::latest_closed_turn_status`).
 
 #### handle_agent_error() (lines 277-361)
 ```
