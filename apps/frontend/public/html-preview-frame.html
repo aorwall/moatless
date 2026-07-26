@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>HTML preview</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #fff;
+      }
+      iframe {
+        display: block;
+        width: 100%;
+        height: 100%;
+        border: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <iframe id="preview" title="HTML preview"></iframe>
+    <script>
+      // Host page for the file preview (features/files/components/html-preview.tsx).
+      //
+      // The app cannot render a workspace HTML file with a plain `srcDoc` iframe:
+      // an `about:srcdoc` document inherits the embedder's CSP, and the app is
+      // served with `default-src 'none'; script-src 'self'`, so every
+      // `<script src="https://cdn...">` tag and remote stylesheet in the file is
+      // blocked. This page is fetched over HTTP instead, so it carries its own
+      // permissive CSP (see docker/nginx.conf) and hands that policy down to the
+      // `srcdoc` frame it creates below.
+      //
+      // Neither frame gets `allow-same-origin` — the outer one because the app
+      // omits that token, the inner one because sandbox flags are inherited by
+      // nested frames — so the file runs in an opaque origin and cannot reach the
+      // app's cookies, storage, or DOM.
+      var preview = document.getElementById('preview')
+
+      window.addEventListener('message', function (event) {
+        // The frame is only ever driven by the app that embeds it. The origin
+        // check is `event.source` rather than `event.origin`: this document has
+        // an opaque origin, so it cannot know the embedder's origin string.
+        if (event.source !== window.parent) return
+
+        var message = event.data
+        if (!message || message.type !== 'moatless:html-preview') return
+
+        // Permissions-Policy delegation is re-applied per navigation, so the
+        // `allow` list has to be set before the `srcdoc` assignment below.
+        if (typeof message.allow === 'string') {
+          preview.setAttribute('allow', message.allow)
+        }
+        preview.srcdoc = typeof message.html === 'string' ? message.html : ''
+      })
+    </script>
+  </body>
+</html>
