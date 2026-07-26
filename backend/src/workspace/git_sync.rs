@@ -12,6 +12,13 @@
 //! from git changes them. The sync writes through the DAO directly, bypassing
 //! the read-only guard by design. The `.moatless/` file schemas + provider
 //! fetchers live here too — the repository module owns only the git connection.
+//!
+//! A workspace can be taken out of git's hands from the UI/CLI: `override` flips
+//! it to `source = 'manual'` while keeping its provenance columns, so the
+//! automatic sync on task start leaves it alone. [`SyncForce`] decides whether a
+//! given sync respects that — only the explicit, user-initiated syncs
+//! (`sync-config`, per-workspace `reset-git`) reclaim an override, replacing the
+//! local edits with the committed config.
 
 use std::collections::HashSet;
 
@@ -33,6 +40,7 @@ use crate::sandbox::models::ServerConfig;
 use crate::state::AppState;
 use crate::workspace::dao::{ensure_shadow_workspace, WorkspacePatch};
 use crate::workspace::models::{Workspace, WorkspaceRepo};
+use moatless_api_schemas::workspace::{WorkspaceSyncSkip, WorkspaceSyncSummary};
 
 // =============================================================================
 // `.moatless/` file schemas
@@ -165,20 +173,38 @@ pub async fn fetch_moatless_workspaces(
 /// workspace, which flags a repo's existing shadow workspace in place.
 const CONFIG_JSON_KEY: &str = "__config_json__";
 
-/// One git-declared workspace that was present but not synced, with a reason.
-#[derive(Debug, Clone)]
-pub struct WorkspaceSyncSkip {
-    pub source_key: String,
-    pub reason: String,
+/// Whether a sync reclaims workspaces that were manually overridden.
+///
+/// An override (`source = 'manual'`) exists to survive the automatic sync that
+/// runs on task start; only an explicit, user-initiated sync discards it.
+pub enum SyncForce {
+    /// Leave overridden workspaces alone (task-start auto-sync, repo create).
+    RespectOverrides,
+    /// Reclaim every overridden workspace in the repo (`sync-config`).
+    All,
+    /// Reclaim just this one workspace (per-workspace `reset-git`).
+    Only(String),
 }
 
-/// Summary of reconciling a repo's git-declared workspaces into `workspaces`.
-#[derive(Debug, Default)]
-pub struct WorkspaceSyncSummary {
-    pub created: u32,
-    pub updated: u32,
-    pub removed: u32,
-    pub skipped: Vec<WorkspaceSyncSkip>,
+impl SyncForce {
+    /// Whether an overridden workspace with this id is taken back under git.
+    fn reclaims(&self, workspace_id: &str) -> bool {
+        match self {
+            Self::RespectOverrides => false,
+            Self::All => true,
+            Self::Only(id) => id == workspace_id,
+        }
+    }
+}
+
+/// What happened to one git-declared workspace during a sync.
+enum UpsertOutcome {
+    Created,
+    Updated,
+    /// Was manually overridden and taken back under git control.
+    Reclaimed,
+    /// Manually overridden and left untouched.
+    Skipped,
 }
 
 /// Fetch, resolve, and reconcile the workspaces declared in a repository.
@@ -191,6 +217,7 @@ pub async fn sync_repo_workspaces(
     state: &AppState,
     repo: &Repository,
     auth: &AuthUser,
+    force: &SyncForce,
 ) -> Result<WorkspaceSyncSummary, RepositoryError> {
     let mut summary = WorkspaceSyncSummary::default();
 
@@ -253,14 +280,11 @@ pub async fn sync_repo_workspaces(
                     run,
                     placements,
                 };
-                match upsert_git_workspace(state, repo, &desired).await? {
-                    Some(true) => summary.created += 1,
-                    Some(false) => summary.updated += 1,
-                    None => summary.skipped.push(WorkspaceSyncSkip {
-                        source_key: desired.source_key.clone(),
-                        reason: "manually overridden".to_string(),
-                    }),
-                }
+                record_outcome(
+                    &mut summary,
+                    upsert_git_workspace(state, repo, &desired, force).await?,
+                    &desired.source_key,
+                );
             }
         }
         None => {
@@ -294,14 +318,11 @@ pub async fn sync_repo_workspaces(
                         primary: true,
                     }],
                 };
-                match upsert_git_workspace(state, repo, &desired).await? {
-                    Some(true) => summary.created += 1,
-                    Some(false) => summary.updated += 1,
-                    None => summary.skipped.push(WorkspaceSyncSkip {
-                        source_key: desired.source_key.clone(),
-                        reason: "manually overridden".to_string(),
-                    }),
-                }
+                record_outcome(
+                    &mut summary,
+                    upsert_git_workspace(state, repo, &desired, force).await?,
+                    &desired.source_key,
+                );
             } else {
                 debug!(repository_id = %repo.id, "No .moatless/workspaces.json or config.json; nothing to sync");
             }
@@ -332,6 +353,19 @@ pub async fn sync_repo_workspaces(
     }
 
     Ok(summary)
+}
+
+/// Fold one upsert outcome into the running summary.
+fn record_outcome(summary: &mut WorkspaceSyncSummary, outcome: UpsertOutcome, source_key: &str) {
+    match outcome {
+        UpsertOutcome::Created => summary.created += 1,
+        UpsertOutcome::Updated => summary.updated += 1,
+        UpsertOutcome::Reclaimed => summary.reclaimed += 1,
+        UpsertOutcome::Skipped => summary.skipped.push(WorkspaceSyncSkip {
+            source_key: source_key.to_string(),
+            reason: "manually overridden".to_string(),
+        }),
+    }
 }
 
 /// Run-config fields shared by the entry and config.json paths.
@@ -454,44 +488,68 @@ fn run_config_from_moatless_config(
     })
 }
 
+/// What to do with an existing `source = 'manual'` row that a git-declared
+/// workspace maps onto: `None` leaves the override in place, `Some(outcome)`
+/// writes git's config over it.
+///
+/// A soft-deleted override never blocks its git entry — deleting a workspace
+/// discards the override, and an entry git still declares comes back as git.
+fn reclaim_override(
+    workspace_id: &str,
+    deleted: Option<bool>,
+    force: &SyncForce,
+) -> Option<UpsertOutcome> {
+    if deleted == Some(true) {
+        return Some(UpsertOutcome::Created);
+    }
+    force
+        .reclaims(workspace_id)
+        .then_some(UpsertOutcome::Reclaimed)
+}
+
 /// Insert or update the workspace row + placements for one desired workspace.
 ///
-/// Returns `Some(true)` when created, `Some(false)` when updated, `None` when
-/// the workspace has been manually overridden (`source = 'manual'`) and should
-/// not be touched by git sync.
+/// Returns [`UpsertOutcome::Skipped`] when the workspace has been manually
+/// overridden (`source = 'manual'`) and `force` does not reclaim it.
 async fn upsert_git_workspace(
     state: &AppState,
     repo: &Repository,
     desired: &DesiredWorkspace,
-) -> Result<Option<bool>, RepositoryError> {
+    force: &SyncForce,
+) -> Result<UpsertOutcome, RepositoryError> {
     // reason: git sync writes workspaces derived from repository content, not
     // caller input; scope/owner are inherited from the repository row.
     #[allow(clippy::disallowed_methods)]
     let sys_ctx = ScopeContext::system();
-    let (workspace_id, created) = if let Some(id) = &desired.fixed_id {
+    let (workspace_id, outcome) = if let Some(id) = &desired.fixed_id {
         // Shadow workspace — look up by id to check if it has been overridden.
-        let source: Option<String> =
-            sqlx::query_scalar("SELECT source FROM workspaces WHERE id = $1")
+        let existing: Option<(String, Option<bool>)> =
+            sqlx::query_as("SELECT source, deleted FROM workspaces WHERE id = $1")
                 .bind(id)
                 .fetch_optional(&state.db)
                 .await?;
-        match source.as_deref() {
-            Some("manual") => {
-                debug!(workspace_id = %id, "skipping git sync — workspace has been manually overridden");
-                return Ok(None);
+        match existing {
+            Some((source, deleted)) if source == "manual" => {
+                let Some(outcome) = reclaim_override(id, deleted, force) else {
+                    debug!(workspace_id = %id, "skipping git sync — workspace has been manually overridden");
+                    return Ok(UpsertOutcome::Skipped);
+                };
+                (id.clone(), outcome)
             }
+            Some(_) => (id.clone(), UpsertOutcome::Updated),
             None => {
                 // Doesn't exist yet — create it (idempotent, race-safe).
                 ensure_shadow_workspace(&state.db, &repo.id).await?;
-                (id.clone(), true)
+                (id.clone(), UpsertOutcome::Created)
             }
-            Some(_) => (id.clone(), false),
         }
     } else {
         // Look up by natural key — include 'manual' so an overridden workspace
-        // is found and skipped rather than re-created under the same key.
-        let existing: Option<(String, String)> = sqlx::query_as(
-            "SELECT id, source FROM workspaces \
+        // is found and skipped (or reclaimed) rather than re-created under the
+        // same key. Soft-deleted rows are reused too, so a delete never orphans
+        // the key behind a row that no lookup would find again.
+        let existing: Option<(String, String, Option<bool>)> = sqlx::query_as(
+            "SELECT id, source, deleted FROM workspaces \
              WHERE source_repository_id = $1 AND source_key = $2 \
                AND source IN ('git', 'manual') \
              LIMIT 1",
@@ -502,12 +560,15 @@ async fn upsert_git_workspace(
         .await?;
 
         match existing {
-            Some((id, source)) if source == "manual" => {
-                debug!(workspace_id = %id, source_key = %desired.source_key,
-                    "skipping git sync — workspace has been manually overridden");
-                return Ok(None);
+            Some((id, source, deleted)) if source == "manual" => {
+                let Some(outcome) = reclaim_override(&id, deleted, force) else {
+                    debug!(workspace_id = %id, source_key = %desired.source_key,
+                        "skipping git sync — workspace has been manually overridden");
+                    return Ok(UpsertOutcome::Skipped);
+                };
+                (id, outcome)
             }
-            Some((id, _)) => (id, false),
+            Some((id, _, _)) => (id, UpsertOutcome::Updated),
             None => {
                 let id = format!("ws_{}", uuid::Uuid::new_v4());
                 let row = Workspace {
@@ -537,7 +598,7 @@ async fn upsert_git_workspace(
                     updated_at: None,
                 };
                 state.workspaces.insert_workspace(&row).await?;
-                (id, true)
+                (id, UpsertOutcome::Created)
             }
         }
     };
@@ -612,7 +673,13 @@ async fn upsert_git_workspace(
     }
     state.workspaces.refresh_kind(&workspace_id, &sys_ctx).await?;
 
-    Ok(Some(created))
+    if matches!(outcome, UpsertOutcome::Reclaimed) {
+        info!(
+            %workspace_id, source_key = %desired.source_key,
+            "Reclaimed manually overridden workspace from git; local edits replaced"
+        );
+    }
+    Ok(outcome)
 }
 
 /// Resolve each `repos[].url` to a repository id, creating (and verifying) rows
@@ -790,6 +857,35 @@ fn repo_name_from_url(url: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn force_only_reclaims_its_own_workspace() {
+        assert!(!SyncForce::RespectOverrides.reclaims("ws_1"));
+        assert!(SyncForce::All.reclaims("ws_1"));
+
+        let only = SyncForce::Only("ws_1".to_string());
+        assert!(only.reclaims("ws_1"));
+        // A repo-wide sync triggered by one workspace's reset must not drag
+        // every other overridden workspace back under git.
+        assert!(!only.reclaims("ws_2"));
+    }
+
+    #[test]
+    fn overrides_survive_only_while_the_workspace_lives() {
+        // Live override: kept by the automatic sync, reclaimed by an explicit one.
+        assert!(reclaim_override("ws_1", Some(false), &SyncForce::RespectOverrides).is_none());
+        assert!(matches!(
+            reclaim_override("ws_1", Some(false), &SyncForce::All),
+            Some(UpsertOutcome::Reclaimed)
+        ));
+
+        // Deleted override: the row is reused rather than left to block its
+        // still-declared source_key forever, even on an automatic sync.
+        assert!(matches!(
+            reclaim_override("ws_1", Some(true), &SyncForce::RespectOverrides),
+            Some(UpsertOutcome::Created)
+        ));
+    }
 
     #[test]
     fn slugify_produces_stable_keys() {

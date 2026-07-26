@@ -115,8 +115,9 @@ pub enum WorkspaceAction {
         #[arg(long)]
         network_profile: Option<String>,
     },
-    /// Reset an overridden workspace back to git-managed. The next git sync
-    /// will update its run-config from the repository.
+    /// Reset an overridden workspace back to git-managed. Re-syncs immediately
+    /// from the repository — warning: local changes to this workspace, including
+    /// its repo placements, are replaced by the committed config.
     #[command(name = "reset-git")]
     ResetGit { workspace_id: String },
     /// Delete a workspace (soft-delete; manual workspaces only)
@@ -280,13 +281,24 @@ pub async fn run(
             }
         }
         WorkspaceAction::ResetGit { workspace_id } => {
-            let updated = client.api().reset_git_workspace(&workspace_id).await?;
+            let result = client.api().reset_git_workspace(&workspace_id).await?;
             if json {
-                output::print_json_typed(&updated);
+                output::print_json_typed(&result);
+            } else if result.resynced {
+                println!(
+                    "Workspace {} reset to git-managed; local changes replaced by {}.",
+                    result.workspace.id,
+                    result
+                        .workspace
+                        .source_config_path
+                        .as_deref()
+                        .unwrap_or("the repository config")
+                );
             } else {
                 println!(
-                    "Workspace {} reset to git-managed. Next sync will update it.",
-                    updated.id
+                    "Workspace {} left overridden: {}",
+                    result.workspace.id,
+                    result.error.as_deref().unwrap_or("re-sync did not run")
                 );
             }
         }
@@ -401,6 +413,9 @@ fn format_workspace_detail(w: &WorkspaceResponse) {
     }
     if let Some(ref repo_id) = w.source_repository_id {
         println!("Source repo: {repo_id}");
+    }
+    if let Some(ref key) = w.source_key {
+        println!("Source key:  {key}");
     }
 
     if let Some(ref img) = w.docker_image {

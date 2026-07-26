@@ -47,6 +47,7 @@ pub fn workspace_response(w: Workspace, repos: Vec<WorkspaceRepo>) -> WorkspaceR
         source_config_path: w.source_config_path,
         source: w.source,
         source_repository_id: w.source_repository_id,
+        source_key: w.source_key,
         scope: w.scope,
         owner_user_id: w.owner_user_id,
         created_by: w.created_by,

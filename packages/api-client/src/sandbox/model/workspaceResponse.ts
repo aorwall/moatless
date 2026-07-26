@@ -54,6 +54,12 @@ Retained even after a manual override so the origin remains visible.
    */
   sourceConfigPath?: string | null;
   /**
+   * The entry's stable key within the declaring file (its `key`, else the
+slugified name). Retained after an override, like the other provenance.
+   * @nullable
+   */
+  sourceKey?: string | null;
+  /**
    * The repository whose git tree declared this workspace (`source == "git"`).
    * @nullable
    */

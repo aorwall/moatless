@@ -7,6 +7,7 @@ use axum::Json;
 use tracing::{debug, info, warn};
 
 use moatless_api_schemas::loops::{LoopSyncSummary, SyncConfigResponse};
+use moatless_api_schemas::workspace::WorkspaceSyncSummary;
 
 use crate::access_control::resolve_scope_for_create_auth;
 use crate::extractors::AuthUser;
@@ -23,7 +24,7 @@ use super::dao::RepositoryPatch;
 use super::error::RepositoryError;
 use super::models::{Repository, RepositoryKind, RepositoryProvider};
 use super::schemas::*;
-use crate::workspace::git_sync::sync_repo_workspaces;
+use crate::workspace::git_sync::{sync_repo_workspaces, SyncForce};
 
 pub(crate) fn validate_non_secret_env_vars(
     env_vars: Option<&std::collections::HashMap<String, String>>,
@@ -131,7 +132,14 @@ pub async fn create_repository(
 
         // Sync git-declared workspaces (`.moatless/workspaces.json` or the legacy
         // `.moatless/config.json`). Best-effort and non-fatal, like loop sync.
-        log_workspace_sync(&state, &final_row, &auth, "create").await;
+        log_workspace_sync(
+            &state,
+            &final_row,
+            &auth,
+            "create",
+            &SyncForce::RespectOverrides,
+        )
+        .await;
     }
 
     let resp: RepositoryResponse = final_row.into();
@@ -139,26 +147,35 @@ pub async fn create_repository(
 }
 
 /// Run `sync_repo_workspaces` and log the outcome (`Ok=>info!`, `Err=>warn!`),
-/// never blocking the caller.
-async fn log_workspace_sync(state: &AppState, repo: &Repository, auth: &AuthUser, phase: &str) {
-    match sync_repo_workspaces(state, repo, auth).await {
+/// never blocking the caller. A failure yields an empty summary.
+async fn log_workspace_sync(
+    state: &AppState,
+    repo: &Repository,
+    auth: &AuthUser,
+    phase: &str,
+    force: &SyncForce,
+) -> WorkspaceSyncSummary {
+    match sync_repo_workspaces(state, repo, auth, force).await {
         Ok(summary) => {
-            if summary.created + summary.updated + summary.removed > 0
+            if summary.created + summary.updated + summary.reclaimed + summary.removed > 0
                 || !summary.skipped.is_empty()
             {
                 info!(
                     repository_id = %repo.id,
                     created = summary.created,
                     updated = summary.updated,
+                    reclaimed = summary.reclaimed,
                     removed = summary.removed,
                     skipped = summary.skipped.len(),
                     phase,
                     "Synced git workspaces"
                 );
             }
+            summary
         }
         Err(e) => {
             warn!(repository_id = %repo.id, error = %e, phase, "Failed to sync git workspaces");
+            WorkspaceSyncSummary::default()
         }
     }
 }
@@ -1060,18 +1077,25 @@ pub async fn sync_config(
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
 
-    let (updated, loops) = sync_repo_config(&state, &repo, &auth).await?;
+    // Explicit, user-initiated sync: git is authoritative again, so overridden
+    // workspaces are reclaimed. The automatic sync on task start is not.
+    let (updated, loops, workspaces) =
+        sync_repo_config(&state, &repo, &auth, &SyncForce::All).await?;
 
     Ok(Json(SyncConfigResponse {
         repository: updated.into(),
         loops,
+        workspaces,
     }))
 }
 
 /// Reconcile a repository's committed `.moatless/loops/` + git-declared
 /// workspaces into the trigger tables and `workspaces` rows.
 ///
-/// Shared by the `sync-config` endpoint and the automatic sync on task start.
+/// Shared by the `sync-config` endpoint and the automatic sync on task start,
+/// which differ only in `force`: the explicit endpoint reclaims manually
+/// overridden workspaces, the automatic one leaves them alone.
+///
 /// Run-config from `.moatless/config.json` / `.moatless/workspaces.json` flows
 /// into the workspace (via `sync_repo_workspaces`), not into repo columns — a
 /// repository is only a git connection. Loop sync is best-effort: a fetch
@@ -1080,7 +1104,8 @@ pub(crate) async fn sync_repo_config(
     state: &AppState,
     repo: &Repository,
     auth: &AuthUser,
-) -> Result<(Repository, LoopSyncSummary), RepositoryError> {
+    force: &SyncForce,
+) -> Result<(Repository, LoopSyncSummary, WorkspaceSyncSummary), RepositoryError> {
     if repo.remote_url.is_none() {
         return Err(RepositoryError::BadRequest(
             "Repository has no remote URL".to_string(),
@@ -1101,9 +1126,9 @@ pub(crate) async fn sync_repo_config(
     // legacy `.moatless/config.json` → workspace run-config). This also covers
     // task start, since `maybe_sync_repo_config_on_start` calls `sync_repo_config`
     // behind the `.moatless/` existence gate. Best-effort and non-fatal.
-    log_workspace_sync(state, repo, auth, "sync-config").await;
+    let workspaces = log_workspace_sync(state, repo, auth, "sync-config", force).await;
 
-    Ok((repo.clone(), loops))
+    Ok((repo.clone(), loops, workspaces))
 }
 
 #[cfg(test)]

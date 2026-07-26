@@ -7,13 +7,18 @@
  */
 import type { LoopSyncSummary } from './loopSyncSummary';
 import type { RepositoryResponse } from './repositoryResponse';
+import type { WorkspaceSyncSummary } from './workspaceSyncSummary';
 
 /**
  * Response for `POST /api/v1/repositories/{id}/sync-config`.
 
-Wraps the updated repository plus the loop reconciliation summary.
+Wraps the updated repository plus the loop and workspace reconciliation
+summaries. This endpoint is the explicit, user-initiated sync, so it also
+reclaims workspaces that were manually overridden — see
+[`WorkspaceSyncSummary::reclaimed`].
  */
 export interface SyncConfigResponse {
   loops: LoopSyncSummary;
   repository: RepositoryResponse;
+  workspaces: WorkspaceSyncSummary;
 }

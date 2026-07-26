@@ -16,6 +16,7 @@ Every scenario has a permanent ID in the format `{DOMAIN}-{NUMBER}` or `{DOMAIN}
 | `AGENT`   | Agent execution and conversation |
 | `FILE`    | File and workspace operations   |
 | `REPO`    | Repository management           |
+| `WS`      | Workspaces and git config sync  |
 | `CHAN`    | Channel integrations            |
 | `AUTH`    | Authentication and access control |
 
@@ -127,6 +128,9 @@ specs/
 ├── repositories/
 │   ├── 00-design.md                   # Repository management
 │   └── 01-repository-scenarios.md     # REPO-01 through REPO-07
+├── workspaces/
+│   ├── 00-design.md                   # Workspaces, git-declared config, overrides
+│   └── 01-git-override-scenarios.md   # WS-01 through WS-08, WS-20, WS-21
 ├── channels/
 │   ├── 00-design.md                   # Slack/webhook integrations
 │   └── 01-channel-scenarios.md        # CHAN-01 through CHAN-63

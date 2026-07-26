@@ -1,4 +1,4 @@
-import type { RepositoryResponse } from '@moatless/api-client'
+import type { RepositoryResponse, SyncConfigResponse } from '@moatless/api-client'
 import userEvent from '@testing-library/user-event'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@/test-utils/render'
@@ -60,6 +60,15 @@ function repository(overrides: Partial<RepositoryResponse> = {}): RepositoryResp
     ownerUserId: 'owner-1',
     accessStatus: 'unchecked',
     ...overrides,
+  }
+}
+
+/** A sync-config result, optionally reporting reclaimed workspace overrides. */
+function syncResult(reclaimed = 0): SyncConfigResponse {
+  return {
+    repository: currentRepository,
+    loops: { created: 0, removed: 0, skipped: [], updated: 0 },
+    workspaces: { created: 0, reclaimed, removed: 0, skipped: [], updated: 0 },
   }
 }
 
@@ -128,8 +137,23 @@ describe('RepositoryConfigEditSection', () => {
     )
 
     const callbacks = mocks.syncMutate.mock.calls[0]?.[1]
-    callbacks.onSuccess()
-    expect(mocks.toastSuccess).toHaveBeenCalledWith('Repository configuration synced from Git')
+    callbacks.onSuccess(syncResult())
+    expect(mocks.toastSuccess).toHaveBeenCalledWith('Repository configuration synced from Git', {
+      description: undefined,
+    })
+  })
+
+  it('reports workspaces whose override the sync reclaimed', async () => {
+    const user = userEvent.setup()
+    render(<RepositoryConfigEditSection repositoryId="repo-1" />)
+
+    await user.click(screen.getByRole('button', { name: 'Sync from Git' }))
+
+    const callbacks = mocks.syncMutate.mock.calls[0]?.[1]
+    callbacks.onSuccess(syncResult(2))
+    expect(mocks.toastSuccess).toHaveBeenCalledWith('Repository configuration synced from Git', {
+      description: '2 overridden workspaces reset to the config in Git.',
+    })
   })
 
   it('disables the sync action while pending', () => {

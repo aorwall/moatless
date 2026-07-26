@@ -5,6 +5,7 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { ResourceConfig } from './resourceConfig';
 import type { ServerConfigEnvVars } from './serverConfigEnvVars';
 
 /**
@@ -29,6 +30,7 @@ export interface ServerConfig {
   name: string;
   /** @minimum 0 */
   port?: number;
+  resources?: null | ResourceConfig;
   /** @nullable */
   startCommands?: string[] | null;
   /**

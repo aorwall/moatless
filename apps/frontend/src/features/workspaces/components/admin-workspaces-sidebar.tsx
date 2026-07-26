@@ -1,5 +1,5 @@
 import type { WorkspaceResponse } from '@moatless/api-client'
-import { Boxes, FileStack, FolderGit2, GitBranch, Layers } from 'lucide-react'
+import { Boxes, FileStack, FolderGit2, GitBranch, Layers, PencilLine } from 'lucide-react'
 import { useState } from 'react'
 import { useWorkspacesList } from '@/features/workspaces/hooks/use-workspaces'
 import { ListDetailSidebar } from '@/lib/components/ui/list-detail-sidebar'
@@ -25,10 +25,14 @@ function getSecondary(ws: WorkspaceResponse): string {
   return count === 1 ? '1 repository' : `${count} repositories`
 }
 
-// Git-synced workspaces get a trailing branch icon to flag they're read-only.
+// Git provenance gets a trailing icon: a branch while the workspace is synced
+// (read-only), a pencil once it has been overridden and is edited here instead.
 function getWorkspaceTrailing(ws: WorkspaceResponse) {
   if (ws.source === 'git' || ws.syncedFromGit) {
     return <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
+  }
+  if (ws.sourceRepositoryId) {
+    return <PencilLine className="h-3.5 w-3.5 text-muted-foreground" />
   }
   return
 }

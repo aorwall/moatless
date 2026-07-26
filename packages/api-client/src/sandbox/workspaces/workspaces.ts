@@ -28,6 +28,7 @@ import type {
   AddRepoRequest,
   CreateWorkspaceRequest,
   ErrorBody,
+  ResetGitWorkspaceResponse,
   UpdateWorkspaceRequest,
   WorkspaceResponse
 } from '.././model';
@@ -917,12 +918,20 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       return useMutation(getSetWorkspacePrimaryRepoMutationOptions(options), queryClient);
     }
     /**
- * @summary Reset an overridden workspace back to `source = "git"` so the next
-git sync will update its run-config from the repository again.
+ * Implemented as a re-sync of just this workspace rather than a flag flip, so
+`source` only returns to `"git"` when the repository still declares the
+entry — a workspace can never end up claiming git provenance while holding
+config git never produced.
+ * @summary Discard a workspace's local override and take its run-config from git again.
  */
 export type resetGitWorkspaceResponse200 = {
-  data: WorkspaceResponse
+  data: ResetGitWorkspaceResponse
   status: 200
+}
+
+export type resetGitWorkspaceResponse400 = {
+  data: ErrorBody
+  status: 400
 }
 
 export type resetGitWorkspaceResponse403 = {
@@ -938,7 +947,7 @@ export type resetGitWorkspaceResponse404 = {
 export type resetGitWorkspaceResponseSuccess = (resetGitWorkspaceResponse200) & {
   headers: Headers;
 };
-export type resetGitWorkspaceResponseError = (resetGitWorkspaceResponse403 | resetGitWorkspaceResponse404) & {
+export type resetGitWorkspaceResponseError = (resetGitWorkspaceResponse400 | resetGitWorkspaceResponse403 | resetGitWorkspaceResponse404) & {
   headers: Headers;
 };
 
@@ -998,8 +1007,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type ResetGitWorkspaceMutationError = ErrorType<ErrorBody>
 
     /**
- * @summary Reset an overridden workspace back to `source = "git"` so the next
-git sync will update its run-config from the repository again.
+ * @summary Discard a workspace's local override and take its run-config from git again.
  */
 export const useResetGitWorkspace = <TError = ErrorType<ErrorBody>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resetGitWorkspace>>, TError,{workspaceId: string}, TContext>, request?: SecondParameter<typeof customInstance>}

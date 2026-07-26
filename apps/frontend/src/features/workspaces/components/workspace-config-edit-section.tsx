@@ -1,5 +1,5 @@
 import type { UpdateWorkspaceRequest } from '@moatless/api-client'
-import { GitBranch, Loader2, Save, Trash2 } from 'lucide-react'
+import { Loader2, Save, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import {
@@ -10,6 +10,8 @@ import {
 } from '@/features/run-config'
 import {
   useDeleteWorkspace,
+  useOverrideWorkspace,
+  useResetGitWorkspace,
   useUpdateWorkspace,
   useWorkspace,
 } from '@/features/workspaces/hooks/use-workspaces'
@@ -20,7 +22,6 @@ import {
   ConfigurationSectionWrapper as ConfigurationSection,
   ConfigurationTextarea,
 } from '@/lib/components/configuration'
-import { Alert, AlertDescription, AlertTitle } from '@/lib/components/ui/alert'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -34,6 +35,7 @@ import {
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
 import { getErrorMessage } from '@/lib/utils/error'
+import { WorkspaceGitSourceBanner } from './workspace-git-source-banner'
 import { WorkspaceReposPanel } from './workspace-repos-panel'
 
 interface WorkspaceConfigEditSectionProps {
@@ -60,6 +62,8 @@ export function WorkspaceConfigEditSection({
   const { data: workspace, isLoading, error } = useWorkspace(workspaceId)
   const updateWorkspace = useUpdateWorkspace()
   const deleteWorkspace = useDeleteWorkspace()
+  const overrideWorkspace = useOverrideWorkspace()
+  const resetGitWorkspace = useResetGitWorkspace()
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
 
   // Derive base form data from the workspace. `UpdateWorkspaceRequest` is
@@ -125,6 +129,42 @@ export function WorkspaceConfigEditSection({
     toast.success('Changes discarded')
   }
 
+  // Overriding takes ownership without changing any field, so the empty patch
+  // only flips `source` to manual and the normal save path handles edits.
+  const handleOverride = () => {
+    overrideWorkspace.mutate(
+      { workspaceId, request: {} },
+      {
+        onSuccess: () =>
+          toast.success('Workspace overridden', {
+            description: 'It no longer syncs from Git and can be edited here.',
+          }),
+        onError: (err) =>
+          toast.error('Failed to override workspace', { description: getErrorMessage(err) }),
+      },
+    )
+  }
+
+  const handleResetGit = () => {
+    resetGitWorkspace.mutate(workspaceId, {
+      onSuccess: (result) => {
+        // The re-sync replaced every field; unsaved edits would mask git's values.
+        setUserModifications({})
+        if (result.resynced) {
+          toast.success('Workspace reset to Git', {
+            description: 'Its configuration now matches the repository again.',
+          })
+        } else {
+          toast.warning('Workspace still overridden', {
+            description: result.error ?? 'The re-sync did not take effect.',
+          })
+        }
+      },
+      onError: (err) =>
+        toast.error('Failed to reset workspace', { description: getErrorMessage(err) }),
+    })
+  }
+
   const handleDelete = () => {
     deleteWorkspace.mutate(workspaceId, {
       onSuccess: () => {
@@ -149,21 +189,19 @@ export function WorkspaceConfigEditSection({
     )
   }
 
-  // Git-synced workspaces are defined in git and read-only; the write API 409s.
+  // Git-synced workspaces are defined in git and read-only until overridden;
+  // the write API 409s until then.
   const isGitSynced = workspace.syncedFromGit ?? false
 
   return (
     <ConfigurationSection>
-      {isGitSynced && (
-        <Alert>
-          <GitBranch className="h-4 w-4" />
-          <AlertTitle>Synced from Git</AlertTitle>
-          <AlertDescription>
-            This workspace is defined in .moatless/workspaces.json and is read-only. Edit the file
-            in Git to change it.
-          </AlertDescription>
-        </Alert>
-      )}
+      <WorkspaceGitSourceBanner
+        workspace={workspace}
+        onOverride={handleOverride}
+        onReset={handleResetGit}
+        isOverriding={overrideWorkspace.isPending}
+        isResetting={resetGitWorkspace.isPending}
+      />
 
       <ConfigurationGroup title="General Settings">
         <div className="flex items-center gap-2">

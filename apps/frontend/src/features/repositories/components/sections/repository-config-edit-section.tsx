@@ -23,6 +23,7 @@ import {
   AlertDialogTitle,
 } from '@/lib/components/ui/alert-dialog'
 import { Button } from '@/lib/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/lib/components/ui/tooltip'
 import { getErrorMessage } from '@/lib/utils/error'
 import { AccessSettingsGroup } from './access-settings-group'
 import { GeneralSettingsGroup } from './general-settings-group'
@@ -190,8 +191,16 @@ export function RepositoryConfigEditSection({
 
   const handleSync = () => {
     syncRepositoryConfig.mutate(repositoryId, {
-      onSuccess: () => {
-        toast.success('Repository configuration synced from Git')
+      onSuccess: (result) => {
+        const reclaimed = result.workspaces.reclaimed
+        toast.success('Repository configuration synced from Git', {
+          // An explicit sync is authoritative: it takes overridden workspaces
+          // back under git control, replacing their local changes.
+          description:
+            reclaimed > 0
+              ? `${reclaimed} overridden workspace${reclaimed === 1 ? '' : 's'} reset to the config in Git.`
+              : undefined,
+        })
       },
       onError: (error) => {
         toast.error('Failed to sync repository configuration', {
@@ -236,17 +245,25 @@ export function RepositoryConfigEditSection({
       <div className="flex justify-between gap-3 pt-6 border-t">
         <div className="flex gap-3">
           {repository.remoteUrl && (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleSync}
-              disabled={syncRepositoryConfig.isPending}
-            >
-              <RefreshCw
-                className={`mr-2 h-4 w-4 ${syncRepositoryConfig.isPending ? 'animate-spin' : ''}`}
-              />
-              {syncRepositoryConfig.isPending ? 'Syncing...' : 'Sync from Git'}
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleSync}
+                  disabled={syncRepositoryConfig.isPending}
+                >
+                  <RefreshCw
+                    className={`mr-2 h-4 w-4 ${syncRepositoryConfig.isPending ? 'animate-spin' : ''}`}
+                  />
+                  {syncRepositoryConfig.isPending ? 'Syncing...' : 'Sync from Git'}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                Warning: this also resets overridden workspaces of this repository, replacing their
+                local changes with the config in Git.
+              </TooltipContent>
+            </Tooltip>
           )}
           <Button
             type="button"

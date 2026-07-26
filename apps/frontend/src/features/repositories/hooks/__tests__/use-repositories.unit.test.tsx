@@ -27,6 +27,13 @@ const syncResponse: SyncConfigResponse = {
     skipped: [],
     updated: 0,
   },
+  workspaces: {
+    created: 0,
+    reclaimed: 0,
+    removed: 0,
+    skipped: [],
+    updated: 0,
+  },
 }
 
 describe('useSyncRepositoryConfig', () => {

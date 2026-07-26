@@ -1120,14 +1120,20 @@ async fn maybe_sync_repo_config_on_start(
         return;
     }
 
-    match crate::repository::handlers::sync_repo_config(state, repo, auth).await {
-        Ok((_, summary)) => {
+    // Automatic sync: workspaces the user overrode from the UI/CLI stay
+    // overridden — only an explicit sync-config or reset-git reclaims them.
+    let force = crate::workspace::git_sync::SyncForce::RespectOverrides;
+    match crate::repository::handlers::sync_repo_config(state, repo, auth, &force).await {
+        Ok((_, loops, workspaces)) => {
             tracing::info!(
                 repository_id = %repo.id,
-                created = summary.created,
-                updated = summary.updated,
-                removed = summary.removed,
-                skipped = summary.skipped.len(),
+                created = loops.created,
+                updated = loops.updated,
+                removed = loops.removed,
+                skipped = loops.skipped.len(),
+                workspaces_created = workspaces.created,
+                workspaces_updated = workspaces.updated,
+                workspaces_overridden = workspaces.skipped.len(),
                 "Config auto-sync on task start complete"
             );
         }

@@ -60,7 +60,9 @@ pub enum RepoAction {
         #[arg(long)]
         description: Option<String>,
     },
-    /// Sync .moatless/config.json from the remote repository
+    /// Sync .moatless/ loops and workspaces from the remote repository.
+    /// Warning: this is the explicit sync, so it also reclaims workspaces that
+    /// were overridden from the UI/CLI, replacing their local changes.
     SyncConfig { repo_id: String },
     /// Delete a repository (soft-delete — marks as deleted, preserves history)
     Delete {
@@ -160,6 +162,17 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 );
                 for skip in &loops.skipped {
                     println!("  skipped {}: {}", skip.loop_name, skip.reason);
+                }
+                let workspaces = &result.workspaces;
+                println!(
+                    "Workspaces: {} created, {} updated, {} removed.",
+                    workspaces.created, workspaces.updated, workspaces.removed
+                );
+                if workspaces.reclaimed > 0 {
+                    println!(
+                        "  warning: {} overridden workspace(s) reclaimed from git; local changes replaced.",
+                        workspaces.reclaimed
+                    );
                 }
             }
         }

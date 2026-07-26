@@ -577,12 +577,12 @@ impl ApiClient {
 
     /// POST /api/v1/workspaces/{workspace_id}/reset-git
     ///
-    /// Reset an overridden workspace back to `source = "git"` so the next
-    /// git sync will update its run-config from the repository again.
+    /// Discard a workspace's local override and re-sync its run-config from the
+    /// repository. `resynced` reports whether the reset took effect.
     pub async fn reset_git_workspace(
         &self,
         workspace_id: &str,
-    ) -> Result<moatless_api_schemas::workspace::WorkspaceResponse, ApiError> {
+    ) -> Result<moatless_api_schemas::workspace::ResetGitWorkspaceResponse, ApiError> {
         self.post_no_body(&format!("/api/v1/workspaces/{workspace_id}/reset-git"))
             .await
     }

@@ -37,6 +37,14 @@ A Sandbox materializes it on disk under the workspace directory. `source` is
 `.moatless/workspaces.json`). Not the Sandbox (the pod that runs it) nor the
 Workspace panel (a task-page UI view).
 
+**Override** (of a Workspace):
+Flipping a git-declared Workspace to `source = manual` so it can be edited from
+the UI/CLI, keeping the provenance (`source_repository_id`, `source_key`,
+`source_config_path`) that makes a later reset possible. The automatic sync on
+task start respects an override; the explicit syncs (a repo's `sync-config`, a
+workspace's `reset-git`) reclaim it, replacing the local edits.
+_Avoid_: fork, detach
+
 **WorkspaceRepo**:
 A single repository's placement inside a Workspace — its branch override, mount
 name (subdir under the workspace directory), primary flag, and ordering. Exactly

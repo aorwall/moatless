@@ -177,10 +177,64 @@ pub struct WorkspaceResponse {
     /// The repository whose git tree declared this workspace (`source == "git"`).
     #[serde(default)]
     pub source_repository_id: Option<String>,
+    /// The entry's stable key within the declaring file (its `key`, else the
+    /// slugified name). Retained after an override, like the other provenance.
+    #[serde(default)]
+    pub source_key: Option<String>,
     pub scope: Scope,
     pub owner_user_id: Option<String>,
     pub created_by: Option<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
     pub repos: Vec<WorkspaceRepoResponse>,
+}
+
+// =============================================================================
+// Git sync summaries
+// =============================================================================
+
+/// One git-declared workspace that was present but not synced, with a reason.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceSyncSkip {
+    /// The entry's stable key within the declaring file.
+    pub source_key: String,
+    /// Why the workspace was skipped.
+    pub reason: String,
+}
+
+/// Summary of reconciling a repo's git-declared workspaces into `workspaces`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceSyncSummary {
+    /// Workspaces inserted as new rows.
+    pub created: u32,
+    /// Existing git-synced workspaces updated in place.
+    pub updated: u32,
+    /// Manually overridden workspaces taken back under git control by an
+    /// explicit sync, discarding the local edits.
+    pub reclaimed: u32,
+    /// Workspaces soft-deleted because git no longer declares them.
+    pub removed: u32,
+    /// Workspaces that were declared but not synced, with reasons.
+    pub skipped: Vec<WorkspaceSyncSkip>,
+}
+
+/// Response for `POST /api/v1/workspaces/{id}/reset-git`.
+///
+/// The workspace only returns to `source = "git"` when the re-sync actually
+/// found it still declared in the repository, so `resynced` reports whether the
+/// reset took effect.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ResetGitWorkspaceResponse {
+    pub workspace: WorkspaceResponse,
+    /// Whether the workspace was reclaimed from git during this call.
+    pub resynced: bool,
+    /// Why the re-sync did not take effect (unreachable provider, or the entry
+    /// is no longer declared in the config file). `None` when `resynced`.
+    pub error: Option<String>,
 }

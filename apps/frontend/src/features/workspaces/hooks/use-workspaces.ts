@@ -1,6 +1,7 @@
 import type {
   AddRepoRequest,
   CreateWorkspaceRequest,
+  ResetGitWorkspaceResponse,
   UpdateWorkspaceRequest,
   WorkspaceResponse,
 } from '@moatless/api-client'
@@ -79,6 +80,45 @@ export function useDeleteWorkspace(options?: UseMutationOptions<void, Error, str
     mutationFn: (workspaceId: string) => workspacesApi.deleteWorkspace(workspaceId),
     onSuccess: (data, workspaceId, onMutateResult, mutationContext) => {
       queryClient.removeQueries({ queryKey: queryKeys.workspaces.detail(workspaceId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.list() })
+      options?.onSuccess?.(data, workspaceId, onMutateResult, mutationContext)
+    },
+    ...options,
+  })
+}
+
+// Git provenance mutations — override takes a git-synced workspace under manual
+// control, reset-git re-syncs it from the repository and discards local edits.
+
+export function useOverrideWorkspace(
+  options?: UseMutationOptions<
+    WorkspaceResponse,
+    Error,
+    { workspaceId: string; request: UpdateWorkspaceRequest }
+  >,
+) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ workspaceId, request }) => workspacesApi.overrideWorkspace(workspaceId, request),
+    onSuccess: (data, variables, onMutateResult, mutationContext) => {
+      queryClient.setQueryData(queryKeys.workspaces.detail(variables.workspaceId), data)
+      queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.list() })
+      options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
+    },
+    ...options,
+  })
+}
+
+export function useResetGitWorkspace(
+  options?: UseMutationOptions<ResetGitWorkspaceResponse, Error, string>,
+) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (workspaceId: string) => workspacesApi.resetGitWorkspace(workspaceId),
+    onSuccess: (data, workspaceId, onMutateResult, mutationContext) => {
+      queryClient.setQueryData(queryKeys.workspaces.detail(workspaceId), data.workspace)
       queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.list() })
       options?.onSuccess?.(data, workspaceId, onMutateResult, mutationContext)
     },

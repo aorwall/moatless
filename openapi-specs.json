@@ -7237,7 +7237,8 @@
         "tags": [
           "workspaces"
         ],
-        "summary": "Reset an overridden workspace back to `source = \"git\"` so the next\ngit sync will update its run-config from the repository again.",
+        "summary": "Discard a workspace's local override and take its run-config from git again.",
+        "description": "Implemented as a re-sync of just this workspace rather than a flag flip, so\n`source` only returns to `\"git\"` when the repository still declares the\nentry — a workspace can never end up claiming git provenance while holding\nconfig git never produced.",
         "operationId": "reset_git_workspace",
         "parameters": [
           {
@@ -7252,11 +7253,21 @@
         ],
         "responses": {
           "200": {
-            "description": "Workspace reset to git-managed; next sync will update it",
+            "description": "Re-sync attempted; `resynced` reports whether it took effect",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/WorkspaceResponse"
+                  "$ref": "#/components/schemas/ResetGitWorkspaceResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Workspace was never synced from git",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
                 }
               }
             }
@@ -11475,6 +11486,30 @@
           }
         }
       },
+      "ResetGitWorkspaceResponse": {
+        "type": "object",
+        "description": "Response for `POST /api/v1/workspaces/{id}/reset-git`.\n\nThe workspace only returns to `source = \"git\"` when the re-sync actually\nfound it still declared in the repository, so `resynced` reports whether the\nreset took effect.",
+        "required": [
+          "workspace",
+          "resynced"
+        ],
+        "properties": {
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the re-sync did not take effect (unreachable provider, or the entry\nis no longer declared in the config file). `None` when `resynced`."
+          },
+          "resynced": {
+            "type": "boolean",
+            "description": "Whether the workspace was reclaimed from git during this call."
+          },
+          "workspace": {
+            "$ref": "#/components/schemas/WorkspaceResponse"
+          }
+        }
+      },
       "ResolveSecretsRequest": {
         "type": "object",
         "required": [
@@ -12579,6 +12614,17 @@
             "format": "int32",
             "minimum": 0
           },
+          "resources": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ResourceConfig",
+                "description": "Per-server resource requests/limits. Falls back to the repo-wide\n`resources` when unset. Only `requests`/`limits` apply; storage fields\nare repo-wide and ignored here."
+              }
+            ]
+          },
           "startCommands": {
             "type": [
               "array",
@@ -13116,10 +13162,11 @@
       },
       "SyncConfigResponse": {
         "type": "object",
-        "description": "Response for `POST /api/v1/repositories/{id}/sync-config`.\n\nWraps the updated repository plus the loop reconciliation summary.",
+        "description": "Response for `POST /api/v1/repositories/{id}/sync-config`.\n\nWraps the updated repository plus the loop and workspace reconciliation\nsummaries. This endpoint is the explicit, user-initiated sync, so it also\nreclaims workspaces that were manually overridden — see\n[`WorkspaceSyncSummary::reclaimed`].",
         "required": [
           "repository",
-          "loops"
+          "loops",
+          "workspaces"
         ],
         "properties": {
           "loops": {
@@ -13127,6 +13174,9 @@
           },
           "repository": {
             "$ref": "#/components/schemas/RepositoryResponse"
+          },
+          "workspaces": {
+            "$ref": "#/components/schemas/WorkspaceSyncSummary"
           }
         }
       },
@@ -15310,6 +15360,13 @@
             ],
             "description": "Path to the config file within the source repository that declared this\nworkspace (e.g. `.moatless/workspaces.json` or `.moatless/config.json`).\nRetained even after a manual override so the origin remains visible."
           },
+          "sourceKey": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The entry's stable key within the declaring file (its `key`, else the\nslugified name). Retained after an override, like the other provenance."
+          },
           "sourceRepositoryId": {
             "type": [
               "string",
@@ -15332,6 +15389,68 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "WorkspaceSyncSkip": {
+        "type": "object",
+        "description": "One git-declared workspace that was present but not synced, with a reason.",
+        "required": [
+          "sourceKey",
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "Why the workspace was skipped."
+          },
+          "sourceKey": {
+            "type": "string",
+            "description": "The entry's stable key within the declaring file."
+          }
+        }
+      },
+      "WorkspaceSyncSummary": {
+        "type": "object",
+        "description": "Summary of reconciling a repo's git-declared workspaces into `workspaces`.",
+        "required": [
+          "created",
+          "updated",
+          "reclaimed",
+          "removed",
+          "skipped"
+        ],
+        "properties": {
+          "created": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Workspaces inserted as new rows.",
+            "minimum": 0
+          },
+          "reclaimed": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Manually overridden workspaces taken back under git control by an\nexplicit sync, discarding the local edits.",
+            "minimum": 0
+          },
+          "removed": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Workspaces soft-deleted because git no longer declares them.",
+            "minimum": 0
+          },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceSyncSkip"
+            },
+            "description": "Workspaces that were declared but not synced, with reasons."
+          },
+          "updated": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Existing git-synced workspaces updated in place.",
+            "minimum": 0
           }
         }
       },

@@ -4,6 +4,9 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::Serialize;
+use tracing::warn;
+
+use moatless_backend_core::scope::ScopedResource;
 
 use crate::access_control::resolve_scope_for_create_auth;
 use crate::extractors::AuthUser;
@@ -11,16 +14,35 @@ use crate::state::AppState;
 
 use super::dao::WorkspacePatch;
 use super::error::WorkspaceError;
+use super::git_sync::{sync_repo_workspaces, SyncForce};
 use super::models::{Workspace, WorkspaceRepo};
 use super::schemas::{
-    workspace_response, AddRepoRequest, CreateWorkspaceRequest, UpdateWorkspaceRequest,
-    WorkspaceRepoInput, WorkspaceResponse,
+    workspace_response, AddRepoRequest, CreateWorkspaceRequest, ResetGitWorkspaceResponse,
+    UpdateWorkspaceRequest, WorkspaceRepoInput, WorkspaceResponse,
 };
 
 /// Serialize a typed run-config value into the jsonb column shape, dropping it
 /// on the (practically impossible) serialization failure rather than erroring.
 fn to_json<T: Serialize>(value: Option<T>) -> Option<serde_json::Value> {
     value.and_then(|v| serde_json::to_value(v).ok())
+}
+
+/// The `(source_repository_id, source_key)` a reset-git re-syncs from.
+///
+/// Without both, there is no git config to reset to: marking such a workspace
+/// `source = "git"` would strand it — no sync would ever reach it (reconcile is
+/// keyed on the source repo) and the write API refuses to edit or delete a
+/// git-sourced workspace.
+fn reset_source(ws: &Workspace) -> Result<(&str, &str), WorkspaceError> {
+    match (
+        ws.source_repository_id.as_deref(),
+        ws.source_key.as_deref(),
+    ) {
+        (Some(repository_id), Some(source_key)) => Ok((repository_id, source_key)),
+        _ => Err(WorkspaceError::BadRequest(
+            "Workspace was not synced from Git; there is no config to reset to".to_string(),
+        )),
+    }
 }
 
 /// Reject mutation of a git-synced workspace — only a re-sync from git changes
@@ -398,33 +420,86 @@ pub async fn override_workspace(
     tag = "workspaces",
     params(("workspace_id" = String, Path, description = "Workspace id")),
     responses(
-        (status = 200, description = "Workspace reset to git-managed; next sync will update it", body = WorkspaceResponse),
+        (status = 200, description = "Re-sync attempted; `resynced` reports whether it took effect", body = ResetGitWorkspaceResponse),
+        (status = 400, description = "Workspace was never synced from git", body = crate::error::ErrorBody),
         (status = 403, description = "Forbidden", body = crate::error::ErrorBody),
         (status = 404, description = "Not found", body = crate::error::ErrorBody)
     )
 )]
-/// Reset an overridden workspace back to `source = "git"` so the next
-/// git sync will update its run-config from the repository again.
+/// Discard a workspace's local override and take its run-config from git again.
+///
+/// Implemented as a re-sync of just this workspace rather than a flag flip, so
+/// `source` only returns to `"git"` when the repository still declares the
+/// entry — a workspace can never end up claiming git provenance while holding
+/// config git never produced.
 pub async fn reset_git_workspace(
     State(state): State<AppState>,
     auth: AuthUser,
     Path(workspace_id): Path<String>,
-) -> Result<Json<WorkspaceResponse>, WorkspaceError> {
+) -> Result<Json<ResetGitWorkspaceResponse>, WorkspaceError> {
     let ctx = auth.scope_context();
-    state
+    let existing = state
         .workspaces
         .find_by_id(&workspace_id, &ctx)
         .await?
         .ok_or_else(|| WorkspaceError::NotFound(workspace_id.clone()))?;
 
-    let patch = WorkspacePatch {
-        source: Some("git".to_string()),
-        ..WorkspacePatch::default()
-    };
-    state.workspaces.update(&workspace_id, &patch, &ctx).await?;
+    // The sync writes with a system context, so control is checked here.
+    let resource = ScopedResource::borrowed(
+        existing.scope,
+        existing
+            .owner_user_id
+            .as_deref()
+            .or(existing.created_by.as_deref()),
+    );
+    if !ctx.can_control(&resource) {
+        return Err(WorkspaceError::Forbidden(format!(
+            "No control access to workspace '{workspace_id}'"
+        )));
+    }
 
-    let response = load_response(&state, &auth, &workspace_id).await?;
-    Ok(Json(response))
+    let (source_repository_id, source_key) = reset_source(&existing)?;
+    // An already-git workspace has nothing to reclaim — for it the re-sync is
+    // just a refresh, and success means the sync ran.
+    let was_overridden = existing.source == "manual";
+
+    let repo = state
+        .repositories
+        .find_by_id(source_repository_id, &ctx)
+        .await
+        .map_err(WorkspaceError::Db)?;
+    let error = match repo {
+        None => Some(format!(
+            "Source repository '{source_repository_id}' not found or not accessible"
+        )),
+        Some(repo) => {
+            let force = SyncForce::Only(workspace_id.clone());
+            match sync_repo_workspaces(&state, &repo, &auth, &force).await {
+                // `Only` reclaims at most this one workspace, so a non-zero
+                // count is proof that *this* workspace was rewritten from git —
+                // `updated` would also count the repo's other workspaces.
+                Ok(summary) if !was_overridden || summary.reclaimed > 0 => None,
+                Ok(_) => Some(format!(
+                    "'{source_key}' is no longer declared in {}",
+                    existing
+                        .source_config_path
+                        .as_deref()
+                        .unwrap_or(".moatless/workspaces.json")
+                )),
+                Err(e) => {
+                    warn!(%workspace_id, error = %e, "Reset-git re-sync failed");
+                    Some(format!("Failed to read the config from Git: {e}"))
+                }
+            }
+        }
+    };
+
+    let workspace = load_response(&state, &auth, &workspace_id).await?;
+    Ok(Json(ResetGitWorkspaceResponse {
+        resynced: error.is_none(),
+        error,
+        workspace,
+    }))
 }
 
 /// Look up a workspace (scoped) and assert the caller may mutate it.
@@ -662,6 +737,23 @@ mod tests {
     #[test]
     fn manual_workspace_is_mutable() {
         assert!(ensure_workspace_mutable(&workspace_with_source("manual")).is_ok());
+    }
+
+    #[test]
+    fn reset_source_requires_full_provenance() {
+        // A workspace that was never git-synced has nothing to reset to.
+        let err = reset_source(&workspace_with_source("manual")).unwrap_err();
+        assert!(matches!(err, WorkspaceError::BadRequest(_)));
+
+        // A half-stamped row is just as unreachable for the sync.
+        let mut half = workspace_with_source("manual");
+        half.source_repository_id = Some("repo-1".to_string());
+        assert!(reset_source(&half).is_err());
+
+        let mut overridden = workspace_with_source("manual");
+        overridden.source_repository_id = Some("repo-1".to_string());
+        overridden.source_key = Some("api".to_string());
+        assert_eq!(reset_source(&overridden).unwrap(), ("repo-1", "api"));
     }
 
     #[test]

@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::bindings::TaskBindingResponse;
 use crate::enums::{AdapterKind, RoutingMode, Scope, TaskStatus};
 use crate::repository::RepositoryResponse;
+use crate::workspace::WorkspaceSyncSummary;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -301,11 +302,15 @@ pub struct LoopSyncSummary {
 
 /// Response for `POST /api/v1/repositories/{id}/sync-config`.
 ///
-/// Wraps the updated repository plus the loop reconciliation summary.
+/// Wraps the updated repository plus the loop and workspace reconciliation
+/// summaries. This endpoint is the explicit, user-initiated sync, so it also
+/// reclaims workspaces that were manually overridden — see
+/// [`WorkspaceSyncSummary::reclaimed`].
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct SyncConfigResponse {
     pub repository: RepositoryResponse,
     pub loops: LoopSyncSummary,
+    pub workspaces: WorkspaceSyncSummary,
 }
