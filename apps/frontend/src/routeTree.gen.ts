@@ -22,6 +22,7 @@ import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as AuthCallbackRouteImport } from './routes/auth/callback'
 import { Route as TasksTaskIdIndexRouteImport } from './routes/tasks/$task-id/index'
 import { Route as AdminTriggersIndexRouteImport } from './routes/admin/triggers/index'
+import { Route as TasksTaskIdPreviewRouteImport } from './routes/tasks/$task-id/preview'
 import { Route as TasksTaskIdKioskRouteImport } from './routes/tasks/$task-id/kiosk'
 import { Route as TasksTaskIdFileRouteImport } from './routes/tasks/$task-id/file'
 import { Route as OauthGithubCallbackRouteImport } from './routes/oauth/github/callback'
@@ -324,6 +325,11 @@ const AdminIntegrationsConnectionsLazyRoute =
   } as any).lazy(() =>
     import('./routes/admin/integrations/connections.lazy').then((d) => d.Route),
   )
+const TasksTaskIdPreviewRoute = TasksTaskIdPreviewRouteImport.update({
+  id: '/$task-id/preview',
+  path: '/$task-id/preview',
+  getParentRoute: () => TasksRoute,
+} as any)
 const TasksTaskIdKioskRoute = TasksTaskIdKioskRouteImport.update({
   id: '/$task-id/kiosk',
   path: '/$task-id/kiosk',
@@ -454,6 +460,7 @@ export interface FileRoutesByFullPath {
   '/oauth/github/callback': typeof OauthGithubCallbackRoute
   '/tasks/$task-id/file': typeof TasksTaskIdFileRoute
   '/tasks/$task-id/kiosk': typeof TasksTaskIdKioskRoute
+  '/tasks/$task-id/preview': typeof TasksTaskIdPreviewRoute
   '/admin/integrations/connections': typeof AdminIntegrationsConnectionsLazyRouteWithChildren
   '/admin/integrations/github': typeof AdminIntegrationsGithubLazyRoute
   '/admin/loops/new': typeof AdminLoopsNewLazyRoute
@@ -497,6 +504,7 @@ export interface FileRoutesByTo {
   '/oauth/github/callback': typeof OauthGithubCallbackRoute
   '/tasks/$task-id/file': typeof TasksTaskIdFileRoute
   '/tasks/$task-id/kiosk': typeof TasksTaskIdKioskRoute
+  '/tasks/$task-id/preview': typeof TasksTaskIdPreviewRoute
   '/admin/integrations/github': typeof AdminIntegrationsGithubLazyRoute
   '/admin/loops/new': typeof AdminLoopsNewLazyRoute
   '/admin/marketplaces/new': typeof AdminMarketplacesNewLazyRoute
@@ -549,6 +557,7 @@ export interface FileRoutesById {
   '/oauth/github/callback': typeof OauthGithubCallbackRoute
   '/tasks/$task-id/file': typeof TasksTaskIdFileRoute
   '/tasks/$task-id/kiosk': typeof TasksTaskIdKioskRoute
+  '/tasks/$task-id/preview': typeof TasksTaskIdPreviewRoute
   '/admin/integrations/connections': typeof AdminIntegrationsConnectionsLazyRouteWithChildren
   '/admin/integrations/github': typeof AdminIntegrationsGithubLazyRoute
   '/admin/loops/new': typeof AdminLoopsNewLazyRoute
@@ -603,6 +612,7 @@ export interface FileRouteTypes {
     | '/oauth/github/callback'
     | '/tasks/$task-id/file'
     | '/tasks/$task-id/kiosk'
+    | '/tasks/$task-id/preview'
     | '/admin/integrations/connections'
     | '/admin/integrations/github'
     | '/admin/loops/new'
@@ -646,6 +656,7 @@ export interface FileRouteTypes {
     | '/oauth/github/callback'
     | '/tasks/$task-id/file'
     | '/tasks/$task-id/kiosk'
+    | '/tasks/$task-id/preview'
     | '/admin/integrations/github'
     | '/admin/loops/new'
     | '/admin/marketplaces/new'
@@ -697,6 +708,7 @@ export interface FileRouteTypes {
     | '/oauth/github/callback'
     | '/tasks/$task-id/file'
     | '/tasks/$task-id/kiosk'
+    | '/tasks/$task-id/preview'
     | '/admin/integrations/connections'
     | '/admin/integrations/github'
     | '/admin/loops/new'
@@ -994,6 +1006,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminIntegrationsConnectionsLazyRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/tasks/$task-id/preview': {
+      id: '/tasks/$task-id/preview'
+      path: '/$task-id/preview'
+      fullPath: '/tasks/$task-id/preview'
+      preLoaderRoute: typeof TasksTaskIdPreviewRouteImport
+      parentRoute: typeof TasksRoute
+    }
     '/tasks/$task-id/kiosk': {
       id: '/tasks/$task-id/kiosk'
       path: '/$task-id/kiosk'
@@ -1254,6 +1273,7 @@ interface TasksRouteChildren {
   TasksIndexRoute: typeof TasksIndexRoute
   TasksTaskIdFileRoute: typeof TasksTaskIdFileRoute
   TasksTaskIdKioskRoute: typeof TasksTaskIdKioskRoute
+  TasksTaskIdPreviewRoute: typeof TasksTaskIdPreviewRoute
   TasksTaskIdIndexRoute: typeof TasksTaskIdIndexRoute
 }
 
@@ -1261,6 +1281,7 @@ const TasksRouteChildren: TasksRouteChildren = {
   TasksIndexRoute: TasksIndexRoute,
   TasksTaskIdFileRoute: TasksTaskIdFileRoute,
   TasksTaskIdKioskRoute: TasksTaskIdKioskRoute,
+  TasksTaskIdPreviewRoute: TasksTaskIdPreviewRoute,
   TasksTaskIdIndexRoute: TasksTaskIdIndexRoute,
 }
 
