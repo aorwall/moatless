@@ -15,6 +15,7 @@ use crate::adapters::models::{
 };
 use crate::adapters::{Adapter, AdapterKind};
 use crate::db::DbPool;
+use crate::state::AppState;
 
 use super::agent_api::{default_http_client, LinearAgentApi};
 use super::status;
@@ -138,10 +139,6 @@ impl LinearAdapter {
 impl Adapter for LinearAdapter {
     fn adapter_kind(&self) -> AdapterKind {
         AdapterKind::Linear
-    }
-
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
     }
 
     /// Linear comments allow generous bodies; cap well below the documented
@@ -314,6 +311,24 @@ impl Adapter for LinearAdapter {
         }
     }
 
+    /// Link the moatless task back onto the issue an outbound send just bound
+    /// to, so the Linear side shows a "source" pill pointing at the task.
+    /// Agent-session bindings already carry that link from the session itself.
+    async fn on_binding_created(
+        &self,
+        state: &AppState,
+        connection: &AdapterConnection,
+        binding: &TaskBinding,
+        task_id: &str,
+    ) {
+        if binding.subject_kind != SUBJECT_KIND_ISSUE {
+            return;
+        }
+        let api = self.agent_api_for_org(&connection.scope_value);
+        super::agent_runtime::attach_parent_task_link(state, &api, &binding.subject_key, task_id)
+            .await;
+    }
+
     fn reply_instructions(&self) -> Option<String> {
         Some(
             "## Linear Agent Notes\n\
@@ -338,6 +353,10 @@ impl Adapter for LinearAdapter {
 
     fn binding_status_key(&self, binding: &TaskBinding) -> Option<String> {
         status::binding_status_key(binding)
+    }
+
+    fn binding_label_and_url(&self, binding: &TaskBinding) -> (String, Option<String>) {
+        status::binding_label_and_url(binding)
     }
 
     fn is_terminal_state_kind(&self, state_kind: &str) -> bool {

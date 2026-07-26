@@ -124,10 +124,6 @@ impl Adapter for WebhookAdapter {
         AdapterKind::Webhook
     }
 
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-
     async fn resolve_user(
         &self,
         identity: &str,

@@ -4,8 +4,8 @@
 //! Slack thread), each connection's persisted external status, and
 //! per-connection inbound/outgoing message counts. Modeled on
 //! [`super::handlers::list_tasks`]: list tasks → batch bindings → batch message
-//! counts → decode `destination_config` into typed connections → optional live
-//! status refresh.
+//! counts → ask each binding's adapter to name and link its subject → optional
+//! live status refresh.
 
 use std::collections::{HashMap, HashSet};
 
@@ -21,6 +21,7 @@ use moatless_api_schemas::task_connections::{
 };
 
 use crate::adapters::models::{ExternalStatus, TaskBinding};
+use crate::adapters::Adapter;
 use crate::bindings::dao::PgTaskBindingRepository;
 use crate::bindings::status_service;
 use crate::extractors::AuthUser;
@@ -163,7 +164,7 @@ pub async fn list_task_connections(
 
             let connections: Vec<Connection> = task_bindings
                 .iter()
-                .map(|b| decode_connection(b, &count_by_binding))
+                .map(|b| decode_connection(adapter_for(&state, &b.provider), b, &count_by_binding))
                 .collect();
 
             TaskConnectionRow {
@@ -247,8 +248,9 @@ pub async fn get_task_connections(
         });
 
     if query.refresh == Some(true) {
-        // `refresh_stale_statuses` has its own 300s staleness guard, so this
-        // stays cheap and bounded even when called per-request.
+        // `refresh_stale_statuses` has its own 300s staleness guard and skips
+        // finished subjects entirely, so this stays cheap and bounded even when
+        // called per-request.
         refresh_stale_statuses(&state, std::slice::from_ref(&row), &mut bindings).await;
     }
 
@@ -258,14 +260,16 @@ pub async fn get_task_connections(
 
     let connections: Vec<Connection> = binding_refs
         .iter()
-        .map(|b| decode_connection(b, &count_by_binding))
+        .map(|b| decode_connection(adapter_for(&state, &b.provider), b, &count_by_binding))
         .collect();
 
     Ok(Json(connections))
 }
 
-/// Live-refresh bindings whose persisted status is missing or stale. Mutates
-/// `bindings` in place with the freshly fetched status. Bounded concurrency.
+/// Live-refresh the bindings [`status_service::should_refresh`] selects —
+/// missing or stale status, and not already in a state the adapter calls
+/// terminal. Mutates `bindings` in place with the freshly fetched status.
+/// Bounded concurrency.
 async fn refresh_stale_statuses(
     state: &AppState,
     rows: &[crate::task::models::Task],
@@ -279,9 +283,19 @@ async fn refresh_stale_statuses(
     let now = chrono::Utc::now();
     let cutoff = now - chrono::Duration::seconds(STATUS_STALE_SECS);
 
+    let Some(adapters) = state.adapters.as_ref() else {
+        return;
+    };
+
+    // Which bindings are worth polling is the adapter's answer, not ours: it
+    // names the subject and classifies terminal state kinds.
     let targets: Vec<TaskBinding> = bindings
         .iter()
-        .filter(|b| is_refreshable(b) && b.external_status_updated_at.is_none_or(|ts| ts < cutoff))
+        .filter(|b| {
+            adapters
+                .get_by_name(&b.provider)
+                .is_some_and(|adapter| status_service::should_refresh(adapter.as_ref(), b, cutoff))
+        })
         .cloned()
         .collect();
 
@@ -316,14 +330,14 @@ async fn refresh_stale_statuses(
     }
 }
 
-/// Whether a binding has a live status we know how to fetch.
-fn is_refreshable(b: &TaskBinding) -> bool {
-    matches!(b.provider.as_str(), "github" | "github_pr" | "linear")
-}
-
 /// Normalize an adapter/provider string to a canonical bucket so that the
 /// GitHub binding provider (`github`) and the GitHub message adapter label
 /// (`github_pr`) compare equal.
+///
+/// Deliberately a total, registry-independent fold: both sides of the join in
+/// [`match_counts`] go through it and the bucket never leaves this module, so
+/// resolving it through the adapter registry would only add a way for the join
+/// to miss (and message counts to read zero) when that adapter is unconfigured.
 fn normalize_adapter(s: &str) -> &str {
     match s {
         "github" | "github_pr" => "github",
@@ -406,10 +420,31 @@ fn match_counts(
     out
 }
 
+/// The adapter that owns a binding's provider, if one is configured.
+fn adapter_for<'a>(state: &'a AppState, provider: &str) -> Option<&'a dyn Adapter> {
+    state
+        .adapters
+        .as_ref()?
+        .get_by_name(provider)
+        .map(std::convert::AsRef::as_ref)
+}
+
 /// Decode a binding's `destination_config` + persisted status into a typed
 /// [`Connection`].
-fn decode_connection(b: &TaskBinding, counts: &HashMap<String, (i64, i64)>) -> Connection {
-    let (label, url) = label_and_url(b);
+///
+/// The label and URL come from the binding's adapter, which is the only thing
+/// that knows the shape of its own destination config. `adapter` is the one
+/// resolved for this binding's provider; `None` (unconfigured or unknown
+/// provider) falls back to the same default the trait gives.
+fn decode_connection(
+    adapter: Option<&dyn Adapter>,
+    b: &TaskBinding,
+    counts: &HashMap<String, (i64, i64)>,
+) -> Connection {
+    let (label, url) = adapter.map_or_else(
+        || (b.subject_key.clone(), None),
+        |a| a.binding_label_and_url(b),
+    );
     let (incoming, outgoing) = counts.get(&b.id).copied().unwrap_or((0, 0));
 
     Connection {
@@ -439,50 +474,51 @@ fn connection_kind(subject_kind: &str) -> String {
     }
 }
 
-/// Build a human label and web URL from a binding's destination config.
-fn label_and_url(b: &TaskBinding) -> (String, Option<String>) {
-    let cfg = &b.destination_config;
-    match b.provider.as_str() {
-        "github" | "github_pr" => {
-            // subject_key is already "owner/repo#N".
-            let url = github_pr_url(cfg).or_else(|| {
-                b.external_status_raw
-                    .as_ref()
-                    .and_then(|r| r.get("url"))
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_string)
-            });
-            (b.subject_key.clone(), url)
-        }
-        "linear" => {
-            let label = json_str(cfg, "identifier")
-                .or_else(|| json_str(cfg, "issue_identifier"))
-                .unwrap_or_else(|| b.subject_key.clone());
-            let url = json_str(cfg, "issue_url").or_else(|| json_str(cfg, "url"));
-            (label, url)
-        }
-        _ => (b.subject_key.clone(), None),
-    }
-}
-
-fn github_pr_url(cfg: &serde_json::Value) -> Option<String> {
-    let owner = cfg.get("owner").and_then(serde_json::Value::as_str)?;
-    let repo = cfg.get("repo").and_then(serde_json::Value::as_str)?;
-    let number = cfg.get("pr_number").and_then(serde_json::Value::as_u64)?;
-    Some(format!("https://github.com/{owner}/{repo}/pull/{number}"))
-}
-
-fn json_str(cfg: &serde_json::Value, key: &str) -> Option<String> {
-    cfg.get(key)
-        .and_then(serde_json::Value::as_str)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
     use chrono::Utc;
+
+    use crate::adapters::error::AdapterError;
+    use crate::adapters::models::{BindingContext, LoopContext, OutboundReply};
+    use crate::adapters::{Adapter, AdapterKind};
+    use crate::db::DbPool;
+
+    use super::*;
+
+    /// Stand-in adapter: names its own bindings, which is all this module asks
+    /// of an adapter when it decodes a connection.
+    struct StubAdapter;
+
+    #[async_trait::async_trait]
+    impl Adapter for StubAdapter {
+        fn adapter_kind(&self) -> AdapterKind {
+            AdapterKind::Webhook
+        }
+
+        fn binding_label_and_url(&self, binding: &TaskBinding) -> (String, Option<String>) {
+            (
+                format!("stub {}", binding.subject_key),
+                Some("https://stub.example/1".to_string()),
+            )
+        }
+
+        async fn resolve_user(
+            &self,
+            _identity: &str,
+            _db: &DbPool,
+        ) -> Result<Option<String>, AdapterError> {
+            Ok(None)
+        }
+
+        async fn send_reply(
+            &self,
+            _thread: &BindingContext,
+            _config: &LoopContext,
+            _message: &OutboundReply,
+        ) -> Result<Option<String>, AdapterError> {
+            Ok(None)
+        }
+    }
 
     fn binding(id: &str, provider: &str, subject_kind: &str, subject_key: &str) -> TaskBinding {
         let now = Utc::now();
@@ -527,27 +563,6 @@ mod tests {
     }
 
     #[test]
-    fn github_label_is_subject_key_and_url_is_derived() {
-        let mut b = binding("b1", "github", "github_pr", "o/r#42");
-        b.destination_config = serde_json::json!({"owner": "o", "repo": "r", "pr_number": 42});
-        let (label, url) = label_and_url(&b);
-        assert_eq!(label, "o/r#42");
-        assert_eq!(url.as_deref(), Some("https://github.com/o/r/pull/42"));
-    }
-
-    #[test]
-    fn linear_label_prefers_identifier() {
-        let mut b = binding("b1", "linear", "linear_agent_session", "session-uuid");
-        b.destination_config = serde_json::json!({
-            "identifier": "SP-1721",
-            "issue_url": "https://linear.app/x/issue/SP-1721",
-        });
-        let (label, url) = label_and_url(&b);
-        assert_eq!(label, "SP-1721");
-        assert_eq!(url.as_deref(), Some("https://linear.app/x/issue/SP-1721"));
-    }
-
-    #[test]
     fn linear_kind_normalizes_both_subject_kinds() {
         assert_eq!(connection_kind("linear_agent_session"), "linear_issue");
         assert_eq!(connection_kind("linear_issue"), "linear_issue");
@@ -583,6 +598,19 @@ mod tests {
     }
 
     #[test]
+    fn two_provider_spellings_fold_together() {
+        // The binding is stored under the connection key, the message row under
+        // the message key; `normalize_adapter` folds them so the join lands.
+        let b1 = binding("b1", "github", "github_pr", "o/r#1");
+        let bindings = vec![&b1];
+        let legacy = count(None, Some("github_pr"), 2, 3);
+        let rows = vec![&legacy];
+
+        let matched = match_counts(&bindings, &rows);
+        assert_eq!(matched.get("b1").copied(), Some((2, 3)));
+    }
+
+    #[test]
     fn ambiguous_adapter_fallback_is_dropped() {
         // Two bindings of the same adapter — a null-subject row can't be
         // attributed unambiguously, so it's dropped rather than double-counted.
@@ -597,18 +625,38 @@ mod tests {
     }
 
     #[test]
+    fn decode_connection_takes_label_and_url_from_the_adapter() {
+        let counts: HashMap<String, (i64, i64)> = HashMap::new();
+        let b = binding("b1", "webhook", "stub_subject", "o/r#1");
+
+        let decoded = decode_connection(Some(&StubAdapter), &b, &counts);
+        assert_eq!(decoded.label, "stub o/r#1");
+        assert_eq!(decoded.url.as_deref(), Some("https://stub.example/1"));
+    }
+
+    #[test]
+    fn decode_connection_falls_back_when_no_adapter_answers() {
+        let counts: HashMap<String, (i64, i64)> = HashMap::new();
+        let b = binding("b1", "not_configured", "stub_subject", "o/r#1");
+
+        let decoded = decode_connection(None, &b, &counts);
+        assert_eq!(decoded.label, "o/r#1");
+        assert!(decoded.url.is_none());
+    }
+
+    #[test]
     fn decode_connection_carries_active_state() {
         let counts: HashMap<String, (i64, i64)> = HashMap::new();
 
         let active = binding("b1", "github", "github_pr", "o/r#1");
-        let decoded = decode_connection(&active, &counts);
+        let decoded = decode_connection(Some(&StubAdapter), &active, &counts);
         assert!(decoded.active);
         assert_eq!(decoded.deactivated_at, None);
 
         let mut closed = binding("b2", "github", "github_pr", "o/r#2");
         closed.active = false;
         closed.deactivated_at = Some(Utc::now());
-        let decoded = decode_connection(&closed, &counts);
+        let decoded = decode_connection(Some(&StubAdapter), &closed, &counts);
         assert!(!decoded.active);
         assert!(decoded.deactivated_at.is_some());
     }

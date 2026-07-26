@@ -287,10 +287,6 @@ impl Adapter for TelegramAdapter {
         AdapterKind::Telegram
     }
 
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-
     fn binding_destination_from_existing_thread(
         &self,
         source_id: &str,
@@ -441,6 +437,12 @@ impl Adapter for TelegramAdapter {
             |r| crate::bindings::runtime::trigger_context(r, "telegram"),
         );
         self.send_reply(&thread, &config, message).await
+    }
+
+    /// A Telegram user's id doubles as the id of their private chat with the
+    /// bot, so the destination needs no API call.
+    async fn dm_destination(&self, provider_user_id: &str) -> Result<Option<String>, AdapterError> {
+        Ok(Some(format!("chat:{provider_user_id}")))
     }
 
     async fn send_message(
@@ -718,6 +720,16 @@ mod tests {
         assert_eq!(
             strip_bot_mention("fix the bug", Some("@mybot")),
             "fix the bug"
+        );
+    }
+
+    #[tokio::test]
+    async fn dm_destination_addresses_the_user_private_chat() {
+        let provider = TelegramAdapter::new("fake_token");
+
+        assert_eq!(
+            provider.dm_destination("999").await.unwrap(),
+            Some("chat:999".to_string())
         );
     }
 

@@ -1,4 +1,4 @@
-//! External status for GitHub PR bindings.
+//! External status and display fields for GitHub PR bindings.
 //!
 //! Free functions so they can be unit-tested without constructing a
 //! [`GithubPrAdapter`](super::adapter::GithubPrAdapter) (which needs a database
@@ -80,6 +80,31 @@ pub(crate) fn is_terminal_state_kind(state_kind: &str) -> bool {
     TERMINAL_STATE_KINDS.contains(&state_kind)
 }
 
+/// Human label and web URL for the pull request a binding points at.
+///
+/// The label is the binding's `subject_key`, which is already `owner/repo#N`.
+/// The URL is built from the destination config, falling back to the `url` a
+/// previously persisted status recorded — bindings created before the config
+/// carried the PR coordinates still render a link.
+pub(crate) fn binding_label_and_url(binding: &TaskBinding) -> (String, Option<String>) {
+    let url = pull_request_url(binding).or_else(|| status_raw_url(binding));
+    (binding.subject_key.clone(), url)
+}
+
+fn pull_request_url(binding: &TaskBinding) -> Option<String> {
+    let (owner, repo, number) = binding_subject(binding)?;
+    Some(format!("https://github.com/{owner}/{repo}/pull/{number}"))
+}
+
+fn status_raw_url(binding: &TaskBinding) -> Option<String> {
+    binding
+        .external_status_raw
+        .as_ref()?
+        .get("url")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -154,6 +179,36 @@ mod tests {
     fn status_key_is_none_without_a_pull_request() {
         let binding = binding_with_config(serde_json::json!({ "owner": "acme", "repo": "web" }));
         assert!(binding_status_key(&binding).is_none());
+    }
+
+    #[test]
+    fn label_is_subject_key_and_url_is_derived() {
+        let binding = binding_with_config(serde_json::json!({
+            "owner": "o",
+            "repo": "r",
+            "pr_number": 42,
+        }));
+        let (label, url) = binding_label_and_url(&binding);
+        assert_eq!(label, "acme/web#7");
+        assert_eq!(url.as_deref(), Some("https://github.com/o/r/pull/42"));
+    }
+
+    #[test]
+    fn url_falls_back_to_the_persisted_status() {
+        let mut binding = binding_with_config(serde_json::json!({}));
+        binding.external_status_raw = Some(serde_json::json!({
+            "url": "https://github.com/o/r/pull/9",
+        }));
+        let (_, url) = binding_label_and_url(&binding);
+        assert_eq!(url.as_deref(), Some("https://github.com/o/r/pull/9"));
+    }
+
+    #[test]
+    fn url_is_none_without_config_or_persisted_status() {
+        let binding = binding_with_config(serde_json::json!({}));
+        let (label, url) = binding_label_and_url(&binding);
+        assert_eq!(label, "acme/web#7");
+        assert!(url.is_none());
     }
 
     #[test]

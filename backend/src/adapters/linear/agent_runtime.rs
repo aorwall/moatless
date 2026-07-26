@@ -1470,6 +1470,28 @@ pub(crate) fn task_url(state: &AppState, task_id: &str) -> String {
     format!("{base}/tasks/{task_id}")
 }
 
+/// Attach the moatless task URL to a Linear issue as a "source" pill, titled
+/// for the case where the Moatless side is the parent. Idempotent on
+/// (issue_id, url). Failures are logged and swallowed — the caller has already
+/// created the issue / posted the comment this links back from.
+pub(crate) async fn attach_parent_task_link(
+    state: &AppState,
+    api: &LinearAgentApi,
+    issue_uuid: &str,
+    task_id: &str,
+) {
+    let url = task_url(state, task_id);
+    let title = task_attachment_title(state, task_id, ATTACHMENT_TITLE_PARENT).await;
+    if let Err(e) = api.attachment_link_url(issue_uuid, &url, &title).await {
+        warn!(
+            error = %e,
+            task_id = %task_id,
+            issue = %issue_uuid,
+            "Failed to attach Moatless task URL to Linear issue"
+        );
+    }
+}
+
 /// Label prefix for the Linear ↔ Moatless link when the Linear side is the
 /// parent (Moatless task spawned from a `@mention` / assignment).
 pub(crate) const ATTACHMENT_TITLE_CHILD: &str = "Moatless task";
