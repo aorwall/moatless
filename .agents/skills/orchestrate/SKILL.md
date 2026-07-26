@@ -14,15 +14,17 @@ Three artifacts are produced along the way, each with a distinct audience:
 
 1. **Spec markdown** — `specs/<feature-slug>.md` in the repo — the source of truth; inlined into every child's spawn message.
 2. **Ticket markdown files** — `/opt/moatless/workspace/plans/<feature-slug>/<NN>-<slug>.md` — one per ticket; each becomes the body of its child's spawn message.
-3. **HTML page** — one file at `/opt/moatless/workspace/scratchpad/<feature-slug>-board.html`, live from the first question to approval: a **board** that fills as the interview lands answers, then the **review page** the user approves. It renders the spec's lede and is a projection of the markdown — regenerate on every change; nothing may exist only here.
+3. **HTML review page** — `/opt/moatless/workspace/scratchpad/<feature-slug>-review.html`, rendered once at approval. It renders the spec's lede and is a projection of the markdown — nothing may exist only here. Nothing is rendered during the interview; the questions are the chat's job.
 
 ---
 
 ## Phase 1 — Alignment
 
-Run the `/writing-specs` skill and follow its grill: questions bound to the lede's slots, batched by slot and one per turn, each carrying your recommended answer and 2–4 ranked alternatives, each restating position and settled state. Name each batch and its size as it opens, and offer the whole batch at once the first time — a feature-sized interview is long enough that the shape should be the user's choice, not the skill's. Look codebase facts up rather than asking. Record load-bearing decisions as ADRs in `docs/adr/` as they land, and sharpen terms into `CONTEXT.md` as they settle.
+Run the `/writing-specs` skill and follow its sequence. **Map today first:** read the affected code and write `## Today` into `specs/<feature-slug>.md` before asking anything — at feature size this is what stops the interview turning into an explanation session, because every later question can point at it instead of carrying its own background.
 
-Write each answer into `specs/<feature-slug>.md` as it lands, and put the live **board** on screen — the lede rendered with its empty slots visible, re-rendered from the file after every answer. Give the user its URL once, at the first question. A feature-sized interview is long enough that the board is what keeps it navigable.
+Then follow its grill: open with the understanding batch (does `## Today` match their model, and do the terms agree with `CONTEXT.md`), then scope, then decisions. One question per turn, each carrying your recommended answer and 2–4 ranked alternatives, each restating position and settled state. Name each batch and its size as it opens, and offer the whole batch at once the first time — a feature-sized interview is long enough that the shape should be the user's choice, not the skill's. Look codebase facts up rather than asking. Record load-bearing decisions as ADRs in `docs/adr/` as they land, and sharpen terms into `CONTEXT.md` as they settle.
+
+Write each answer into `specs/<feature-slug>.md` as it lands and link the file; the question stays in chat. Nothing is rendered yet.
 
 Stop when every lede slot is filled or explicitly parked into Open questions.
 
@@ -30,13 +32,13 @@ Stop when every lede slot is filled or explicitly parked into Open questions.
 
 ## Phase 2 — Spec
 
-Without re-interviewing, synthesize the conversation into a spec. First explore the codebase to understand the current state; use the domain glossary (`CONTEXT.md`) and existing ADRs throughout.
+Without re-interviewing, synthesize the conversation into a spec. `## Today` is already written and already agreed; use the domain glossary (`CONTEXT.md`) and existing ADRs throughout.
 
 Sketch the testing seams (fewest possible; prefer the highest seam). Confirm them with the user before writing.
 
 Write the spec to **`specs/<feature-slug>.md`** in the repo, in the shape `/writing-specs` defines. Follow its sequence: **write the lede first and stop for review**, then fill the detail once the decision table is agreed. Draft the ticket breakdown before the lede is final — its Work graph is part of what the user approves.
 
-The board from Phase 1 now becomes the **review page** — same file, same URL: drop the auto-refresh and the pending outlines, add the four sections from `/writing-specs`'s HTML-REPORT reference. It renders the lede, not the spec: the full spec is the source of truth on disk, the page is what makes the decision reachable in two minutes.
+Now render the **review page** — the four sections from `/writing-specs`'s HTML-REPORT reference. This is the one page in the workflow, and a feature-sized spec is where it earns its place. It renders the lede, not the spec: the full spec is the source of truth on disk, the page is what makes the decision reachable in two minutes.
 
 Paste the lede into the message as markdown alongside the URL, so the decision is reachable without opening anything. Approval happens here, on the lede — the detail below the `---` is written for the child tasks that implement from it, so don't ask the user to read it back. **Wait for their approval before continuing.** If they want changes, update the spec file, revise the draft breakdown, and regenerate the review page. Iterate until they approve both the plan and the breakdown.
 

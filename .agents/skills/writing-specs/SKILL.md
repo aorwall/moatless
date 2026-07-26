@@ -24,6 +24,19 @@ Neighbours that are not this:
 - `docs/architecture/` — what the system **is**, as built.
 - `docs/adr/` — **why** a hard-to-reverse decision was made. Offer one only when it passes all three conditions in the `/domain-modeling` skill's ADR format.
 
+## Today, before the first question
+
+A spec proposes a change to something. **Write down what that something does now, before asking anything about changing it** — into the spec, as `## Today`, finished before the interview opens.
+
+Two things go wrong without it. The user gets asked to choose between options whose consequences depend on current behaviour they are being told about *inside the question*, so the explanation and the decision compete for the same attention. And the facts scroll away: a table of current behaviour posted in chat is gone by question five, so the same ground gets covered twice.
+
+Use the `/explaining-code` shape and its caps — the state slice first, then a trace of ≤ 7 hops with `file:line` at each. Two rules keep it from turning into a doc:
+
+- **Only what the change touches.** A component the change won't affect doesn't appear. This section is scoped by the diff you expect, not by the subsystem it lands in.
+- **Say what is dead.** Paths that exist and never run are the most valuable thing here — they decide scope, and nobody finds them from the outside.
+
+While the interview is running this is the only complete section in the file, so **it is what you link to, and what questions point at instead of restating.**
+
 ## The lede
 
 Every `specs/<slug>.md` opens with this block. Everything below the `---` is detail.
@@ -73,6 +86,7 @@ Written for the implementer and the archive, and optimised for someone arriving 
 Fixed heading order, so a reader who has read one spec can navigate every spec. Sections may be empty; they may not be reordered or renamed. The order never varies by author or by document — predictable structure is what makes "one click away" cheap enough to use.
 
 ```md
+## Today              — how the affected area works now, written before the interview
 ## Problem
 ## Solution
 ## Decisions          — one ### per lede table row, with the full reasoning
@@ -83,6 +97,7 @@ Fixed heading order, so a reader who has read one spec can navigate every spec. 
 ## Ticket breakdown
 ```
 
+- **Today** — the exception to everything in this section: written *before* the interview, not after approval, and the one part the user reads while being grilled. Everything below it is written after the lede is agreed.
 - **Problem / Solution** — from the perspective of whoever feels it. Name the user-visible risk, not the code smell.
 - **Decisions** — the rejected alternatives are the most valuable content in the file: they are what stops the decision being re-litigated in six months. Never delete one to save space; push it down the page.
 - **Behaviour** — group user stories by actor and cap each group at 7. Past that, use a table. A flat list of thirty stories is a list nobody reads; the same thirty grouped and tabled is one screen. Cover every actor — completeness lives here, brevity lives in the lede.
@@ -102,7 +117,7 @@ These are also what keeps the page from going flat. Cutting an element to "keep 
 
 Full catalogue, the state-coloured `classDef` block, and the ban list: [DESIGN.md](DESIGN.md).
 
-For the rendered page, `/html-report` supplies the mechanics and [HTML-REPORT.md](HTML-REPORT.md) the spec layer. One file at one stable URL, in two states: a live **board** during the interview, the **review page** at approval. It renders the lede, never the spec, and it is a projection — write to the markdown first, re-render second, so nothing exists only there.
+For the rendered page, `/html-report` supplies the mechanics and [HTML-REPORT.md](HTML-REPORT.md) the spec layer. There is **one page and it appears once**, at approval: the review page. Nothing is rendered during the interview — the questions are the chat's job and the detail is the file's, and a page that has to be re-rendered between every question puts a build step between the user's answer and the next question. The page renders the lede, never the spec, and it is a projection: write to the markdown first, render second, so nothing exists only there.
 
 ## Writing style
 
@@ -119,27 +134,30 @@ Use the domain vocabulary in `CONTEXT.md` throughout, and respect existing ADRs 
 
 Each step ends on a checkable criterion, so you can stop cleanly at any of them.
 
-1. **Grill.** Interview the user toward the lede's slots — **read [GRILLING.md](GRILLING.md) before asking the first question.** The four rules that change the outcome:
+1. **Map today.** Read the code, then write `## Today` into `specs/<slug>.md` — the affected area only, in the `/explaining-code` shape. No questions yet.
+   *Done when:* the file exists with a complete `## Today` and an empty lede skeleton above it.
+2. **Grill.** Interview the user toward the lede's slots — **read [GRILLING.md](GRILLING.md) before asking the first question.** The six rules that change the outcome:
+   - **Open on shared understanding.** The first batch presents `## Today` and settles the vocabulary against `CONTEXT.md`. Decisions phrased in terms the two of you don't hold identically get re-litigated later.
    - **One question per turn**, never two. Two questions means the user picks which to answer, and picking is where work stalls.
-   - **Batch by lede slot, and finish a batch before starting the next.** All the scope questions, then all the decisions. Name the batch and its size when it opens. Switching subject between consecutive questions is the expensive move, not answering another question.
+   - **Batch by lede slot, and finish a batch before starting the next.** Understanding, then scope, then decisions. Name the batch and its size when it opens. Switching subject between consecutive questions is the expensive move, not answering another question.
    - **Every question carries your recommended answer** plus 2–4 ranked alternatives with one-line trade-offs. Reacting to a proposal is cheap; answering a blank prompt is not.
    - **Every question restates position and settled state** — "Q3 of ~6 · filling: Decisions row 2 · settled: in-process seam". Never ask the user to remember an earlier answer.
    - **Look facts up; only ask decisions.** Being asked something the agent could have read is the fastest way to lose the room.
 
    Bind the questions to the lede's slots so the interview has a visible end, and say the estimated count up front. Park anything you can't resolve into Open questions rather than chasing it. ADRs and `CONTEXT.md` entries land inline as decisions crystallize (`/domain-modeling`).
 
-   **Write each answer into `specs/<slug>.md` as it lands** — the lede is built during the interview, not reconstructed after it. Past about four questions, render a live **board** beside it (see [HTML-REPORT.md](HTML-REPORT.md)): the lede drawn as a skeleton with its empty slots visible, re-rendered from the file each time an answer lands. It holds the settled state so the chat doesn't have to, and the empty slots show how much is left without anyone counting.
+   **The interview happens in chat, against the spec file.** Write each answer into `specs/<slug>.md` as it lands — the lede is built during the interview, not reconstructed after it — and link the file rather than restating what's already in it. No page is rendered yet; the question lives in the message and the detail lives in the file.
    *Done when:* every lede slot is filled or explicitly parked.
-2. **Approve at the lede.** ≤ 40 lines, nothing below the `---` yet. Paste it into the message *and* link the file — `<origin>/tasks/<task-id>?file=moatless%2Fspecs%2F<slug>.md&fileView=preview` — then wait. This is the approval, not a checkpoint on the way to one, so before you show it, check that nothing needed to say yes is waiting to be written below.
+3. **Approve at the lede.** ≤ 40 lines, nothing below the `---` but `## Today`. Paste it into the message *and* link the file — `<origin>/tasks/<task-id>?file=moatless%2Fspecs%2F<slug>.md&fileView=preview` — then wait. This is where a **review page** earns its place, if anywhere does (see [HTML-REPORT.md](HTML-REPORT.md)): one decision, one screen, once. Before you show it, check that nothing needed to say yes is waiting to be written below.
    *Done when:* the user agrees with every row of the decision table. Approving 40 lines takes two minutes; approving 500 never happens.
-3. **Fill the detail, after approval.** Expand below the `---` without re-interviewing. It is written for the implementer, so don't send the user back through it; the lede changes only if a decision changes.
+4. **Fill the detail, after approval.** Expand below `## Today` without re-interviewing. It is written for the implementer, so don't send the user back through it; the lede changes only if a decision changes.
    *Done when:* every lede decision row has a `###` section under `## Decisions`.
-4. **Tickets.** Run `/to-tickets`, then paste the dependency graph into the lede.
+5. **Tickets.** Run `/to-tickets`, then paste the dependency graph into the lede.
    *Done when:* the lede's Work graph matches the published tickets.
-5. **Track.** As tickets land, edit the Status line and the Work graph. Nothing else moves.
+6. **Track.** As tickets land, edit the Status line and the Work graph. Nothing else moves.
    *Done when:* Status reads `shipped <version>` and Open questions is empty.
 
-Steps 2 and 3 are the load-bearing split: do the full thinking, then give the reader a filtered pass over what survived, with every level below it one click away.
+Steps 3 and 4 are the load-bearing split: do the full thinking, then give the reader a filtered pass over what survived, with every level below it one click away.
 
 ## What the user can change
 
@@ -148,6 +166,7 @@ Say these are adjustable the first time each one bites, once, in one line — a 
 | Knob | Default | Say it when |
 |---|---|---|
 | Questions per turn | one | opening the first batch — "one at a time, or the whole batch at once?" |
-| The board | on past ~4 questions | giving the URL |
+| The understanding batch | on | opening it — it's skippable if they wrote the code |
+| The review page | on | reaching approval — the lede in the message may be all they want |
 | Detail depth | full | the spec is small enough that the lede plus tickets would do |
 | Where it stops | the lede | the user wants tickets in the same sitting |
