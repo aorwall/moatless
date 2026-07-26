@@ -180,7 +180,7 @@ pub async fn list_plugin_activations(
 ) -> Result<Json<Vec<ActivationResponse>>, PluginError> {
     let rows = state
         .plugins
-        .list_activations_for(&auth.user_id.to_string())
+        .list_activations_for(Some(auth.user_id))
         .await?;
 
     Ok(Json(
@@ -312,8 +312,7 @@ pub async fn list_effective_plugins(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<Vec<EffectivePluginResponse>>, PluginError> {
-    let resolved =
-        activation::resolve_for_user(state.plugins.as_ref(), &auth.user_id.to_string()).await?;
+    let resolved = activation::resolve_for_user(state.plugins.as_ref(), Some(auth.user_id)).await?;
 
     Ok(Json(
         resolved
@@ -335,13 +334,13 @@ pub async fn list_effective_plugins(
 fn activation_user_id(
     auth: &AuthUser,
     reach: ActivationReach,
-) -> Result<Option<String>, PluginError> {
+) -> Result<Option<uuid::Uuid>, PluginError> {
     match reach {
         ActivationReach::Everyone => {
             ensure_admin(auth)?;
             Ok(None)
         }
-        ActivationReach::Personal => Ok(Some(auth.user_id.to_string())),
+        ActivationReach::Personal => Ok(Some(auth.user_id)),
     }
 }
 

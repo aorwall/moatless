@@ -14,6 +14,7 @@
 use moatless_vibe_backend::plugin::dao::{PgPluginRepository, PluginRepository};
 use moatless_vibe_backend::plugin::models::{ActivationRow, Plugin, PluginSkill};
 use sqlx::PgPool;
+use uuid::Uuid;
 
 fn plugin(id: &str) -> Plugin {
     Plugin {
@@ -147,15 +148,20 @@ async fn skills_are_scoped_to_their_own_plugin(pool: PgPool) {
 
 // ---- Activation records ----
 
-async fn user(pool: &PgPool, id: &str) {
+/// A real user row: an activation record's `user_id` is a foreign key, so a
+/// personal record cannot be written for somebody who does not exist.
+async fn user(pool: &PgPool, login: &str) -> Uuid {
+    let id = Uuid::new_v4();
     sqlx::query(
-        "INSERT INTO users (id, login, provider, created_at, last_login_at) \
-         VALUES ($1, $1, 'test', now(), now())",
+        "INSERT INTO users (id, login, provider, provider_user_id, created_at, last_login_at) \
+         VALUES ($1, $2, 'test', $2, now(), now())",
     )
     .bind(id)
+    .bind(login)
     .execute(pool)
     .await
     .expect("insert user");
+    id
 }
 
 #[sqlx::test]
@@ -177,7 +183,7 @@ async fn one_plugin_holds_at_most_one_global_record(pool: PgPool) {
     .await
     .expect("turn off");
 
-    let rows = dao.list_activations_for("nobody").await.expect("list");
+    let rows = dao.list_activations_for(None).await.expect("list");
     assert_eq!(
         rows,
         vec![ActivationRow {
@@ -193,8 +199,8 @@ async fn one_plugin_holds_at_most_one_global_record(pool: PgPool) {
 async fn resolution_sees_global_records_plus_only_its_own(pool: PgPool) {
     let dao = PgPluginRepository(pool.clone());
     dao.insert(&plugin("p1")).await.expect("insert plugin");
-    user(&pool, "alice").await;
-    user(&pool, "bob").await;
+    let alice_id = user(&pool, "alice").await;
+    let bob_id = user(&pool, "bob").await;
 
     for row in [
         ActivationRow {
@@ -206,23 +212,23 @@ async fn resolution_sees_global_records_plus_only_its_own(pool: PgPool) {
         ActivationRow {
             plugin_id: "p1".into(),
             skill_name: None,
-            user_id: Some("alice".into()),
+            user_id: Some(alice_id),
             enabled: false,
         },
         ActivationRow {
             plugin_id: "p1".into(),
             skill_name: None,
-            user_id: Some("bob".into()),
+            user_id: Some(bob_id),
             enabled: false,
         },
     ] {
         dao.set_activation(&row).await.expect("set");
     }
 
-    let alice = dao.list_activations_for("alice").await.expect("list");
+    let alice = dao.list_activations_for(Some(alice_id)).await.expect("list");
     assert_eq!(alice.len(), 2, "the global default plus alice's own");
     assert!(
-        !alice.iter().any(|r| r.user_id.as_deref() == Some("bob")),
+        !alice.iter().any(|r| r.user_id == Some(bob_id)),
         "one person's choices must never enter another's resolution"
     );
 }
@@ -231,32 +237,32 @@ async fn resolution_sees_global_records_plus_only_its_own(pool: PgPool) {
 async fn clearing_a_record_is_not_the_same_as_turning_it_off(pool: PgPool) {
     let dao = PgPluginRepository(pool.clone());
     dao.insert(&plugin("p1")).await.expect("insert plugin");
-    user(&pool, "alice").await;
+    let alice_id = user(&pool, "alice").await;
 
     dao.set_activation(&ActivationRow {
         plugin_id: "p1".into(),
         skill_name: None,
-        user_id: Some("alice".into()),
+        user_id: Some(alice_id),
         enabled: false,
     })
     .await
     .expect("set");
 
     assert!(dao
-        .clear_activation("p1", None, Some("alice".to_string()))
+        .clear_activation("p1", None, Some(alice_id))
         .await
         .expect("clear"));
 
     assert!(
-        dao.list_activations_for("alice")
+        dao.list_activations_for(Some(alice_id))
             .await
             .expect("list")
             .is_empty(),
         "clearing hands alice back to the global default rather than pinning \
-         her to off"
+         them to off"
     );
     assert!(
-        !dao.clear_activation("p1", None, Some("alice".to_string()))
+        !dao.clear_activation("p1", None, Some(alice_id))
             .await
             .expect("clear again"),
         "clearing what is not there reports so, rather than pretending"
@@ -286,7 +292,7 @@ async fn a_skill_record_and_a_plugin_record_coexist(pool: PgPool) {
     .expect("skill record");
 
     assert_eq!(
-        dao.list_activations_for("nobody").await.expect("list").len(),
+        dao.list_activations_for(None).await.expect("list").len(),
         2,
         "\"the whole plugin, except this skill\" needs both records to survive"
     );
@@ -296,7 +302,7 @@ async fn a_skill_record_and_a_plugin_record_coexist(pool: PgPool) {
         .await
         .expect("clear the skill record"));
     assert_eq!(
-        dao.list_activations_for("nobody").await.expect("list").len(),
+        dao.list_activations_for(None).await.expect("list").len(),
         1,
         "clearing the skill record must not take the plugin record with it"
     );
@@ -317,7 +323,7 @@ async fn deleting_a_plugin_takes_its_activations_with_it(pool: PgPool) {
 
     assert!(dao.delete("p1").await.expect("delete"));
     assert!(
-        dao.list_activations_for("nobody")
+        dao.list_activations_for(None)
             .await
             .expect("list")
             .is_empty(),

@@ -1,6 +1,7 @@
 //! Plugin DAO — queries for plugin data access.
 
 use async_trait::async_trait;
+use uuid::Uuid;
 
 use super::models::{ActivationRow, Plugin, PluginSkill};
 use crate::db::DbPool;
@@ -32,10 +33,11 @@ pub trait PluginRepository: Send + Sync {
     async fn list_all_skills(&self) -> Result<Vec<PluginSkill>, sqlx::Error>;
 
     /// The records resolution needs for one person: every global record plus
-    /// that person's own, and nobody else's.
+    /// that person's own, and nobody else's. `None` asks for the global records
+    /// alone — what a task with no identifiable owner resolves against.
     async fn list_activations_for(
         &self,
-        user_id: &str,
+        user_id: Option<Uuid>,
     ) -> Result<Vec<ActivationRow>, sqlx::Error>;
 
     /// Set one activation record, replacing whatever it said before.
@@ -44,13 +46,13 @@ pub trait PluginRepository: Send + Sync {
     /// Remove one activation record. Clearing a personal record hands the
     /// person back to whatever the global default says, which is not the same
     /// as setting it to off.
-    /// Owned `Option`s rather than `Option<&str>`: mockall cannot synthesise
-    /// the lifetime of a reference nested inside a generic.
+    /// Owned `Option` for the skill name rather than `Option<&str>`: mockall
+    /// cannot synthesise the lifetime of a reference nested inside a generic.
     async fn clear_activation(
         &self,
         plugin_id: &str,
         skill_name: Option<String>,
-        user_id: Option<String>,
+        user_id: Option<Uuid>,
     ) -> Result<bool, sqlx::Error>;
 }
 
@@ -142,7 +144,7 @@ impl PluginRepository for PgPluginRepository {
 
     async fn list_activations_for(
         &self,
-        user_id: &str,
+        user_id: Option<Uuid>,
     ) -> Result<Vec<ActivationRow>, sqlx::Error> {
         sqlx::query_as::<_, ActivationRow>(
             r#"SELECT plugin_id, skill_name, user_id, enabled
@@ -163,7 +165,7 @@ impl PluginRepository for PgPluginRepository {
         )
         .bind(&row.plugin_id)
         .bind(&row.skill_name)
-        .bind(&row.user_id)
+        .bind(row.user_id)
         .bind(row.enabled)
         .execute(&self.0)
         .await?;
@@ -174,7 +176,7 @@ impl PluginRepository for PgPluginRepository {
         &self,
         plugin_id: &str,
         skill_name: Option<String>,
-        user_id: Option<String>,
+        user_id: Option<Uuid>,
     ) -> Result<bool, sqlx::Error> {
         // `IS NOT DISTINCT FROM` so a NULL argument matches the NULL row —
         // plain `=` would never match the global or whole-plugin records.
@@ -186,7 +188,7 @@ impl PluginRepository for PgPluginRepository {
         )
         .bind(plugin_id)
         .bind(&skill_name)
-        .bind(&user_id)
+        .bind(user_id)
         .execute(&self.0)
         .await?;
         Ok(result.rows_affected() > 0)

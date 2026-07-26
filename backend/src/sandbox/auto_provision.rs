@@ -159,12 +159,14 @@ pub async fn build_provision_request(
         .insert("AGENT_TYPE".to_string(), task.agent_type.0.clone());
 
     // Resolve the plugins this task's owner has turned on. A task with no
-    // identifiable owner gets the global defaults and nothing personal.
+    // identifiable owner gets the global defaults and nothing personal — both
+    // columns are polymorphic text, so a sentinel like `system` or a `bot:`
+    // value is nobody rather than an error.
     let owner = task
         .owner_user_id
         .as_deref()
         .or(task.created_by.as_deref())
-        .unwrap_or_default();
+        .and_then(|id| uuid::Uuid::parse_str(id).ok());
     match resolve_plugin_deliveries(plugins, owner).await {
         Ok(deliveries) if !deliveries.is_empty() => {
             info!(
@@ -257,7 +259,7 @@ async fn resolve_primary_repository_id(
 /// sandbox is to keep.
 async fn resolve_plugin_deliveries(
     plugins: &dyn PluginRepository,
-    owner_user_id: &str,
+    owner_user_id: Option<uuid::Uuid>,
 ) -> Result<Vec<PluginDelivery>, sqlx::Error> {
     Ok(activation::resolve_for_user(plugins, owner_user_id)
         .await?
