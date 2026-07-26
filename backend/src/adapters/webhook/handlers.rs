@@ -5,7 +5,6 @@ use axum::Json;
 use moatless_backend_core::scope::ScopeContext;
 use tracing::{info, warn};
 
-use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::error::AdapterError;
 use crate::adapters::metrics::record_webhook;
 use crate::state::AppState;
@@ -54,7 +53,8 @@ pub async fn webhook_inbound(
     // resolved from the trigger rule, not caller input.
     #[allow(clippy::disallowed_methods)]
     let sys_ctx = ScopeContext::system();
-    let connection = PgAdapterConnectionRepository(state.db.clone())
+    let connection = state
+        .adapter_connections
         .find_by_id(&rule.connection_id, &sys_ctx)
         .await?
         .ok_or_else(|| {

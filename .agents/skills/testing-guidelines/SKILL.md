@@ -5,7 +5,10 @@ description: Vitest testing conventions for the Moatless Vibe frontend and TS pa
 
 # Testing Guidelines
 
-Vitest + React Testing Library for `apps/frontend` and TS packages. Backend is Rust: `cargo test -p <crate>` with the conventions in `.claude/rules/`. E2E (Rust integration tiers, Playwright, cluster suite) is owned by the **e2e-testing** skill.
+Vitest + React Testing Library for `apps/frontend` and TS packages. Backend is
+Rust: `cargo test -p <crate>` with the `rust-dev-guidelines` skill. E2E (Rust
+integration tiers, Playwright, cluster suite) is owned by the **e2e-testing**
+skill.
 
 ## Resources
 

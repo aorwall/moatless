@@ -1,0 +1,8 @@
+{
+  "name": "moatless-skills",
+  "description": "General development workflows and engineering skills for coding agents.",
+  "author": {
+    "name": "Albert Örwall"
+  },
+  "skills": "./skills/"
+}

@@ -789,6 +789,29 @@ pub async fn handle_agent_session_context_lost(state: &AppState, event: &AgentEv
     }
 }
 
+/// Confirm delivery of the ingress-outbox record whose payload built this
+/// message, deleting it (ADR-0006).
+///
+/// A failed delete is not a failed delivery: the message is committed, and the
+/// stranded record's next re-publication converges on the same idempotent
+/// upsert and deletes itself then. So this warns and moves on.
+async fn release_ingress_record(state: &AppState, task_id: &str, event_id: &str) {
+    match state.ingress_outbox.delete_delivered(event_id).await {
+        Ok(true) => {
+            metrics::counter!("event_ingress_delivered_total").increment(1);
+        }
+        // No record: the event reached this consumer by a path that never
+        // spooled one (a republished lifecycle event, a pre-ADR-0006 sender).
+        Ok(false) => {}
+        Err(e) => tracing::warn!(
+            task_id,
+            event_id,
+            error = %e,
+            "message committed but its ingress record could not be released; the relay will retry it"
+        ),
+    }
+}
+
 /// Handle `agent.message` event — persist SDK messages and auto-tag skills.
 ///
 /// Persists both assistant messages (text + tool_use blocks) and SDK user messages
@@ -1032,6 +1055,12 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
                 message_type = %message_type,
                 "Agent message persisted"
             );
+            // The content is now in its canonical table, so the durable ingress
+            // record that carried it here has done its job (ADR-0006). This is
+            // the system's only confirmation of delivery and therefore its only
+            // delete: a record that survives is content `task_messages` never
+            // got, and the relay keeps re-publishing it until this line runs.
+            release_ingress_record(state, &event.task_id, &event.event_id).await;
             crate::message::hooks::on_agent_message_persisted(
                 state,
                 &event.task_id,

@@ -53,9 +53,10 @@ const STREAM_KEY_TTL_SECS: u64 = 6 * 60 * 60;
 /// usefully render one anyway. Events over this cap are published with a
 /// [`truncated_payload`] stub in place of their payload.
 ///
-/// Safe because the gRPC ingress commits the full `task_events` row *before*
-/// publishing (`write_state_then_publish`), so the untruncated event is always
-/// durable in Postgres and the stub only ever degrades the live tail.
+/// Safe only where the caller says so: the gRPC ingress durably admits an event
+/// *before* publishing it (see [`crate::event_ingress`]) and passes
+/// `payload_recoverable` when the consumer can recover the full payload from
+/// Postgres without this message, so the stub only ever degrades the live tail.
 const MAX_REDIS_PAYLOAD_BYTES: usize = 256 * 1024;
 
 /// Stub swapped in for a payload that exceeds [`MAX_REDIS_PAYLOAD_BYTES`].
@@ -71,12 +72,13 @@ fn truncated_payload(original_bytes: usize) -> serde_json::Value {
 }
 
 /// Serialize an event for `XADD`, swapping in a [`truncated_payload`] stub when
-/// it exceeds [`MAX_REDIS_PAYLOAD_BYTES`] *and* the full row is already durable.
+/// it exceeds [`MAX_REDIS_PAYLOAD_BYTES`] *and* the consumer can recover the
+/// full payload without it.
 ///
 /// Returns the JSON plus, when the payload was replaced, the original byte
-/// length. Truncating without `pre_persisted` would make the stub the only
-/// surviving copy, so an oversized non-durable event is published whole — the
-/// stream is bounded by `MAXLEN`/TTL, never at the cost of history.
+/// length. Truncating without `pre_persisted` would make the stub the only copy
+/// the consumer ever sees, so an oversized non-recoverable event is published
+/// whole — the stream is bounded by `MAXLEN`/TTL, never at the cost of content.
 fn encode_for_stream(
     event: StreamEvent,
     pre_persisted: bool,
@@ -151,11 +153,47 @@ pub fn describe_event_metrics() {
     );
 }
 
+/// Why an event did not reach the live transport.
+///
+/// Publication is a delivery attempt, not an admission decision: the caller
+/// owns durability and decides what a failure means. The ingress
+/// ([`crate::event_ingress`]) answers gRPC success on the strength of its
+/// durable write and treats every variant here as "not live yet"; the relay
+/// treats one as "try this record again".
+#[derive(Debug, thiserror::Error)]
+pub enum PublishError {
+    /// The transport rejected or timed out every attempt.
+    #[error("event transport failed after {attempts} attempts")]
+    Transport {
+        attempts: usize,
+        #[source]
+        source: redis::RedisError,
+    },
+
+    /// The event could not be encoded for the transport. Retrying the same
+    /// event cannot help.
+    #[error("failed to serialize event for the transport")]
+    Encode(#[source] serde_json::Error),
+
+    /// The event type is not one the transport understands. Retrying the same
+    /// event cannot help.
+    #[error("unknown event type: {0}")]
+    UnknownEventType(String),
+}
+
+impl PublishError {
+    /// Whether re-publishing the same event could succeed.
+    pub fn is_retryable(&self) -> bool {
+        matches!(self, Self::Transport { .. })
+    }
+}
+
 /// Trait for publishing lifecycle events.
 ///
 /// Abstracts event publishing so handlers can be tested without Redis.
-/// All methods are fire-and-forget — implementations should log errors
-/// but never propagate them.
+/// The typed-outcome method is [`EventPublisher::publish_raw_event_with_id`];
+/// the rest are fire-and-forget — implementations log errors but never
+/// propagate them.
 /// Note: `automock` is intentionally omitted — mockall cannot synthesise
 /// correct lifetimes for `Option<&str>` in async-trait methods.
 #[async_trait]
@@ -219,18 +257,21 @@ pub trait EventPublisher: Send + Sync {
         payload: serde_json::Value,
     );
 
-    /// Publish a raw event under a caller-supplied `event_id`.
+    /// Publish a raw event under a caller-supplied `event_id`, reporting
+    /// whether it reached the transport.
     ///
-    /// Used by the gRPC ingress after a transactional state write: the same
-    /// `event_id` is stamped on the transactionally-written `task_events` row
-    /// and on the published event, so the consumer's `ON CONFLICT (event_id) DO
-    /// NOTHING` dedups the two into one row (transactional-outbox ordering).
+    /// This is the one publication path with a typed outcome, because it is the
+    /// one whose caller has already made a durability decision and needs to know
+    /// whether the live tail agreed. Used by the gRPC ingress after its durable
+    /// admission: the same `event_id` is stamped on the durable record and on
+    /// the published event, so the consumer's `ON CONFLICT (event_id) DO
+    /// NOTHING` dedups the two into one row (commit-before-fan-out ordering).
     ///
-    /// `payload_persisted` asserts the caller has committed the full
-    /// `task_events` row. Only then may this path replace an oversized payload
-    /// with a truncated stub — otherwise the consumer's fallback insert would
-    /// persist the stub and lose the event outright. Pass `false` when the
-    /// commit failed, so the fallback still receives the whole payload.
+    /// `payload_recoverable` asserts the consumer can recover the full payload
+    /// from durable storage without this message. Only then may this path
+    /// replace an oversized payload with a truncated stub — otherwise the stub
+    /// would be the only copy the consumer ever sees. Pass `false` whenever the
+    /// consumer rebuilds state from the published payload itself.
     // reason: mirrors the raw Redis event field set (id + task + type + sub_type
     // + agent + turn + payload); splitting into a struct would only shuffle the
     // same fields behind a one-use type.
@@ -244,8 +285,8 @@ pub trait EventPublisher: Send + Sync {
         agent_type: Option<&str>,
         turn_number: Option<i32>,
         payload: serde_json::Value,
-        payload_persisted: bool,
-    );
+        payload_recoverable: bool,
+    ) -> Result<(), PublishError>;
 
     /// Probe the underlying transport. Returns `Ok(())` if a round-trip
     /// completes within a short bound, `Err(message)` otherwise. Used by the
@@ -304,28 +345,31 @@ impl RedisEventPublisher {
         turn_number: Option<i32>,
         payload: serde_json::Value,
     ) {
-        self.publish_event_internal(
-            None,
-            task_id,
-            event_type.as_str(),
-            sub_type.as_str(),
-            agent_type,
-            turn_number,
-            payload,
-            false,
-        )
-        .await;
+        // Fire-and-forget: these callers have no durability decision to make,
+        // so a failure is logged inside `publish_event_internal` and dropped.
+        let _ = self
+            .publish_event_internal(
+                None,
+                task_id,
+                event_type.as_str(),
+                sub_type.as_str(),
+                agent_type,
+                turn_number,
+                payload,
+                false,
+            )
+            .await;
     }
 
     /// Internal: publish a generic event to the Redis stream.
     ///
-    /// `event_id` lets the caller pin the id (transactional-outbox path); when
+    /// `event_id` lets the caller pin the id (the durable-admission path); when
     /// `None` a fresh UUIDv4 is generated as before.
     ///
-    /// `pre_persisted` marks callers that have already committed the full
-    /// `task_events` row. Only those may have an oversized payload replaced by
-    /// a stub — for every other path Redis is still the only route to Postgres,
-    /// so truncating would silently drop history.
+    /// `pre_persisted` marks callers whose consumer can recover the full payload
+    /// from durable storage. Only those may have an oversized payload replaced
+    /// by a stub — for every other path Redis is still the only route to the
+    /// consumer, so truncating would silently drop content.
     // reason: one field per Redis event column; a params struct would add a
     // one-use type without reducing the fan-out surface.
     #[allow(clippy::too_many_arguments)]
@@ -339,7 +383,7 @@ impl RedisEventPublisher {
         turn_number: Option<i32>,
         payload: serde_json::Value,
         pre_persisted: bool,
-    ) {
+    ) -> Result<(), PublishError> {
         let event_id = event_id.unwrap_or_else(|| Uuid::new_v4().to_string());
         let timestamp = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         let is_error = sub_type == "error" || sub_type == "failed";
@@ -348,7 +392,7 @@ impl RedisEventPublisher {
             Ok(et) => et,
             Err(e) => {
                 warn!(task_id = %task_id, error = %e, "Unknown event type, skipping publish");
-                return;
+                return Err(PublishError::UnknownEventType(event_type.to_string()));
             }
         };
 
@@ -368,7 +412,7 @@ impl RedisEventPublisher {
             Ok(encoded) => encoded,
             Err(e) => {
                 warn!(task_id = %task_id, error = %e, "Failed to serialize event");
-                return;
+                return Err(PublishError::Encode(e));
             }
         };
 
@@ -459,7 +503,7 @@ impl RedisEventPublisher {
                         sub_type = %sub_type,
                         "Published event to Redis"
                     );
-                    return;
+                    return Ok(());
                 }
                 Err(e) => {
                     last_err = Some(e);
@@ -467,18 +511,29 @@ impl RedisEventPublisher {
             }
         }
 
-        // All attempts exhausted
-        if let Some(e) = last_err {
-            metrics::counter!("events_publish_failures_total", "type" => event_type.to_string())
-                .increment(1);
-            warn!(
-                task_id = %task_id,
-                event_type = %event_type,
-                sub_type = %sub_type,
-                attempts = MAX_RETRIES + 1,
-                error = %e,
-                "Failed to publish event to Redis after all retries"
-            );
+        // All attempts exhausted. The error is logged once here and its source
+        // returned, so a caller that owns durability can classify the failure
+        // without re-deriving it from a message.
+        let attempts = MAX_RETRIES + 1;
+        match last_err {
+            Some(e) => {
+                metrics::counter!("events_publish_failures_total", "type" => event_type.to_string())
+                    .increment(1);
+                warn!(
+                    task_id = %task_id,
+                    event_type = %event_type,
+                    sub_type = %sub_type,
+                    attempts,
+                    error = %e,
+                    "Failed to publish event to Redis after all retries"
+                );
+                Err(PublishError::Transport {
+                    attempts,
+                    source: e,
+                })
+            }
+            // Unreachable: the loop either returns `Ok` or records an error.
+            None => Ok(()),
         }
     }
 }
@@ -594,17 +649,18 @@ impl EventPublisher for RedisEventPublisher {
         turn_number: Option<i32>,
         payload: serde_json::Value,
     ) {
-        self.publish_event_internal(
-            None,
-            task_id,
-            event_type,
-            sub_type,
-            agent_type,
-            turn_number,
-            payload,
-            false,
-        )
-        .await;
+        let _ = self
+            .publish_event_internal(
+                None,
+                task_id,
+                event_type,
+                sub_type,
+                agent_type,
+                turn_number,
+                payload,
+                false,
+            )
+            .await;
     }
 
     async fn publish_raw_event_with_id(
@@ -616,8 +672,8 @@ impl EventPublisher for RedisEventPublisher {
         agent_type: Option<&str>,
         turn_number: Option<i32>,
         payload: serde_json::Value,
-        payload_persisted: bool,
-    ) {
+        payload_recoverable: bool,
+    ) -> Result<(), PublishError> {
         self.publish_event_internal(
             Some(event_id.to_string()),
             task_id,
@@ -626,9 +682,9 @@ impl EventPublisher for RedisEventPublisher {
             agent_type,
             turn_number,
             payload,
-            payload_persisted,
+            payload_recoverable,
         )
-        .await;
+        .await
     }
 
     async fn health_check(&self) -> Result<(), String> {

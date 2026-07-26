@@ -7,9 +7,12 @@
 //!   listed and merged; a skill exposed in both (typically `.claude/skills/foo`
 //!   symlinking to `../../.agents/skills/foo`) is de-duplicated by directory
 //!   name, with `.claude/skills` winning.
-//! - [`SkillLayout::Plugin`] — Claude Code plugin repo. Probes
-//!   `.claude-plugin/plugin.json` to resolve the skills directory, defaulting
-//!   to `skills/` at the repo root per the plugin spec.
+//! - [`SkillLayout::Plugin`] — plugin repo. Probes `.codex-plugin/plugin.json`,
+//!   `.agents-plugin/plugin.json`, and `.claude-plugin/plugin.json` to resolve
+//!   the skills directory, defaulting to `skills/` at the repo root. Also
+//!   supports repo-local `.agents/plugins/marketplace.json` and
+//!   `.claude-plugin/marketplace.json` files with local plugin entries such as
+//!   `./plugins/foo`.
 //!
 //! Uses `GET /repos/{owner}/{repo}/contents/{prefix}` to list skill
 //! directories and `GET /repos/{owner}/{repo}/contents/{prefix}/{dir}/SKILL.md`
@@ -93,18 +96,54 @@ struct SymlinkObject {
     target: Option<String>,
 }
 
-/// Subset of the Claude Code plugin manifest we need: only the optional
-/// `skills` path. All other fields are ignored.
+/// Subset of plugin manifests we need: only the optional `skills` path. All
+/// other fields are ignored.
 #[derive(Debug, Deserialize)]
 struct PluginManifest {
     #[serde(default)]
     skills: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct PluginMarketplace {
+    #[serde(default)]
+    plugins: Vec<PluginMarketplaceEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PluginMarketplaceEntry {
+    source: PluginMarketplaceSource,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum PluginMarketplaceSource {
+    LocalPath(String),
+    Descriptor {
+        source: String,
+        #[serde(default)]
+        path: Option<String>,
+    },
+}
+
 /// Workspace skill roots, in precedence order. Both are listed and merged so a
 /// repo that stores its real skills under `.agents/skills` (Codex) is picked up
 /// whether or not it also exposes them via `.claude/skills` (Claude) symlinks.
 const WORKSPACE_SKILL_PREFIXES: [&str; 2] = [".claude/skills", ".agents/skills"];
+
+/// Plugin manifest paths, in precedence order. `.codex-plugin` is the Codex
+/// repo-local plugin format; `.claude-plugin` remains supported for existing
+/// Claude Code plugins.
+const PLUGIN_MANIFEST_PATHS: [&str; 3] = [
+    ".codex-plugin/plugin.json",
+    ".agents-plugin/plugin.json",
+    ".claude-plugin/plugin.json",
+];
+
+const PLUGIN_MARKETPLACE_PATHS: [&str; 2] = [
+    ".agents/plugins/marketplace.json",
+    ".claude-plugin/marketplace.json",
+];
 
 #[async_trait]
 impl SkillFetcher for GitHubSkillFetcher {
@@ -143,22 +182,25 @@ impl SkillFetcher for GitHubSkillFetcher {
                 Ok(dedup_by_dir_name(groups))
             }
             SkillLayout::Plugin => {
-                let prefix =
-                    resolve_plugin_skills_prefix(&self.client, &owner, &repo, token, remote_url)
+                let prefixes =
+                    resolve_plugin_skills_prefixes(&self.client, &owner, &repo, token, remote_url)
                         .await?;
-                if let Some(files) = self
-                    .fetch_skills_at_prefix(&owner, &repo, &prefix, token, remote_url)
-                    .await?
-                {
-                    Ok(files)
-                } else {
-                    warn!(
-                        git_url = %remote_url,
-                        skills_prefix = %prefix,
-                        "Plugin repo has no skills directory — skipping"
-                    );
-                    Ok(Vec::new())
+                let mut groups: Vec<Vec<FetchedSkillFile>> = Vec::new();
+                for prefix in prefixes {
+                    if let Some(files) = self
+                        .fetch_skills_at_prefix(&owner, &repo, &prefix, token, remote_url)
+                        .await?
+                    {
+                        groups.push(files);
+                    } else {
+                        warn!(
+                            git_url = %remote_url,
+                            skills_prefix = %prefix,
+                            "Plugin repo has no skills directory — skipping"
+                        );
+                    }
                 }
+                Ok(dedup_by_dir_name(groups))
             }
         }
     }
@@ -317,30 +359,139 @@ fn resolve_relative_path(base_dir: &str, target: &str) -> Option<String> {
     Some(stack.join("/"))
 }
 
-/// Probe `.claude-plugin/plugin.json` and return the repo-relative path at
-/// which the plugin stores its skills. Defaults to `skills` when the
-/// manifest is absent or does not override the field.
-async fn resolve_plugin_skills_prefix(
+/// Resolve repo-relative skills roots for a plugin repository.
+///
+/// Supports both single-plugin repos and marketplace repos. Local marketplace
+/// entries are resolved relative to the repository root, matching both Codex's
+/// `.agents/plugins/marketplace.json` and Claude Code's
+/// `.claude-plugin/marketplace.json` conventions.
+async fn resolve_plugin_skills_prefixes(
     client: &Client,
     owner: &str,
     repo: &str,
     token: Option<&str>,
     git_url: &str,
-) -> Result<String, SkillError> {
-    let manifest_url =
-        format!("https://api.github.com/repos/{owner}/{repo}/contents/.claude-plugin/plugin.json");
-    let Some(raw) = fetch_github_raw(client, &manifest_url, token, git_url).await? else {
-        return Ok("skills".to_string());
+) -> Result<Vec<String>, SkillError> {
+    if let Some(prefix) =
+        resolve_plugin_manifest_skills_prefix(client, owner, repo, "", token, git_url).await?
+    {
+        return Ok(vec![prefix]);
+    }
+
+    let Some((marketplace_path, raw)) =
+        fetch_first_marketplace(client, owner, repo, token, git_url).await?
+    else {
+        return Ok(vec!["skills".to_string()]);
     };
-    let manifest: PluginManifest = serde_json::from_str(&raw).map_err(|e| SkillError::Fetch {
-        git_url: git_url.to_string(),
-        message: format!("invalid .claude-plugin/plugin.json: {e}"),
-    })?;
-    let raw_path = manifest.skills.as_deref().unwrap_or("skills");
-    normalize_skills_path(raw_path).map_err(|message| SkillError::Fetch {
-        git_url: git_url.to_string(),
-        message,
-    })
+
+    let marketplace: PluginMarketplace =
+        serde_json::from_str(&raw).map_err(|e| SkillError::Fetch {
+            git_url: git_url.to_string(),
+            message: format!("invalid {marketplace_path}: {e}"),
+        })?;
+
+    let mut prefixes = Vec::new();
+    for plugin in marketplace.plugins {
+        let Some(path) = marketplace_local_path(&plugin.source, git_url) else {
+            continue;
+        };
+        let plugin_root = normalize_skills_path(&path).map_err(|message| SkillError::Fetch {
+            git_url: git_url.to_string(),
+            message,
+        })?;
+        let plugin_root = plugin_root.trim_matches('/').to_string();
+        let prefix = resolve_plugin_manifest_skills_prefix(
+            client,
+            owner,
+            repo,
+            &plugin_root,
+            token,
+            git_url,
+        )
+        .await?
+        .unwrap_or_else(|| join_repo_paths(&plugin_root, "skills"));
+        prefixes.push(prefix);
+    }
+
+    if prefixes.is_empty() {
+        Ok(vec!["skills".to_string()])
+    } else {
+        Ok(prefixes)
+    }
+}
+
+async fn fetch_first_marketplace(
+    client: &Client,
+    owner: &str,
+    repo: &str,
+    token: Option<&str>,
+    git_url: &str,
+) -> Result<Option<(&'static str, String)>, SkillError> {
+    for marketplace_path in PLUGIN_MARKETPLACE_PATHS {
+        let marketplace_url =
+            format!("https://api.github.com/repos/{owner}/{repo}/contents/{marketplace_path}");
+        if let Some(raw) = fetch_github_raw(client, &marketplace_url, token, git_url).await? {
+            return Ok(Some((marketplace_path, raw)));
+        }
+    }
+    Ok(None)
+}
+
+fn marketplace_local_path(source: &PluginMarketplaceSource, git_url: &str) -> Option<String> {
+    match source {
+        PluginMarketplaceSource::LocalPath(path) => {
+            if path.trim().starts_with("./") {
+                Some(path.clone())
+            } else {
+                debug!(
+                    git_url,
+                    source = %path,
+                    "Skipping non-local plugin marketplace string source"
+                );
+                None
+            }
+        }
+        PluginMarketplaceSource::Descriptor { source, path } if source == "local" => path.clone(),
+        PluginMarketplaceSource::Descriptor { source, .. } => {
+            debug!(
+                git_url,
+                source = %source,
+                "Skipping non-local plugin marketplace descriptor source"
+            );
+            None
+        }
+    }
+}
+
+async fn resolve_plugin_manifest_skills_prefix(
+    client: &Client,
+    owner: &str,
+    repo: &str,
+    plugin_root: &str,
+    token: Option<&str>,
+    git_url: &str,
+) -> Result<Option<String>, SkillError> {
+    for manifest_path in PLUGIN_MANIFEST_PATHS {
+        let repo_path = join_repo_paths(plugin_root, manifest_path);
+        let manifest_url =
+            format!("https://api.github.com/repos/{owner}/{repo}/contents/{repo_path}");
+        let Some(raw) = fetch_github_raw(client, &manifest_url, token, git_url).await? else {
+            continue;
+        };
+        let manifest: PluginManifest =
+            serde_json::from_str(&raw).map_err(|e| SkillError::Fetch {
+                git_url: git_url.to_string(),
+                message: format!("invalid {repo_path}: {e}"),
+            })?;
+        let raw_path = manifest.skills.as_deref().unwrap_or("skills");
+        let skills_path = normalize_skills_path(raw_path).map_err(|message| SkillError::Fetch {
+            git_url: git_url.to_string(),
+            message,
+        })?;
+        return Ok(Some(join_repo_paths(plugin_root, &skills_path)));
+    }
+
+    Ok(None)
 }
 
 /// Normalize a `plugin.json` `skills` value into a clean GitHub API path
@@ -362,6 +513,25 @@ fn normalize_skills_path(raw: &str) -> Result<String, String> {
         return Err("plugin.json skills path must not contain '..' segments".to_string());
     }
     Ok(stripped.to_string())
+}
+
+fn join_repo_paths(base: &str, child: &str) -> String {
+    let base = base
+        .trim()
+        .strip_prefix("./")
+        .unwrap_or(base.trim())
+        .trim_matches('/');
+    let child = child
+        .trim()
+        .strip_prefix("./")
+        .unwrap_or(child.trim())
+        .trim_matches('/');
+    match (base.is_empty(), child.is_empty()) {
+        (true, true) => String::new(),
+        (true, false) => child.to_string(),
+        (false, true) => base.to_string(),
+        (false, false) => format!("{base}/{child}"),
+    }
 }
 
 /// GET a GitHub Contents API URL and parse the body as JSON.
@@ -537,6 +707,10 @@ mod tests {
             normalize_skills_path("./custom/skills/").unwrap(),
             "custom/skills"
         );
+        assert_eq!(
+            normalize_skills_path("./plugins/moatless-skills").unwrap(),
+            "plugins/moatless-skills"
+        );
         assert_eq!(normalize_skills_path("skills").unwrap(), "skills");
         assert_eq!(normalize_skills_path("./skills").unwrap(), "skills");
         assert_eq!(normalize_skills_path("").unwrap(), "");
@@ -588,6 +762,19 @@ mod tests {
     }
 
     #[test]
+    fn join_repo_paths_handles_empty_segments() {
+        assert_eq!(
+            join_repo_paths("plugins/moatless-skills", "skills"),
+            "plugins/moatless-skills/skills"
+        );
+        assert_eq!(join_repo_paths("", "skills"), "skills");
+        assert_eq!(
+            join_repo_paths("plugins/moatless-skills/", "./skills"),
+            "plugins/moatless-skills/skills"
+        );
+    }
+
+    #[test]
     fn symlink_object_deserialises_target() {
         let json = r#"{
             "name": "code-review",
@@ -629,5 +816,58 @@ mod tests {
         let minimal = r#"{"name": "p", "version": "0.1.0"}"#;
         let manifest: PluginManifest = serde_json::from_str(minimal).unwrap();
         assert!(manifest.skills.is_none());
+    }
+
+    #[test]
+    fn agents_marketplace_deserialises_local_plugin_entry() {
+        let json = r#"{
+            "name": "moatless",
+            "interface": {"displayName": "Moatless"},
+            "plugins": [
+                {
+                    "name": "moatless-skills",
+                    "source": {
+                        "source": "local",
+                        "path": "./plugins/moatless-skills"
+                    },
+                    "policy": {
+                        "installation": "AVAILABLE",
+                        "authentication": "ON_INSTALL"
+                    },
+                    "category": "Development"
+                }
+            ]
+        }"#;
+        let marketplace: PluginMarketplace = serde_json::from_str(json).unwrap();
+        assert_eq!(marketplace.plugins.len(), 1);
+        assert_eq!(
+            marketplace_local_path(&marketplace.plugins[0].source, "https://github.com/x/y")
+                .as_deref(),
+            Some("./plugins/moatless-skills")
+        );
+    }
+
+    #[test]
+    fn claude_marketplace_deserialises_string_local_plugin_entry() {
+        let json = r#"{
+            "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+            "name": "local",
+            "plugins": [
+                {
+                    "name": "moatless-skills",
+                    "description": "General development workflows",
+                    "author": {"name": "Albert Örwall"},
+                    "source": "./plugins/moatless-skills",
+                    "category": "development"
+                }
+            ]
+        }"#;
+        let marketplace: PluginMarketplace = serde_json::from_str(json).unwrap();
+        assert_eq!(marketplace.plugins.len(), 1);
+        assert_eq!(
+            marketplace_local_path(&marketplace.plugins[0].source, "https://github.com/x/y")
+                .as_deref(),
+            Some("./plugins/moatless-skills")
+        );
     }
 }

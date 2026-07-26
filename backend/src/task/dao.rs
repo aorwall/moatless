@@ -260,18 +260,24 @@ impl TaskRepository for PgTaskRepository {
     }
 
     async fn list_tasks(&self, filter: &TaskFilter) -> Result<(Vec<Task>, i64), sqlx::Error> {
-        // Use a CTE with window function to get total count in one query
+        // One row of the joined result set: the total, plus the page columns.
+        //
+        // Every page column is optional because the query always emits the
+        // total, even when the requested offset lies past the end of the
+        // filtered relation — that case comes back as a single row whose page
+        // columns are all NULL. See [`TaskPageRow::into_task`].
         #[derive(sqlx::FromRow)]
-        struct TaskWithCount {
-            task_id: String,
+        struct TaskPageRow {
+            total_count: i64,
+            task_id: Option<String>,
             short_id: Option<String>,
-            created_at: String,
-            last_message_at: String,
-            agent_type: AgentType,
-            repository_id: String,
+            created_at: Option<String>,
+            last_message_at: Option<String>,
+            agent_type: Option<AgentType>,
+            repository_id: Option<String>,
             workspace_id: Option<String>,
-            status: TaskStatus,
-            total_cost_usd: f64,
+            status: Option<TaskStatus>,
+            total_cost_usd: Option<f64>,
             site_url: Option<String>,
             template_id: Option<String>,
             vibe: Option<bool>,
@@ -281,62 +287,127 @@ impl TaskRepository for PgTaskRepository {
             site_provider: Option<String>,
             branch: Option<String>,
             created_by: Option<String>,
-            visibility: Visibility,
-            scope: Scope,
+            visibility: Option<Visibility>,
+            scope: Option<Scope>,
             owner_user_id: Option<String>,
             created_at_db: Option<DateTime<Utc>>,
             updated_at: Option<DateTime<Utc>>,
             append_system_prompt: Option<String>,
-            headless: bool,
-            ttl_minutes: i32,
-            inactive_ttl_days: i32,
+            headless: Option<bool>,
+            ttl_minutes: Option<i32>,
+            inactive_ttl_days: Option<i32>,
             trigger_id: Option<String>,
             disabled_servers: Option<serde_json::Value>,
-            total_count: i64,
+        }
+
+        impl TaskPageRow {
+            /// The total-only row the query emits when the page is empty, which
+            /// carries the total but no task.
+            fn is_total_only(&self) -> bool {
+                self.task_id.is_none()
+            }
+
+            /// `None` only when a column that is `NOT NULL` in `tasks` came back
+            /// NULL. Callers must reject that rather than skip the row: dropping
+            /// a task from the page while still counting it in the total is the
+            /// page/total drift this query exists to prevent.
+            fn into_task(self) -> Option<Task> {
+                Some(Task {
+                    task_id: self.task_id?,
+                    short_id: self.short_id,
+                    created_at: self.created_at?,
+                    last_message_at: self.last_message_at?,
+                    agent_type: self.agent_type?,
+                    repository_id: self.repository_id?,
+                    workspace_id: self.workspace_id,
+                    status: self.status?,
+                    total_cost_usd: self.total_cost_usd?,
+                    site_url: self.site_url,
+                    template_id: self.template_id,
+                    vibe: self.vibe,
+                    name: self.name,
+                    description: self.description,
+                    site_id: self.site_id,
+                    site_provider: self.site_provider,
+                    branch: self.branch,
+                    created_by: self.created_by,
+                    visibility: self.visibility?,
+                    scope: self.scope?,
+                    owner_user_id: self.owner_user_id,
+                    created_at_db: self.created_at_db,
+                    updated_at: self.updated_at,
+                    append_system_prompt: self.append_system_prompt,
+                    headless: self.headless?,
+                    ttl_minutes: self.ttl_minutes?,
+                    inactive_ttl_days: self.inactive_ttl_days?,
+                    trigger_id: self.trigger_id,
+                    disabled_servers: self.disabled_servers,
+                })
+            }
         }
 
         let access = filter.scope.access_filter(ScopedEntity::Task, "t.", 1);
-        // The parent_task_id filter joins against task_relations rather than
-        // reading a column off `tasks`. When unset, the EXISTS clause is a
-        // no-op (`$7 IS NULL`). Params: $1=is_admin, $2=user_id, $3=status,
-        // $4=exclude_status(formerly $11), $5=repository_id, $6=created_by,
-        // $7=tag(formerly $7), $8=parent_task_id(was $8), $9=limit, $10=offset,
-        // $11=exclude_status ... re-numbered after removing team_ids bind.
+        // `filtered` is the single source of truth for both the page and the
+        // total: `total` counts it and `page` slices it, so the two can never
+        // drift apart under a filter or access-control change.
+        //
+        // It holds exactly one row per matching task. The tag, parent-relation
+        // and followed-by filters are all `EXISTS` subqueries rather than joins,
+        // so a task carrying several tags is not fanned out into several rows
+        // (which is what made the old `COUNT(*) OVER()` over-count). When a
+        // filter is unset its subquery is skipped entirely (`$n IS NULL`).
+        //
+        // `total LEFT JOIN page ON TRUE` is what keeps the total available when
+        // the page is empty: `total` is an ungrouped aggregate and therefore
+        // always yields exactly one row, so an offset past the end returns that
+        // row with NULL page columns rather than returning nothing at all.
         let sql = format!(
-            r#"SELECT DISTINCT
-                t.task_id, t.short_id, t.created_at, t.last_message_at, t.agent_type,
-                t.repository_id, t.workspace_id, t.status, t.total_cost_usd, t.site_url, t.template_id,
-                t.vibe, t.name, t.description, t.site_id, t.site_provider, t.branch,
-                t.created_by, t.visibility, t.scope, t.owner_user_id,
-                t.created_at_db, t.updated_at, t.append_system_prompt,
-                t.headless, t.ttl_minutes,
-                t.inactive_ttl_days, t.trigger_id, t.disabled_servers,
-                COUNT(*) OVER() AS total_count
-            FROM tasks t
-            LEFT JOIN task_tags tt ON t.task_id = tt.task_id
-            LEFT JOIN tags tg ON tt.tag_id = tg.tag_id
-            WHERE {}
-              AND ($3::text IS NULL OR t.status = $3)
-              AND ($10::text IS NULL OR t.status != $10)
-              AND ($4::text IS NULL OR t.repository_id = $4)
-              AND ($5::text IS NULL OR t.created_by = $5)
-              AND ($6::text IS NULL OR tg.name = $6)
-              AND ($7::text IS NULL OR EXISTS (
-                  SELECT 1 FROM task_relations tr
-                  WHERE tr.from_task_id = t.task_id
-                    AND tr.relation_type = 'created_by'
-                    AND tr.to_task_id = $7
-              ))
-              AND ($11::text IS NULL OR EXISTS (
-                  SELECT 1 FROM task_follows tf
-                  WHERE tf.task_id = t.task_id
-                    AND tf.user_id = $11
-              ))
-            ORDER BY t.updated_at DESC NULLS LAST
-            LIMIT $8 OFFSET $9"#,
+            r#"WITH filtered AS (
+                SELECT
+                    t.task_id, t.short_id, t.created_at, t.last_message_at, t.agent_type,
+                    t.repository_id, t.workspace_id, t.status, t.total_cost_usd, t.site_url, t.template_id,
+                    t.vibe, t.name, t.description, t.site_id, t.site_provider, t.branch,
+                    t.created_by, t.visibility, t.scope, t.owner_user_id,
+                    t.created_at_db, t.updated_at, t.append_system_prompt,
+                    t.headless, t.ttl_minutes,
+                    t.inactive_ttl_days, t.trigger_id, t.disabled_servers
+                FROM tasks t
+                WHERE {}
+                  AND ($3::text IS NULL OR t.status = $3)
+                  AND ($10::text IS NULL OR t.status != $10)
+                  AND ($4::text IS NULL OR t.repository_id = $4)
+                  AND ($5::text IS NULL OR t.created_by = $5)
+                  AND ($6::text IS NULL OR EXISTS (
+                      SELECT 1 FROM task_tags tt
+                      JOIN tags tg ON tg.tag_id = tt.tag_id
+                      WHERE tt.task_id = t.task_id
+                        AND tg.name = $6
+                  ))
+                  AND ($7::text IS NULL OR EXISTS (
+                      SELECT 1 FROM task_relations tr
+                      WHERE tr.from_task_id = t.task_id
+                        AND tr.relation_type = 'created_by'
+                        AND tr.to_task_id = $7
+                  ))
+                  AND ($11::text IS NULL OR EXISTS (
+                      SELECT 1 FROM task_follows tf
+                      WHERE tf.task_id = t.task_id
+                        AND tf.user_id = $11
+                  ))
+            ),
+            total AS (SELECT COUNT(*) AS total_count FROM filtered),
+            page AS (
+                SELECT * FROM filtered
+                ORDER BY updated_at DESC NULLS LAST
+                LIMIT $8 OFFSET $9
+            )
+            SELECT tot.total_count, p.*
+            FROM total tot
+            LEFT JOIN page p ON TRUE
+            ORDER BY p.updated_at DESC NULLS LAST"#,
             access.sql(),
         );
-        let rows = sqlx::query_as::<_, TaskWithCount>(AssertSqlSafe(sql))
+        let rows = sqlx::query_as::<_, TaskPageRow>(AssertSqlSafe(sql))
             .bind(filter.scope.is_admin)
             .bind(&filter.scope.user_id)
             .bind(filter.status)
@@ -353,40 +424,19 @@ impl TaskRepository for PgTaskRepository {
 
         let total = rows.first().map_or(0, |r| r.total_count);
 
-        let tasks: Vec<Task> = rows
-            .into_iter()
-            .map(|r| Task {
-                task_id: r.task_id,
-                short_id: r.short_id,
-                created_at: r.created_at,
-                last_message_at: r.last_message_at,
-                agent_type: r.agent_type,
-                repository_id: r.repository_id,
-                workspace_id: r.workspace_id,
-                status: r.status,
-                total_cost_usd: r.total_cost_usd,
-                site_url: r.site_url,
-                template_id: r.template_id,
-                vibe: r.vibe,
-                name: r.name,
-                description: r.description,
-                site_id: r.site_id,
-                site_provider: r.site_provider,
-                branch: r.branch,
-                created_by: r.created_by,
-                visibility: r.visibility,
-                scope: r.scope,
-                owner_user_id: r.owner_user_id,
-                created_at_db: r.created_at_db,
-                updated_at: r.updated_at,
-                append_system_prompt: r.append_system_prompt,
-                headless: r.headless,
-                ttl_minutes: r.ttl_minutes,
-                inactive_ttl_days: r.inactive_ttl_days,
-                trigger_id: r.trigger_id,
-                disabled_servers: r.disabled_servers,
-            })
-            .collect();
+        // Skip only the total-only row. A conversion that fails for any other
+        // reason means a `NOT NULL` column of `tasks` came back NULL, which
+        // must fail loudly — silently skipping it would drop a task from the
+        // page while leaving it counted in the total.
+        let mut tasks: Vec<Task> = Vec::with_capacity(rows.len());
+        for row in rows {
+            if row.is_total_only() {
+                continue;
+            }
+            tasks.push(row.into_task().ok_or_else(|| {
+                sqlx::Error::Decode("task row has a NULL in a NOT NULL column".into())
+            })?);
+        }
 
         Ok((tasks, total))
     }

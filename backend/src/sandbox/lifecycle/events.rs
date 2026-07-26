@@ -7,7 +7,7 @@
 //! never publishes `Ready` — that is the watcher's convergence event.
 //!
 //! Event ids are deterministic — `sandbox:{task_id}:{operation_generation}:{fact}`
-//! — and ride the existing transactional-outbox / idempotent-persistence path
+//! — and ride the existing commit-before-publication / idempotent-persistence path
 //! (`ON CONFLICT (event_id) DO NOTHING`), so at-least-once retries of one
 //! generation persist exactly once.
 
@@ -97,7 +97,7 @@ impl FailureDetail {
     }
 }
 
-/// A derived lifecycle event ready to publish through the outbox path.
+/// A derived lifecycle event ready to persist and publish.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LifecycleEvent {
     pub event_id: String,
@@ -411,7 +411,7 @@ mod tests {
     #[test]
     fn retries_of_one_generation_share_the_completion_id() {
         // Two retries of the same generation produce the same Removed id, so the
-        // outbox's ON CONFLICT dedups them to one persisted event.
+        // event row's ON CONFLICT dedups them to one persisted event.
         let a = outcome_events(
             "t",
             &ctx(

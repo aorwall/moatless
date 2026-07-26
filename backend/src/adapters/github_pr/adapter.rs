@@ -234,7 +234,10 @@ pub enum GithubWebhookOutcome {
 
 /// Metadata about a closed PR, captured at parse time and used downstream
 /// to compose the auto-close chat notice.
-#[derive(Debug, Clone)]
+///
+/// Serializable because it is carried as the payload of a `github.close`
+/// adapter work record (see [`super::work`]).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PrCloseInfo {
     pub pr_number: u64,
     pub merged: bool,
@@ -359,10 +362,11 @@ impl GithubPrAdapter {
         {
             Ok(Some(token)) if !token.is_empty() => return Ok(token),
             Ok(_) => {}
-            Err(e) => {
-                return Err(AdapterError::AdapterApi(format!(
-                    "Failed to resolve GitHub token for user {user_id}: {e}"
-                )));
+            Err(source) => {
+                return Err(AdapterError::UserCredential {
+                    user_id: user_id.to_string(),
+                    source,
+                });
             }
         }
 
@@ -496,6 +500,15 @@ impl GithubPrAdapter {
     /// without swallowing the first delivery. An empty id never dedups.
     pub(crate) async fn is_duplicate_delivery(&self, delivery_id: &str) -> bool {
         !delivery_id.is_empty() && self.dedup_cache.get(delivery_id).await.is_some()
+    }
+
+    /// Drop a delivery id from the cache so a redelivery is processed again.
+    ///
+    /// Used when durable admission failed after [`Self::parse_webhook`] had
+    /// already recorded the delivery: the provider is being asked to send it
+    /// again, so this replica must not then dismiss it as a duplicate.
+    pub(super) async fn forget_delivery(&self, delivery_id: &str) {
+        self.dedup_cache.invalidate(delivery_id).await;
     }
 
     /// Parse a GitHub webhook into an `InboundMessage`.
@@ -1804,70 +1817,60 @@ fn merge_conflict_pr_number(event_type: &str, payload: &serde_json::Value) -> Op
     }
 }
 
-/// Best-effort merge-conflict check for a PR touched by any webhook event.
+/// Merge-conflict check for a PR touched by any webhook event.
 ///
-/// Runs in a spawned task so it never blocks webhook ack. Polls the PR's
-/// mergeable state (GitHub computes it asynchronously) and, if the PR is open
-/// and conflicted (`mergeable_state == "dirty"`), delivers a one-time (per head
-/// sha, via the event-receipt dedup in [`super::runtime::route_inbound_message`])
+/// Runs as `github.merge_conflict` adapter work, so it is off the provider's
+/// response deadline *and* survives a restart between acknowledgment and
+/// execution. Polls the PR's mergeable state (GitHub computes it
+/// asynchronously) and, if the PR is open and conflicted
+/// (`mergeable_state == "dirty"`), delivers a one-time (per head sha, via the
+/// event-receipt dedup in [`super::runtime::route_inbound_message`])
 /// notification to every task bound to the PR. Skips entirely when no task is
 /// bound — we don't want to burn API rate limit polling PRs nobody is tracking.
-async fn check_pr_merge_conflict(
-    state: AppState,
-    connection: AdapterConnection,
-    rule_for_parse: SubscriptionMatch,
-    owner: String,
-    repo: String,
+///
+/// A skip is `Ok(())`; a failure that stopped the check from happening at all
+/// is an error, so the work is retried rather than silently dropped the way the
+/// spawned version dropped it.
+pub(super) async fn check_pr_merge_conflict(
+    state: &AppState,
+    connection: &AdapterConnection,
+    rule_for_parse: &SubscriptionMatch,
+    owner: &str,
+    repo: &str,
     pr_number: u64,
-    sender_login: String,
-) {
+    sender_login: &str,
+) -> Result<(), AdapterError> {
     let subject_key = format!("{owner}/{repo}#{pr_number}");
 
     // Skip the API poll unless some active task is actually bound to this PR.
-    match PgTaskBindingRepository(state.db.clone())
+    if !PgTaskBindingRepository(state.db.clone())
         .find_by_subject("github", "github_pr", &subject_key)
-        .await
+        .await?
+        .iter()
+        .any(|b| b.active)
     {
-        Ok(bindings) if bindings.iter().any(|b| b.active) => {}
-        Ok(_) => {
-            debug!(
-                subject_key,
-                "No active bindings; skipping merge-conflict check"
-            );
-            return;
-        }
-        Err(e) => {
-            warn!(subject_key, error = %e, "Failed to look up bindings for merge-conflict check");
-            return;
-        }
+        debug!(
+            subject_key,
+            "No active bindings; skipping merge-conflict check"
+        );
+        return Ok(());
     }
 
     let Some(adapter) = state.adapters.as_ref().and_then(|a| a.github_pr()) else {
-        return;
+        return Ok(());
     };
 
     // Resolve the acting user the same way CI notifications do: the triggering
     // sender if mapped, else the rule's effective user. Used both to mint the
     // API token and as the message author (so the same self-echo rules apply).
-    let user_id = resolve_user_or_fallback(&sender_login, &rule_for_parse, &state.db).await;
-    let token = match adapter.resolve_token_for_user(&user_id, Some(&owner)).await {
-        Ok(token) => token,
-        Err(e) => {
-            warn!(subject_key, error = %e, "No token for merge-conflict check");
-            return;
-        }
-    };
+    let user_id = resolve_user_or_fallback(sender_login, rule_for_parse, &state.db).await;
+    let token = adapter
+        .resolve_token_for_user(&user_id, Some(owner))
+        .await?;
 
-    let pr = match GithubPrApi::new(&token)
-        .get_pr_mergeable(&owner, &repo, pr_number)
-        .await
-    {
-        Ok(pr) => pr,
-        Err(e) => {
-            warn!(subject_key, error = %e, "Failed to fetch PR for merge-conflict check");
-            return;
-        }
-    };
+    let pr = GithubPrApi::new(&token)
+        .get_pr_mergeable(owner, repo, pr_number)
+        .await?;
 
     // `unknown` means GitHub never finished computing within our budget —
     // inconclusive, so leave the persisted value untouched and stay quiet.
@@ -1881,7 +1884,7 @@ async fn check_pr_merge_conflict(
             mergeable_state = ?pr.mergeable_state,
             "Mergeable state unresolved; skipping persist + notify"
         );
-        return;
+        return Ok(());
     };
 
     // Persist the mergeable state onto every binding, and — only on an open PR
@@ -1897,12 +1900,7 @@ async fn check_pr_merge_conflict(
         thread_id: Some(pr_number.to_string()),
         message_thread_id: pr_number.to_string(),
         user_id,
-        text: merge_conflict_text(
-            &owner,
-            &repo,
-            pr_number,
-            pr.html_url.as_deref().unwrap_or(""),
-        ),
+        text: merge_conflict_text(owner, repo, pr_number, pr.html_url.as_deref().unwrap_or("")),
         file_ids: vec![],
         thread_properties: serde_json::json!({
             "owner": owner,
@@ -1915,15 +1913,16 @@ async fn check_pr_merge_conflict(
     };
 
     super::runtime::record_merge_state_and_notify(
-        &state,
-        &connection,
-        &rule_for_parse,
+        state,
+        connection,
+        rule_for_parse,
         &subject_key,
         mergeable,
         pr_is_open,
         &conflict_msg,
     )
     .await;
+    Ok(())
 }
 
 /// Conclusions of a `workflow_run` worth announcing after a merge. Skips noise
@@ -1938,7 +1937,11 @@ const POST_MERGE_NOTIFY_CONCLUSIONS: &[&str] = &[
 ];
 
 /// Parsed fields of a base-branch `workflow_run.completed` event.
-struct PostMergeRun {
+///
+/// Serializable because it is carried as the payload of a `github.post_merge`
+/// adapter work record (see [`super::work`]).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(super) struct PostMergeRun {
     run_id: u64,
     name: String,
     conclusion: String,
@@ -2043,83 +2046,68 @@ fn post_merge_ci_text(run: &PostMergeRun, owner: &str, repo: &str, pr_number: u6
 /// resolve the merged PR from the commit sha and notify every task still
 /// connected to that PR.
 ///
-/// Runs in a spawned task so it never blocks webhook ack. Skips entirely when
-/// the run isn't on the repo's default branch, when no merged PR produced the
-/// commit, or when no active task is bound to the PR.
-async fn check_post_merge_ci(
-    state: AppState,
-    connection: AdapterConnection,
-    rule_for_parse: SubscriptionMatch,
-    owner: String,
-    repo: String,
-    run: PostMergeRun,
-    sender_login: String,
-) {
+/// Runs as `github.post_merge` adapter work, so it is off the provider's
+/// response deadline *and* survives a restart between acknowledgment and
+/// execution. Skips entirely when the run isn't on the repo's default branch,
+/// when no merged PR produced the commit, or when no active task is bound to
+/// the PR.
+///
+/// A skip is `Ok(())`; a failure that stopped the notice from being decided at
+/// all is an error, so the work is retried rather than silently dropped the way
+/// the spawned version dropped it.
+pub(super) async fn check_post_merge_ci(
+    state: &AppState,
+    connection: &AdapterConnection,
+    rule_for_parse: &SubscriptionMatch,
+    owner: &str,
+    repo: &str,
+    run: &PostMergeRun,
+    sender_login: &str,
+) -> Result<(), AdapterError> {
     let Some(adapter) = state.adapters.as_ref().and_then(|a| a.github_pr()) else {
-        return;
+        return Ok(());
     };
 
     // Resolve the acting user + token the same way CI/merge-conflict paths do.
-    let user_id = resolve_user_or_fallback(&sender_login, &rule_for_parse, &state.db).await;
-    let token = match adapter.resolve_token_for_user(&user_id, Some(&owner)).await {
-        Ok(token) => token,
-        Err(e) => {
-            warn!(owner, repo, error = %e, "No token for post-merge CI check");
-            return;
-        }
-    };
+    let user_id = resolve_user_or_fallback(sender_login, rule_for_parse, &state.db).await;
+    let token = adapter
+        .resolve_token_for_user(&user_id, Some(owner))
+        .await?;
     let api = GithubPrApi::new(&token);
 
     // Confirm the run is on the repo's default (base) branch — post-merge runs
     // live there; runs on other branches are not merge results.
-    match api.get_repo_default_branch(&owner, &repo).await {
-        Ok(default_branch) if default_branch == run.head_branch => {}
-        Ok(default_branch) => {
-            debug!(
-                head_branch = %run.head_branch,
-                default_branch,
-                "Skipping post-merge CI: run not on default branch"
-            );
-            return;
-        }
-        Err(e) => {
-            warn!(owner, repo, error = %e, "Failed to resolve default branch for post-merge CI");
-            return;
-        }
+    let default_branch = api.get_repo_default_branch(owner, repo).await?;
+    if default_branch != run.head_branch {
+        debug!(
+            head_branch = %run.head_branch,
+            default_branch,
+            "Skipping post-merge CI: run not on default branch"
+        );
+        return Ok(());
     }
 
     // Map the merge commit back to the PR it merged.
-    let pulls = match api.get_pulls_for_commit(&owner, &repo, &run.head_sha).await {
-        Ok(pulls) => pulls,
-        Err(e) => {
-            warn!(owner, repo, sha = %run.head_sha, error = %e, "Failed to resolve PR for post-merge CI");
-            return;
-        }
-    };
+    let pulls = api.get_pulls_for_commit(owner, repo, &run.head_sha).await?;
     let Some(pr) = pulls.into_iter().find(super::api::CommitPr::is_merged) else {
         debug!(sha = %run.head_sha, "No merged PR for commit; skipping post-merge CI notice");
-        return;
+        return Ok(());
     };
     let pr_number = pr.number;
     let subject_key = format!("{owner}/{repo}#{pr_number}");
 
     // Skip unless some active task is still connected to the PR.
-    match PgTaskBindingRepository(state.db.clone())
+    if !PgTaskBindingRepository(state.db.clone())
         .find_by_subject("github", "github_pr", &subject_key)
-        .await
+        .await?
+        .iter()
+        .any(|b| b.active)
     {
-        Ok(bindings) if bindings.iter().any(|b| b.active) => {}
-        Ok(_) => {
-            debug!(
-                subject_key,
-                "No active bindings; skipping post-merge CI notice"
-            );
-            return;
-        }
-        Err(e) => {
-            warn!(subject_key, error = %e, "Failed to look up bindings for post-merge CI notice");
-            return;
-        }
+        debug!(
+            subject_key,
+            "No active bindings; skipping post-merge CI notice"
+        );
+        return Ok(());
     }
 
     let notice = InboundMessage {
@@ -2128,7 +2116,7 @@ async fn check_post_merge_ci(
         thread_id: Some(pr_number.to_string()),
         message_thread_id: pr_number.to_string(),
         user_id,
-        text: post_merge_ci_text(&run, &owner, &repo, pr_number),
+        text: post_merge_ci_text(run, owner, repo, pr_number),
         file_ids: vec![],
         thread_properties: serde_json::json!({
             "owner": owner,
@@ -2140,14 +2128,32 @@ async fn check_post_merge_ci(
         source_task_id: None,
     };
 
-    super::runtime::deliver_post_merge_ci(
-        &state,
-        &connection,
-        &rule_for_parse,
-        &subject_key,
-        &notice,
-    )
-    .await;
+    super::runtime::deliver_post_merge_ci(state, connection, rule_for_parse, &subject_key, &notice)
+        .await;
+    Ok(())
+}
+
+/// Why a GitHub webhook did not reach a normal outcome.
+///
+/// The two variants get opposite transport treatment, which is the whole reason
+/// they are distinguished: [`Self::NotAdmitted`] means the work was never taken
+/// on and must not be acknowledged, while [`Self::Ingress`] keeps the
+/// pre-existing behaviour of a logged, metered `200`.
+#[derive(Debug, thiserror::Error)]
+pub enum GithubWebhookError {
+    /// Durable admission did not commit, so the backend owns nothing and a
+    /// `200` would be a lie.
+    ///
+    /// Unlike Linear, GitHub does not retry a failed delivery on its own: the
+    /// non-2xx marks it failed in the delivery log, where it stays redeliverable
+    /// by an operator for 30 days. That is a recorded, recoverable loss instead
+    /// of a silent one, which is the whole difference this variant buys.
+    #[error("GitHub webhook work was not admitted")]
+    NotAdmitted(#[from] crate::adapters::work::AdmitError),
+    /// Everything the ingress path itself rejected: a missing header, an
+    /// unparseable body, a failed signature, a database read.
+    #[error(transparent)]
+    Ingress(#[from] AdapterError),
 }
 
 pub async fn resolve_and_process_github_webhook(
@@ -2155,7 +2161,7 @@ pub async fn resolve_and_process_github_webhook(
     github_provider: &GithubPrAdapter,
     headers: &axum::http::HeaderMap,
     body: &[u8],
-) -> Result<GithubWebhookOutcome, AdapterError> {
+) -> Result<GithubWebhookOutcome, GithubWebhookError> {
     let delivery_id = headers
         .get("x-github-delivery")
         .and_then(|v| v.to_str().ok())
@@ -2167,9 +2173,7 @@ pub async fn resolve_and_process_github_webhook(
         .unwrap_or("");
 
     if event_type.is_empty() {
-        return Err(AdapterError::BadRequest(
-            "Missing X-GitHub-Event header".into(),
-        ));
+        return Err(AdapterError::BadRequest("Missing X-GitHub-Event header".into()).into());
     }
 
     let payload: serde_json::Value = serde_json::from_slice(body)
@@ -2241,7 +2245,8 @@ pub async fn resolve_and_process_github_webhook(
         );
         return Err(AdapterError::BadRequest(
             "Webhook signature provided but no secret configured for connection".into(),
-        ));
+        )
+        .into());
     }
 
     // Delivery-level dedup gate. A GitHub redelivery reuses the same
@@ -2316,28 +2321,37 @@ pub async fn resolve_and_process_github_webhook(
         )
         .await?;
 
+    // From here on, nothing runs inline and nothing is spawned. Each unit of
+    // work is written to `adapter_work` under its own kind, keyed on GitHub's
+    // delivery id, and only then is this delivery acknowledged. An admission
+    // failure aborts the whole dispatch with `NotAdmitted` so a delivery the
+    // backend has not taken on is never acknowledged as if it had.
+    let work_context = super::work::WorkContext {
+        connection_id: connection.id.clone(),
+        trigger_id: rule.as_ref().map(|r| r.id.clone()),
+        repo_full_name: repo_full_name.to_string(),
+    };
+    let event_id = super::work::delivery_event_id(delivery_id, body);
+
     match result {
         GithubPrWebhookResult::Message(msg) => {
-            let connection = connection.clone();
-            let rule = rule.clone();
-            let state_clone = state.clone();
-            tokio::spawn(async move {
-                if let Err(e) = super::runtime::route_inbound_message(
-                    &state_clone,
-                    &connection,
-                    rule.as_ref(),
-                    *msg,
-                )
-                .await
-                {
-                    warn!(error = %e, "Failed to route GitHub PR inbound message");
-                }
-            });
+            admit(
+                state,
+                github_provider,
+                delivery_id,
+                super::work::kind::PR_MESSAGE,
+                &event_id,
+                &super::work::PrMessageWork {
+                    context: work_context.clone(),
+                    message: *msg,
+                },
+            )
+            .await?;
         }
         GithubPrWebhookResult::CloseTask(info) => {
             // Auto-close only applies to trigger-created tasks; with no trigger
             // there is nothing to close.
-            let Some(rule) = rule.clone() else {
+            if rule.is_none() {
                 debug!(
                     repo = repo_full_name,
                     "PR closed but no trigger for this repo — nothing to auto-close"
@@ -2345,17 +2359,19 @@ pub async fn resolve_and_process_github_webhook(
                 return Ok(GithubWebhookOutcome::Processed {
                     event_type: event_type.to_string(),
                 });
-            };
-            let connection = connection.clone();
-            let state_clone = state.clone();
-            tokio::spawn(async move {
-                if let Err(e) =
-                    super::runtime::close_tasks_for_pr(&state_clone, &connection, &rule, &info)
-                        .await
-                {
-                    warn!(error = %e, "Failed to close GitHub PR tasks");
-                }
-            });
+            }
+            admit(
+                state,
+                github_provider,
+                delivery_id,
+                super::work::kind::CLOSE,
+                &event_id,
+                &super::work::CloseWork {
+                    context: work_context.clone(),
+                    close: info,
+                },
+            )
+            .await?;
         }
         GithubPrWebhookResult::Ignore => {
             debug!(event_type, "GitHub PR event ignored");
@@ -2364,72 +2380,91 @@ pub async fn resolve_and_process_github_webhook(
 
     // Post-merge CI: a base-branch `workflow_run` completing carries no PR
     // reference, so it never reaches the PR-keyed handlers above. Resolve the
-    // merged PR from the commit sha and notify its still-connected tasks. Runs
-    // spawned so it never blocks ack; deduped per run id downstream.
+    // merged PR from the commit sha and notify its still-connected tasks.
+    // Admitted rather than run here because it makes several GitHub API calls;
+    // deduped per run id downstream.
     if event_type == "workflow_run" {
         if let Some(run) = parse_post_merge_run(&payload) {
             let (owner, repo) = match repo_full_name.split_once('/') {
                 Some((o, r)) => (o.to_string(), r.to_string()),
                 None => (owner_login.to_string(), String::new()),
             };
-            let sender_login = payload
-                .pointer("/sender/login")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("")
-                .to_string();
-            let state_clone = state.clone();
-            let connection = connection.clone();
-            let rule_for_run = rule_for_parse.clone();
-            tokio::spawn(async move {
-                check_post_merge_ci(
-                    state_clone,
-                    connection,
-                    rule_for_run,
+            admit(
+                state,
+                github_provider,
+                delivery_id,
+                super::work::kind::POST_MERGE,
+                &event_id,
+                &super::work::PostMergeWork {
+                    context: work_context.clone(),
                     owner,
                     repo,
                     run,
-                    sender_login,
-                )
-                .await;
-            });
+                    sender_login: sender_login.to_string(),
+                },
+            )
+            .await?;
         }
     }
 
-    // Best-effort merge-conflict check, independent of the primary event's
-    // outcome: any event that names a PR re-checks its mergeable state, since a
-    // conflict can appear out of band (e.g. the base branch moved) with no
-    // dedicated webhook. Deduped per head sha downstream, and a no-op when no
-    // task is bound to the PR.
+    // Merge-conflict check, independent of the primary event's outcome: any
+    // event that names a PR re-checks its mergeable state, since a conflict can
+    // appear out of band (e.g. the base branch moved) with no dedicated
+    // webhook. Deduped per head sha downstream, and a no-op when no task is
+    // bound to the PR.
     if let Some(pr_number) = merge_conflict_pr_number(event_type, &payload) {
         let (owner, repo) = match repo_full_name.split_once('/') {
             Some((o, r)) => (o.to_string(), r.to_string()),
             None => (owner_login.to_string(), String::new()),
         };
-        let sender_login = payload
-            .pointer("/sender/login")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        let state_clone = state.clone();
-        let connection = connection.clone();
-        let rule_for_conflict = rule_for_parse.clone();
-        tokio::spawn(async move {
-            check_pr_merge_conflict(
-                state_clone,
-                connection,
-                rule_for_conflict,
+        admit(
+            state,
+            github_provider,
+            delivery_id,
+            super::work::kind::MERGE_CONFLICT,
+            &event_id,
+            &super::work::MergeConflictWork {
+                context: work_context,
                 owner,
                 repo,
                 pr_number,
-                sender_login,
-            )
-            .await;
-        });
+                sender_login: sender_login.to_string(),
+            },
+        )
+        .await?;
     }
 
     Ok(GithubWebhookOutcome::Processed {
         event_type: event_type.to_string(),
     })
+}
+
+/// Hand one unit of work to durable admission, or refuse the delivery.
+///
+/// The cache eviction on failure is load-bearing. `parse_webhook` records the
+/// delivery id in the in-process dedup cache *before* this point, so without it
+/// the operator redelivery this `503` exists to invite would be swallowed as a
+/// duplicate by the same replica and the work lost for good — a 200 that means
+/// "already handled" for work nobody ever took on.
+async fn admit(
+    state: &AppState,
+    provider: &GithubPrAdapter,
+    delivery_id: &str,
+    kind: &'static str,
+    event_id: &str,
+    payload: &impl serde::Serialize,
+) -> Result<(), GithubWebhookError> {
+    let request = super::work::request(kind, event_id.to_string(), payload)?;
+    match state.adapter_work.admit(request).await {
+        Ok(admission) => {
+            super::work::log_admission(kind, event_id, admission);
+            Ok(())
+        }
+        Err(e) => {
+            provider.forget_delivery(delivery_id).await;
+            Err(GithubWebhookError::NotAdmitted(e))
+        }
+    }
 }
 
 #[cfg(test)]

@@ -55,5 +55,7 @@ Conventional commits, enforced by commitlint; header ≤100 chars. Types: `feat 
 
 ## Architecture & conventions
 - Overviews: [docs/architecture-overview.md](./docs/architecture-overview.md), [docs/sandbox-architecture.md](./docs/sandbox-architecture.md), [docs/sandbox-lifecycle.md](./docs/sandbox-lifecycle.md). Domain glossary: `CONTEXT.md`. Decisions: `docs/adr/`.
-- Per-area conventions live in `.claude/rules/` (path-scoped, auto-attached): backend module layering, DAO/handler/error patterns, sandbox crate, frontend conventions.
+- Rust conventions live in the model-invoked `rust-dev-guidelines` skill for
+  `backend/`, `sandbox/`, and `crates/`. Frontend baseline conventions remain
+  path-scoped in `.claude/rules/frontend-conventions.md`.
 - `routeTree.gen.ts` is generated — excluded from lint/format. File naming: kebab-case (frontend, enforced by Biome), snake_case (Rust).

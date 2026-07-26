@@ -102,7 +102,7 @@ pub fn spawn(
     state: BrokerState,
     socket_path: &Path,
     cancel: CancellationToken,
-) -> Result<(), String> {
+) -> Result<tokio::task::JoinHandle<()>, String> {
     use std::os::unix::fs::PermissionsExt;
     use tokio::net::UnixListener;
 
@@ -122,7 +122,7 @@ pub fn spawn(
     let app = router(state);
     let socket_path = socket_path.to_path_buf();
 
-    tokio::spawn(async move {
+    Ok(tokio::spawn(async move {
         info!(socket = %socket_path.display(), "Credential broker started");
         let serve = axum::serve(listener, app.into_make_service());
         tokio::select! {
@@ -135,9 +135,7 @@ pub fn spawn(
                 info!("Credential broker shutting down");
             }
         }
-    });
-
-    Ok(())
+    }))
 }
 
 #[cfg(test)]

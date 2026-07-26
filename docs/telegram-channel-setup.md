@@ -169,7 +169,7 @@ Telegram message routed for processing
 | No messages received (polling) | Check logs for "Telegram poller started". Ensure no other instance is polling (409 Conflict). |
 | "Telegram user not mapped" | Add the user's Telegram ID to the `provider_tokens` table. |
 | Bot ignores messages in groups | Ensure `bot_username` is set in `provider_config` and the bot is mentioned (or is an admin with access to all messages via BotFather's `/setprivacy` -> Disable). |
-| Duplicate messages | The provider deduplicates by `update_id` with a 5-minute cache. If restarting frequently, duplicates may occur within the first batch of pending updates -- they are harmless. |
+| Duplicate messages | Routing is deduplicated by `update_id` in the `adapter_work` table, so a re-delivered update never produces a second task or message -- across restarts and replicas, for as long as the record is retained (7 days after success). A re-delivery does re-run the pre-admission replies: `/start`, `/help`, and any pairing message are sent again. |
 
 ## Environment Variables Reference
 

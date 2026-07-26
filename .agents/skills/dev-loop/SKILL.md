@@ -31,10 +31,10 @@ Use plan mode for non-trivial changes. Identify which codebase area is affected:
 
 | Area | Directory | Language | Skill Reference |
 |------|-----------|----------|-----------------|
-| Backend API | `backend/src/` | Rust (Axum + Tonic) | `.claude/rules/backend-*.md` (auto-attached) |
-| Sandbox runtime | `sandbox/src/` | Rust (Agent SDK) | `.claude/rules/sandbox-crate.md` (auto-attached) |
+| Backend API | `backend/src/` | Rust (Axum + Tonic) | `rust-dev-guidelines` skill |
+| Sandbox runtime | `sandbox/src/` | Rust (Agent SDK) | `rust-dev-guidelines` skill |
 | Frontend UI | `apps/frontend/src/` | React 19 + TypeScript | `frontend-dev-guidelines` skill |
-| Shared crates | `crates/` | Rust | `.claude/rules/shared-crates.md` (auto-attached) |
+| Shared crates | `crates/` | Rust | `rust-dev-guidelines` skill |
 
 ### Sandbox Environment Prerequisites
 
@@ -43,8 +43,8 @@ first (`which cargo protoc`); if missing, bootstrap before running any cargo
 command:
 
 ```bash
-# Rust — rust-toolchain.toml pins 1.94.0, rustup will pick it up automatically
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.94.0
+# Rust — rust-toolchain.toml is the version source of truth
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 . "$HOME/.cargo/env"
 
 # protoc — required to build crates/sandbox-proto (tonic/prost codegen)
@@ -270,6 +270,6 @@ Key patterns:
 | `kubernetes-testing` | K8s pod management, metrics, integration tests on moatless.dev |
 | `e2e-testing` | UI E2E testing patterns with MCP tools |
 | `frontend-dev-guidelines` | React component patterns, TanStack Query/Router, Tailwind |
-| `.claude/rules/backend-*.md` | Axum routes, handlers, dao, error patterns (auto-attached) |
+| `rust-dev-guidelines` | Rust async boundaries, supervision, persistence, errors, and wire contracts |
 | `testing-guidelines` | Test strategy, mocking, tier classification |
 | `playwright-cli` | Browser automation for frontend verification |

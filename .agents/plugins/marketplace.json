@@ -1,0 +1,20 @@
+{
+  "name": "moatless",
+  "interface": {
+    "displayName": "Moatless"
+  },
+  "plugins": [
+    {
+      "name": "moatless-skills",
+      "source": {
+        "source": "local",
+        "path": "./plugins/moatless-skills"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Development"
+    }
+  ]
+}

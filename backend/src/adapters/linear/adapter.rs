@@ -124,6 +124,15 @@ impl LinearAdapter {
         self.mark_seen(key).await
     }
 
+    /// Drop a dedup `key` so the next delivery carrying it is processed again.
+    ///
+    /// Used when durable admission failed after the key was marked: Linear is
+    /// being asked to redeliver, so this replica must not then dismiss the
+    /// redelivery as a duplicate.
+    pub(crate) async fn forget_for_dispatch(&self, key: &str) {
+        self.dedup_cache.invalidate(key).await;
+    }
+
     /// Mark a dedup `key` as processed; returns `true` if this is the first
     /// time we see it (caller should proceed), or `false` if it's a dup.
     pub(crate) async fn mark_seen(&self, key: &str) -> bool {

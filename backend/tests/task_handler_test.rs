@@ -113,6 +113,63 @@ async fn list_tasks_with_data(pool: PgPool) {
     assert_eq!(body["pagination"]["total"], 3);
 }
 
+/// DB-1: the total is a property of the filtered relation, not of the page, so
+/// a page past the end still tells the client how many tasks there are.
+#[sqlx::test]
+async fn list_tasks_offset_past_end_reports_true_total(pool: PgPool) {
+    seed_repo(&pool).await;
+    for i in 0..3 {
+        let row = make_task_row(&format!("task-off-{i}"), USER_1);
+        task_dao::insert_task(&pool, &row).await.unwrap();
+    }
+
+    let app = build_router(pool);
+    let req = authed_request("GET", "/api/v1/tasks?limit=2&offset=10", USER_1);
+    let resp = app.oneshot(req).await.unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_json(resp).await;
+    assert_eq!(body["items"].as_array().unwrap().len(), 0);
+    assert_eq!(body["pagination"]["total"], 3);
+    assert_eq!(body["pagination"]["hasMore"], false);
+}
+
+/// DB-1: tags must not fan a task out into several counted rows.
+#[sqlx::test]
+async fn list_tasks_multiple_tags_counted_once(pool: PgPool) {
+    seed_repo(&pool).await;
+    for id in ["task-tagged", "task-plain"] {
+        let row = make_task_row(id, USER_1);
+        task_dao::insert_task(&pool, &row).await.unwrap();
+    }
+
+    let names = ["bug".to_string(), "urgent".to_string(), "p1".to_string()];
+    let tags = moatless_vibe_backend::tag::dao::find_or_create_tags(&pool, &names)
+        .await
+        .unwrap();
+    let tag_ids: Vec<String> = tags.iter().map(|t| t.tag_id.clone()).collect();
+    moatless_vibe_backend::tag::dao::set_task_tags(&pool, "task-tagged", &tag_ids)
+        .await
+        .unwrap();
+
+    let app = build_router(pool);
+
+    let req = authed_request("GET", "/api/v1/tasks", USER_1);
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_json(resp).await;
+    assert_eq!(body["items"].as_array().unwrap().len(), 2);
+    assert_eq!(body["pagination"]["total"], 2);
+
+    let req = authed_request("GET", "/api/v1/tasks?tag=urgent", USER_1);
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_json(resp).await;
+    assert_eq!(body["items"].as_array().unwrap().len(), 1);
+    assert_eq!(body["items"][0]["taskId"], "task-tagged");
+    assert_eq!(body["pagination"]["total"], 1);
+}
+
 #[sqlx::test]
 async fn update_task_metadata(pool: PgPool) {
     seed_repo(&pool).await;

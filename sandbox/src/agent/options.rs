@@ -1,12 +1,14 @@
 //! Build agent prompt/options from sandbox config + per-request overrides.
 
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use claude_agent_sdk::types::options::{PluginConfig, SystemPrompt};
 use claude_agent_sdk::{ClaudeOptions, PermissionMode};
+use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{debug, info, warn};
 
 use crate::agent::types::AgentRunRequest;
 use crate::config::Config;
@@ -213,6 +215,10 @@ fn build_workspace_layout_note(config: &Config) -> String {
 
 /// Build plugin configs from config paths and cloned plugin repos.
 fn build_plugins(config: &Config) -> Vec<PluginConfig> {
+    build_plugins_with_root(config, Path::new("/opt/moatless/plugins"))
+}
+
+fn build_plugins_with_root(config: &Config, plugins_dir: &Path) -> Vec<PluginConfig> {
     let mut plugins: Vec<PluginConfig> = config
         .agent_config
         .plugin_paths
@@ -223,23 +229,151 @@ fn build_plugins(config: &Config) -> Vec<PluginConfig> {
         })
         .collect();
 
-    // Discover cloned plugin repos in /opt/moatless/plugins/
-    let plugins_dir = std::path::Path::new("/opt/moatless/plugins");
     if plugins_dir.is_dir() {
         if let Ok(entries) = std::fs::read_dir(plugins_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_dir() {
-                    plugins.push(PluginConfig {
-                        plugin_type: "local".to_string(),
-                        path: path.to_string_lossy().to_string(),
-                    });
+                    for plugin_path in plugin_dirs_for_repo(&path) {
+                        plugins.push(PluginConfig {
+                            plugin_type: "local".to_string(),
+                            path: plugin_path.to_string_lossy().to_string(),
+                        });
+                    }
                 }
             }
         }
     }
 
     plugins
+}
+
+#[derive(Debug, Deserialize)]
+struct PluginMarketplace {
+    #[serde(default)]
+    plugins: Vec<PluginMarketplaceEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PluginMarketplaceEntry {
+    name: String,
+    source: PluginMarketplaceSource,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum PluginMarketplaceSource {
+    LocalPath(String),
+    Descriptor {
+        source: String,
+        #[serde(default)]
+        path: Option<String>,
+    },
+}
+
+const PLUGIN_MARKETPLACE_PATHS: [&str; 2] = [
+    ".agents/plugins/marketplace.json",
+    ".claude-plugin/marketplace.json",
+];
+
+fn plugin_dirs_for_repo(repo_path: &Path) -> Vec<PathBuf> {
+    let Some((marketplace_path, raw)) = read_first_marketplace(repo_path) else {
+        return vec![repo_path.to_path_buf()];
+    };
+
+    let marketplace: PluginMarketplace = match serde_json::from_str(&raw) {
+        Ok(marketplace) => marketplace,
+        Err(e) => {
+            warn!(
+                marketplace = %marketplace_path.display(),
+                error = %e,
+                "Invalid plugin marketplace — falling back to cloned repo root"
+            );
+            return vec![repo_path.to_path_buf()];
+        }
+    };
+
+    marketplace
+        .plugins
+        .into_iter()
+        .filter_map(|plugin| {
+            let source_path = marketplace_local_path(&plugin.source, &plugin.name)?;
+            let plugin_subdir = match normalize_marketplace_path(&source_path) {
+                Ok(path) => path,
+                Err(e) => {
+                    warn!(
+                        plugin = %plugin.name,
+                        path = %source_path,
+                        error = %e,
+                        "Rejected plugin marketplace source path"
+                    );
+                    return None;
+                }
+            };
+            let plugin_path = repo_path.join(plugin_subdir);
+            if plugin_path.is_dir() {
+                Some(plugin_path)
+            } else {
+                warn!(
+                    plugin = %plugin.name,
+                    path = %plugin_path.display(),
+                    "Plugin marketplace local source directory is missing"
+                );
+                None
+            }
+        })
+        .collect()
+}
+
+fn read_first_marketplace(repo_path: &Path) -> Option<(PathBuf, String)> {
+    for marketplace_path in PLUGIN_MARKETPLACE_PATHS {
+        let path = repo_path.join(marketplace_path);
+        if let Ok(raw) = std::fs::read_to_string(&path) {
+            return Some((path, raw));
+        }
+    }
+    None
+}
+
+fn marketplace_local_path(source: &PluginMarketplaceSource, plugin_name: &str) -> Option<String> {
+    match source {
+        PluginMarketplaceSource::LocalPath(path) => {
+            if path.trim().starts_with("./") {
+                Some(path.clone())
+            } else {
+                debug!(
+                    plugin = %plugin_name,
+                    source = %path,
+                    "Skipping non-local plugin marketplace string source"
+                );
+                None
+            }
+        }
+        PluginMarketplaceSource::Descriptor { source, path } if source == "local" => path.clone(),
+        PluginMarketplaceSource::Descriptor { source, .. } => {
+            debug!(
+                plugin = %plugin_name,
+                source = %source,
+                "Skipping non-local plugin marketplace descriptor source"
+            );
+            None
+        }
+    }
+}
+
+fn normalize_marketplace_path(raw: &str) -> Result<String, String> {
+    let trimmed = raw.trim();
+    if trimmed.starts_with('/') {
+        return Err("plugin marketplace source path must be repo-relative".to_string());
+    }
+    let stripped = trimmed
+        .strip_prefix("./")
+        .unwrap_or(trimmed)
+        .trim_end_matches('/');
+    if stripped.split('/').any(|segment| segment == "..") {
+        return Err("plugin marketplace source path must not contain '..' segments".to_string());
+    }
+    Ok(stripped.to_string())
 }
 
 /// Resolve session resume from request.
@@ -260,6 +394,8 @@ fn resolve_resume(request: &AgentRunRequest) -> (Option<String>, Option<bool>) {
 mod tests {
     use super::*;
     use crate::config::{AgentConfig, ProxyConfig};
+    use std::fs;
+    use tempfile::tempdir;
 
     fn test_config(use_tmux: bool) -> Config {
         Config {
@@ -319,6 +455,120 @@ mod tests {
             Arc::new(AgentState::new()),
             None,
         )
+    }
+
+    fn write(path: &Path, content: &str) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(path, content).unwrap();
+    }
+
+    #[test]
+    fn build_plugins_keeps_direct_plugin_repos() {
+        let root = tempdir().unwrap();
+        let plugins_root = root.path().join("plugins");
+        let direct = plugins_root.join("direct-plugin");
+        write(
+            &direct.join(".claude-plugin/plugin.json"),
+            r#"{"name":"direct-plugin"}"#,
+        );
+
+        let config = test_config(false);
+        let plugins = build_plugins_with_root(&config, &plugins_root);
+
+        assert_eq!(plugins.len(), 1);
+        assert_eq!(plugins[0].plugin_type, "local");
+        assert_eq!(plugins[0].path, direct.to_string_lossy());
+    }
+
+    #[test]
+    fn build_plugins_expands_claude_marketplace_local_sources() {
+        let root = tempdir().unwrap();
+        let plugins_root = root.path().join("plugins");
+        let repo = plugins_root.join("moatless");
+        write(
+            &repo.join(".claude-plugin/marketplace.json"),
+            r#"{
+                "name": "moatless-skills",
+                "plugins": [
+                    {
+                        "name": "moatless-skills",
+                        "source": "./plugins/moatless-skills"
+                    }
+                ]
+            }"#,
+        );
+        let nested = repo.join("plugins/moatless-skills");
+        write(
+            &nested.join(".claude-plugin/plugin.json"),
+            r#"{"name":"moatless-skills"}"#,
+        );
+
+        let config = test_config(false);
+        let plugins = build_plugins_with_root(&config, &plugins_root);
+
+        assert_eq!(plugins.len(), 1);
+        assert_eq!(plugins[0].plugin_type, "local");
+        assert_eq!(plugins[0].path, nested.to_string_lossy());
+    }
+
+    #[test]
+    fn build_plugins_expands_agents_marketplace_local_sources() {
+        let root = tempdir().unwrap();
+        let plugins_root = root.path().join("plugins");
+        let repo = plugins_root.join("moatless");
+        write(
+            &repo.join(".agents/plugins/marketplace.json"),
+            r#"{
+                "name": "moatless",
+                "plugins": [
+                    {
+                        "name": "moatless-skills",
+                        "source": {
+                            "source": "local",
+                            "path": "./plugins/moatless-skills"
+                        }
+                    }
+                ]
+            }"#,
+        );
+        let nested = repo.join("plugins/moatless-skills");
+        write(
+            &nested.join(".codex-plugin/plugin.json"),
+            r#"{"name":"moatless-skills"}"#,
+        );
+
+        let config = test_config(false);
+        let plugins = build_plugins_with_root(&config, &plugins_root);
+
+        assert_eq!(plugins.len(), 1);
+        assert_eq!(plugins[0].plugin_type, "local");
+        assert_eq!(plugins[0].path, nested.to_string_lossy());
+    }
+
+    #[test]
+    fn build_plugins_skips_nonlocal_marketplace_sources() {
+        let root = tempdir().unwrap();
+        let plugins_root = root.path().join("plugins");
+        let repo = plugins_root.join("marketplace");
+        write(
+            &repo.join(".claude-plugin/marketplace.json"),
+            r#"{
+                "name": "remote",
+                "plugins": [
+                    {
+                        "name": "remote-plugin",
+                        "source": "https://github.com/example/remote-plugin"
+                    }
+                ]
+            }"#,
+        );
+
+        let config = test_config(false);
+        let plugins = build_plugins_with_root(&config, &plugins_root);
+
+        assert!(plugins.is_empty());
     }
 
     #[test]

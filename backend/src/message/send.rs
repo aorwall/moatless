@@ -102,7 +102,7 @@ pub async fn send_message_flow(
             .messages
             .has_any_external_event_id(task_id, &candidates)
             .await
-            .map_err(|e| MessageError::Internal(format!("Dedup check failed: {e}")))?;
+            .map_err(MessageError::DedupCheck)?;
         if exists {
             tracing::debug!(task_id = %task_id, external_event_id = %ext_id, "Duplicate external message, skipping");
             return Ok(None);
@@ -247,7 +247,7 @@ pub async fn send_message_flow(
         .messages
         .append(&msg_row, &context_rows, &[ui_block])
         .await
-        .map_err(|e| MessageError::Internal(format!("Failed to persist message: {e}")))?;
+        .map_err(MessageError::PersistMessage)?;
 
     tracing::info!(task_id = %task_id, "Message persisted");
 
@@ -270,7 +270,7 @@ pub async fn send_message_flow(
             &sys_ctx,
         )
         .await
-        .map_err(|e| MessageError::Internal(format!("Failed to update task: {e}")))?;
+        .map_err(MessageError::AdvanceTaskClock)?;
 
     Ok(Some(msg_row.uuid))
 }
@@ -445,7 +445,7 @@ pub async fn send_tool_response_flow(
         .messages
         .append(&msg_row, &contexts, &blocks)
         .await
-        .map_err(|e| MessageError::Internal(format!("Failed to persist tool response: {e}")))?;
+        .map_err(MessageError::PersistToolResponse)?;
 
     tracing::info!(task_id = %task_id, tool_use_id = %tool_use_id, "Tool response sent");
 

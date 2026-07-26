@@ -42,7 +42,8 @@ Explore the relevant parts of the codebase before writing a line.
 Use `/dev-loop` to implement the work:
 - Run type-checking after each significant change: `bun run type:check` / `cargo clippy`
 - Run the relevant test file regularly
-- Follow repo conventions in `.claude/rules/`
+- Use `rust-dev-guidelines` for Rust changes and
+  `frontend-dev-guidelines` for frontend changes
 
 Use `/tdd` at pre-agreed seams where tests are meaningful:
 - Write a failing test first

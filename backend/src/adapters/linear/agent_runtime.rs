@@ -28,6 +28,7 @@ use crate::task::models::{TaskStatus, Visibility};
 
 use super::agent_api::{default_http_client, ActivityKind, LinearAgentApi};
 use super::config::{rules_need_issue_fetch, select_spawn_rule, LinearRuleConfig};
+use super::work::LinearWebhookError;
 use super::webhook_payloads::{
     AgentSession, AppUserNotificationData, CommentPayloadData, IssuePayload,
 };
@@ -66,16 +67,22 @@ pub async fn resolve_rules_for_team(
 /// Process an `AgentSessionEvent.created` payload. Always proceeds — mention
 /// and assignment both spawn a task regardless of the issue's workflow state.
 ///
-/// Performs synchronous Linear API calls (`agentActivityCreate`) before
-/// spawning the long-running task creation so the webhook response stays
-/// inside Linear's 10-second window.
+/// Performs the synchronous Linear API call (`agentActivityCreate`) that keeps
+/// Linear's UI alive inside its 10-second window, then hands the long-running
+/// task creation to durable adapter work. The webhook is acknowledged only
+/// after that record is committed, so a deploy between the acknowledgment and
+/// the provisioning delays the session instead of losing it.
+///
+/// `event_id` is the dispatcher's dedup key — see [`super::work`] for why it
+/// must be that string and not a new one.
 pub async fn handle_session_created(
     state: &AppState,
     api: &LinearAgentApi,
     connection: &AdapterConnection,
     rules: &[SubscriptionMatch],
     session: &AgentSession,
-) -> Result<(), AdapterError> {
+    event_id: &str,
+) -> Result<(), LinearWebhookError> {
     let issue = session
         .issue
         .as_ref()
@@ -98,8 +105,8 @@ pub async fn handle_session_created(
     }
 
     // Cheap guard only. The actual rule SELECTION — which may need a `get_issue`
-    // round-trip to learn the issue's project/labels — happens inside the spawn
-    // below so it never delays Linear's webhook ack.
+    // round-trip to learn the issue's project/labels — happens inside the
+    // admitted work below so it never delays Linear's webhook ack.
     if rules.is_empty() {
         let team_id = issue
             .team_id
@@ -113,50 +120,60 @@ pub async fn handle_session_created(
         return Ok(());
     }
 
-    let state_clone = state.clone();
-    let connection_clone = connection.clone();
-    let rules_clone = rules.to_vec();
-    let session_clone = session.clone();
-    let api_clone = api.clone();
-    tokio::spawn(async move {
-        // Project/label-aware rule selection. A mention/assignment on a
-        // Vuln-Mgmt issue routes to the project-scoped `vulnerability-fix` rule;
-        // anything else falls back to the unscoped `soap-specs` catch-all. The
-        // `get_issue` round-trip this may make is kept off Linear's ack path by
-        // running here, inside the spawn.
-        let (issue_id, issue_identifier) = session_clone
-            .issue
-            .as_ref()
-            .map(|i| (i.id.as_str(), i.identifier.as_str()))
-            .unwrap_or_default();
-        let Some(rule) =
-            select_session_spawn_rule(&api_clone, &rules_clone, issue_id, issue_identifier).await
-        else {
-            warn!(
-                session_id = %session_clone.id,
-                "Linear session created but no spawn rule selected — skipping task creation"
-            );
-            return;
-        };
-
-        if let Err(e) = provision_session_task(
-            &state_clone,
-            &api_clone,
-            &connection_clone,
-            &rule,
-            &session_clone,
-        )
-        .await
-        {
-            warn!(
-                session_id = %session_clone.id,
-                error = %e,
-                "Failed to provision Linear session task"
-            );
-        }
-    });
-
+    let request = super::work::session_provision_request(event_id, &connection.id, session)?;
+    let admission = state.adapter_work.admit(request).await?;
+    super::work::log_admission(event_id, admission);
     Ok(())
+}
+
+/// Select the spawn rule for a created session and provision its task.
+///
+/// This is the body of what used to be a detached spawn, now the executable
+/// half of a `linear.session_provision` record. It is at-least-once, and it
+/// converges: the binding guard inside [`provision_session_task`] is what makes
+/// a second attempt a no-op rather than a second task.
+pub(super) async fn provision_selected_session_task(
+    state: &AppState,
+    api: &LinearAgentApi,
+    connection: &AdapterConnection,
+    rules: &[SubscriptionMatch],
+    session: &AgentSession,
+) -> Result<(), AdapterError> {
+    // Project/label-aware rule selection. A mention/assignment on a Vuln-Mgmt
+    // issue routes to the project-scoped `vulnerability-fix` rule; anything
+    // else falls back to the unscoped `soap-specs` catch-all. The `get_issue`
+    // round-trip this may make is off Linear's ack path because this runs in
+    // the worker, not the request.
+    let (issue_id, issue_identifier) = session
+        .issue
+        .as_ref()
+        .map(|i| (i.id.as_str(), i.identifier.as_str()))
+        .unwrap_or_default();
+    let Some(rule) = select_session_spawn_rule(api, rules, issue_id, issue_identifier).await else {
+        warn!(
+            session_id = %session.id,
+            "Linear session created but no spawn rule selected — skipping task creation"
+        );
+        return Ok(());
+    };
+
+    provision_session_task(state, api, connection, &rule, session).await
+}
+
+/// Build a Linear Agents API client for a workspace from application state.
+///
+/// Lives here rather than in the webhook dispatcher because both the dispatcher
+/// and the work handler need one, and neither has a [`LinearAdapter`] in hand.
+///
+/// [`LinearAdapter`]: super::adapter::LinearAdapter
+pub(super) fn agent_api(state: &AppState, org_id: &str) -> LinearAgentApi {
+    LinearAgentApi::new(
+        default_http_client(),
+        state.db.clone(),
+        org_id.to_string(),
+        state.config.linear.oauth_client_id.clone(),
+        state.config.linear.oauth_client_secret.clone(),
+    )
 }
 
 /// Project/label-aware spawn-rule selection for a mention/assignment session.
@@ -1459,7 +1476,7 @@ async fn insert_event_task(
     .await
     .map_err(|e| match e {
         crate::task::creation::TaskCreationError::Preflight(msg) => AdapterError::AccessDenied(msg),
-        other => AdapterError::Internal(format!("Failed to create task: {other}")),
+        other => AdapterError::TaskCreation(other),
     })?;
 
     Ok(outcome.task.task_id)

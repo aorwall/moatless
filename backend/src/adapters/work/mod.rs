@@ -1,0 +1,289 @@
+//! Durable admission for provider webhook work.
+//!
+//! Some of the work a provider webhook triggers cannot honestly finish on the
+//! HTTP response path: routing an inbound message can create a task and
+//! provision a sandbox, and a provider that waits three seconds for a 200 will
+//! not wait for that. Spawning it and returning 200 anyway makes the
+//! acknowledgment a lie — the provider believes the work is accepted, and a
+//! deploy, an OOM kill, or a panic loses it with no trace and no redelivery.
+//!
+//! This module is the one seam that makes such an acknowledgment true. The work
+//! is written to `adapter_work` inside the request handler, keyed by the
+//! provider's own event identifier; the supervised `adapter-work-worker` claims
+//! it, executes it, and drives it to a terminal state. Provider success means
+//! the work is durably owned, not that a task was spawned.
+//!
+//! # Admission and overload semantics
+//!
+//! **When the producer is acknowledged.** After [`AdapterWorkStore::admit`]
+//! returns [`Admission::Admitted`] or [`Admission::Duplicate`] — that is, after
+//! the record is committed. An [`AdmitError`] must be surfaced to the provider
+//! as a retryable failure so it redelivers; it must never be swallowed into a
+//! 200.
+//!
+//! **What is durable.** The whole `payload`, which must be everything the
+//! handler needs to redo the work from scratch. Nothing in process memory
+//! survives the crash this table defends against, so a payload that references
+//! in-memory state is not durable work.
+//!
+//! **Retries and deduplication.** Deduplication is a unique index on
+//! `(provider, kind, event_id)` where `event_id` is the provider's delivery
+//! identifier: a redelivered webhook is a duplicate, not a second unit of work.
+//! Execution is at-least-once, so handlers must be idempotent. A failed attempt
+//! is retried with exponential backoff up to
+//! [`AdapterWorkPolicy::max_attempts`]; the last attempt, or any failure the
+//! handler classifies as [`AdapterWorkFailure::Permanent`], makes the record
+//! terminal (`failed`) with its cause retained in `last_error`, an `error` log,
+//! and a `terminal` metric increment.
+//!
+//! **What happens at capacity.** Admission is bounded by
+//! [`AdapterWorkPolicy::backlog_capacity`] unfinished records and refuses with
+//! [`AdmitError::AtCapacity`] past it. Refusing is the point: the provider
+//! retries a delivery it still owns, instead of the backend accepting work it
+//! has no capacity to run. The bound is a stable ceiling rather than an exact
+//! cutoff — concurrent admissions can overshoot it by at most the number in
+//! flight, and never ratchet past that. [`AdapterWorkPolicy::backlog_capacity`]
+//! states the arithmetic and why an exact cutoff was not bought.
+//!
+//! **How shutdown drains.** On root cancellation the worker stops claiming new
+//! batches and waits for the batch in flight — but only for as long as the
+//! process itself waits. The root supervisor bounded-joins its tasks for
+//! `SHUTDOWN_JOIN_DEADLINE` (20s) and then returns, naming whatever is still
+//! running, while [`AdapterWorkPolicy::execution_timeout`] allows a single
+//! execution 2 minutes. A deploy that catches a long-running batch therefore
+//! exits with handlers mid-flight, and logs `adapter-work-worker` as a
+//! straggler when it does; that warning is the expected shape of this
+//! interaction, not a fault.
+//!
+//! Correctness does not rest on the drain. Records still `claimed` when the
+//! process dies are recovered by the next run of the same owner, or by claim
+//! lease expiry if that owner never returns. Shutdown delays admitted work; it
+//! never loses it — and that, rather than a clean drain, is the guarantee.
+//!
+//! # What migrating an existing caller changes
+//!
+//! Slack and Telegram inbound message routing runs on this seam
+//! ([`crate::adapters::inbound_work`]); the remaining webhook paths still spawn
+//! their own work. The two properties below are what a migration gives up, and
+//! every migrated caller has to answer them rather than discover them:
+//!
+//! **Per-connection webhook outcome telemetry.** The spawned paths call
+//! [`record_webhook`](crate::adapters::metrics) *after* routing finishes, with
+//! `event_type`, `trigger_id`, and `connection_id` labels — so a single broken
+//! Adapter connection is visible today. The execution metric here is only
+//! `{provider, kind, outcome}` and is deliberately low-cardinality; it is not a
+//! replacement. A migrated handler must keep emitting its own webhook outcome
+//! metric, or per-connection failure visibility is lost. The chat handler does,
+//! from inside `execute`, with the labels carried in its payload for that sole
+//! purpose.
+//!
+//! **Execution start latency.** A spawn starts in microseconds. Admitted work
+//! waits for the next poll, so a migrated path trades a bounded scheduling
+//! delay for durability. [`AdapterWorkPolicy::poll_interval`] is set for
+//! interactive work rather than for batch throughput for exactly this reason.
+//!
+//! **In-process deduplication a migrated caller no longer needs.** Slack and
+//! Telegram each kept a five-minute, per-process cache of handled event ids in
+//! front of routing. Both are gone: keyed on the same identifier this table is
+//! keyed on, such a cache sits *in front of* a fallible admission, so a
+//! re-delivery of work whose admission failed would be answered with a 200 and
+//! nothing durable behind it — the precise acknowledgment lie this module
+//! exists to remove. What the caches also covered, and the unique index does
+//! not, is repeat *parse-time* side effects on a re-delivery; that consequence
+//! is stated where each provider parses.
+//!
+//! # What does not belong here
+//!
+//! Best-effort outbound activity notifications and API-key usage timestamps
+//! stay off this path. They are allowed to be lost, and admitting them would
+//! make every webhook slower and this table larger for no correctness gain.
+
+mod handlers;
+mod metrics;
+mod models;
+mod store;
+mod worker;
+
+pub use handlers::{AdapterWorkHandler, AdapterWorkHandlers};
+pub use metrics::describe_adapter_work_metrics;
+pub use models::{
+    AdapterWork, AdapterWorkFailure, AdapterWorkPolicy, AdapterWorkRequest, Admission, AdmitError,
+};
+pub use store::AdapterWorkStore;
+pub use worker::spawn_adapter_work_worker;
+
+use crate::adapters::error::AdapterError;
+
+/// Admission failures reach the provider as "not accepted, send it again".
+///
+/// Both variants are the backend's problem, not the request's: nothing about
+/// the delivery was wrong, so a 4xx would tell the provider to stop retrying
+/// work that is still safe to retry. Capacity maps to `503` because the
+/// condition is explicitly transient; a failed durable write maps to the
+/// existing `500` path, which logs the cause once and returns no detail.
+impl From<AdmitError> for AdapterError {
+    fn from(error: AdmitError) -> Self {
+        match error {
+            AdmitError::AtCapacity { .. } => Self::Overloaded,
+            AdmitError::Store(source) => Self::Db(source),
+        }
+    }
+}
+
+/// Classify an adapter failure into the seam's retry policy.
+///
+/// Every provider handler ends up calling adapter runtime code that reports
+/// [`AdapterError`], so the retryable/permanent split is decided once here
+/// rather than once per provider. The question each arm answers is "could a
+/// later attempt see a different answer?".
+///
+/// The split is deliberately asymmetric. Calling a transient failure permanent
+/// abandons work the backend has already told a provider it owns; calling a
+/// permanent failure transient only delays the same terminal record by the
+/// attempt budget, and it still lands in `failed` with its cause. So anything
+/// that is not clearly a rejected or missing input is retried — including
+/// [`AdapterError::Internal`], which the adapter runtimes still use for any
+/// state they could not classify.
+///
+/// The causing error is kept as the source either way, so a terminal record's
+/// `last_error` still names what actually failed.
+impl From<AdapterError> for AdapterWorkFailure {
+    fn from(error: AdapterError) -> Self {
+        match error {
+            // Transient: infrastructure, the upstream provider, our own
+            // capacity, or a message this process synthesized for a condition
+            // it could not classify.
+            AdapterError::Db(_)
+            | AdapterError::AdapterApi(_)
+            | AdapterError::Unauthorized(_)
+            | AdapterError::Overloaded
+            | AdapterError::AdapterNotConfigured(_)
+            | AdapterError::Internal(_) => Self::retryable(error),
+            // Transient: we never reached the provider, or it answered with
+            // something we could not decode. Both sit on the same 502 path as
+            // `AdapterApi` and a later attempt can genuinely see a different
+            // answer.
+            AdapterError::ProviderUnreachable { .. }
+            | AdapterError::ProviderResponseInvalid { .. } => Self::retryable(error),
+            // Transient: resolving a credential failed. The token may be
+            // refreshed, or the repository's installation repaired, between
+            // attempts — the work itself was never rejected.
+            AdapterError::RepositoryCredential { .. } | AdapterError::UserCredential { .. } => {
+                Self::retryable(error)
+            }
+            // Transient by construction: `TaskCreation` only carries failures
+            // the call site already decided are worth redelivering (preflight
+            // rejections are handled there and never reach here), and
+            // `MessageDelivery` wraps a storage-layer failure of the task
+            // message flow.
+            AdapterError::TaskCreation(_) | AdapterError::MessageDelivery(_) => {
+                Self::retryable(error)
+            }
+            // Permanent: the input, or the thing it names, is wrong. Redoing
+            // the identical work cannot change that.
+            AdapterError::ConfigNotFound(_)
+            | AdapterError::NotFound(_)
+            | AdapterError::BadRequest(_)
+            | AdapterError::SignatureInvalid
+            | AdapterError::AccessDenied(_)
+            | AdapterError::MultipleTargets { .. } => Self::permanent(error),
+            // Permanent: serializing a config we already hold is deterministic,
+            // so every attempt reproduces the identical failure. This is the
+            // one arm where "redoing the identical work" is provably futile
+            // rather than merely unlikely to help.
+            AdapterError::ConfigSerialization(_) => Self::permanent(error),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::response::IntoResponse;
+    use http_body_util::BodyExt;
+
+    use super::*;
+
+    async fn response_of(error: AdmitError) -> (axum::http::StatusCode, String) {
+        let response = AdapterError::from(error).into_response();
+        let status = response.status();
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .map(|b| String::from_utf8_lossy(&b.to_bytes()).into_owned())
+            .unwrap_or_default();
+        (status, body)
+    }
+
+    #[tokio::test]
+    async fn a_full_backlog_asks_the_provider_to_retry() {
+        let (status, body) = response_of(AdmitError::AtCapacity { limit: 10 }).await;
+        assert_eq!(status, axum::http::StatusCode::SERVICE_UNAVAILABLE);
+        assert!(
+            body.contains("Service temporarily unavailable"),
+            "the client sees a stable message: {body}"
+        );
+        assert!(
+            !body.contains("adapter_work") && !body.contains("backlog"),
+            "capacity internals stay out of the response: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_durable_write_returns_a_redacted_500() {
+        let (status, body) = response_of(AdmitError::Store(sqlx::Error::PoolTimedOut)).await;
+        assert_eq!(status, axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(body, r#"{"error":"Internal server error"}"#);
+    }
+
+    /// Wrongly-permanent is the expensive mistake — it abandons work the
+    /// provider was told we owned — so only a rejected or missing input ends a
+    /// record early.
+    #[test]
+    fn only_a_rejected_or_missing_input_is_permanent() {
+        for error in [
+            AdapterError::Db(sqlx::Error::PoolTimedOut),
+            AdapterError::AdapterApi("502 from GitHub".into()),
+            AdapterError::Unauthorized("token expired".into()),
+            AdapterError::Overloaded,
+            AdapterError::AdapterNotConfigured("github_pr".into()),
+            AdapterError::Internal("failed to create task: db blip".into()),
+        ] {
+            let rendered = error.to_string();
+            assert!(
+                !AdapterWorkFailure::from(error).is_permanent(),
+                "{rendered} must be retried"
+            );
+        }
+
+        for error in [
+            AdapterError::BadRequest("missing repository.full_name".into()),
+            AdapterError::NotFound("task".into()),
+            AdapterError::ConfigNotFound("connection".into()),
+            AdapterError::SignatureInvalid,
+            AdapterError::AccessDenied("not a member".into()),
+        ] {
+            let rendered = error.to_string();
+            assert!(
+                AdapterWorkFailure::from(error).is_permanent(),
+                "{rendered} must go terminal"
+            );
+        }
+    }
+
+    /// A terminal record has to say what actually failed, not just that
+    /// something did.
+    #[test]
+    fn classification_keeps_the_adapter_error_as_the_cause() {
+        let failure = AdapterWorkFailure::from(AdapterError::BadRequest("bad payload".into()));
+        let source = std::error::Error::source(&failure).expect("the adapter error is retained");
+        assert!(source.to_string().contains("bad payload"));
+    }
+
+    #[test]
+    fn the_admission_failure_keeps_its_cause() {
+        let error = AdmitError::Store(sqlx::Error::PoolTimedOut);
+        let source = std::error::Error::source(&error).expect("the sqlx error is retained");
+        assert!(source.to_string().contains("pool timed out"));
+    }
+}

@@ -8,3 +8,4 @@ pub mod external_id;
 pub mod handlers;
 pub mod pairing;
 pub mod poller;
+pub mod work;

@@ -1,4 +1,4 @@
-//! [`LifecycleEventSink`] over the transactional outbox.
+//! [`LifecycleEventSink`] over the commit-before-publication path.
 //!
 //! Publishes a derived lifecycle event to Redis under its deterministic id.
 //! Completion facts are already committed to `task_events` by
@@ -18,7 +18,7 @@ use super::orchestrator::LifecycleEventSink;
 use super::outcome::Diagnostics;
 use super::types::{ObservedStatus, OperationGeneration};
 
-/// Publishes lifecycle events through the existing Redis outbox path.
+/// Publishes lifecycle events through the existing Redis publication path.
 ///
 /// The publisher is optional: with no event transport (Redis disabled) the sink
 /// no-ops, matching the rest of the system's Redis-down degradation. Completion
@@ -47,7 +47,10 @@ impl LifecycleEventSink for OutboxEventSink {
                 return;
             }
         };
-        publisher
+        // The fact this event reports is already committed (completion facts by
+        // the store, the rest by the consumer), so a failed publish degrades the
+        // live tail only — it is logged, not propagated.
+        if let Err(e) = publisher
             .publish_raw_event_with_id(
                 &event.event_id,
                 task_id,
@@ -58,7 +61,10 @@ impl LifecycleEventSink for OutboxEventSink {
                 payload,
                 event.persisted_as_completion(),
             )
-            .await;
+            .await
+        {
+            tracing::warn!(task_id, event_id = %event.event_id, error = %e, "lifecycle event did not reach the live transport");
+        }
     }
 
     async fn publish_diagnostics(
@@ -80,7 +86,7 @@ impl LifecycleEventSink for OutboxEventSink {
             };
             match serde_json::to_value(payload) {
                 Ok(payload) => {
-                    publisher
+                    if let Err(e) = publisher
                         .publish_raw_event_with_id(
                             &format!("sandbox:{task_id}:{generation}:degradation:{index}"),
                             task_id,
@@ -91,7 +97,10 @@ impl LifecycleEventSink for OutboxEventSink {
                             payload,
                             false,
                         )
-                        .await;
+                        .await
+                    {
+                        tracing::warn!(task_id, error = %e, "lifecycle degradation did not reach the live transport");
+                    }
                 }
                 Err(e) => {
                     tracing::warn!(
@@ -110,7 +119,7 @@ impl LifecycleEventSink for OutboxEventSink {
             };
             match serde_json::to_value(payload) {
                 Ok(payload) => {
-                    publisher
+                    if let Err(e) = publisher
                         .publish_raw_event_with_id(
                             &format!("server:{task_id}:{generation}:failed:{index}"),
                             task_id,
@@ -121,7 +130,10 @@ impl LifecycleEventSink for OutboxEventSink {
                             payload,
                             false,
                         )
-                        .await;
+                        .await
+                    {
+                        tracing::warn!(task_id, server = %failure.server, error = %e, "server failure did not reach the live transport");
+                    }
                 }
                 Err(e) => {
                     tracing::warn!(

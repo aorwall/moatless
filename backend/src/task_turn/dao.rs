@@ -1,11 +1,15 @@
 //! Task turn DAO — authoritative per-turn lifecycle persistence.
 //!
-//! The [`TaskTurnRepository::apply_ingress_event`] method is the transactional
-//! outbox writer: it commits the event row, the turn row, and the task-status
-//! flip in ONE transaction *before* the gRPC handler publishes to Redis. Turn
-//! state is therefore committed-before-fan-out and never lost to a dropped
-//! event. The Redis consumer re-applies the same projection idempotently via
+//! The [`TaskTurnRepository::apply_ingress_event`] method is the
+//! commit-before-fan-out writer for turn state: it commits the event row, the
+//! turn row, and the task-status flip in ONE transaction *before* the gRPC
+//! handler publishes to Redis, so turn state is never lost to a dropped event.
+//! The Redis consumer re-applies the same projection idempotently via
 //! [`TaskTurnRepository::project_turn`] as a rollout/backstop fallback.
+//!
+//! This is ordering, not an outbox: nothing is spooled here and nothing relays
+//! or deletes these rows. "Transactional outbox" names only the durable
+//! payload-and-relay path in [`crate::event_ingress`] (ADR-0006).
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -129,7 +133,7 @@ pub trait TaskTurnRepository: Send + Sync {
     ///
     /// Idempotent and order-independent: whichever of the run's signals arrives
     /// first (the ack, `taskTurn.active`, or a terminal event that overtook
-    /// them in the outbox) allocates, and the rest join.
+    /// them in the Sandbox's send queue) allocates, and the rest join.
     async fn resolve_turn_for_run(&self, task_id: &str, run_id: &str) -> Result<i32, sqlx::Error>;
 
     /// The task's highest turn number, or `None` when it has none yet.

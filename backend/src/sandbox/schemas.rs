@@ -308,40 +308,63 @@ pub enum MoatlessToolName {
 
 // ── Proto conversions ────────────────────────────────────────────
 
-impl From<sandbox_proto::FileTreeNode> for FileTreeNodeDto {
-    fn from(node: sandbox_proto::FileTreeNode) -> Self {
-        let node_type = if node.node_type == sandbox_proto::FileNodeType::Directory as i32 {
-            "directory".to_string()
-        } else {
-            "file".to_string()
-        };
+/// A sandbox file-tree node carried a `FileNodeType` integer the wire contract
+/// does not define, so the node cannot be classified as a file or a directory.
+///
+/// Carries the offending value and the node's path: the tree arrives recursively,
+/// so the failing node is not necessarily the one the caller converted.
+#[derive(Debug, thiserror::Error)]
+#[error("unknown FileNodeType {node_type} for file tree node '{path}'")]
+pub struct UnknownFileNodeType {
+    pub path: String,
+    pub node_type: i32,
+}
 
-        let children = if node.children.is_empty() {
-            if node_type == "directory" {
-                Some(Vec::new())
-            } else {
-                None
+/// Widening a protobuf file-tree node onto the API DTO is partial: `node_type`
+/// is an open integer on the wire, and an unrecognized value must not be
+/// reported to clients as a file.
+impl TryFrom<sandbox_proto::FileTreeNode> for FileTreeNodeDto {
+    type Error = UnknownFileNodeType;
+
+    fn try_from(node: sandbox_proto::FileTreeNode) -> Result<Self, Self::Error> {
+        let node_type = match sandbox_proto::FileNodeType::try_from(node.node_type) {
+            Ok(sandbox_proto::FileNodeType::File) => "file",
+            Ok(sandbox_proto::FileNodeType::Directory) => "directory",
+            Err(_) => {
+                return Err(UnknownFileNodeType {
+                    path: node.path,
+                    node_type: node.node_type,
+                })
             }
-        } else {
-            Some(
-                node.children
-                    .into_iter()
-                    .map(FileTreeNodeDto::from)
-                    .collect(),
-            )
         };
 
-        Self {
+        // A nested failure fails the whole tree — a partially converted tree
+        // would silently hide a subtree from the client.
+        let children = node
+            .children
+            .into_iter()
+            .map(FileTreeNodeDto::try_from)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Directories always report a (possibly empty) child list so clients can
+        // tell "expandable but empty" from "not expandable".
+        let children = if children.is_empty() && node_type == "file" {
+            None
+        } else {
+            Some(children)
+        };
+
+        Ok(Self {
             name: node.name,
             path: node.path,
-            node_type,
+            node_type: node_type.to_string(),
             is_changed: node.is_changed,
             git_status: node.git_status,
             additions: node.additions,
             deletions: node.deletions,
             is_staged: node.is_staged,
             children,
-        }
+        })
     }
 }
 
@@ -382,8 +405,10 @@ impl From<sandbox_proto::FileNameMatch> for FileNameMatchDto {
     }
 }
 
-impl From<sandbox_proto::GetFileTreeResponse> for FileTreeResponse {
-    fn from(resp: sandbox_proto::GetFileTreeResponse) -> Self {
+impl TryFrom<sandbox_proto::GetFileTreeResponse> for FileTreeResponse {
+    type Error = UnknownFileNodeType;
+
+    fn try_from(resp: sandbox_proto::GetFileTreeResponse) -> Result<Self, Self::Error> {
         let git_summary = resp.git_summary.map_or(
             GitSummaryDto {
                 total_files: 0,
@@ -397,10 +422,14 @@ impl From<sandbox_proto::GetFileTreeResponse> for FileTreeResponse {
             GitSummaryDto::from,
         );
 
-        Self {
-            tree: resp.tree.into_iter().map(FileTreeNodeDto::from).collect(),
+        Ok(Self {
+            tree: resp
+                .tree
+                .into_iter()
+                .map(FileTreeNodeDto::try_from)
+                .collect::<Result<Vec<_>, _>>()?,
             git_summary,
-        }
+        })
     }
 }
 
@@ -410,6 +439,152 @@ impl From<sandbox_proto::SearchFilesByNameResponse> for SearchByNameResponse {
             files: resp.files.into_iter().map(FileNameMatchDto::from).collect(),
             total_matches: resp.total_matches,
         }
+    }
+}
+
+#[cfg(test)]
+mod file_tree_conversion_tests {
+    use super::*;
+
+    fn proto_node(
+        path: &str,
+        node_type: i32,
+        children: Vec<sandbox_proto::FileTreeNode>,
+    ) -> sandbox_proto::FileTreeNode {
+        sandbox_proto::FileTreeNode {
+            name: path.rsplit('/').next().unwrap_or(path).to_string(),
+            path: path.to_string(),
+            node_type,
+            is_changed: false,
+            git_status: None,
+            additions: None,
+            deletions: None,
+            is_staged: None,
+            children,
+        }
+    }
+
+    #[test]
+    fn every_known_node_type_converts_to_its_dto_string() {
+        for (node_type, expected) in [
+            (sandbox_proto::FileNodeType::File, "file"),
+            (sandbox_proto::FileNodeType::Directory, "directory"),
+        ] {
+            let dto = FileTreeNodeDto::try_from(proto_node("a", node_type as i32, vec![]))
+                .expect("known node type converts");
+            assert_eq!(dto.node_type, expected);
+        }
+    }
+
+    #[test]
+    fn directories_keep_an_empty_child_list_and_files_have_none() {
+        let dir = FileTreeNodeDto::try_from(proto_node(
+            "src",
+            sandbox_proto::FileNodeType::Directory as i32,
+            vec![],
+        ))
+        .expect("directory converts");
+        assert_eq!(dir.children.as_ref().map(Vec::len), Some(0));
+
+        let file = FileTreeNodeDto::try_from(proto_node(
+            "a.txt",
+            sandbox_proto::FileNodeType::File as i32,
+            vec![],
+        ))
+        .expect("file converts");
+        assert!(file.children.is_none());
+    }
+
+    #[test]
+    fn unknown_node_type_is_rejected_with_the_offending_value() {
+        let err = FileTreeNodeDto::try_from(proto_node("weird.sock", 7, vec![]))
+            .expect_err("unknown node type must not be treated as a file");
+        assert_eq!(err.node_type, 7);
+        assert_eq!(err.path, "weird.sock");
+        assert_eq!(
+            err.to_string(),
+            "unknown FileNodeType 7 for file tree node 'weird.sock'"
+        );
+    }
+
+    #[test]
+    fn nested_unknown_node_type_propagates_to_the_root_conversion() {
+        let deep = proto_node(
+            "src",
+            sandbox_proto::FileNodeType::Directory as i32,
+            vec![proto_node(
+                "src/nested",
+                sandbox_proto::FileNodeType::Directory as i32,
+                vec![
+                    proto_node(
+                        "src/nested/ok.rs",
+                        sandbox_proto::FileNodeType::File as i32,
+                        vec![],
+                    ),
+                    proto_node("src/nested/mystery", 42, vec![]),
+                ],
+            )],
+        );
+
+        let err =
+            FileTreeNodeDto::try_from(deep).expect_err("a nested failure must fail the whole tree");
+        // The error names the failing descendant, not the node converted.
+        assert_eq!(err.path, "src/nested/mystery");
+        assert_eq!(err.node_type, 42);
+    }
+
+    #[test]
+    fn response_conversion_propagates_nested_failures() {
+        let resp = sandbox_proto::GetFileTreeResponse {
+            tree: vec![proto_node(
+                "src",
+                sandbox_proto::FileNodeType::Directory as i32,
+                vec![proto_node("src/mystery", -1, vec![])],
+            )],
+            git_summary: None,
+        };
+
+        let err = FileTreeResponse::try_from(resp).expect_err("nested failure fails the response");
+        assert_eq!(err.path, "src/mystery");
+        assert_eq!(err.node_type, -1);
+    }
+
+    #[test]
+    fn valid_tree_converts_with_children_and_git_overlay_intact() {
+        let resp = sandbox_proto::GetFileTreeResponse {
+            tree: vec![sandbox_proto::FileTreeNode {
+                is_changed: true,
+                git_status: Some("modified".to_string()),
+                additions: Some(3),
+                deletions: Some(1),
+                is_staged: Some(false),
+                ..proto_node(
+                    "src",
+                    sandbox_proto::FileNodeType::Directory as i32,
+                    vec![proto_node(
+                        "src/main.rs",
+                        sandbox_proto::FileNodeType::File as i32,
+                        vec![],
+                    )],
+                )
+            }],
+            git_summary: None,
+        };
+
+        let dto = FileTreeResponse::try_from(resp).expect("valid tree converts");
+        let root = &dto.tree[0];
+        assert_eq!(root.node_type, "directory");
+        assert!(root.is_changed);
+        assert_eq!(root.git_status.as_deref(), Some("modified"));
+        assert_eq!(root.additions, Some(3));
+        assert_eq!(root.deletions, Some(1));
+        assert_eq!(root.is_staged, Some(false));
+        let children = root.children.as_ref().expect("directory has children");
+        assert_eq!(children[0].path, "src/main.rs");
+        assert_eq!(children[0].node_type, "file");
+        // Absent git summary still yields the documented default.
+        assert_eq!(dto.git_summary.compare_base, "HEAD");
+        assert!(!dto.git_summary.has_changes);
     }
 }
 

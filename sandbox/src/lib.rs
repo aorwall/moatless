@@ -27,3 +27,4 @@ pub mod outbox;
 pub mod process_tree;
 pub mod shutdown;
 pub mod state;
+pub mod supervisor;

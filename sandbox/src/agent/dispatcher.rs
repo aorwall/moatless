@@ -27,7 +27,19 @@ use super::types::{content_blocks_from_proto, ContentBlock};
 /// spawned-task rule). The task itself logs every ordinary terminal branch; this
 /// watcher additionally surfaces an abnormal end (a panic) at `error` with the
 /// task's name, which a bare `tokio::spawn` would swallow.
-fn spawn_supervised(
+///
+/// # Why these tasks are not registered with the root supervisor
+///
+/// Dispatch work is per-request and unbounded in count, so handing every one to
+/// [`crate::supervisor::Supervisor`] would grow its owned set for the life of
+/// the pod. More importantly, dispatch owns *pending-message durability*: a
+/// dispatcher holds the single-flight guard from before the fetch until
+/// [`acknowledge_until_settled`] lands the ack, and that retry loop deliberately
+/// keeps going for as long as the pod is up. The root supervisor's job is to
+/// bound teardown; a task whose correct behaviour is to outlast every other one
+/// must not be inside that bound. Each dispatcher already races every await
+/// against `lifecycle_cancel`, which is what actually stops it.
+pub(crate) fn spawn_supervised(
     what: &'static str,
     fut: impl std::future::Future<Output = ()> + Send + 'static,
 ) {

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Rust Development Guidelines"
+  short_description: "Repo-specific Rust engineering guidance"
+  default_prompt: "Use $rust-dev-guidelines to plan, implement, or review this Rust change."

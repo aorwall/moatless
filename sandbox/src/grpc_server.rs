@@ -37,8 +37,14 @@ impl SandboxService for SandboxServiceImpl {
     ) -> Result<Response<ExecuteAgentResponse>, Status> {
         // Fetch pending messages and send to the agent actor.
         // The actor handles whether to start a new session or inject into a running one.
+        //
+        // Detached, but through the dispatcher's supervision seam: the RPC
+        // returns before dispatch finishes (that is the contract — `Ok` means
+        // "triggered"), and dispatch must outlive the call to hold the
+        // single-flight guard across its ack retries. `spawn_supervised` changes
+        // nothing about that lifetime; it only stops a panic from disappearing.
         let state = self.state.clone();
-        tokio::spawn(async move {
+        crate::agent::dispatcher::spawn_supervised("execute-agent-dispatch", async move {
             crate::agent::dispatcher::dispatch_pending_messages(state).await;
         });
 
@@ -174,8 +180,9 @@ impl SandboxService for SandboxServiceImpl {
         &self,
         _request: Request<NotifyMessagesRequest>,
     ) -> Result<Response<NotifyMessagesResponse>, Status> {
+        // Same detached-but-supervised shape as `execute_agent` above.
         let state = self.state.clone();
-        tokio::spawn(async move {
+        crate::agent::dispatcher::spawn_supervised("notify-messages-dispatch", async move {
             crate::agent::dispatcher::dispatch_pending_messages(state).await;
         });
         info!("Message processing triggered via gRPC");
@@ -404,6 +411,45 @@ fn file_error_to_status(e: files::FileError) -> Status {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Both domain node types are representable on the wire, and the mapping is
+    /// what the backend decodes back into `"file"` / `"directory"`. Nested nodes
+    /// must carry their own discriminant, not the parent's.
+    #[test]
+    fn tree_node_types_map_onto_their_wire_discriminants() {
+        fn node(
+            name: &str,
+            node_type: files::tree::FileNodeType,
+            children: Vec<files::tree::FileTreeNode>,
+        ) -> files::tree::FileTreeNode {
+            files::tree::FileTreeNode {
+                name: name.to_string(),
+                path: name.to_string(),
+                node_type,
+                is_changed: false,
+                git_status: None,
+                additions: None,
+                deletions: None,
+                is_staged: None,
+                children,
+            }
+        }
+
+        let proto = tree_node_to_proto(node(
+            "src",
+            files::tree::FileNodeType::Directory,
+            vec![node("main.rs", files::tree::FileNodeType::File, vec![])],
+        ));
+
+        assert_eq!(
+            sandbox_proto::FileNodeType::try_from(proto.node_type),
+            Ok(sandbox_proto::FileNodeType::Directory)
+        );
+        assert_eq!(
+            sandbox_proto::FileNodeType::try_from(proto.children[0].node_type),
+            Ok(sandbox_proto::FileNodeType::File)
+        );
+    }
 
     #[test]
     fn reports_background_processes_when_subprocess_and_not_running() {

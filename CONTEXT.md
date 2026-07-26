@@ -127,6 +127,16 @@ or a Linear issue — reached through an Adapter. Tracks the subject and whether
 inbound events still route to the Task. A Task has many Bindings.
 _Avoid_: task connection, connection, thread
 
+**Adapter work**:
+One unit of provider webhook work that cannot safely finish on the HTTP response
+path, persisted in the `adapter_work` table before the provider is acknowledged
+and executed later by the supervised `adapter-work-worker`. Keyed by the
+*provider's* event identifier, so a re-delivered webhook is a duplicate rather
+than a second unit of work. Best-effort side effects — outbound activity
+notifications, API-key usage timestamps — are deliberately not Adapter work.
+_Avoid_: adapter queue, adapter outbox (the transactional outbox is the durable
+event-ingress path, not this one), adapter job
+
 "Integrations" is the user-facing umbrella for connected external systems; it is
 not a precise domain term (the type is an Adapter, an installation is an Adapter
 connection). The `integration_*` DB tables are legacy storage names for Adapter
@@ -227,15 +237,46 @@ assembly as a client concern.
 
 **Source event vs derived event**:
 A **source event** (e.g. `agent.message`) is raw agent output. Its full content
-is a **transient ingestion payload**: the Sandbox emits it to the Redis stream,
-the event-handler consumer reads it once to build the Message store, and it is
-never persisted to `task_events` nor relayed to clients in full. Its
+is a **transient ingestion payload**: the Sandbox publishes it to the backend,
+which spools it in the **transactional ingress outbox** before acknowledging;
+the event-handler consumer reads it once to build the Message store and deletes
+the spooled record, and it is never persisted to `task_events` nor relayed to
+clients in full. Its
 persisted-and-relayed form is a **metadata skeleton** (`{ message: { role },
 uuid, blockCount, toolNames }`). A **derived event** (`message.upsert` /
 `message.subagentProgress`) is computed from persisted state for the live Chat
 and is never itself persisted. Message content reaches clients only via the
 derived upsert (top-level) or the on-demand subagent transcript endpoint. One
 seam separates them.
+
+**Transactional ingress outbox**:
+The durable spool the backend writes an admitted dispatch payload to before it
+answers the Sandbox's publish, plus the supervised relay that re-publishes an
+undelivered record until its consumer commits it (ADR-0006). It holds exactly
+one payload kind — full `agent.message` content, which `task_events` keeps only
+as a skeleton — and a record lives only from admission to that commit. This is
+the **only** thing the phrase "transactional outbox" names here.
+_Avoid_: calling the Sandbox's in-memory event queue a transactional outbox (it
+is a local send buffer, and losing it loses events); calling commit-before-fan-out
+ordering a transactional outbox.
+
+**Sandbox event send buffer**:
+The Sandbox's in-memory queue between an event producer and the single drainer
+that publishes to the backend (`sandbox/src/outbox.rs`). Ordered, non-durable
+across process death, and **bounded where the producer submits**, so a stalled
+drainer cannot let it grow. At capacity the oldest non-lifecycle event is
+evicted; when only **lifecycle** events (`taskTurn.*`, terminal `agent.*`)
+remain, the newest submission is **refused** rather than admitted — the class is
+preferred, not exempt. Refusing the newest keeps the older prefix that makes
+later lifecycle events interpretable, and leaves a stale turn the reaper can
+close — though only in K8s mode with the idle reaper enabled; in Docker mode no
+reaper runs and that turn stays open. Four things lose an event and each is
+counted and announced separately on the stream: capacity eviction, refusal at
+lifecycle saturation, a terminal backend rejection (`INVALID_ARGUMENT`), and an
+event type the wire cannot represent.
+_Avoid_: calling it an outbox in prose; describing lifecycle events as
+undroppable; treating a graceful flush as a delivery guarantee (it is bounded
+and best-effort).
 
 **Subagent transcript**:
 Lazy. The top-level Messages read carries only a small per-`Agent`-call

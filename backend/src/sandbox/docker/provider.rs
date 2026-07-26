@@ -114,14 +114,12 @@ impl DockerSandboxAdapter {
                         .docker
                         .inspect_container(&container_name, None)
                         .await
-                        .map_err(|e| {
-                            SandboxError::DockerError(format!(
-                                "Failed to inspect stopped container before recreation: {e}"
-                            ))
+                        .map_err(|source| SandboxError::Docker {
+                            operation: "inspecting a stopped container before recreation",
+                            source,
                         })?;
                     let container_config = recreate_config(inspected, ctx)?;
-                    self.force_remove_container(&container_name, task_id)
-                        .await?;
+                    self.force_remove_container(&container_name).await?;
                     self.client
                         .docker
                         .create_container(
@@ -133,19 +131,17 @@ impl DockerSandboxAdapter {
                             container_config,
                         )
                         .await
-                        .map_err(|e| {
-                            SandboxError::DockerError(format!(
-                                "Failed to recreate stopped container: {e}"
-                            ))
+                        .map_err(|source| SandboxError::Docker {
+                            operation: "recreating a stopped container",
+                            source,
                         })?;
                     self.client
                         .docker
                         .start_container(&container_name, None::<StartContainerOptions>)
                         .await
-                        .map_err(|e| {
-                            SandboxError::DockerError(format!(
-                                "Failed to start recreated container: {e}"
-                            ))
+                        .map_err(|source| SandboxError::Docker {
+                            operation: "starting a recreated container",
+                            source,
                         })?;
 
                     return Ok(RuntimeOutcome {
@@ -163,8 +159,7 @@ impl DockerSandboxAdapter {
                     new_image = %expected,
                     "Sandbox image changed since stop, recreating container"
                 );
-                self.force_remove_container(&container_name, task_id)
-                    .await?;
+                self.force_remove_container(&container_name).await?;
                 self.ensure_container_absent(&container_name, task_id)
                     .await?;
                 self.remove_server_containers(task_id).await?;
@@ -191,7 +186,10 @@ impl DockerSandboxAdapter {
             &task_token_secret,
             self.config.sandbox.user_token_ttl_secs,
         )
-        .map_err(|e| SandboxError::JwtError(e.to_string()))?;
+        .map_err(|source| SandboxError::JwtSigning {
+            purpose: "the sandbox user auth token",
+            source,
+        })?;
 
         // 3. Create workspace and data directories on host
         let workspace_path =
@@ -247,13 +245,19 @@ impl DockerSandboxAdapter {
                 container_config,
             )
             .await
-            .map_err(|e| SandboxError::DockerError(format!("Failed to create container: {e}")))?;
+            .map_err(|source| SandboxError::Docker {
+                operation: "creating the sandbox container",
+                source,
+            })?;
 
         self.client
             .docker
             .start_container(&container_name, None::<StartContainerOptions>)
             .await
-            .map_err(|e| SandboxError::DockerError(format!("Failed to start container: {e}")))?;
+            .map_err(|source| SandboxError::Docker {
+                operation: "starting the sandbox container",
+                source,
+            })?;
 
         info!(
             task_id = %task_id,
@@ -391,10 +395,11 @@ impl SandboxRuntime for DockerSandboxAdapter {
                         Some(StopContainerOptionsBuilder::new().t(30).build()),
                     )
                     .await
-                    .map_err(|e| {
-                        map_sandbox_error(SandboxError::DockerError(format!(
-                            "Failed to stop container: {e}"
-                        )))
+                    .map_err(|source| {
+                        map_sandbox_error(SandboxError::Docker {
+                            operation: "stopping the sandbox container",
+                            source,
+                        })
                     })?;
                 RuntimeEffect::Applied
             }
@@ -402,10 +407,11 @@ impl SandboxRuntime for DockerSandboxAdapter {
             Err(bollard::errors::Error::DockerResponseServerError {
                 status_code: 404, ..
             }) => RuntimeEffect::NoOp,
-            Err(e) => {
-                return Err(map_sandbox_error(SandboxError::DockerError(format!(
-                    "Failed to inspect container before stop: {e}"
-                ))));
+            Err(source) => {
+                return Err(map_sandbox_error(SandboxError::Docker {
+                    operation: "inspecting the sandbox container before stop",
+                    source,
+                }));
             }
         };
 
@@ -429,17 +435,18 @@ impl SandboxRuntime for DockerSandboxAdapter {
             .docker
             .inspect_container(&container_name, None)
             .await
-            .map_err(|e| {
-                map_sandbox_error(SandboxError::DockerError(format!(
-                    "Failed to inspect container before restart: {e}"
-                )))
+            .map_err(|source| {
+                map_sandbox_error(SandboxError::Docker {
+                    operation: "inspecting the sandbox container before restart",
+                    source,
+                })
             })?;
         let container_config = recreate_config(inspected, ctx).map_err(map_sandbox_error)?;
 
         // Labels are immutable on a live Docker container. Strictly remove the
         // sandbox and recreate it from the inspected configuration so the
         // replacement has a new container ID and generation label.
-        self.force_remove_container(&container_name, task_id)
+        self.force_remove_container(&container_name)
             .await
             .map_err(map_sandbox_error)?;
         self.ensure_container_absent_runtime(&container_name, task_id)
@@ -455,19 +462,21 @@ impl SandboxRuntime for DockerSandboxAdapter {
                 container_config,
             )
             .await
-            .map_err(|e| {
-                map_sandbox_error(SandboxError::DockerError(format!(
-                    "Failed to recreate container during restart: {e}"
-                )))
+            .map_err(|source| {
+                map_sandbox_error(SandboxError::Docker {
+                    operation: "recreating the sandbox container during restart",
+                    source,
+                })
             })?;
         self.client
             .docker
             .start_container(&container_name, None::<StartContainerOptions>)
             .await
-            .map_err(|e| {
-                map_sandbox_error(SandboxError::DockerError(format!(
-                    "Failed to start replacement container during restart: {e}"
-                )))
+            .map_err(|source| {
+                map_sandbox_error(SandboxError::Docker {
+                    operation: "starting the replacement container during restart",
+                    source,
+                })
             })?;
 
         // Server containers are subordinate resources; their lifecycle events
@@ -495,7 +504,7 @@ impl SandboxRuntime for DockerSandboxAdapter {
         // Strict edge teardown: never provision past a failed remove, or the
         // fresh plan would reuse the stale sandbox container.
         let container_name = generate_container_name(task_id);
-        self.force_remove_container(&container_name, task_id)
+        self.force_remove_container(&container_name)
             .await
             .map_err(map_sandbox_error)?;
         self.ensure_container_absent_runtime(&container_name, task_id)
@@ -532,7 +541,7 @@ impl SandboxRuntime for DockerSandboxAdapter {
         // Load-bearing: strict removal must not report success while the sandbox
         // container lingers — a propagated error withholds lifecycle's `Removed`
         // completion, the sole publisher of that fact.
-        self.force_remove_container(&container_name, task_id)
+        self.force_remove_container(&container_name)
             .await
             .map_err(map_sandbox_error)?;
         self.ensure_container_absent_runtime(&container_name, task_id)
@@ -625,8 +634,7 @@ impl SandboxConnector for DockerSandboxAdapter {
             "http://{}:{}",
             container_name, self.config.sandbox.grpc_port
         );
-        SandboxClient::connect(&url)
-            .map_err(|e| SandboxError::Internal(format!("Failed to create gRPC client: {e}")))
+        SandboxClient::connect(&url).map_err(SandboxError::GrpcClient)
     }
 }
 
@@ -656,14 +664,9 @@ fn recreate_config(
     let config = inspected.config.ok_or_else(|| {
         SandboxError::DockerError("Container inspect response had no config".to_string())
     })?;
-    let value = serde_json::to_value(config).map_err(|e| {
-        SandboxError::DockerError(format!(
-            "Failed to serialize inspected container config: {e}"
-        ))
-    })?;
-    let mut body: ContainerCreateBody = serde_json::from_value(value).map_err(|e| {
-        SandboxError::DockerError(format!("Failed to rebuild inspected container config: {e}"))
-    })?;
+    let value = serde_json::to_value(config).map_err(SandboxError::DockerConfig)?;
+    let mut body: ContainerCreateBody =
+        serde_json::from_value(value).map_err(SandboxError::DockerConfig)?;
     body.host_config = inspected.host_config;
     body.networking_config = inspected
         .network_settings
@@ -709,9 +712,10 @@ impl DockerSandboxAdapter {
             Err(bollard::errors::Error::DockerResponseServerError {
                 status_code: 404, ..
             }) => Err(SandboxError::NotReady("Sandbox not provisioned".into())),
-            Err(e) => Err(SandboxError::DockerError(format!(
-                "Failed to inspect container: {e}"
-            ))),
+            Err(source) => Err(SandboxError::Docker {
+                operation: "inspecting the sandbox container",
+                source,
+            }),
         }
     }
 
@@ -736,8 +740,9 @@ impl DockerSandboxAdapter {
                     .docker
                     .start_container(&server_container_name, None::<StartContainerOptions>)
                     .await
-                    .map_err(|e| {
-                        SandboxError::DockerError(format!("Failed to start server container: {e}"))
+                    .map_err(|source| SandboxError::Docker {
+                        operation: "starting an existing server container",
+                        source,
                     })?;
                 return Ok(());
             }
@@ -762,16 +767,18 @@ impl DockerSandboxAdapter {
                 server_config,
             )
             .await
-            .map_err(|e| {
-                SandboxError::DockerError(format!("Failed to create server container: {e}"))
+            .map_err(|source| SandboxError::Docker {
+                operation: "creating a server container",
+                source,
             })?;
 
         self.client
             .docker
             .start_container(&server_container_name, None::<StartContainerOptions>)
             .await
-            .map_err(|e| {
-                SandboxError::DockerError(format!("Failed to start server container: {e}"))
+            .map_err(|source| SandboxError::Docker {
+                operation: "starting a server container",
+                source,
             })?;
 
         info!(
@@ -823,9 +830,9 @@ impl DockerSandboxAdapter {
                     })
                     .collect()
             })
-            .map_err(|e| {
-                warn!(task_id = %task_id, error = %e, "Failed to list server containers");
-                SandboxError::DockerError(format!("list server containers: {e}"))
+            .map_err(|source| SandboxError::Docker {
+                operation: "listing server containers",
+                source,
             })
     }
 
@@ -897,7 +904,7 @@ impl DockerSandboxAdapter {
         names: Vec<String>,
     ) -> Result<(), SandboxError> {
         for name in names {
-            self.force_remove_container(&name, task_id).await?;
+            self.force_remove_container(&name).await?;
         }
         if self.list_server_container_names(task_id).await?.is_empty() {
             Ok(())
@@ -911,11 +918,7 @@ impl DockerSandboxAdapter {
     /// Force-remove a container. `Ok` on success or when it is already gone
     /// (404); a non-404 error propagates so removal can be load-bearing —
     /// strict cleanup and edge teardown must not proceed past a failed remove.
-    async fn force_remove_container(
-        &self,
-        container_name: &str,
-        task_id: &str,
-    ) -> Result<(), SandboxError> {
+    async fn force_remove_container(&self, container_name: &str) -> Result<(), SandboxError> {
         match self
             .client
             .docker
@@ -934,12 +937,10 @@ impl DockerSandboxAdapter {
             Err(bollard::errors::Error::DockerResponseServerError {
                 status_code: 404, ..
             }) => Ok(()),
-            Err(e) => {
-                warn!(task_id = %task_id, container = %container_name, error = %e, "Failed to remove container");
-                Err(SandboxError::DockerError(format!(
-                    "remove container {container_name}: {e}"
-                )))
-            }
+            Err(source) => Err(SandboxError::Docker {
+                operation: "removing a container",
+                source,
+            }),
         }
     }
 
@@ -954,9 +955,10 @@ impl DockerSandboxAdapter {
             Err(bollard::errors::Error::DockerResponseServerError {
                 status_code: 404, ..
             }) => Ok(false),
-            Err(e) => Err(SandboxError::DockerError(format!(
-                "inspect container {container_name}: {e}"
-            ))),
+            Err(source) => Err(SandboxError::Docker {
+                operation: "inspecting a container by name",
+                source,
+            }),
         }
     }
 

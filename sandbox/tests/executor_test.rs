@@ -229,7 +229,7 @@ fn test_config() -> Config {
 fn test_state(backend: Arc<dyn BackendClient>) -> SandboxState {
     use moatless_sandbox::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
 
-    let outbox = moatless_sandbox::outbox::EventOutbox::spawn(
+    let (outbox, _drainer) = moatless_sandbox::outbox::EventOutbox::spawn(
         Arc::clone(&backend),
         "test-task".to_string(),
         tokio_util::sync::CancellationToken::new(),
@@ -277,6 +277,7 @@ fn test_state(backend: Arc<dyn BackendClient>) -> SandboxState {
         codex_watcher_handle: Arc::new(RwLock::new(None)),
         system_prompt_cache,
         dispatch_lock: Default::default(),
+        supervisor_health: Default::default(),
     }
 }
 

@@ -152,7 +152,7 @@ impl SkillService {
                 remote_url,
             )
             .await
-            .map_err(|error| SkillError::Internal(error.to_string()))?
+            .map_err(SkillError::RepositoryToken)?
         } else {
             self.resolve_token_for_provider(auth, repo.provider.as_ref())
                 .await?
@@ -241,9 +241,7 @@ impl SkillService {
                 // No token configured — fall through to unauthenticated fetch.
                 Err(AuthError::NotFound(_)) => Ok(None),
                 Err(AuthError::Database(e)) => Err(SkillError::Db(e)),
-                Err(e) => Err(SkillError::Internal(format!(
-                    "GitHub token resolution failed: {e}"
-                ))),
+                Err(e) => Err(SkillError::UserToken(e)),
             };
         }
 

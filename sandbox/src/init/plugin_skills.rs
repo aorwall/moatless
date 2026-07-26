@@ -1,4 +1,4 @@
-//! Stage Claude Code plugin skills so that Codex can discover them.
+//! Stage plugin skills so that Codex can discover them.
 //!
 //! Claude Code consumes plugins via `PluginConfig { type: "local", path }`
 //! entries in `ClaudeOptions`. Codex has no plugin system; it only discovers
@@ -9,6 +9,10 @@
 //!
 //! Runs after `clone_plugin_repos()` during core init. Non-fatal: failures
 //! are logged and skipped.
+//!
+//! Synchronous and recursive (it copies whole skill trees and removes stale
+//! targets), so core init invokes it through [`super::run_init_blocking`]
+//! rather than on a Tokio worker.
 
 use std::path::{Path, PathBuf};
 
@@ -25,13 +29,49 @@ struct PluginManifest {
     skills: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct PluginMarketplace {
+    #[serde(default)]
+    plugins: Vec<PluginMarketplaceEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PluginMarketplaceEntry {
+    name: String,
+    source: PluginMarketplaceSource,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum PluginMarketplaceSource {
+    LocalPath(String),
+    Descriptor {
+        source: String,
+        #[serde(default)]
+        path: Option<String>,
+    },
+}
+
+const PLUGIN_MANIFEST_PATHS: [&str; 3] = [
+    ".codex-plugin/plugin.json",
+    ".agents-plugin/plugin.json",
+    ".claude-plugin/plugin.json",
+];
+
+const PLUGIN_MARKETPLACE_PATHS: [&str; 2] = [
+    ".agents/plugins/marketplace.json",
+    ".claude-plugin/marketplace.json",
+];
+
 /// Scan `/opt/moatless/plugins/*`, resolve each plugin's `skills/` directory
-/// (honoring `.claude-plugin/plugin.json`), and copy every skill into
-/// `/etc/codex/skills/{plugin}--{skill}/`.
+/// (honoring plugin manifests and repo-local plugin marketplace files), and
+/// copy every skill into `/etc/codex/skills/{plugin}--{skill}/`.
 ///
 /// Returns the number of skills copied. Non-fatal — any error is logged and
 /// the scan continues.
-pub async fn stage_plugin_skills_for_codex() -> usize {
+///
+/// Blocking and recursive — call it through [`super::run_init_blocking`].
+pub(super) fn stage_plugin_skills_for_codex() -> usize {
     stage_plugin_skills_with_roots(Path::new(PLUGINS_DIR), Path::new(CODEX_SKILLS_DIR))
 }
 
@@ -85,6 +125,92 @@ fn stage_plugin_skills_with_roots(plugins_root: &Path, codex_skills_root: &Path)
 }
 
 fn stage_single_plugin(plugin_path: &Path, plugin_name: &str, codex_skills_root: &Path) -> usize {
+    if let Some(count) = stage_agents_marketplace(plugin_path, codex_skills_root) {
+        return count;
+    }
+
+    stage_plugin_component(plugin_path, plugin_name, codex_skills_root)
+}
+
+fn stage_agents_marketplace(plugin_path: &Path, codex_skills_root: &Path) -> Option<usize> {
+    let (marketplace_path, raw) = read_first_marketplace(plugin_path)?;
+    let marketplace: PluginMarketplace = match serde_json::from_str(&raw) {
+        Ok(marketplace) => marketplace,
+        Err(e) => {
+            warn!(
+                marketplace = %marketplace_path.display(),
+                error = %e,
+                "Invalid .agents plugin marketplace — falling back to root plugin"
+            );
+            return None;
+        }
+    };
+
+    let mut count = 0usize;
+    for plugin in marketplace.plugins {
+        let Some(source_path) = marketplace_local_path(&plugin.source, &plugin.name) else {
+            continue;
+        };
+        let plugin_subdir = match normalize_skills_path(&source_path) {
+            Ok(path) => path,
+            Err(e) => {
+                warn!(
+                    plugin = %plugin.name,
+                    path = %source_path,
+                    error = %e,
+                    "Rejected .agents marketplace plugin path"
+                );
+                continue;
+            }
+        };
+        let component_path = plugin_path.join(plugin_subdir);
+        count += stage_plugin_component(&component_path, &plugin.name, codex_skills_root);
+    }
+
+    Some(count)
+}
+
+fn read_first_marketplace(plugin_path: &Path) -> Option<(PathBuf, String)> {
+    for marketplace_path in PLUGIN_MARKETPLACE_PATHS {
+        let path = plugin_path.join(marketplace_path);
+        if let Ok(raw) = std::fs::read_to_string(&path) {
+            return Some((path, raw));
+        }
+    }
+    None
+}
+
+fn marketplace_local_path(source: &PluginMarketplaceSource, plugin_name: &str) -> Option<String> {
+    match source {
+        PluginMarketplaceSource::LocalPath(path) => {
+            if path.trim().starts_with("./") {
+                Some(path.clone())
+            } else {
+                debug!(
+                    plugin = %plugin_name,
+                    source = %path,
+                    "Skipping non-local plugin marketplace string source"
+                );
+                None
+            }
+        }
+        PluginMarketplaceSource::Descriptor { source, path } if source == "local" => path.clone(),
+        PluginMarketplaceSource::Descriptor { source, .. } => {
+            debug!(
+                plugin = %plugin_name,
+                source = %source,
+                "Skipping non-local plugin marketplace descriptor source"
+            );
+            None
+        }
+    }
+}
+
+fn stage_plugin_component(
+    plugin_path: &Path,
+    plugin_name: &str,
+    codex_skills_root: &Path,
+) -> usize {
     let skills_subdir = resolve_plugin_skills_subdir(plugin_path);
     let skills_dir = plugin_path.join(&skills_subdir);
     if !skills_dir.is_dir() {
@@ -159,34 +285,38 @@ fn stage_single_plugin(plugin_path: &Path, plugin_name: &str, codex_skills_root:
 }
 
 fn resolve_plugin_skills_subdir(plugin_path: &Path) -> PathBuf {
-    let manifest_path = plugin_path.join(".claude-plugin").join("plugin.json");
-    let raw = match std::fs::read_to_string(&manifest_path) {
-        Ok(raw) => raw,
-        Err(_) => return PathBuf::from("skills"),
-    };
-    let manifest: PluginManifest = match serde_json::from_str(&raw) {
-        Ok(m) => m,
-        Err(e) => {
-            warn!(
-                manifest = %manifest_path.display(),
-                error = %e,
-                "Invalid .claude-plugin/plugin.json — falling back to default skills/ dir"
-            );
-            return PathBuf::from("skills");
-        }
-    };
-    let raw_path = manifest.skills.as_deref().unwrap_or("skills");
-    match normalize_skills_path(raw_path) {
-        Ok(path) => PathBuf::from(path),
-        Err(e) => {
-            warn!(
-                manifest = %manifest_path.display(),
-                error = %e,
-                "Rejected plugin.json skills path — falling back to default skills/ dir"
-            );
-            PathBuf::from("skills")
+    for manifest_path in PLUGIN_MANIFEST_PATHS {
+        let manifest_path = plugin_path.join(manifest_path);
+        let raw = match std::fs::read_to_string(&manifest_path) {
+            Ok(raw) => raw,
+            Err(_) => continue,
+        };
+        let manifest: PluginManifest = match serde_json::from_str(&raw) {
+            Ok(m) => m,
+            Err(e) => {
+                warn!(
+                    manifest = %manifest_path.display(),
+                    error = %e,
+                    "Invalid plugin manifest — falling back to default skills/ dir"
+                );
+                return PathBuf::from("skills");
+            }
+        };
+        let raw_path = manifest.skills.as_deref().unwrap_or("skills");
+        match normalize_skills_path(raw_path) {
+            Ok(path) => return PathBuf::from(path),
+            Err(e) => {
+                warn!(
+                    manifest = %manifest_path.display(),
+                    error = %e,
+                    "Rejected plugin.json skills path — falling back to default skills/ dir"
+                );
+                return PathBuf::from("skills");
+            }
         }
     }
+
+    PathBuf::from("skills")
 }
 
 /// Normalize a `plugin.json` `skills` value:
@@ -277,8 +407,19 @@ mod tests {
         // Plugin C: no skills dir at all — must be ignored.
         fs::create_dir_all(plugins.join("plugin-c")).unwrap();
 
+        // Plugin D: Codex manifest location.
+        let plugin_d = plugins.join("plugin-d");
+        write(
+            &plugin_d.join(".codex-plugin/plugin.json"),
+            r#"{"name":"plugin-d","skills":"./codex-skills/"}"#,
+        );
+        write(
+            &plugin_d.join("codex-skills/qux/SKILL.md"),
+            "---\nname: qux\n---\nqux body",
+        );
+
         let count = stage_plugin_skills_with_roots(&plugins, &codex);
-        assert_eq!(count, 3);
+        assert_eq!(count, 4);
 
         assert_eq!(
             fs::read_to_string(codex.join("plugin-a--foo/SKILL.md")).unwrap(),
@@ -290,7 +431,101 @@ mod tests {
         );
         assert!(codex.join("plugin-a--bar/SKILL.md").is_file());
         assert!(codex.join("plugin-b--baz/SKILL.md").is_file());
+        assert!(codex.join("plugin-d--qux/SKILL.md").is_file());
         assert!(!codex.join("plugin-c").exists());
+    }
+
+    #[test]
+    fn stages_agents_marketplace_local_plugins() {
+        let root = tempdir().unwrap();
+        let plugins = root.path().join("plugins");
+        let codex = root.path().join("codex-skills");
+
+        let marketplace_repo = plugins.join("marketplace");
+        write(
+            &marketplace_repo.join(".agents/plugins/marketplace.json"),
+            r#"{
+                "name": "local",
+                "plugins": [
+                    {
+                        "name": "moatless-skills",
+                        "source": {
+                            "source": "local",
+                            "path": "./plugins/moatless-skills"
+                        },
+                        "policy": {
+                            "installation": "AVAILABLE",
+                            "authentication": "ON_INSTALL"
+                        },
+                        "category": "Development"
+                    },
+                    {
+                        "name": "remote-only",
+                        "source": {
+                            "source": "url",
+                            "url": "git@github.com:example/remote-only.git"
+                        },
+                        "policy": {
+                            "installation": "AVAILABLE",
+                            "authentication": "ON_INSTALL"
+                        },
+                        "category": "Development"
+                    }
+                ]
+            }"#,
+        );
+        write(
+            &marketplace_repo.join("plugins/moatless-skills/.codex-plugin/plugin.json"),
+            r#"{"name":"moatless-skills","skills":"./skills/"}"#,
+        );
+        write(
+            &marketplace_repo.join("plugins/moatless-skills/skills/dev-loop/SKILL.md"),
+            "---\nname: dev-loop\n---\nbody",
+        );
+
+        let count = stage_plugin_skills_with_roots(&plugins, &codex);
+        assert_eq!(count, 1);
+        assert!(codex.join("moatless-skills--dev-loop/SKILL.md").is_file());
+        assert!(!codex.join("remote-only--dev-loop/SKILL.md").exists());
+    }
+
+    #[test]
+    fn stages_claude_marketplace_string_source_plugins() {
+        let root = tempdir().unwrap();
+        let plugins = root.path().join("plugins");
+        let codex = root.path().join("codex-skills");
+
+        let marketplace_repo = plugins.join("claude-marketplace");
+        write(
+            &marketplace_repo.join(".claude-plugin/marketplace.json"),
+            r#"{
+                "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+                "name": "local",
+                "plugins": [
+                    {
+                        "name": "moatless-skills",
+                        "description": "General development workflows",
+                        "author": {"name": "Albert Örwall"},
+                        "source": "./plugins/moatless-skills",
+                        "category": "development"
+                    }
+                ]
+            }"#,
+        );
+        write(
+            &marketplace_repo.join("plugins/moatless-skills/.claude-plugin/plugin.json"),
+            r#"{"name":"moatless-skills","skills":"./skills/"}"#,
+        );
+        write(
+            &marketplace_repo.join("plugins/moatless-skills/skills/code-review/SKILL.md"),
+            "---\nname: code-review\n---\nbody",
+        );
+
+        let count = stage_plugin_skills_with_roots(&plugins, &codex);
+        assert_eq!(count, 1);
+        assert!(codex
+            .join("moatless-skills--code-review/SKILL.md")
+            .is_file());
     }
 
     #[test]

@@ -1,8 +1,8 @@
-// Safety: set_var is unsafe in multi-threaded context but this module runs
-// during single-threaded init phase before any agent execution starts.
-#![allow(unsafe_code)]
-
 //! Directory creation for sandbox initialization.
+//!
+//! Everything here is synchronous and recursive (skill copies, `/tmp` cleanup),
+//! so it is only ever invoked through the blocking boundary in
+//! [`super::run_init_blocking`] — never directly on a Tokio worker.
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
@@ -71,7 +71,9 @@ fn reset_tmp() {
 }
 
 /// Ensure all required directories exist.
-pub fn ensure_directories(config: &Config) {
+///
+/// Blocking and recursive — call it through [`super::run_init_blocking`].
+pub(super) fn ensure_directories(config: &Config) {
     reset_tmp();
 
     let dirs = [
@@ -117,11 +119,11 @@ pub fn ensure_directories(config: &Config) {
         }
     }
 
-    // SAFETY: called during single-threaded init phase before any async
-    // workers are spawned. No concurrent threads can observe the env mutation.
-    unsafe {
-        std::env::set_var("CLAUDE_CODE_DEBUG_LOGS_DIR", "/tmp/claude-debug.log");
-    }
+    // `CLAUDE_CODE_DEBUG_LOGS_DIR` is deliberately NOT set here. Directory setup
+    // runs on the blocking pool with the runtime up, where `set_var` is unsound.
+    // It is set once in `main` before the runtime is built (covering the K8s path,
+    // which overrides the image entrypoint), and `docker-entrypoint-sandbox.sh`
+    // still exports it for image-entrypoint launches.
 
     info!("Directories initialized");
 }
