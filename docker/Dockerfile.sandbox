@@ -29,9 +29,8 @@ FROM ${SANDBOX_BASE}
 # Entrypoint scripts come from the sandbox-tools image so script edits don't
 # invalidate the binary COPY layer below (and vice versa).
 COPY --from=sandbox_tools /tools/docker-entrypoint-sandbox.sh /usr/local/bin/docker-entrypoint-sandbox.sh
-COPY --from=sandbox_tools /tools/sync-plugins.sh /usr/local/bin/sync-plugins.sh
 COPY --from=sandbox_tools /tools/moatless-git-cred /usr/local/bin/moatless-git-cred
-RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/sync-plugins.sh /usr/local/bin/moatless-git-cred
+RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/moatless-git-cred
 
 # Volatile layers last — our Rust binaries change on every code edit.
 ARG TARGETARCH

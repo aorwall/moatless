@@ -1,23 +1,23 @@
-//! Plugin repo commands: list, create, delete, link, unlink.
+//! Plugin commands: list, create, delete, link, unlink.
 
 use clap::Subcommand;
-use moatless_api_schemas::plugin_repo::{CreatePluginRepoRequest, PluginRepoResponse};
+use moatless_api_schemas::plugin::{CreatePluginRequest, PluginResponse};
 
 use crate::client::{ClientError, MoatClient};
 use crate::output;
 
 #[derive(Subcommand)]
 pub enum PluginAction {
-    /// List all plugin repos
+    /// List all registered plugins
     List,
-    /// Create a new plugin repo
+    /// Register a new plugin
     Create {
         #[arg(long)]
         name: String,
         #[arg(long)]
         git_url: String,
     },
-    /// Delete a plugin repo
+    /// Delete a plugin
     Delete { plugin_id: String },
     /// Link a plugin to a repository
     Link {
@@ -40,7 +40,7 @@ pub enum PluginAction {
 pub async fn run(client: &MoatClient, action: PluginAction, json: bool) -> Result<(), ClientError> {
     match action {
         PluginAction::List => {
-            let plugins = client.api().list_plugin_repos().await?;
+            let plugins = client.api().list_plugins().await?;
             if json {
                 output::print_json_typed(&plugins);
             } else {
@@ -48,17 +48,17 @@ pub async fn run(client: &MoatClient, action: PluginAction, json: bool) -> Resul
             }
         }
         PluginAction::Create { name, git_url } => {
-            let req = CreatePluginRepoRequest { name, git_url };
-            let created = client.api().create_plugin_repo(&req).await?;
+            let req = CreatePluginRequest { name, git_url };
+            let created = client.api().create_plugin(&req).await?;
             if json {
                 output::print_json_typed(&created);
             } else {
-                println!("Plugin repo created: {}", created.id);
+                println!("Plugin created: {}", created.id);
             }
         }
         PluginAction::Delete { plugin_id } => {
-            client.api().delete_plugin_repo(&plugin_id).await?;
-            println!("Plugin repo {plugin_id} deleted.");
+            client.api().delete_plugin(&plugin_id).await?;
+            println!("Plugin {plugin_id} deleted.");
         }
         PluginAction::Link { repo, plugin } => {
             client.api().link_plugin_to_repo(&repo, &plugin).await?;
@@ -80,7 +80,7 @@ pub async fn run(client: &MoatClient, action: PluginAction, json: bool) -> Resul
     Ok(())
 }
 
-fn format_plugin_list(plugins: &[PluginRepoResponse]) {
+fn format_plugin_list(plugins: &[PluginResponse]) {
     let rows: Vec<Vec<String>> = plugins
         .iter()
         .map(|p| vec![p.id.clone(), p.name.clone(), p.git_url.clone()])

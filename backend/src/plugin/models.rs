@@ -1,10 +1,10 @@
-//! Plugin repository domain types — DB row structs.
+//! Plugin domain types — DB row structs.
 
 use chrono::{DateTime, Utc};
 
-/// Row from the `plugin_repos` table.
+/// Row from the `plugins` table.
 #[derive(sqlx::FromRow, Debug, Clone)]
-pub struct PluginRepo {
+pub struct Plugin {
     pub id: String,
     pub name: String,
     pub git_url: String,

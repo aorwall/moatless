@@ -25,7 +25,7 @@ use crate::feedback::dao::{FeedbackRepository, PgFeedbackRepository};
 use crate::file_storage::dao::{FileRepository, PgFileRepository};
 use crate::loops::store::LoopStore;
 use crate::message::dao::{MessageRepository, PgMessageRepository};
-use crate::plugin_repo::dao::{PgPluginRepoRepository, PluginRepoRepository};
+use crate::plugin::dao::{PgPluginRepository, PluginRepository};
 use crate::repository::dao::{PgRepoRepository, RepoRepository};
 use crate::sandbox::access::SandboxConnector;
 use crate::sandbox::lifecycle::runtime::SandboxRuntime;
@@ -144,12 +144,12 @@ pub struct AppState {
     /// Authoritative per-turn lifecycle state (`task_turns`). Written
     /// transactionally at the gRPC ingress; the reaper reads it as the backstop.
     pub task_turns: Arc<dyn TaskTurnRepository>,
-    pub plugin_repos: Arc<dyn PluginRepoRepository>,
+    pub plugins: Arc<dyn PluginRepository>,
     /// Workspace composition + run-config (`workspaces` / `workspace_repos`).
     /// Provisioning resolves a task's repository composition through this.
     pub workspaces: Arc<dyn WorkspaceRepository>,
     /// Skill discovery service — reads `.claude/skills/` from workspace
-    /// and plugin repositories, parses frontmatter, caches results.
+    /// and plugins, parses frontmatter, caches results.
     pub skills: Arc<SkillService>,
     /// Durable admission for provider webhook work that cannot finish on the
     /// HTTP response path. A webhook handler admits through this before it
@@ -240,8 +240,8 @@ impl AppState {
         let workspaces: Arc<dyn WorkspaceRepository> =
             Arc::new(PgWorkspaceRepository(pool.clone()));
         let repositories: Arc<dyn RepoRepository> = Arc::new(PgRepoRepository(pool.clone()));
-        let plugin_repos: Arc<dyn PluginRepoRepository> =
-            Arc::new(PgPluginRepoRepository(pool.clone()));
+        let plugins: Arc<dyn PluginRepository> =
+            Arc::new(PgPluginRepository(pool.clone()));
         let provider_tokens: Arc<dyn ProviderTokenRepository> =
             Arc::new(PgProviderTokenRepository(pool.clone()));
         let provider_token_auth: Arc<dyn ProviderTokenAuthRepository> =
@@ -297,7 +297,7 @@ impl AppState {
         let skill_fetcher: Arc<dyn SkillFetcher> = Arc::new(GitHubSkillFetcher::new(skill_http));
         let skills = Arc::new(SkillService::new(
             repositories.clone(),
-            plugin_repos.clone(),
+            plugins.clone(),
             provider_tokens.clone(),
             provider_token_auth.clone(),
             github_app_service.clone(),
@@ -363,7 +363,7 @@ impl AppState {
             task_events: Arc::new(PgTaskEventRepository(pool.clone())),
             ingress_outbox: Arc::new(PgIngressOutbox(pool.clone())),
             task_turns: Arc::new(PgTaskTurnRepository(pool.clone())),
-            plugin_repos,
+            plugins,
             workspaces,
             skills,
             adapter_work: Arc::new(AdapterWorkStore::new(pool.clone())),

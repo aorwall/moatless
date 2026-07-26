@@ -24,7 +24,7 @@ use moatless_vibe_backend::startup;
 use moatless_vibe_backend::state::AppState;
 use moatless_vibe_backend::supervisor::{Criticality, Supervisor};
 use moatless_vibe_backend::{
-    adapters, feedback, file_storage, loops, message, plugin_repo, provider_settings, repository,
+    adapters, feedback, file_storage, loops, message, plugin, provider_settings, repository,
     secret, skill, tag, task, task_event, team, workspace,
 };
 
@@ -398,7 +398,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             loops::http::loops_router(app_state.clone()),
             team::routes::team_router(app_state.clone()),
             task_event::routes::task_event_router(app_state.clone()),
-            plugin_repo::routes::plugin_repo_router(app_state.clone()),
+            plugin::routes::plugin_router(app_state.clone()),
             skill::routes::skill_router(app_state.clone()),
             workspace::routes::workspace_router(app_state.clone()),
         ];

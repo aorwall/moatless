@@ -102,7 +102,6 @@ mod tests {
                 name: "test-repo".to_string(),
                 docker_image: None,
                 servers: None,
-                plugin_ids: None,
                 system_prompt: None,
                 code_execution: None,
                 preview_config: None,
@@ -111,7 +110,7 @@ mod tests {
                     docker_storage_mode: None,
                     ..Default::default()
                 }),
-                plugin_repos: None,
+                plugin_git_urls: None,
                 docker_access: None,
                 docker_networks: None,
                 sandbox_service_account: None,

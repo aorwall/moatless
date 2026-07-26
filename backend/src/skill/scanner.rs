@@ -21,14 +21,14 @@ struct SkillFrontmatter {
 /// Parse a SKILL.md body into a [`Skill`].
 ///
 /// Returns `None` (after logging a warning) when the frontmatter is missing,
-/// malformed, or has no `description:` field. `plugin_repo_id` and
-/// `plugin_repo_name` are recorded verbatim on the returned skill.
+/// malformed, or has no `description:` field. `plugin_id` and
+/// `plugin_name` are recorded verbatim on the returned skill.
 pub fn parse_skill(
     content: &str,
     dir_name: &str,
     source: SkillSource,
-    plugin_repo_id: Option<&str>,
-    plugin_repo_name: Option<&str>,
+    plugin_id: Option<&str>,
+    plugin_name: Option<&str>,
 ) -> Option<Skill> {
     let fm = match parse_frontmatter(content) {
         Ok(fm) => fm,
@@ -48,8 +48,8 @@ pub fn parse_skill(
         name,
         description,
         source,
-        plugin_repo_id: plugin_repo_id.map(String::from),
-        plugin_repo_name: plugin_repo_name.map(String::from),
+        plugin_id: plugin_id.map(String::from),
+        plugin_name: plugin_name.map(String::from),
     })
 }
 
@@ -146,8 +146,8 @@ mod tests {
         )
         .expect("plugin skill parses");
         assert_eq!(skill.source, SkillSource::Plugin);
-        assert_eq!(skill.plugin_repo_id.as_deref(), Some("plugin-123"));
-        assert_eq!(skill.plugin_repo_name.as_deref(), Some("ops-plugin"));
+        assert_eq!(skill.plugin_id.as_deref(), Some("plugin-123"));
+        assert_eq!(skill.plugin_name.as_deref(), Some("ops-plugin"));
     }
 
     #[test]

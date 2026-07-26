@@ -31,7 +31,7 @@ _Avoid_: putting run-config on a Repository
 
 **Workspace**:
 The composition of one or more repositories plus run-configuration (docker image,
-setup commands, env vars, servers, plugins, resources) that a Task runs against.
+setup commands, env vars, servers, resources) that a Task runs against.
 A Sandbox materializes it on disk under the workspace directory. `source` is
 `manual` (created via the API) or `git` (reconciled from a repo's
 `.moatless/workspaces.json`). Not the Sandbox (the pod that runs it) nor the
@@ -207,6 +207,27 @@ The LLM the Agent uses (e.g. Opus, Sonnet).
 **Subagent**:
 A sub-conversation the Agent spawns via the Task tool, threaded onto the spawning
 tool call (`parent_tool_use_id`).
+
+### Plugins & skills
+
+**Plugin**:
+A git repository of agent capabilities — skills, commands, agents — registered
+once by an admin and thereafter available to everyone. One word, everywhere: the
+table is `plugins`, the DAO is `PluginRepository`, the API is `/api/v1/plugins`,
+and the admin page is Plugins.
+_Avoid_: plugin repo, plugin_repo, marketplace
+
+**Skill**:
+One capability inside a Plugin — a `SKILL.md` and the files beside it. Skills are
+addressed as `{plugin}/{skill}` and are the unit a user turns on or off; a Plugin
+is delivered whole, minus the skills nobody picked.
+
+**Marketplace**:
+Claude Code's own `marketplace.json` manifest format, which a Plugin repository
+may use to declare where its plugins live. The word is theirs, not ours — it is
+allowed only in the code that parses that file (`backend/src/skill/fetcher.rs`,
+`sandbox/src/init/plugin_skills.rs`, `sandbox/src/agent/options.rs`) and never
+names one of our own concepts.
 
 ### Conversation
 

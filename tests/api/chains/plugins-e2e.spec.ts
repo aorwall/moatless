@@ -38,7 +38,7 @@ test.describe("Chain: Plugin Repos E2E", () => {
 
 	const ctx = new ChainContext();
 	let chainSse: SSEEventCollector;
-	let pluginRepoId: string;
+	let pluginId: string;
 
 	test.beforeAll(async ({ api }) => {
 		const repo = await api.ensureTemplateRepository();
@@ -53,12 +53,12 @@ test.describe("Chain: Plugin Repos E2E", () => {
 		chainSse?.stop();
 
 		// Unlink plugin from repo (ignore errors)
-		if (pluginRepoId && ctx.repositoryId) {
-			await api.unlinkPluginFromRepo(ctx.repositoryId, pluginRepoId).catch(() => {});
+		if (pluginId && ctx.repositoryId) {
+			await api.unlinkPluginFromRepo(ctx.repositoryId, pluginId).catch(() => {});
 		}
 		// Delete plugin repo
-		if (pluginRepoId) {
-			await api.deletePluginRepo(pluginRepoId).catch(() => {});
+		if (pluginId) {
+			await api.deletePlugin(pluginId).catch(() => {});
 		}
 		// Stop + delete task
 		if (ctx.taskId) {
@@ -71,7 +71,7 @@ test.describe("Chain: Plugin Repos E2E", () => {
 	// --- PLUGIN-01: Create plugin repo ----------------------------------------
 
 	test("PLUGIN-01: Create plugin repo", async ({ api }) => {
-		const plugin = await api.createPluginRepo({
+		const plugin = await api.createPlugin({
 			name: PLUGIN_NAME,
 			gitUrl: PLUGIN_GIT_URL,
 		});
@@ -80,15 +80,15 @@ test.describe("Chain: Plugin Repos E2E", () => {
 		expect(plugin.name).toBe(PLUGIN_NAME);
 		expect(plugin.gitUrl).toBe(PLUGIN_GIT_URL);
 
-		pluginRepoId = plugin.id;
+		pluginId = plugin.id;
 		console.log(`[Plugin] Created plugin repo: ${plugin.id}`);
 	});
 
 	// --- PLUGIN-01.1: List shows new plugin -----------------------------------
 
 	test("PLUGIN-01.1: List plugin repos includes new plugin", async ({ api }) => {
-		const plugins = await api.listPluginRepos();
-		const found = plugins.find((p) => p.id === pluginRepoId);
+		const plugins = await api.listPlugins();
+		const found = plugins.find((p) => p.id === pluginId);
 
 		expect(found).toBeDefined();
 		expect(found!.name).toBe(PLUGIN_NAME);
@@ -97,15 +97,15 @@ test.describe("Chain: Plugin Repos E2E", () => {
 	// --- PLUGIN-02: Link plugin to repository ---------------------------------
 
 	test("PLUGIN-02: Link plugin to repository", async ({ api }) => {
-		await api.linkPluginToRepo(ctx.repositoryId!, pluginRepoId);
-		console.log(`[Plugin] Linked ${pluginRepoId} to repo ${ctx.repositoryId}`);
+		await api.linkPluginToRepo(ctx.repositoryId!, pluginId);
+		console.log(`[Plugin] Linked ${pluginId} to repo ${ctx.repositoryId}`);
 	});
 
 	// --- PLUGIN-02.1: Verify link appears in repo plugins ---------------------
 
 	test("PLUGIN-02.1: Repository plugins list shows linked plugin", async ({ api }) => {
 		const plugins = await api.listRepoPlugins(ctx.repositoryId!);
-		const found = plugins.find((p) => p.id === pluginRepoId);
+		const found = plugins.find((p) => p.id === pluginId);
 
 		expect(found).toBeDefined();
 		expect(found!.gitUrl).toBe(PLUGIN_GIT_URL);
@@ -150,16 +150,16 @@ test.describe("Chain: Plugin Repos E2E", () => {
 		const summary = chainSse.getEventSummary(ctx.taskId!);
 		console.log("[Plugin] SSE event summary:", JSON.stringify(summary));
 
-		// Check for PluginReposCloned event
+		// Check for PluginsCloned event
 		const cloneEvent = events.find(
-			(e) => e.type === "sandbox" && e.payload?.reason === "PluginReposCloned",
+			(e) => e.type === "sandbox" && e.payload?.reason === "PluginsCloned",
 		);
 
 		if (cloneEvent) {
-			console.log("[Plugin] PluginReposCloned event found — clone succeeded");
+			console.log("[Plugin] PluginsCloned event found — clone succeeded");
 		} else {
 			console.warn(
-				"[Plugin] WARNING: No PluginReposCloned event — sandbox image may not support plugin repo cloning. " +
+				"[Plugin] WARNING: No PluginsCloned event — sandbox image may not support plugin repo cloning. " +
 					"Rebuild sandbox image with latest code: docker/build-sandbox.sh --local",
 			);
 		}
@@ -214,15 +214,15 @@ test.describe("Chain: Plugin Repos E2E", () => {
 			.map((block) => block.text as string)
 			.join("\n");
 
-		// Check for PluginReposCloned event — if missing, the failure is expected
+		// Check for PluginsCloned event — if missing, the failure is expected
 		const events = chainSse.getEventsForTask(ctx.taskId!);
 		const hadCloneEvent = events.some(
-			(e) => e.type === "sandbox" && e.payload?.reason === "PluginReposCloned",
+			(e) => e.type === "sandbox" && e.payload?.reason === "PluginsCloned",
 		);
 
 		if (!hadCloneEvent) {
 			console.warn(
-				"[Plugin] No PluginReposCloned SSE event — sandbox image likely doesn't support plugin cloning. " +
+				"[Plugin] No PluginsCloned SSE event — sandbox image likely doesn't support plugin cloning. " +
 					"Rebuild with: docker/build-sandbox.sh --local",
 			);
 		}
@@ -231,7 +231,7 @@ test.describe("Chain: Plugin Repos E2E", () => {
 		expect(
 			fullResponse,
 			"Agent should confirm skill access (SKILL_CHECK: YES). " +
-				"If sandbox image is stale, rebuild it to include clone_plugin_repos support.",
+				"If sandbox image is stale, rebuild it to include clone_plugins support.",
 		).toContain("SKILL_CHECK: YES");
 		expect(fullResponse.toLowerCase()).toContain("ad-campaign-best-practices");
 	});

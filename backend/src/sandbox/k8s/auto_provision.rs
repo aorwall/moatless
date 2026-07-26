@@ -48,7 +48,6 @@ pub fn filter_disabled_servers(repo_config: &mut RepoConfig, disabled: &[String]
 /// from the workspace's `servers` JSONB (data-driven).
 pub fn build_repo_config_from_workspace(ws: &Workspace) -> RepoConfig {
     let servers = build_server_configs_from_workspace(ws);
-    let plugin_ids = parse_json_string_array(&ws.plugins);
     let resources: Option<ResourceConfig> = ws
         .resources
         .as_ref()
@@ -63,12 +62,11 @@ pub fn build_repo_config_from_workspace(ws: &Workspace) -> RepoConfig {
         } else {
             Some(servers)
         },
-        plugin_ids,
         system_prompt: ws.system_prompt.clone(),
         code_execution,
         preview_config: None,
         resources,
-        plugin_repos: None,
+        plugin_git_urls: None,
         docker_access: ws.docker_access,
         docker_networks: None,
         sandbox_service_account: ws.sandbox_service_account.clone(),
@@ -154,13 +152,6 @@ fn assign_missing_ports(servers: &mut [ServerConfig]) {
     }
 }
 
-/// Parse a JSONB value that should be an array of strings.
-fn parse_json_string_array(value: &Option<serde_json::Value>) -> Option<Vec<String>> {
-    value
-        .as_ref()
-        .and_then(|v| serde_json::from_value(v.clone()).ok())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,12 +169,11 @@ mod tests {
             name: "repo".to_string(),
             docker_image: None,
             servers: Some(servers),
-            plugin_ids: None,
             system_prompt: None,
             code_execution: None,
             preview_config: None,
             resources: None,
-            plugin_repos: None,
+            plugin_git_urls: None,
             docker_access: None,
             docker_networks: None,
             sandbox_service_account: None,

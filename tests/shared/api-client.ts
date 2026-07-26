@@ -74,13 +74,13 @@ export interface SearchByNameResult {
 // Plugin Repo Types
 // =============================================================================
 
-export interface PluginRepoResponse {
+export interface PluginResponse {
 	id: string;
 	name: string;
 	gitUrl: string;
 }
 
-export interface CreatePluginRepoRequest {
+export interface CreatePluginRequest {
 	name: string;
 	gitUrl: string;
 }
@@ -1147,26 +1147,26 @@ export class ApiClient {
 	// Plugin Repo Operations
 	// =========================================================================
 
-	async createPluginRepo(req: CreatePluginRepoRequest): Promise<PluginRepoResponse> {
-		return this.fetchJson<PluginRepoResponse>(`${this.baseURL}/api/v1/plugin-repos`, {
+	async createPlugin(req: CreatePluginRequest): Promise<PluginResponse> {
+		return this.fetchJson<PluginResponse>(`${this.baseURL}/api/v1/plugins`, {
 			method: "POST",
 			body: JSON.stringify(req),
 		});
 	}
 
-	async listPluginRepos(): Promise<PluginRepoResponse[]> {
-		return this.fetchJson<PluginRepoResponse[]>(`${this.baseURL}/api/v1/plugin-repos`);
+	async listPlugins(): Promise<PluginResponse[]> {
+		return this.fetchJson<PluginResponse[]>(`${this.baseURL}/api/v1/plugins`);
 	}
 
-	async deletePluginRepo(id: string): Promise<void> {
-		await this.fetchRaw(`${this.baseURL}/api/v1/plugin-repos/${id}`, {
+	async deletePlugin(id: string): Promise<void> {
+		await this.fetchRaw(`${this.baseURL}/api/v1/plugins/${id}`, {
 			method: "DELETE",
 			throwOnError: true,
 		});
 	}
 
-	async listRepoPlugins(repoId: string): Promise<PluginRepoResponse[]> {
-		return this.fetchJson<PluginRepoResponse[]>(
+	async listRepoPlugins(repoId: string): Promise<PluginResponse[]> {
+		return this.fetchJson<PluginResponse[]>(
 			`${this.baseURL}/api/v1/repositories/${repoId}/plugins`,
 		);
 	}

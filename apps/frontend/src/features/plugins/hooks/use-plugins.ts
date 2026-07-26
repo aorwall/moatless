@@ -1,94 +1,57 @@
+import type { CreatePluginRequest, PluginResponse } from '@moatless/api-client'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { pluginsApi } from '@/features/plugins/api/plugins.api'
+import { pluginsApi } from '@/features/plugins/api/plugins'
 import { queryKeys } from '@/lib/api/query-keys'
-import type { PluginInfo, PluginMarketplace } from '@/lib/types/plugins'
 
-// ============================================================================
-// Query Hooks
-// ============================================================================
-
-/**
- * Hook to list all available plugins from all marketplaces
- */
+/** Every registered plugin. Visible to everyone; only admins may change the set. */
 export function usePlugins(
-  options?: Omit<UseQueryOptions<{ plugins: PluginInfo[] }>, 'queryKey' | 'queryFn'>,
+  options?: Omit<UseQueryOptions<PluginResponse[]>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
     queryKey: queryKeys.plugins.list(),
     queryFn: () => pluginsApi.listPlugins(),
-    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
     ...options,
   })
 }
 
-/**
- * Hook to list all plugin marketplaces
- */
-export function useMarketplaces(
-  options?: Omit<UseQueryOptions<{ marketplaces: PluginMarketplace[] }>, 'queryKey' | 'queryFn'>,
+/** Plugins linked to one repository. */
+export function useRepoPlugins(
+  repoId: string,
+  options?: Omit<UseQueryOptions<PluginResponse[]>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
-    queryKey: queryKeys.plugins.marketplacesList(),
-    queryFn: () => pluginsApi.listMarketplaces(),
-    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+    queryKey: queryKeys.plugins.repoList(repoId),
+    queryFn: () => pluginsApi.listRepoPlugins(repoId),
+    enabled: !!repoId,
     ...options,
   })
 }
 
-// ============================================================================
-// Mutation Hooks
-// ============================================================================
-
-/**
- * Hook to add a new plugin marketplace
- */
-export function useAddMarketplace(
-  options?: UseMutationOptions<PluginMarketplace, Error, { repoUrl: string }>,
+export function useCreatePlugin(
+  options?: UseMutationOptions<PluginResponse, Error, CreatePluginRequest>,
 ) {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ repoUrl }) => pluginsApi.addMarketplace({ repoUrl }),
-    onSuccess: (data, variables, onMutateResult, mutationContext) => {
-      // Invalidate plugins and marketplaces lists
-      queryClient.invalidateQueries({ queryKey: queryKeys.plugins.all() })
-      options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
-    },
+    mutationFn: (request: CreatePluginRequest) => pluginsApi.createPlugin(request),
     ...options,
+    onSuccess: async (data, variables, onMutateResult, mutationContext) => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.plugins.all() })
+      await options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
+    },
   })
 }
 
-/**
- * Hook to remove a plugin marketplace
- */
-export function useRemoveMarketplace(options?: UseMutationOptions<void, Error, string>) {
+export function useDeletePlugin(options?: UseMutationOptions<void, Error, string>) {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (marketplaceId) => pluginsApi.removeMarketplace(marketplaceId),
-    onSuccess: (data, marketplaceId, onMutateResult, mutationContext) => {
-      // Invalidate plugins and marketplaces lists
-      queryClient.invalidateQueries({ queryKey: queryKeys.plugins.all() })
-      options?.onSuccess?.(data, marketplaceId, onMutateResult, mutationContext)
-    },
+    mutationFn: (pluginId: string) => pluginsApi.deletePlugin(pluginId),
     ...options,
-  })
-}
-
-/**
- * Hook to sync a plugin marketplace from remote
- */
-export function useSyncMarketplace(options?: UseMutationOptions<PluginMarketplace, Error, string>) {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: (marketplaceId) => pluginsApi.syncMarketplace(marketplaceId),
-    onSuccess: (data, marketplaceId, onMutateResult, mutationContext) => {
-      // Invalidate plugins and marketplaces lists
-      queryClient.invalidateQueries({ queryKey: queryKeys.plugins.all() })
-      options?.onSuccess?.(data, marketplaceId, onMutateResult, mutationContext)
+    onSuccess: async (data, variables, onMutateResult, mutationContext) => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.plugins.all() })
+      await options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
     },
-    ...options,
   })
 }

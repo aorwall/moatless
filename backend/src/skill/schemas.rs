@@ -10,8 +10,8 @@ impl From<Skill> for SkillResponse {
             name: skill.name,
             description: skill.description,
             source: skill.source,
-            plugin_repo_id: skill.plugin_repo_id,
-            plugin_repo_name: skill.plugin_repo_name,
+            plugin_id: skill.plugin_id,
+            plugin_name: skill.plugin_name,
         }
     }
 }

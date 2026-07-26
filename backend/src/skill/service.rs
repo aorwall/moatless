@@ -1,9 +1,9 @@
 //! Orchestrator for discovering skills in the workspace repository and its
-//! linked plugin repositories.
+//! linked plugins.
 //!
 //! Caches the parsed skill lists in memory with a TTL. Cache keys:
 //!   - `workspace:{repository_id}` — skills from the workspace repo
-//!   - `plugin:{plugin_repo_id}` — skills from a plugin repo (shared across
+//!   - `plugin:{plugin_id}` — skills from a plugin (shared across
 //!     all workspace repos that reference it)
 
 use std::collections::HashSet;
@@ -25,16 +25,16 @@ use crate::auth::github_app_service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenRepository;
 use crate::auth::provider_tokens::ProviderTokenAuthRepository;
 use crate::extractors::AuthUser;
-use crate::plugin_repo::dao::PluginRepoRepository;
-use crate::plugin_repo::models::PluginRepo;
+use crate::plugin::dao::PluginRepository;
+use crate::plugin::models::Plugin;
 use crate::repository::dao::RepoRepository;
 use crate::repository::models::{Repository, RepositoryKind, RepositoryProvider};
 use crate::secret::service::SecretService;
 
-/// Orchestrates skill discovery across workspace + plugin repositories.
+/// Orchestrates skill discovery across workspace + plugins.
 pub struct SkillService {
     repositories: Arc<dyn RepoRepository>,
-    plugin_repos: Arc<dyn PluginRepoRepository>,
+    plugins: Arc<dyn PluginRepository>,
     provider_tokens: Arc<dyn ProviderTokenRepository>,
     provider_token_auth: Arc<dyn ProviderTokenAuthRepository>,
     github_app_service: Option<Arc<GitHubAppService>>,
@@ -50,7 +50,7 @@ impl SkillService {
     // and the constructor is called once from AppState::new.
     pub fn new(
         repositories: Arc<dyn RepoRepository>,
-        plugin_repos: Arc<dyn PluginRepoRepository>,
+        plugins: Arc<dyn PluginRepository>,
         provider_tokens: Arc<dyn ProviderTokenRepository>,
         provider_token_auth: Arc<dyn ProviderTokenAuthRepository>,
         github_app_service: Option<Arc<GitHubAppService>>,
@@ -65,7 +65,7 @@ impl SkillService {
             .build();
         Self {
             repositories,
-            plugin_repos,
+            plugins,
             provider_tokens,
             provider_token_auth,
             github_app_service,
@@ -106,7 +106,7 @@ impl SkillService {
 
         // ---- Plugin skills (stable order from DAO) ----
         let plugins = self
-            .plugin_repos
+            .plugins
             .find_by_repository_id(repository_id)
             .await?;
         for plugin in plugins {
@@ -178,12 +178,12 @@ impl SkillService {
 
     async fn plugin_skills(
         &self,
-        plugin: &PluginRepo,
+        plugin: &Plugin,
         auth: &AuthUser,
     ) -> Result<Arc<Vec<Skill>>, SkillError> {
         let cache_key = format!("plugin:{}", plugin.id);
         if let Some(cached) = self.cache.get(&cache_key).await {
-            debug!(plugin_repo_id = %plugin.id, "Skill cache hit (plugin)");
+            debug!(plugin_id = %plugin.id, "Skill cache hit (plugin)");
             return Ok(cached);
         }
 

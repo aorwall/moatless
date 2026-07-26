@@ -8,38 +8,14 @@ use tracing::{info, warn};
 
 use crate::config::Config;
 
-/// Sync plugins from backend API.
-pub async fn sync_plugins(config: &Config) -> Result<usize, String> {
-    let count = config.plugin_ids.len();
-    if count == 0 {
-        return Ok(0);
-    }
-
-    info!(count, "Syncing plugins from backend API");
-    let script = "/usr/local/bin/sync-plugins.sh";
-    if Path::new(script).exists() {
-        let output = Command::new(script)
-            .output()
-            .await
-            .map_err(|e| format!("Failed to run sync-plugins.sh: {e}"))?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("sync-plugins.sh failed: {stderr}"));
-        }
-    } else {
-        warn!("sync-plugins.sh not found, skipping plugin sync");
-    }
-    Ok(count)
-}
-
-/// Clone plugin git repos into `/opt/moatless/plugins/{name}/`.
+/// Clone each plugin's git source into `/opt/moatless/plugins/{name}/`.
 ///
 /// For each URL: derive name from last path segment (minus `.git`),
 /// clone with `git clone --depth 1`, use `GIT_TOKEN` for auth.
 /// Skip if already cloned. Non-fatal on failure.
 /// Returns list of cloned directory paths.
-pub async fn clone_plugin_repos(config: &Config) -> Vec<String> {
-    if config.plugin_repos.is_empty() {
+pub async fn clone_plugins(config: &Config) -> Vec<String> {
+    if config.plugin_git_urls.is_empty() {
         return Vec::new();
     }
 
@@ -53,7 +29,7 @@ pub async fn clone_plugin_repos(config: &Config) -> Vec<String> {
 
     let mut cloned_paths = Vec::new();
 
-    for url in &config.plugin_repos {
+    for url in &config.plugin_git_urls {
         let name = derive_plugin_name(url);
         let dest = format!("{base_dir}/{name}");
 

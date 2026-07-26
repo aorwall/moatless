@@ -3179,6 +3179,134 @@
         }
       }
     },
+    "/api/v1/plugins": {
+      "get": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "List all plugins.",
+        "operationId": "list_plugins",
+        "responses": {
+          "200": {
+            "description": "List of plugins",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PluginResponse"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "Create a new plugin.",
+        "operationId": "create_plugin",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePluginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Created plugin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Name already exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugins/{id}": {
+      "delete": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "Delete a plugin.",
+        "operationId": "delete_plugin",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Plugin ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/repositories": {
       "get": {
         "tags": [
@@ -3231,6 +3359,157 @@
           },
           "409": {
             "description": "Repository already exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repositories/{repo_id}/plugins": {
+      "get": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "List plugins linked to a repository.",
+        "operationId": "list_repo_plugins",
+        "parameters": [
+          {
+            "name": "repo_id",
+            "in": "path",
+            "description": "Repository ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Linked plugins",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PluginResponse"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repositories/{repo_id}/plugins/{plugin_id}": {
+      "post": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "Link a plugin to a repository.",
+        "operationId": "link_plugin",
+        "parameters": [
+          {
+            "name": "repo_id",
+            "in": "path",
+            "description": "Repository ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "plugin_id",
+            "in": "path",
+            "description": "Plugin ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Linked"
+          },
+          "404": {
+            "description": "Plugin not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "Unlink a plugin from a repository.",
+        "operationId": "unlink_plugin",
+        "parameters": [
+          {
+            "name": "repo_id",
+            "in": "path",
+            "description": "Repository ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "plugin_id",
+            "in": "path",
+            "description": "Plugin ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Unlinked"
+          },
+          "404": {
+            "description": "Link not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
             "content": {
               "application/json": {
                 "schema": {
@@ -3497,7 +3776,7 @@
           "skills"
         ],
         "summary": "List all skills discovered for a repository.",
-        "description": "Returns skills from the workspace repo's own `.claude/skills/` directory\nplus skills from every linked plugin repo, deduplicated by name\n(workspace shadows plugin, first plugin wins on plugin-vs-plugin clash).",
+        "description": "Returns skills from the workspace repo's own `.claude/skills/` directory\nplus skills from every linked plugin, deduplicated by name\n(workspace shadows plugin, first plugin wins on plugin-vs-plugin clash).",
         "operationId": "list_repository_skills",
         "parameters": [
           {
@@ -8793,6 +9072,22 @@
           }
         ]
       },
+      "CreatePluginRequest": {
+        "type": "object",
+        "description": "Request to register a new plugin.",
+        "required": [
+          "name",
+          "gitUrl"
+        ],
+        "properties": {
+          "gitUrl": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "CreateRepositoryRequest": {
         "type": "object",
         "description": "A repository is a connection to a git repo. Run-configuration lives on the\nworkspace, not here.",
@@ -9234,15 +9529,6 @@
               "string",
               "null"
             ]
-          },
-          "plugins": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            }
           },
           "repos": {
             "type": "array",
@@ -11168,6 +11454,26 @@
           }
         }
       },
+      "PluginResponse": {
+        "type": "object",
+        "description": "Plugin response.",
+        "required": [
+          "id",
+          "name",
+          "gitUrl"
+        ],
+        "properties": {
+          "gitUrl": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "PreviewUrlContextData": {
         "type": "object",
         "description": "Data for a preview URL context.",
@@ -12979,13 +13285,13 @@
           "name": {
             "type": "string"
           },
-          "pluginRepoId": {
+          "pluginId": {
             "type": [
               "string",
               "null"
             ]
           },
-          "pluginRepoName": {
+          "pluginName": {
             "type": [
               "string",
               "null"
@@ -14735,15 +15041,6 @@
               "null"
             ]
           },
-          "plugins": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
           "resources": {
             "oneOf": [
               {
@@ -15297,15 +15594,6 @@
               "null"
             ]
           },
-          "plugins": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
           "repos": {
             "type": "array",
             "items": {
@@ -15556,6 +15844,10 @@
     {
       "name": "task-events",
       "description": "Task event history"
+    },
+    {
+      "name": "plugins",
+      "description": "Plugin registry management"
     },
     {
       "name": "skills",

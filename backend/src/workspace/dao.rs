@@ -23,7 +23,6 @@ pub struct WorkspacePatch {
     pub setup_commands: Option<Option<serde_json::Value>>,
     pub env_vars: Option<Option<serde_json::Value>>,
     pub servers: Option<Option<serde_json::Value>>,
-    pub plugins: Option<Option<serde_json::Value>>,
     pub resources: Option<Option<serde_json::Value>>,
     pub network_profile: Option<Option<String>>,
     pub source: Option<String>,
@@ -172,12 +171,12 @@ impl WorkspaceRepository for PgWorkspaceRepository {
             r#"INSERT INTO workspaces (
                    id, name, description, kind,
                    docker_image, docker_access, sandbox_service_account,
-                   system_prompt, setup_commands, env_vars, servers, plugins, resources,
+                   system_prompt, setup_commands, env_vars, servers, resources,
                    network_profile, source, source_repository_id, source_key, source_config_path,
                    scope, owner_user_id, created_by, deleted
                ) VALUES (
-                   $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-                   $14, $15, $16, $17, $18, $19, $20, $21, $22
+                   $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                   $13, $14, $15, $16, $17, $18, $19, $20, $21
                )"#,
         )
         .bind(&row.id)
@@ -191,7 +190,6 @@ impl WorkspaceRepository for PgWorkspaceRepository {
         .bind(&row.setup_commands)
         .bind(&row.env_vars)
         .bind(&row.servers)
-        .bind(&row.plugins)
         .bind(&row.resources)
         .bind(&row.network_profile)
         .bind(&row.source)
@@ -267,7 +265,6 @@ impl WorkspaceRepository for PgWorkspaceRepository {
         push_set!(setup_commands);
         push_set!(env_vars);
         push_set!(servers);
-        push_set!(plugins);
         push_set!(resources);
         push_set!(network_profile);
         push_set!(source);
@@ -313,7 +310,6 @@ impl WorkspaceRepository for PgWorkspaceRepository {
         bind_opt!(setup_commands);
         bind_opt!(env_vars);
         bind_opt!(servers);
-        bind_opt!(plugins);
         bind_opt!(resources);
         bind_opt!(network_profile);
         bind_opt!(source);
@@ -500,14 +496,14 @@ pub async fn ensure_shadow_workspace(
         r#"INSERT INTO workspaces (
                id, name, description, kind,
                docker_image, docker_access, sandbox_service_account,
-               system_prompt, setup_commands, env_vars, servers, plugins, resources,
+               system_prompt, setup_commands, env_vars, servers, resources,
                scope, owner_user_id, created_by, deleted, created_at, updated_at
            )
            SELECT
                'ws_' || r.id, r.name, r.description, 'single',
                r.docker_image, r.docker_access, r.sandbox_service_account,
                r.system_prompt, r.setup_commands, r.env_vars,
-               COALESCE(r.servers, '[]'::jsonb), r.plugins, r.resources,
+               COALESCE(r.servers, '[]'::jsonb), r.resources,
                COALESCE(r.scope, 'user'), r.owner_user_id, r.created_by, r.deleted,
                COALESCE(r.created_at, now()), COALESCE(r.updated_at, now())
            FROM repositories r

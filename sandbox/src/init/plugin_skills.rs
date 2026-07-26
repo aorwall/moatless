@@ -7,7 +7,7 @@
 //! `/etc/codex/skills/{plugin_name}--{skill_name}/` so the Codex agent picks
 //! them up like any other skill.
 //!
-//! Runs after `clone_plugin_repos()` during core init. Non-fatal: failures
+//! Runs after `clone_plugins()` during core init. Non-fatal: failures
 //! are logged and skipped.
 //!
 //! Synchronous and recursive (it copies whole skill trees and removes stale

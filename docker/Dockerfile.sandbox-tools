@@ -11,7 +11,6 @@
 #   COPY --from=aorwall/moatless-sandbox-tools:latest /tools/sandbox /usr/local/bin/sandbox
 #   COPY --from=aorwall/moatless-sandbox-tools:latest /tools/moat /usr/local/bin/moat
 #   COPY --from=aorwall/moatless-sandbox-tools:latest /tools/docker-entrypoint-sandbox.sh /usr/local/bin/docker-entrypoint-sandbox.sh
-#   COPY --from=aorwall/moatless-sandbox-tools:latest /tools/sync-plugins.sh /usr/local/bin/sync-plugins.sh
 
 FROM ubuntu:24.04
 
@@ -26,6 +25,5 @@ RUN chmod +x /tools/sandbox /tools/moat
 
 # Copy entrypoint and helper scripts
 COPY docker/docker-entrypoint-sandbox.sh /tools/docker-entrypoint-sandbox.sh
-COPY docker/sync-plugins.sh /tools/sync-plugins.sh
 COPY docker/moatless-git-cred.sh /tools/moatless-git-cred
-RUN chmod +x /tools/docker-entrypoint-sandbox.sh /tools/sync-plugins.sh /tools/moatless-git-cred
+RUN chmod +x /tools/docker-entrypoint-sandbox.sh /tools/moatless-git-cred

@@ -11,7 +11,7 @@ use tracing::{info, warn};
 use moatless_backend_core::scope::ScopeContext;
 
 use crate::auth::provider_token_dao::ProviderTokenRepository;
-use crate::plugin_repo::dao::PluginRepoRepository;
+use crate::plugin::dao::PluginRepository;
 use crate::repository::dao::RepoRepository;
 use crate::repository::models::RepositoryProvider;
 use crate::sandbox::error::SandboxError;
@@ -41,7 +41,7 @@ pub async fn build_provision_request(
     tasks: &dyn TaskRepository,
     repos: &dyn RepoRepository,
     _provider_tokens: &dyn ProviderTokenRepository,
-    plugin_repos: &dyn PluginRepoRepository,
+    plugins: &dyn PluginRepository,
     workspaces: &dyn WorkspaceRepository,
     task_id: &str,
 ) -> Result<ProvisionRequest, SandboxError> {
@@ -157,7 +157,7 @@ pub async fn build_provision_request(
         .insert("AGENT_TYPE".to_string(), task.agent_type.0.clone());
 
     // Resolve plugin git repos from the join table
-    match plugin_repos.find_by_repository_id(&repository_id).await {
+    match plugins.find_by_repository_id(&repository_id).await {
         Ok(plugins) if !plugins.is_empty() => {
             let urls: Vec<String> = plugins.into_iter().map(|p| p.git_url).collect();
             info!(
@@ -165,14 +165,14 @@ pub async fn build_provision_request(
                 count = urls.len(),
                 "Auto-provision: resolved plugin git repos"
             );
-            repo_config.plugin_repos = Some(urls);
+            repo_config.plugin_git_urls = Some(urls);
         }
         Ok(_) => {}
         Err(e) => {
             warn!(
                 task_id = %task_id,
                 error = %e,
-                "Auto-provision: failed to query plugin repos (non-fatal)"
+                "Auto-provision: failed to query plugins (non-fatal)"
             );
         }
     }
@@ -246,12 +246,11 @@ fn minimal_repo_config(name: &str) -> RepoConfig {
         name: name.to_string(),
         docker_image: None,
         servers: None,
-        plugin_ids: None,
         system_prompt: None,
         code_execution: None,
         preview_config: None,
         resources: None,
-        plugin_repos: None,
+        plugin_git_urls: None,
         docker_access: None,
         docker_networks: None,
         sandbox_service_account: None,

@@ -1003,27 +1003,27 @@ impl ApiClient {
     }
 
     // ========================================================================
-    // Plugin Repos
+    // Plugins
     // ========================================================================
 
-    /// GET /api/v1/plugin-repos
-    pub async fn list_plugin_repos(
+    /// GET /api/v1/plugins
+    pub async fn list_plugins(
         &self,
-    ) -> Result<Vec<moatless_api_schemas::plugin_repo::PluginRepoResponse>, ApiError> {
-        self.get("/api/v1/plugin-repos").await
+    ) -> Result<Vec<moatless_api_schemas::plugin::PluginResponse>, ApiError> {
+        self.get("/api/v1/plugins").await
     }
 
-    /// POST /api/v1/plugin-repos
-    pub async fn create_plugin_repo(
+    /// POST /api/v1/plugins
+    pub async fn create_plugin(
         &self,
-        req: &moatless_api_schemas::plugin_repo::CreatePluginRepoRequest,
-    ) -> Result<moatless_api_schemas::plugin_repo::PluginRepoResponse, ApiError> {
-        self.post("/api/v1/plugin-repos", req).await
+        req: &moatless_api_schemas::plugin::CreatePluginRequest,
+    ) -> Result<moatless_api_schemas::plugin::PluginResponse, ApiError> {
+        self.post("/api/v1/plugins", req).await
     }
 
-    /// DELETE /api/v1/plugin-repos/{id}
-    pub async fn delete_plugin_repo(&self, id: &str) -> Result<(), ApiError> {
-        self.delete_request(&format!("/api/v1/plugin-repos/{id}"))
+    /// DELETE /api/v1/plugins/{id}
+    pub async fn delete_plugin(&self, id: &str) -> Result<(), ApiError> {
+        self.delete_request(&format!("/api/v1/plugins/{id}"))
             .await
     }
 
@@ -1031,7 +1031,7 @@ impl ApiClient {
     pub async fn list_repo_plugins(
         &self,
         repo_id: &str,
-    ) -> Result<Vec<moatless_api_schemas::plugin_repo::PluginRepoResponse>, ApiError> {
+    ) -> Result<Vec<moatless_api_schemas::plugin::PluginResponse>, ApiError> {
         self.get(&format!("/api/v1/repositories/{repo_id}/plugins"))
             .await
     }

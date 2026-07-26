@@ -32,8 +32,6 @@ export interface WorkspaceResponse {
   networkProfile?: string | null;
   /** @nullable */
   ownerUserId?: string | null;
-  /** @nullable */
-  plugins?: string[] | null;
   repos: WorkspaceRepoResponse[];
   resources?: null | ResourceConfig;
   /** @nullable */

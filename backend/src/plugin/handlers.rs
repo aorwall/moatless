@@ -1,4 +1,4 @@
-//! Plugin repo HTTP handlers.
+//! Plugin HTTP handlers.
 
 use axum::extract::{Path, State};
 use axum::Json;
@@ -8,19 +8,19 @@ use moatless_backend_core::scope::ScopedResource;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
 
-use super::error::PluginRepoError;
-use super::models::PluginRepo;
-use super::schemas::{CreatePluginRepoRequest, PluginRepoResponse};
+use super::error::PluginError;
+use super::models::Plugin;
+use super::schemas::{CreatePluginRequest, PluginResponse};
 
-/// A plugin repo is loadable code (hooks/commands run inside sandboxes), so
+/// A plugin is loadable code (hooks/commands run inside sandboxes), so
 /// registering or removing one is a platform-wide trust decision restricted to
 /// admins. Linking an already-registered plugin to a repository is gated
 /// separately by repository write access (see `ensure_repo_control`).
-fn ensure_admin(auth: &AuthUser) -> Result<(), PluginRepoError> {
+fn ensure_admin(auth: &AuthUser) -> Result<(), PluginError> {
     if auth.scope_context().is_admin {
         Ok(())
     } else {
-        Err(PluginRepoError::Forbidden(
+        Err(PluginError::Forbidden(
             "Admin role required to manage the plugin registry".to_string(),
         ))
     }
@@ -33,64 +33,64 @@ async fn ensure_repo_control(
     state: &AppState,
     auth: &AuthUser,
     repo_id: &str,
-) -> Result<(), PluginRepoError> {
+) -> Result<(), PluginError> {
     let ctx = auth.scope_context();
     let repo = state
         .repositories
         .find_by_id(repo_id, &ctx)
         .await?
-        .ok_or_else(|| PluginRepoError::NotFound(format!("Repository '{repo_id}' not found")))?;
+        .ok_or_else(|| PluginError::NotFound(format!("Repository '{repo_id}' not found")))?;
     let resource = ScopedResource::borrowed(
         repo.scope,
         repo.owner_user_id.as_deref().or(repo.created_by.as_deref()),
     );
     if !ctx.can_control(&resource) {
-        return Err(PluginRepoError::Forbidden(format!(
+        return Err(PluginError::Forbidden(format!(
             "No control access to repository '{repo_id}'"
         )));
     }
     Ok(())
 }
 
-/// List all plugin repos.
+/// List all plugins.
 #[utoipa::path(
     get,
-    path = "/api/v1/plugin-repos",
-    tag = "plugin-repos",
+    path = "/api/v1/plugins",
+    tag = "plugins",
     responses(
-        (status = 200, description = "List of plugin repos", body = Vec<PluginRepoResponse>),
+        (status = 200, description = "List of plugins", body = Vec<PluginResponse>),
         (status = 500, description = "Internal error", body = crate::error::ErrorBody)
     )
 )]
-pub async fn list_plugin_repos(
+pub async fn list_plugins(
     State(state): State<AppState>,
     _auth: AuthUser,
-) -> Result<Json<Vec<PluginRepoResponse>>, PluginRepoError> {
-    let rows = state.plugin_repos.list_all().await?;
+) -> Result<Json<Vec<PluginResponse>>, PluginError> {
+    let rows = state.plugins.list_all().await?;
     let items = rows.into_iter().map(to_response).collect();
     Ok(Json(items))
 }
 
-/// Create a new plugin repo.
+/// Create a new plugin.
 #[utoipa::path(
     post,
-    path = "/api/v1/plugin-repos",
-    tag = "plugin-repos",
-    request_body = CreatePluginRepoRequest,
+    path = "/api/v1/plugins",
+    tag = "plugins",
+    request_body = CreatePluginRequest,
     responses(
-        (status = 200, description = "Created plugin repo", body = PluginRepoResponse),
+        (status = 200, description = "Created plugin", body = PluginResponse),
         (status = 409, description = "Name already exists", body = crate::error::ErrorBody),
         (status = 500, description = "Internal error", body = crate::error::ErrorBody)
     )
 )]
-pub async fn create_plugin_repo(
+pub async fn create_plugin(
     State(state): State<AppState>,
     auth: AuthUser,
-    Json(req): Json<CreatePluginRepoRequest>,
-) -> Result<Json<PluginRepoResponse>, PluginRepoError> {
+    Json(req): Json<CreatePluginRequest>,
+) -> Result<Json<PluginResponse>, PluginError> {
     ensure_admin(&auth)?;
     let id = uuid::Uuid::new_v4().to_string();
-    let row = PluginRepo {
+    let row = Plugin {
         id: id.clone(),
         name: req.name,
         git_url: req.git_url,
@@ -98,12 +98,12 @@ pub async fn create_plugin_repo(
         updated_at: None,
     };
 
-    if let Err(e) = state.plugin_repos.insert(&row).await {
+    if let Err(e) = state.plugins.insert(&row).await {
         // Check for unique constraint violation on name
         if let sqlx::Error::Database(ref db_err) = e {
             if db_err.constraint().is_some() {
-                return Err(PluginRepoError::Conflict(
-                    "A plugin repo with that name already exists".to_string(),
+                return Err(PluginError::Conflict(
+                    "A plugin with that name already exists".to_string(),
                 ));
             }
         }
@@ -113,28 +113,28 @@ pub async fn create_plugin_repo(
     Ok(Json(to_response(row)))
 }
 
-/// Delete a plugin repo.
+/// Delete a plugin.
 #[utoipa::path(
     delete,
-    path = "/api/v1/plugin-repos/{id}",
-    tag = "plugin-repos",
-    params(("id" = String, Path, description = "Plugin repo ID")),
+    path = "/api/v1/plugins/{id}",
+    tag = "plugins",
+    params(("id" = String, Path, description = "Plugin ID")),
     responses(
         (status = 204, description = "Deleted"),
         (status = 404, description = "Not found", body = crate::error::ErrorBody),
         (status = 500, description = "Internal error", body = crate::error::ErrorBody)
     )
 )]
-pub async fn delete_plugin_repo(
+pub async fn delete_plugin(
     State(state): State<AppState>,
     auth: AuthUser,
     Path(id): Path<String>,
-) -> Result<axum::http::StatusCode, PluginRepoError> {
+) -> Result<axum::http::StatusCode, PluginError> {
     ensure_admin(&auth)?;
-    let deleted = state.plugin_repos.delete(&id).await?;
+    let deleted = state.plugins.delete(&id).await?;
     if !deleted {
-        return Err(PluginRepoError::NotFound(format!(
-            "Plugin repo '{id}' not found"
+        return Err(PluginError::NotFound(format!(
+            "Plugin '{id}' not found"
         )));
     }
     Ok(axum::http::StatusCode::NO_CONTENT)
@@ -144,10 +144,10 @@ pub async fn delete_plugin_repo(
 #[utoipa::path(
     get,
     path = "/api/v1/repositories/{repo_id}/plugins",
-    tag = "plugin-repos",
+    tag = "plugins",
     params(("repo_id" = String, Path, description = "Repository ID")),
     responses(
-        (status = 200, description = "Linked plugins", body = Vec<PluginRepoResponse>),
+        (status = 200, description = "Linked plugins", body = Vec<PluginResponse>),
         (status = 500, description = "Internal error", body = crate::error::ErrorBody)
     )
 )]
@@ -155,14 +155,14 @@ pub async fn list_repo_plugins(
     State(state): State<AppState>,
     auth: AuthUser,
     Path(repo_id): Path<String>,
-) -> Result<Json<Vec<PluginRepoResponse>>, PluginRepoError> {
+) -> Result<Json<Vec<PluginResponse>>, PluginError> {
     // Only expose a repository's linked plugins to callers who can access it.
     state
         .repositories
         .find_by_id(&repo_id, &auth.scope_context())
         .await?
-        .ok_or_else(|| PluginRepoError::NotFound(format!("Repository '{repo_id}' not found")))?;
-    let rows = state.plugin_repos.find_by_repository_id(&repo_id).await?;
+        .ok_or_else(|| PluginError::NotFound(format!("Repository '{repo_id}' not found")))?;
+    let rows = state.plugins.find_by_repository_id(&repo_id).await?;
     let items = rows.into_iter().map(to_response).collect();
     Ok(Json(items))
 }
@@ -171,10 +171,10 @@ pub async fn list_repo_plugins(
 #[utoipa::path(
     post,
     path = "/api/v1/repositories/{repo_id}/plugins/{plugin_id}",
-    tag = "plugin-repos",
+    tag = "plugins",
     params(
         ("repo_id" = String, Path, description = "Repository ID"),
-        ("plugin_id" = String, Path, description = "Plugin repo ID"),
+        ("plugin_id" = String, Path, description = "Plugin ID"),
     ),
     responses(
         (status = 204, description = "Linked"),
@@ -186,19 +186,19 @@ pub async fn link_plugin(
     State(state): State<AppState>,
     auth: AuthUser,
     Path((repo_id, plugin_id)): Path<(String, String)>,
-) -> Result<axum::http::StatusCode, PluginRepoError> {
+) -> Result<axum::http::StatusCode, PluginError> {
     // Linking loadable plugin code to a repository requires control of that
     // repository (its sandboxes will clone and execute the plugin's hooks).
     ensure_repo_control(&state, &auth, &repo_id).await?;
 
     // Verify plugin exists
     state
-        .plugin_repos
+        .plugins
         .find_by_id(&plugin_id)
         .await?
-        .ok_or_else(|| PluginRepoError::NotFound(format!("Plugin repo '{plugin_id}' not found")))?;
+        .ok_or_else(|| PluginError::NotFound(format!("Plugin '{plugin_id}' not found")))?;
 
-    state.plugin_repos.link(&repo_id, &plugin_id).await?;
+    state.plugins.link(&repo_id, &plugin_id).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
@@ -206,10 +206,10 @@ pub async fn link_plugin(
 #[utoipa::path(
     delete,
     path = "/api/v1/repositories/{repo_id}/plugins/{plugin_id}",
-    tag = "plugin-repos",
+    tag = "plugins",
     params(
         ("repo_id" = String, Path, description = "Repository ID"),
-        ("plugin_id" = String, Path, description = "Plugin repo ID"),
+        ("plugin_id" = String, Path, description = "Plugin ID"),
     ),
     responses(
         (status = 204, description = "Unlinked"),
@@ -221,17 +221,17 @@ pub async fn unlink_plugin(
     State(state): State<AppState>,
     auth: AuthUser,
     Path((repo_id, plugin_id)): Path<(String, String)>,
-) -> Result<axum::http::StatusCode, PluginRepoError> {
+) -> Result<axum::http::StatusCode, PluginError> {
     ensure_repo_control(&state, &auth, &repo_id).await?;
-    let removed = state.plugin_repos.unlink(&repo_id, &plugin_id).await?;
+    let removed = state.plugins.unlink(&repo_id, &plugin_id).await?;
     if !removed {
-        return Err(PluginRepoError::NotFound("Link not found".to_string()));
+        return Err(PluginError::NotFound("Link not found".to_string()));
     }
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
-fn to_response(r: PluginRepo) -> PluginRepoResponse {
-    PluginRepoResponse {
+fn to_response(r: Plugin) -> PluginResponse {
+    PluginResponse {
         id: r.id,
         name: r.name,
         git_url: r.git_url,

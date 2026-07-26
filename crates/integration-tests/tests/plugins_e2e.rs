@@ -1,8 +1,8 @@
-//! Plugin repos end-to-end integration test.
+//! Plugins end-to-end integration test.
 //!
-//! Mirrors: tests/api/chains/plugin-repos-e2e.spec.ts
+//! Mirrors: tests/api/chains/plugins-e2e.spec.ts
 //!
-//! Creates a plugin repo, links it to a repository, creates a task,
+//! Creates a plugin, links it to a repository, creates a task,
 //! and verifies the sandbox provisions with the plugin cloned.
 //!
 //! Env gate: `CLAUDE_SDK_E2E` must be set to run.
@@ -10,13 +10,13 @@
 use std::time::Duration;
 
 use integration_tests::{ensure_template_repo, sandbox_helpers, test_client};
-use moatless_api_schemas::plugin_repo::CreatePluginRepoRequest;
+use moatless_api_schemas::plugin::CreatePluginRequest;
 use moatless_api_schemas::task::CreateTaskRequest;
 use moatless_cli::events::EventCollector;
 
 #[tokio::test]
 #[ignore] // Requires CLAUDE_SDK_E2E=1
-async fn plugin_repos_e2e_chain() {
+async fn plugins_e2e_chain() {
     if std::env::var("CLAUDE_SDK_E2E").is_err() {
         eprintln!("Skipping: CLAUDE_SDK_E2E not set");
         return;
@@ -30,28 +30,28 @@ async fn plugin_repos_e2e_chain() {
         .await
         .expect("Failed to start event collector");
 
-    // PLUGIN-01: Create plugin repo
-    let plugin_req = CreatePluginRepoRequest {
+    // PLUGIN-01: Create plugin
+    let plugin_req = CreatePluginRequest {
         name: "E2E Test Plugin".into(),
         git_url: "https://github.com/aorwall/hello-world-ui.git".into(),
     };
     let plugin = client
         .api()
-        .create_plugin_repo(&plugin_req)
+        .create_plugin(&plugin_req)
         .await
-        .expect("Failed to create plugin repo");
+        .expect("Failed to create plugin");
     let plugin_id = &plugin.id;
-    println!("PLUGIN-01: Created plugin repo id={plugin_id}");
+    println!("PLUGIN-01: Created plugin id={plugin_id}");
 
-    // PLUGIN-01.1: List plugin repos, verify new one appears
+    // PLUGIN-01.1: List plugins, verify new one appears
     let plugins = client
         .api()
-        .list_plugin_repos()
+        .list_plugins()
         .await
-        .expect("Failed to list plugin repos");
+        .expect("Failed to list plugins");
     assert!(
         plugins.iter().any(|p| p.id == *plugin_id),
-        "New plugin repo should appear in list"
+        "New plugin should appear in list"
     );
     println!(
         "PLUGIN-01.1: Plugin appears in list ({} total)",
@@ -151,8 +151,8 @@ async fn plugin_repos_e2e_chain() {
         .unlink_plugin_from_repo(&repo_id, plugin_id)
         .await;
 
-    // Delete plugin repo
-    let _ = client.api().delete_plugin_repo(plugin_id).await;
+    // Delete plugin
+    let _ = client.api().delete_plugin(plugin_id).await;
 
     // Delete task
     let _ = client.api().delete_task(task_id).await;

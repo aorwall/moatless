@@ -213,21 +213,13 @@ fn build_workspace_layout_note(config: &Config) -> String {
     }
 }
 
-/// Build plugin configs from config paths and cloned plugin repos.
-fn build_plugins(config: &Config) -> Vec<PluginConfig> {
-    build_plugins_with_root(config, Path::new("/opt/moatless/plugins"))
+/// Build plugin configs from the plugins cloned into the sandbox.
+fn build_plugins(_config: &Config) -> Vec<PluginConfig> {
+    build_plugins_with_root(Path::new("/opt/moatless/plugins"))
 }
 
-fn build_plugins_with_root(config: &Config, plugins_dir: &Path) -> Vec<PluginConfig> {
-    let mut plugins: Vec<PluginConfig> = config
-        .agent_config
-        .plugin_paths
-        .iter()
-        .map(|path| PluginConfig {
-            plugin_type: "local".to_string(),
-            path: path.clone(),
-        })
-        .collect();
+fn build_plugins_with_root(plugins_dir: &Path) -> Vec<PluginConfig> {
+    let mut plugins: Vec<PluginConfig> = Vec::new();
 
     if plugins_dir.is_dir() {
         if let Ok(entries) = std::fs::read_dir(plugins_dir) {
@@ -431,8 +423,7 @@ mod tests {
             git_provider: "github".to_string(),
             repo_config_raw: None,
             setup_commands: vec![],
-            plugin_ids: vec![],
-            plugin_repos: vec![],
+            plugin_git_urls: vec![],
         }
     }
 
@@ -465,7 +456,7 @@ mod tests {
     }
 
     #[test]
-    fn build_plugins_keeps_direct_plugin_repos() {
+    fn build_plugins_finds_cloned_plugin_dir() {
         let root = tempdir().unwrap();
         let plugins_root = root.path().join("plugins");
         let direct = plugins_root.join("direct-plugin");
@@ -474,8 +465,7 @@ mod tests {
             r#"{"name":"direct-plugin"}"#,
         );
 
-        let config = test_config(false);
-        let plugins = build_plugins_with_root(&config, &plugins_root);
+        let plugins = build_plugins_with_root(&plugins_root);
 
         assert_eq!(plugins.len(), 1);
         assert_eq!(plugins[0].plugin_type, "local");
@@ -505,8 +495,7 @@ mod tests {
             r#"{"name":"moatless-skills"}"#,
         );
 
-        let config = test_config(false);
-        let plugins = build_plugins_with_root(&config, &plugins_root);
+        let plugins = build_plugins_with_root(&plugins_root);
 
         assert_eq!(plugins.len(), 1);
         assert_eq!(plugins[0].plugin_type, "local");
@@ -539,8 +528,7 @@ mod tests {
             r#"{"name":"moatless-skills"}"#,
         );
 
-        let config = test_config(false);
-        let plugins = build_plugins_with_root(&config, &plugins_root);
+        let plugins = build_plugins_with_root(&plugins_root);
 
         assert_eq!(plugins.len(), 1);
         assert_eq!(plugins[0].plugin_type, "local");
@@ -565,8 +553,7 @@ mod tests {
             }"#,
         );
 
-        let config = test_config(false);
-        let plugins = build_plugins_with_root(&config, &plugins_root);
+        let plugins = build_plugins_with_root(&plugins_root);
 
         assert!(plugins.is_empty());
     }

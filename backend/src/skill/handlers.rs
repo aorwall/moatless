@@ -11,7 +11,7 @@ use crate::state::AppState;
 /// List all skills discovered for a repository.
 ///
 /// Returns skills from the workspace repo's own `.claude/skills/` directory
-/// plus skills from every linked plugin repo, deduplicated by name
+/// plus skills from every linked plugin, deduplicated by name
 /// (workspace shadows plugin, first plugin wins on plugin-vs-plugin clash).
 #[utoipa::path(
     get,

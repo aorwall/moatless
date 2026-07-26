@@ -1,21 +1,21 @@
-//! Plugin repository request/response types.
+//! Plugin request/response types.
 
 use serde::{Deserialize, Serialize};
 
-/// Request to create a new plugin repo.
+/// Request to register a new plugin.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-pub struct CreatePluginRepoRequest {
+pub struct CreatePluginRequest {
     pub name: String,
     pub git_url: String,
 }
 
-/// Plugin repo response.
+/// Plugin response.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-pub struct PluginRepoResponse {
+pub struct PluginResponse {
     pub id: String,
     pub name: String,
     pub git_url: String,

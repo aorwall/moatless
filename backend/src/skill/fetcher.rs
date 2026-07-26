@@ -7,7 +7,7 @@
 //!   listed and merged; a skill exposed in both (typically `.claude/skills/foo`
 //!   symlinking to `../../.agents/skills/foo`) is de-duplicated by directory
 //!   name, with `.claude/skills` winning.
-//! - [`SkillLayout::Plugin`] — plugin repo. Probes `.codex-plugin/plugin.json`,
+//! - [`SkillLayout::Plugin`] — plugin. Probes `.codex-plugin/plugin.json`,
 //!   `.agents-plugin/plugin.json`, and `.claude-plugin/plugin.json` to resolve
 //!   the skills directory, defaulting to `skills/` at the repo root. Also
 //!   supports repo-local `.agents/plugins/marketplace.json` and
@@ -51,7 +51,7 @@ pub struct FetchedSkillFile {
 pub enum SkillLayout {
     /// Workspace repo: skills live at `.claude/skills/{name}/SKILL.md`.
     Workspace,
-    /// Claude Code plugin repo: resolve the skills directory from
+    /// Claude Code plugin: resolve the skills directory from
     /// `.claude-plugin/plugin.json` (optional `skills` field), default
     /// `skills/` at the plugin root.
     Plugin,
@@ -196,7 +196,7 @@ impl SkillFetcher for GitHubSkillFetcher {
                         warn!(
                             git_url = %remote_url,
                             skills_prefix = %prefix,
-                            "Plugin repo has no skills directory — skipping"
+                            "Plugin has no skills directory — skipping"
                         );
                     }
                 }
@@ -359,9 +359,9 @@ fn resolve_relative_path(base_dir: &str, target: &str) -> Option<String> {
     Some(stack.join("/"))
 }
 
-/// Resolve repo-relative skills roots for a plugin repository.
+/// Resolve repo-relative skills roots for a plugin.
 ///
-/// Supports both single-plugin repos and marketplace repos. Local marketplace
+/// Supports both single-plugins and marketplace repos. Local marketplace
 /// entries are resolved relative to the repository root, matching both Codex's
 /// `.agents/plugins/marketplace.json` and Claude Code's
 /// `.claude-plugin/marketplace.json` conventions.

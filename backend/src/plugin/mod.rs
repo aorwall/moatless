@@ -1,4 +1,4 @@
-//! Plugin repository domain module.
+//! Plugin domain module.
 
 pub mod dao;
 pub mod error;
