@@ -582,6 +582,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     use crate::file_storage::routes::FileStorageApiDoc;
     use crate::loops::http::LoopsApiDoc;
     use crate::message::routes::MessageApiDoc;
+    use crate::plugin::routes::PluginApiDoc;
     use crate::provider_settings::routes::ProviderSettingsApiDoc;
     use crate::repository::routes::RepositoryApiDoc;
     use crate::sandbox::routes::SandboxApiDoc;
@@ -660,6 +661,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     merged.merge(EventsApiDoc::openapi());
     merged.merge(TaskEventApiDoc::openapi());
     merged.merge(FeatureFlagsApiDoc::openapi());
+    merged.merge(PluginApiDoc::openapi());
     merged.merge(SkillApiDoc::openapi());
     merged.merge(WorkspaceApiDoc::openapi());
 

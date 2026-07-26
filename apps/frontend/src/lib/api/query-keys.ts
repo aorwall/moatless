@@ -142,8 +142,10 @@ export const queryKeys = {
   plugins: {
     all: () => [...queryKeys.all, 'plugins'] as const,
     list: () => [...queryKeys.plugins.all(), 'list'] as const,
-    marketplaces: () => [...queryKeys.plugins.all(), 'marketplaces'] as const,
-    marketplacesList: () => [...queryKeys.plugins.marketplaces(), 'list'] as const,
+    skills: (pluginId: string) => [...queryKeys.plugins.all(), pluginId, 'skills'] as const,
+    activations: (pluginId: string) =>
+      [...queryKeys.plugins.all(), pluginId, 'activations'] as const,
+    effective: () => [...queryKeys.plugins.all(), 'effective'] as const,
   },
 
   secrets: {

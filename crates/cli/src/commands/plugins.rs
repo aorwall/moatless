@@ -1,46 +1,82 @@
-//! Plugin repo commands: list, create, delete, link, unlink.
+//! Plugin commands: list, create, delete, skills, enable, disable, clear, effective.
 
-use clap::Subcommand;
-use moatless_api_schemas::plugin_repo::{CreatePluginRepoRequest, PluginRepoResponse};
+use clap::{Subcommand, ValueEnum};
+use moatless_api_schemas::plugin::{
+    ActivationReach, CreatePluginRequest, PluginResponse, SetActivationRequest,
+};
 
 use crate::client::{ClientError, MoatClient};
 use crate::output;
 
+/// Who a change applies to. Mirrors [`ActivationReach`]; kept separate so the
+/// command line spells it the way `clap` wants without the wire type having to.
+#[derive(Copy, Clone, Debug, ValueEnum)]
+pub enum Reach {
+    /// The default for everybody. Admins only.
+    Everyone,
+    /// Just you, overriding the default.
+    Personal,
+}
+
+impl From<Reach> for ActivationReach {
+    fn from(r: Reach) -> Self {
+        match r {
+            Reach::Everyone => ActivationReach::Everyone,
+            Reach::Personal => ActivationReach::Personal,
+        }
+    }
+}
+
 #[derive(Subcommand)]
 pub enum PluginAction {
-    /// List all plugin repos
+    /// List all registered plugins
     List,
-    /// Create a new plugin repo
+    /// Register a new plugin
     Create {
         #[arg(long)]
         name: String,
         #[arg(long)]
         git_url: String,
     },
-    /// Delete a plugin repo
+    /// Delete a plugin
     Delete { plugin_id: String },
-    /// Link a plugin to a repository
-    Link {
+    /// List a plugin's skills, syncing from its source first
+    Skills { plugin_id: String },
+    /// Turn a plugin, or one skill inside it, on
+    Enable {
+        plugin_id: String,
+        #[arg(long, value_enum)]
+        reach: Reach,
+        /// Omit to mean the whole plugin
         #[arg(long)]
-        repo: String,
-        #[arg(long)]
-        plugin: String,
+        skill: Option<String>,
     },
-    /// Unlink a plugin from a repository
-    Unlink {
+    /// Turn a plugin, or one skill inside it, off
+    Disable {
+        plugin_id: String,
+        #[arg(long, value_enum)]
+        reach: Reach,
+        /// Omit to mean the whole plugin
         #[arg(long)]
-        repo: String,
-        #[arg(long)]
-        plugin: String,
+        skill: Option<String>,
     },
-    /// List plugins linked to a repository
-    RepoPlugins { repo_id: String },
+    /// Remove a record, handing it back to whatever the default says
+    Clear {
+        plugin_id: String,
+        #[arg(long, value_enum)]
+        reach: Reach,
+        /// Omit to mean the whole-plugin record
+        #[arg(long)]
+        skill: Option<String>,
+    },
+    /// What you actually get, once defaults and your own records resolve
+    Effective,
 }
 
 pub async fn run(client: &MoatClient, action: PluginAction, json: bool) -> Result<(), ClientError> {
     match action {
         PluginAction::List => {
-            let plugins = client.api().list_plugin_repos().await?;
+            let plugins = client.api().list_plugins().await?;
             if json {
                 output::print_json_typed(&plugins);
             } else {
@@ -48,43 +84,113 @@ pub async fn run(client: &MoatClient, action: PluginAction, json: bool) -> Resul
             }
         }
         PluginAction::Create { name, git_url } => {
-            let req = CreatePluginRepoRequest { name, git_url };
-            let created = client.api().create_plugin_repo(&req).await?;
+            let req = CreatePluginRequest { name, git_url };
+            let created = client.api().create_plugin(&req).await?;
             if json {
                 output::print_json_typed(&created);
             } else {
-                println!("Plugin repo created: {}", created.id);
+                println!("Plugin created: {}", created.id);
             }
         }
         PluginAction::Delete { plugin_id } => {
-            client.api().delete_plugin_repo(&plugin_id).await?;
-            println!("Plugin repo {plugin_id} deleted.");
+            client.api().delete_plugin(&plugin_id).await?;
+            println!("Plugin {plugin_id} deleted.");
         }
-        PluginAction::Link { repo, plugin } => {
-            client.api().link_plugin_to_repo(&repo, &plugin).await?;
-            println!("Plugin {plugin} linked to repository {repo}.");
+        PluginAction::Skills { plugin_id } => {
+            let skills = client.api().list_plugin_skills(&plugin_id).await?;
+            if json {
+                output::print_json_typed(&skills);
+            } else {
+                let rows: Vec<Vec<String>> = skills
+                    .iter()
+                    .map(|s| vec![s.name.clone(), s.description.clone()])
+                    .collect();
+                output::print_table(&["NAME", "DESCRIPTION"], &rows);
+            }
         }
-        PluginAction::Unlink { repo, plugin } => {
-            client.api().unlink_plugin_from_repo(&repo, &plugin).await?;
-            println!("Plugin {plugin} unlinked from repository {repo}.");
+        PluginAction::Enable {
+            plugin_id,
+            reach,
+            skill,
+        } => {
+            set_activation(client, &plugin_id, reach, skill, true, json).await?;
         }
-        PluginAction::RepoPlugins { repo_id } => {
-            let plugins = client.api().list_repo_plugins(&repo_id).await?;
+        PluginAction::Disable {
+            plugin_id,
+            reach,
+            skill,
+        } => {
+            set_activation(client, &plugin_id, reach, skill, false, json).await?;
+        }
+        PluginAction::Clear {
+            plugin_id,
+            reach,
+            skill,
+        } => {
+            client
+                .api()
+                .clear_plugin_activation(&plugin_id, reach.into(), skill.as_deref())
+                .await?;
+            println!("Activation record cleared.");
+        }
+        PluginAction::Effective => {
+            let plugins = client.api().list_effective_plugins().await?;
             if json {
                 output::print_json_typed(&plugins);
             } else {
-                format_plugin_list(&plugins);
+                let rows: Vec<Vec<String>> = plugins
+                    .iter()
+                    .map(|p| {
+                        vec![
+                            p.plugin_id.clone(),
+                            p.plugin_name.clone(),
+                            p.skill_names.join(", "),
+                        ]
+                    })
+                    .collect();
+                output::print_table(&["ID", "NAME", "SKILLS"], &rows);
             }
         }
     }
     Ok(())
 }
 
-fn format_plugin_list(plugins: &[PluginRepoResponse]) {
+async fn set_activation(
+    client: &MoatClient,
+    plugin_id: &str,
+    reach: Reach,
+    skill_name: Option<String>,
+    enabled: bool,
+    json: bool,
+) -> Result<(), ClientError> {
+    let req = SetActivationRequest {
+        reach: reach.into(),
+        skill_name,
+        enabled,
+    };
+    let stored = client.api().set_plugin_activation(plugin_id, &req).await?;
+    if json {
+        output::print_json_typed(&stored);
+    } else {
+        let what = stored.skill_name.as_deref().unwrap_or("(whole plugin)");
+        let state = if stored.enabled { "on" } else { "off" };
+        println!("{what} is now {state} for {:?}.", stored.reach);
+    }
+    Ok(())
+}
+
+fn format_plugin_list(plugins: &[PluginResponse]) {
     let rows: Vec<Vec<String>> = plugins
         .iter()
-        .map(|p| vec![p.id.clone(), p.name.clone(), p.git_url.clone()])
+        .map(|p| {
+            vec![
+                p.id.clone(),
+                p.name.clone(),
+                p.git_url.clone(),
+                p.synced_version.clone().unwrap_or_else(|| "-".to_string()),
+            ]
+        })
         .collect();
 
-    output::print_table(&["ID", "NAME", "GIT_URL"], &rows);
+    output::print_table(&["ID", "NAME", "GIT_URL", "SYNCED"], &rows);
 }

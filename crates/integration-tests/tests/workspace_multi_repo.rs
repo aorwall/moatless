@@ -47,7 +47,6 @@ async fn multi_repo_workspace_checks_out_every_repo() {
             setup_commands: None,
             env_vars: None,
             servers: None,
-            plugins: None,
             resources: None,
             network_profile: None,
             repos: vec![

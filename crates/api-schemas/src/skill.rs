@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 pub enum SkillSource {
     /// Skill lives in the workspace repository's own `.claude/skills/` directory.
     Workspace,
-    /// Skill lives inside a linked plugin repository.
+    /// Skill lives inside a linked plugin.
     Plugin,
 }
 
@@ -22,9 +22,9 @@ pub struct SkillResponse {
     pub description: String,
     pub source: SkillSource,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub plugin_repo_id: Option<String>,
+    pub plugin_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub plugin_repo_name: Option<String>,
+    pub plugin_name: Option<String>,
 }
 
 /// Response body for `GET /api/v1/repositories/{repository_id}/skills`.

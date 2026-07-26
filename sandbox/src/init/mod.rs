@@ -656,41 +656,22 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
         }
     }
 
-    // 5. Sync plugins (non-fatal)
-    if !state.config.plugin_ids.is_empty() {
-        match workspace::sync_plugins(&state.config).await {
-            Ok(count) => {
-                publish_sandbox_event(
-                    state,
-                    "PluginsSynced",
-                    &format!("Synced {count} plugin(s)"),
-                    false,
-                )
-                .await;
-            }
-            Err(e) => {
-                warn!(error = %e, "Plugin sync failed (non-fatal)");
-            }
-        }
-    }
-
-    // 6. Clone plugin git repos (non-fatal)
-    if !state.config.plugin_repos.is_empty() {
-        let cloned = workspace::clone_plugin_repos(&state.config).await;
+    // 5. Clone the task's plugins (non-fatal)
+    if !state.config.plugins.is_empty() {
+        let cloned = workspace::clone_plugins(&state.config).await;
         if !cloned.is_empty() {
             publish_sandbox_event(
                 state,
-                "PluginReposCloned",
-                &format!("Cloned {} plugin repo(s)", cloned.len()),
+                "PluginsCloned",
+                &format!("Cloned {} plugin(s)", cloned.len()),
                 false,
             )
             .await;
         }
     }
 
-    // 7. Stage plugin-bundled skills so the Codex agent can discover them.
-    // Runs unconditionally so we pick up skills from both `plugin_repos`
-    // (cloned above) and `plugin_ids` (installed by sync_plugins.sh).
+    // 6. Stage plugin-bundled skills so the Codex agent can discover them.
+    // Runs unconditionally so a plugin cloned above is picked up.
     let staged = run_init_blocking(
         "stage_plugin_skills_for_codex",
         plugin_skills::stage_plugin_skills_for_codex,

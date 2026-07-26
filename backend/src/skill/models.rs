@@ -9,6 +9,6 @@ pub struct Skill {
     pub name: String,
     pub description: String,
     pub source: SkillSource,
-    pub plugin_repo_id: Option<String>,
-    pub plugin_repo_name: Option<String>,
+    pub plugin_id: Option<String>,
+    pub plugin_name: Option<String>,
 }

@@ -942,8 +942,7 @@ mod tests {
             repos: Vec::new(),
             repo_config_raw: None,
             setup_commands: vec![],
-            plugin_ids: vec![],
-            plugin_repos: vec![],
+            plugins: vec![],
         }
     }
 

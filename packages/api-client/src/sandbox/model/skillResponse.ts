@@ -14,8 +14,8 @@ export interface SkillResponse {
   description: string;
   name: string;
   /** @nullable */
-  pluginRepoId?: string | null;
+  pluginId?: string | null;
   /** @nullable */
-  pluginRepoName?: string | null;
+  pluginName?: string | null;
   source: SkillSource;
 }

@@ -63,7 +63,7 @@ export function RepositoryConfigEditSection({
   // Derive base form data from repository - following derived state pattern.
   // A repository is now just a reusable git pointer: only the git-pointer fields
   // (name/description/remoteUrl) are editable here. Run configuration (servers,
-  // code execution, agent config, plugins) has moved to the Workspace surface.
+  // code execution, agent config) has moved to the Workspace surface.
   // `UpdateRepositoryRequest` is already all-optional; using it directly (rather
   // than `Partial<>`) keeps value types free of the `| undefined` widening that
   // `Partial<>` adds under `exactOptionalPropertyTypes`, so the payload below

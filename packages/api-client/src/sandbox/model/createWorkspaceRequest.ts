@@ -23,8 +23,6 @@ export interface CreateWorkspaceRequest {
   name: string;
   /** @nullable */
   networkProfile?: string | null;
-  /** @nullable */
-  plugins?: string[] | null;
   /** Repository placements. May be empty (a blank/scratch workspace). */
   repos?: WorkspaceRepoInput[];
   resources?: null | ResourceConfig;

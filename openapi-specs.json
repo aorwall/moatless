@@ -3435,6 +3435,415 @@
         }
       }
     },
+    "/api/v1/plugins": {
+      "get": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "List all plugins.",
+        "operationId": "list_plugins",
+        "responses": {
+          "200": {
+            "description": "List of plugins",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PluginResponse"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "Create a new plugin.",
+        "operationId": "create_plugin",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePluginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Created plugin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Name already exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugins/effective": {
+      "get": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "What the calling user actually gets, once global defaults and their own\nrecords have been resolved against each other.",
+        "operationId": "list_effective_plugins",
+        "responses": {
+          "200": {
+            "description": "Plugins and skills this user receives",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EffectivePluginResponse"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugins/{id}": {
+      "delete": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "Delete a plugin.",
+        "operationId": "delete_plugin",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Plugin ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugins/{id}/activation": {
+      "put": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "Turn a plugin, or one skill inside it, on or off.",
+        "description": "Setting the default for everyone is an administrator's call; setting one's\nown is anybody's. A personal record wins over the global one in both\ndirections, so this same endpoint is how somebody escapes a plugin that\narrived by default.",
+        "operationId": "set_plugin_activation",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Plugin ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetActivationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The stored record",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivationResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin required for the global default",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "Remove an activation record.",
+        "description": "Clearing a personal record is not the same as setting it to off: it hands\nthe person back to whatever the global default says.",
+        "operationId": "clear_plugin_activation",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Plugin ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reach",
+            "in": "query",
+            "description": "Whose record to clear",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ActivationReach"
+            }
+          },
+          {
+            "name": "skillName",
+            "in": "query",
+            "description": "Omit to clear the whole-plugin record",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Cleared"
+          },
+          "403": {
+            "description": "Admin required for the global default",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugins/{id}/activations": {
+      "get": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "The activation records that bear on this caller for one plugin: every global\nrecord plus their own, and nobody else's.",
+        "description": "This is the read half of the two write endpoints below. Without it a control\ncan show what somebody *gets* but not which record put it there, so \"turn\noff my personal override\" and \"the default is already off\" look identical.",
+        "operationId": "list_plugin_activations",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Plugin ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The records that apply to this caller",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ActivationResponse"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugins/{id}/skills": {
+      "get": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "List a plugin's skills, syncing from its source first.",
+        "description": "This is the admin view's read path, and it goes through the same sync as\ntask provisioning — so opening the page both shows current skills and\nleaves them stored for the next task that needs them.",
+        "operationId": "list_plugin_skills",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Plugin ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The plugin's skills",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PluginSkillResponse"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/repositories": {
       "get": {
         "tags": [
@@ -3753,7 +4162,7 @@
           "skills"
         ],
         "summary": "List all skills discovered for a repository.",
-        "description": "Returns skills from the workspace repo's own `.claude/skills/` directory\nplus skills from every linked plugin repo, deduplicated by name\n(workspace shadows plugin, first plugin wins on plugin-vs-plugin clash).",
+        "description": "Returns skills from the workspace repo's own `.claude/skills/` directory\nplus skills from every linked plugin, deduplicated by name\n(workspace shadows plugin, first plugin wins on plugin-vs-plugin clash).",
         "operationId": "list_repository_skills",
         "parameters": [
           {
@@ -7554,6 +7963,40 @@
   },
   "components": {
     "schemas": {
+      "ActivationReach": {
+        "type": "string",
+        "description": "Who an activation applies to: everyone, or the calling user alone.",
+        "enum": [
+          "everyone",
+          "personal"
+        ]
+      },
+      "ActivationResponse": {
+        "type": "object",
+        "description": "One stored activation record.",
+        "required": [
+          "pluginId",
+          "reach",
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "pluginId": {
+            "type": "string"
+          },
+          "reach": {
+            "$ref": "#/components/schemas/ActivationReach"
+          },
+          "skillName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "AdapterConnectionResponse": {
         "type": "object",
         "description": "One adapter connection, describing a transport/auth scope.",
@@ -9049,6 +9492,22 @@
           }
         ]
       },
+      "CreatePluginRequest": {
+        "type": "object",
+        "description": "Request to register a new plugin.",
+        "required": [
+          "name",
+          "gitUrl"
+        ],
+        "properties": {
+          "gitUrl": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "CreateRepositoryRequest": {
         "type": "object",
         "description": "A repository is a connection to a git repo. Run-configuration lives on the\nworkspace, not here.",
@@ -9491,15 +9950,6 @@
               "null"
             ]
           },
-          "plugins": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
           "repos": {
             "type": "array",
             "items": {
@@ -9556,6 +10006,30 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "EffectivePluginResponse": {
+        "type": "object",
+        "description": "What the calling user actually gets, after resolution.",
+        "required": [
+          "pluginId",
+          "pluginName",
+          "skillNames"
+        ],
+        "properties": {
+          "pluginId": {
+            "type": "string"
+          },
+          "pluginName": {
+            "type": "string"
+          },
+          "skillNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Never empty — a plugin with no picked skills is not delivered at all."
           }
         }
       },
@@ -11424,6 +11898,49 @@
           }
         }
       },
+      "PluginResponse": {
+        "type": "object",
+        "description": "Plugin response.",
+        "required": [
+          "id",
+          "name",
+          "gitUrl"
+        ],
+        "properties": {
+          "gitUrl": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "syncedVersion": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What the source called its current state at the last successful sync.\nAbsent until a first sync succeeds."
+          }
+        }
+      },
+      "PluginSkillResponse": {
+        "type": "object",
+        "description": "One skill inside a plugin, as stored at the plugin's synced version.",
+        "required": [
+          "name",
+          "description"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "PreviewUrlContextData": {
         "type": "object",
         "description": "Data for a preview URL context.",
@@ -13192,6 +13709,29 @@
           }
         }
       },
+      "SetActivationRequest": {
+        "type": "object",
+        "description": "Turn a plugin, or one skill inside it, on or off.",
+        "required": [
+          "reach",
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "reach": {
+            "$ref": "#/components/schemas/ActivationReach"
+          },
+          "skillName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Omit to mean the whole plugin."
+          }
+        }
+      },
       "SetProviderIdRequest": {
         "type": "object",
         "description": "Set or replace the provider-specific user ID for a moatless user.",
@@ -13331,13 +13871,13 @@
           "name": {
             "type": "string"
           },
-          "pluginRepoId": {
+          "pluginId": {
             "type": [
               "string",
               "null"
             ]
           },
-          "pluginRepoName": {
+          "pluginName": {
             "type": [
               "string",
               "null"
@@ -15146,15 +15686,6 @@
               "null"
             ]
           },
-          "plugins": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
           "resources": {
             "oneOf": [
               {
@@ -15708,15 +16239,6 @@
               "null"
             ]
           },
-          "plugins": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
           "repos": {
             "type": "array",
             "items": {
@@ -15967,6 +16489,10 @@
     {
       "name": "task-events",
       "description": "Task event history"
+    },
+    {
+      "name": "plugins",
+      "description": "Plugin registry management"
     },
     {
       "name": "skills",

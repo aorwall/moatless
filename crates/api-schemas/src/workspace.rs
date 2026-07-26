@@ -64,8 +64,6 @@ pub struct CreateWorkspaceRequest {
     #[serde(default)]
     pub servers: Option<Vec<ServerConfig>>,
     #[serde(default)]
-    pub plugins: Option<Vec<String>>,
-    #[serde(default)]
     pub resources: Option<ResourceConfig>,
     #[serde(default)]
     pub network_profile: Option<String>,
@@ -96,7 +94,6 @@ pub struct UpdateWorkspaceRequest {
     pub setup_commands: Option<Vec<String>>,
     pub env_vars: Option<HashMap<String, String>>,
     pub servers: Option<Vec<ServerConfig>>,
-    pub plugins: Option<Vec<String>>,
     pub resources: Option<ResourceConfig>,
     pub network_profile: Option<String>,
 }
@@ -158,7 +155,6 @@ pub struct WorkspaceResponse {
     pub setup_commands: Option<Vec<String>>,
     pub env_vars: Option<HashMap<String, String>>,
     pub servers: Option<Vec<ServerConfig>>,
-    pub plugins: Option<Vec<String>>,
     pub resources: Option<ResourceConfig>,
     #[serde(default)]
     pub network_profile: Option<String>,

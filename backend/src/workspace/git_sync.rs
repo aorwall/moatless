@@ -100,7 +100,6 @@ pub struct MoatlessWorkspaceEntry {
     pub system_prompt: Option<String>,
     pub resources: Option<ResourceConfig>,
     pub env_vars: Option<std::collections::HashMap<String, String>>,
-    pub plugins: Option<Vec<String>>,
     pub sandbox_service_account: Option<String>,
     pub network_profile: Option<String>,
 }
@@ -378,7 +377,6 @@ struct RunConfig {
     setup_commands: Option<serde_json::Value>,
     env_vars: Option<serde_json::Value>,
     servers: Option<serde_json::Value>,
-    plugins: Option<serde_json::Value>,
     resources: Option<serde_json::Value>,
 }
 
@@ -441,11 +439,6 @@ fn run_config_from_entry(entry: &MoatlessWorkspaceEntry) -> Result<RunConfig, se
             .as_ref()
             .map(serde_json::to_value)
             .transpose()?,
-        plugins: entry
-            .plugins
-            .as_ref()
-            .map(serde_json::to_value)
-            .transpose()?,
         resources: entry
             .resources
             .as_ref()
@@ -455,7 +448,7 @@ fn run_config_from_entry(entry: &MoatlessWorkspaceEntry) -> Result<RunConfig, se
 }
 
 /// Build the shadow workspace's run-config from a parsed legacy
-/// `.moatless/config.json`. The file has no `dockerAccess`/`envVars`/`plugins`,
+/// `.moatless/config.json`. The file has no `dockerAccess`/`envVars`,
 /// so those are `None`.
 fn run_config_from_moatless_config(
     config: &MoatlessRepoConfig,
@@ -479,7 +472,6 @@ fn run_config_from_moatless_config(
             .as_ref()
             .map(serde_json::to_value)
             .transpose()?,
-        plugins: None,
         resources: config
             .resources
             .as_ref()
@@ -583,7 +575,6 @@ async fn upsert_git_workspace(
                     setup_commands: desired.run.setup_commands.clone(),
                     env_vars: desired.run.env_vars.clone(),
                     servers: desired.run.servers.clone(),
-                    plugins: desired.run.plugins.clone(),
                     resources: desired.run.resources.clone(),
                     network_profile: desired.run.network_profile.clone(),
                     source: "git".to_string(),
@@ -623,7 +614,6 @@ async fn upsert_git_workspace(
         setup_commands: Some(desired.run.setup_commands.clone()),
         env_vars: Some(desired.run.env_vars.clone()),
         servers: Some(desired.run.servers.clone()),
-        plugins: Some(desired.run.plugins.clone()),
         resources: Some(desired.run.resources.clone()),
         network_profile: Some(desired.run.network_profile.clone()),
         source: Some("git".to_string()),
@@ -978,10 +968,9 @@ mod tests {
         assert_eq!(run.system_prompt, Some("Be helpful".to_string()));
         assert!(run.servers.is_some());
         assert!(run.setup_commands.is_some());
-        // config.json has no dockerAccess/envVars/plugins.
+        // config.json has no dockerAccess/envVars.
         assert!(run.docker_access.is_none());
         assert!(run.env_vars.is_none());
-        assert!(run.plugins.is_none());
     }
 
     #[test]

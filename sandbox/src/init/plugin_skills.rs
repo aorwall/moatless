@@ -7,7 +7,7 @@
 //! `/etc/codex/skills/{plugin_name}--{skill_name}/` so the Codex agent picks
 //! them up like any other skill.
 //!
-//! Runs after `clone_plugin_repos()` during core init. Non-fatal: failures
+//! Runs after `clone_plugins()` during core init. Non-fatal: failures
 //! are logged and skipped.
 //!
 //! Synchronous and recursive (it copies whole skill trees and removes stale
@@ -125,14 +125,77 @@ fn stage_plugin_skills_with_roots(plugins_root: &Path, codex_skills_root: &Path)
 }
 
 fn stage_single_plugin(plugin_path: &Path, plugin_name: &str, codex_skills_root: &Path) -> usize {
-    if let Some(count) = stage_agents_marketplace(plugin_path, codex_skills_root) {
-        return count;
-    }
-
-    stage_plugin_component(plugin_path, plugin_name, codex_skills_root)
+    plugin_components(plugin_path, plugin_name)
+        .iter()
+        .map(|(name, root)| stage_plugin_component(root, name, codex_skills_root))
+        .sum()
 }
 
-fn stage_agents_marketplace(plugin_path: &Path, codex_skills_root: &Path) -> Option<usize> {
+/// Remove every skill directory in a cloned plugin that is not in `picked`,
+/// returning how many went.
+///
+/// This is where the activation records land: the backend resolved which skills
+/// the task's owner gets, and everything else the plugin ships is deleted before
+/// any agent sees it. The rest of the plugin — its manifest, commands, hooks and
+/// agents — is untouched, so a plugin with one skill picked still works.
+///
+/// A skill is identified by its directory name, which is what the backend
+/// stores. Non-fatal throughout: a directory we fail to remove stays, and the
+/// agent sees one skill too many rather than the sandbox failing to start.
+pub(super) fn keep_only(plugin_path: &Path, plugin_name: &str, picked: &[String]) -> usize {
+    let mut dropped = 0usize;
+
+    for (name, root) in plugin_components(plugin_path, plugin_name) {
+        let skills_dir = root.join(resolve_plugin_skills_subdir(&root));
+        let entries = match std::fs::read_dir(&skills_dir) {
+            Ok(entries) => entries,
+            // No skills directory at all is the ordinary case for a plugin that
+            // ships only commands or hooks.
+            Err(_) => continue,
+        };
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let Some(skill) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            if picked.iter().any(|p| p == skill) {
+                continue;
+            }
+            match std::fs::remove_dir_all(&path) {
+                Ok(()) => {
+                    debug!(plugin = %name, skill = %skill, "Removed unpicked skill");
+                    dropped += 1;
+                }
+                Err(e) => {
+                    warn!(
+                        plugin = %name,
+                        skill = %skill,
+                        error = %e,
+                        "Failed to remove unpicked skill (non-fatal)"
+                    );
+                }
+            }
+        }
+    }
+
+    dropped
+}
+
+/// The `(name, root)` pairs a cloned plugin directory contains. A repo carrying
+/// a plugin marketplace with local entries contributes one per entry; anything
+/// else is a single component at the root.
+fn plugin_components(plugin_path: &Path, plugin_name: &str) -> Vec<(String, PathBuf)> {
+    match marketplace_components(plugin_path) {
+        Some(components) => components,
+        None => vec![(plugin_name.to_string(), plugin_path.to_path_buf())],
+    }
+}
+
+fn marketplace_components(plugin_path: &Path) -> Option<Vec<(String, PathBuf)>> {
     let (marketplace_path, raw) = read_first_marketplace(plugin_path)?;
     let marketplace: PluginMarketplace = match serde_json::from_str(&raw) {
         Ok(marketplace) => marketplace,
@@ -146,7 +209,7 @@ fn stage_agents_marketplace(plugin_path: &Path, codex_skills_root: &Path) -> Opt
         }
     };
 
-    let mut count = 0usize;
+    let mut components = Vec::new();
     for plugin in marketplace.plugins {
         let Some(source_path) = marketplace_local_path(&plugin.source, &plugin.name) else {
             continue;
@@ -163,11 +226,10 @@ fn stage_agents_marketplace(plugin_path: &Path, codex_skills_root: &Path) -> Opt
                 continue;
             }
         };
-        let component_path = plugin_path.join(plugin_subdir);
-        count += stage_plugin_component(&component_path, &plugin.name, codex_skills_root);
+        components.push((plugin.name, plugin_path.join(plugin_subdir)));
     }
 
-    Some(count)
+    Some(components)
 }
 
 fn read_first_marketplace(plugin_path: &Path) -> Option<(PathBuf, String)> {
@@ -588,4 +650,125 @@ mod tests {
         assert_eq!(stage_plugin_skills_with_roots(&plugins, &codex), 1);
         assert!(codex.join("plug--ok/SKILL.md").is_file());
     }
+
+    // ---- Pruning to the picked set ----
+
+    #[test]
+    fn keep_only_removes_the_skills_nobody_picked() {
+        let root = tempdir().unwrap();
+        let plugin = root.path().join("plugin-a");
+        write(&plugin.join("skills/alpha/SKILL.md"), "alpha");
+        write(&plugin.join("skills/beta/SKILL.md"), "beta");
+        write(&plugin.join("skills/beta/reference.md"), "ref");
+
+        let dropped = keep_only(&plugin, "plugin-a", &["alpha".to_string()]);
+
+        assert_eq!(dropped, 1);
+        assert!(plugin.join("skills/alpha/SKILL.md").exists());
+        assert!(
+            !plugin.join("skills/beta").exists(),
+            "every file of an unpicked skill goes, not just its SKILL.md"
+        );
+    }
+
+    #[test]
+    fn keep_only_leaves_everything_that_is_not_a_skill() {
+        let root = tempdir().unwrap();
+        let plugin = root.path().join("plugin-a");
+        write(&plugin.join(".claude-plugin/plugin.json"), r#"{"name":"a"}"#);
+        write(&plugin.join("commands/deploy.md"), "deploy");
+        write(&plugin.join("hooks/pre-commit.sh"), "hook");
+        write(&plugin.join("agents/reviewer.md"), "reviewer");
+        write(&plugin.join("README.md"), "readme");
+        write(&plugin.join("skills/README.md"), "skills readme");
+        write(&plugin.join("skills/alpha/SKILL.md"), "alpha");
+
+        keep_only(&plugin, "plugin-a", &[]);
+
+        assert!(!plugin.join("skills/alpha").exists());
+        for kept in [
+            ".claude-plugin/plugin.json",
+            "commands/deploy.md",
+            "hooks/pre-commit.sh",
+            "agents/reviewer.md",
+            "README.md",
+            // A file sitting in the skills root belongs to no skill, so nobody
+            // can have unpicked it.
+            "skills/README.md",
+        ] {
+            assert!(
+                plugin.join(kept).exists(),
+                "a plugin still has to work — only its unpicked skills are removed: {kept}"
+            );
+        }
+    }
+
+    #[test]
+    fn keep_only_honours_a_custom_skills_path() {
+        let root = tempdir().unwrap();
+        let plugin = root.path().join("plugin-b");
+        write(
+            &plugin.join(".claude-plugin/plugin.json"),
+            r#"{"name":"plugin-b","skills":"./custom/skills/"}"#,
+        );
+        write(&plugin.join("custom/skills/alpha/SKILL.md"), "alpha");
+        write(&plugin.join("custom/skills/beta/SKILL.md"), "beta");
+
+        let dropped = keep_only(&plugin, "plugin-b", &["beta".to_string()]);
+
+        assert_eq!(dropped, 1);
+        assert!(!plugin.join("custom/skills/alpha").exists());
+        assert!(plugin.join("custom/skills/beta/SKILL.md").exists());
+    }
+
+    #[test]
+    fn keep_only_prunes_every_component_of_a_marketplace_repo() {
+        let root = tempdir().unwrap();
+        let plugin = root.path().join("marketplace-repo");
+        write(
+            &plugin.join(".agents/plugins/marketplace.json"),
+            r#"{"plugins":[
+                {"name":"one","source":{"source":"local","path":"./plugins/one"}},
+                {"name":"two","source":{"source":"local","path":"./plugins/two"}}
+            ]}"#,
+        );
+        write(&plugin.join("plugins/one/skills/alpha/SKILL.md"), "alpha");
+        write(&plugin.join("plugins/one/skills/beta/SKILL.md"), "beta");
+        write(&plugin.join("plugins/two/skills/gamma/SKILL.md"), "gamma");
+
+        let dropped = keep_only(&plugin, "marketplace-repo", &["alpha".to_string()]);
+
+        assert_eq!(dropped, 2, "an unpicked skill goes wherever in the repo it lives");
+        assert!(plugin.join("plugins/one/skills/alpha/SKILL.md").exists());
+        assert!(!plugin.join("plugins/one/skills/beta").exists());
+        assert!(!plugin.join("plugins/two/skills/gamma").exists());
+    }
+
+    #[test]
+    fn keep_only_on_a_plugin_without_skills_does_nothing() {
+        let root = tempdir().unwrap();
+        let plugin = root.path().join("plugin-c");
+        write(&plugin.join("commands/deploy.md"), "deploy");
+
+        assert_eq!(keep_only(&plugin, "plugin-c", &["alpha".to_string()]), 0);
+        assert!(plugin.join("commands/deploy.md").exists());
+    }
+
+    #[test]
+    fn keep_only_is_idempotent() {
+        let root = tempdir().unwrap();
+        let plugin = root.path().join("plugin-a");
+        write(&plugin.join("skills/alpha/SKILL.md"), "alpha");
+        write(&plugin.join("skills/beta/SKILL.md"), "beta");
+
+        let picked = ["alpha".to_string()];
+        assert_eq!(keep_only(&plugin, "plugin-a", &picked), 1);
+        assert_eq!(
+            keep_only(&plugin, "plugin-a", &picked),
+            0,
+            "a re-started sandbox re-runs the prune over an already-cloned plugin"
+        );
+        assert!(plugin.join("skills/alpha/SKILL.md").exists());
+    }
+
 }

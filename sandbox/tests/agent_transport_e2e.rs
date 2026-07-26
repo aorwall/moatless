@@ -239,8 +239,7 @@ fn test_config(tmp: &TempDir, use_tmux: bool) -> Config {
         repos: Vec::new(),
         repo_config_raw: None,
         setup_commands: vec![],
-        plugin_ids: vec![],
-        plugin_repos: vec![],
+        plugins: vec![],
         permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
         workspace_sync_enabled: false,
     }

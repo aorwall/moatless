@@ -6,6 +6,7 @@
 use std::env;
 
 use claude_agent_sdk::PermissionMode;
+use moatless_api_schemas::plugin::PluginDelivery;
 use moatless_api_schemas::sandbox::{derive_mount_name, RepoCheckout, WORKSPACE_REPOS_ENV};
 use serde::Deserialize;
 
@@ -13,8 +14,6 @@ use serde::Deserialize;
 #[derive(Debug, Clone, Default)]
 #[allow(dead_code)]
 pub struct AgentConfig {
-    pub plugins: Vec<String>,
-    pub plugin_paths: Vec<String>,
     pub timeout: Option<u64>,
     pub model: Option<String>,
     pub system_prompt: Option<String>,
@@ -71,9 +70,7 @@ struct RepoConfigFile {
     #[serde(default)]
     code_execution: Option<CodeExecutionConfig>,
     #[serde(default)]
-    plugin_ids: Option<Vec<String>>,
-    #[serde(default)]
-    plugin_repos: Option<Vec<String>>,
+    plugins: Option<Vec<PluginDelivery>>,
     #[serde(default)]
     servers: Option<Vec<ServerInfo>>,
 }
@@ -81,10 +78,6 @@ struct RepoConfigFile {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RepoAgentConfig {
-    #[serde(default)]
-    plugins: Vec<String>,
-    #[serde(default)]
-    plugin_paths: Vec<String>,
     #[serde(default)]
     timeout: Option<u64>,
     #[serde(default)]
@@ -97,8 +90,7 @@ struct RepoAgentConfig {
 struct ParsedRepoConfig {
     agent_config: AgentConfig,
     setup_commands: Vec<String>,
-    plugin_ids: Vec<String>,
-    plugin_repos: Vec<String>,
+    plugins: Vec<PluginDelivery>,
     servers: Vec<ServerInfo>,
 }
 
@@ -212,10 +204,9 @@ pub struct Config {
     pub repo_config_raw: Option<String>,
     /// Setup commands from REPO_CONFIG.codeExecution.setupCommands
     pub setup_commands: Vec<String>,
-    /// Plugin IDs from REPO_CONFIG.pluginIds
-    pub plugin_ids: Vec<String>,
-    /// Plugin git repo URLs from REPO_CONFIG.pluginRepos
-    pub plugin_repos: Vec<String>,
+    /// The plugins to clone, each with the skills to keep, from
+    /// REPO_CONFIG.plugins
+    pub plugins: Vec<PluginDelivery>,
 }
 
 /// Read the workspace's repository checkouts from `WORKSPACE_REPOS`.
@@ -459,8 +450,7 @@ impl Config {
             repos,
             repo_config_raw: env::var("REPO_CONFIG").ok(),
             setup_commands: parsed.setup_commands,
-            plugin_ids: parsed.plugin_ids,
-            plugin_repos: parsed.plugin_repos,
+            plugins: parsed.plugins,
         }
     }
 
@@ -593,8 +583,7 @@ pub(crate) mod test_support {
             repos: Vec::new(),
             repo_config_raw: None,
             setup_commands: Vec::new(),
-            plugin_ids: Vec::new(),
-            plugin_repos: Vec::new(),
+            plugins: Vec::new(),
         }
     }
 }
@@ -607,8 +596,7 @@ fn parse_repo_config() -> ParsedRepoConfig {
             return ParsedRepoConfig {
                 agent_config: AgentConfig::default(),
                 setup_commands: Vec::new(),
-                plugin_ids: Vec::new(),
-                plugin_repos: Vec::new(),
+                plugins: Vec::new(),
                 servers: Vec::new(),
             };
         }
@@ -621,8 +609,7 @@ fn parse_repo_config() -> ParsedRepoConfig {
             return ParsedRepoConfig {
                 agent_config: AgentConfig::default(),
                 setup_commands: Vec::new(),
-                plugin_ids: Vec::new(),
-                plugin_repos: Vec::new(),
+                plugins: Vec::new(),
                 servers: Vec::new(),
             };
         }
@@ -630,8 +617,6 @@ fn parse_repo_config() -> ParsedRepoConfig {
 
     let agent_config = match repo_config.agent_config {
         Some(ac) => AgentConfig {
-            plugins: ac.plugins,
-            plugin_paths: ac.plugin_paths,
             timeout: ac.timeout,
             model: ac.model,
             system_prompt: ac.system_prompt,
@@ -644,15 +629,13 @@ fn parse_repo_config() -> ParsedRepoConfig {
         .map(|ce| ce.setup_commands)
         .unwrap_or_default();
 
-    let plugin_ids = repo_config.plugin_ids.unwrap_or_default();
-    let plugin_repos = repo_config.plugin_repos.unwrap_or_default();
+    let plugins = repo_config.plugins.unwrap_or_default();
     let servers = repo_config.servers.unwrap_or_default();
 
     ParsedRepoConfig {
         agent_config,
         setup_commands,
-        plugin_ids,
-        plugin_repos,
+        plugins,
         servers,
     }
 }

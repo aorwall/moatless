@@ -1,10 +1,10 @@
 //! Orchestrator for discovering skills in the workspace repository and its
-//! linked plugin repositories.
+//! linked plugins.
 //!
-//! Caches the parsed skill lists in memory with a TTL. Cache keys:
-//!   - `workspace:{repository_id}` — skills from the workspace repo
-//!   - `plugin:{plugin_repo_id}` — skills from a plugin repo (shared across
-//!     all workspace repos that reference it)
+//! Workspace skills are read from git on request and cached in memory with a
+//! TTL, keyed `workspace:{repository_id}` — they belong to a repository the
+//! caller already has access to, and there is nothing durable to attach them
+//! to. Plugin skills are stored records; see [`crate::plugin::sync`].
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -25,22 +25,24 @@ use crate::auth::github_app_service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenRepository;
 use crate::auth::provider_tokens::ProviderTokenAuthRepository;
 use crate::extractors::AuthUser;
-use crate::plugin_repo::dao::PluginRepoRepository;
-use crate::plugin_repo::models::PluginRepo;
+use crate::plugin::dao::PluginRepository;
+use crate::plugin::models::Plugin;
+use crate::plugin::sync::PluginSyncService;
 use crate::repository::dao::RepoRepository;
 use crate::repository::models::{Repository, RepositoryKind, RepositoryProvider};
 use crate::secret::service::SecretService;
 
-/// Orchestrates skill discovery across workspace + plugin repositories.
+/// Orchestrates skill discovery across workspace + plugins.
 pub struct SkillService {
     repositories: Arc<dyn RepoRepository>,
-    plugin_repos: Arc<dyn PluginRepoRepository>,
+    plugins: Arc<dyn PluginRepository>,
     provider_tokens: Arc<dyn ProviderTokenRepository>,
     provider_token_auth: Arc<dyn ProviderTokenAuthRepository>,
     github_app_service: Option<Arc<GitHubAppService>>,
     github_apps: Arc<GitHubAppRegistry>,
     secrets: Arc<SecretService>,
     fetcher: Arc<dyn SkillFetcher>,
+    plugin_sync: Arc<PluginSyncService>,
     cache: Cache<String, Arc<Vec<Skill>>>,
 }
 
@@ -50,13 +52,14 @@ impl SkillService {
     // and the constructor is called once from AppState::new.
     pub fn new(
         repositories: Arc<dyn RepoRepository>,
-        plugin_repos: Arc<dyn PluginRepoRepository>,
+        plugins: Arc<dyn PluginRepository>,
         provider_tokens: Arc<dyn ProviderTokenRepository>,
         provider_token_auth: Arc<dyn ProviderTokenAuthRepository>,
         github_app_service: Option<Arc<GitHubAppService>>,
         github_apps: Arc<GitHubAppRegistry>,
         secrets: Arc<SecretService>,
         fetcher: Arc<dyn SkillFetcher>,
+        plugin_sync: Arc<PluginSyncService>,
         ttl: Duration,
     ) -> Self {
         let cache = Cache::builder()
@@ -65,21 +68,28 @@ impl SkillService {
             .build();
         Self {
             repositories,
-            plugin_repos,
+            plugins,
             provider_tokens,
             provider_token_auth,
             github_app_service,
             github_apps,
             secrets,
             fetcher,
+            plugin_sync,
             cache,
         }
     }
 
-    /// Return the merged, deduplicated skill list for a repository.
+    /// Return the merged, deduplicated skill list a caller gets in a
+    /// repository: the repository's own skills plus the plugin skills their
+    /// activation records resolve to.
     ///
     /// Workspace skills shadow plugin skills with the same name; among
     /// plugins, the first occurrence in DAO order wins.
+    ///
+    /// The plugin half is per-caller, not per-repository — two people looking
+    /// at the same repository can legitimately see different skills, because
+    /// that is what will arrive in their respective sandboxes.
     pub async fn list_for_repository(
         &self,
         repository_id: &str,
@@ -104,14 +114,18 @@ impl SkillService {
             }
         }
 
-        // ---- Plugin skills (stable order from DAO) ----
-        let plugins = self
-            .plugin_repos
-            .find_by_repository_id(repository_id)
-            .await?;
-        for plugin in plugins {
-            let plugin_skills = self.plugin_skills(&plugin, auth).await?;
-            for skill in plugin_skills.iter().cloned() {
+        // ---- Plugin skills (whatever this caller's activation records give
+        // them, in stable order from the DAO) ----
+        let resolved = crate::plugin::activation::resolve_for_user(
+            self.plugins.as_ref(),
+            &auth.user_id.to_string(),
+        )
+        .await?;
+        for (plugin, picked) in resolved {
+            for skill in self.plugin_skills(&plugin).await? {
+                if !picked.contains(&skill.name) {
+                    continue;
+                }
                 if seen.insert(skill.name.clone()) {
                     merged.push(skill);
                 }
@@ -176,44 +190,21 @@ impl SkillService {
         Ok(skills)
     }
 
-    async fn plugin_skills(
-        &self,
-        plugin: &PluginRepo,
-        auth: &AuthUser,
-    ) -> Result<Arc<Vec<Skill>>, SkillError> {
-        let cache_key = format!("plugin:{}", plugin.id);
-        if let Some(cached) = self.cache.get(&cache_key).await {
-            debug!(plugin_repo_id = %plugin.id, "Skill cache hit (plugin)");
-            return Ok(cached);
-        }
-
-        let provider = derive_provider_from_url(&plugin.git_url);
-        let token = self
-            .resolve_token_for_provider(auth, provider.as_ref())
-            .await?;
-
-        let files = self
-            .fetcher
-            .fetch_skill_files(&plugin.git_url, SkillLayout::Plugin, token.as_deref())
-            .await?;
-
-        let mut skills: Vec<Skill> = files
+    /// Plugin skills come from stored records, not from git on request. The
+    /// sync service decides whether the source has moved on and is the only
+    /// thing that fetches.
+    async fn plugin_skills(&self, plugin: &Plugin) -> Result<Vec<Skill>, SkillError> {
+        let stored = self.plugin_sync.skills(plugin).await?;
+        Ok(stored
             .into_iter()
-            .filter_map(|f| {
-                scanner::parse_skill(
-                    &f.content,
-                    &f.dir_name,
-                    SkillSource::Plugin,
-                    Some(&plugin.id),
-                    Some(&plugin.name),
-                )
+            .map(|s| Skill {
+                name: s.name,
+                description: s.description,
+                source: SkillSource::Plugin,
+                plugin_id: Some(plugin.id.clone()),
+                plugin_name: Some(plugin.name.clone()),
             })
-            .collect();
-        skills.sort_by(|a, b| a.name.cmp(&b.name));
-
-        let skills = Arc::new(skills);
-        self.cache.insert(cache_key, skills.clone()).await;
-        Ok(skills)
+            .collect())
     }
 
     async fn resolve_token_for_provider(
@@ -265,50 +256,9 @@ fn provider_to_token_key(provider: RepositoryProvider) -> &'static str {
     }
 }
 
-/// Derive a `RepositoryProvider` from a git URL's host. Returns `None` for
-/// hosts we don't recognise.
-fn derive_provider_from_url(url: &str) -> Option<RepositoryProvider> {
-    let lower = url.to_ascii_lowercase();
-    if lower.contains("github.com") {
-        Some(RepositoryProvider::Github)
-    } else if lower.contains("gitlab.com") {
-        Some(RepositoryProvider::Gitlab)
-    } else {
-        None
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn derive_provider_github() {
-        assert_eq!(
-            derive_provider_from_url("https://github.com/foo/bar.git"),
-            Some(RepositoryProvider::Github)
-        );
-        assert_eq!(
-            derive_provider_from_url("git@github.com:foo/bar.git"),
-            Some(RepositoryProvider::Github)
-        );
-    }
-
-    #[test]
-    fn derive_provider_gitlab() {
-        assert_eq!(
-            derive_provider_from_url("https://gitlab.com/foo/bar.git"),
-            Some(RepositoryProvider::Gitlab)
-        );
-    }
-
-    #[test]
-    fn derive_provider_unknown_returns_none() {
-        assert_eq!(
-            derive_provider_from_url("https://self-hosted.example.com/foo/bar.git"),
-            None
-        );
-    }
 
     #[test]
     fn provider_to_token_key_matches_column_values() {

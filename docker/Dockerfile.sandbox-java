@@ -65,9 +65,8 @@ RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}" \
 
 # Copy moatless helper scripts from published tools image (stable)
 COPY --from=aorwall/moatless-sandbox-tools:latest /tools/docker-entrypoint-sandbox.sh /usr/local/bin/docker-entrypoint-sandbox.sh
-COPY --from=aorwall/moatless-sandbox-tools:latest /tools/sync-plugins.sh /usr/local/bin/sync-plugins.sh
 COPY --from=aorwall/moatless-sandbox-tools:latest /tools/moatless-git-cred /usr/local/bin/moatless-git-cred
-RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/sync-plugins.sh /usr/local/bin/moatless-git-cred
+RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/moatless-git-cred
 
 # Volatile layers last — our Rust binaries change on every code edit.
 COPY --from=aorwall/moatless-sandbox-tools:latest /tools/sandbox /usr/local/bin/sandbox

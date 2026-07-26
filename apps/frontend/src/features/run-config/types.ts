@@ -16,7 +16,6 @@ export interface RunConfigFormValues {
   setupCommands?: string[] | null
   envVars?: { [key: string]: string } | null
   servers?: ServerConfig[] | null
-  plugins?: string[] | null
 }
 
 /** Partial-update setter for a single {@link RunConfigFormValues} field. */

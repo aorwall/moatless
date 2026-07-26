@@ -2,12 +2,7 @@ import type { UpdateWorkspaceRequest } from '@moatless/api-client'
 import { Loader2, Save, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
-import {
-  AgentConfigurationGroup,
-  CodeExecutionGroup,
-  PluginsGroup,
-  ServersGroup,
-} from '@/features/run-config'
+import { AgentConfigurationGroup, CodeExecutionGroup, ServersGroup } from '@/features/run-config'
 import {
   useDeleteWorkspace,
   useOverrideWorkspace,
@@ -81,7 +76,6 @@ export function WorkspaceConfigEditSection({
       ...(workspace.setupCommands !== undefined && { setupCommands: workspace.setupCommands }),
       ...(workspace.envVars !== undefined && { envVars: workspace.envVars }),
       ...(workspace.servers !== undefined && { servers: workspace.servers }),
-      ...(workspace.plugins !== undefined && { plugins: workspace.plugins }),
     }
   })()
 
@@ -246,8 +240,6 @@ export function WorkspaceConfigEditSection({
         onUpdateField={updateField}
         disabled={isGitSynced}
       />
-
-      <PluginsGroup formData={formData} onUpdateField={updateField} disabled={isGitSynced} />
 
       {!isGitSynced && (
         <div className="flex justify-between gap-3 border-t pt-6">

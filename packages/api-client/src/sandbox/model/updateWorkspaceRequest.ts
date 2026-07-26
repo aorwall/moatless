@@ -23,8 +23,6 @@ export interface UpdateWorkspaceRequest {
   name?: string | null;
   /** @nullable */
   networkProfile?: string | null;
-  /** @nullable */
-  plugins?: string[] | null;
   resources?: null | ResourceConfig;
   /** @nullable */
   sandboxServiceAccount?: string | null;

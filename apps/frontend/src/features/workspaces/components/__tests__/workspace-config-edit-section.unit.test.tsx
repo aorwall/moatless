@@ -50,10 +50,6 @@ vi.mock('@/features/repositories/hooks/use-repositories', () => ({
   useRepository: () => ({ data: { id: 'repo-1', name: 'acme-api' } }),
 }))
 
-vi.mock('@/features/plugins/hooks/use-plugins', () => ({
-  usePlugins: () => ({ data: { plugins: [] }, isLoading: false }),
-}))
-
 beforeEach(() => {
   overrideMutate.mockReset()
   resetGitMutate.mockReset()
