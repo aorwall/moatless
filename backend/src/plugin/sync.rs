@@ -209,6 +209,7 @@ mod tests {
     use async_trait::async_trait;
     use std::sync::Mutex as StdMutex;
 
+    use super::super::models::ActivationRow;
     use super::*;
     use crate::auth::provider_tokens::MockProviderTokenAuthRepository;
     use crate::auth::test_support::StubProviderTokens;
@@ -289,6 +290,31 @@ mod tests {
                 p.synced_version = version;
             }
             Ok(())
+        }
+
+        // Activation is resolved elsewhere; these tests are about fetching.
+        async fn list_all_skills(&self) -> Result<Vec<PluginSkill>, sqlx::Error> {
+            unimplemented!()
+        }
+
+        async fn list_activations_for(
+            &self,
+            _user_id: &str,
+        ) -> Result<Vec<ActivationRow>, sqlx::Error> {
+            unimplemented!()
+        }
+
+        async fn set_activation(&self, _row: &ActivationRow) -> Result<(), sqlx::Error> {
+            unimplemented!()
+        }
+
+        async fn clear_activation(
+            &self,
+            _plugin_id: &str,
+            _skill_name: Option<String>,
+            _user_id: Option<String>,
+        ) -> Result<bool, sqlx::Error> {
+            unimplemented!()
         }
     }
 

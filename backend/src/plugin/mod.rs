@@ -1,5 +1,6 @@
 //! Plugin domain module.
 
+pub mod activation;
 pub mod dao;
 pub mod error;
 pub mod handlers;

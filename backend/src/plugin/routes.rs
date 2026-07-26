@@ -4,7 +4,10 @@ use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use super::handlers;
-use super::schemas::{CreatePluginRequest, PluginResponse, PluginSkillResponse};
+use super::schemas::{
+    ActivationReach, ActivationResponse, CreatePluginRequest, EffectivePluginResponse,
+    PluginResponse, PluginSkillResponse, SetActivationRequest,
+};
 use crate::state::AppState;
 
 #[derive(OpenApi)]
@@ -17,12 +20,23 @@ use crate::state::AppState;
         handlers::create_plugin,
         handlers::delete_plugin,
         handlers::list_plugin_skills,
+        handlers::set_plugin_activation,
+        handlers::clear_plugin_activation,
+        handlers::list_effective_plugins,
         handlers::list_repo_plugins,
         handlers::link_plugin,
         handlers::unlink_plugin,
     ),
     components(
-        schemas(CreatePluginRequest, PluginResponse, PluginSkillResponse)
+        schemas(
+            ActivationReach,
+            ActivationResponse,
+            CreatePluginRequest,
+            EffectivePluginResponse,
+            PluginResponse,
+            PluginSkillResponse,
+            SetActivationRequest,
+        )
     )
 )]
 pub struct PluginApiDoc;
@@ -34,6 +48,8 @@ pub fn plugin_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenApi
         .routes(routes!(handlers::create_plugin))
         .routes(routes!(handlers::delete_plugin))
         .routes(routes!(handlers::list_plugin_skills))
+        .routes(routes!(handlers::set_plugin_activation, handlers::clear_plugin_activation))
+        .routes(routes!(handlers::list_effective_plugins))
         .routes(routes!(handlers::list_repo_plugins))
         .routes(routes!(handlers::link_plugin))
         .routes(routes!(handlers::unlink_plugin))

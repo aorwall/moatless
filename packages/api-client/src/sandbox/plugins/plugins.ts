@@ -25,10 +25,14 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  ActivationResponse,
+  ClearPluginActivationParams,
   CreatePluginRequest,
+  EffectivePluginResponse,
   ErrorBody,
   PluginResponse,
-  PluginSkillResponse
+  PluginSkillResponse,
+  SetActivationRequest
 } from '.././model';
 
 import { customInstance } from '../../../custom-instance';
@@ -269,6 +273,140 @@ export const useCreatePlugin = <TError = ErrorType<ErrorBody>,
       return useMutation(getCreatePluginMutationOptions(options), queryClient);
     }
     /**
+ * @summary What the calling user actually gets, once global defaults and their own
+records have been resolved against each other.
+ */
+export type listEffectivePluginsResponse200 = {
+  data: EffectivePluginResponse[]
+  status: 200
+}
+
+export type listEffectivePluginsResponse500 = {
+  data: ErrorBody
+  status: 500
+}
+    
+export type listEffectivePluginsResponseSuccess = (listEffectivePluginsResponse200) & {
+  headers: Headers;
+};
+export type listEffectivePluginsResponseError = (listEffectivePluginsResponse500) & {
+  headers: Headers;
+};
+
+export type listEffectivePluginsResponse = (listEffectivePluginsResponseSuccess | listEffectivePluginsResponseError)
+
+export const getListEffectivePluginsUrl = () => {
+
+
+  
+
+  return `/api/v1/plugins/effective`
+}
+
+export const listEffectivePlugins = async ( options?: RequestInit): Promise<listEffectivePluginsResponse> => {
+  
+  return customInstance<listEffectivePluginsResponse>(getListEffectivePluginsUrl(),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
+
+export const getListEffectivePluginsQueryKey = () => {
+    return [
+    `/api/v1/plugins/effective`
+    ] as const;
+    }
+
+    
+export const getListEffectivePluginsQueryOptions = <TData = Awaited<ReturnType<typeof listEffectivePlugins>>, TError = ErrorType<ErrorBody>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEffectivePlugins>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListEffectivePluginsQueryKey();
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listEffectivePlugins>>> = ({ signal }) => listEffectivePlugins({ signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listEffectivePlugins>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type ListEffectivePluginsQueryResult = NonNullable<Awaited<ReturnType<typeof listEffectivePlugins>>>
+export type ListEffectivePluginsQueryError = ErrorType<ErrorBody>
+
+
+export function useListEffectivePlugins<TData = Awaited<ReturnType<typeof listEffectivePlugins>>, TError = ErrorType<ErrorBody>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEffectivePlugins>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listEffectivePlugins>>,
+          TError,
+          Awaited<ReturnType<typeof listEffectivePlugins>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListEffectivePlugins<TData = Awaited<ReturnType<typeof listEffectivePlugins>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEffectivePlugins>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listEffectivePlugins>>,
+          TError,
+          Awaited<ReturnType<typeof listEffectivePlugins>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListEffectivePlugins<TData = Awaited<ReturnType<typeof listEffectivePlugins>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEffectivePlugins>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+/**
+ * @summary What the calling user actually gets, once global defaults and their own
+records have been resolved against each other.
+ */
+
+export function useListEffectivePlugins<TData = Awaited<ReturnType<typeof listEffectivePlugins>>, TError = ErrorType<ErrorBody>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEffectivePlugins>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getListEffectivePluginsQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary What the calling user actually gets, once global defaults and their own
+records have been resolved against each other.
+ */
+export const prefetchListEffectivePluginsQuery = async <TData = Awaited<ReturnType<typeof listEffectivePlugins>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient,  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEffectivePlugins>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getListEffectivePluginsQueryOptions(options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+/**
  * @summary Delete a plugin.
  */
 export type deletePluginResponse204 = {
@@ -360,6 +498,219 @@ export const useDeletePlugin = <TError = ErrorType<ErrorBody>,
         TContext
       > => {
       return useMutation(getDeletePluginMutationOptions(options), queryClient);
+    }
+    /**
+ * Setting the default for everyone is an administrator's call; setting one's
+own is anybody's. A personal record wins over the global one in both
+directions, so this same endpoint is how somebody escapes a plugin that
+arrived by default.
+ * @summary Turn a plugin, or one skill inside it, on or off.
+ */
+export type setPluginActivationResponse200 = {
+  data: ActivationResponse
+  status: 200
+}
+
+export type setPluginActivationResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type setPluginActivationResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type setPluginActivationResponse500 = {
+  data: ErrorBody
+  status: 500
+}
+    
+export type setPluginActivationResponseSuccess = (setPluginActivationResponse200) & {
+  headers: Headers;
+};
+export type setPluginActivationResponseError = (setPluginActivationResponse403 | setPluginActivationResponse404 | setPluginActivationResponse500) & {
+  headers: Headers;
+};
+
+export type setPluginActivationResponse = (setPluginActivationResponseSuccess | setPluginActivationResponseError)
+
+export const getSetPluginActivationUrl = (id: string,) => {
+
+
+  
+
+  return `/api/v1/plugins/${id}/activation`
+}
+
+export const setPluginActivation = async (id: string,
+    setActivationRequest: SetActivationRequest, options?: RequestInit): Promise<setPluginActivationResponse> => {
+  
+  return customInstance<setPluginActivationResponse>(getSetPluginActivationUrl(id),
+  {      
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      setActivationRequest,)
+  }
+);}
+
+
+
+
+export const getSetPluginActivationMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setPluginActivation>>, TError,{id: string;data: SetActivationRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof setPluginActivation>>, TError,{id: string;data: SetActivationRequest}, TContext> => {
+
+const mutationKey = ['setPluginActivation'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setPluginActivation>>, {id: string;data: SetActivationRequest}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  setPluginActivation(id,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetPluginActivationMutationResult = NonNullable<Awaited<ReturnType<typeof setPluginActivation>>>
+    export type SetPluginActivationMutationBody = SetActivationRequest
+    export type SetPluginActivationMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Turn a plugin, or one skill inside it, on or off.
+ */
+export const useSetPluginActivation = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setPluginActivation>>, TError,{id: string;data: SetActivationRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof setPluginActivation>>,
+        TError,
+        {id: string;data: SetActivationRequest},
+        TContext
+      > => {
+      return useMutation(getSetPluginActivationMutationOptions(options), queryClient);
+    }
+    /**
+ * Clearing a personal record is not the same as setting it to off: it hands
+the person back to whatever the global default says.
+ * @summary Remove an activation record.
+ */
+export type clearPluginActivationResponse204 = {
+  data: void
+  status: 204
+}
+
+export type clearPluginActivationResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type clearPluginActivationResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type clearPluginActivationResponse500 = {
+  data: ErrorBody
+  status: 500
+}
+    
+export type clearPluginActivationResponseSuccess = (clearPluginActivationResponse204) & {
+  headers: Headers;
+};
+export type clearPluginActivationResponseError = (clearPluginActivationResponse403 | clearPluginActivationResponse404 | clearPluginActivationResponse500) & {
+  headers: Headers;
+};
+
+export type clearPluginActivationResponse = (clearPluginActivationResponseSuccess | clearPluginActivationResponseError)
+
+export const getClearPluginActivationUrl = (id: string,
+    params: ClearPluginActivationParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/plugins/${id}/activation?${stringifiedParams}` : `/api/v1/plugins/${id}/activation`
+}
+
+export const clearPluginActivation = async (id: string,
+    params: ClearPluginActivationParams, options?: RequestInit): Promise<clearPluginActivationResponse> => {
+  
+  return customInstance<clearPluginActivationResponse>(getClearPluginActivationUrl(id,params),
+  {      
+    ...options,
+    method: 'DELETE'
+    
+    
+  }
+);}
+
+
+
+
+export const getClearPluginActivationMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearPluginActivation>>, TError,{id: string;params: ClearPluginActivationParams}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof clearPluginActivation>>, TError,{id: string;params: ClearPluginActivationParams}, TContext> => {
+
+const mutationKey = ['clearPluginActivation'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof clearPluginActivation>>, {id: string;params: ClearPluginActivationParams}> = (props) => {
+          const {id,params} = props ?? {};
+
+          return  clearPluginActivation(id,params,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ClearPluginActivationMutationResult = NonNullable<Awaited<ReturnType<typeof clearPluginActivation>>>
+    
+    export type ClearPluginActivationMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Remove an activation record.
+ */
+export const useClearPluginActivation = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearPluginActivation>>, TError,{id: string;params: ClearPluginActivationParams}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof clearPluginActivation>>,
+        TError,
+        {id: string;params: ClearPluginActivationParams},
+        TContext
+      > => {
+      return useMutation(getClearPluginActivationMutationOptions(options), queryClient);
     }
     /**
  * This is the admin view's read path, and it goes through the same sync as

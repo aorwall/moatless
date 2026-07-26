@@ -1,4 +1,12 @@
-import type { CreatePluginRequest, PluginResponse, PluginSkillResponse } from '@moatless/api-client'
+import type {
+  ActivationResponse,
+  ClearPluginActivationParams,
+  CreatePluginRequest,
+  EffectivePluginResponse,
+  PluginResponse,
+  PluginSkillResponse,
+  SetActivationRequest,
+} from '@moatless/api-client'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { pluginsApi } from '@/features/plugins/api/plugins'
@@ -64,6 +72,57 @@ export function useDeletePlugin(options?: UseMutationOptions<void, Error, string
 
   return useMutation({
     mutationFn: (pluginId: string) => pluginsApi.deletePlugin(pluginId),
+    ...options,
+    onSuccess: async (data, variables, onMutateResult, mutationContext) => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.plugins.all() })
+      await options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
+    },
+  })
+}
+
+/** What this user receives, after global defaults and their own records resolve. */
+export function useEffectivePlugins(
+  options?: Omit<UseQueryOptions<EffectivePluginResponse[]>, 'queryKey' | 'queryFn'>,
+) {
+  return useQuery({
+    queryKey: queryKeys.plugins.effective(),
+    queryFn: () => pluginsApi.listEffectivePlugins(),
+    ...options,
+  })
+}
+
+export function useSetActivation(
+  options?: UseMutationOptions<
+    ActivationResponse,
+    Error,
+    { pluginId: string; request: SetActivationRequest }
+  >,
+) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ pluginId, request }: { pluginId: string; request: SetActivationRequest }) =>
+      pluginsApi.setActivation(pluginId, request),
+    ...options,
+    onSuccess: async (data, variables, onMutateResult, mutationContext) => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.plugins.all() })
+      await options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
+    },
+  })
+}
+
+export function useClearActivation(
+  options?: UseMutationOptions<
+    void,
+    Error,
+    { pluginId: string; params: ClearPluginActivationParams }
+  >,
+) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ pluginId, params }: { pluginId: string; params: ClearPluginActivationParams }) =>
+      pluginsApi.clearActivation(pluginId, params),
     ...options,
     onSuccess: async (data, variables, onMutateResult, mutationContext) => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.plugins.all() })

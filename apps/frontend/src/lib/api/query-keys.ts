@@ -144,6 +144,7 @@ export const queryKeys = {
     list: () => [...queryKeys.plugins.all(), 'list'] as const,
     repoList: (repoId: string) => [...queryKeys.plugins.all(), 'repo', repoId] as const,
     skills: (pluginId: string) => [...queryKeys.plugins.all(), pluginId, 'skills'] as const,
+    effective: () => [...queryKeys.plugins.all(), 'effective'] as const,
   },
 
   secrets: {

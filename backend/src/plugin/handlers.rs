@@ -1,6 +1,6 @@
 //! Plugin HTTP handlers.
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::Json;
 
 use moatless_backend_core::scope::ScopedResource;
@@ -8,9 +8,13 @@ use moatless_backend_core::scope::ScopedResource;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
 
+use super::activation;
 use super::error::PluginError;
-use super::models::Plugin;
-use super::schemas::{CreatePluginRequest, PluginResponse, PluginSkillResponse};
+use super::models::{ActivationRow, Plugin};
+use super::schemas::{
+    ActivationReach, ActivationResponse, CreatePluginRequest, EffectivePluginResponse,
+    PluginResponse, PluginSkillResponse, SetActivationRequest,
+};
 
 /// A plugin is loadable code (hooks/commands run inside sandboxes), so
 /// registering or removing one is a platform-wide trust decision restricted to
@@ -269,6 +273,168 @@ pub async fn list_plugin_skills(
             })
             .collect(),
     ))
+}
+
+/// Turn a plugin, or one skill inside it, on or off.
+///
+/// Setting the default for everyone is an administrator's call; setting one's
+/// own is anybody's. A personal record wins over the global one in both
+/// directions, so this same endpoint is how somebody escapes a plugin that
+/// arrived by default.
+#[utoipa::path(
+    put,
+    path = "/api/v1/plugins/{id}/activation",
+    tag = "plugins",
+    params(("id" = String, Path, description = "Plugin ID")),
+    request_body = SetActivationRequest,
+    responses(
+        (status = 200, description = "The stored record", body = ActivationResponse),
+        (status = 403, description = "Admin required for the global default", body = crate::error::ErrorBody),
+        (status = 404, description = "Not found", body = crate::error::ErrorBody),
+        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn set_plugin_activation(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(id): Path<String>,
+    Json(req): Json<SetActivationRequest>,
+) -> Result<Json<ActivationResponse>, PluginError> {
+    let user_id = activation_user_id(&auth, req.reach)?;
+
+    state
+        .plugins
+        .find_by_id(&id)
+        .await?
+        .ok_or_else(|| PluginError::NotFound(format!("Plugin '{id}' not found")))?;
+
+    let row = ActivationRow {
+        plugin_id: id,
+        skill_name: req.skill_name,
+        user_id,
+        enabled: req.enabled,
+    };
+    state.plugins.set_activation(&row).await?;
+
+    Ok(Json(ActivationResponse {
+        plugin_id: row.plugin_id,
+        skill_name: row.skill_name,
+        reach: req.reach,
+        enabled: row.enabled,
+    }))
+}
+
+/// Remove an activation record.
+///
+/// Clearing a personal record is not the same as setting it to off: it hands
+/// the person back to whatever the global default says.
+#[utoipa::path(
+    delete,
+    path = "/api/v1/plugins/{id}/activation",
+    tag = "plugins",
+    params(
+        ("id" = String, Path, description = "Plugin ID"),
+        ("reach" = ActivationReach, Query, description = "Whose record to clear"),
+        ("skillName" = Option<String>, Query, description = "Omit to clear the whole-plugin record"),
+    ),
+    responses(
+        (status = 204, description = "Cleared"),
+        (status = 403, description = "Admin required for the global default", body = crate::error::ErrorBody),
+        (status = 404, description = "No such record", body = crate::error::ErrorBody),
+        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn clear_plugin_activation(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(id): Path<String>,
+    Query(params): Query<ClearActivationParams>,
+) -> Result<axum::http::StatusCode, PluginError> {
+    let user_id = activation_user_id(&auth, params.reach)?;
+
+    let cleared = state
+        .plugins
+        .clear_activation(&id, params.skill_name, user_id)
+        .await?;
+    if !cleared {
+        return Err(PluginError::NotFound(
+            "No activation record to clear".to_string(),
+        ));
+    }
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClearActivationParams {
+    pub reach: ActivationReach,
+    #[serde(default)]
+    pub skill_name: Option<String>,
+}
+
+/// What the calling user actually gets, once global defaults and their own
+/// records have been resolved against each other.
+#[utoipa::path(
+    get,
+    path = "/api/v1/plugins/effective",
+    tag = "plugins",
+    responses(
+        (status = 200, description = "Plugins and skills this user receives", body = Vec<EffectivePluginResponse>),
+        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn list_effective_plugins(
+    State(state): State<AppState>,
+    auth: AuthUser,
+) -> Result<Json<Vec<EffectivePluginResponse>>, PluginError> {
+    let plugins = state.plugins.list_all().await?;
+    let resolved = resolve_for_user(&state, &plugins, &auth.user_id.to_string()).await?;
+
+    Ok(Json(
+        resolved
+            .into_iter()
+            .filter_map(|r| {
+                plugins
+                    .iter()
+                    .find(|p| p.id == r.plugin_id)
+                    .map(|p| EffectivePluginResponse {
+                        plugin_id: r.plugin_id,
+                        plugin_name: p.name.clone(),
+                        skill_names: r.skill_names,
+                    })
+            })
+            .collect(),
+    ))
+}
+
+/// Resolve one user's effective plugins. Shared by the endpoint above and, in
+/// the next ticket, by task provisioning — they must not drift.
+pub async fn resolve_for_user(
+    state: &AppState,
+    plugins: &[Plugin],
+    user_id: &str,
+) -> Result<Vec<activation::ResolvedPlugin>, PluginError> {
+    let skills = state.plugins.list_all_skills().await?;
+    let rows = state.plugins.list_activations_for(user_id).await?;
+    Ok(activation::resolve_rows(plugins, &skills, &rows))
+}
+
+/// The `user_id` an activation record carries: `None` for the global default,
+/// the caller's own id for a personal one.
+///
+/// Nobody may write a personal record for somebody else — the reach says
+/// "personal", and personal means the caller.
+fn activation_user_id(
+    auth: &AuthUser,
+    reach: ActivationReach,
+) -> Result<Option<String>, PluginError> {
+    match reach {
+        ActivationReach::Everyone => {
+            ensure_admin(auth)?;
+            Ok(None)
+        }
+        ActivationReach::Personal => Ok(Some(auth.user_id.to_string())),
+    }
 }
 
 fn to_response(r: Plugin) -> PluginResponse {

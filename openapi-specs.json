@@ -3262,6 +3262,40 @@
         }
       }
     },
+    "/api/v1/plugins/effective": {
+      "get": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "What the calling user actually gets, once global defaults and their own\nrecords have been resolved against each other.",
+        "operationId": "list_effective_plugins",
+        "responses": {
+          "200": {
+            "description": "Plugins and skills this user receives",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EffectivePluginResponse"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/plugins/{id}": {
       "delete": {
         "tags": [
@@ -3286,6 +3320,151 @@
           },
           "404": {
             "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugins/{id}/activation": {
+      "put": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "Turn a plugin, or one skill inside it, on or off.",
+        "description": "Setting the default for everyone is an administrator's call; setting one's\nown is anybody's. A personal record wins over the global one in both\ndirections, so this same endpoint is how somebody escapes a plugin that\narrived by default.",
+        "operationId": "set_plugin_activation",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Plugin ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetActivationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The stored record",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivationResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin required for the global default",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "Remove an activation record.",
+        "description": "Clearing a personal record is not the same as setting it to off: it hands\nthe person back to whatever the global default says.",
+        "operationId": "clear_plugin_activation",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Plugin ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reach",
+            "in": "query",
+            "description": "Whose record to clear",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ActivationReach"
+            }
+          },
+          {
+            "name": "skillName",
+            "in": "query",
+            "description": "Omit to clear the whole-plugin record",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Cleared"
+          },
+          "403": {
+            "description": "Admin required for the global default",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record",
             "content": {
               "application/json": {
                 "schema": {
@@ -7633,6 +7812,40 @@
   },
   "components": {
     "schemas": {
+      "ActivationReach": {
+        "type": "string",
+        "description": "Who an activation applies to: everyone, or the calling user alone.",
+        "enum": [
+          "everyone",
+          "personal"
+        ]
+      },
+      "ActivationResponse": {
+        "type": "object",
+        "description": "One stored activation record.",
+        "required": [
+          "pluginId",
+          "reach",
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "pluginId": {
+            "type": "string"
+          },
+          "reach": {
+            "$ref": "#/components/schemas/ActivationReach"
+          },
+          "skillName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "AdapterConnectionResponse": {
         "type": "object",
         "description": "One adapter connection, describing a transport/auth scope.",
@@ -9642,6 +9855,30 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "EffectivePluginResponse": {
+        "type": "object",
+        "description": "What the calling user actually gets, after resolution.",
+        "required": [
+          "pluginId",
+          "pluginName",
+          "skillNames"
+        ],
+        "properties": {
+          "pluginId": {
+            "type": "string"
+          },
+          "pluginName": {
+            "type": "string"
+          },
+          "skillNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Never empty — a plugin with no picked skills is not delivered at all."
           }
         }
       },
@@ -13222,6 +13459,29 @@
                 "$ref": "#/components/schemas/UserInfo"
               }
             ]
+          }
+        }
+      },
+      "SetActivationRequest": {
+        "type": "object",
+        "description": "Turn a plugin, or one skill inside it, on or off.",
+        "required": [
+          "reach",
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "reach": {
+            "$ref": "#/components/schemas/ActivationReach"
+          },
+          "skillName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Omit to mean the whole plugin."
           }
         }
       },

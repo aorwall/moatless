@@ -2,7 +2,7 @@
 
 use async_trait::async_trait;
 
-use super::models::{Plugin, PluginSkill};
+use super::models::{ActivationRow, Plugin, PluginSkill};
 use crate::db::DbPool;
 
 /// Repository trait for plugin persistence.
@@ -29,6 +29,32 @@ pub trait PluginRepository: Send + Sync {
         version: Option<String>,
         skills: &[PluginSkill],
     ) -> Result<(), sqlx::Error>;
+
+    /// Every plugin's stored skills in one query, so resolution does not fan
+    /// out per plugin.
+    async fn list_all_skills(&self) -> Result<Vec<PluginSkill>, sqlx::Error>;
+
+    /// The records resolution needs for one person: every global record plus
+    /// that person's own, and nobody else's.
+    async fn list_activations_for(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<ActivationRow>, sqlx::Error>;
+
+    /// Set one activation record, replacing whatever it said before.
+    async fn set_activation(&self, row: &ActivationRow) -> Result<(), sqlx::Error>;
+
+    /// Remove one activation record. Clearing a personal record hands the
+    /// person back to whatever the global default says, which is not the same
+    /// as setting it to off.
+    /// Owned `Option`s rather than `Option<&str>`: mockall cannot synthesise
+    /// the lifetime of a reference nested inside a generic.
+    async fn clear_activation(
+        &self,
+        plugin_id: &str,
+        skill_name: Option<String>,
+        user_id: Option<String>,
+    ) -> Result<bool, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`PluginRepository`].
@@ -142,5 +168,65 @@ impl PluginRepository for PgPluginRepository {
             .await?;
 
         tx.commit().await
+    }
+
+    async fn list_all_skills(&self) -> Result<Vec<PluginSkill>, sqlx::Error> {
+        sqlx::query_as::<_, PluginSkill>(
+            "SELECT plugin_id, name, description FROM plugin_skills ORDER BY plugin_id, name",
+        )
+        .fetch_all(&self.0)
+        .await
+    }
+
+    async fn list_activations_for(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<ActivationRow>, sqlx::Error> {
+        sqlx::query_as::<_, ActivationRow>(
+            r#"SELECT plugin_id, skill_name, user_id, enabled
+               FROM plugin_activations
+               WHERE user_id IS NULL OR user_id = $1"#,
+        )
+        .bind(user_id)
+        .fetch_all(&self.0)
+        .await
+    }
+
+    async fn set_activation(&self, row: &ActivationRow) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"INSERT INTO plugin_activations (plugin_id, skill_name, user_id, enabled)
+               VALUES ($1, $2, $3, $4)
+               ON CONFLICT (plugin_id, skill_name, user_id)
+               DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = now()"#,
+        )
+        .bind(&row.plugin_id)
+        .bind(&row.skill_name)
+        .bind(&row.user_id)
+        .bind(row.enabled)
+        .execute(&self.0)
+        .await?;
+        Ok(())
+    }
+
+    async fn clear_activation(
+        &self,
+        plugin_id: &str,
+        skill_name: Option<String>,
+        user_id: Option<String>,
+    ) -> Result<bool, sqlx::Error> {
+        // `IS NOT DISTINCT FROM` so a NULL argument matches the NULL row —
+        // plain `=` would never match the global or whole-plugin records.
+        let result = sqlx::query(
+            r#"DELETE FROM plugin_activations
+               WHERE plugin_id = $1
+                 AND skill_name IS NOT DISTINCT FROM $2
+                 AND user_id IS NOT DISTINCT FROM $3"#,
+        )
+        .bind(plugin_id)
+        .bind(&skill_name)
+        .bind(&user_id)
+        .execute(&self.0)
+        .await?;
+        Ok(result.rows_affected() > 0)
     }
 }

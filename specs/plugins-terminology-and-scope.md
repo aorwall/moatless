@@ -1,6 +1,6 @@
 # Turn a plugin on for everyone, or just for yourself
 
-> **Status:** in progress (1/4 tickets)
+> **Status:** in progress (3/4 tickets)
 > **Updated:** 2026-07-26
 > **Vocabulary:** CONTEXT.md · **Decisions:** ADR-NNNN
 
@@ -37,16 +37,16 @@
 
 ```mermaid
 flowchart LR
-  T1["01 · one name, one table"]:::done --> T2["02 · sync and store skills"]:::wip
-  T2 --> T3["03 · activate and assemble"]:::todo
-  T3 --> T4["04 · deliver and manage"]:::todo
+  T1["01 · one name, one table"]:::done --> T2["02 · sync and store skills"]:::done
+  T2 --> T3["03 · activate and assemble"]:::done
+  T3 --> T4["04 · deliver and manage"]:::wip
   classDef done fill:#d1fae5,stroke:#059669,color:#065f46
   classDef wip fill:#fef3c7,stroke:#d97706,color:#92400e
   classDef todo fill:#ffffff,stroke:#94a3b8,color:#475569
   classDef blocked fill:#f1f5f9,stroke:#cbd5e1,color:#94a3b8
 ```
 
-**Next action:** run ticket 02 — sync a plugin centrally and store its skills.
+**Next action:** run ticket 04 — deliver the resolved set to sandboxes and drop the repository link.
 
 ---
 

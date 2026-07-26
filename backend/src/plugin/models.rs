@@ -25,3 +25,15 @@ pub struct PluginSkill {
     pub name: String,
     pub description: String,
 }
+
+/// Row from the `plugin_activations` table.
+///
+/// `user_id: None` means everyone; `skill_name: None` means the whole plugin.
+/// See [`crate::plugin::activation`] for how the two axes combine.
+#[derive(sqlx::FromRow, Debug, Clone, PartialEq, Eq)]
+pub struct ActivationRow {
+    pub plugin_id: String,
+    pub skill_name: Option<String>,
+    pub user_id: Option<String>,
+    pub enabled: bool,
+}

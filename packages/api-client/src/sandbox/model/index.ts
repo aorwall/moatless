@@ -6,6 +6,8 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from './activationReach';
+export * from './activationResponse';
 export * from './adapterConnectionResponse';
 export * from './adapterKind';
 export * from './adapterSendRequest';
@@ -40,6 +42,7 @@ export * from './backgroundWatchJobInfo';
 export * from './branchEntry';
 export * from './branchListResponse';
 export * from './changePasswordRequest';
+export * from './clearPluginActivationParams';
 export * from './codexConfigResponse';
 export * from './codexDeviceCodePollRequest';
 export * from './codexDeviceCodePollResponse';
@@ -78,6 +81,7 @@ export * from './createUserResponse';
 export * from './createVibeTaskRequest';
 export * from './createWorkspaceRequest';
 export * from './createWorkspaceRequestEnvVars';
+export * from './effectivePluginResponse';
 export * from './elementContextData';
 export * from './errorBody';
 export * from './eventType';
@@ -253,6 +257,7 @@ export * from './serverStatus';
 export * from './serverStatusResponse';
 export * from './serverSubType';
 export * from './sessionResponse';
+export * from './setActivationRequest';
 export * from './setProviderIdRequest';
 export * from './setTagsRequest';
 export * from './setupAction';
