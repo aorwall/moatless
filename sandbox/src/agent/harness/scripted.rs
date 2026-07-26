@@ -64,6 +64,10 @@ pub struct Script {
     /// When set, [`AgentProcess::submit`] fails with this error (a pre-start or
     /// input failure), and no steps run.
     pub submit_error: Option<HarnessError>,
+    /// Whether the process reports [`AgentProcess::accepts_injection`], so the
+    /// one-execution-per-process driver hands it mid-execution input instead of
+    /// queueing that input for a later execution.
+    pub injects: bool,
     pub steps: Vec<Step>,
 }
 
@@ -71,7 +75,18 @@ impl Script {
     pub fn new(steps: Vec<Step>) -> Self {
         Self {
             submit_error: None,
+            injects: false,
             steps,
+        }
+    }
+
+    /// A script whose process injects mid-execution input into the execution
+    /// already running, the way the Claude subprocess adapter does.
+    #[cfg(test)]
+    pub fn injecting(steps: Vec<Step>) -> Self {
+        Self {
+            injects: true,
+            ..Self::new(steps)
         }
     }
 
@@ -79,6 +94,7 @@ impl Script {
     pub fn rejecting(error: HarnessError) -> Self {
         Self {
             submit_error: Some(error),
+            injects: false,
             steps: Vec::new(),
         }
     }
@@ -92,6 +108,7 @@ pub(crate) type InputRecorder = Arc<Mutex<Vec<Input>>>;
 
 pub(crate) struct ScriptedProcess {
     submit_error: Option<HarnessError>,
+    injects: bool,
     steps: VecDeque<Step>,
     cancelled: bool,
     cancel_notify: Notify,
@@ -106,6 +123,7 @@ impl ScriptedProcess {
     pub(crate) fn new(script: Script) -> Self {
         Self {
             submit_error: script.submit_error,
+            injects: script.injects,
             steps: script.steps.into(),
             cancelled: false,
             cancel_notify: Notify::new(),
@@ -138,6 +156,10 @@ impl AgentProcess for ScriptedProcess {
         self.inputs.push_back(input.id);
         self.submit_notify.notify_one();
         Ok(())
+    }
+
+    fn accepts_injection(&self) -> bool {
+        self.injects
     }
 
     async fn cancel(&mut self) {

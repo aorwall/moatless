@@ -20,7 +20,7 @@ use moatless_api_schemas::task_connections::{
     TaskConnectionsResponse,
 };
 
-use crate::adapters::models::TaskBinding;
+use crate::adapters::models::{ExternalStatus, TaskBinding};
 use crate::bindings::dao::PgTaskBindingRepository;
 use crate::bindings::status_service;
 use crate::extractors::AuthUser;
@@ -289,7 +289,7 @@ async fn refresh_stale_statuses(
         return;
     }
 
-    let fetched: HashMap<String, status_service::ExternalStatus> = stream::iter(targets)
+    let fetched: HashMap<String, ExternalStatus> = stream::iter(targets)
         .map(|binding| {
             let state = state.clone();
             let creator = created_by

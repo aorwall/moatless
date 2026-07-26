@@ -26,6 +26,8 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
+use claude_agent_sdk::types::content::{ApiMessage, ContentBlock};
+use claude_agent_sdk::types::messages::{MessagePriority, UserMessage};
 use claude_agent_sdk::{query, QueryHandle, SdkMessage};
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
@@ -35,7 +37,7 @@ use crate::agent::options::build_options;
 use crate::agent::types::{AgentRunRequest, ResumeSession};
 use crate::config::Config;
 
-use super::error::HarnessError;
+use super::error::{ErrorClass, FailureStage, HarnessError, SessionImpact};
 use super::process::{AgentProcess, ProcessEvent, ProcessTermination};
 use super::signal::{Input, InputId, SessionId};
 
@@ -73,11 +75,54 @@ pub(crate) struct ClaudeProcess {
     input_id: Option<InputId>,
     session_ready: bool,
     input_accepted: bool,
+    /// Session id reported by the CLI's `System` init, needed to address a
+    /// mid-execution injection at the running Session.
+    session_id: Option<String>,
     /// Whether this launch requested a resume — decides whether a startup
     /// failure is a lost Session or a plain process/config failure.
     resuming: bool,
     /// Shared native-block normalizer (collision-safe ids + Session tracking).
     normalizer: Normalizer,
+}
+
+/// Build the `UserMessage` frame for an input injected into a running Session.
+///
+/// `Next` is load-bearing: the CLI folds the message into the execution already
+/// running (reporting it as an extra internal turn) and still emits exactly one
+/// `Result`, which is what lets the one-shot transport — whose orchestrator ends
+/// the stream at the first `Result` — carry an injected input at all. `Now`
+/// means *interrupt*: it abandons the in-flight work and returns an empty result
+/// immediately, so it must not be used here.
+fn user_message(text: &str, session_id: &str) -> UserMessage {
+    UserMessage {
+        uuid: None,
+        session_id: session_id.to_string(),
+        message: ApiMessage {
+            role: "user".to_string(),
+            content: vec![ContentBlock::Text {
+                text: text.to_string(),
+            }],
+            usage: None,
+            model: None,
+            id: None,
+            stop_reason: None,
+            stop_sequence: None,
+        },
+        parent_tool_use_id: None,
+        is_synthetic: None,
+        tool_use_result: None,
+        is_meta: None,
+        is_compact_summary: None,
+        is_visible_in_transcript_only: None,
+        plan_content: None,
+        thinking_metadata: None,
+        todos: None,
+        summarize_metadata: None,
+        source_tool_assistant_uuid: None,
+        source_tool_use_id: None,
+        permission_mode: None,
+        priority: MessagePriority::Next,
+    }
 }
 
 impl ClaudeProcess {
@@ -90,6 +135,7 @@ impl ClaudeProcess {
             input_id: None,
             session_ready: false,
             input_accepted: false,
+            session_id: None,
             resuming: false,
             normalizer: Normalizer::new(),
         }
@@ -103,6 +149,7 @@ impl ClaudeProcess {
         match msg {
             SdkMessage::System(init) => {
                 let session = SessionId(init.session_id.clone());
+                self.session_id = Some(init.session_id.clone());
                 self.normalizer.set_session(session.clone());
                 if !self.session_ready {
                     self.session_ready = true;
@@ -177,6 +224,30 @@ impl ClaudeProcess {
 #[async_trait::async_trait]
 impl AgentProcess for ClaudeProcess {
     async fn submit(&mut self, input: Input) -> Result<(), HarnessError> {
+        // A live handle means the execution opened by an earlier input is still
+        // running: write this input into that Session instead of launching a
+        // second CLI. It joins that execution and shares its single `Result`
+        // (see `user_message`). Acceptance is known as soon as the write lands,
+        // so the bare `InputAccepted` reports the injection with no
+        // `SessionReady` ahead of it.
+        if let Some(handle) = self.handle.as_ref() {
+            let session_id = self.session_id.clone().unwrap_or_default();
+            handle
+                .send_user_message(&user_message(&input.text, &session_id))
+                .await
+                .map_err(|error| {
+                    HarnessError::new(
+                        FailureStage::Input,
+                        ErrorClass::ProcessExit,
+                        SessionImpact::Intact,
+                        format!("failed to inject input into the running Session: {error}"),
+                    )
+                })?;
+            self.pending
+                .push_back(ProcessEvent::InputAccepted { input: input.id });
+            return Ok(());
+        }
+
         session::ensure_explicit_resume_is_available(
             &self.cfg.config,
             &input.resume,
@@ -210,6 +281,10 @@ impl AgentProcess for ClaudeProcess {
             }
             Err(error) => Err(classify::classify_startup_error(&error, self.resuming)),
         }
+    }
+
+    fn accepts_injection(&self) -> bool {
+        true
     }
 
     async fn cancel(&mut self) {

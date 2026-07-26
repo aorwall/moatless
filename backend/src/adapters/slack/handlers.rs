@@ -5,7 +5,7 @@ use tracing::{debug, warn};
 
 use crate::adapters::error::AdapterError;
 use crate::adapters::metrics::record_webhook;
-use crate::adapters::{Adapter, AdapterKind};
+use crate::adapters::Adapter;
 use crate::bindings::dao::PgTaskBindingRepository;
 use crate::state::AppState;
 
@@ -28,14 +28,9 @@ pub async fn slack_webhook(
         .as_ref()
         .ok_or_else(|| AdapterError::AdapterNotConfigured("slack".into()))?;
 
-    let slack = providers
-        .get(AdapterKind::Slack)
+    let slack_provider = providers
+        .slack()
         .ok_or_else(|| AdapterError::AdapterNotConfigured("slack".into()))?;
-
-    let slack_provider = slack
-        .as_any()
-        .downcast_ref::<super::adapter::SlackAdapter>()
-        .ok_or_else(|| AdapterError::Internal("Provider type mismatch".into()))?;
 
     let payload: serde_json::Value = serde_json::from_slice(&body)
         .map_err(|e| AdapterError::BadRequest(format!("Invalid JSON: {e}")))?;

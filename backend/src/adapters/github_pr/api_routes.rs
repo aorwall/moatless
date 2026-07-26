@@ -25,12 +25,10 @@ use tracing::{info, warn};
 use crate::adapters::common::ensure_task_access;
 use crate::adapters::error::AdapterError;
 use crate::adapters::footer::FOOTER_MARKER;
-use crate::adapters::AdapterKind;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
 use moatless_backend_core::scope::ScopeContext;
 
-use super::adapter::GithubPrAdapter;
 use super::api::{GithubPrApi, MAX_COMMENT_LENGTH};
 use super::external_id;
 use super::shell_reconcile::compose_footer;
@@ -345,13 +343,9 @@ async fn resolve_github_api(
         .adapters
         .as_ref()
         .ok_or_else(|| AdapterError::AdapterNotConfigured("github_pr".into()))?;
-    let provider = providers
-        .get(AdapterKind::GithubPr)
+    let adapter = providers
+        .github_pr()
         .ok_or_else(|| AdapterError::AdapterNotConfigured("github_pr".into()))?;
-    let adapter = provider
-        .as_any()
-        .downcast_ref::<GithubPrAdapter>()
-        .ok_or_else(|| AdapterError::Internal("GithubPr adapter downcast failed".into()))?;
     let token = adapter.resolve_token_for_user(user_id, Some(owner)).await?;
     Ok(GithubPrApi::new(&token))
 }

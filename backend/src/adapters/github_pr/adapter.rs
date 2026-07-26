@@ -9,7 +9,7 @@ use tracing::{debug, info, warn};
 
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
-    AdapterConnection, BindingContext, InboundMessage, LoopContext, OutboundReply,
+    AdapterConnection, BindingContext, ExternalStatus, InboundMessage, LoopContext, OutboundReply,
     SubscriptionMatch, TaskBinding,
 };
 use crate::adapters::{Adapter, AdapterKind, BindingDestination};
@@ -19,7 +19,6 @@ use crate::auth::github_app_service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenRepository;
 use crate::auth::provider_tokens::ProviderTokenAuthRepository;
 use crate::bindings::dao::PgTaskBindingRepository;
-use crate::bindings::status_service::github_external_status;
 use crate::db::DbPool;
 use crate::secret::service::SecretService;
 use crate::state::AppState;
@@ -27,6 +26,7 @@ use crate::state::AppState;
 use super::api::GithubPrApi;
 use super::config::GithubPrRuleConfig;
 use super::signals::{MergeableState, ReviewDecision};
+use super::status::{self, github_external_status};
 
 /// Inputs for [`pr_opened_text`] — grouped to keep the signature small.
 struct PrOpenedText<'a> {
@@ -1726,6 +1726,46 @@ impl Adapter for GithubPrAdapter {
         }
         Ok(())
     }
+
+    fn binding_status_key(&self, binding: &TaskBinding) -> Option<String> {
+        status::binding_status_key(binding)
+    }
+
+    fn is_terminal_state_kind(&self, state_kind: &str) -> bool {
+        status::is_terminal_state_kind(state_kind)
+    }
+
+    async fn fetch_binding_status(
+        &self,
+        binding: &TaskBinding,
+        acting_user: &str,
+    ) -> Option<ExternalStatus> {
+        let (owner, repo, number) = status::binding_subject(binding)?;
+
+        let token = match self.resolve_token_for_user(acting_user, Some(&owner)).await {
+            Ok(token) => token,
+            Err(e) => {
+                warn!(
+                    binding_id = %binding.id,
+                    error = %e,
+                    "Failed to resolve GitHub token for live PR status"
+                );
+                return None;
+            }
+        };
+
+        match GithubPrApi::new(&token).get_pr(&owner, &repo, number).await {
+            Ok(pr) => Some(status::status_from_pr_info(&pr)),
+            Err(e) => {
+                warn!(
+                    binding_id = %binding.id,
+                    error = %e,
+                    "Failed to fetch live GitHub PR status"
+                );
+                None
+            }
+        }
+    }
 }
 
 /// Process a GitHub webhook: verify signature, parse, and route.
@@ -1802,12 +1842,7 @@ async fn check_pr_merge_conflict(
         }
     }
 
-    let Some(adapter) = state
-        .adapters
-        .as_ref()
-        .and_then(|a| a.get(AdapterKind::GithubPr))
-        .and_then(|a| a.as_any().downcast_ref::<GithubPrAdapter>())
-    else {
+    let Some(adapter) = state.adapters.as_ref().and_then(|a| a.github_pr()) else {
         return;
     };
 
@@ -2020,12 +2055,7 @@ async fn check_post_merge_ci(
     run: PostMergeRun,
     sender_login: String,
 ) {
-    let Some(adapter) = state
-        .adapters
-        .as_ref()
-        .and_then(|a| a.get(AdapterKind::GithubPr))
-        .and_then(|a| a.as_any().downcast_ref::<GithubPrAdapter>())
-    else {
+    let Some(adapter) = state.adapters.as_ref().and_then(|a| a.github_pr()) else {
         return;
     };
 

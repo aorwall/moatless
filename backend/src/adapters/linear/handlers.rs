@@ -14,7 +14,6 @@ use tracing::{debug, info, warn};
 use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::error::AdapterError;
 use crate::adapters::metrics::record_webhook;
-use crate::adapters::AdapterKind;
 use crate::state::AppState;
 
 use super::adapter::LinearAdapter;
@@ -39,14 +38,9 @@ pub async fn linear_webhook(
         .as_ref()
         .ok_or_else(|| AdapterError::AdapterNotConfigured("linear".into()))?;
 
-    let linear = providers
-        .get(AdapterKind::Linear)
+    let linear_provider = providers
+        .linear()
         .ok_or_else(|| AdapterError::AdapterNotConfigured("linear".into()))?;
-
-    let linear_provider = linear
-        .as_any()
-        .downcast_ref::<LinearAdapter>()
-        .ok_or_else(|| AdapterError::Internal("Provider type mismatch".into()))?;
 
     match dispatch_webhook(&state, linear_provider, &headers, &body).await {
         Ok(event_type) => {

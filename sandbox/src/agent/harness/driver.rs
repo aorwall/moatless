@@ -16,6 +16,7 @@
 use std::collections::VecDeque;
 
 use tokio::sync::mpsc;
+use tracing::warn;
 
 use super::error::{ErrorClass, FailureStage, HarnessError, SessionImpact};
 use super::process::{AgentProcess, ProcessEvent, ProcessTermination};
@@ -408,9 +409,32 @@ async fn run_execution<P: AgentProcess>(
             }
             submitted = submit_rx.recv(), if *commands_open => {
                 match submitted {
-                    // Inputs arriving during an active execution are queued in
-                    // order and open a later execution once this one terminates.
-                    Some(next) => queue.push_back(next),
+                    // A process that injects takes the input into the running
+                    // execution, which reports it as a bare `InputAccepted` and
+                    // so puts it on this execution's Turn. Otherwise — and if an
+                    // injection fails — the input is queued in order and opens a
+                    // later execution once this one terminates, so it is never
+                    // dropped.
+                    //
+                    // Never inject into an execution that is already unwinding:
+                    // its terminal is `Cancelled` whatever the process reports,
+                    // so an accepted injection would be acknowledged against a
+                    // Turn that produces nothing and would never open the
+                    // follow-up execution the input was meant for.
+                    Some(next) => {
+                        if !cancel_requested && process.accepts_injection() {
+                            if let Err(error) = process.submit(next.clone()).await {
+                                warn!(
+                                    input = %next.id.0,
+                                    %error,
+                                    "injection into the active execution failed; queueing for a later one"
+                                );
+                                queue.push_back(next);
+                            }
+                        } else {
+                            queue.push_back(next);
+                        }
+                    }
                     None => *commands_open = false,
                 }
             }

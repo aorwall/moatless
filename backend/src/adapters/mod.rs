@@ -25,8 +25,8 @@ use crate::db::DbPool;
 
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
-    AdapterConnection, BindingContext, InboundMessage, LoopContext, NewThreadInfo, OutboundReply,
-    SubscriptionMatch, TaskBinding,
+    AdapterConnection, BindingContext, ExternalStatus, InboundMessage, LoopContext, NewThreadInfo,
+    OutboundReply, SubscriptionMatch, TaskBinding,
 };
 
 pub use moatless_api_schemas::enums::AdapterKind;
@@ -354,6 +354,43 @@ pub trait Adapter: Send + Sync {
         None
     }
 
+    /// Stable key naming the **external subject** a binding points at (the pull
+    /// request, the issue), not the binding itself — so several tasks bound to
+    /// the same subject share one cached status and one API call.
+    ///
+    /// Returned before any fetch happens, which is why it is a method of its
+    /// own rather than a by-product of [`Adapter::fetch_binding_status`].
+    ///
+    /// Default: `None` — this provider has no live external status.
+    fn binding_status_key(&self, _binding: &TaskBinding) -> Option<String> {
+        None
+    }
+
+    /// Whether a normalized `external_state_kind` means the external subject is
+    /// finished and can no longer change on its own (a merged PR, a completed
+    /// issue).
+    ///
+    /// Default: `false` — nothing this provider reports is terminal.
+    fn is_terminal_state_kind(&self, _state_kind: &str) -> bool {
+        false
+    }
+
+    /// Fetch the live external status for a binding, calling the provider's API.
+    ///
+    /// `acting_user` is the owning task's creator, used by providers that
+    /// resolve a per-user token. Returns `None` when no live status can be
+    /// obtained (unsupported binding, no token, API error) — callers fall back
+    /// to whatever is already persisted.
+    ///
+    /// Default: `None` — this provider has no live external status.
+    async fn fetch_binding_status(
+        &self,
+        _binding: &TaskBinding,
+        _acting_user: &str,
+    ) -> Option<ExternalStatus> {
+        None
+    }
+
     /// Fetch thread context for enriching agent messages (e.g., Slack thread replies).
     /// Returns formatted context string or None if not supported.
     ///
@@ -371,9 +408,25 @@ pub trait Adapter: Send + Sync {
 }
 
 /// Registry of external adapters keyed by AdapterKind.
+///
+/// Alongside the trait-object map, the registry keeps a typed handle for each
+/// adapter that has concrete-only methods, so code inside an adapter's own
+/// module reaches it without downcasting.
+///
+/// For those four kinds the typed registrar is the only way in: it sets the
+/// handle and inserts into the map in one call. The trait-object insert is
+/// private to this module, so no caller can add one of them to the map and
+/// leave its handle unset. Apart from those registrars, the only callers that
+/// reach it — and so the only ones that insert without a handle — are
+/// `register_webhook`, whose adapter has no concrete-only methods and hence no
+/// handle, and the tests.
 #[derive(Clone)]
 pub struct Adapters {
     providers: HashMap<AdapterKind, Arc<dyn Adapter>>,
+    github_pr: Option<Arc<self::github_pr::adapter::GithubPrAdapter>>,
+    linear: Option<Arc<self::linear::adapter::LinearAdapter>>,
+    slack: Option<Arc<self::slack::adapter::SlackAdapter>>,
+    telegram: Option<Arc<self::telegram::adapter::TelegramAdapter>>,
 }
 
 impl Default for Adapters {
@@ -386,6 +439,10 @@ impl Adapters {
     pub fn new() -> Self {
         Self {
             providers: HashMap::new(),
+            github_pr: None,
+            linear: None,
+            slack: None,
+            telegram: None,
         }
     }
 
@@ -436,17 +493,17 @@ impl Adapters {
             let bot_user_id =
                 resolve_slack_bot_user_id(token, config.slack.bot_user_id.as_deref()).await;
             let slack = self::slack::adapter::SlackAdapter::new(token, secret, bot_user_id);
-            providers.register(Arc::new(slack));
+            providers.register_slack(Arc::new(slack));
             tracing::info!("Slack adapter configured");
         }
 
         // Webhook adapter is always available (config is per trigger source).
-        providers.register(Arc::new(self::webhook::adapter::WebhookAdapter::new()));
+        providers.register_webhook(Arc::new(self::webhook::adapter::WebhookAdapter::new()));
         tracing::info!("Webhook adapter configured");
 
         if let Some(ref token) = config.telegram.bot_token {
             let telegram = self::telegram::adapter::TelegramAdapter::new(token);
-            providers.register(Arc::new(telegram));
+            providers.register_telegram(Arc::new(telegram));
             tracing::info!("Telegram adapter configured");
         }
 
@@ -463,7 +520,7 @@ impl Adapters {
                 github_apps.clone(),
             )
             .with_secrets(secrets.clone());
-            providers.register(Arc::new(github_pr));
+            providers.register_github_pr(Arc::new(github_pr));
             tracing::info!("GitHub PR adapter configured");
         }
 
@@ -477,15 +534,66 @@ impl Adapters {
                 config.linear.oauth_client_secret.clone(),
                 db,
             );
-            providers.register(Arc::new(linear));
+            providers.register_linear(Arc::new(linear));
             tracing::info!("Linear adapter configured");
         }
 
         Some(providers)
     }
 
-    pub fn register(&mut self, provider: Arc<dyn Adapter>) {
+    /// Insert into the trait-object map only.
+    ///
+    /// Private: every adapter kind that has a typed handle must go through its
+    /// typed registrar, or the map and the handle could disagree. Widen this to
+    /// `pub(crate)` if a stand-in registry is ever needed from another module.
+    fn register_trait_object(&mut self, provider: Arc<dyn Adapter>) {
         self.providers.insert(provider.adapter_kind(), provider);
+    }
+
+    /// The Webhook adapter has no concrete-only methods, so it has no typed
+    /// handle and lives in the map alone.
+    pub fn register_webhook(&mut self, provider: Arc<self::webhook::adapter::WebhookAdapter>) {
+        self.register_trait_object(provider);
+    }
+
+    pub fn register_github_pr(&mut self, provider: Arc<self::github_pr::adapter::GithubPrAdapter>) {
+        self.register_trait_object(provider.clone());
+        self.github_pr = Some(provider);
+    }
+
+    pub fn register_linear(&mut self, provider: Arc<self::linear::adapter::LinearAdapter>) {
+        self.register_trait_object(provider.clone());
+        self.linear = Some(provider);
+    }
+
+    pub fn register_slack(&mut self, provider: Arc<self::slack::adapter::SlackAdapter>) {
+        self.register_trait_object(provider.clone());
+        self.slack = Some(provider);
+    }
+
+    pub fn register_telegram(&mut self, provider: Arc<self::telegram::adapter::TelegramAdapter>) {
+        self.register_trait_object(provider.clone());
+        self.telegram = Some(provider);
+    }
+
+    /// Typed handle to the GitHub PR adapter, for code inside its own module.
+    pub fn github_pr(&self) -> Option<&self::github_pr::adapter::GithubPrAdapter> {
+        self.github_pr.as_deref()
+    }
+
+    /// Typed handle to the Linear adapter, for code inside its own module.
+    pub fn linear(&self) -> Option<&self::linear::adapter::LinearAdapter> {
+        self.linear.as_deref()
+    }
+
+    /// Typed handle to the Slack adapter, for code inside its own module.
+    pub fn slack(&self) -> Option<&self::slack::adapter::SlackAdapter> {
+        self.slack.as_deref()
+    }
+
+    /// Typed handle to the Telegram adapter, for code inside its own module.
+    pub fn telegram(&self) -> Option<&self::telegram::adapter::TelegramAdapter> {
+        self.telegram.as_deref()
     }
 
     pub fn get(&self, adapter_kind: AdapterKind) -> Option<&Arc<dyn Adapter>> {
@@ -607,5 +715,14 @@ mod tests {
             }
             other => panic!("expected BadRequest, got: {other:?}"),
         }
+    }
+
+    #[test]
+    fn empty_registry_takes_a_stand_in_adapter() {
+        let mut providers = Adapters::new();
+        providers.register_trait_object(Arc::new(DummyProvider));
+
+        assert_eq!(providers.registered_types(), vec![AdapterKind::Telegram]);
+        assert!(providers.get(AdapterKind::Telegram).is_some());
     }
 }
