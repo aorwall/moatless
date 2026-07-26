@@ -29,8 +29,8 @@ export const IFRAME_ALLOW = [
 
 // Sandbox tokens shared by both previews. Notably absent: `allow-same-origin`.
 // It is only safe when the frame loads a *different* origin than the app; it
-// must never be combined with these on a `srcDoc` frame, which inherits our
-// origin and would then run untrusted content as the app itself.
+// must never be combined with these on a same-origin frame, which would then run
+// untrusted content as the app itself.
 const BASE_SANDBOX = [
   'allow-scripts',
   'allow-forms',
@@ -42,9 +42,10 @@ const BASE_SANDBOX = [
   'allow-orientation-lock',
 ]
 
-// Static preview of an untrusted workspace HTML file via `srcDoc`. Scripts run,
-// but in a unique opaque origin (no `allow-same-origin`), so they cannot reach
-// the parent app's cookies, storage, or DOM.
+// Static preview of an untrusted workspace HTML file, hosted by the
+// `public/html-preview-frame.html` page. Scripts run, but in a unique opaque
+// origin (no `allow-same-origin`), so they cannot reach the parent app's
+// cookies, storage, or DOM.
 export const HTML_PREVIEW_SANDBOX = BASE_SANDBOX.join(' ')
 
 // Live preview of the running app, loaded from a distinct proxy origin. Here
