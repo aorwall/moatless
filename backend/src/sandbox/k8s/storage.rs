@@ -11,8 +11,12 @@
 //! - [`StorageBackend::Ephemeral`] — a node-local `emptyDir`, no PVC. Fast, but
 //!   nothing survives the pod (only transcripts persist, via their own S3 sync).
 //! - [`StorageBackend::S3`] — a node-local `emptyDir` like `ephemeral`, plus the
-//!   sandbox syncs the git working tree to/from S3 (presigned direct transfer),
-//!   giving persistence without an EBS attach/detach on the pod lifecycle.
+//!   sandbox syncs **everything under `WORKSPACE_DIR`** to/from S3 (presigned
+//!   direct transfer), giving persistence without an EBS attach/detach on the
+//!   pod lifecycle. That is every repo checkout *with its `.git`*, plus loose
+//!   files outside any repo; only gitignored paths inside a repo are skipped.
+//!   See `sandbox/src/init/workspace_sync.rs` for the exact file set — this was
+//!   a working-tree-only sync in an earlier design and is not one now.
 //! - [`StorageBackend::Node`] — a best-effort node-local `hostPath`, no PVC. The
 //!   workspace survives stop/start only when the replacement pod lands on the
 //!   same node.

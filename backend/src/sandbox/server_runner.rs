@@ -6,7 +6,7 @@
 //! The script is a supervisor rather than the bare start command, because the
 //! start command and env are otherwise baked into the container spec: changing
 //! either would mean rebuilding the pod, which restarts the agent container
-//! too. Instead the sidecar re-reads an override from the shared data volume
+//! too. Instead the sidecar re-reads an override from the workspace volume
 //! whenever the sandbox bumps a generation counter, and re-execs its child in
 //! place.
 //!
@@ -19,9 +19,21 @@
 //! It is bash rather than a helper binary because `docker_image` is per-server:
 //! a sidecar may run an image that has no moatless binaries in it.
 
-/// Where the sandbox writes the shared env file and the per-server overrides.
-/// Mounted into both the sandbox container and every sidecar.
+/// Where the sandbox writes the shared env file. An `emptyDir` in K8s, so
+/// nothing here survives the pod — fine for secrets the sandbox rewrites on
+/// every start, wrong for anything the user set.
 const DATA_DIR: &str = "/opt/moatless/data";
+
+/// Where the sandbox writes per-server overrides, mirroring
+/// `sandbox/src/server_control.rs`. On the workspace volume rather than
+/// `DATA_DIR` so an override outlives the pod: a stop/start, a redeploy, and the
+/// reaper's idle-stop all delete it. Dot-prefixed at the workspace root, a
+/// sibling of the repo checkouts rather than inside one.
+///
+/// Hardcoded for the same reason `DATA_DIR` is: a sidecar may run any
+/// `docker_image`, so the script cannot depend on the sandbox image's env. Both
+/// builders mount the workspace here.
+const CONTROL_DIR: &str = "/opt/moatless/workspace/.moatless/servers";
 
 /// Build the `bash -c` script for one server's sidecar.
 ///
@@ -29,7 +41,7 @@ const DATA_DIR: &str = "/opt/moatless/data";
 /// used whenever no override is present.
 pub fn build_server_start_script(server_name: &str, start_commands: &[String]) -> String {
     let default_cmd = shell_single_quote(&start_commands.join(" && "));
-    let ctl = shell_single_quote(&format!("{DATA_DIR}/servers/{server_name}"));
+    let ctl = shell_single_quote(&format!("{CONTROL_DIR}/{server_name}"));
 
     // Notes on the shell below:
     // - `set -m` puts each child in its own process group, so the TERM on
@@ -126,10 +138,14 @@ mod tests {
         assert!(s.contains(r#"DEFAULT_CMD='echo '\''hi'\'''"#));
     }
 
+    /// The path is a contract with `sandbox/src/server_control.rs`, which
+    /// writes these files. It lives on the workspace volume, not the
+    /// `emptyDir` data volume, so an override outlives the pod.
     #[test]
-    fn control_path_is_namespaced_per_server() {
+    fn control_path_is_namespaced_per_server_under_the_workspace() {
         let s = build_server_start_script("api", &["serve".to_string()]);
-        assert!(s.contains("CTL='/opt/moatless/data/servers/api'"));
+        assert!(s.contains("CTL='/opt/moatless/workspace/.moatless/servers/api'"));
+        assert!(!s.contains("/opt/moatless/data/servers"));
     }
 
     #[test]

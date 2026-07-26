@@ -252,7 +252,7 @@ impl SandboxService for SandboxServiceImpl {
         };
 
         let generation = server_control::apply(
-            &self.state.config.data_dir,
+            &self.state.config.workspace_dir,
             &req.server_name,
             &ov,
             req.restart,

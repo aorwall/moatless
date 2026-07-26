@@ -122,9 +122,10 @@ Useful when the CLI and the running server disagree:
 
 - **Persisted**: `tasks.server_overrides` JSONB — task-scoped, replayed into the
   sandbox at init, so it survives stop/start and redeploy.
-- **Live**: `/opt/moatless/data/servers/<name>/{command,env,generation}` on the
-  shared data volume, written by the sandbox and read by the sidecar's
-  supervisor on each start. Readable from inside the sandbox.
+- **Live**: `/opt/moatless/workspace/.moatless/servers/<name>/{command,env,generation}`,
+  written by the sandbox and read by the sidecar's supervisor on each start.
+  Readable and greppable from inside the sandbox — it's a sibling of the repo
+  checkouts, not inside one.
 
 The sidecar restarts in place only when `generation` advances. A server that
 exits on its own still takes the container down — which is why self-crashes

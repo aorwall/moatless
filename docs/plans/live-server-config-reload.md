@@ -11,8 +11,8 @@ whole pod — the agent container included — and is explicitly blocked from in
 the sandbox. There is no "change the start command and restart just this server"
 path, from the CLI, the API, or the agent.
 
-This plan proposes one: a **generation-file control channel** on the shared data
-volume plus a supervisor wrapper around each server sidecar, so a server can be
+This plan proposes one: a **generation-file control channel** on the shared
+workspace volume plus a supervisor wrapper around each server sidecar, so a server can be
 reconfigured and restarted in place in seconds without touching the pod spec,
 the PVC, or the agent session.
 
@@ -159,18 +159,26 @@ preview disappears.
 
 ### Control channel
 
-Files under the already-shared data volume:
+Files under the already-shared **workspace** volume:
 
 ```
-/opt/moatless/data/servers/<name>/command      # optional start-command override
-/opt/moatless/data/servers/<name>/env          # optional env override (shell fragment, 0600)
-/opt/moatless/data/servers/<name>/generation   # monotonic counter; a bump means "restart"
-/opt/moatless/data/server.env                  # unchanged, already exists
+/opt/moatless/workspace/.moatless/servers/<name>/command      # optional start-command override
+/opt/moatless/workspace/.moatless/servers/<name>/env          # optional env override (shell fragment, 0600)
+/opt/moatless/workspace/.moatless/servers/<name>/generation   # monotonic counter; a bump means "restart"
+/opt/moatless/data/server.env                                 # unchanged, already exists
 ```
 
 Written atomically (tmp + rename) by the sandbox; read by the sidecar. Absent
 files mean "use what the pod spec baked in", so the control channel is pure
 overlay and the pod spec stays the default.
+
+**As built:** an earlier draft put these under `/opt/moatless/data` alongside
+`server.env`. That volume is an `emptyDir` in K8s, so every override died with
+the pod — including on an idle-stop the user never asked for. They live on
+`WORKSPACE_DIR` instead, in a dot-directory that is a sibling of the repo
+checkouts, so they ride the EBS PVC on the default tier and the whole-workspace
+tar on the `s3` tier. `server.env` deliberately stays on the data volume: it
+holds decrypted secrets, and the `s3` tier uploads the workspace.
 
 The env override is a shell fragment rather than a map, so that *unsetting* a
 variable the pod spec injected is expressible — sourcing can add but never
@@ -208,7 +216,7 @@ cannot assume the sandbox binary is present.
 
 ```bash
 set -m                                   # each child gets its own process group
-CTL=/opt/moatless/data/servers/<name>
+CTL=/opt/moatless/workspace/.moatless/servers/<name>
 DEFAULT_CMD='<joined start_commands>'
 until [ -f /opt/moatless/data/.workspace-ready ]; do sleep 2; done
 while :; do

@@ -4,10 +4,20 @@
 //! baked into the pod/container spec, so changing either normally means
 //! rebuilding the pod — which restarts the agent container too. This module is
 //! the other half of the escape hatch: the sandbox writes an override into the
-//! shared data volume that every sidecar mounts, and the sidecar's supervisor
+//! workspace volume that every sidecar mounts, and the sidecar's supervisor
 //! wrapper re-reads it whenever the generation counter changes.
 //!
-//! Layout under `<data_dir>/servers/<name>/`:
+//! The files live on `WORKSPACE_DIR` rather than the shared data volume because
+//! that is the only volume with any durability: `/opt/moatless/data` is an
+//! `emptyDir` in K8s, wiped whenever the pod is deleted, which a stop/start, a
+//! redeploy, and the reaper's idle-stop all do. Under `WORKSPACE_DIR` the
+//! override rides the same storage as the repos — the EBS PVC on the default
+//! tier, the whole-workspace tar on the `s3` tier.
+//!
+//! They sit in a dot-directory at the workspace root, a sibling of the repo
+//! checkouts rather than inside one, so they are never mistaken for repo content.
+//!
+//! Layout under `<workspace_dir>/.moatless/servers/<name>/`:
 //!
 //! | File | Meaning |
 //! |---|---|
@@ -54,8 +64,14 @@ pub fn is_valid_server_name(name: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
-fn control_dir(data_dir: &str, server_name: &str) -> PathBuf {
-    Path::new(data_dir).join("servers").join(server_name)
+/// Control-channel root, relative to `WORKSPACE_DIR`. Dot-prefixed and outside
+/// any repo checkout.
+const CONTROL_SUBDIR: &str = ".moatless/servers";
+
+fn control_dir(workspace_dir: &str, server_name: &str) -> PathBuf {
+    Path::new(workspace_dir)
+        .join(CONTROL_SUBDIR)
+        .join(server_name)
 }
 
 /// Write `server_name`'s override and, when `restart`, bump its generation so
@@ -64,7 +80,7 @@ fn control_dir(data_dir: &str, server_name: &str) -> PathBuf {
 /// Callers that only want a restart pass the unchanged override — writing it
 /// again is idempotent, and the generation bump is what the sidecar reacts to.
 pub async fn apply(
-    data_dir: &str,
+    workspace_dir: &str,
     server_name: &str,
     ov: &ServerOverride,
     restart: bool,
@@ -76,7 +92,7 @@ pub async fn apply(
         ));
     }
 
-    let dir = control_dir(data_dir, server_name);
+    let dir = control_dir(workspace_dir, server_name);
     fs::create_dir_all(&dir).await?;
 
     write_or_remove(&dir.join("command"), ov.start_command.as_deref()).await?;
@@ -115,10 +131,10 @@ struct RepoConfigOverrides {
 
 /// Parse the persisted overrides the backend baked into `REPO_CONFIG`.
 ///
-/// This is the copy that survives stop/start and redeploy: live changes go over
-/// gRPC, but a rebuilt pod has an empty data volume and needs the overrides
-/// re-materialized before its sidecars start. Malformed JSON degrades to "no
-/// overrides" rather than blocking init.
+/// The DB stays the record even though the control files now live on a durable
+/// volume, because that volume is only durable on some tiers: `ephemeral` keeps
+/// nothing, and `node` keeps it only while the replacement pod lands on the same
+/// node. Malformed JSON degrades to "no overrides" rather than blocking init.
 pub fn parse_overrides(repo_config_raw: Option<&str>) -> BTreeMap<String, ServerOverride> {
     let Some(raw) = repo_config_raw.filter(|r| !r.is_empty()) else {
         return BTreeMap::new();
@@ -135,15 +151,15 @@ pub fn parse_overrides(repo_config_raw: Option<&str>) -> BTreeMap<String, Server
 /// Materialize overrides for every server at init, before the sidecars start.
 ///
 /// Servers absent from `overrides` get their control files cleared, so a
-/// removed override does not survive in the data volume across a restart.
+/// removed override does not survive on the workspace volume across a restart.
 pub async fn materialize(
-    data_dir: &str,
+    workspace_dir: &str,
     overrides: &BTreeMap<String, ServerOverride>,
     known_servers: &[String],
 ) {
     for name in known_servers {
         let ov = overrides.get(name).cloned().unwrap_or_default();
-        if let Err(e) = apply(data_dir, name, &ov, false).await {
+        if let Err(e) = apply(workspace_dir, name, &ov, false).await {
             warn!(server = name, error = %e, "Failed to materialize server override");
         }
     }
@@ -171,9 +187,10 @@ async fn write_atomic(path: &Path, contents: &str) -> std::io::Result<()> {
     fs::rename(&tmp, path).await
 }
 
-/// Override values are configuration rather than secrets, but they sit next to
-/// `server.env` on a shared volume and can carry tokens a user pasted in, so
-/// they get the same `0600` treatment.
+/// Override values are configuration rather than secrets, but they can carry a
+/// token a user pasted in, so they get the same `0600` treatment as
+/// `server.env`. Worth more here than it was on the data volume: this file now
+/// rides the workspace, which the `s3` tier tars and uploads.
 async fn set_owner_only_perms(path: &Path) {
     #[cfg(unix)]
     {
@@ -227,7 +244,7 @@ mod tests {
 
     use super::*;
 
-    fn data_dir(tmp: &TempDir) -> String {
+    fn workspace_dir(tmp: &TempDir) -> String {
         tmp.path().display().to_string()
     }
 
@@ -241,10 +258,29 @@ mod tests {
         assert!(!is_valid_server_name("."));
     }
 
+    /// The path is a contract with the supervisor script the backend generates
+    /// (`backend/src/sandbox/server_runner.rs`), which hardcodes the absolute
+    /// form. Moving it on one side only would silently disable every override.
+    #[tokio::test]
+    async fn control_files_live_under_the_workspace_not_the_data_volume() {
+        let tmp = TempDir::new().unwrap();
+        let ov = ServerOverride {
+            start_command: Some("bun run dev".to_string()),
+            ..Default::default()
+        };
+        apply(&workspace_dir(&tmp), "dev", &ov, true).await.unwrap();
+
+        let dir = tmp.path().join(".moatless").join("servers").join("dev");
+        assert!(dir.join("command").exists());
+        assert!(dir.join("generation").exists());
+        // Nothing lands at the old shared-data location.
+        assert!(!tmp.path().join("servers").exists());
+    }
+
     #[tokio::test]
     async fn apply_rejects_invalid_server_name() {
         let tmp = TempDir::new().unwrap();
-        let err = apply(&data_dir(&tmp), "../escape", &ServerOverride::default(), false)
+        let err = apply(&workspace_dir(&tmp), "../escape", &ServerOverride::default(), false)
             .await
             .unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
@@ -253,11 +289,11 @@ mod tests {
     #[tokio::test]
     async fn empty_override_writes_no_control_files() {
         let tmp = TempDir::new().unwrap();
-        apply(&data_dir(&tmp), "dev", &ServerOverride::default(), false)
+        apply(&workspace_dir(&tmp), "dev", &ServerOverride::default(), false)
             .await
             .unwrap();
 
-        let dir = tmp.path().join("servers/dev");
+        let dir = tmp.path().join(CONTROL_SUBDIR).join("dev");
         assert!(!dir.join("command").exists());
         assert!(!dir.join("env").exists());
     }
@@ -273,9 +309,9 @@ mod tests {
             ]),
             unset_env: vec!["LOG_LEVEL".to_string()],
         };
-        apply(&data_dir(&tmp), "dev", &ov, false).await.unwrap();
+        apply(&workspace_dir(&tmp), "dev", &ov, false).await.unwrap();
 
-        let dir = tmp.path().join("servers/dev");
+        let dir = tmp.path().join(CONTROL_SUBDIR).join("dev");
         assert_eq!(
             fs::read_to_string(dir.join("command")).await.unwrap(),
             "bun run dev"
@@ -296,12 +332,12 @@ mod tests {
             env: BTreeMap::from([("A".to_string(), "1".to_string())]),
             unset_env: vec![],
         };
-        apply(&data_dir(&tmp), "dev", &ov, false).await.unwrap();
-        apply(&data_dir(&tmp), "dev", &ServerOverride::default(), false)
+        apply(&workspace_dir(&tmp), "dev", &ov, false).await.unwrap();
+        apply(&workspace_dir(&tmp), "dev", &ServerOverride::default(), false)
             .await
             .unwrap();
 
-        let dir = tmp.path().join("servers/dev");
+        let dir = tmp.path().join(CONTROL_SUBDIR).join("dev");
         assert!(!dir.join("command").exists());
         assert!(!dir.join("env").exists());
     }
@@ -309,7 +345,7 @@ mod tests {
     #[tokio::test]
     async fn generation_only_advances_when_restart_requested() {
         let tmp = TempDir::new().unwrap();
-        let dir = data_dir(&tmp);
+        let dir = workspace_dir(&tmp);
         let ov = ServerOverride::default();
 
         assert_eq!(apply(&dir, "dev", &ov, false).await.unwrap(), 0);
@@ -321,7 +357,7 @@ mod tests {
     #[tokio::test]
     async fn materialize_clears_servers_without_an_override() {
         let tmp = TempDir::new().unwrap();
-        let dir = data_dir(&tmp);
+        let dir = workspace_dir(&tmp);
         let ov = ServerOverride {
             start_command: Some("stale".to_string()),
             ..Default::default()
@@ -335,8 +371,8 @@ mod tests {
         )
         .await;
 
-        assert!(!tmp.path().join("servers/dev/command").exists());
-        assert!(tmp.path().join("servers/api").exists());
+        assert!(!tmp.path().join(CONTROL_SUBDIR).join("dev/command").exists());
+        assert!(tmp.path().join(CONTROL_SUBDIR).join("api").exists());
     }
 
     #[cfg(unix)]
@@ -349,9 +385,9 @@ mod tests {
             env: BTreeMap::from([("TOKEN".to_string(), "shh".to_string())]),
             ..Default::default()
         };
-        apply(&data_dir(&tmp), "dev", &ov, true).await.unwrap();
+        apply(&workspace_dir(&tmp), "dev", &ov, true).await.unwrap();
 
-        let meta = fs::metadata(tmp.path().join("servers/dev/env")).await.unwrap();
+        let meta = fs::metadata(tmp.path().join(CONTROL_SUBDIR).join("dev/env")).await.unwrap();
         assert_eq!(meta.permissions().mode() & 0o777, 0o600);
     }
 }
