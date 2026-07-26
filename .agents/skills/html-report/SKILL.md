@@ -10,7 +10,46 @@ Render the deliverable as a single self-contained HTML file. Tailwind and Mermai
 
 ## Mechanics
 
-Write the file to `/opt/moatless/workspace/reports/<slug>-<timestamp>.html` (create the directory if missing) so each run gets a fresh file that stays out of the repo. If `/opt/moatless/workspace` doesn't exist (running outside a moatless sandbox), fall back to the OS temp dir (`$TMPDIR`, then `/tmp`, or `%TEMP%` on Windows). Open it for the user — `xdg-open <path>` on Linux, `open <path>` on macOS, `start <path>` on Windows; in a headless moatless sandbox there is no browser, so instead copy the file into the frontend dev server's public dir (`apps/frontend/public/`) and share the external preview URL, or just tell them the absolute path.
+Write the file to `/opt/moatless/workspace/scratchpad/`, creating the directory if missing. It sits beside the repo checkout rather than inside it, so generated pages never land in a diff.
+
+**Naming depends on whether the page will change.**
+
+| | Name | Because |
+|---|---|---|
+| One-shot snapshot | `<slug>-<timestamp>.html` | Each run is its own artifact; old ones stay readable |
+| Anything you will update | `<slug>.html`, overwritten in place | A fresh name per turn breaks the tab the user already has open |
+
+**Serving it — inside a moatless sandbox** (the normal case), the task UI renders it:
+
+```
+<origin>/tasks/<task-id>?file=scratchpad%2F<slug>.html&fileView=preview
+```
+
+`file` and `fileView` are search params on the **task route** — not a separate `/file` sub-route — so the link opens the page inside the normal task UI rather than stranding the reader on a bare document.
+
+- **The path is relative to the workspace root** (`WORKSPACE_DIR`, `/opt/moatless/workspace`), not to the repo. That means repo files carry the checkout directory: `moatless/specs/foo.md`, not `specs/foo.md`.
+- **URL-encode it.** Slashes become `%2F`. `scratchpad%2Freport.html`, `moatless%2Fspecs%2Ffoo.md`.
+- `fileView` is one of `code`, `diff`, `preview`. **`preview` renders both HTML and markdown** (`.md`, `.mdx`) — anything else falls back, so `code` is the only sensible mode for source.
+
+Give the URL once. Don't re-paste it on every update — the tab is already open.
+
+**The same form links any workspace file**, which is usually more useful than pasting its contents:
+
+| Linking | `file=` | `fileView=` |
+|---|---|---|
+| A generated page | `scratchpad%2F<slug>.html` | `preview` |
+| A spec or doc | `moatless%2Fspecs%2F<slug>.md` | `preview` — rendered, not raw |
+| Source you're citing | `moatless%2Fbackend%2Fsrc%2F...` | `code` |
+
+Prefer a link over a paste whenever the file is long enough that quoting it would bury the message.
+
+**Update the file with the Write or Edit tool. Never a shell redirect.** The viewer refetches because `Write`/`Edit`/`MultiEdit` tool-call events arrive over SSE and invalidate the task's file queries with `refetchType: 'active'` — exactly the file the user is looking at. A `cat > file` in bash emits no such event, so the page silently goes stale. Don't add a `<meta http-equiv="refresh">` either; the viewer handles it.
+
+This applies to every file the user has open, not just generated pages: edit a spec they are reading with the Edit tool and their tab updates; rewrite it with `sed -i` and it does not.
+
+**Constraints inside the preview.** The iframe renders via `srcDoc` under a sandbox that omits `allow-same-origin`. Scripts and remote subresources load normally — the Tailwind CDN and the Mermaid ESM import both work — but storage APIs (`localStorage`, cookies) do not. Keep the markup semantic enough to read unstyled, in case CDN egress is blocked.
+
+**Outside a sandbox**, fall back to the OS temp dir (`$TMPDIR`, then `/tmp`, or `%TEMP%`) and open it directly: `xdg-open` on Linux, `open` on macOS, `start` on Windows.
 
 ## Scaffold
 
@@ -65,3 +104,15 @@ For before/after comparisons, put the two diagrams side by side in two columns, 
 - Use `text-xs uppercase tracking-wider` for labels inside diagrams — they should read as schematic, not as UI.
 - Prose is sparse and plain; the diagrams carry the weight. If a diagram needs a paragraph to be understood, redraw the diagram.
 - The only scripts are the Tailwind CDN and the Mermaid ESM import. The report is otherwise static — no app code, no interactivity beyond Mermaid's own rendering.
+- **Read-only.** No forms, no buttons, no answering by clicking. The user acts in chat; the page holds state they would otherwise have to.
+
+## Skills that build on this
+
+Everything above is the shared base: where the file goes, how it's served, how it's updated, and what it looks like. Skills that produce a *particular kind* of page own their own layout on top of it, and none of them restate the mechanics.
+
+| Skill | Its page | Layer |
+|---|---|---|
+| `/writing-specs` | Live board during the interview, review page at approval | [HTML-REPORT.md](../writing-specs/HTML-REPORT.md) |
+| `/explaining-code` | An explanation of how existing code works | [HTML-REPORT.md](../explaining-code/HTML-REPORT.md) |
+
+If you are producing one of those, read its layer — it fixes the section order and the caps, which is most of what makes the page useful. For anything else, this file is enough on its own.
