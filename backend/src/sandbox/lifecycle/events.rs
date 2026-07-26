@@ -33,6 +33,12 @@ pub enum EventFact {
     Initializing,
     /// Failure fact for an attempt.
     Error,
+    /// Terminal fact: the reconciler's attempt cap for this generation is spent
+    /// and it will not retry until a new caller operation or a wake. Distinct
+    /// from [`Error`](Self::Error) because it needs its own deterministic id —
+    /// sharing the `Error` id would dedup it away against the failure that
+    /// caused it.
+    RecoveryExhausted,
 }
 
 impl EventFact {
@@ -45,6 +51,7 @@ impl EventFact {
             Self::Removed => "removed",
             Self::Initializing => "initializing",
             Self::Error => "error",
+            Self::RecoveryExhausted => "recovery_exhausted",
         }
     }
 
@@ -56,7 +63,36 @@ impl EventFact {
             Self::Stopped => SandboxStatus::Stopped,
             Self::Removed => SandboxStatus::Removed,
             Self::Initializing => SandboxStatus::Initializing,
-            Self::Error => SandboxStatus::Error,
+            Self::Error | Self::RecoveryExhausted => SandboxStatus::Error,
+        }
+    }
+}
+
+/// Why an operation failed, carried on a failure fact so the durable event
+/// explains itself instead of reading "Sandbox operation failed".
+///
+/// Adapters have no event publisher — they surface everything through
+/// [`RuntimeError`](super::error::RuntimeError), and this is where lifecycle
+/// republishes it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FailureDetail {
+    /// The operation that failed. Named in the message, since the coarse
+    /// `error` sub-type alone never said whether a start, a stop, or a remove
+    /// was in flight.
+    pub op: OperationKind,
+    /// Bounded cause slug published as `lifecycle_event` — a UI label key, so
+    /// it must stay a small closed vocabulary.
+    pub cause: &'static str,
+    /// The full error chain, published as `error`.
+    pub reason: String,
+}
+
+impl FailureDetail {
+    pub fn new(op: OperationKind, cause: &'static str, reason: impl Into<String>) -> Self {
+        Self {
+            op,
+            cause,
+            reason: reason.into(),
         }
     }
 }
@@ -71,6 +107,9 @@ pub struct LifecycleEvent {
     /// Carried only on the `Stopped` completion so reason tags survive
     /// (`SandboxStopReason::IdleReaper` → `idle_reaped` + initiator).
     pub stop_reason: Option<SandboxStopReason>,
+    /// Carried on the failure facts (`Error`, `RecoveryExhausted`) so the
+    /// published payload names the operation and its cause.
+    pub failure: Option<FailureDetail>,
 }
 
 impl LifecycleEvent {
@@ -86,6 +125,7 @@ impl LifecycleEvent {
             fact,
             status: fact.sandbox_status(),
             stop_reason,
+            failure: None,
         }
     }
 
@@ -96,7 +136,7 @@ impl LifecycleEvent {
 
     /// Whether this is a failure fact (persisted `is_error`).
     pub fn is_error(&self) -> bool {
-        matches!(self.fact, EventFact::Error)
+        matches!(self.fact, EventFact::Error | EventFact::RecoveryExhausted)
     }
 
     /// Whether the store's completion transaction persists this fact. Completion
@@ -108,10 +148,15 @@ impl LifecycleEvent {
     }
 
     /// The typed payload published and persisted for this event. A `Stopped`
-    /// completion carries its reason tag so the UI attributes the stop.
+    /// completion carries its reason tag so the UI attributes the stop; a
+    /// failure fact carries the operation, the bounded cause slug, and the full
+    /// error chain, so the three consumers of this payload — the sandbox event
+    /// feed (`message`), the conversation transcript (`error`), and the Linear
+    /// error activity (`message`) — all read a real reason instead of a
+    /// placeholder.
     pub fn payload(&self) -> SandboxEventPayload {
         let mut payload = SandboxEventPayload {
-            message: self.message().to_string(),
+            message: self.message(),
             ..Default::default()
         };
         if let Some(reason) = self.stop_reason {
@@ -119,17 +164,30 @@ impl LifecycleEvent {
             payload.lifecycle_event = lifecycle_event.map(str::to_string);
             payload.initiator = Some(initiator.to_string());
         }
+        if let Some(failure) = &self.failure {
+            payload.lifecycle_event = Some(failure.cause.to_string());
+            payload.error = Some(failure.reason.clone());
+        }
         payload
     }
 
-    fn message(&self) -> &'static str {
-        match self.fact {
+    fn message(&self) -> String {
+        let generic = match self.fact {
             EventFact::Ready => "Sandbox ready",
             EventFact::Removing => "Removing sandbox",
             EventFact::Stopped => "Sandbox stopped",
             EventFact::Removed => "Sandbox removed",
             EventFact::Initializing => "Sandbox initializing",
             EventFact::Error => "Sandbox operation failed",
+            EventFact::RecoveryExhausted => "Sandbox recovery exhausted",
+        };
+        match &self.failure {
+            Some(failure) if self.fact == EventFact::RecoveryExhausted => format!(
+                "Gave up recovering sandbox {} after repeated failures: {}",
+                failure.op, failure.reason
+            ),
+            Some(failure) => format!("Sandbox {} failed: {}", failure.op, failure.reason),
+            None => generic.to_string(),
         }
     }
 }
@@ -268,9 +326,32 @@ pub fn outcome_events(task_id: &str, ctx: &EventContext) -> Vec<LifecycleEvent> 
 
 /// The deterministic `Error` fact for a failed attempt of this generation.
 /// One per operation generation — at-least-once retries of the same generation
-/// dedup on the deterministic id.
-pub fn error_event(task_id: &str, generation: OperationGeneration) -> LifecycleEvent {
-    LifecycleEvent::new(task_id, generation, EventFact::Error, None)
+/// dedup on the deterministic id, so the fact records the **first** failure a
+/// generation hit. Repeated failures are not silence: exhausting the
+/// reconciler's cap publishes [`recovery_exhausted_event`].
+pub fn error_event(
+    task_id: &str,
+    generation: OperationGeneration,
+    failure: FailureDetail,
+) -> LifecycleEvent {
+    LifecycleEvent {
+        failure: Some(failure),
+        ..LifecycleEvent::new(task_id, generation, EventFact::Error, None)
+    }
+}
+
+/// The deterministic terminal fact for a generation whose reconciler attempt
+/// cap is spent. Its own slug (not `error`) so it survives the `Error` fact's
+/// dedup and the give-up is visible rather than inferred from silence.
+pub fn recovery_exhausted_event(
+    task_id: &str,
+    generation: OperationGeneration,
+    failure: FailureDetail,
+) -> LifecycleEvent {
+    LifecycleEvent {
+        failure: Some(failure),
+        ..LifecycleEvent::new(task_id, generation, EventFact::RecoveryExhausted, None)
+    }
 }
 
 #[cfg(test)]
@@ -554,11 +635,62 @@ mod tests {
 
     // ---- Error ----
 
+    fn timeout_failure() -> FailureDetail {
+        FailureDetail::new(
+            OperationKind::Start,
+            "runtime_infrastructure",
+            "runtime infrastructure error: Timed out after 90s waiting for the previous \
+             sandbox pod to terminate",
+        )
+    }
+
     #[test]
     fn error_fact_is_generation_scoped() {
-        let e = error_event("t", gen(5));
+        let e = error_event("t", gen(5), timeout_failure());
         assert_eq!(e.fact, EventFact::Error);
         assert_eq!(e.event_id, "sandbox:t:5:error");
+    }
+
+    #[test]
+    fn error_payload_names_the_operation_cause_and_reason() {
+        let payload = error_event("t", gen(5), timeout_failure()).payload();
+        // The feed and the Linear activity read `message`; it must not be the
+        // old opaque "Sandbox operation failed".
+        assert!(
+            payload.message.starts_with("Sandbox start failed: "),
+            "unexpected message: {}",
+            payload.message
+        );
+        assert!(payload.message.contains("Timed out after 90s"));
+        // The conversation transcript reads `error`; absent it renders
+        // "Unknown agent error".
+        assert!(payload
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("Timed out after 90s")));
+        // The UI label vocabulary reads `lifecycle_event`.
+        assert_eq!(
+            payload.lifecycle_event.as_deref(),
+            Some("runtime_infrastructure")
+        );
+    }
+
+    #[test]
+    fn recovery_exhausted_does_not_collide_with_the_error_fact() {
+        let failure = FailureDetail::new(OperationKind::Start, "recovery_exhausted", "5 attempts");
+        let exhausted = recovery_exhausted_event("t", gen(5), failure);
+        assert_eq!(exhausted.event_id, "sandbox:t:5:recovery_exhausted");
+        assert_ne!(
+            exhausted.event_id,
+            error_event("t", gen(5), timeout_failure()).event_id
+        );
+        // Same sub_type as Error so existing error consumers surface it.
+        assert_eq!(exhausted.sub_type(), "error");
+        assert!(exhausted.is_error());
+        assert!(exhausted
+            .payload()
+            .message
+            .starts_with("Gave up recovering"));
     }
 
     // ---- Full remove lifecycle: acceptance + completion coexist ----
@@ -604,9 +736,12 @@ mod tests {
         assert!(!built(EventFact::Removing, None).persisted_as_completion());
         assert!(!built(EventFact::Initializing, None).persisted_as_completion());
         assert!(!built(EventFact::Error, None).persisted_as_completion());
-        // sub_type mirrors the SandboxStatus slug; Error is the only is_error fact.
+        assert!(!built(EventFact::RecoveryExhausted, None).persisted_as_completion());
+        // sub_type mirrors the SandboxStatus slug; the failure facts are the
+        // only is_error ones.
         assert_eq!(built(EventFact::Removed, None).sub_type(), "removed");
         assert!(built(EventFact::Error, None).is_error());
+        assert!(built(EventFact::RecoveryExhausted, None).is_error());
         assert!(!built(EventFact::Stopped, None).is_error());
     }
 

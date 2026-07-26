@@ -189,6 +189,38 @@ only pod-level failures are treated as dead.
 Events flow: watcher → Redis Streams → SSE (frontend) + event handler
 (DB `task_events`, channel adapters).
 
+### Lifecycle failure facts
+
+Lifecycle publishes its own facts under deterministic ids
+(`sandbox:{task}:{generation}:{fact}`), separately from the watcher's
+observations above. Two of them record failure, and both carry the reason:
+
+| Fact | Id slug | When |
+|---|---|---|
+| `Error` | `error` | An operation attempt of this generation failed |
+| `RecoveryExhausted` | `recovery_exhausted` | The reconciler's attempt cap for this generation is spent — it will not retry until a new caller operation or a message wake |
+
+Both publish under sub-type `error` (`is_error`), and their payload carries:
+
+- `message` — `"Sandbox {operation} failed: {reason}"`. Names the operation,
+  because the sub-type alone never said whether a start, a stop, or a remove
+  was in flight.
+- `error` — the full error chain. The conversation transcript reads this field;
+  without it the chat bubble renders "Unknown agent error".
+- `lifecycle_event` — a bounded cause slug the UI maps to a label:
+  `runtime_infrastructure`, `runtime_rejected`, `runtime_not_absent`,
+  `intent_write`, `completion_commit`, `edge_abandoned`, `recovery_exhausted`.
+
+The `Error` fact is **one per generation**: reconciler retries reuse the
+generation (`resolve_generation`), so their ids dedup and the fact records the
+*first* failure the generation hit. `RecoveryExhausted` has its own slug
+precisely so it survives that dedup — otherwise a Task that has stopped being
+retried is indistinguishable from one still in flight.
+
+Failures raised *before* a generation is resolved (intent load, generation
+allocation, lock contention, the Closed guard) have no stable event identity
+and stay caller- and log-only.
+
 ## Idle Handling: the Task Reaper
 
 One leader-elected loop (default every 300s) runs several passes per cycle.

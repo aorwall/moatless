@@ -456,6 +456,7 @@ mod db_tests {
             fact: EventFact::Removed,
             status: SandboxStatus::Removed,
             stop_reason: None,
+            failure: None,
         };
         store
             .commit_fact_and_clear_marker("t1", &event)
@@ -539,6 +540,7 @@ mod db_tests {
             fact: EventFact::Error,
             status: SandboxStatus::Error,
             stop_reason: None,
+            failure: None,
         };
         store
             .commit_fact_and_clear_marker("t1", &old_event)

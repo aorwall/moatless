@@ -27,7 +27,7 @@ use chrono::{DateTime, Utc};
 use crate::task::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
 
 use super::error::LifecycleError;
-use super::events::{self, EventContext, EventFact, LifecycleEvent};
+use super::events::{self, EventContext, EventFact, FailureDetail, LifecycleEvent};
 use super::outcome::LifecycleOutcome;
 use super::runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
 use super::types::{
@@ -543,7 +543,10 @@ impl Lifecycle {
             retention: None,
             marker,
         };
-        let intent_effect = self.persist(task_id, &write).await?;
+        let intent_effect = match self.persist(task_id, &write).await {
+            Ok(effect) => effect,
+            Err(e) => return Err(self.publish_failure(task_id, kind, generation, e).await),
+        };
 
         let ctx = RuntimeOperationContext::new(generation);
         let runtime_result = match kind {
@@ -597,7 +600,14 @@ impl Lifecycle {
             retention: None,
             marker,
         };
-        let intent_effect = self.persist(task_id, &write).await?;
+        let intent_effect = match self.persist(task_id, &write).await {
+            Ok(effect) => effect,
+            Err(e) => {
+                return Err(self
+                    .publish_failure(task_id, OperationKind::Stop, generation, e)
+                    .await)
+            }
+        };
 
         // Graceful agent stop BEFORE the runtime effect (best-effort).
         self.agent_stop.stop_agent(task_id, reason).await;
@@ -643,7 +653,14 @@ impl Lifecycle {
             retention: Some(retention),
             marker,
         };
-        let intent_effect = self.persist(task_id, &write).await?;
+        let intent_effect = match self.persist(task_id, &write).await {
+            Ok(effect) => effect,
+            Err(e) => {
+                return Err(self
+                    .publish_failure(task_id, OperationKind::Remove, generation, e)
+                    .await)
+            }
+        };
 
         // Acceptance event: intent moved to Removed (published before the
         // effect, so a later runtime failure still records that intent moved).
@@ -701,8 +718,16 @@ impl Lifecycle {
         let runtime_outcome = match runtime_result {
             Ok(outcome) => outcome,
             Err(source) => {
+                // Republish the adapter's own diagnosis. Without this the
+                // durable fact says only "Sandbox operation failed" and the
+                // reason survives nowhere but the caller's return value —
+                // which, for a reconciler-driven operation, is a log line.
+                let failure = FailureDetail::new(run.kind, source.cause(), source.to_string());
                 self.events
-                    .publish(task_id, &events::error_event(task_id, run.generation))
+                    .publish(
+                        task_id,
+                        &events::error_event(task_id, run.generation, failure),
+                    )
                     .await;
                 return Err(LifecycleError::Runtime {
                     task_id: task_id.to_string(),
@@ -729,16 +754,28 @@ impl Lifecycle {
         for event in events::outcome_events(task_id, &ctx) {
             if matches!(event.fact, EventFact::Stopped | EventFact::Removed) {
                 // Persist the full completion fact + clear the marker atomically;
-                // propagate failure and do NOT publish (intent + marker survive
-                // for the reconciler, so the deterministic id is never published
-                // without being persisted).
-                self.store
+                // propagate failure and do NOT publish the completion (intent +
+                // marker survive for the reconciler, so the deterministic id is
+                // never published without being persisted). The *failure* is
+                // published, otherwise a completion that never committed leaves
+                // a Task diverged with an empty event stream.
+                if let Err(e) = self
+                    .store
                     .commit_fact_and_clear_marker(task_id, &event)
                     .await
-                    .map_err(|e| LifecycleError::CompletionCommit {
-                        task_id: task_id.to_string(),
-                        reason: e.to_string(),
-                    })?;
+                {
+                    return Err(self
+                        .publish_failure(
+                            task_id,
+                            run.kind,
+                            run.generation,
+                            LifecycleError::CompletionCommit {
+                                task_id: task_id.to_string(),
+                                reason: e.to_string(),
+                            },
+                        )
+                        .await);
+                }
                 committed_completion = true;
             }
             self.events.publish(task_id, &event).await;
@@ -778,6 +815,52 @@ impl Lifecycle {
         }
     }
 
+    /// Publish the deterministic `Error` fact for a failure that already owns a
+    /// generation, then hand the error back for propagation.
+    ///
+    /// Failures *before* generation resolution (intent load, generation
+    /// allocation, lock contention, the Closed guard) have no stable event
+    /// identity, so they would either need a random id — which defeats the
+    /// dedup that keeps a retry loop from spamming the feed — or a shared one
+    /// that collides across operations. They stay caller- and log-only.
+    async fn publish_failure(
+        &self,
+        task_id: &str,
+        kind: OperationKind,
+        generation: OperationGeneration,
+        error: LifecycleError,
+    ) -> LifecycleError {
+        let failure = FailureDetail::new(kind, error.cause(), error.to_string());
+        self.events
+            .publish(task_id, &events::error_event(task_id, generation, failure))
+            .await;
+        error
+    }
+
+    /// Publish the terminal `RecoveryExhausted` fact for a generation the
+    /// reconciler has stopped retrying. Called by the reconciler, which owns
+    /// the attempt budget; the event sink stays private to lifecycle.
+    pub(crate) async fn publish_recovery_exhausted(
+        &self,
+        task_id: &str,
+        kind: OperationKind,
+        generation: OperationGeneration,
+        attempts: u32,
+        last_error: &str,
+    ) {
+        let failure = FailureDetail::new(
+            kind,
+            "recovery_exhausted",
+            format!("{attempts} attempts failed, last error: {last_error}"),
+        );
+        self.events
+            .publish(
+                task_id,
+                &events::recovery_exhausted_event(task_id, generation, failure),
+            )
+            .await;
+    }
+
     async fn clear_marker_best_effort(&self, task_id: &str, generation: OperationGeneration) {
         // A no-op-generation marker owes no completion fact; if the clear fails
         // the reconciler's marker acknowledgement is the backstop.
@@ -788,12 +871,25 @@ impl Lifecycle {
 
     /// Durably abandon a stale caller-owned edge. The deterministic `Error`
     /// fact and marker clear commit atomically, then the fact is published.
+    ///
+    /// `kind` is the abandoned edge's own operation, so the published fact
+    /// distinguishes "the restart we gave up on" from a runtime failure — both
+    /// previously read "Sandbox operation failed".
     pub(crate) async fn abandon_edge(
         &self,
         task_id: &str,
+        kind: OperationKind,
         generation: OperationGeneration,
     ) -> Result<(), LifecycleError> {
-        let event = events::error_event(task_id, generation);
+        let failure = FailureDetail::new(
+            kind,
+            "edge_abandoned",
+            format!(
+                "no replacement observed within {}s; the operation was abandoned",
+                super::marker::EDGE_ABANDON_AFTER.as_secs()
+            ),
+        );
+        let event = events::error_event(task_id, generation, failure);
         self.store
             .commit_fact_and_clear_marker(task_id, &event)
             .await
@@ -1551,7 +1647,9 @@ mod tests {
             .ensure
             .lock()
             .expect("lock")
-            .replace(Err(RuntimeError::Infrastructure("timeout".into())));
+            .replace(Err(RuntimeError::Infrastructure(
+                "previous pod still terminating".into(),
+            )));
         let res = h.lifecycle.start("t").await;
         assert!(matches!(res, Err(LifecycleError::Runtime { .. })));
         assert_eq!(
@@ -1559,6 +1657,23 @@ mod tests {
             SandboxDesiredState::Running
         );
         assert_eq!(h.events.facts(), vec![EventFact::Error]);
+
+        // The adapter's diagnosis must reach the durable fact. Publishing a
+        // bare Error here left the reason only in the caller's return value —
+        // a log line, for a reconciler-driven start.
+        let payload = h.events.published.lock().expect("lock")[0].payload();
+        assert_eq!(
+            payload.message,
+            "Sandbox start failed: runtime infrastructure error: previous pod still terminating"
+        );
+        assert!(payload
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("previous pod still terminating")));
+        assert_eq!(
+            payload.lifecycle_event.as_deref(),
+            Some("runtime_infrastructure")
+        );
     }
 
     // ---- Correlation: generation reaches the adapter ----

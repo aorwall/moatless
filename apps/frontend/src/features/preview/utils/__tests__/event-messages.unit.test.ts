@@ -118,6 +118,24 @@ describe('describeEvent', () => {
   })
 })
 
+describe('describeEvent — lifecycle failure causes', () => {
+  it('labels the backend failure-cause vocabulary instead of humanizing the slug', () => {
+    for (const [cause, label] of [
+      ['runtime_infrastructure', 'Infrastructure error'],
+      ['runtime_rejected', 'Rejected'],
+      ['runtime_not_absent', 'Cleanup stalled'],
+      ['edge_abandoned', 'Operation abandoned'],
+      ['recovery_exhausted', 'Recovery exhausted'],
+    ] as const) {
+      const { label: got, tone } = describeEvent(
+        makeEvent({ subType: 'error', isError: true, payload: { lifecycleEvent: cause } }),
+      )
+      expect(got).toBe(label)
+      expect(tone).toBe('error')
+    }
+  })
+})
+
 describe('describeEvent — agent/task/turn subtypes', () => {
   it('labels agent and task subtypes with friendly text', () => {
     expect(describeEvent(makeEvent({ type: 'agent', subType: 'message' })).label).toBe('Message')

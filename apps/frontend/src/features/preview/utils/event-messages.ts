@@ -100,6 +100,15 @@ const DESCRIPTORS: Record<string, Descriptor> = {
   idle_reaped: { label: 'Stopped (idle)', tone: 'neutral' },
   scheduling_blocked: { label: 'Scheduling blocked', tone: 'recovering', icon: Clock },
   startup_slow: { label: 'Slow startup', tone: 'recovering', icon: Clock },
+  // Lifecycle failure causes (payload.lifecycleEvent on an `error` sandbox
+  // event). The operation and the underlying reason are in the message; these
+  // are the bounded cause vocabulary the backend publishes.
+  runtime_infrastructure: { label: 'Infrastructure error', tone: 'error' },
+  runtime_rejected: { label: 'Rejected', tone: 'error' },
+  runtime_not_absent: { label: 'Cleanup stalled', tone: 'error' },
+  intent_write: { label: 'Intent write failed', tone: 'error' },
+  completion_commit: { label: 'Completion commit failed', tone: 'error' },
+  edge_abandoned: { label: 'Operation abandoned', tone: 'error' },
   // Coarse sandbox status (old events without a lifecycleEvent).
   ready: { label: 'Ready', tone: 'ok' },
   initializing: { label: 'Initializing', tone: 'recovering' },

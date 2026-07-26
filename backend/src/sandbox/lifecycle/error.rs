@@ -64,6 +64,16 @@ impl RuntimeError {
             Self::Rejected(_) => ErrorClass::Permanent,
         }
     }
+
+    /// Bounded cause slug published as the `Error` fact's `lifecycle_event`.
+    /// Bounded because it becomes a UI label key and a log correlation field.
+    pub fn cause(&self) -> &'static str {
+        match self {
+            Self::Infrastructure(_) => "runtime_infrastructure",
+            Self::Rejected(_) => "runtime_rejected",
+            Self::NotAbsent(_) => "runtime_not_absent",
+        }
+    }
 }
 
 /// The typed error surface of every [`super::Lifecycle`] operation.
@@ -149,6 +159,23 @@ impl LifecycleError {
     /// Whether the reconciler's attempt cap should retry this failure.
     pub fn is_retriable(&self) -> bool {
         self.class().is_transient()
+    }
+
+    /// Bounded cause slug published as the `Error` fact's `lifecycle_event`.
+    /// A runtime failure defers to its [`RuntimeError`] so the adapter's own
+    /// vocabulary survives the wrap.
+    pub fn cause(&self) -> &'static str {
+        match self {
+            Self::TaskNotFound(_) => "task_not_found",
+            Self::NotAllowed { .. } => "not_allowed",
+            Self::IntentLoad { .. } => "intent_load",
+            Self::GenerationUnavailable { .. } => "generation_unavailable",
+            Self::IntentWrite { .. } => "intent_write",
+            Self::Runtime { source, .. } => source.cause(),
+            Self::CompletionCommit { .. } => "completion_commit",
+            Self::OperationInProgress { .. } => "operation_in_progress",
+            Self::Interrupted { .. } => "interrupted",
+        }
     }
 }
 

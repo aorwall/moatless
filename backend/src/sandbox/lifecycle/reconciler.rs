@@ -339,7 +339,7 @@ impl Reconciler {
                 }
                 if let Err(e) = self
                     .lifecycle
-                    .abandon_edge(task_id, marker.generation)
+                    .abandon_edge(task_id, marker.kind, marker.generation)
                     .await
                 {
                     warn!(task_id, error = %e, "reconciler: failed to durably abandon stale edge");
@@ -379,7 +379,10 @@ impl Reconciler {
                 }
                 ReconcileAction::None | ReconcileAction::Wait => return,
             };
-            self.record_outcome(task_id, decision.action, result, now);
+            if let Some(last_error) = self.record_outcome(task_id, decision.action, result, now) {
+                self.publish_recovery_exhausted(task_id, decision.action, &last_error)
+                    .await;
+            }
         } else if decision.woken && observed.status == SandboxObservedStatus::Ready {
             // The wake landed on an already-Ready sandbox: re-notify under the
             // per-Task backoff until the pending rows are acknowledged (which
@@ -477,13 +480,19 @@ impl Reconciler {
         true
     }
 
+    /// Record one operation's result against the Task's budget.
+    ///
+    /// Returns the rendered last error when this call is the one that **spends**
+    /// the budget, so the caller can publish the terminal `recovery_exhausted`
+    /// fact exactly once per generation. Returns `None` otherwise, including on
+    /// a budget that was already spent.
     fn record_outcome(
         &self,
         task_id: &str,
         action: ReconcileAction,
         result: Result<super::outcome::LifecycleOutcome, super::error::LifecycleError>,
         now: DateTime<Utc>,
-    ) {
+    ) -> Option<String> {
         let mut guard = self
             .retries
             .lock()
@@ -496,8 +505,10 @@ impl Reconciler {
             Ok(_) => {
                 retry.next_eligible = None;
                 debug!(task_id, ?action, "reconciler: drove lifecycle operation");
+                None
             }
             Err(e) => {
+                let was_exhausted = retry.budget.exhausted();
                 let class = e.class();
                 if class.is_transient() {
                     retry.budget.record_failure();
@@ -515,8 +526,49 @@ impl Reconciler {
                     retry.budget.block();
                     info!(task_id, ?action, error = %e, "reconciler: non-transient failure; not retrying this generation");
                 }
+                (!was_exhausted && retry.budget.exhausted()).then(|| e.to_string())
             }
         }
+    }
+
+    /// Publish the terminal give-up fact. Without it, a Task whose recovery is
+    /// spent shows one deduped `error` and then silence forever — the reader
+    /// cannot tell "still retrying" from "never coming back on its own".
+    ///
+    /// Scoped to the marker's generation, so it needs one: a first attempt that
+    /// spends the budget before any marker is persisted has nothing stable to
+    /// key on and is left to the logs.
+    async fn publish_recovery_exhausted(
+        &self,
+        task_id: &str,
+        action: ReconcileAction,
+        last_error: &str,
+    ) {
+        let marker = match self.store.load(task_id).await {
+            Ok(Some(intent)) => intent.marker,
+            Ok(None) => None,
+            Err(e) => {
+                warn!(task_id, error = %e, "reconciler: intent load failed; cannot publish recovery_exhausted");
+                return;
+            }
+        };
+        let Some(marker) = marker else {
+            warn!(
+                task_id,
+                ?action,
+                "reconciler: recovery exhausted with no marker; not publishing"
+            );
+            return;
+        };
+        self.lifecycle
+            .publish_recovery_exhausted(
+                task_id,
+                marker.kind,
+                marker.generation,
+                self.config.attempt_cap,
+                last_error,
+            )
+            .await;
     }
 }
 
@@ -624,11 +676,13 @@ mod db_tests {
     #[derive(Default)]
     struct CollectSink {
         facts: Mutex<Vec<EventFact>>,
+        published: Mutex<Vec<LifecycleEvent>>,
     }
     #[async_trait]
     impl LifecycleEventSink for CollectSink {
         async fn publish(&self, _t: &str, event: &LifecycleEvent) {
             self.facts.lock().unwrap().push(event.fact);
+            self.published.lock().unwrap().push(event.clone());
         }
 
         async fn publish_diagnostics(
@@ -902,6 +956,65 @@ mod db_tests {
             ensure >= 3,
             "ensure should retry up to the cap, got {ensure}"
         );
+    }
+
+    #[sqlx::test]
+    async fn spending_the_attempt_cap_publishes_one_recovery_exhausted_fact(pool: PgPool) {
+        // Desired Running, nothing running, every start failing: the retries all
+        // reuse the generation, so their `Error` facts dedup to one id and the
+        // give-up is otherwise indistinguishable from silence. The terminal fact
+        // is what makes "not coming back on its own" readable.
+        seed(&pool, "t1", "open", "running").await;
+        let runtime = Arc::new(RecordingRuntime::failing_ensure());
+        let clock = Arc::new(StepClock {
+            base: DateTime::from_timestamp(2_000_000_000, 0).unwrap(),
+            step: chrono::Duration::hours(1),
+            reads: Mutex::new(0),
+        });
+        let (rec, sink) = build_with(
+            pool.clone(),
+            pool,
+            runtime.clone(),
+            observer(&[], SandboxObservedStatus::Absent),
+            Arc::new(RecordingNotify::default()),
+            clock,
+            ReconcilerConfig {
+                grace: Duration::ZERO,
+                attempt_cap: 2,
+                ..Default::default()
+            },
+        );
+
+        for _ in 0..6 {
+            rec.reconcile_once().await;
+        }
+
+        let published = sink.published.lock().unwrap().clone();
+        let exhausted: Vec<_> = published
+            .iter()
+            .filter(|e| e.fact == EventFact::RecoveryExhausted)
+            .collect();
+        assert_eq!(
+            exhausted.len(),
+            1,
+            "exactly one terminal fact per spent generation, got {}",
+            exhausted.len()
+        );
+        let payload = exhausted[0].payload();
+        assert_eq!(
+            payload.lifecycle_event.as_deref(),
+            Some("recovery_exhausted")
+        );
+        // It names the operation and carries the last failure, not a placeholder.
+        assert!(
+            payload.message.contains("start"),
+            "unexpected message: {}",
+            payload.message
+        );
+        assert!(payload
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("2 attempts failed")));
     }
 
     #[sqlx::test]
