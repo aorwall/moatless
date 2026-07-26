@@ -67,6 +67,17 @@ pub trait SkillFetcher: Send + Sync {
         layout: SkillLayout,
         token: Option<&str>,
     ) -> Result<Vec<FetchedSkillFile>, SkillError>;
+
+    /// Ask the source what version it is at now, without fetching its content.
+    ///
+    /// `Ok(None)` means the source cannot be asked cheaply — the caller should
+    /// treat that as "changed" and fetch, rather than serving a snapshot it
+    /// cannot vouch for.
+    async fn fetch_version(
+        &self,
+        remote_url: &str,
+        token: Option<&str>,
+    ) -> Result<Option<String>, SkillError>;
 }
 
 /// GitHub REST API implementation of [`SkillFetcher`].
@@ -203,6 +214,34 @@ impl SkillFetcher for GitHubSkillFetcher {
                 Ok(dedup_by_dir_name(groups))
             }
         }
+    }
+
+    /// The default branch's head commit SHA, via the commits endpoint with
+    /// `Accept: application/vnd.github.sha` — one request returning 40 bytes.
+    async fn fetch_version(
+        &self,
+        remote_url: &str,
+        token: Option<&str>,
+    ) -> Result<Option<String>, SkillError> {
+        let lower = remote_url.to_ascii_lowercase();
+        if !lower.contains("github.com") {
+            return Ok(None);
+        }
+        let Some((owner, repo)) = parse_github_owner_repo(remote_url) else {
+            return Ok(None);
+        };
+
+        let url = format!("https://api.github.com/repos/{owner}/{repo}/commits/HEAD");
+        let sha = fetch_github_text(
+            &self.client,
+            &url,
+            "application/vnd.github.sha",
+            token,
+            remote_url,
+        )
+        .await?;
+
+        Ok(sha.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()))
     }
 }
 
@@ -591,10 +630,28 @@ async fn fetch_github_raw(
     token: Option<&str>,
     git_url: &str,
 ) -> Result<Option<String>, SkillError> {
+    fetch_github_text(
+        client,
+        url,
+        "application/vnd.github.raw+json",
+        token,
+        git_url,
+    )
+    .await
+}
+
+/// GET a GitHub URL and return the body as text, or `None` on 404.
+async fn fetch_github_text(
+    client: &Client,
+    url: &str,
+    accept: &str,
+    token: Option<&str>,
+    git_url: &str,
+) -> Result<Option<String>, SkillError> {
     let mut req = client
         .get(url)
         .header("User-Agent", "moatless-vibe-backend")
-        .header("Accept", "application/vnd.github.raw+json");
+        .header("Accept", accept);
     if let Some(tok) = token {
         req = req.header("Authorization", format!("Bearer {tok}"));
     }
@@ -645,6 +702,14 @@ mod tests {
             _token: Option<&str>,
         ) -> Result<Vec<FetchedSkillFile>, SkillError> {
             Ok(self.files.clone())
+        }
+
+        async fn fetch_version(
+            &self,
+            _remote_url: &str,
+            _token: Option<&str>,
+        ) -> Result<Option<String>, SkillError> {
+            Ok(None)
         }
     }
 

@@ -26,6 +26,7 @@ use crate::file_storage::dao::{FileRepository, PgFileRepository};
 use crate::loops::store::LoopStore;
 use crate::message::dao::{MessageRepository, PgMessageRepository};
 use crate::plugin::dao::{PgPluginRepository, PluginRepository};
+use crate::plugin::sync::PluginSyncService;
 use crate::repository::dao::{PgRepoRepository, RepoRepository};
 use crate::sandbox::access::SandboxConnector;
 use crate::sandbox::lifecycle::runtime::SandboxRuntime;
@@ -145,6 +146,9 @@ pub struct AppState {
     /// transactionally at the gRPC ingress; the reaper reads it as the backstop.
     pub task_turns: Arc<dyn TaskTurnRepository>,
     pub plugins: Arc<dyn PluginRepository>,
+    /// The one path from a plugin's git content to its stored skills. Every
+    /// reader of plugin skills goes through this.
+    pub plugin_sync: Arc<PluginSyncService>,
     /// Workspace composition + run-config (`workspaces` / `workspace_repos`).
     /// Provisioning resolves a task's repository composition through this.
     pub workspaces: Arc<dyn WorkspaceRepository>,
@@ -295,6 +299,15 @@ impl AppState {
                 reqwest::Client::new()
             });
         let skill_fetcher: Arc<dyn SkillFetcher> = Arc::new(GitHubSkillFetcher::new(skill_http));
+        let plugin_sync = Arc::new(PluginSyncService::new(
+            plugins.clone(),
+            skill_fetcher.clone(),
+            provider_tokens.clone(),
+            provider_token_auth.clone(),
+            github_app_service.clone(),
+            github_apps.clone(),
+            secrets.clone(),
+        ));
         let skills = Arc::new(SkillService::new(
             repositories.clone(),
             plugins.clone(),
@@ -304,6 +317,7 @@ impl AppState {
             github_apps.clone(),
             secrets.clone(),
             skill_fetcher,
+            plugin_sync.clone(),
             std::time::Duration::from_secs(config.skill.cache_ttl_secs),
         ));
 
@@ -364,6 +378,7 @@ impl AppState {
             ingress_outbox: Arc::new(PgIngressOutbox(pool.clone())),
             task_turns: Arc::new(PgTaskTurnRepository(pool.clone())),
             plugins,
+            plugin_sync,
             workspaces,
             skills,
             adapter_work: Arc::new(AdapterWorkStore::new(pool.clone())),

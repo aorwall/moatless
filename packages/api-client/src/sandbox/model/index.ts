@@ -176,6 +176,7 @@ export * from './pendingMessageItemMessageContent';
 export * from './permissionDenial';
 export * from './permissionDenialToolInput';
 export * from './pluginResponse';
+export * from './pluginSkillResponse';
 export * from './previewUrlContextData';
 export * from './providerConnection';
 export * from './provisionPlan';

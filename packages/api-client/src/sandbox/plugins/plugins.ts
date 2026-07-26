@@ -27,7 +27,8 @@ import type {
 import type {
   CreatePluginRequest,
   ErrorBody,
-  PluginResponse
+  PluginResponse,
+  PluginSkillResponse
 } from '.././model';
 
 import { customInstance } from '../../../custom-instance';
@@ -361,6 +362,145 @@ export const useDeletePlugin = <TError = ErrorType<ErrorBody>,
       return useMutation(getDeletePluginMutationOptions(options), queryClient);
     }
     /**
+ * This is the admin view's read path, and it goes through the same sync as
+task provisioning — so opening the page both shows current skills and
+leaves them stored for the next task that needs them.
+ * @summary List a plugin's skills, syncing from its source first.
+ */
+export type listPluginSkillsResponse200 = {
+  data: PluginSkillResponse[]
+  status: 200
+}
+
+export type listPluginSkillsResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type listPluginSkillsResponse500 = {
+  data: ErrorBody
+  status: 500
+}
+    
+export type listPluginSkillsResponseSuccess = (listPluginSkillsResponse200) & {
+  headers: Headers;
+};
+export type listPluginSkillsResponseError = (listPluginSkillsResponse404 | listPluginSkillsResponse500) & {
+  headers: Headers;
+};
+
+export type listPluginSkillsResponse = (listPluginSkillsResponseSuccess | listPluginSkillsResponseError)
+
+export const getListPluginSkillsUrl = (id: string,) => {
+
+
+  
+
+  return `/api/v1/plugins/${id}/skills`
+}
+
+export const listPluginSkills = async (id: string, options?: RequestInit): Promise<listPluginSkillsResponse> => {
+  
+  return customInstance<listPluginSkillsResponse>(getListPluginSkillsUrl(id),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
+
+export const getListPluginSkillsQueryKey = (id: string,) => {
+    return [
+    `/api/v1/plugins/${id}/skills`
+    ] as const;
+    }
+
+    
+export const getListPluginSkillsQueryOptions = <TData = Awaited<ReturnType<typeof listPluginSkills>>, TError = ErrorType<ErrorBody>>(id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPluginSkills>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPluginSkillsQueryKey(id);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPluginSkills>>> = ({ signal }) => listPluginSkills(id, { signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPluginSkills>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type ListPluginSkillsQueryResult = NonNullable<Awaited<ReturnType<typeof listPluginSkills>>>
+export type ListPluginSkillsQueryError = ErrorType<ErrorBody>
+
+
+export function useListPluginSkills<TData = Awaited<ReturnType<typeof listPluginSkills>>, TError = ErrorType<ErrorBody>>(
+ id: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPluginSkills>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listPluginSkills>>,
+          TError,
+          Awaited<ReturnType<typeof listPluginSkills>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListPluginSkills<TData = Awaited<ReturnType<typeof listPluginSkills>>, TError = ErrorType<ErrorBody>>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPluginSkills>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listPluginSkills>>,
+          TError,
+          Awaited<ReturnType<typeof listPluginSkills>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListPluginSkills<TData = Awaited<ReturnType<typeof listPluginSkills>>, TError = ErrorType<ErrorBody>>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPluginSkills>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+/**
+ * @summary List a plugin's skills, syncing from its source first.
+ */
+
+export function useListPluginSkills<TData = Awaited<ReturnType<typeof listPluginSkills>>, TError = ErrorType<ErrorBody>>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPluginSkills>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getListPluginSkillsQueryOptions(id,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List a plugin's skills, syncing from its source first.
+ */
+export const prefetchListPluginSkillsQuery = async <TData = Awaited<ReturnType<typeof listPluginSkills>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPluginSkills>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getListPluginSkillsQueryOptions(id,options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+/**
  * @summary List plugins linked to a repository.
  */
 export type listRepoPluginsResponse200 = {

@@ -2,7 +2,7 @@
 
 use async_trait::async_trait;
 
-use super::models::Plugin;
+use super::models::{Plugin, PluginSkill};
 use crate::db::DbPool;
 
 /// Repository trait for plugin persistence.
@@ -16,6 +16,19 @@ pub trait PluginRepository: Send + Sync {
     async fn find_by_repository_id(&self, repo_id: &str) -> Result<Vec<Plugin>, sqlx::Error>;
     async fn link(&self, repository_id: &str, plugin_id: &str) -> Result<(), sqlx::Error>;
     async fn unlink(&self, repository_id: &str, plugin_id: &str) -> Result<bool, sqlx::Error>;
+
+    /// The skills stored for a plugin, by name.
+    async fn list_skills(&self, plugin_id: &str) -> Result<Vec<PluginSkill>, sqlx::Error>;
+
+    /// Replace a plugin's stored skills and record the version they were read
+    /// at, in one transaction. A sync that got as far as parsing skills but
+    /// failed to store them must not leave the version claiming otherwise.
+    async fn replace_skills(
+        &self,
+        plugin_id: &str,
+        version: Option<String>,
+        skills: &[PluginSkill],
+    ) -> Result<(), sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`PluginRepository`].
@@ -56,11 +69,11 @@ impl PluginRepository for PgPluginRepository {
 
     async fn find_by_repository_id(&self, repo_id: &str) -> Result<Vec<Plugin>, sqlx::Error> {
         sqlx::query_as::<_, Plugin>(
-            r#"SELECT pr.id, pr.name, pr.git_url, pr.created_at, pr.updated_at
-               FROM plugins pr
-               JOIN repository_plugins rpr ON pr.id = rpr.plugin_id
-               WHERE rpr.repository_id = $1
-               ORDER BY pr.name ASC"#,
+            r#"SELECT p.*
+               FROM plugins p
+               JOIN repository_plugins rp ON p.id = rp.plugin_id
+               WHERE rp.repository_id = $1
+               ORDER BY p.name ASC"#,
         )
         .bind(repo_id)
         .fetch_all(&self.0)
@@ -87,5 +100,47 @@ impl PluginRepository for PgPluginRepository {
         .execute(&self.0)
         .await?;
         Ok(result.rows_affected() > 0)
+    }
+
+    async fn list_skills(&self, plugin_id: &str) -> Result<Vec<PluginSkill>, sqlx::Error> {
+        sqlx::query_as::<_, PluginSkill>(
+            "SELECT plugin_id, name, description FROM plugin_skills WHERE plugin_id = $1 ORDER BY name ASC",
+        )
+        .bind(plugin_id)
+        .fetch_all(&self.0)
+        .await
+    }
+
+    async fn replace_skills(
+        &self,
+        plugin_id: &str,
+        version: Option<String>,
+        skills: &[PluginSkill],
+    ) -> Result<(), sqlx::Error> {
+        let mut tx = self.0.begin().await?;
+
+        sqlx::query("DELETE FROM plugin_skills WHERE plugin_id = $1")
+            .bind(plugin_id)
+            .execute(&mut *tx)
+            .await?;
+
+        for skill in skills {
+            sqlx::query(
+                "INSERT INTO plugin_skills (plugin_id, name, description) VALUES ($1, $2, $3)",
+            )
+            .bind(plugin_id)
+            .bind(&skill.name)
+            .bind(&skill.description)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        sqlx::query("UPDATE plugins SET synced_version = $2, synced_at = now() WHERE id = $1")
+            .bind(plugin_id)
+            .bind(&version)
+            .execute(&mut *tx)
+            .await?;
+
+        tx.commit().await
     }
 }

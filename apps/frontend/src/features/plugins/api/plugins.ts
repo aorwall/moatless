@@ -1,8 +1,9 @@
-import type { CreatePluginRequest, PluginResponse } from '@moatless/api-client'
+import type { CreatePluginRequest, PluginResponse, PluginSkillResponse } from '@moatless/api-client'
 import { unwrapResponse } from '@moatless/api-client/custom-instance'
 import {
   createPlugin as createPluginHandler,
   deletePlugin as deletePluginHandler,
+  listPluginSkills as listPluginSkillsHandler,
   listPlugins as listPluginsHandler,
   listRepoPlugins as listRepoPluginsHandler,
 } from '@moatless/api-client/sandbox/plugins/plugins'
@@ -14,6 +15,10 @@ export const pluginsApi = {
 
   async listRepoPlugins(repoId: string): Promise<PluginResponse[]> {
     return await unwrapResponse(listRepoPluginsHandler(repoId))
+  },
+
+  async listPluginSkills(pluginId: string): Promise<PluginSkillResponse[]> {
+    return await unwrapResponse(listPluginSkillsHandler(pluginId))
   },
 
   async createPlugin(request: CreatePluginRequest): Promise<PluginResponse> {

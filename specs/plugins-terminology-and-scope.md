@@ -1,6 +1,6 @@
 # Turn a plugin on for everyone, or just for yourself
 
-> **Status:** in progress (0/4 tickets)
+> **Status:** in progress (1/4 tickets)
 > **Updated:** 2026-07-26
 > **Vocabulary:** CONTEXT.md · **Decisions:** ADR-NNNN
 
@@ -37,7 +37,7 @@
 
 ```mermaid
 flowchart LR
-  T1["01 · one name, one table"]:::wip --> T2["02 · sync and store skills"]:::todo
+  T1["01 · one name, one table"]:::done --> T2["02 · sync and store skills"]:::wip
   T2 --> T3["03 · activate and assemble"]:::todo
   T3 --> T4["04 · deliver and manage"]:::todo
   classDef done fill:#d1fae5,stroke:#059669,color:#065f46
@@ -46,7 +46,7 @@ flowchart LR
   classDef blocked fill:#f1f5f9,stroke:#cbd5e1,color:#94a3b8
 ```
 
-**Next action:** run ticket 01 — rename the module and drop the repository link.
+**Next action:** run ticket 02 — sync a plugin centrally and store its skills.
 
 ---
 

@@ -4,7 +4,7 @@ use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use super::handlers;
-use super::schemas::{CreatePluginRequest, PluginResponse};
+use super::schemas::{CreatePluginRequest, PluginResponse, PluginSkillResponse};
 use crate::state::AppState;
 
 #[derive(OpenApi)]
@@ -16,12 +16,13 @@ use crate::state::AppState;
         handlers::list_plugins,
         handlers::create_plugin,
         handlers::delete_plugin,
+        handlers::list_plugin_skills,
         handlers::list_repo_plugins,
         handlers::link_plugin,
         handlers::unlink_plugin,
     ),
     components(
-        schemas(CreatePluginRequest, PluginResponse)
+        schemas(CreatePluginRequest, PluginResponse, PluginSkillResponse)
     )
 )]
 pub struct PluginApiDoc;
@@ -32,6 +33,7 @@ pub fn plugin_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenApi
         .routes(routes!(handlers::list_plugins))
         .routes(routes!(handlers::create_plugin))
         .routes(routes!(handlers::delete_plugin))
+        .routes(routes!(handlers::list_plugin_skills))
         .routes(routes!(handlers::list_repo_plugins))
         .routes(routes!(handlers::link_plugin))
         .routes(routes!(handlers::unlink_plugin))

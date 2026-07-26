@@ -3307,6 +3307,62 @@
         }
       }
     },
+    "/api/v1/plugins/{id}/skills": {
+      "get": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "List a plugin's skills, syncing from its source first.",
+        "description": "This is the admin view's read path, and it goes through the same sync as\ntask provisioning — so opening the page both shows current skills and\nleaves them stored for the next task that needs them.",
+        "operationId": "list_plugin_skills",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Plugin ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The plugin's skills",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PluginSkillResponse"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/repositories": {
       "get": {
         "tags": [
@@ -11467,6 +11523,29 @@
             "type": "string"
           },
           "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "syncedVersion": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What the source called its current state at the last successful sync.\nAbsent until a first sync succeeds."
+          }
+        }
+      },
+      "PluginSkillResponse": {
+        "type": "object",
+        "description": "One skill inside a plugin, as stored at the plugin's synced version.",
+        "required": [
+          "name",
+          "description"
+        ],
+        "properties": {
+          "description": {
             "type": "string"
           },
           "name": {

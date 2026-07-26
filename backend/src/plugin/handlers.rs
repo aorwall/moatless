@@ -10,7 +10,7 @@ use crate::state::AppState;
 
 use super::error::PluginError;
 use super::models::Plugin;
-use super::schemas::{CreatePluginRequest, PluginResponse};
+use super::schemas::{CreatePluginRequest, PluginResponse, PluginSkillResponse};
 
 /// A plugin is loadable code (hooks/commands run inside sandboxes), so
 /// registering or removing one is a platform-wide trust decision restricted to
@@ -94,6 +94,8 @@ pub async fn create_plugin(
         id: id.clone(),
         name: req.name,
         git_url: req.git_url,
+        synced_version: None,
+        synced_at: None,
         created_at: None,
         updated_at: None,
     };
@@ -230,10 +232,50 @@ pub async fn unlink_plugin(
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
+/// List a plugin's skills, syncing from its source first.
+///
+/// This is the admin view's read path, and it goes through the same sync as
+/// task provisioning — so opening the page both shows current skills and
+/// leaves them stored for the next task that needs them.
+#[utoipa::path(
+    get,
+    path = "/api/v1/plugins/{id}/skills",
+    tag = "plugins",
+    params(("id" = String, Path, description = "Plugin ID")),
+    responses(
+        (status = 200, description = "The plugin's skills", body = Vec<PluginSkillResponse>),
+        (status = 404, description = "Not found", body = crate::error::ErrorBody),
+        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn list_plugin_skills(
+    State(state): State<AppState>,
+    _auth: AuthUser,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<PluginSkillResponse>>, PluginError> {
+    let plugin = state
+        .plugins
+        .find_by_id(&id)
+        .await?
+        .ok_or_else(|| PluginError::NotFound(format!("Plugin '{id}' not found")))?;
+
+    let skills = state.plugin_sync.skills(&plugin).await?;
+    Ok(Json(
+        skills
+            .into_iter()
+            .map(|s| PluginSkillResponse {
+                name: s.name,
+                description: s.description,
+            })
+            .collect(),
+    ))
+}
+
 fn to_response(r: Plugin) -> PluginResponse {
     PluginResponse {
         id: r.id,
         name: r.name,
         git_url: r.git_url,
+        synced_version: r.synced_version,
     }
 }

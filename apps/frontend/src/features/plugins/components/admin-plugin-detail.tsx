@@ -3,7 +3,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { Loader2, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { useDeletePlugin, usePlugins } from '@/features/plugins/hooks/use-plugins'
+import { useDeletePlugin, usePluginSkills, usePlugins } from '@/features/plugins/hooks/use-plugins'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -87,8 +87,20 @@ function AdminPluginDetailBody({ plugin }: { plugin: PluginResponse }) {
             label="ID"
             value={<span className="break-all font-mono text-xs">{plugin.id}</span>}
           />
+          <DetailItem
+            label="Synced version"
+            value={
+              plugin.syncedVersion ? (
+                <span className="break-all font-mono text-xs">{plugin.syncedVersion}</span>
+              ) : (
+                <span className="text-muted-foreground">Not synced yet</span>
+              )
+            }
+          />
         </CardContent>
       </Card>
+
+      <PluginSkills pluginId={plugin.id} />
 
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>
@@ -115,5 +127,45 @@ function AdminPluginDetailBody({ plugin }: { plugin: PluginResponse }) {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  )
+}
+
+/**
+ * What is actually inside the plugin. Loading this syncs it from its source
+ * first, which is why a plugin registered a moment ago shows its skills here
+ * without anybody asking for a refresh.
+ */
+function PluginSkills({ pluginId }: { pluginId: string }) {
+  const { data: skills, isLoading, isError } = usePluginSkills(pluginId)
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Skills</CardTitle>
+        <CardDescription>The skills this plugin provides.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex justify-center py-4">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : isError ? (
+          <p className="text-sm text-muted-foreground">
+            Could not read this plugin's skills. Check that its git URL is reachable.
+          </p>
+        ) : skills === undefined || skills.length === 0 ? (
+          <p className="text-sm text-muted-foreground">This plugin provides no skills.</p>
+        ) : (
+          <ul className="space-y-3">
+            {skills.map((skill) => (
+              <li key={skill.name} className="space-y-1">
+                <p className="font-mono text-sm">{skill.name}</p>
+                <p className="text-sm text-muted-foreground">{skill.description}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
   )
 }

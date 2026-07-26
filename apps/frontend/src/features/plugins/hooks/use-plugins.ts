@@ -1,4 +1,4 @@
-import type { CreatePluginRequest, PluginResponse } from '@moatless/api-client'
+import type { CreatePluginRequest, PluginResponse, PluginSkillResponse } from '@moatless/api-client'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { pluginsApi } from '@/features/plugins/api/plugins'
@@ -24,6 +24,22 @@ export function useRepoPlugins(
     queryKey: queryKeys.plugins.repoList(repoId),
     queryFn: () => pluginsApi.listRepoPlugins(repoId),
     enabled: !!repoId,
+    ...options,
+  })
+}
+
+/**
+ * The skills inside one plugin. Reading this syncs the plugin from its source
+ * first, so opening the page both shows what is there now and leaves it stored.
+ */
+export function usePluginSkills(
+  pluginId: string,
+  options?: Omit<UseQueryOptions<PluginSkillResponse[]>, 'queryKey' | 'queryFn'>,
+) {
+  return useQuery({
+    queryKey: queryKeys.plugins.skills(pluginId),
+    queryFn: () => pluginsApi.listPluginSkills(pluginId),
+    enabled: !!pluginId,
     ...options,
   })
 }

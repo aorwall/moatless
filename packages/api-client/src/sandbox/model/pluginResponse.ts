@@ -13,4 +13,10 @@ export interface PluginResponse {
   gitUrl: string;
   id: string;
   name: string;
+  /**
+   * What the source called its current state at the last successful sync.
+Absent until a first sync succeeds.
+   * @nullable
+   */
+  syncedVersion?: string | null;
 }
