@@ -103,34 +103,19 @@ impl SkillService {
             .await?
             .ok_or_else(|| SkillError::RepositoryNotFound(repository_id.to_string()))?;
 
-        let mut merged: Vec<Skill> = Vec::new();
-        let mut seen: HashSet<String> = HashSet::new();
-
-        // ---- Workspace skills ----
         let workspace = self.workspace_skills(&repo, auth).await?;
-        for skill in workspace.iter().cloned() {
-            if seen.insert(skill.name.clone()) {
-                merged.push(skill);
-            }
-        }
 
-        // ---- Plugin skills (whatever this caller's activation records give
-        // them, in stable order from the DAO) ----
+        // Whatever this caller's activation records give them, in stable order
+        // from the DAO.
         let resolved =
             crate::plugin::activation::resolve_for_user(self.plugins.as_ref(), Some(auth.user_id))
                 .await?;
+        let mut from_plugins: Vec<(Vec<Skill>, Vec<String>)> = Vec::with_capacity(resolved.len());
         for (plugin, picked) in resolved {
-            for skill in self.plugin_skills(&plugin).await? {
-                if !picked.contains(&skill.name) {
-                    continue;
-                }
-                if seen.insert(skill.name.clone()) {
-                    merged.push(skill);
-                }
-            }
+            from_plugins.push((self.plugin_skills(&plugin).await?, picked));
         }
 
-        merged.sort_by(|a, b| a.name.cmp(&b.name));
+        let merged = merge_skills(workspace.as_ref().clone(), from_plugins);
         Ok(merged.into_iter().map(SkillResponse::from).collect())
     }
 
@@ -243,6 +228,42 @@ impl SkillService {
     }
 }
 
+/// Merge the workspace's own skills with the plugin skills a caller picked,
+/// name-deduplicated and sorted.
+///
+/// `plugins` is one entry per plugin, in DAO order: everything the plugin
+/// stores, paired with the names that plugin's activation records resolved to.
+/// A stored skill the caller did not pick is dropped here — this is the same
+/// filter the sandbox applies when it prunes the cloned plugin directory, so
+/// what this endpoint lists is what the agent will actually have.
+///
+/// Workspace skills shadow plugin skills with the same name; among plugins the
+/// first occurrence wins, which makes DAO order the tie-break.
+fn merge_skills(workspace: Vec<Skill>, plugins: Vec<(Vec<Skill>, Vec<String>)>) -> Vec<Skill> {
+    let mut merged: Vec<Skill> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+
+    for skill in workspace {
+        if seen.insert(skill.name.clone()) {
+            merged.push(skill);
+        }
+    }
+
+    for (stored, picked) in plugins {
+        for skill in stored {
+            if !picked.contains(&skill.name) {
+                continue;
+            }
+            if seen.insert(skill.name.clone()) {
+                merged.push(skill);
+            }
+        }
+    }
+
+    merged.sort_by(|a, b| a.name.cmp(&b.name));
+    merged
+}
+
 /// Map a `RepositoryProvider` to the string used as the `provider` column in
 /// the `provider_tokens` table. The variants already serialise as lowercase
 /// so this is effectively a static-dispatch slug.
@@ -257,6 +278,118 @@ fn provider_to_token_key(provider: RepositoryProvider) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn workspace_skill(name: &str) -> Skill {
+        Skill {
+            name: name.to_string(),
+            description: format!("{name} description"),
+            source: SkillSource::Workspace,
+            plugin_id: None,
+            plugin_name: None,
+        }
+    }
+
+    fn plugin_skill(plugin: &str, name: &str) -> Skill {
+        Skill {
+            name: name.to_string(),
+            description: format!("{name} description"),
+            source: SkillSource::Plugin,
+            plugin_id: Some(format!("{plugin}-id")),
+            plugin_name: Some(plugin.to_string()),
+        }
+    }
+
+    fn names(skills: &[Skill]) -> Vec<&str> {
+        skills.iter().map(|s| s.name.as_str()).collect()
+    }
+
+    #[test]
+    fn picked_plugin_skills_are_listed() {
+        let merged = merge_skills(
+            Vec::new(),
+            vec![(
+                vec![plugin_skill("docs", "writing-specs")],
+                vec!["writing-specs".to_string()],
+            )],
+        );
+
+        assert_eq!(names(&merged), vec!["writing-specs"]);
+        assert_eq!(merged[0].source, SkillSource::Plugin);
+        assert_eq!(merged[0].plugin_name.as_deref(), Some("docs"));
+    }
+
+    #[test]
+    fn unpicked_sibling_skills_are_dropped() {
+        let merged = merge_skills(
+            Vec::new(),
+            vec![(
+                vec![
+                    plugin_skill("docs", "writing-specs"),
+                    plugin_skill("docs", "reviewing-specs"),
+                ],
+                vec!["writing-specs".to_string()],
+            )],
+        );
+
+        assert_eq!(names(&merged), vec!["writing-specs"]);
+    }
+
+    #[test]
+    fn a_plugin_with_no_records_contributes_nothing() {
+        let merged = merge_skills(
+            vec![workspace_skill("local")],
+            vec![(vec![plugin_skill("docs", "writing-specs")], Vec::new())],
+        );
+
+        assert_eq!(names(&merged), vec!["local"]);
+    }
+
+    #[test]
+    fn workspace_shadows_a_plugin_skill_of_the_same_name() {
+        let merged = merge_skills(
+            vec![workspace_skill("writing-specs")],
+            vec![(
+                vec![plugin_skill("docs", "writing-specs")],
+                vec!["writing-specs".to_string()],
+            )],
+        );
+
+        assert_eq!(names(&merged), vec!["writing-specs"]);
+        assert_eq!(merged[0].source, SkillSource::Workspace);
+    }
+
+    #[test]
+    fn first_plugin_in_dao_order_wins_a_name_clash() {
+        let merged = merge_skills(
+            Vec::new(),
+            vec![
+                (
+                    vec![plugin_skill("first", "shared")],
+                    vec!["shared".to_string()],
+                ),
+                (
+                    vec![plugin_skill("second", "shared")],
+                    vec!["shared".to_string()],
+                ),
+            ],
+        );
+
+        assert_eq!(names(&merged), vec!["shared"]);
+        assert_eq!(merged[0].plugin_name.as_deref(), Some("first"));
+    }
+
+    #[test]
+    fn the_merged_list_is_sorted_by_name() {
+        let merged = merge_skills(
+            vec![workspace_skill("zebra"), workspace_skill("alpha")],
+            vec![(
+                vec![plugin_skill("docs", "middle")],
+                vec!["middle".to_string()],
+            )],
+        );
+
+        assert_eq!(names(&merged), vec!["alpha", "middle", "zebra"]);
+    }
 
     #[test]
     fn provider_to_token_key_matches_column_values() {

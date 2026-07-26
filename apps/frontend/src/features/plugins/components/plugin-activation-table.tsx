@@ -23,14 +23,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/lib/components/ui/select'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/lib/components/ui/table'
 import { getErrorMessage } from '@/lib/utils/error'
 
 /** What one select can say. `unset` means "no record" — not the same as off. */
@@ -44,6 +36,16 @@ type Row = {
   label: string
   description: string | undefined
 }
+
+/**
+ * The controls block, sized once so the header labels line up with the rows
+ * beneath them without a table. Each control is fixed-width and never shrinks —
+ * a long skill description wraps in the space left over rather than pushing the
+ * controls off the right-hand edge.
+ */
+const CONTROLS = 'flex shrink-0 items-center gap-3'
+const CONTROL_WIDTH = 'w-32'
+const DELIVERED_WIDTH = 'w-20'
 
 function settingOf(
   records: ActivationResponse[],
@@ -76,10 +78,10 @@ function isDelivered(
  * Turn a plugin, or one skill inside it, on and off — for everyone, or just for
  * yourself.
  *
- * The two settings are shown side by side because that is the rule: a personal
- * record beats the global default in both directions, and clearing it is how
- * you go back to the default rather than pinning it off. The last column says
- * what those two actually add up to for you.
+ * The two settings sit side by side because that is the rule: a personal record
+ * beats the global default in both directions, and clearing it is how you go
+ * back to the default rather than pinning it off. The last column says what
+ * those two actually add up to for you.
  */
 export function PluginActivationTable({
   pluginId,
@@ -160,49 +162,51 @@ export function PluginActivationTable({
 
   return (
     <ActivationCard>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Skill</TableHead>
-            <TableHead className="w-36">Everyone</TableHead>
-            <TableHead className="w-36">You</TableHead>
-            <TableHead className="w-28">You get it</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.map((row) => (
-            <TableRow key={row.skillName ?? '__plugin__'}>
-              <TableCell>
-                <p className="font-mono text-sm">{row.label}</p>
-                {row.description === undefined ? null : (
-                  <p className="text-sm text-muted-foreground">{row.description}</p>
-                )}
-              </TableCell>
-              <TableCell>
-                <SettingSelect
-                  value={settingOf(applied, ActivationReach.everyone, row.skillName)}
-                  disabled={!isAdmin || pending}
-                  onChange={(setting) => change(ActivationReach.everyone, row.skillName, setting)}
-                />
-              </TableCell>
-              <TableCell>
-                <SettingSelect
-                  value={settingOf(applied, ActivationReach.personal, row.skillName)}
-                  disabled={pending}
-                  onChange={(setting) => change(ActivationReach.personal, row.skillName, setting)}
-                />
-              </TableCell>
-              <TableCell>
+      <div className="divide-y">
+        <div className="hidden pb-2 text-xs font-medium text-muted-foreground sm:flex sm:items-center sm:gap-4">
+          <span className="min-w-0 flex-1">Skill</span>
+          <span className={CONTROLS}>
+            <span className={CONTROL_WIDTH}>Everyone</span>
+            <span className={CONTROL_WIDTH}>You</span>
+            <span className={DELIVERED_WIDTH}>You get it</span>
+          </span>
+        </div>
+
+        {rows.map((row) => (
+          <div
+            key={row.skillName ?? '__plugin__'}
+            className="flex flex-col gap-3 py-3 sm:flex-row sm:items-start sm:gap-4"
+          >
+            <div className="min-w-0 flex-1">
+              <p className="font-mono text-sm break-words">{row.label}</p>
+              {row.description === undefined ? null : (
+                <p className="text-sm text-muted-foreground break-words">{row.description}</p>
+              )}
+            </div>
+            <div className={CONTROLS}>
+              <SettingSelect
+                label="Everyone"
+                value={settingOf(applied, ActivationReach.everyone, row.skillName)}
+                disabled={!isAdmin || pending}
+                onChange={(setting) => change(ActivationReach.everyone, row.skillName, setting)}
+              />
+              <SettingSelect
+                label="You"
+                value={settingOf(applied, ActivationReach.personal, row.skillName)}
+                disabled={pending}
+                onChange={(setting) => change(ActivationReach.personal, row.skillName, setting)}
+              />
+              <span className={`${DELIVERED_WIDTH} shrink-0`}>
                 {isDelivered(effective, row.skillName) ? (
                   <Badge variant="secondary">Yes</Badge>
                 ) : (
                   <span className="text-sm text-muted-foreground">No</span>
                 )}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
       {isAdmin ? null : (
         <p className="mt-4 text-sm text-muted-foreground">
           Only administrators can change what everyone gets by default.
@@ -227,17 +231,21 @@ function ActivationCard({ children }: { children: React.ReactNode }) {
 }
 
 function SettingSelect({
+  label,
   value,
   disabled,
   onChange,
 }: {
+  label: string
   value: Setting
   disabled: boolean
   onChange: (setting: Setting) => void
 }) {
   return (
     <Select value={value} disabled={disabled} onValueChange={(v) => onChange(v as Setting)}>
-      <SelectTrigger size="sm">
+      {/* The column header is hidden on narrow screens, so the control carries
+          its own accessible name rather than relying on a visible one. */}
+      <SelectTrigger size="sm" aria-label={label} className={`${CONTROL_WIDTH} shrink-0`}>
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
