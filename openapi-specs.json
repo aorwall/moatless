@@ -688,6 +688,140 @@
         }
       }
     },
+    "/api/sandbox/v1/tasks/{task_id}/servers/config": {
+      "get": {
+        "tags": [
+          "sandbox"
+        ],
+        "summary": "List the overrides currently in effect, read off the sandbox's workspace.",
+        "description": "Separate from `GET /servers` because it needs a live sandbox: there is no\npersisted copy to fall back on, so a stopped sandbox has no answer.",
+        "operationId": "list_server_config_handler",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Overrides in effect",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerOverridesResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Sandbox not reachable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sandbox/v1/tasks/{task_id}/servers/{server_name}": {
+      "patch": {
+        "tags": [
+          "sandbox"
+        ],
+        "summary": "Update one preview server's start command / env and (by default) restart it.",
+        "operationId": "update_server_config_handler",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "server_name",
+            "in": "path",
+            "description": "Server name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateServerConfigRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Override applied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerConfigResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid env key or server name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such server on this task",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Field requires a redeploy to change",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Sandbox not reachable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/sandbox/v1/tasks/{task_id}/servers/{server_name}/logs": {
       "get": {
         "tags": [
@@ -731,6 +865,128 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sandbox/v1/tasks/{task_id}/servers/{server_name}/override": {
+      "delete": {
+        "tags": [
+          "sandbox"
+        ],
+        "summary": "Drop a server's override and restart it on the workspace's configuration.",
+        "operationId": "reset_server_config_handler",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "server_name",
+            "in": "path",
+            "description": "Server name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Override cleared",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerConfigResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such server on this task",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Sandbox not reachable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sandbox/v1/tasks/{task_id}/servers/{server_name}/restart": {
+      "post": {
+        "tags": [
+          "sandbox"
+        ],
+        "summary": "Restart one preview server in place, leaving its override as-is.",
+        "operationId": "restart_server_handler",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "server_name",
+            "in": "path",
+            "description": "Server name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server restarted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerConfigResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such server on this task",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Sandbox not reachable",
             "content": {
               "application/json": {
                 "schema": {
@@ -12644,6 +12900,34 @@
           }
         }
       },
+      "ServerConfigResponse": {
+        "type": "object",
+        "description": "Result of a live server config change or restart.",
+        "required": [
+          "serverName",
+          "configOverride",
+          "generation",
+          "restarted"
+        ],
+        "properties": {
+          "configOverride": {
+            "$ref": "#/components/schemas/ServerOverride",
+            "description": "The override after the call — empty when it was reset."
+          },
+          "generation": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Sidecar restart generation after the call.",
+            "minimum": 0
+          },
+          "restarted": {
+            "type": "boolean"
+          },
+          "serverName": {
+            "type": "string"
+          }
+        }
+      },
       "ServerEntry": {
         "type": "object",
         "description": "Single server entry in the workspace status response",
@@ -12713,6 +12997,74 @@
           },
           "status": {
             "$ref": "#/components/schemas/ServerSubType"
+          }
+        }
+      },
+      "ServerOverride": {
+        "type": "object",
+        "description": "A live override of one preview server's start command and env.\n\nWhole-state, not a delta: callers always send the complete set to the\nsandbox, which never merges.",
+        "properties": {
+          "env": {
+            "type": "object",
+            "description": "Env entries exported after `server.env`, so they win over it.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "startCommand": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Replaces the server's configured start command. `None` = use the\nworkspace's."
+          },
+          "unsetEnv": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Keys to remove — the only way to drop a variable the container spec\ninjected, since sourcing an env file can add but never remove."
+          }
+        }
+      },
+      "ServerOverrideEntry": {
+        "type": "object",
+        "description": "One server's override as it currently exists on the workspace volume.",
+        "required": [
+          "serverName",
+          "configOverride",
+          "generation"
+        ],
+        "properties": {
+          "configOverride": {
+            "$ref": "#/components/schemas/ServerOverride"
+          },
+          "generation": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The counter the sidecar watches; `0` means it has never been restarted.",
+            "minimum": 0
+          },
+          "serverName": {
+            "type": "string"
+          }
+        }
+      },
+      "ServerOverridesResponse": {
+        "type": "object",
+        "description": "Every override in effect on a task. Servers with no override are omitted.\n\nRead from the sandbox's workspace volume, which is the only place an\noverride exists — a stopped sandbox cannot answer this.",
+        "required": [
+          "overrides"
+        ],
+        "properties": {
+          "overrides": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ServerOverrideEntry"
+            }
           }
         }
       },
@@ -14551,6 +14903,65 @@
           }
         },
         "additionalProperties": false
+      },
+      "UpdateServerConfigRequest": {
+        "type": "object",
+        "description": "Update one preview server's live config.\n\nOnly fields that a sidecar can pick up on an in-place restart are accepted.\n`port` and `dockerImage` are declared so a caller that sends them gets an\nexplicit \"redeploy required\" instead of a silent no-op.",
+        "properties": {
+          "dockerImage": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Not applicable live — the image is the container's identity."
+          },
+          "env": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Env entries to set, merged into any existing override.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "port": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Not applicable live — the port is wired into the Service and\nIngressRoute at provision time.",
+            "minimum": 0
+          },
+          "restart": {
+            "type": "boolean",
+            "description": "Restart the server so the change takes effect (default `true`)."
+          },
+          "startCommands": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Replaces the workspace's start command. Joined with `&&`, as at\nprovision time."
+          },
+          "unsetEnv": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Keys to remove from the server's environment. Also drops them from the\noverride's `env`, so setting and unsetting the same key is coherent."
+          }
+        }
       },
       "UpdateSubscription": {
         "type": "object",

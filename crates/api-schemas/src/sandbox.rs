@@ -1,6 +1,7 @@
 //! Sandbox API request/response schemas.
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 // =============================================================================
 // Sandbox model types (shared between schemas and backend)
@@ -268,6 +269,73 @@ pub struct FileSearchResult {
 #[serde(rename_all = "camelCase")]
 pub struct ServerStatusResponse {
     pub servers: Vec<ServerSnapshot>,
+}
+
+/// A live override of one preview server's start command and env.
+///
+/// Stored only as control files on the sandbox's workspace volume — there is no
+/// database copy — so every read of one needs a running sandbox.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ServerOverride {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_command: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub env: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unset_env: Vec<String>,
+}
+
+/// Update one preview server's live config.
+///
+/// `port` and `dockerImage` exist only so a caller that sends them gets an
+/// explicit "redeploy required" rather than a silent no-op.
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateServerConfigRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_commands: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub env: Option<BTreeMap<String, String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unset_env: Option<Vec<String>>,
+    pub restart: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub docker_image: Option<String>,
+}
+
+/// Result of a live server config change or restart.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ServerConfigResponse {
+    pub server_name: String,
+    pub config_override: ServerOverride,
+    pub generation: u64,
+    pub restarted: bool,
+}
+
+/// One server's override as it currently exists on the workspace volume.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ServerOverrideEntry {
+    pub server_name: String,
+    pub config_override: ServerOverride,
+    /// The counter the sidecar watches; `0` means it has never been restarted.
+    pub generation: u64,
+}
+
+/// Every override in effect on a task. Servers with no override are omitted.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ServerOverridesResponse {
+    pub overrides: Vec<ServerOverrideEntry>,
 }
 
 // ── File operation DTOs ──────────────────────────────────────────

@@ -73,6 +73,8 @@ pub fn build_repo_config_from_workspace(ws: &Workspace) -> RepoConfig {
         docker_networks: None,
         sandbox_service_account: ws.sandbox_service_account.clone(),
         network_profile: ws.network_profile.clone(),
+        // Layered on separately by `auto_provision` — this is task state, not
+        // workspace config.
     }
 }
 

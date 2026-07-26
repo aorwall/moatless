@@ -1,7 +1,7 @@
 //! Sandbox domain types — config, provisioning, and K8s status types.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use utoipa::ToSchema;
 
 // Re-export pod_status functions that were previously defined here
@@ -82,6 +82,34 @@ pub struct RepoConfig {
     /// policy only; grants nothing on its own. Ignored in Docker mode.
     #[serde(default)]
     pub network_profile: Option<String>,
+}
+
+/// A live override of one preview server's start command and env.
+///
+/// Whole-state, not a delta: callers always send the complete set to the
+/// sandbox, which never merges.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerOverride {
+    /// Replaces the server's configured start command. `None` = use the
+    /// workspace's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_command: Option<String>,
+    /// Env entries exported after `server.env`, so they win over it.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub env: BTreeMap<String, String>,
+    /// Keys to remove — the only way to drop a variable the container spec
+    /// injected, since sourcing an env file can add but never remove.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unset_env: Vec<String>,
+}
+
+impl ServerOverride {
+    /// True when nothing is overridden, so the entry can be dropped from the
+    /// persisted map rather than stored empty.
+    pub fn is_empty(&self) -> bool {
+        self.start_command.is_none() && self.env.is_empty() && self.unset_env.is_empty()
+    }
 }
 
 /// Server config entry

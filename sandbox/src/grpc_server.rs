@@ -1,19 +1,23 @@
 //! gRPC server implementing `SandboxService`.
 //!
 //! Receives commands from the backend (execute agent, stop agent, notify
-//! messages, status checks, file search). Server management is handled
-//! by K8s (separate containers), not by the sandbox.
+//! messages, status checks, file search). Preview servers still run as
+//! separate containers owned by K8s/Docker — the sandbox does not supervise
+//! them — but it does own their live override files (`ApplyServerConfig`),
+//! which is what lets a server be reconfigured without rebuilding the pod.
 
 use tonic::{Request, Response, Status};
 use tracing::info;
 
 use sandbox_proto::sandbox_service_server::SandboxService;
 use sandbox_proto::{
-    scheduled_job_info, BackgroundProcess, BackgroundWatchJobInfo, ExecuteAgentRequest,
+    scheduled_job_info, ApplyServerConfigRequest, ApplyServerConfigResponse, BackgroundProcess,
+    BackgroundWatchJobInfo, ExecuteAgentRequest,
     ExecuteAgentResponse, GetAgentStatusRequest, GetAgentStatusResponse, GetFileTreeRequest,
-    GetFileTreeResponse, ListFilesRequest, ListFilesResponse, NotifyMessagesRequest,
+    GetFileTreeResponse, GetServerConfigRequest, GetServerConfigResponse, ListFilesRequest,
+    ListFilesResponse, NotifyMessagesRequest,
     NotifyMessagesResponse, ReadFileRequest, ReadFileResponse, RefreshCredentialRequest,
-    RefreshCredentialResponse, ScheduledJobInfo, SearchFilesByNameRequest,
+    RefreshCredentialResponse, ScheduledJobInfo, SearchFilesByNameRequest, ServerConfigOverride,
     SearchFilesByNameResponse, StopAgentRequest, StopAgentResponse, WakeupJobInfo,
     WriteFileRequest, WriteFileResponse,
 };
@@ -21,6 +25,7 @@ use sandbox_proto::{
 use crate::agent::scheduled_job::JobSnapshot;
 use crate::agent::types::AgentStatus;
 use crate::files;
+use crate::server_control;
 use crate::state::SandboxState;
 
 /// gRPC server for sandbox commands.
@@ -213,6 +218,81 @@ impl SandboxService for SandboxServiceImpl {
             ))),
             Err(e) => Err(Status::internal(format!("Credential dispatch failed: {e}"))),
         }
+    }
+
+    /// Write a preview server's override into the workspace volume and
+    /// optionally bump its generation so the sidecar re-execs in place.
+    ///
+    /// The request carries the complete override state rather than a delta, so
+    /// this never merges. The control files it writes are the only record of an
+    /// override; a caller that needs a partial update reads the current state
+    /// with `GetServerConfig` first.
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
+    async fn apply_server_config(
+        &self,
+        request: Request<ApplyServerConfigRequest>,
+    ) -> Result<Response<ApplyServerConfigResponse>, Status> {
+        let req = request.into_inner();
+        info!(
+            server = %req.server_name,
+            restart = req.restart,
+            env_count = req.env.len(),
+            "ApplyServerConfig received"
+        );
+
+        if !server_control::is_valid_server_name(&req.server_name) {
+            return Err(Status::invalid_argument(format!(
+                "Invalid server name: {}",
+                req.server_name
+            )));
+        }
+
+        let ov = server_control::ServerOverride {
+            start_command: req.start_command,
+            env: req.env.into_iter().collect(),
+            unset_env: req.unset_env,
+        };
+
+        let generation = server_control::apply(
+            &self.state.config.workspace_dir,
+            &req.server_name,
+            &ov,
+            req.restart,
+        )
+        .await
+        .map_err(|e| Status::internal(format!("Failed to apply server config: {e}")))?;
+
+        Ok(Response::new(ApplyServerConfigResponse { generation }))
+    }
+
+    /// Read back every override currently on the workspace volume.
+    ///
+    /// The backend has no other source: it stopped persisting overrides once
+    /// they became workspace state, so this call is the only way to answer
+    /// "what is actually running". It therefore reports what is on disk, not
+    /// what anyone intended — a hand-edited control file shows up here.
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
+    async fn get_server_config(
+        &self,
+        _request: Request<GetServerConfigRequest>,
+    ) -> Result<Response<GetServerConfigResponse>, Status> {
+        let overrides = server_control::read_all(&self.state.config.workspace_dir)
+            .await
+            .into_iter()
+            .map(|(name, live)| {
+                (
+                    name,
+                    ServerConfigOverride {
+                        start_command: live.config.start_command,
+                        env: live.config.env.into_iter().collect(),
+                        unset_env: live.config.unset_env,
+                        generation: live.generation,
+                    },
+                )
+            })
+            .collect();
+
+        Ok(Response::new(GetServerConfigResponse { overrides }))
     }
 
     // ── File operations ──────────────────────────────────────────

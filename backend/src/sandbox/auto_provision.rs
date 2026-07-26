@@ -191,6 +191,10 @@ pub async fn build_provision_request(
         filter_disabled_servers(&mut repo_config, &disabled);
     }
 
+    // Server overrides are deliberately absent from the plan. They are files on
+    // the workspace volume, so a rebuilt pod finds them already in place; there
+    // is no copy here to replay.
+
     let plan = crate::sandbox::models::ProvisionPlan {
         repo_config,
         git_clone_url,

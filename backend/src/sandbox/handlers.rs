@@ -326,6 +326,10 @@ pub async fn server_status_handler(
             return e.into_response();
         }
     };
+    // No `config_override` here: overrides live only on the sandbox's workspace
+    // volume, and this path resolves status from the K8s API with no sandbox
+    // round-trip. Adding one would put a gRPC call on a polled endpoint to serve
+    // a debugging field. `GET /servers/config` reports overrides instead.
     let servers = status
         .servers
         .into_iter()
@@ -383,6 +387,301 @@ pub async fn server_logs_handler(
         .server_logs(&task_id, &server_name, query.previous)
         .await?;
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
+}
+
+// =============================================================================
+// Live server config
+// =============================================================================
+//
+// These three endpoints reconfigure and restart a single preview server without
+// rebuilding the pod, so — unlike `restart`/`redeploy` — they are safe to call
+// from inside the sandbox: the agent container is never touched.
+//
+// **The backend persists nothing here.** An override is workspace state: the
+// sandbox writes it to control files under `WORKSPACE_DIR/.moatless/servers/`,
+// which ride the same volume as the repo checkouts and therefore survive a
+// stop/start, a redeploy, and the reaper's idle-stop wherever the checkouts do.
+// The `ephemeral` tier keeps neither, which is that tier's contract.
+//
+// The consequence for these handlers is that the sandbox is the only source of
+// truth, so a partial update is a read-modify-write over gRPC. That is not
+// atomic against a concurrent PATCH to the same server — but neither was the
+// read-task/patch-task version it replaces, and this is a per-task debugging
+// surface, not a concurrent one.
+
+/// List the overrides currently in effect, read off the sandbox's workspace.
+///
+/// Separate from `GET /servers` because it needs a live sandbox: there is no
+/// persisted copy to fall back on, so a stopped sandbox has no answer.
+#[utoipa::path(
+    get,
+    path = "/api/sandbox/v1/tasks/{task_id}/servers/config",
+    tag = "sandbox",
+    params(("task_id" = String, Path, description = "Task identifier")),
+    responses(
+        (status = 200, description = "Overrides in effect", body = ServerOverridesResponse),
+        (status = 503, description = "Sandbox not reachable", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn list_server_config_handler(
+    State(state): State<SandboxApiState>,
+    OptionalScope(scope): OptionalScope,
+    Path(task_id): Path<String>,
+) -> Result<Json<ServerOverridesResponse>, SandboxError> {
+    authorize_task_read(&state, &scope, &task_id).await?;
+    let client = state.connector.sandbox_client(&task_id).await?;
+    let overrides = client
+        .get_server_config(&task_id)
+        .await
+        .map_err(|e| crate::sandbox::client::classify_grpc_error(e, "GetServerConfig"))?;
+
+    Ok(Json(ServerOverridesResponse {
+        overrides: overrides
+            .into_iter()
+            .map(|(server_name, (config_override, generation))| ServerOverrideEntry {
+                server_name,
+                config_override,
+                generation,
+            })
+            .collect(),
+    }))
+}
+
+/// Update one preview server's start command / env and (by default) restart it.
+#[utoipa::path(
+    patch,
+    path = "/api/sandbox/v1/tasks/{task_id}/servers/{server_name}",
+    tag = "sandbox",
+    params(
+        ("task_id" = String, Path, description = "Task identifier"),
+        ("server_name" = String, Path, description = "Server name")
+    ),
+    request_body = UpdateServerConfigRequest,
+    responses(
+        (status = 200, description = "Override applied", body = ServerConfigResponse),
+        (status = 400, description = "Invalid env key or server name", body = crate::error::ErrorBody),
+        (status = 404, description = "No such server on this task", body = crate::error::ErrorBody),
+        (status = 409, description = "Field requires a redeploy to change", body = crate::error::ErrorBody),
+        (status = 503, description = "Sandbox not reachable", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn update_server_config_handler(
+    State(state): State<SandboxApiState>,
+    OptionalScope(scope): OptionalScope,
+    Path((task_id, server_name)): Path<(String, String)>,
+    Json(req): Json<UpdateServerConfigRequest>,
+) -> Result<Json<ServerConfigResponse>, SandboxError> {
+    info!(task_id = %task_id, server = %server_name, "PATCH /servers/{server_name}");
+    let task = authorize_task_control(&state, &scope, &task_id).await?;
+
+    if req.port.is_some() {
+        return Err(SandboxError::Conflict(
+            "changing a server's port requires a redeploy — it is wired into the Service and \
+             IngressRoute at provision time (POST /redeploy)"
+                .into(),
+        ));
+    }
+    if req.docker_image.is_some() {
+        return Err(SandboxError::Conflict(
+            "changing a server's image requires a redeploy (POST /redeploy)".into(),
+        ));
+    }
+
+    require_known_server(&state, &task, &server_name).await?;
+
+    let client = state.connector.sandbox_client(&task_id).await?;
+    let mut entry = read_override(&client, &task_id, &server_name).await?;
+
+    if let Some(cmds) = req.start_commands {
+        entry.start_command = if cmds.is_empty() {
+            None
+        } else {
+            Some(cmds.join(" && "))
+        };
+    }
+    if let Some(env) = req.env {
+        for (key, value) in env {
+            validate_env_key(&key)?;
+            // A key can't be both exported and unset — the later `set` wins.
+            entry.unset_env.retain(|k| k != &key);
+            entry.env.insert(key, value);
+        }
+    }
+    if let Some(unset) = req.unset_env {
+        for key in unset {
+            validate_env_key(&key)?;
+            entry.env.remove(&key);
+            if !entry.unset_env.contains(&key) {
+                entry.unset_env.push(key);
+            }
+        }
+    }
+
+    // An emptied entry writes as "no override" — `apply` removes the control
+    // files rather than leaving empty ones, so it has one representation.
+    apply_override(&client, &task_id, &server_name, entry, req.restart).await
+}
+
+/// Restart one preview server in place, leaving its override as-is.
+#[utoipa::path(
+    post,
+    path = "/api/sandbox/v1/tasks/{task_id}/servers/{server_name}/restart",
+    tag = "sandbox",
+    params(
+        ("task_id" = String, Path, description = "Task identifier"),
+        ("server_name" = String, Path, description = "Server name")
+    ),
+    responses(
+        (status = 200, description = "Server restarted", body = ServerConfigResponse),
+        (status = 404, description = "No such server on this task", body = crate::error::ErrorBody),
+        (status = 503, description = "Sandbox not reachable", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn restart_server_handler(
+    State(state): State<SandboxApiState>,
+    OptionalScope(scope): OptionalScope,
+    Path((task_id, server_name)): Path<(String, String)>,
+) -> Result<Json<ServerConfigResponse>, SandboxError> {
+    info!(task_id = %task_id, server = %server_name, "POST /servers/{server_name}/restart");
+    let task = authorize_task_control(&state, &scope, &task_id).await?;
+    require_known_server(&state, &task, &server_name).await?;
+
+    // Re-send the override the sandbox already holds: `apply` is idempotent, and
+    // the generation bump is the only part the sidecar reacts to.
+    let client = state.connector.sandbox_client(&task_id).await?;
+    let current = read_override(&client, &task_id, &server_name).await?;
+    apply_override(&client, &task_id, &server_name, current, true).await
+}
+
+/// Drop a server's override and restart it on the workspace's configuration.
+#[utoipa::path(
+    delete,
+    path = "/api/sandbox/v1/tasks/{task_id}/servers/{server_name}/override",
+    tag = "sandbox",
+    params(
+        ("task_id" = String, Path, description = "Task identifier"),
+        ("server_name" = String, Path, description = "Server name")
+    ),
+    responses(
+        (status = 200, description = "Override cleared", body = ServerConfigResponse),
+        (status = 404, description = "No such server on this task", body = crate::error::ErrorBody),
+        (status = 503, description = "Sandbox not reachable", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn reset_server_config_handler(
+    State(state): State<SandboxApiState>,
+    OptionalScope(scope): OptionalScope,
+    Path((task_id, server_name)): Path<(String, String)>,
+) -> Result<Json<ServerConfigResponse>, SandboxError> {
+    info!(task_id = %task_id, server = %server_name, "DELETE /servers/{server_name}/override");
+    let task = authorize_task_control(&state, &scope, &task_id).await?;
+    require_known_server(&state, &task, &server_name).await?;
+
+    // An empty override is exactly "reset": `apply` removes the control files.
+    let client = state.connector.sandbox_client(&task_id).await?;
+    apply_override(
+        &client,
+        &task_id,
+        &server_name,
+        ServerOverride::default(),
+        true,
+    )
+    .await
+}
+
+/// Read one server's current override off the sandbox's workspace volume.
+///
+/// Absent means no override, which is the same value as an empty one — callers
+/// merge into it either way.
+async fn read_override(
+    client: &crate::sandbox::client::SandboxClient,
+    task_id: &str,
+    server_name: &str,
+) -> Result<ServerOverride, SandboxError> {
+    let mut overrides = client
+        .get_server_config(task_id)
+        .await
+        .map_err(|e| crate::sandbox::client::classify_grpc_error(e, "GetServerConfig"))?;
+    Ok(overrides
+        .remove(server_name)
+        .map(|(config, _generation)| config)
+        .unwrap_or_default())
+}
+
+/// Push one server's complete override to the sandbox, optionally restarting it.
+async fn apply_override(
+    client: &crate::sandbox::client::SandboxClient,
+    task_id: &str,
+    server_name: &str,
+    effective: ServerOverride,
+    restart: bool,
+) -> Result<Json<ServerConfigResponse>, SandboxError> {
+    let generation = client
+        .apply_server_config(task_id, server_name, &effective, restart)
+        .await
+        .map_err(|e| crate::sandbox::client::classify_grpc_error(e, "ApplyServerConfig"))?;
+
+    info!(
+        task_id = %task_id,
+        server = %server_name,
+        generation,
+        restart,
+        "Applied live server config"
+    );
+    Ok(Json(ServerConfigResponse {
+        server_name: server_name.to_string(),
+        config_override: effective,
+        generation,
+        restarted: restart,
+    }))
+}
+
+/// 404 unless the task actually has a server by this name.
+///
+/// Resolved from live status, which is config-first, so a server that has not
+/// started yet still counts.
+async fn require_known_server(
+    state: &SandboxApiState,
+    task: &Task,
+    server_name: &str,
+) -> Result<(), SandboxError> {
+    let task_id = &task.task_id;
+    let desired_state = resolve_desired_state(state, task_id).await?;
+    let status = state
+        .observer
+        .sandbox_status(task_id, task.status, desired_state)
+        .await?;
+    if status.servers.iter().any(|s| s.name == server_name) {
+        return Ok(());
+    }
+    Err(SandboxError::NotFound(format!(
+        "no server '{server_name}' on task {task_id}; available: {}",
+        status
+            .servers
+            .iter()
+            .map(|s| s.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    )))
+}
+
+/// Env keys must be shell-legal and must not collide with names the platform
+/// controls — the runtime trio the container spec injects, plus the reserved
+/// secret keys.
+fn validate_env_key(key: &str) -> Result<(), SandboxError> {
+    if !crate::secret::models::is_valid_secret_key(key) {
+        return Err(SandboxError::BadRequest(format!(
+            "invalid env key '{key}': expected ^[A-Z_][A-Z0-9_]*$"
+        )));
+    }
+    if crate::secret::models::is_reserved_key(key)
+        || matches!(key, "PORT" | "WORKSPACE_PATH" | "DATA_DIR")
+    {
+        return Err(SandboxError::BadRequest(format!(
+            "env key '{key}' is reserved by the platform"
+        )));
+    }
+    Ok(())
 }
 
 // =============================================================================
