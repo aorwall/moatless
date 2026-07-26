@@ -350,7 +350,7 @@ pub async fn route_inbound_message(
     // existing bindings above — we just don't create a new task.
     if is_pr_open_event && !has_provider_event_task {
         if let Some(rule) = rule {
-            // The eager `gh pr create` hook (see backend/src/message/hooks.rs)
+            // The eager `gh pr create` hook (see `github_pr::shell_reconcile`)
             // upserts a connected_thread binding for the originating task at the
             // moment the agent created the PR — so by the time pr_opened fires,
             // the earliest binding is the originating task. Link the new review

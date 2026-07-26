@@ -2,9 +2,9 @@
 //!
 //! Mirrors the `moat linear` pattern: instead of the agent shelling out to
 //! `gh pr create` / `gh pr comment` and the backend reconstructing the side
-//! effects by parsing the shell command post-hoc (fragile — see the hooks in
-//! `message/hooks.rs`), these endpoints make the side effects part of the API
-//! call itself:
+//! effects by parsing the shell command post-hoc (fragile — see
+//! `github_pr::shell_reconcile`), these endpoints make the side effects part of
+//! the API call itself:
 //! - task↔PR binding upsert (`connect_github_binding`)
 //! - `Moatless task: <url>` footer baked into the PR body at creation
 //! - webhook echo dedup (`recently_sent`) for the PR-opened / comment events
