@@ -111,7 +111,7 @@ Everything above is the shared base: where the file goes, how it's served, how i
 
 | Skill | Its page | Layer |
 |---|---|---|
-| `/writing-specs` | Live board during the interview, review page at approval | [HTML-REPORT.md](../writing-specs/HTML-REPORT.md) |
+| `/writing-specs` | A review page at approval — nothing during the interview | [HTML-REPORT.md](../writing-specs/HTML-REPORT.md) |
 | `/explaining-code` | An explanation of how existing code works | [HTML-REPORT.md](../explaining-code/HTML-REPORT.md) |
 
 If you are producing one of those, read its layer — it fixes the section order and the caps, which is most of what makes the page useful. For anything else, this file is enough on its own.

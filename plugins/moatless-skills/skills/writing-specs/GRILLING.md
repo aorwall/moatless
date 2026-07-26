@@ -10,7 +10,8 @@ The lede has a fixed number of slots. Bind the question set to them and the inte
 
 | Lede slot | What it asks |
 |---|---|
-| **After this ships** | "What can someone do afterward that they can't today?" Ask this first, once. Everything else hangs off the answer. |
+| *(none — `## Today`)* | "Is this what we're both looking at?" The understanding batch, below. Asked before any slot gets filled. |
+| **After this ships** | "What can someone do afterward that they can't today?" Ask this first of the slots, once. Everything else hangs off the answer. |
 | **In scope / Out of scope** | One question per contested edge — not per bullet. Uncontested bullets you write yourself. |
 | **Decisions** | One question per decision that is genuinely open. This is the bulk of the interview. |
 | **Open questions** | Never asked. This is where questions you *can't* resolve get parked. |
@@ -19,9 +20,40 @@ The lede has a fixed number of slots. Bind the question set to them and the inte
 
 Count the open slots before the first question and say the number: *"About 6 questions — 1 on scope, 4 decisions, 1 boundary."* An estimate the user can hold is worth more than an accurate count they can't see.
 
+## Open with the understanding batch
+
+Before any slot gets filled, spend **1–3 questions** establishing that you and the user are describing the same system in the same words. This is the batch that pays for itself: a decision made on a mismatched picture is not a slow decision, it is a wrong one, and it comes back as rework after the spec is approved.
+
+Two questions, at most three:
+
+**1. Does `## Today` match your model?** Link the section — don't paste it — and name the one or two findings that will actually move the spec:
+
+> `## Today` is written: [spec](…#today). Two things worth flagging before we start.
+>
+> - There are **two** delivery paths and only one runs; the dead one is where the second vocabulary comes from.
+> - Nothing persists a skill, so a skill has no id to hang anything off.
+>
+> Does that match how you thought it worked, or is something missing?
+
+The point is not approval of the section. It is finding the place where their model and the code disagree, because that gap will otherwise surface as a rejected decision five questions later. **A "no, actually…" here is the cheapest correction in the whole workflow.**
+
+**2. Do the terms mean the same thing to both of us?** Check the affected area's vocabulary against `CONTEXT.md` before asking anything phrased in it. Three cases, one line each:
+
+| | Do |
+|---|---|
+| Term is in `CONTEXT.md` and the code agrees | Nothing. Use it |
+| Term is in `CONTEXT.md` and the code disagrees | Say so — that's a finding, and often the spec's actual problem |
+| Term isn't there at all | Propose a definition, confirm it, land it in `CONTEXT.md` (`/domain-modeling`) |
+
+Cap the list at the terms the spec will actually use. This is not a glossary audit — it is making sure the decision questions land.
+
+**When the change *is* a rename, this batch is not optional.** A spec that aligns terminology while the glossary stays silent on those terms has no anchor to align to, and every decision below it is a preference rather than a consequence.
+
+Skip the batch when the user wrote the code themselves, or when `## Today` fit in five lines. Say you're skipping it and why.
+
 ## Run one batch at a time
 
-The slots also set the order. Ask every scope question, then every decision — never alternate. Attention here runs deep and narrow; being pulled out of a subject costs far more than being asked one more question inside it, so an interview that hops between scope and seams and rollout is expensive in a way its question count doesn't show.
+The slots also set the order: understanding, then scope, then decisions — never alternate. Attention here runs deep and narrow; being pulled out of a subject costs far more than being asked one more question inside it, so an interview that hops between scope and seams and rollout is expensive in a way its question count doesn't show.
 
 Open each batch by naming it and its size:
 
@@ -56,19 +88,27 @@ Four things are doing work in that block, and each maps to a fact about how this
 3. **Ranked alternatives, not one path.** For a decision, the alternatives *are* the thing the user has to hold — collapsing to a single option doesn't reduce load, it hides the choice. 2–4 options, one line of trade-off each, recommendation first.
 4. **The "you decide" escape.** A decision the user can't make is where the session dies. Let them hand it back, then record what you chose in the decision row, so it stays visible and reversible instead of silently becoming fact.
 
-## Put the board on screen
+## Two surfaces: the question in chat, the detail in the file
 
-For an interview past about four questions, run a live **board** alongside it — the lede rendered as a skeleton, empty slots and all, filling as answers land. See [HTML-REPORT.md](HTML-REPORT.md) for the page; what matters to the interview is the loop:
+The loop is short on purpose:
 
 1. Answer lands → write it into `specs/<slug>.md`.
-2. Re-render the board from the file, **with the Write tool** — that tool call is what tells the user's open preview tab to refetch. A shell redirect updates the file and leaves the tab stale.
-3. Ask the next question.
+2. Ask the next question.
 
-The board carries the state so the chat doesn't have to, which is the one thing that makes a long interview survivable: every settled answer stays permanently on screen instead of scrolling away, and the empty slots show how much is left without anyone counting.
+**Nothing is rendered between those two steps.** A page that has to be rebuilt after every answer puts a build step where the next question should be, and the user is left waiting on a tab they aren't looking at — they are looking at the chat, because that is where the question is.
 
-The progress line stays in the chat question regardless — the board can be closed, minimised, or on another monitor.
+So the two surfaces divide cleanly:
 
-Never let an answer live only on the board. File first, render second: a closed tab or a restarted sandbox then costs nothing, and the interview can stop after any question and resume from the markdown.
+| | Carries | Never carries |
+|---|---|---|
+| **The chat message** | The question, its ranked options, the progress line | Background the file already holds |
+| **`specs/<slug>.md`** | `## Today`, every settled answer, everything parked | The current question |
+
+The question is short because the file is one click away. When a question needs current behaviour to make sense, **link the section and name the one fact that decides it** — don't re-explain the mechanism inside the question. Pasting three paragraphs of background above a decision means the reader spends their attention on the background and arrives at the options with none left.
+
+Never let an answer live only in the chat. File first: a restarted sandbox or a closed session then costs nothing, and the interview can stop after any question and resume from the markdown.
+
+The rendered page comes once, at approval — see [HTML-REPORT.md](HTML-REPORT.md).
 
 ## Look it up; only ask decisions
 

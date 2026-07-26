@@ -18,7 +18,8 @@ Check with the user that these seams match their expectations.
 
 3. Run the `/writing-specs` skill for the spec's shape — the capped lede, the fixed heading order, and the writing rules. Write the spec to `specs/<slug>.md`, then publish it to the project issue tracker. Apply the `ready-for-agent` triage label - no need for additional triage.
 
-Two points that bite when synthesizing rather than interviewing:
+Three points that bite when synthesizing rather than interviewing:
 
+- **Still write `## Today`.** Its usual job is to give the interview a shared reference, and there is no interview here — but the second job survives: it is what a reviewer checks the proposal against, and writing it is what catches the dead path or the second mechanism that the conversation never surfaced.
 - **Cover every actor in `## Behaviour`, grouped by actor and capped at 7 per group** — past that, use a table. Completeness belongs here; brevity belongs in the lede.
 - **No file paths or code snippets** — they go stale fast. Exception: if a prototype produced a snippet that encodes a decision more precisely than prose can (state machine, reducer, schema, type shape), inline it in the relevant decision and note that it came from a prototype. Trim to the decision-rich parts — not a working demo.

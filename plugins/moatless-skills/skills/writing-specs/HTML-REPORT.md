@@ -1,52 +1,32 @@
-# The spec page
+# The spec review page
 
-One file, one URL, two states. During the interview it is a **board** that fills as answers land; at approval it is the **review page**. Same path throughout — the user opens one tab at question one and never hunts for the current version.
+One page, rendered once, at approval. Its whole job is to make a yes-or-no reachable in two minutes.
 
-**Read [`/html-report`](../html-report/SKILL.md) first** — it owns where the file goes, the preview URL, the Write-tool rule that keeps the open tab live, the scaffold and the style baseline. This file adds only what is specific to a spec.
+**Read [`/html-report`](../html-report/SKILL.md) first** — it owns where the file goes, the preview URL, the Write-tool rule, the scaffold and the style baseline. This file adds only what is specific to a spec.
 
-Use the **stable** naming rule from that skill: `scratchpad/<slug>-board.html`, overwritten in place. This page is updated on every answer, so a timestamped name would break the tab the user opened at question one.
-
-Give the URL once, at the first question:
+Naming: `scratchpad/<slug>-review.html`, using the **stable** rule from that skill, so a re-render after a change keeps the same tab alive.
 
 ```
-<origin>/tasks/<task-id>?file=scratchpad%2F<slug>-board.html&fileView=preview
+<origin>/tasks/<task-id>?file=scratchpad%2F<slug>-review.html&fileView=preview
 ```
 
-**Link the spec file alongside it, every time you present the lede** — the board is a projection, the markdown is the artifact, and the reader should be one click from the thing that gets reviewed with the code:
+**Link the spec file beside it, every time** — the page is a projection, the markdown is the artifact, and the reader should be one click from the thing that gets reviewed with the code:
 
 ```
 <origin>/tasks/<task-id>?file=moatless%2Fspecs%2F<slug>.md&fileView=preview
 ```
 
-Skip the board entirely for interviews under about four questions — the setup costs more attention than it saves.
+## Not during the interview
 
-## The board — the lede, drawn as it fills
+No page is rendered while questions are being asked. The question lives in the chat message and everything else lives in `specs/<slug>.md` — see [GRILLING.md](GRILLING.md).
 
-Render the lede's slots as a skeleton from question one, **including the empty ones**. The reader sees the shape of the finished thing immediately and watches it fill, so "how much is left" is answered by the drawing rather than by a number they have to trust. It also puts every settled answer permanently on screen, which is the working-memory problem this whole workflow exists to solve.
+This used to be a live board that re-rendered after every answer, and the cost landed in the wrong place: several tool calls between the user answering and the next question arriving, spent updating a tab they weren't looking at. The chat progress line already reports position and settled state, and the file already holds the detail, so the board was paying latency for work two cheaper surfaces were doing anyway.
 
-Three slot states, visually distinct at a glance:
+Skip the page at approval too when the lede pasted into the message is enough — it usually is for a spec with three decisions. Say you're skipping it, once.
 
-| State | Treatment |
-|---|---|
-| **Settled** | Solid border, white card, content rendered |
-| **Current** | Amber ring (`ring-2 ring-amber-400`), carrying the question and its 2–4 ranked options in full |
-| **Pending** | Dashed border (`border-dashed border-slate-300`), label only, no content |
+## What the page renders
 
-The header carries the title, the status chip, and the progress bar — `Q3 of ~6 · ▓▓▓░░░`. The footer carries nothing; there is no next action yet.
-
-The board is read-only, per `/html-report`'s baseline: the user answers in chat, and the page's only job is to hold the state they would otherwise have to.
-
-## File first, board second
-
-Never let an answer exist only on the board. When one lands, write it into `specs/<slug>.md`, then re-render the board from the file. The board is a projection, never a source.
-
-That ordering is what makes the interview survivable: a sandbox restart or a closed tab costs nothing, and a session can stop after any question and resume from the markdown.
-
-Re-render when an answer lands — not on every message.
-
-## The review page — at approval
-
-When the last slot fills, the board becomes the review page — same file, same URL, same tab: drop the pending outlines, add the four sections below. It renders the lede, not the spec. The spec file is the source of truth and it is complete; this page exists so a decision can be reached in two minutes. If a section needs more than 5–6 lines, condense it — the reader can open the file.
+The **lede**, never the spec. The spec file is the source of truth and it is complete; this page exists so a decision can be reached without opening it. If a section needs more than 5–6 lines, condense it — the reader can open the file.
 
 **1. What we're building** — one paragraph, plain language, no jargon. What will exist afterward that doesn't today?
 
@@ -57,6 +37,8 @@ When the last slot fills, the board becomes the review page — same file, same 
 **4. Work breakdown** — the Mermaid dependency graph, node colours by state, the same `classDef` set as the markdown (see [DESIGN.md](DESIGN.md)). The only technical detail on the page, and the user's chance to reshape the plan before work starts.
 
 Footer: the spec's path, its status line, and the one next action.
+
+**`## Today` does not go on this page.** By approval it has done its job — it was the interview's reference, and what is being approved is the decisions. Link it, don't re-render it. A page that opens with how the system currently works buries the choices under material the reader has already been through.
 
 ## Style notes on top of `/html-report`
 
