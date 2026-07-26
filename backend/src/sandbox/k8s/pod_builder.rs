@@ -12,14 +12,14 @@ use k8s_openapi::api::core::v1::{
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use std::collections::{BTreeMap, HashMap};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use super::naming::generate_pod_name;
 use crate::config::Config;
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::jwt::{self, MintedSandboxTokens};
 use crate::sandbox::lifecycle::runtime::{RuntimeOperationContext, OPERATION_GENERATION_LABEL};
-use crate::sandbox::models::ProvisionPlan;
+use crate::sandbox::models::{ProvisionPlan, RepoCheckout, WORKSPACE_REPOS_ENV};
 use crate::sandbox::server_runner::build_server_start_script;
 
 /// Auth tokens delivered to a sandbox pod.
@@ -708,6 +708,14 @@ fn build_sandbox_container(
     // Git provider (github, gitlab, gitness)
     env.push(env_var("GIT_PROVIDER", &plan.git_provider));
 
+    // Every repository the workspace places in the sandbox, primary first. The
+    // GIT_* trio above still describes the primary so a pre-multi-repo sandbox
+    // image keeps working; a current one clones this list instead. Clone URLs are
+    // redacted like GIT_CLONE_URL — no PAT reaches the pod spec.
+    if let Some(repos_json) = build_workspace_repos_json(plan) {
+        env.push(env_var(WORKSPACE_REPOS_ENV, &repos_json));
+    }
+
     // Workspace storage backend. The `s3` backend runs on a node-local emptyDir
     // (no PVC) and syncs the git working tree to S3 via presigned URLs — flag the
     // sandbox so it starts its workspace-sync loop and restores on boot. `ebs`,
@@ -1166,6 +1174,36 @@ fn build_server_containers(
     Ok(containers)
 }
 
+/// Serialize the plan's repository checkouts for the `WORKSPACE_REPOS` env.
+///
+/// Clone URLs are redacted exactly like `GIT_CLONE_URL`, so no credential
+/// reaches the pod spec — the sandbox authenticates each clone through the
+/// credential channel using the checkout's provider. `None` when the plan
+/// carries no checkouts, leaving the sandbox on the legacy `GIT_*` trio.
+fn build_workspace_repos_json(plan: &ProvisionPlan) -> Option<String> {
+    if plan.repos.is_empty() {
+        return None;
+    }
+    let redacted: Vec<RepoCheckout> = plan
+        .repos
+        .iter()
+        .map(|repo| RepoCheckout {
+            clone_url: redact_url_userinfo(&repo.clone_url),
+            ..repo.clone()
+        })
+        .collect();
+    match serde_json::to_string(&redacted) {
+        Ok(json) => Some(json),
+        Err(e) => {
+            warn!(
+                error = %e,
+                "Failed to serialize WORKSPACE_REPOS; sandbox will clone the primary repo only"
+            );
+            None
+        }
+    }
+}
+
 /// Build REPO_CONFIG JSON string for the sandbox container.
 ///
 /// This is a pass-through of the repo config fields that the sandbox
@@ -1575,6 +1613,13 @@ mod tests {
             git_branch: None,
             git_provider: "github".into(),
             env_vars: None,
+            repos: vec![RepoCheckout {
+                clone_url: "https://github.com/test/repo.git".into(),
+                branch: None,
+                provider: "github".into(),
+                mount_name: "repo".into(),
+                is_primary: true,
+            }],
         }
     }
 
@@ -2304,6 +2349,113 @@ mod tests {
         // With no tokens passed, neither auth env is present.
         assert!(env.iter().all(|e| e.name != "USER_AUTH_TOKEN"));
         assert!(env.iter().all(|e| e.name != "SANDBOX_BOOTSTRAP_TOKEN"));
+    }
+
+    /// A multi-repo workspace reaches the pod as the `WORKSPACE_REPOS` list,
+    /// while `GIT_CLONE_URL` still names the primary so a sandbox image predating
+    /// multi-repo support keeps working.
+    #[test]
+    fn pod_spec_carries_every_workspace_repo() {
+        let config = test_config();
+        let mut plan = test_plan();
+        plan.repos.push(RepoCheckout {
+            clone_url: "https://gitlab.com/acme/shared.git".into(),
+            branch: Some("release".into()),
+            provider: "gitlab".into(),
+            mount_name: "shared".into(),
+            is_primary: false,
+        });
+
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        let sandbox = pod
+            .spec
+            .as_ref()
+            .unwrap()
+            .containers
+            .iter()
+            .find(|c| c.name == "sandbox")
+            .unwrap();
+        let env = sandbox.env.as_ref().unwrap();
+        let raw = env
+            .iter()
+            .find(|e| e.name == WORKSPACE_REPOS_ENV)
+            .and_then(|e| e.value.clone())
+            .expect("WORKSPACE_REPOS present");
+        let parsed: Vec<RepoCheckout> = serde_json::from_str(&raw).unwrap();
+
+        assert_eq!(parsed.len(), 2);
+        assert!(parsed[0].is_primary);
+        assert_eq!(parsed[0].mount_name, "repo");
+        assert_eq!(parsed[1].mount_name, "shared");
+        assert_eq!(parsed[1].provider, "gitlab");
+        assert_eq!(parsed[1].branch.as_deref(), Some("release"));
+
+        let git_url = env.iter().find(|e| e.name == "GIT_CLONE_URL").unwrap();
+        assert_eq!(
+            git_url.value.as_deref(),
+            Some("https://github.com/test/repo.git")
+        );
+    }
+
+    /// Every checkout's URL is redacted, not just the primary's — a secondary
+    /// repo's PAT must not land in the pod spec either.
+    #[test]
+    fn workspace_repos_env_redacts_every_clone_url() {
+        let config = test_config();
+        let mut plan = test_plan();
+        plan.repos[0].clone_url = "https://user:secret@github.com/test/repo.git".into();
+        plan.repos.push(RepoCheckout {
+            clone_url: "https://user:other-secret@gitlab.com/acme/shared.git".into(),
+            branch: None,
+            provider: "gitlab".into(),
+            mount_name: "shared".into(),
+            is_primary: false,
+        });
+
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        let raw = pod
+            .spec
+            .as_ref()
+            .unwrap()
+            .containers
+            .iter()
+            .find(|c| c.name == "sandbox")
+            .unwrap()
+            .env
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|e| e.name == WORKSPACE_REPOS_ENV)
+            .and_then(|e| e.value.clone())
+            .expect("WORKSPACE_REPOS present");
+
+        assert!(!raw.contains("secret"), "WORKSPACE_REPOS leaked credentials");
+        let parsed: Vec<RepoCheckout> = serde_json::from_str(&raw).unwrap();
+        assert_eq!(parsed[0].clone_url, "https://github.com/test/repo.git");
+        assert_eq!(parsed[1].clone_url, "https://gitlab.com/acme/shared.git");
+    }
+
+    /// A plan with no checkouts (a legacy payload) omits the env entirely rather
+    /// than emitting an empty list.
+    #[test]
+    fn pod_spec_omits_workspace_repos_when_the_plan_has_none() {
+        let config = test_config();
+        let mut plan = test_plan();
+        plan.repos.clear();
+
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        let env = pod
+            .spec
+            .as_ref()
+            .unwrap()
+            .containers
+            .iter()
+            .find(|c| c.name == "sandbox")
+            .unwrap()
+            .env
+            .clone()
+            .unwrap();
+        assert!(env.iter().all(|e| e.name != WORKSPACE_REPOS_ENV));
     }
 
     #[test]

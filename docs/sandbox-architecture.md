@@ -93,8 +93,9 @@ Container Start
 ├─ 3. Configure git
 │     Set GITHUB_TOKEN credential helper, user.name, user.email
 │
-├─ 4. Clone repository (if GIT_CLONE_URL set and .git/ absent)
-│     gh repo clone → checkout GIT_BRANCH
+├─ 4. Clone repositories (every entry in WORKSPACE_REPOS whose mount lacks .git/,
+│     falling back to GIT_CLONE_URL alone)
+│     gh repo clone → checkout the entry's branch
 │
 ├─ 5. Write preview config (if REPO_CONFIG has previewConfig)
 │     Parse REPO_CONFIG JSON → /opt/moatless/data/preview-server.config.json
@@ -154,8 +155,9 @@ main()
 | `WORKSPACE_DIR` | No | `/opt/moatless/repo` | Workspace directory path |
 | `DATA_DIR` | No | `/opt/moatless/data` | Data directory for runtime artifacts |
 | `LOG_LEVEL` | No | `info` | Pino log level |
-| `GIT_CLONE_URL` | No | — | Repository URL to clone on startup |
-| `GIT_BRANCH` | No | — | Branch to checkout after clone |
+| `GIT_CLONE_URL` | No | — | Primary repository URL to clone on startup |
+| `GIT_BRANCH` | No | — | Branch to checkout after clone (primary repo) |
+| `WORKSPACE_REPOS` | No | — | JSON array of every repository the workspace places, primary first (see below) |
 | `GITHUB_TOKEN` | No | — | Token for private repository access |
 | `REPO_CONFIG` | No | — | JSON-encoded repository configuration |
 | `CLAUDE_CODE_OAUTH_TOKEN` | No | — | OAuth token for Claude Code agent |
@@ -163,6 +165,25 @@ main()
 | `CLAUDE_CONFIG_DIR` | No | `/opt/moatless/.claude` | Claude configuration directory |
 | `BACKEND_GRPC_URL` | No | — | Backend gRPC endpoint for events/messages |
 | `GRPC_PORT` | No | `50052` | gRPC server port for SandboxService |
+
+### WORKSPACE_REPOS Structure
+
+A task's workspace may place several repositories in the same sandbox. The
+backend serializes them, primary first, into `WORKSPACE_REPOS`:
+
+```json
+[
+  { "cloneUrl": "https://github.com/acme/api.git", "branch": "main", "provider": "github", "mountName": "api", "isPrimary": true },
+  { "cloneUrl": "https://gitlab.com/acme/web.git", "provider": "gitlab", "mountName": "web", "isPrimary": false }
+]
+```
+
+Each entry is cloned into `$WORKSPACE_DIR/{mountName}`, using that entry's own
+provider token and branch. The primary entry's directory is `repo_dir` — the
+one git status, diffs, and PRs target. `GIT_CLONE_URL` / `GIT_BRANCH` /
+`GIT_PROVIDER` mirror the primary entry; when `WORKSPACE_REPOS` is absent or
+unparseable the sandbox falls back to cloning that single repository, so an
+older backend and a newer sandbox image still agree.
 
 ### REPO_CONFIG Structure
 
@@ -542,9 +563,9 @@ The agent interacts with the browser through the `sandbox-browser` skill, which 
 
 Handles initial workspace setup on container start:
 
-1. **Git Clone**: If `GIT_CLONE_URL` is set and `.git/` doesn't exist, clone the repository
-2. **Branch Checkout**: Switch to `GIT_BRANCH` if specified
-3. **Skip**: If `.git/` already exists, skip cloning (handles pre-provisioned volumes)
+1. **Git Clone**: Clone every checkout declared in `WORKSPACE_REPOS` into its own `$WORKSPACE_DIR/{mountName}` directory (falling back to `GIT_CLONE_URL` alone when the variable is absent)
+2. **Branch Checkout**: Switch each checkout to its own branch if specified
+3. **Skip**: A mount that already contains `.git/` is left alone (handles pre-provisioned volumes), so a repo added to the workspace later is cloned on the next start without disturbing the existing checkouts
 
 The provisioning is performed by the entrypoint script before the sandbox application starts, ensuring the workspace is ready when the HTTP server begins accepting requests.
 

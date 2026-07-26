@@ -579,6 +579,7 @@ fn test_config(dir: &std::path::Path) -> Config {
         git_clone_url: None,
         git_branch: None,
         git_provider: "github".to_string(),
+        repos: Vec::new(),
         repo_config_raw: None,
         setup_commands: vec![],
         plugin_ids: vec![],
