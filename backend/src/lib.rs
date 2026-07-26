@@ -31,7 +31,7 @@ pub mod leader;
 pub mod loops;
 pub mod message;
 pub mod metrics;
-pub mod plugin_repo;
+pub mod plugin;
 pub mod provider_settings;
 pub mod repository;
 pub mod sandbox;

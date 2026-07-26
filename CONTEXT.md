@@ -31,7 +31,7 @@ _Avoid_: putting run-config on a Repository
 
 **Workspace**:
 The composition of one or more repositories plus run-configuration (docker image,
-setup commands, env vars, servers, plugins, resources) that a Task runs against.
+setup commands, env vars, servers, resources) that a Task runs against.
 A Sandbox materializes it on disk under the workspace directory. `source` is
 `manual` (created via the API) or `git` (reconciled from a repo's
 `.moatless/workspaces.json`). Not the Sandbox (the pod that runs it) nor the
@@ -207,6 +207,36 @@ The LLM the Agent uses (e.g. Opus, Sonnet).
 **Subagent**:
 A sub-conversation the Agent spawns via the Task tool, threaded onto the spawning
 tool call (`parent_tool_use_id`).
+
+### Plugins & skills
+
+**Plugin**:
+A git repository of agent capabilities — skills, commands, agents — registered
+once by an admin and thereafter available to everyone. One word, everywhere: the
+table is `plugins`, the DAO is `PluginRepository`, the API is `/api/v1/plugins`,
+and the admin page is Plugins.
+_Avoid_: plugin repo, plugin_repo, marketplace
+
+**Skill**:
+One capability inside a Plugin — a `SKILL.md` and the files beside it. Identified
+by its directory name, which is what `plugin_skills` stores and what an
+Activation points at; the `name:` in its frontmatter is display metadata only. A
+Plugin is delivered whole, minus the skills nobody picked.
+
+**Activation**:
+One record in `plugin_activations` saying a Plugin, or one Skill inside it, is on
+or off — for everyone (`user_id IS NULL`, admins only) or for one person. A
+personal record beats a global one in both directions; clearing it hands the
+person back to the default, which is not the same as setting it off. Nothing is
+delivered without a record.
+_Avoid_: scope (means tenancy elsewhere in this codebase), link, enable flag
+
+**Marketplace**:
+Claude Code's own `marketplace.json` manifest format, which a Plugin repository
+may use to declare where its plugins live. The word is theirs, not ours — it is
+allowed only in the code that parses that file (`backend/src/skill/fetcher.rs`,
+`sandbox/src/init/plugin_skills.rs`, `sandbox/src/agent/options.rs`) and never
+names one of our own concepts.
 
 ### Conversation
 

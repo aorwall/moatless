@@ -60,7 +60,6 @@ async fn workspace_git_override_chain() {
             setup_commands: None,
             env_vars: None,
             servers: None,
-            plugins: None,
             resources: None,
             network_profile: None,
             repos: vec![WorkspaceRepoInput {

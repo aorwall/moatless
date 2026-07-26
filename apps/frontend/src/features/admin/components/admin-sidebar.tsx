@@ -57,7 +57,7 @@ const ADMIN_NAV: AdminNavGroup[] = [
       { label: 'Users', to: '/admin/users', icon: Users },
       { label: 'Teams', to: '/admin/teams', icon: Building2 },
       { label: 'Secrets', to: '/admin/secrets', icon: KeyRound },
-      { label: 'Marketplaces', to: '/admin/marketplaces', icon: Package },
+      { label: 'Plugins', to: '/admin/plugins', icon: Package },
     ],
   },
 ]

@@ -238,8 +238,7 @@ fn test_config(tmp: &TempDir, use_tmux: bool) -> Config {
         git_provider: "github".to_string(),
         repo_config_raw: None,
         setup_commands: vec![],
-        plugin_ids: vec![],
-        plugin_repos: vec![],
+        plugins: vec![],
         permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
         workspace_sync_enabled: false,
     }

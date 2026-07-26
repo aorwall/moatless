@@ -42,9 +42,6 @@ pub enum WorkspaceAction {
         /// Server configs as a JSON array
         #[arg(long)]
         servers_json: Option<String>,
-        /// Plugin names as a JSON array, e.g. `["plugin-a"]`
-        #[arg(long)]
-        plugins_json: Option<String>,
         /// Resources config as a JSON object
         #[arg(long)]
         resources_json: Option<String>,
@@ -79,8 +76,6 @@ pub enum WorkspaceAction {
         #[arg(long)]
         servers_json: Option<String>,
         #[arg(long)]
-        plugins_json: Option<String>,
-        #[arg(long)]
         resources_json: Option<String>,
         #[arg(long)]
         network_profile: Option<String>,
@@ -108,8 +103,6 @@ pub enum WorkspaceAction {
         env_vars_json: Option<String>,
         #[arg(long)]
         servers_json: Option<String>,
-        #[arg(long)]
-        plugins_json: Option<String>,
         #[arg(long)]
         resources_json: Option<String>,
         #[arg(long)]
@@ -162,7 +155,6 @@ pub async fn run(
             setup_commands_json,
             env_vars_json,
             servers_json,
-            plugins_json,
             resources_json,
             network_profile,
             repos_json,
@@ -183,7 +175,6 @@ pub async fn run(
                 setup_commands: parse_json_opt(&setup_commands_json, "--setup-commands-json")?,
                 env_vars: parse_json_opt(&env_vars_json, "--env-vars-json")?,
                 servers: parse_json_opt(&servers_json, "--servers-json")?,
-                plugins: parse_json_opt(&plugins_json, "--plugins-json")?,
                 resources: parse_json_opt(&resources_json, "--resources-json")?,
                 network_profile,
                 repos,
@@ -207,7 +198,6 @@ pub async fn run(
             setup_commands_json,
             env_vars_json,
             servers_json,
-            plugins_json,
             resources_json,
             network_profile,
         } => {
@@ -223,7 +213,6 @@ pub async fn run(
                 setup_commands: parse_json_opt(&setup_commands_json, "--setup-commands-json")?,
                 env_vars: parse_json_opt(&env_vars_json, "--env-vars-json")?,
                 servers: parse_json_opt(&servers_json, "--servers-json")?,
-                plugins: parse_json_opt(&plugins_json, "--plugins-json")?,
                 resources: parse_json_opt(&resources_json, "--resources-json")?,
                 network_profile,
             };
@@ -245,7 +234,6 @@ pub async fn run(
             setup_commands_json,
             env_vars_json,
             servers_json,
-            plugins_json,
             resources_json,
             network_profile,
         } => {
@@ -260,7 +248,6 @@ pub async fn run(
                 setup_commands: parse_json_opt(&setup_commands_json, "--setup-commands-json")?,
                 env_vars: parse_json_opt(&env_vars_json, "--env-vars-json")?,
                 servers: parse_json_opt(&servers_json, "--servers-json")?,
-                plugins: parse_json_opt(&plugins_json, "--plugins-json")?,
                 resources: parse_json_opt(&resources_json, "--resources-json")?,
                 network_profile,
             };

@@ -220,8 +220,7 @@ mod tests {
             git_provider: "github".to_string(),
             repo_config_raw: None,
             setup_commands: vec![],
-            plugin_ids: vec![],
-            plugin_repos: vec![],
+            plugins: vec![],
         }
     }
 

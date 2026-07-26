@@ -7,7 +7,7 @@
 //!   listed and merged; a skill exposed in both (typically `.claude/skills/foo`
 //!   symlinking to `../../.agents/skills/foo`) is de-duplicated by directory
 //!   name, with `.claude/skills` winning.
-//! - [`SkillLayout::Plugin`] — plugin repo. Probes `.codex-plugin/plugin.json`,
+//! - [`SkillLayout::Plugin`] — plugin. Probes `.codex-plugin/plugin.json`,
 //!   `.agents-plugin/plugin.json`, and `.claude-plugin/plugin.json` to resolve
 //!   the skills directory, defaulting to `skills/` at the repo root. Also
 //!   supports repo-local `.agents/plugins/marketplace.json` and
@@ -51,7 +51,7 @@ pub struct FetchedSkillFile {
 pub enum SkillLayout {
     /// Workspace repo: skills live at `.claude/skills/{name}/SKILL.md`.
     Workspace,
-    /// Claude Code plugin repo: resolve the skills directory from
+    /// Claude Code plugin: resolve the skills directory from
     /// `.claude-plugin/plugin.json` (optional `skills` field), default
     /// `skills/` at the plugin root.
     Plugin,
@@ -67,6 +67,17 @@ pub trait SkillFetcher: Send + Sync {
         layout: SkillLayout,
         token: Option<&str>,
     ) -> Result<Vec<FetchedSkillFile>, SkillError>;
+
+    /// Ask the source what version it is at now, without fetching its content.
+    ///
+    /// `Ok(None)` means the source cannot be asked cheaply — the caller should
+    /// treat that as "changed" and fetch, rather than serving a snapshot it
+    /// cannot vouch for.
+    async fn fetch_version(
+        &self,
+        remote_url: &str,
+        token: Option<&str>,
+    ) -> Result<Option<String>, SkillError>;
 }
 
 /// GitHub REST API implementation of [`SkillFetcher`].
@@ -196,13 +207,41 @@ impl SkillFetcher for GitHubSkillFetcher {
                         warn!(
                             git_url = %remote_url,
                             skills_prefix = %prefix,
-                            "Plugin repo has no skills directory — skipping"
+                            "Plugin has no skills directory — skipping"
                         );
                     }
                 }
                 Ok(dedup_by_dir_name(groups))
             }
         }
+    }
+
+    /// The default branch's head commit SHA, via the commits endpoint with
+    /// `Accept: application/vnd.github.sha` — one request returning 40 bytes.
+    async fn fetch_version(
+        &self,
+        remote_url: &str,
+        token: Option<&str>,
+    ) -> Result<Option<String>, SkillError> {
+        let lower = remote_url.to_ascii_lowercase();
+        if !lower.contains("github.com") {
+            return Ok(None);
+        }
+        let Some((owner, repo)) = parse_github_owner_repo(remote_url) else {
+            return Ok(None);
+        };
+
+        let url = format!("https://api.github.com/repos/{owner}/{repo}/commits/HEAD");
+        let sha = fetch_github_text(
+            &self.client,
+            &url,
+            "application/vnd.github.sha",
+            token,
+            remote_url,
+        )
+        .await?;
+
+        Ok(sha.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()))
     }
 }
 
@@ -359,9 +398,9 @@ fn resolve_relative_path(base_dir: &str, target: &str) -> Option<String> {
     Some(stack.join("/"))
 }
 
-/// Resolve repo-relative skills roots for a plugin repository.
+/// Resolve repo-relative skills roots for a plugin.
 ///
-/// Supports both single-plugin repos and marketplace repos. Local marketplace
+/// Supports both single-plugins and marketplace repos. Local marketplace
 /// entries are resolved relative to the repository root, matching both Codex's
 /// `.agents/plugins/marketplace.json` and Claude Code's
 /// `.claude-plugin/marketplace.json` conventions.
@@ -591,10 +630,28 @@ async fn fetch_github_raw(
     token: Option<&str>,
     git_url: &str,
 ) -> Result<Option<String>, SkillError> {
+    fetch_github_text(
+        client,
+        url,
+        "application/vnd.github.raw+json",
+        token,
+        git_url,
+    )
+    .await
+}
+
+/// GET a GitHub URL and return the body as text, or `None` on 404.
+async fn fetch_github_text(
+    client: &Client,
+    url: &str,
+    accept: &str,
+    token: Option<&str>,
+    git_url: &str,
+) -> Result<Option<String>, SkillError> {
     let mut req = client
         .get(url)
         .header("User-Agent", "moatless-vibe-backend")
-        .header("Accept", "application/vnd.github.raw+json");
+        .header("Accept", accept);
     if let Some(tok) = token {
         req = req.header("Authorization", format!("Bearer {tok}"));
     }
@@ -645,6 +702,14 @@ mod tests {
             _token: Option<&str>,
         ) -> Result<Vec<FetchedSkillFile>, SkillError> {
             Ok(self.files.clone())
+        }
+
+        async fn fetch_version(
+            &self,
+            _remote_url: &str,
+            _token: Option<&str>,
+        ) -> Result<Option<String>, SkillError> {
+            Ok(None)
         }
     }
 

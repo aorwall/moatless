@@ -54,9 +54,7 @@ export function CommandAutocomplete({
         const isSelected = index === selectedIndex
         const Icon = Sparkles
         const badge =
-          suggestion.source === 'plugin' && suggestion.pluginRepoName
-            ? suggestion.pluginRepoName
-            : 'skill'
+          suggestion.source === 'plugin' && suggestion.pluginName ? suggestion.pluginName : 'skill'
         return (
           <button
             key={suggestionKey(suggestion)}

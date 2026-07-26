@@ -42,8 +42,6 @@ pub struct RepoConfig {
     pub docker_image: Option<String>,
     /// Servers with allocated ports
     pub servers: Option<Vec<ServerConfig>>,
-    /// Plugin IDs (format: {name}@{marketplace}) — sandbox resolves to paths
-    pub plugin_ids: Option<Vec<String>>,
     // --- Pass-through fields for REPO_CONFIG env var ---
     /// System prompt for the agent
     pub system_prompt: Option<String>,
@@ -56,9 +54,10 @@ pub struct RepoConfig {
     // --- K8s resource configuration (opt-in per-repo) ---
     /// Per-repo K8s resource requests/limits override for server containers.
     pub resources: Option<crate::repository::models::ResourceConfig>,
-    // --- Plugin git repos (auto-provisioned from DB join table) ---
-    /// Git URLs of plugin repos to clone into the sandbox.
-    pub plugin_repos: Option<Vec<String>>,
+    // --- Plugins (resolved from the task owner's activation records) ---
+    /// The plugins this task's owner has turned on, each with the skills they
+    /// picked. The sandbox clones each one and removes the skills not named.
+    pub plugins: Option<Vec<moatless_api_schemas::plugin::PluginDelivery>>,
     // --- Docker access (opt-in) ---
     /// Mount Docker socket inside sandbox container (default: false).
     /// Overrides global DOCKER_ENABLE_SOCKET_MOUNT when set.

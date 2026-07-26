@@ -94,7 +94,7 @@ enum SharedCommands {
         #[command(subcommand)]
         action: commands::teams::TeamAction,
     },
-    /// Plugin repo management
+    /// Plugin management
     Plugins {
         #[command(subcommand)]
         action: commands::plugins::PluginAction,

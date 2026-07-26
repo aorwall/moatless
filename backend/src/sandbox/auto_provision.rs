@@ -11,11 +11,13 @@ use tracing::{info, warn};
 use moatless_backend_core::scope::ScopeContext;
 
 use crate::auth::provider_token_dao::ProviderTokenRepository;
-use crate::plugin_repo::dao::PluginRepoRepository;
+use crate::plugin::activation;
+use crate::plugin::dao::PluginRepository;
 use crate::repository::dao::RepoRepository;
 use crate::repository::models::RepositoryProvider;
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::models::{ProvisionRequest, RepoConfig, ServerConfig};
+use moatless_api_schemas::plugin::PluginDelivery;
 use crate::task::dao::TaskRepository;
 use crate::task::models::Task;
 use crate::workspace::dao::WorkspaceRepository;
@@ -41,7 +43,7 @@ pub async fn build_provision_request(
     tasks: &dyn TaskRepository,
     repos: &dyn RepoRepository,
     _provider_tokens: &dyn ProviderTokenRepository,
-    plugin_repos: &dyn PluginRepoRepository,
+    plugins: &dyn PluginRepository,
     workspaces: &dyn WorkspaceRepository,
     task_id: &str,
 ) -> Result<ProvisionRequest, SandboxError> {
@@ -156,23 +158,31 @@ pub async fn build_provision_request(
         .get_or_insert_with(std::collections::HashMap::new)
         .insert("AGENT_TYPE".to_string(), task.agent_type.0.clone());
 
-    // Resolve plugin git repos from the join table
-    match plugin_repos.find_by_repository_id(&repository_id).await {
-        Ok(plugins) if !plugins.is_empty() => {
-            let urls: Vec<String> = plugins.into_iter().map(|p| p.git_url).collect();
+    // Resolve the plugins this task's owner has turned on. A task with no
+    // identifiable owner gets the global defaults and nothing personal.
+    let owner = task
+        .owner_user_id
+        .as_deref()
+        .or(task.created_by.as_deref())
+        .unwrap_or_default();
+    match resolve_plugin_deliveries(plugins, owner).await {
+        Ok(deliveries) if !deliveries.is_empty() => {
             info!(
                 task_id = %task_id,
-                count = urls.len(),
-                "Auto-provision: resolved plugin git repos"
+                count = deliveries.len(),
+                "Auto-provision: resolved plugins"
             );
-            repo_config.plugin_repos = Some(urls);
+            repo_config.plugins = Some(deliveries);
         }
         Ok(_) => {}
         Err(e) => {
+            // A task that starts without its plugins is worse than one that
+            // does not start at all only in theory; in practice the agent still
+            // works, so this stays non-fatal as it always has.
             warn!(
                 task_id = %task_id,
                 error = %e,
-                "Auto-provision: failed to query plugin repos (non-fatal)"
+                "Auto-provision: failed to resolve plugins (non-fatal)"
             );
         }
     }
@@ -243,6 +253,23 @@ async fn resolve_primary_repository_id(
     }
 }
 
+/// What a task's owner gets: their effective plugins, each with the skills the
+/// sandbox is to keep.
+async fn resolve_plugin_deliveries(
+    plugins: &dyn PluginRepository,
+    owner_user_id: &str,
+) -> Result<Vec<PluginDelivery>, sqlx::Error> {
+    Ok(activation::resolve_for_user(plugins, owner_user_id)
+        .await?
+        .into_iter()
+        .map(|(plugin, skill_names)| PluginDelivery {
+            name: plugin.name,
+            git_url: plugin.git_url,
+            skill_names,
+        })
+        .collect())
+}
+
 /// A run-config with only the repo name — used when a task unexpectedly has no
 /// workspace. Provisioning then falls back to global defaults (no servers).
 fn minimal_repo_config(name: &str) -> RepoConfig {
@@ -250,12 +277,11 @@ fn minimal_repo_config(name: &str) -> RepoConfig {
         name: name.to_string(),
         docker_image: None,
         servers: None,
-        plugin_ids: None,
         system_prompt: None,
         code_execution: None,
         preview_config: None,
         resources: None,
-        plugin_repos: None,
+        plugins: None,
         docker_access: None,
         docker_networks: None,
         sandbox_service_account: None,

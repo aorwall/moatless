@@ -143,9 +143,8 @@ RUN set -eux; \
 # Entrypoint scripts come from the sandbox-tools image so script edits don't
 # invalidate the binary COPY layer below (and vice versa).
 COPY --from=aorwall/moatless-sandbox-tools:latest /tools/docker-entrypoint-sandbox.sh /usr/local/bin/docker-entrypoint-sandbox.sh
-COPY --from=aorwall/moatless-sandbox-tools:latest /tools/sync-plugins.sh /usr/local/bin/sync-plugins.sh
 COPY --from=aorwall/moatless-sandbox-tools:latest /tools/moatless-git-cred /usr/local/bin/moatless-git-cred
-RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/sync-plugins.sh /usr/local/bin/moatless-git-cred
+RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/moatless-git-cred
 
 # Eclipse Temurin JDK 25 + Maven + postgresql-client.
 # protobuf-compiler provides `protoc` for Rust tonic/prost builds inside SOAP

@@ -10,7 +10,7 @@ use moatless_backend_core::scope::ScopeContext;
 
 use crate::auth::provider_token_dao::ProviderTokenRepository;
 use crate::db::DbPool;
-use crate::plugin_repo::dao::PluginRepoRepository;
+use crate::plugin::dao::PluginRepository;
 use crate::repository::dao::RepoRepository;
 use crate::sandbox::auto_provision::{build_provision_request, get_server_configs_for_task};
 use crate::sandbox::models::{ProvisionRequest, ServerConfig};
@@ -26,7 +26,7 @@ pub struct ProvisionDeps {
     tasks: Arc<dyn TaskRepository>,
     repos: Arc<dyn RepoRepository>,
     provider_tokens: Arc<dyn ProviderTokenRepository>,
-    plugin_repos: Arc<dyn PluginRepoRepository>,
+    plugins: Arc<dyn PluginRepository>,
     workspaces: Arc<dyn WorkspaceRepository>,
 }
 
@@ -38,7 +38,7 @@ impl ProvisionDeps {
             provider_tokens: Arc::new(crate::auth::provider_token_dao::PgProviderTokenRepository(
                 pool.clone(),
             )),
-            plugin_repos: Arc::new(crate::plugin_repo::dao::PgPluginRepoRepository(
+            plugins: Arc::new(crate::plugin::dao::PgPluginRepository(
                 pool.clone(),
             )),
             workspaces: Arc::new(crate::workspace::dao::PgWorkspaceRepository(pool.clone())),
@@ -53,7 +53,7 @@ impl ProvisionDeps {
             self.tasks.as_ref(),
             self.repos.as_ref(),
             self.provider_tokens.as_ref(),
-            self.plugin_repos.as_ref(),
+            self.plugins.as_ref(),
             self.workspaces.as_ref(),
             task_id,
         )

@@ -198,7 +198,7 @@ impl EventCollector {
     /// Wait for an event matching type/subType where a payload field equals a value.
     ///
     /// Useful for filtering events by payload content, e.g. waiting for a
-    /// `sandbox.initializing` event with `payload.reason == "PluginReposCloned"`.
+    /// `sandbox.initializing` event with `payload.reason == "PluginsCloned"`.
     pub async fn wait_for_event_with_payload(
         &self,
         event_type: &str,
