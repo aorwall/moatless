@@ -5,7 +5,6 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
-import type { ServerOverride } from './serverOverride';
 import type { ServerStatus } from './serverStatus';
 
 /**
@@ -13,7 +12,6 @@ import type { ServerStatus } from './serverStatus';
  */
 export interface ServerSnapshot {
   builtin?: boolean;
-  config_override?: null | ServerOverride;
   default?: boolean;
   enable_inspector?: boolean;
   /** @nullable */

@@ -53,6 +53,7 @@ pub struct SandboxApiState {
         handlers::remove_handler,
         handlers::server_status_handler,
         handlers::server_logs_handler,
+        handlers::list_server_config_handler,
         handlers::update_server_config_handler,
         handlers::restart_server_handler,
         handlers::reset_server_config_handler,
@@ -77,6 +78,7 @@ pub fn api_router(state: SandboxApiState) -> (axum::Router, utoipa::openapi::Ope
         .routes(routes!(handlers::remove_handler))
         .routes(routes!(handlers::server_status_handler))
         .routes(routes!(handlers::server_logs_handler))
+        .routes(routes!(handlers::list_server_config_handler))
         .routes(routes!(handlers::update_server_config_handler))
         .routes(routes!(handlers::restart_server_handler))
         .routes(routes!(handlers::reset_server_config_handler))

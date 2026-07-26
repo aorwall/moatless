@@ -10,8 +10,8 @@ import type { ServerOverrideEnv } from './serverOverrideEnv';
 /**
  * A live override of one preview server's start command and env.
 
-Whole-state, not a delta: the backend owns the persisted copy and always
-sends the complete set to the sandbox, so the two cannot drift.
+Whole-state, not a delta: callers always send the complete set to the
+sandbox, which never merges.
  */
 export interface ServerOverride {
   /** Env entries exported after `server.env`, so they win over it. */

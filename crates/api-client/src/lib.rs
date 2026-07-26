@@ -401,6 +401,18 @@ impl ApiClient {
             .await
     }
 
+    /// GET /api/sandbox/v1/tasks/{task_id}/servers/config
+    ///
+    /// Overrides are stored only on the sandbox's workspace volume, so this
+    /// needs a running sandbox — there is no persisted copy to fall back on.
+    pub async fn list_server_config(
+        &self,
+        task_id: &str,
+    ) -> Result<moatless_api_schemas::sandbox::ServerOverridesResponse, ApiError> {
+        self.get(&format!("/api/sandbox/v1/tasks/{task_id}/servers/config"))
+            .await
+    }
+
     /// PATCH /api/sandbox/v1/tasks/{task_id}/servers/{server_name}
     pub async fn update_server_config(
         &self,

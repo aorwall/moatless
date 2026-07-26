@@ -118,14 +118,35 @@ Either way, existing tasks keep their old pod until
 
 ## Where an override physically lives
 
-Useful when the CLI and the running server disagree:
+There is one copy, on disk, and no database record:
 
-- **Persisted**: `tasks.server_overrides` JSONB — task-scoped, replayed into the
-  sandbox at init, so it survives stop/start and redeploy.
-- **Live**: `/opt/moatless/workspace/.moatless/servers/<name>/{command,env,generation}`,
-  written by the sandbox and read by the sidecar's supervisor on each start.
-  Readable and greppable from inside the sandbox — it's a sibling of the repo
-  checkouts, not inside one.
+```
+/opt/moatless/workspace/.moatless/servers/<name>/
+├── override.json   the override as authored — what `servers list` reports
+├── command         derived; absent = use the baked start command
+├── env             derived shell fragment, sourced after server.env
+└── generation      monotonic counter; a bump means "restart the child"
+```
+
+`command` and `env` are derived for the sidecar's benefit — its supervisor is
+bash in an arbitrary `dockerImage` and can't be assumed to have `jq`. You can
+read all four from inside the sandbox; they're a sibling of the repo checkouts,
+not inside one.
+
+Because it's workspace state, an override lasts exactly as long as the workspace
+does:
+
+| Storage tier | Override survives a pod delete? |
+|---|---|
+| `ebs` (default) | yes — same PVC as the repos |
+| `s3` | yes — rides the whole-workspace tar |
+| Docker | yes — host bind mount |
+| `node` | only if the replacement lands on the same node |
+| `ephemeral` | no — nothing does, including your checkout |
+
+The consequence for debugging: **`servers list` needs a running sandbox** to
+report overrides. On a stopped one it prints `override: unknown`, not
+`override: none` — don't read the former as "there isn't one".
 
 The sidecar restarts in place only when `generation` advances. A server that
 exits on its own still takes the container down — which is why self-crashes

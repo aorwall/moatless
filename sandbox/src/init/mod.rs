@@ -37,7 +37,6 @@ use moatless_events::SandboxStatus;
 use sandbox_proto::PublishEventRequest;
 use tracing::{error, info, warn};
 
-use crate::server_control;
 use crate::state::SandboxState;
 use crate::supervisor::{Criticality, Registrar};
 
@@ -181,23 +180,11 @@ pub async fn run_init(state: SandboxState, registrar: Registrar) {
     // Phase 2: Workspace setup — runs after health is 200
     run_workspace_setup(&state).await;
 
-    // Re-materialize persisted server overrides before the ready sentinel, so a
-    // rebuilt pod's sidecars see them on their very first start rather than
-    // booting once on the workspace default and needing a restart.
-    //
-    // Ordering is load-bearing now that the control files live on the workspace
-    // volume and can therefore outlive the pod: this runs *after* `run_core_init`
-    // (and so after the `s3` tier's restore), so the DB copy always overwrites
-    // whatever a restored archive carried. Otherwise an override the user reset
-    // would come back from the snapshot.
-    let overrides = server_control::parse_overrides(state.config.repo_config_raw.as_deref());
-    let server_names: Vec<String> = state
-        .config
-        .servers
-        .iter()
-        .map(|s| s.name.clone())
-        .collect();
-    server_control::materialize(&state.config.workspace_dir, &overrides, &server_names).await;
+    // Server overrides need no step here. They are files under
+    // `WORKSPACE_DIR/.moatless/servers/`, so whatever `run_core_init` put on the
+    // workspace volume — the PVC as it was left, or the `s3` tier's restored
+    // archive — already *is* the current override. There is no second copy to
+    // replay and therefore no ordering hazard between the two.
 
     // Write workspace-ready sentinel AFTER setup commands complete (e.g. bun install).
     // Server containers poll for this file before starting, so they must wait

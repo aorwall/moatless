@@ -1179,7 +1179,6 @@ fn build_repo_config_json(plan: &ProvisionPlan) -> Option<String> {
         && rc.servers.is_none()
         && rc.plugin_ids.is_none()
         && rc.plugin_repos.is_none()
-        && rc.server_overrides.is_none()
     {
         return None;
     }
@@ -1219,9 +1218,6 @@ fn build_repo_config_json(plan: &ProvisionPlan) -> Option<String> {
     }
     if let Some(ref pr) = rc.plugin_repos {
         map.insert("pluginRepos".into(), serde_json::json!(pr));
-    }
-    if let Some(ref so) = rc.server_overrides {
-        map.insert("serverOverrides".into(), serde_json::json!(so));
     }
 
     Some(serde_json::Value::Object(map).to_string())
@@ -1574,8 +1570,7 @@ mod tests {
                 docker_networks: None,
                 sandbox_service_account: None,
                 network_profile: None,
-                server_overrides: None,
-            },
+                },
             git_clone_url: "https://github.com/test/repo.git".into(),
             git_branch: None,
             git_provider: "github".into(),

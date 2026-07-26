@@ -688,6 +688,49 @@
         }
       }
     },
+    "/api/sandbox/v1/tasks/{task_id}/servers/config": {
+      "get": {
+        "tags": [
+          "sandbox"
+        ],
+        "summary": "List the overrides currently in effect, read off the sandbox's workspace.",
+        "description": "Separate from `GET /servers` because it needs a live sandbox: there is no\npersisted copy to fall back on, so a stopped sandbox has no answer.",
+        "operationId": "list_server_config_handler",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Overrides in effect",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerOverridesResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Sandbox not reachable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/sandbox/v1/tasks/{task_id}/servers/{server_name}": {
       "patch": {
         "tags": [
@@ -12959,7 +13002,7 @@
       },
       "ServerOverride": {
         "type": "object",
-        "description": "A live override of one preview server's start command and env.\n\nWhole-state, not a delta: the backend owns the persisted copy and always\nsends the complete set to the sandbox, so the two cannot drift.",
+        "description": "A live override of one preview server's start command and env.\n\nWhole-state, not a delta: callers always send the complete set to the\nsandbox, which never merges.",
         "properties": {
           "env": {
             "type": "object",
@@ -12987,6 +13030,44 @@
           }
         }
       },
+      "ServerOverrideEntry": {
+        "type": "object",
+        "description": "One server's override as it currently exists on the workspace volume.",
+        "required": [
+          "serverName",
+          "configOverride",
+          "generation"
+        ],
+        "properties": {
+          "configOverride": {
+            "$ref": "#/components/schemas/ServerOverride"
+          },
+          "generation": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The counter the sidecar watches; `0` means it has never been restarted.",
+            "minimum": 0
+          },
+          "serverName": {
+            "type": "string"
+          }
+        }
+      },
+      "ServerOverridesResponse": {
+        "type": "object",
+        "description": "Every override in effect on a task. Servers with no override are omitted.\n\nRead from the sandbox's workspace volume, which is the only place an\noverride exists — a stopped sandbox cannot answer this.",
+        "required": [
+          "overrides"
+        ],
+        "properties": {
+          "overrides": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ServerOverrideEntry"
+            }
+          }
+        }
+      },
       "ServerSnapshot": {
         "type": "object",
         "description": "Server snapshot from sandbox GET /status",
@@ -12997,17 +13078,6 @@
         "properties": {
           "builtin": {
             "type": "boolean"
-          },
-          "config_override": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ServerOverride",
-                "description": "Live config override in effect for this server, when one is set."
-              }
-            ]
           },
           "default": {
             "type": "boolean"

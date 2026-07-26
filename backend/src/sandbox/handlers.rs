@@ -3,8 +3,6 @@
 //! Extracted from routes.rs for consistency with other modules
 //! (task/, message/, agent/, etc.).
 
-use std::collections::BTreeMap;
-
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
@@ -14,7 +12,6 @@ use futures::stream::Stream;
 use serde::Deserialize;
 use tracing::{error, info, warn};
 
-use super::auto_provision::parse_server_overrides;
 use super::error::SandboxError;
 use super::lifecycle::{ArchiveRetention, Lifecycle, ObservedStatus};
 use super::models::*;
@@ -329,12 +326,14 @@ pub async fn server_status_handler(
             return e.into_response();
         }
     };
-    let mut overrides = parse_server_overrides(&task);
+    // No `config_override` here: overrides live only on the sandbox's workspace
+    // volume, and this path resolves status from the K8s API with no sandbox
+    // round-trip. Adding one would put a gRPC call on a polled endpoint to serve
+    // a debugging field. `GET /servers/config` reports overrides instead.
     let servers = status
         .servers
         .into_iter()
         .map(|server| ServerSnapshot {
-            config_override: overrides.remove(&server.name),
             name: server.name,
             label: server.label,
             port: server.port,
@@ -398,10 +397,55 @@ pub async fn server_logs_handler(
 // rebuilding the pod, so — unlike `restart`/`redeploy` — they are safe to call
 // from inside the sandbox: the agent container is never touched.
 //
-// The persisted copy lives in `tasks.server_overrides` and is replayed into the
-// sandbox at init, so an override survives stop/start and redeploy. The live
-// copy is pushed over gRPC to the sandbox, which owns the control files the
-// sidecars read.
+// **The backend persists nothing here.** An override is workspace state: the
+// sandbox writes it to control files under `WORKSPACE_DIR/.moatless/servers/`,
+// which ride the same volume as the repo checkouts and therefore survive a
+// stop/start, a redeploy, and the reaper's idle-stop wherever the checkouts do.
+// The `ephemeral` tier keeps neither, which is that tier's contract.
+//
+// The consequence for these handlers is that the sandbox is the only source of
+// truth, so a partial update is a read-modify-write over gRPC. That is not
+// atomic against a concurrent PATCH to the same server — but neither was the
+// read-task/patch-task version it replaces, and this is a per-task debugging
+// surface, not a concurrent one.
+
+/// List the overrides currently in effect, read off the sandbox's workspace.
+///
+/// Separate from `GET /servers` because it needs a live sandbox: there is no
+/// persisted copy to fall back on, so a stopped sandbox has no answer.
+#[utoipa::path(
+    get,
+    path = "/api/sandbox/v1/tasks/{task_id}/servers/config",
+    tag = "sandbox",
+    params(("task_id" = String, Path, description = "Task identifier")),
+    responses(
+        (status = 200, description = "Overrides in effect", body = ServerOverridesResponse),
+        (status = 503, description = "Sandbox not reachable", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn list_server_config_handler(
+    State(state): State<SandboxApiState>,
+    OptionalScope(scope): OptionalScope,
+    Path(task_id): Path<String>,
+) -> Result<Json<ServerOverridesResponse>, SandboxError> {
+    authorize_task_read(&state, &scope, &task_id).await?;
+    let client = state.connector.sandbox_client(&task_id).await?;
+    let overrides = client
+        .get_server_config(&task_id)
+        .await
+        .map_err(|e| crate::sandbox::client::classify_grpc_error(e, "GetServerConfig"))?;
+
+    Ok(Json(ServerOverridesResponse {
+        overrides: overrides
+            .into_iter()
+            .map(|(server_name, (config_override, generation))| ServerOverrideEntry {
+                server_name,
+                config_override,
+                generation,
+            })
+            .collect(),
+    }))
+}
 
 /// Update one preview server's start command / env and (by default) restart it.
 #[utoipa::path(
@@ -445,8 +489,8 @@ pub async fn update_server_config_handler(
 
     require_known_server(&state, &task, &server_name).await?;
 
-    let mut overrides = parse_server_overrides(&task);
-    let entry = overrides.entry(server_name.clone()).or_default();
+    let client = state.connector.sandbox_client(&task_id).await?;
+    let mut entry = read_override(&client, &task_id, &server_name).await?;
 
     if let Some(cmds) = req.start_commands {
         entry.start_command = if cmds.is_empty() {
@@ -473,13 +517,9 @@ pub async fn update_server_config_handler(
         }
     }
 
-    // An emptied entry is dropped rather than stored, so "no override" has one
-    // representation everywhere.
-    if entry.is_empty() {
-        overrides.remove(&server_name);
-    }
-
-    apply_and_persist(&state, &task_id, &server_name, overrides, req.restart).await
+    // An emptied entry writes as "no override" — `apply` removes the control
+    // files rather than leaving empty ones, so it has one representation.
+    apply_override(&client, &task_id, &server_name, entry, req.restart).await
 }
 
 /// Restart one preview server in place, leaving its override as-is.
@@ -506,8 +546,11 @@ pub async fn restart_server_handler(
     let task = authorize_task_control(&state, &scope, &task_id).await?;
     require_known_server(&state, &task, &server_name).await?;
 
-    let overrides = parse_server_overrides(&task);
-    apply_and_persist(&state, &task_id, &server_name, overrides, true).await
+    // Re-send the override the sandbox already holds: `apply` is idempotent, and
+    // the generation bump is the only part the sidecar reacts to.
+    let client = state.connector.sandbox_client(&task_id).await?;
+    let current = read_override(&client, &task_id, &server_name).await?;
+    apply_override(&client, &task_id, &server_name, current, true).await
 }
 
 /// Drop a server's override and restart it on the workspace's configuration.
@@ -534,43 +577,45 @@ pub async fn reset_server_config_handler(
     let task = authorize_task_control(&state, &scope, &task_id).await?;
     require_known_server(&state, &task, &server_name).await?;
 
-    let mut overrides = parse_server_overrides(&task);
-    overrides.remove(&server_name);
-    apply_and_persist(&state, &task_id, &server_name, overrides, true).await
+    // An empty override is exactly "reset": `apply` removes the control files.
+    let client = state.connector.sandbox_client(&task_id).await?;
+    apply_override(
+        &client,
+        &task_id,
+        &server_name,
+        ServerOverride::default(),
+        true,
+    )
+    .await
 }
 
-/// Persist the override map, then push the one changed server to the sandbox.
+/// Read one server's current override off the sandbox's workspace volume.
 ///
-/// Persist-then-push: a push that fails leaves the DB as the source of truth and
-/// the next provision replays it, whereas pushing first could leave a live
-/// sandbox running config that no longer exists anywhere.
-async fn apply_and_persist(
-    state: &SandboxApiState,
+/// Absent means no override, which is the same value as an empty one — callers
+/// merge into it either way.
+async fn read_override(
+    client: &crate::sandbox::client::SandboxClient,
     task_id: &str,
     server_name: &str,
-    overrides: BTreeMap<String, ServerOverride>,
+) -> Result<ServerOverride, SandboxError> {
+    let mut overrides = client
+        .get_server_config(task_id)
+        .await
+        .map_err(|e| crate::sandbox::client::classify_grpc_error(e, "GetServerConfig"))?;
+    Ok(overrides
+        .remove(server_name)
+        .map(|(config, _generation)| config)
+        .unwrap_or_default())
+}
+
+/// Push one server's complete override to the sandbox, optionally restarting it.
+async fn apply_override(
+    client: &crate::sandbox::client::SandboxClient,
+    task_id: &str,
+    server_name: &str,
+    effective: ServerOverride,
     restart: bool,
 ) -> Result<Json<ServerConfigResponse>, SandboxError> {
-    let tasks = state.tasks.as_deref().ok_or_else(|| {
-        SandboxError::Internal("Task repository not available for server config".into())
-    })?;
-    // reason: the caller was already authorized for control on this task
-    #[allow(clippy::disallowed_methods)]
-    let sys_ctx = ScopeContext::system();
-    tasks
-        .update_task(
-            task_id,
-            &crate::task::dao::TaskPatch {
-                server_overrides: Some(serde_json::json!(overrides)),
-                ..Default::default()
-            },
-            &sys_ctx,
-        )
-        .await
-        .map_err(|e| SandboxError::Internal(format!("failed to persist server override: {e}")))?;
-
-    let effective = overrides.get(server_name).cloned().unwrap_or_default();
-    let client = state.connector.sandbox_client(task_id).await?;
     let generation = client
         .apply_server_config(task_id, server_name, &effective, restart)
         .await
@@ -798,7 +843,6 @@ mod authz_tests {
             trigger_id: None,
             workspace_id: None,
             disabled_servers: None,
-            server_overrides: None,
         }
     }
 

@@ -6,12 +6,13 @@
 //! start-command / env overrides are pushed through the sandbox
 //! (`apply_server_config`), which owns the control files the sidecars read.
 
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use sandbox_proto::sandbox_service_client::SandboxServiceClient;
 use sandbox_proto::{
     ApplyServerConfigRequest, ExecuteAgentRequest, GetAgentStatusRequest, GetAgentStatusResponse, GetFileTreeRequest,
-    GetFileTreeResponse, ListFilesRequest, NotifyMessagesRequest, ReadFileRequest,
+    GetFileTreeResponse, GetServerConfigRequest, ListFilesRequest, NotifyMessagesRequest, ReadFileRequest,
     ReadFileResponse, RefreshCredentialRequest, SearchFilesByNameRequest,
     SearchFilesByNameResponse, StopAgentRequest, WriteFileRequest,
 };
@@ -327,9 +328,10 @@ impl SandboxClient {
     /// Push a preview server's override into the sandbox and optionally restart
     /// it in place.
     ///
-    /// The override is sent whole rather than as a delta — the backend holds the
-    /// persisted copy in `tasks.server_overrides`, so merging here keeps the two
-    /// from drifting. Returns the sidecar generation after the call.
+    /// The override is sent whole rather than as a delta, so the sandbox never
+    /// merges. Callers that need a partial update read the current state with
+    /// [`Self::get_server_config`] first. Returns the sidecar generation after
+    /// the call.
     pub async fn apply_server_config(
         &self,
         task_id: &str,
@@ -358,6 +360,54 @@ impl SandboxClient {
                 "ApplyServerConfig gRPC timed out",
             )),
         }
+    }
+
+    /// Read every preview-server override currently on the workspace volume,
+    /// keyed by server name, as `(override, generation)`.
+    ///
+    /// The control files are the only record of an override — nothing is
+    /// persisted backend-side — so this is the authoritative read and it needs a
+    /// running sandbox. Servers with no override are absent from the map.
+    pub async fn get_server_config(
+        &self,
+        task_id: &str,
+    ) -> Result<BTreeMap<String, (ServerOverride, u64)>, tonic::Status> {
+        let mut client = self.client.clone();
+        let request = GetServerConfigRequest {
+            task_id: task_id.to_string(),
+        };
+        let result = tokio::time::timeout(Duration::from_secs(5), async {
+            client.get_server_config(request).await
+        })
+        .await;
+
+        let resp = match result {
+            Ok(Ok(resp)) => resp.into_inner(),
+            Ok(Err(e)) => return Err(e),
+            Err(_) => {
+                return Err(tonic::Status::deadline_exceeded(
+                    "GetServerConfig gRPC timed out",
+                ))
+            }
+        };
+
+        Ok(resp
+            .overrides
+            .into_iter()
+            .map(|(name, o)| {
+                (
+                    name,
+                    (
+                        ServerOverride {
+                            start_command: o.start_command,
+                            env: o.env.into_iter().collect(),
+                            unset_env: o.unset_env,
+                        },
+                        o.generation,
+                    ),
+                )
+            })
+            .collect())
     }
 
     /// Search files by name in the sandbox workspace.

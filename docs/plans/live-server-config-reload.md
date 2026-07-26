@@ -268,24 +268,37 @@ The sandbox handler writes the control files and bumps the generation. Nothing
 about it is K8s-specific, so Docker mode gets the same behaviour for free.
 
 **As built:** the plan's earlier draft had a `replace_env` flag so the sandbox
-could merge deltas. Dropped — the RPC carries whole state and the backend, which
-already owns the persisted copy, does the merging. One merge implementation, and
-the persisted row and the control files cannot drift.
+could merge deltas. Dropped — the RPC carries whole state and the caller does the
+merging, so there is one merge implementation.
 
 ### Persistence
 
-New `tasks.server_overrides` JSONB, mirroring `tasks.disabled_servers`
-(migration `0061`):
+**As built: there is none.** The design went through a `tasks.server_overrides`
+JSONB column (migration `0100`), replayed into the control files by the sandbox
+at init. That column was removed before merge.
 
-```json
-{ "dev": { "startCommand": "bun run dev -- --host 0.0.0.0",
-           "env": { "VITE_REMOTE_API": "http://localhost:8080" },
-           "unsetEnv": ["LOG_LEVEL"] } }
-```
+The reasoning: once the control files moved from the `emptyDir` data volume onto
+`WORKSPACE_DIR`, they were already durable wherever the workspace is — the EBS
+PVC on the default tier, the whole-workspace tar on `s3`, the host bind mount in
+Docker. The column's only remaining job was to survive on `ephemeral` and on
+`node` after a reschedule, and on those tiers *nothing* survives, including the
+repo checkout. An override is workspace state; it now lives exactly where the
+rest of the workspace lives, and the `REPO_CONFIG` carry-through that existed
+solely to feed init-time re-materialization went with it.
 
-Layered in `auto_provision.rs` next to `filter_disabled_servers`, and
-re-materialized into the control files by the sandbox at init, so an override
-survives stop/start and redeploy without being baked into the pod spec.
+Three things got simpler as a direct result:
+
+- **No ordering hazard.** With two copies, the DB→disk materialization had to run
+  after the `s3` tier's restore, or an override the user had `reset` would come
+  back from the snapshot. One copy, no constraint.
+- **Nothing in the pod spec.** Overrides no longer ride `REPO_CONFIG`, so an
+  override value is not visible in `kubectl get pod -o yaml` and a live change
+  cannot drift the pod template away from the DB.
+- **Reads are honest.** `GET .../servers/config` asks the sandbox, so it reports
+  what is actually on disk — including a hand-edited control file.
+
+The cost, stated plainly: reading an override requires a running sandbox. The CLI
+distinguishes `override: unknown` from `override: none` rather than guessing.
 
 ### API and CLI
 
@@ -318,23 +331,26 @@ agent container.
 - `resources` and `enableInspector` are not in the request schema at all. They
   are pod-spec fields with no live path, and adding them just to reject them
   buys nothing — an unknown field is already a clear error.
-- `servers list` reads `GET .../server/status`, which now carries each server's
-  `configOverride` alongside its status. Override values are printed as-is: they
-  are configuration, not secrets (see the note above), so masking them would only
-  make the command less useful.
+- `servers list` makes two calls: `GET .../server/status` for status (config-first,
+  works on a stopped sandbox) and `GET .../servers/config` for the overrides
+  (needs a live one). `ServerSnapshot.configOverride` was tried and removed —
+  status resolves from the K8s API with no sandbox round-trip, and adding one to
+  a polled endpoint to carry a debugging field is the wrong trade.
+- Override values are printed as-is: they are configuration, not secrets (see the
+  note above), so masking them would only make the command less useful.
 
 ## Change List
 
 | Layer | Work |
 |---|---|
-| `crates/sandbox-proto` | `ApplyServerConfig` RPC + messages |
-| `sandbox/src` | control-file writer (atomic, `0600`, reuses `shell_single_quote`), gRPC handler, init materialization |
+| `crates/sandbox-proto` | `ApplyServerConfig` + `GetServerConfig` RPCs + messages |
+| `sandbox/src` | control-file writer + reader (atomic, `0600`, reuses `shell_single_quote`), 2 gRPC handlers |
 | `backend/src/sandbox/server_runner.rs` | supervisor wrapper, shared by both builders |
-| `backend/src/sandbox/k8s/pod_builder.rs` | use the wrapper; pass overrides in `REPO_CONFIG` |
+| `backend/src/sandbox/k8s/pod_builder.rs` | use the wrapper |
 | `backend/src/sandbox/docker/container_builder.rs` | same |
-| `backend/migrations` | `0100_task_server_overrides.sql` — `tasks.server_overrides` JSONB |
-| `backend/src/sandbox` | 3 handlers, routes, DTOs, client method, override layering in `auto_provision.rs` |
-| `crates/api-schemas`, `crates/api-client` | DTO mirrors + 4 client methods |
+| `backend/migrations` | none — no persistence |
+| `backend/src/sandbox` | 4 handlers, routes, DTOs, 2 client methods |
+| `crates/api-schemas`, `crates/api-client` | DTO mirrors + 5 client methods |
 | `crates/cli` | `moat tasks servers` subcommand |
 | `apps/frontend` | not done — "Restart server" in the preview panel is still open |
 | `specs/sandbox` | SERVER-03..09 |

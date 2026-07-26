@@ -7,38 +7,44 @@
 //! workspace volume that every sidecar mounts, and the sidecar's supervisor
 //! wrapper re-reads it whenever the generation counter changes.
 //!
-//! The files live on `WORKSPACE_DIR` rather than the shared data volume because
-//! that is the only volume with any durability: `/opt/moatless/data` is an
-//! `emptyDir` in K8s, wiped whenever the pod is deleted, which a stop/start, a
-//! redeploy, and the reaper's idle-stop all do. Under `WORKSPACE_DIR` the
-//! override rides the same storage as the repos — the EBS PVC on the default
-//! tier, the whole-workspace tar on the `s3` tier.
+//! **These files are the record.** There is no database copy to replay from:
+//! an override is workspace state, and it lives exactly where the rest of the
+//! workspace lives. On the `ebs` tier that is the PVC; on `s3` it is the
+//! whole-workspace tar; in Docker it is the host bind mount. On `ephemeral` it
+//! is gone when the pod is — which is that tier's contract, the repo checkout
+//! goes with it.
 //!
 //! They sit in a dot-directory at the workspace root, a sibling of the repo
 //! checkouts rather than inside one, so they are never mistaken for repo content.
 //!
 //! Layout under `<workspace_dir>/.moatless/servers/<name>/`:
 //!
-//! | File | Meaning |
-//! |---|---|
-//! | `command` | start-command override; absent = use the baked command |
-//! | `env` | shell fragment sourced after `server.env`; absent = no override |
-//! | `generation` | monotonic counter — a bump means "restart the child" |
+//! | File | Meaning | Read by |
+//! |---|---|---|
+//! | `override.json` | the authored override, verbatim | this module |
+//! | `command` | start-command override; absent = use the baked command | sidecar |
+//! | `env` | shell fragment sourced after `server.env`; absent = no override | sidecar |
+//! | `generation` | monotonic counter — a bump means "restart the child" | sidecar + this module |
 //!
-//! The override is whole-state, not a delta: the backend owns the persisted
-//! copy and always sends the complete set, so this module never merges.
+//! `command` and `env` are *derived* from `override.json` for the sidecar's
+//! benefit: its supervisor is bash in an arbitrary `docker_image` and cannot be
+//! assumed to have a JSON parser. `override.json` is what [`read_all`] reads
+//! back, because re-parsing the rendered shell fragment would not round-trip.
+//!
+//! The override is whole-state, not a delta: callers always send the complete
+//! set, so this module never merges.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tokio::fs;
 use tracing::{info, warn};
 
 use crate::init::server_env::shell_single_quote;
 
 /// A server's complete override state.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerOverride {
     /// Replaces the sidecar's baked start command. `None` = use the baked one.
@@ -51,6 +57,22 @@ pub struct ServerOverride {
     /// container spec injected, since sourcing can add but never remove.
     #[serde(default)]
     pub unset_env: Vec<String>,
+}
+
+impl ServerOverride {
+    /// No override at all — the sidecar runs entirely off its container spec.
+    /// Applying an empty override is how `reset` works.
+    pub fn is_empty(&self) -> bool {
+        self.start_command.is_none() && self.env.is_empty() && self.unset_env.is_empty()
+    }
+}
+
+/// What a server's control directory currently holds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LiveOverride {
+    pub config: ServerOverride,
+    /// The counter the sidecar is watching; `0` means it has never restarted.
+    pub generation: u64,
 }
 
 /// Reject names that would escape the control directory. Server names come from
@@ -95,6 +117,17 @@ pub async fn apply(
     let dir = control_dir(workspace_dir, server_name);
     fs::create_dir_all(&dir).await?;
 
+    // The authored form first, then the two files derived from it. Writing the
+    // record before the derived copies means a crash in between leaves the
+    // sidecar on its old (still-consistent) config rather than on a state
+    // nothing can read back.
+    let authored = if ov.is_empty() {
+        None
+    } else {
+        Some(serde_json::to_string_pretty(ov)?)
+    };
+    write_or_remove(&dir.join("override.json"), authored.as_deref()).await?;
+
     write_or_remove(&dir.join("command"), ov.start_command.as_deref()).await?;
     let env_file = if ov.env.is_empty() && ov.unset_env.is_empty() {
         None
@@ -121,48 +154,52 @@ pub async fn apply(
     Ok(generation)
 }
 
-/// Overrides as delivered in `REPO_CONFIG.serverOverrides`, keyed by server name.
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RepoConfigOverrides {
-    #[serde(default)]
-    server_overrides: BTreeMap<String, ServerOverride>,
-}
-
-/// Parse the persisted overrides the backend baked into `REPO_CONFIG`.
+/// Read back every override currently on disk, keyed by server name.
 ///
-/// The DB stays the record even though the control files now live on a durable
-/// volume, because that volume is only durable on some tiers: `ephemeral` keeps
-/// nothing, and `node` keeps it only while the replacement pod lands on the same
-/// node. Malformed JSON degrades to "no overrides" rather than blocking init.
-pub fn parse_overrides(repo_config_raw: Option<&str>) -> BTreeMap<String, ServerOverride> {
-    let Some(raw) = repo_config_raw.filter(|r| !r.is_empty()) else {
-        return BTreeMap::new();
-    };
-    match serde_json::from_str::<RepoConfigOverrides>(raw) {
-        Ok(parsed) => parsed.server_overrides,
+/// Servers with no override are absent from the map rather than present with an
+/// empty value, so the caller can tell "never set" from "set to nothing".
+/// A directory that is unreadable or holds malformed JSON is skipped with a
+/// warning: this backs a status read, and a corrupt file for one server must not
+/// blank out the others.
+pub async fn read_all(workspace_dir: &str) -> BTreeMap<String, LiveOverride> {
+    let root = Path::new(workspace_dir).join(CONTROL_SUBDIR);
+    let mut out = BTreeMap::new();
+
+    let mut entries = match fs::read_dir(&root).await {
+        Ok(entries) => entries,
+        // No control root means no override has ever been applied.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return out,
         Err(e) => {
-            warn!(error = %e, "Failed to parse serverOverrides from REPO_CONFIG");
-            BTreeMap::new()
+            warn!(path = %root.display(), error = %e, "Failed to list server control dir");
+            return out;
         }
-    }
-}
+    };
 
-/// Materialize overrides for every server at init, before the sidecars start.
-///
-/// Servers absent from `overrides` get their control files cleared, so a
-/// removed override does not survive on the workspace volume across a restart.
-pub async fn materialize(
-    workspace_dir: &str,
-    overrides: &BTreeMap<String, ServerOverride>,
-    known_servers: &[String],
-) {
-    for name in known_servers {
-        let ov = overrides.get(name).cloned().unwrap_or_default();
-        if let Err(e) = apply(workspace_dir, name, &ov, false).await {
-            warn!(server = name, error = %e, "Failed to materialize server override");
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        if !is_valid_server_name(&name) {
+            continue;
+        }
+        let dir = entry.path();
+        let raw = match fs::read_to_string(dir.join("override.json")).await {
+            Ok(raw) => raw,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => {
+                warn!(server = name, error = %e, "Failed to read server override");
+                continue;
+            }
+        };
+        match serde_json::from_str::<ServerOverride>(&raw) {
+            Ok(config) => {
+                let generation = read_generation(&dir).await;
+                out.insert(name, LiveOverride { config, generation });
+            }
+            Err(e) => warn!(server = name, error = %e, "Malformed server override on disk"),
         }
     }
+    out
 }
 
 /// Write `contents`, or remove the file when `None` — absent means "no
@@ -340,6 +377,7 @@ mod tests {
         let dir = tmp.path().join(CONTROL_SUBDIR).join("dev");
         assert!(!dir.join("command").exists());
         assert!(!dir.join("env").exists());
+        assert!(!dir.join("override.json").exists());
     }
 
     #[tokio::test]
@@ -354,8 +392,29 @@ mod tests {
         assert_eq!(apply(&dir, "dev", &ov, true).await.unwrap(), 2);
     }
 
+    /// The disk is the record now, so a written override has to survive a
+    /// round-trip exactly — this is what `servers list` reports.
     #[tokio::test]
-    async fn materialize_clears_servers_without_an_override() {
+    async fn read_all_round_trips_what_apply_wrote() {
+        let tmp = TempDir::new().unwrap();
+        let dir = workspace_dir(&tmp);
+        let ov = ServerOverride {
+            start_command: Some("bun run dev".to_string()),
+            env: BTreeMap::from([("A".to_string(), "a'b".to_string())]),
+            unset_env: vec!["LOG_LEVEL".to_string()],
+        };
+        apply(&dir, "dev", &ov, true).await.unwrap();
+
+        let all = read_all(&dir).await;
+        assert_eq!(all.len(), 1);
+        assert_eq!(all["dev"].config, ov);
+        assert_eq!(all["dev"].generation, 1);
+    }
+
+    /// A server that was reset must read back as absent, not as an empty
+    /// override — otherwise a reset looks like "override set to nothing".
+    #[tokio::test]
+    async fn read_all_omits_servers_whose_override_was_cleared() {
         let tmp = TempDir::new().unwrap();
         let dir = workspace_dir(&tmp);
         let ov = ServerOverride {
@@ -363,16 +422,42 @@ mod tests {
             ..Default::default()
         };
         apply(&dir, "dev", &ov, false).await.unwrap();
+        apply(&dir, "api", &ov, false).await.unwrap();
 
-        materialize(
-            &dir,
-            &BTreeMap::new(),
-            &["dev".to_string(), "api".to_string()],
+        apply(&dir, "dev", &ServerOverride::default(), true)
+            .await
+            .unwrap();
+
+        let all = read_all(&dir).await;
+        assert_eq!(all.keys().collect::<Vec<_>>(), vec!["api"]);
+    }
+
+    #[tokio::test]
+    async fn read_all_on_a_workspace_with_no_overrides_is_empty() {
+        let tmp = TempDir::new().unwrap();
+        assert!(read_all(&workspace_dir(&tmp)).await.is_empty());
+    }
+
+    /// One corrupt file must not blank out the other servers' overrides.
+    #[tokio::test]
+    async fn read_all_skips_a_malformed_override() {
+        let tmp = TempDir::new().unwrap();
+        let dir = workspace_dir(&tmp);
+        let ov = ServerOverride {
+            start_command: Some("serve".to_string()),
+            ..Default::default()
+        };
+        apply(&dir, "dev", &ov, false).await.unwrap();
+        apply(&dir, "api", &ov, false).await.unwrap();
+        fs::write(
+            tmp.path().join(CONTROL_SUBDIR).join("api/override.json"),
+            "{ not json",
         )
-        .await;
+        .await
+        .unwrap();
 
-        assert!(!tmp.path().join(CONTROL_SUBDIR).join("dev/command").exists());
-        assert!(tmp.path().join(CONTROL_SUBDIR).join("api").exists());
+        let all = read_all(&dir).await;
+        assert_eq!(all.keys().collect::<Vec<_>>(), vec!["dev"]);
     }
 
     #[cfg(unix)]

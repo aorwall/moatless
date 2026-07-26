@@ -7,7 +7,8 @@ use clap::Subcommand;
 use futures_util::StreamExt;
 use moatless_api_schemas::enums::TaskStatus;
 use moatless_api_schemas::sandbox::{
-    SandboxStatusFullResponse, ServerConfigResponse, ServerOverride, ServerStatusResponse,
+    SandboxStatusFullResponse, ServerConfigResponse, ServerOverride, ServerOverridesResponse,
+    ServerStatusResponse,
     UpdateServerConfigRequest,
 };
 use moatless_api_schemas::shared::AgentMode;
@@ -473,10 +474,18 @@ async fn run_server_action(
     match action {
         ServerAction::List => {
             let status = client.api().server_status(task_id).await?;
+            // Status is config-first and works on a stopped sandbox; overrides
+            // live only on the workspace volume and so need a running one.
+            // Report them as unknown rather than as "none" when unreachable —
+            // "none" would be a lie the user would act on.
+            let overrides = client.api().list_server_config(task_id).await.ok();
             if json {
-                output::print_json_typed(&status);
+                output::print_json_typed(&serde_json::json!({
+                    "servers": status.servers,
+                    "overrides": overrides.as_ref().map(|o| &o.overrides),
+                }));
             } else {
-                format_server_list(&status);
+                format_server_list(&status, overrides.as_ref());
             }
         }
         ServerAction::Set {
@@ -555,7 +564,7 @@ fn print_override(ov: &ServerOverride, indent: &str) {
     }
 }
 
-fn format_server_list(status: &ServerStatusResponse) {
+fn format_server_list(status: &ServerStatusResponse, overrides: Option<&ServerOverridesResponse>) {
     if status.servers.is_empty() {
         println!("No servers configured.");
         return;
@@ -565,9 +574,15 @@ fn format_server_list(status: &ServerStatusResponse) {
         if let Some(error) = &server.error {
             println!("  error: {error}");
         }
-        match &server.config_override {
-            Some(ov) => print_override(ov, "  override "),
-            None => println!("  override: none"),
+        match overrides {
+            None => println!("  override: unknown (sandbox not reachable)"),
+            Some(list) => match list.overrides.iter().find(|o| o.server_name == server.name) {
+                Some(entry) => {
+                    print_override(&entry.config_override, "  override ");
+                    println!("  override generation: {}", entry.generation);
+                }
+                None => println!("  override: none"),
+            },
         }
     }
 }

@@ -78,13 +78,6 @@ pub struct Task {
     /// disabled. Stored per-task so it survives stop/start and never leaks to
     /// other tasks sharing the same repository.
     pub disabled_servers: Option<serde_json::Value>,
-    /// Live per-server start-command / env overrides applied without rebuilding
-    /// the pod, keyed by server name:
-    /// `{"dev": {"startCommand": "...", "env": {...}, "unsetEnv": [...]}}`.
-    /// Stored per-task so the override survives stop/start and redeploy — it is
-    /// replayed into the sandbox's control files at init — without leaking to
-    /// other tasks sharing the workspace.
-    pub server_overrides: Option<serde_json::Value>,
 }
 
 impl Task {

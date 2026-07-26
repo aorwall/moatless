@@ -39,6 +39,7 @@ import type {
   SearchByNameResponse,
   ServerConfigResponse,
   ServerLogsHandlerParams,
+  ServerOverridesResponse,
   ServerStatusResponse,
   UpdateServerConfigRequest,
   WriteFileRequestBody
@@ -1361,6 +1362,139 @@ export const prefetchServerStatusHandlerQuery = async <TData = Awaited<ReturnTyp
   ): Promise<QueryClient> => {
 
   const queryOptions = getServerStatusHandlerQueryOptions(taskId,options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+/**
+ * Separate from `GET /servers` because it needs a live sandbox: there is no
+persisted copy to fall back on, so a stopped sandbox has no answer.
+ * @summary List the overrides currently in effect, read off the sandbox's workspace.
+ */
+export type listServerConfigHandlerResponse200 = {
+  data: ServerOverridesResponse
+  status: 200
+}
+
+export type listServerConfigHandlerResponse503 = {
+  data: ErrorBody
+  status: 503
+}
+    
+export type listServerConfigHandlerResponseSuccess = (listServerConfigHandlerResponse200) & {
+  headers: Headers;
+};
+export type listServerConfigHandlerResponseError = (listServerConfigHandlerResponse503) & {
+  headers: Headers;
+};
+
+export type listServerConfigHandlerResponse = (listServerConfigHandlerResponseSuccess | listServerConfigHandlerResponseError)
+
+export const getListServerConfigHandlerUrl = (taskId: string,) => {
+
+
+  
+
+  return `/api/sandbox/v1/tasks/${taskId}/servers/config`
+}
+
+export const listServerConfigHandler = async (taskId: string, options?: RequestInit): Promise<listServerConfigHandlerResponse> => {
+  
+  return customInstance<listServerConfigHandlerResponse>(getListServerConfigHandlerUrl(taskId),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
+
+export const getListServerConfigHandlerQueryKey = (taskId: string,) => {
+    return [
+    `/api/sandbox/v1/tasks/${taskId}/servers/config`
+    ] as const;
+    }
+
+    
+export const getListServerConfigHandlerQueryOptions = <TData = Awaited<ReturnType<typeof listServerConfigHandler>>, TError = ErrorType<ErrorBody>>(taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listServerConfigHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListServerConfigHandlerQueryKey(taskId);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listServerConfigHandler>>> = ({ signal }) => listServerConfigHandler(taskId, { signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(taskId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listServerConfigHandler>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type ListServerConfigHandlerQueryResult = NonNullable<Awaited<ReturnType<typeof listServerConfigHandler>>>
+export type ListServerConfigHandlerQueryError = ErrorType<ErrorBody>
+
+
+export function useListServerConfigHandler<TData = Awaited<ReturnType<typeof listServerConfigHandler>>, TError = ErrorType<ErrorBody>>(
+ taskId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listServerConfigHandler>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listServerConfigHandler>>,
+          TError,
+          Awaited<ReturnType<typeof listServerConfigHandler>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListServerConfigHandler<TData = Awaited<ReturnType<typeof listServerConfigHandler>>, TError = ErrorType<ErrorBody>>(
+ taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listServerConfigHandler>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listServerConfigHandler>>,
+          TError,
+          Awaited<ReturnType<typeof listServerConfigHandler>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListServerConfigHandler<TData = Awaited<ReturnType<typeof listServerConfigHandler>>, TError = ErrorType<ErrorBody>>(
+ taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listServerConfigHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+/**
+ * @summary List the overrides currently in effect, read off the sandbox's workspace.
+ */
+
+export function useListServerConfigHandler<TData = Awaited<ReturnType<typeof listServerConfigHandler>>, TError = ErrorType<ErrorBody>>(
+ taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listServerConfigHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getListServerConfigHandlerQueryOptions(taskId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List the overrides currently in effect, read off the sandbox's workspace.
+ */
+export const prefetchListServerConfigHandlerQuery = async <TData = Awaited<ReturnType<typeof listServerConfigHandler>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listServerConfigHandler>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getListServerConfigHandlerQueryOptions(taskId,options)
 
   await queryClient.prefetchQuery(queryOptions);
 

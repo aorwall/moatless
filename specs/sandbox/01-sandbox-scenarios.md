@@ -37,6 +37,7 @@ This spec defines all testable scenarios for sandbox lifecycle management: provi
 ```
 ├── SERVER-03: Start command override restarts the server in place
 │   ├── SERVER-04: Override survives a sandbox stop/start
+│   │   └── SERVER-10: Reading an override requires a running sandbox
 │   ├── SERVER-05: Env vars are set and unset live
 │   └── SERVER-07: Reset drops the override and restores workspace config
 ├── SERVER-06: Changing port or image requires a redeploy
@@ -235,15 +236,33 @@ Each scenario below depends on its parent as a precondition.
 
 ### SERVER-04: Override survives a sandbox stop/start
 
-The override is task state, not container state, so a rebuilt sandbox starts its
-servers on the overridden config.
+The override is workspace state — control files under `WORKSPACE_DIR`, with no
+database copy — so it survives exactly as far as the workspace volume does. On a
+durable tier a rebuilt sandbox finds it already in place and starts its servers
+on it, with no replay step.
 
-* **Given** SERVER-03 has completed
+* **Given** SERVER-03 has completed on a durable storage tier (`ebs`, `s3`, or Docker)
 
 * **When** stopping and starting the sandbox
 
 * **Then** the server starts on the overridden command
-  * **And** reading the server status still reports the override
+  * **And** listing the server config still reports the override
+  * **And** nothing re-materialized it — the control files were never rewritten
+
+---
+
+### SERVER-10: Reading an override requires a running sandbox
+
+There is no persisted copy to fall back on, so an unreachable sandbox must be
+reported as unknown rather than as "no override" — the latter would read as a
+completed reset.
+
+* **Given** SERVER-03 has completed
+
+* **When** stopping the sandbox and listing the server config
+
+* **Then** the request fails as sandbox-not-reachable
+  * **And** the CLI reports the override as unknown, not as none
 
 ---
 

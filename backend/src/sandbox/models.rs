@@ -82,19 +82,12 @@ pub struct RepoConfig {
     /// policy only; grants nothing on its own. Ignored in Docker mode.
     #[serde(default)]
     pub network_profile: Option<String>,
-    // --- Live per-server overrides (task-scoped) ---
-    /// Start-command / env overrides keyed by server name, applied without
-    /// rebuilding the pod. Passed through in `REPO_CONFIG` so a rebuilt pod's
-    /// sandbox can re-materialize them before its sidecars start; live changes
-    /// travel over gRPC instead.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub server_overrides: Option<BTreeMap<String, ServerOverride>>,
 }
 
 /// A live override of one preview server's start command and env.
 ///
-/// Whole-state, not a delta: the backend owns the persisted copy and always
-/// sends the complete set to the sandbox, so the two cannot drift.
+/// Whole-state, not a delta: callers always send the complete set to the
+/// sandbox, which never merges.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerOverride {
@@ -260,9 +253,6 @@ pub struct ServerSnapshot {
     pub status: ServerStatus,
     pub error: Option<String>,
     pub pid: Option<u32>,
-    /// Live config override in effect for this server, when one is set.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub config_override: Option<ServerOverride>,
 }
 
 impl ServerSnapshot {
@@ -278,7 +268,6 @@ impl ServerSnapshot {
             status,
             error: None,
             pid: None,
-            config_override: None,
         }
     }
 }
@@ -838,7 +827,6 @@ mod tests {
             status: ServerStatus::Started,
             error: None,
             pid: None,
-            config_override: None,
         };
         let caps = server_capabilities_from_snapshot(&snapshot);
         assert!(caps.inspector);

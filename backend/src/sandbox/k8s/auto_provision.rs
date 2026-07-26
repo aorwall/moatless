@@ -4,10 +4,10 @@
 //! and friends). The repository row carries no run-config — it is only a git
 //! connection.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
 use crate::repository::models::ResourceConfig;
-use crate::sandbox::models::{RepoConfig, ServerConfig, ServerOverride};
+use crate::sandbox::models::{RepoConfig, ServerConfig};
 use crate::task::models::Task;
 use crate::workspace::models::Workspace;
 
@@ -18,18 +18,6 @@ pub fn parse_disabled_servers(task: &Task) -> Vec<String> {
     task.disabled_servers
         .as_ref()
         .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok())
-        .unwrap_or_default()
-}
-
-/// Parse the per-task `server_overrides` JSONB column into a name → override map.
-///
-/// Returns an empty map when the column is null or malformed — a bad override
-/// must never block provisioning, since that would leave the task with no
-/// sandbox at all.
-pub fn parse_server_overrides(task: &Task) -> BTreeMap<String, ServerOverride> {
-    task.server_overrides
-        .as_ref()
-        .and_then(|v| serde_json::from_value::<BTreeMap<String, ServerOverride>>(v.clone()).ok())
         .unwrap_or_default()
 }
 
@@ -87,7 +75,6 @@ pub fn build_repo_config_from_workspace(ws: &Workspace) -> RepoConfig {
         network_profile: ws.network_profile.clone(),
         // Layered on separately by `auto_provision` — this is task state, not
         // workspace config.
-        server_overrides: None,
     }
 }
 
@@ -203,7 +190,6 @@ mod tests {
             docker_networks: None,
             sandbox_service_account: None,
             network_profile: None,
-            server_overrides: None,
         }
     }
 

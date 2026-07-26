@@ -92,8 +92,15 @@ moat tasks servers $TASK_ID set dev --start-command "..." && sleep 5 && \
 Change one thing per cycle. Two changes and a still-broken server tells you
 nothing about which one was wrong.
 
-The override is task state: it survives stop/start and redeploy, and it wins over
-the workspace config until you `reset`.
+The override is **workspace state, not database state** — files under
+`/opt/moatless/workspace/.moatless/servers/`. It wins over the workspace config
+until you `reset`, and it lasts as long as the workspace does: through a
+stop/start and a redeploy on the `ebs`, `s3`, and Docker tiers, and not at all on
+`ephemeral`, where the repo checkout doesn't survive either.
+
+One practical consequence: reading an override needs a **running** sandbox.
+`servers list` against a stopped one prints `override: unknown` rather than
+`override: none`.
 
 ### Guardrails
 
@@ -101,7 +108,7 @@ the workspace config until you `reset`.
   plaintext. Real secrets go through `moat secret set`, which lands them in
   `server.env` within 15 minutes; a `servers restart` then picks them up.
 - **Reserved keys are rejected** (`PORT`, `WORKSPACE_PATH`, `DATA_DIR`, and the
-  platform's credential keys). Nothing is persisted when a key is rejected.
+  platform's credential keys). Nothing is written when a key is rejected.
 - **`port` and `dockerImage` cannot change live** — the port is wired into the
   Service and IngressRoute, the image is the container's identity. Both need
   `moat tasks redeploy $TASK_ID` after a config change, and both return an

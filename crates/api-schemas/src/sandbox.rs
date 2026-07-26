@@ -136,9 +136,6 @@ pub struct ServerSnapshot {
     pub status: ServerStatus,
     pub error: Option<String>,
     pub pid: Option<u32>,
-    /// Live config override in effect for this server, when one is set.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub config_override: Option<ServerOverride>,
 }
 
 /// Resource metrics from sandbox GET /status
@@ -275,6 +272,9 @@ pub struct ServerStatusResponse {
 }
 
 /// A live override of one preview server's start command and env.
+///
+/// Stored only as control files on the sandbox's workspace volume — there is no
+/// database copy — so every read of one needs a running sandbox.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -317,6 +317,25 @@ pub struct ServerConfigResponse {
     pub config_override: ServerOverride,
     pub generation: u64,
     pub restarted: bool,
+}
+
+/// One server's override as it currently exists on the workspace volume.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ServerOverrideEntry {
+    pub server_name: String,
+    pub config_override: ServerOverride,
+    /// The counter the sidecar watches; `0` means it has never been restarted.
+    pub generation: u64,
+}
+
+/// Every override in effect on a task. Servers with no override are omitted.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ServerOverridesResponse {
+    pub overrides: Vec<ServerOverrideEntry>,
 }
 
 // ── File operation DTOs ──────────────────────────────────────────

@@ -225,6 +225,26 @@ pub struct ServerConfigResponse {
     pub restarted: bool,
 }
 
+/// One server's override as it currently exists on the workspace volume.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerOverrideEntry {
+    pub server_name: String,
+    pub config_override: ServerOverride,
+    /// The counter the sidecar watches; `0` means it has never been restarted.
+    pub generation: u64,
+}
+
+/// Every override in effect on a task. Servers with no override are omitted.
+///
+/// Read from the sandbox's workspace volume, which is the only place an
+/// override exists — a stopped sandbox cannot answer this.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerOverridesResponse {
+    pub overrides: Vec<ServerOverrideEntry>,
+}
+
 // ── File operation DTOs ──────────────────────────────────────────
 
 /// File tree response with git change summary.
