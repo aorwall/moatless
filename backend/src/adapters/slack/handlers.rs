@@ -4,10 +4,36 @@ use axum::http::{HeaderMap, StatusCode};
 use tracing::{debug, warn};
 
 use crate::adapters::error::AdapterError;
+use crate::adapters::inbound_work::{admit_inbound_message, InboundWorkPayload};
 use crate::adapters::metrics::record_webhook;
+use crate::adapters::models::InboundMessage;
 use crate::adapters::Adapter;
-use crate::bindings::dao::PgTaskBindingRepository;
 use crate::state::AppState;
+
+/// The idempotency key for one Slack delivery.
+///
+/// Slack repeats the envelope `event_id` on every retry of the same event,
+/// which is exactly what the durable dedup index on
+/// `(provider, kind, event_id)` needs. The fallback covers the envelope that
+/// carries no `event_id` at all — the channel plus the message's own external
+/// id names the same message just as stably, and is strictly better than the
+/// old in-memory cache, which skipped deduplication entirely for those.
+fn admission_event_id(payload: &serde_json::Value, msg: &InboundMessage) -> String {
+    payload
+        .get("event_id")
+        .and_then(|v| v.as_str())
+        .filter(|id| !id.is_empty())
+        .map_or_else(
+            || {
+                let message_id = msg
+                    .external_event_id
+                    .as_deref()
+                    .unwrap_or(&msg.message_thread_id);
+                format!("{}:{}", msg.source_id, message_id)
+            },
+            ToString::to_string,
+        )
+}
 
 #[utoipa::path(
     post,
@@ -107,7 +133,8 @@ pub async fn slack_webhook(
             }),
             None,
         )?;
-        PgTaskBindingRepository(state.db.clone())
+        state
+            .task_bindings
             .find_by_subject(
                 slack_provider.provider_key(),
                 destination.subject_kind,
@@ -149,46 +176,36 @@ pub async fn slack_webhook(
                     return Ok(StatusCode::OK.into_response());
                 }
             };
-            let state_clone = state.clone();
-            let connection = connection.clone();
-            let rule = rule.clone();
-            let event_type_owned = event_type.to_string();
-            tokio::spawn(async move {
-                match crate::bindings::runtime::route_inbound_message(
-                    &state_clone,
-                    &connection,
-                    &rule,
-                    msg,
-                    "slack",
-                    destination.subject_kind,
-                    &destination.subject_key,
-                    destination.destination_config,
-                )
-                .await
-                {
-                    Ok(_) => {
-                        record_webhook(
-                            "slack",
-                            "success",
-                            "",
-                            &event_type_owned,
-                            &rule.id,
-                            &connection.id,
-                        );
-                    }
-                    Err(e) => {
-                        record_webhook(
-                            "slack",
-                            "error",
-                            "delivery_failed",
-                            &event_type_owned,
-                            &rule.id,
-                            &connection.id,
-                        );
-                        warn!(error = %e, "Failed to process Slack inbound message");
-                    }
-                }
-            });
+            let event_id = admission_event_id(&payload, &msg);
+            let work = InboundWorkPayload {
+                connection_id: connection.id.clone(),
+                rule_id: rule.id.clone(),
+                subject_kind: destination.subject_kind.to_string(),
+                subject_key: destination.subject_key,
+                destination_config: destination.destination_config,
+                event_type: event_type.to_string(),
+                message: msg,
+            };
+
+            // Everything below the 200 depends on this write: a failure here
+            // must reach Slack as a failure so it re-delivers, and must never
+            // be swallowed into an acknowledgment. The routing itself now runs
+            // in the adapter work worker, which is also where the webhook
+            // outcome metric is recorded.
+            let admission = admit_inbound_message(
+                &state,
+                super::work::PROVIDER,
+                super::work::INBOUND_MESSAGE,
+                event_id.clone(),
+                work,
+            )
+            .await?;
+            debug!(
+                source_id,
+                event_id = %event_id,
+                admission = admission.as_str(),
+                "Slack inbound message admitted for routing"
+            );
             Ok(StatusCode::OK.into_response())
         }
         super::adapter::SlackWebhookResult::Ignore(reason) => {

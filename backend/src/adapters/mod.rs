@@ -6,6 +6,7 @@ pub mod error;
 pub mod footer;
 pub mod github_pr;
 pub mod handlers;
+pub(crate) mod inbound_work;
 pub mod linear;
 pub mod metrics;
 pub mod models;
@@ -13,7 +14,10 @@ pub mod routes;
 pub mod signature;
 pub mod slack;
 pub mod telegram;
+#[cfg(test)]
+pub(crate) mod test_support;
 pub mod webhook;
+pub mod work;
 
 use std::collections::HashMap;
 use std::sync::Arc;

@@ -71,6 +71,9 @@ impl ActivityKind {
 pub struct LinearAgentApi {
     http: Client,
     db: DbPool,
+    /// GraphQL endpoint. A field rather than a constant so tests can drive the
+    /// real request path against a local address.
+    graphql_url: String,
     /// Linear organization (workspace) UUID. Used as `team_id` in
     /// `provider_tokens` for the OAuth row.
     org_id: String,
@@ -90,9 +93,23 @@ impl LinearAgentApi {
         Self {
             http,
             db,
+            graphql_url: LINEAR_GRAPHQL_URL.to_string(),
             org_id,
             oauth_client_id,
             oauth_client_secret,
+        }
+    }
+
+    /// Point the GraphQL client at a caller-supplied endpoint. Tests only.
+    #[cfg(test)]
+    pub(crate) fn with_graphql_url(db: DbPool, graphql_url: impl Into<String>) -> Self {
+        Self {
+            http: Client::new(),
+            db,
+            graphql_url: graphql_url.into(),
+            org_id: "test-org".to_string(),
+            oauth_client_id: None,
+            oauth_client_secret: None,
         }
     }
 
@@ -258,12 +275,13 @@ impl LinearAgentApi {
             .form(&form)
             .send()
             .await
-            .map_err(|e| AdapterError::AdapterApi(format!("Linear refresh request failed: {e}")))?;
+            .map_err(|e| AdapterError::provider_unreachable("Linear refresh request", e))?;
 
         let status = resp.status();
-        let text = resp.text().await.map_err(|e| {
-            AdapterError::AdapterApi(format!("Linear refresh body read failed: {e}"))
-        })?;
+        let text = resp
+            .text()
+            .await
+            .map_err(|e| AdapterError::provider_unreachable("Linear refresh body read", e))?;
 
         if !status.is_success() {
             return Err(AdapterError::AdapterApi(format!(
@@ -272,7 +290,7 @@ impl LinearAgentApi {
         }
 
         serde_json::from_str(&text)
-            .map_err(|e| AdapterError::AdapterApi(format!("Linear refresh parse error: {e}")))
+            .map_err(|e| AdapterError::provider_response_invalid("Linear refresh", e))
     }
 
     /// Send a GraphQL request with a fresh access token. Surface errors via
@@ -325,7 +343,7 @@ impl LinearAgentApi {
     ) -> Result<serde_json::Value, AdapterError> {
         let resp = self
             .http
-            .post(LINEAR_GRAPHQL_URL)
+            .post(&self.graphql_url)
             .header("Authorization", format!("Bearer {access_token}"))
             .header("Content-Type", "application/json")
             .header("User-Agent", "moatless-vibe")
@@ -334,13 +352,13 @@ impl LinearAgentApi {
             .await
             .map_err(|e| {
                 record_api_call(PROVIDER, "error");
-                AdapterError::AdapterApi(format!("Linear request failed: {e}"))
+                AdapterError::provider_unreachable("Linear request", e)
             })?;
 
         let status = resp.status();
         let text = resp.text().await.map_err(|e| {
             record_api_call(PROVIDER, "error");
-            AdapterError::AdapterApi(format!("Linear response read failed: {e}"))
+            AdapterError::provider_unreachable("Linear response read", e)
         })?;
 
         if status == reqwest::StatusCode::UNAUTHORIZED {
@@ -366,9 +384,7 @@ impl LinearAgentApi {
             }
             Err(e) => {
                 record_api_call(PROVIDER, "error");
-                Err(AdapterError::AdapterApi(format!(
-                    "Linear JSON parse error: {e}"
-                )))
+                Err(AdapterError::provider_response_invalid("Linear JSON", e))
             }
         }
     }
@@ -901,7 +917,7 @@ fn parse_viewer(value: &serde_json::Value) -> Result<ViewerInfo, AdapterError> {
         .pointer("/data/viewer")
         .ok_or_else(|| AdapterError::AdapterApi("Linear viewer missing".into()))?;
     serde_json::from_value(viewer.clone())
-        .map_err(|e| AdapterError::AdapterApi(format!("Linear viewer parse error: {e}")))
+        .map_err(|e| AdapterError::provider_response_invalid("Linear viewer", e))
 }
 
 /// Decide whether a force-refresh can proceed from the stored token row.
@@ -1044,5 +1060,92 @@ mod tests {
             "path": ["someOtherMutation"],
         });
         assert!(!is_attachment_already_linked_error(&err));
+    }
+}
+
+#[cfg(test)]
+mod error_source_tests {
+    use std::error::Error as _;
+
+    use axum::http::StatusCode;
+
+    use super::*;
+    use crate::adapters::error::ProviderDecodeError;
+    use crate::adapters::test_support::{stub_provider, UNREACHABLE_BASE};
+
+    /// A pool that is never connected — `graphql_with_token` takes the token as
+    /// an argument, so it never touches the database.
+    fn offline_pool() -> DbPool {
+        DbPool::connect_lazy("postgres://linear:linear@127.0.0.1:1/linear").expect("lazy pool")
+    }
+
+    #[tokio::test]
+    async fn unreachable_linear_keeps_transport_source() {
+        let api = LinearAgentApi::with_graphql_url(offline_pool(), UNREACHABLE_BASE);
+
+        let err = api
+            .graphql_with_token(
+                "lin_test",
+                serde_json::json!({ "query": "{ viewer { id } }" }),
+            )
+            .await
+            .expect_err("dead loopback port must fail");
+
+        let AdapterError::ProviderUnreachable {
+            ref operation,
+            ref source,
+        } = err
+        else {
+            panic!("expected ProviderUnreachable, got {err:?}");
+        };
+        assert_eq!(operation, "Linear request");
+        assert!(source.is_connect() || source.is_request(), "{source}");
+        assert!(err.source().is_some(), "cause must stay reachable");
+    }
+
+    #[tokio::test]
+    async fn undecodable_linear_body_keeps_serde_source() {
+        let base = stub_provider(StatusCode::OK, "<html>not json</html>").await;
+        let api = LinearAgentApi::with_graphql_url(offline_pool(), base);
+
+        let err = api
+            .graphql_with_token(
+                "lin_test",
+                serde_json::json!({ "query": "{ viewer { id } }" }),
+            )
+            .await
+            .expect_err("html body must not decode");
+
+        let AdapterError::ProviderResponseInvalid {
+            ref operation,
+            ref source,
+        } = err
+        else {
+            panic!("expected ProviderResponseInvalid, got {err:?}");
+        };
+        assert_eq!(operation, "Linear JSON");
+        assert!(
+            matches!(source, ProviderDecodeError::Json(_)),
+            "Linear buffers the body itself, so the cause is a serde error"
+        );
+        assert!(err.source().is_some(), "cause must stay reachable");
+    }
+
+    /// A Linear 401 is a rejection we classify separately from "unreachable".
+    #[tokio::test]
+    async fn linear_401_stays_unauthorized() {
+        let base = stub_provider(StatusCode::UNAUTHORIZED, r#"{"error":"invalid token"}"#).await;
+        let api = LinearAgentApi::with_graphql_url(offline_pool(), base);
+
+        let err = api
+            .graphql_with_token(
+                "lin_test",
+                serde_json::json!({ "query": "{ viewer { id } }" }),
+            )
+            .await
+            .expect_err("401 must be an error");
+
+        assert!(matches!(err, AdapterError::Unauthorized(_)), "got {err:?}");
+        assert!(err.source().is_none());
     }
 }

@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use chrono::Utc;
+use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
@@ -17,11 +18,14 @@ use crate::task::models::TaskStatus;
 use moatless_backend_core::scope::ScopeContext;
 
 /// Spawn the scheduled-job background task.
+///
+/// The join handle is returned for the root supervisor to own — durable
+/// scheduled work stops firing if this loop ends.
 pub fn spawn_cron_scheduler(
     state: AppState,
     leader: Option<Arc<dyn LeaderGuard>>,
     cancel: CancellationToken,
-) {
+) -> JoinHandle<()> {
     tokio::spawn(async move {
         info!("Scheduled job runner started");
         let worker_id = std::env::var("HOSTNAME").unwrap_or_else(|_| "local".to_string());
@@ -56,7 +60,7 @@ pub fn spawn_cron_scheduler(
                 }
             }
         }
-    });
+    })
 }
 
 async fn tick(

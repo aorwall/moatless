@@ -16,7 +16,7 @@
 //!   correlation marker are written atomically before the runtime effect; a
 //!   runtime failure leaves the requested target for recovery.
 //! - **Deterministic, deduplicated events.** Operation events use the id
-//!   `sandbox:{task}:{operation_generation}:{fact}` over the idempotent outbox,
+//!   `sandbox:{task}:{operation_generation}:{fact}` over idempotent persistence,
 //!   so at-least-once retries of one generation persist once. Completion facts
 //!   (`Stopped`/`Removed`) are persisted and the marker cleared in one
 //!   transaction before publication.

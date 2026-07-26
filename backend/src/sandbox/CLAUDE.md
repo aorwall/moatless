@@ -41,8 +41,8 @@ Sandbox was ever requested (converged Stopped, always wakeable). The row is
 therefore the mechanism making lifecycle the sole intent writer by construction.
 The status handlers and reaper read desired state through the store
 (`Lifecycle::desired_state`); task responses use the lifecycle DAO's shared
-Sandbox-intent projection, including the no-row Stopped-at-epoch semantic. The
-transactional outbox is in place.
+Sandbox-intent projection, including the no-row Stopped-at-epoch semantic.
+Completion facts commit before publication.
 
 The pending-Message query/index and the desired-state reconciler are the
 recovery machinery:
@@ -145,8 +145,19 @@ idle-eligibility agent status — goes through the consumer-owned
 `AgentStatusPort`, whose `ConnectorAgentStatus` implementation wraps
 `SandboxConnector`.
 
+### Event ingress
+`grpc_server.rs::publish_event` is the Sandbox's delivery boundary. Success means
+the complete payload is durably admitted (ADR-0006): committed turn state for a
+state-bearing event, a `event_ingress_outbox` record for full `agent.message`
+content, a `task_events` row for everything else. Anything less is a retryable
+`UNAVAILABLE`; wire-contract violations are a terminal `INVALID_ARGUMENT`. The
+whole status contract lives on `event_ingress::AdmissionError`. Deduplication
+(`event_dedup.rs`) records admission rather than receipt, so a failed admission
+leaves the retry a real second attempt and a concurrent duplicate is told to
+retry instead of being acknowledged.
+
 ### gRPC communication
-`SandboxClient` (`client.rs`) calls sandbox pods: execute-agent, stop-agent, notify-messages, file ops, search-files. Lazy connection, 5s connect / 10s request timeout. `classify_grpc_error()` maps gRPC → `SandboxError`: Unavailable/DeadlineExceeded/Cancelled → NotReady/503, NotFound → 404, FailedPrecondition/InvalidArgument → 400, else → Internal/500. `notify.rs` is fire-and-forget message notification.
+`SandboxClient` (`client.rs`) calls sandbox pods: execute-agent, stop-agent, notify-messages, file ops, search-files. Lazy connection, 5s connect / 10s request timeout. `classify_grpc_error()` maps gRPC → `SandboxError`: Unavailable/DeadlineExceeded/Cancelled → NotReady/503, NotFound → 404, FailedPrecondition/InvalidArgument → 400, else → `Grpc`/500 (the `tonic::Status` retained as the error's source). `notify.rs` is fire-and-forget message notification.
 
 ### Auto-provisioning
 `auto_provision.rs` has two honest consumers: it resolves a fresh provision

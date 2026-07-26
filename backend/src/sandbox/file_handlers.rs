@@ -77,7 +77,7 @@ pub async fn file_tree_handler(
         .get_file_tree(root_path, recursive)
         .await
         .map_err(|e| classify_grpc_error(e, "get_file_tree"))?;
-    Ok(Json(FileTreeResponse::from(resp)))
+    Ok(Json(FileTreeResponse::try_from(resp)?))
 }
 
 /// Read a file from the sandbox workspace.

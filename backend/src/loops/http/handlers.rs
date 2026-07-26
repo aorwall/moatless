@@ -17,7 +17,7 @@ use crate::adapters::common::{
     resolve_scope_for_adapter_create, LoopFilter,
 };
 use crate::adapters::error::AdapterError;
-use crate::bindings::dao::{LoopRecentTaskRow, PgTaskBindingRepository};
+use crate::bindings::dao::LoopRecentTaskRow;
 use crate::extractors::AuthUser;
 use crate::loops::store::{
     AdapterSourceUpdate, LoopListFilter, LoopSourceRow, LoopUpdate, NewAdapterEventSource, NewLoop,
@@ -458,9 +458,7 @@ pub async fn list_loop_recent_tasks(
 ) -> Result<Json<Vec<LoopRecentTaskItem>>, AdapterError> {
     let _ = load_loop_for_auth(&state, &auth.scope_context(), &id).await?;
     let limit = query.limit.unwrap_or(10).min(50) as i64;
-    let rows = PgTaskBindingRepository(state.db.clone())
-        .find_recent_for_loop(&id, limit)
-        .await?;
+    let rows = state.task_bindings.find_recent_for_loop(&id, limit).await?;
     Ok(Json(rows.iter().map(map_recent_task_item).collect()))
 }
 

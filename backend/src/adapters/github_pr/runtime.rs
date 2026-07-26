@@ -297,7 +297,8 @@ pub async fn route_inbound_message(
         // (e.g. `gh pr comment` bypassing `moat reply`, which leaves no marker
         // and no recorded external_event_id). Per-binding DB fetch; typical
         // PRs have 1-2 bindings. Skipped for CI notifications (see above).
-        #[allow(clippy::disallowed_methods)] // reason: GitHub PR webhook routing has no caller identity
+        #[allow(clippy::disallowed_methods)]
+        // reason: GitHub PR webhook routing has no caller identity
         let sys = ScopeContext::system();
         match state.tasks.find_by_id(&binding.task_id, &sys).await {
             Ok(Some(task))
@@ -420,9 +421,7 @@ pub async fn route_inbound_message(
                 // so the webhook 5xx's and GitHub redelivers, rather than
                 // silently dropping the PR event.
                 Err(other) => {
-                    return Err(AdapterError::Internal(format!(
-                        "Failed to create GitHub PR review task: {other}"
-                    )));
+                    return Err(AdapterError::TaskCreation(other));
                 }
             }
         } else {
@@ -666,7 +665,8 @@ pub async fn close_tasks_for_pr(
     for binding in bindings {
         let task_id = &binding.task_id;
 
-        #[allow(clippy::disallowed_methods)] // reason: GitHub PR close handler runs as background system, no caller identity
+        #[allow(clippy::disallowed_methods)]
+        // reason: GitHub PR close handler runs as background system, no caller identity
         let sys = ScopeContext::system();
         match state.tasks.find_by_id(task_id, &sys).await {
             Ok(Some(task)) if task.status == TaskStatus::Closed => {
@@ -971,10 +971,8 @@ async fn deliver_to_binding(
     )
     .await
     {
-        warn!(task_id = %binding.task_id, error = %e, "Failed to send github external message to task");
-        return Err(AdapterError::Internal(format!(
-            "Failed to send message: {e}"
-        )));
+        // Logged once at the transport boundary by `AdapterError::into_response`.
+        return Err(AdapterError::MessageDelivery(e));
     }
 
     let binding_repo = PgTaskBindingRepository(state.db.clone());

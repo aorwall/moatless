@@ -534,7 +534,7 @@ mod tests {
 
     fn make_publisher(cancel: CancellationToken) -> GrpcEventPublisher {
         let backend = Arc::new(NopBackend);
-        let outbox = EventOutbox::spawn(backend, "test-task".to_string(), cancel);
+        let (outbox, _drainer) = EventOutbox::spawn(backend, "test-task".to_string(), cancel);
         GrpcEventPublisher::new(outbox)
     }
 

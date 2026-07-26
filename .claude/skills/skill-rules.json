@@ -2,6 +2,42 @@
   "version": "1.0",
   "description": "Moatless Vibe skill activation rules",
   "skills": {
+    "rust-dev-guidelines": {
+      "type": "domain",
+      "enforcement": "suggest",
+      "priority": "high",
+      "description": "Moatless Rust conventions for async boundaries, supervision, persistence, errors, wire types, and lint suppressions",
+      "promptTriggers": {
+        "keywords": [
+          "rust",
+          "cargo",
+          "clippy",
+          "axum",
+          "tokio",
+          "sqlx",
+          "tonic",
+          "prost",
+          "backend handler",
+          "sandbox runtime",
+          "rust crate"
+        ],
+        "intentPatterns": [
+          "(implement|change|review|refactor|fix).*?(backend|sandbox|rust|crate)",
+          "(add|change).*?(handler|repository|rust service|grpc)",
+          "(debug|fix).*?(tokio|async rust|sqlx|clippy)"
+        ]
+      },
+      "fileTriggers": {
+        "pathPatterns": [
+          "backend/**/*.rs",
+          "sandbox/**/*.rs",
+          "crates/**/*.rs"
+        ]
+      },
+      "skipConditions": {
+        "sessionSkillUsed": true
+      }
+    },
     "frontend-dev-guidelines": {
       "type": "domain",
       "enforcement": "suggest",
@@ -216,6 +252,79 @@
         "pathPatterns": [
           "crates/cli/src/**/*.rs"
         ]
+      }
+    },
+    "writing-specs": {
+      "type": "domain",
+      "enforcement": "suggest",
+      "priority": "high",
+      "description": "Spec and plan shape: a capped lede carrying decisions, open questions and the next action, over uncapped detail",
+      "promptTriggers": {
+        "keywords": [
+          "spec",
+          "plan",
+          "proposal",
+          "design doc",
+          "write a spec",
+          "update the spec",
+          "user stories",
+          "scope",
+          "out of scope",
+          "acceptance criteria",
+          "breakdown"
+        ],
+        "intentPatterns": [
+          "(write|draft|update|revise).*?(spec|plan|proposal|design doc)",
+          "(plan|spec).*?(this|the).*?(change|feature|refactor|migration)",
+          "(what|which).*?(approach|option|alternative).*?(should|take)"
+        ]
+      },
+      "fileTriggers": {
+        "pathPatterns": [
+          "specs/*.md",
+          "docs/plans/**/*.md"
+        ],
+        "pathExclusions": [
+          "specs/AGENTS.md",
+          "specs/CLAUDE.md"
+        ]
+      },
+      "skipConditions": {
+        "sessionSkillUsed": true
+      }
+    },
+    "explaining-code": {
+      "type": "domain",
+      "enforcement": "suggest",
+      "priority": "high",
+      "description": "Explain how existing code or architecture works: a trace along the execution path with file:line at every hop, not an inventory of components",
+      "promptTriggers": {
+        "keywords": [
+          "how does",
+          "how do",
+          "how is",
+          "explain",
+          "walk me through",
+          "what happens when",
+          "where does",
+          "where is",
+          "who calls",
+          "what calls",
+          "architecture",
+          "flow",
+          "lifecycle",
+          "under the hood"
+        ],
+        "intentPatterns": [
+          "how (does|do|is|are).*?(work|handled|implemented|wired)",
+          "(explain|describe|walk me through).*?(code|flow|feature|architecture|module|how)",
+          "what happens when.*",
+          "(where|who|what).*?(calls|triggers|handles|owns).*",
+          "(trace|follow).*?(request|message|event|path)"
+        ]
+      },
+      "skipConditions": {
+        "sessionSkillUsed": true
       }
     }
   }

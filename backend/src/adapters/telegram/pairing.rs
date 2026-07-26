@@ -181,8 +181,8 @@ pub async fn approve_request(
         tg_config.dm_allowlist.push(user_id_str);
     }
 
-    let updated_config = serde_json::to_value(&tg_config)
-        .map_err(|e| AdapterError::Internal(format!("Failed to serialize config: {e}")))?;
+    let updated_config =
+        serde_json::to_value(&tg_config).map_err(AdapterError::ConfigSerialization)?;
 
     store
         .set_adapter_config(trigger_id, &updated_config)
@@ -255,5 +255,56 @@ mod tests {
         let unique: std::collections::HashSet<&String> = codes.iter().collect();
         // With 8 chars from 30-char alphabet, collisions in 100 samples are astronomically unlikely
         assert_eq!(codes.len(), unique.len());
+    }
+}
+
+#[cfg(test)]
+mod error_source_tests {
+    use std::error::Error as _;
+    use std::time::Duration;
+
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse as _;
+
+    use super::*;
+    use crate::adapters::test_support::response_snapshot;
+
+    /// A pool pointed at a dead loopback port, with a short acquire timeout so
+    /// the pairing queries fail fast instead of waiting out the default.
+    fn offline_pool() -> DbPool {
+        sqlx::postgres::PgPoolOptions::new()
+            .acquire_timeout(Duration::from_millis(500))
+            .connect_lazy("postgres://pair:pair@127.0.0.1:1/pair")
+            .expect("lazy pool")
+    }
+
+    /// The pairing queries are the module's main failure path: a database that
+    /// cannot be reached must surface as `Db` with the `sqlx` cause attached.
+    #[tokio::test]
+    async fn pairing_lookup_keeps_sqlx_source() {
+        let err = find_by_code(&offline_pool(), "trigger-1", "ABCD2345")
+            .await
+            .expect_err("unreachable database must fail");
+
+        assert!(matches!(err, AdapterError::Db(_)), "got {err:?}");
+        assert!(err
+            .source()
+            .and_then(|s| s.downcast_ref::<sqlx::Error>())
+            .is_some());
+    }
+
+    #[tokio::test]
+    async fn config_serialization_keeps_serde_source_and_redacts() {
+        let serde_err = serde_json::from_str::<serde_json::Value>("nope").unwrap_err();
+        let err = AdapterError::ConfigSerialization(serde_err);
+
+        assert!(err
+            .source()
+            .and_then(|s| s.downcast_ref::<serde_json::Error>())
+            .is_some());
+
+        let (status, body) = response_snapshot(err.into_response()).await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(body, r#"{"error":"Internal server error"}"#);
     }
 }

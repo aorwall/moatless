@@ -120,7 +120,10 @@ describe('TaskList', () => {
 
 ## Backend Tests
 
-The backend is Rust — its tests run with `cargo test -p moatless-vibe-backend` and follow the conventions in `.claude/rules/`. This skill covers Vitest (frontend and TS packages) only.
+The backend is Rust — its tests run with
+`cargo test -p moatless-vibe-backend` and follow the
+`rust-dev-guidelines` skill. This skill covers Vitest (frontend and TS packages)
+only.
 
 ## Related Resources
 - [Frontend Testing](../../frontend-dev-guidelines/resources/testing.md) - Frontend patterns

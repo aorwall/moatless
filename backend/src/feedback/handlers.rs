@@ -7,7 +7,7 @@ use chrono::Utc;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
 
-use super::error::FeedbackError;
+use super::error::{FeedbackError, UnknownFeedbackDiscriminant};
 use super::models::{Feedback, FeedbackSource};
 use super::schemas::{
     CreateFeedbackRequest, FeedbackResponse, FeedbackSurface, ListFeedbackResponse,
@@ -141,10 +141,20 @@ pub async fn list_task_feedback(
 }
 
 fn to_response(row: &Feedback) -> Result<FeedbackResponse, FeedbackError> {
-    let source = FeedbackSource::try_from(row.source.as_str())
-        .map_err(|e| FeedbackError::Internal(format!("invalid feedback source in db: {e}")))?;
-    let surface = FeedbackSurface::try_from(row.surface.as_str())
-        .map_err(|e| FeedbackError::Internal(format!("invalid feedback surface in db: {e}")))?;
+    // The shared schema crate reports an unknown discriminant as a bare
+    // `String`, so the module re-raises it as its own typed error to keep a
+    // real source on the chain.
+    let source =
+        FeedbackSource::try_from(row.source.as_str()).map_err(|_| UnknownFeedbackDiscriminant {
+            column: "source",
+            value: row.source.clone(),
+        })?;
+    let surface = FeedbackSurface::try_from(row.surface.as_str()).map_err(|_| {
+        UnknownFeedbackDiscriminant {
+            column: "surface",
+            value: row.surface.clone(),
+        }
+    })?;
     Ok(FeedbackResponse {
         feedback_id: row.feedback_id.clone(),
         task_id: row.task_id.clone(),

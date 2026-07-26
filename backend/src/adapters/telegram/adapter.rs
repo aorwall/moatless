@@ -1,10 +1,9 @@
 //! Telegram adapter — Adapter trait impl + webhook parsing.
 
-use moka::future::Cache;
-use std::time::Duration;
 use tracing::{debug, info, warn};
 
 use crate::adapters::error::AdapterError;
+use crate::adapters::inbound_work::{admit_inbound_message, InboundWorkPayload};
 use crate::adapters::models::{
     AccessDecision, AdapterConnection, BindingContext, InboundMessage, LoopContext, NewThreadInfo,
     OutboundReply, SubscriptionMatch, TaskBinding,
@@ -27,18 +26,12 @@ pub enum TelegramWebhookResult {
 /// Telegram adapter.
 pub struct TelegramAdapter {
     api: TelegramApi,
-    /// Deduplication cache: update_id → () with 5-minute TTL.
-    dedup_cache: Cache<i64, ()>,
 }
 
 impl TelegramAdapter {
     pub fn new(bot_token: &str) -> Self {
         Self {
             api: TelegramApi::new(bot_token),
-            dedup_cache: Cache::builder()
-                .time_to_live(Duration::from_mins(5))
-                .max_capacity(10_000)
-                .build(),
         }
     }
 
@@ -49,8 +42,17 @@ impl TelegramAdapter {
 
     /// Parse a Telegram Bot API Update into an InboundMessage.
     ///
-    /// Handles: deduplication, message extraction (message or channel_post),
-    /// reply threading, user identity resolution, and bot mention stripping.
+    /// Handles: message extraction (message or channel_post), reply threading,
+    /// user identity resolution, and bot mention stripping. Deduplication is
+    /// not done here — it happens durably when the caller admits the parsed
+    /// message, keyed on the same `update_id`.
+    ///
+    /// A re-delivered update is therefore parsed again, and the replies this
+    /// function sends before admission are sent again with it: the `/start` and
+    /// `/help` answers, and any pairing message [`access::enforce_dm_access`]
+    /// decides to send. The five-minute cache that used to suppress those also
+    /// sat in front of admission, where it would have answered a re-delivery of
+    /// *unaccepted* work with a 200 and nothing durable behind it.
     pub async fn parse_update(
         &self,
         body: &[u8],
@@ -67,14 +69,7 @@ impl TelegramAdapter {
             .and_then(serde_json::Value::as_i64)
             .ok_or_else(|| AdapterError::BadRequest("Missing update_id".into()))?;
 
-        // 2. Deduplicate
-        if self.dedup_cache.get(&update_id).await.is_some() {
-            debug!(update_id, "Duplicate Telegram update, ignoring");
-            return Ok(TelegramWebhookResult::Ignore);
-        }
-        self.dedup_cache.insert(update_id, ()).await;
-
-        // 3. Extract message (message or channel_post)
+        // 2. Extract message (message or channel_post)
         let message = payload
             .get("message")
             .or_else(|| payload.get("channel_post"));
@@ -353,7 +348,7 @@ impl Adapter for TelegramAdapter {
         .bind(identity)
         .fetch_optional(db)
         .await
-        .map_err(|e| AdapterError::Internal(format!("User lookup failed: {e}")))?;
+        .map_err(AdapterError::Db)?;
 
         if let Some((user_id,)) = row {
             info!(telegram_user_id = %identity, user_id = %user_id, "Resolved Telegram user to system user");
@@ -574,16 +569,50 @@ fn parse_telegram_reaction_target(
     Ok((chat_id, message_id))
 }
 
-/// Resolve the trigger source for a raw Telegram update and route it through
-/// `parse_update` → `route_inbound_message`. Shared by the webhook handler and the
-/// polling loop so the config-lookup + routing logic is not duplicated.
+/// What the shared update path did, so its callers know whether Telegram may
+/// be told the update was accepted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TelegramUpdateOutcome {
+    /// Nothing to route: no chat, no trigger, an unsupported update, a command
+    /// answered inline, or an access decision. Acknowledging is safe because
+    /// there is no work left to lose.
+    Ignored,
+    /// Routing is durably owned by the adapter work queue — either admitted by
+    /// this delivery or already admitted by an earlier one.
+    Admitted,
+}
+
+/// Resolve the trigger source for a raw Telegram update, parse it, and hand the
+/// routing to the durable adapter work seam. Shared by the webhook handler and
+/// the polling loop so the config-lookup + admission logic is not duplicated.
+///
+/// Returns only once the routing is durable (or there is none to do). An `Err`
+/// means the update was *not* accepted and Telegram must deliver it again; both
+/// callers are required to leave their acknowledgment unsent in that case.
 pub async fn resolve_and_process_telegram_update(
     state: &crate::state::AppState,
     telegram_provider: &TelegramAdapter,
     body: &[u8],
-) -> Result<(), AdapterError> {
+) -> Result<TelegramUpdateOutcome, AdapterError> {
     let payload: serde_json::Value = serde_json::from_slice(body)
         .map_err(|e| AdapterError::BadRequest(format!("Invalid JSON: {e}")))?;
+
+    // Telegram's own delivery id, and therefore the durable idempotency key: a
+    // re-delivered update carries the same `update_id`, so admission recognises
+    // it as the same unit of work rather than a second one.
+    //
+    // `update_id` is unique per *bot*, not globally, and the dedup index —
+    // `(provider, kind, event_id)` — has no connection column to scope it by.
+    // That is sound only because Telegram runs a single env-backed bot
+    // transport, which is the same assumption the `"default"` connection scope
+    // below rests on. Give Telegram a second connection and two bots' id
+    // sequences overlap: the second bot's updates would be swallowed as
+    // duplicates, silently, with no error and nothing above `debug`. Whoever
+    // makes Telegram multi-connection must qualify this key by connection.
+    let update_id = payload
+        .get("update_id")
+        .and_then(serde_json::Value::as_i64)
+        .ok_or_else(|| AdapterError::BadRequest("Missing update_id".into()))?;
 
     // Extract chat_id from message or channel_post
     let message = payload
@@ -595,7 +624,7 @@ pub async fn resolve_and_process_telegram_update(
 
     let Some(chat_id) = chat_id else {
         debug!("Telegram update has no chat.id, ignoring");
-        return Ok(());
+        return Ok(TelegramUpdateOutcome::Ignored);
     };
 
     let source_id = chat_id.to_string();
@@ -617,7 +646,7 @@ pub async fn resolve_and_process_telegram_update(
             source_id,
             is_private_chat, "Telegram message ignored: no task trigger for this chat"
         );
-        return Ok(());
+        return Ok(TelegramUpdateOutcome::Ignored);
     };
     let config = crate::bindings::runtime::trigger_context(&rule, "telegram");
 
@@ -640,32 +669,41 @@ pub async fn resolve_and_process_telegram_update(
                 &msg.thread_properties,
                 None,
             )?;
-            let state_clone = state.clone();
-            let connection = connection.clone();
-            let rule = rule.clone();
-            tokio::spawn(async move {
-                if let Err(e) = crate::bindings::runtime::route_inbound_message(
-                    &state_clone,
-                    &connection,
-                    &rule,
-                    msg,
-                    "telegram",
-                    destination.subject_kind,
-                    &destination.subject_key,
-                    destination.destination_config,
-                )
-                .await
-                {
-                    warn!(error = %e, "Failed to process Telegram inbound message");
-                }
-            });
+
+            // The routing runs in the adapter work worker, which is also where
+            // the webhook outcome metric is recorded. Failing here propagates:
+            // nothing durable was written, so the caller must not acknowledge.
+            let admission = admit_inbound_message(
+                state,
+                super::work::PROVIDER,
+                super::work::INBOUND_MESSAGE,
+                update_id.to_string(),
+                InboundWorkPayload {
+                    connection_id: connection.id.clone(),
+                    rule_id: rule.id.clone(),
+                    subject_kind: destination.subject_kind.to_string(),
+                    subject_key: destination.subject_key,
+                    destination_config: destination.destination_config,
+                    // Telegram has never labelled its webhook metric with an
+                    // event type; keeping it empty keeps the label set the
+                    // dashboards already query.
+                    event_type: String::new(),
+                    message: msg,
+                },
+            )
+            .await?;
+            debug!(
+                update_id,
+                admission = admission.as_str(),
+                "Telegram update admitted for routing"
+            );
+            Ok(TelegramUpdateOutcome::Admitted)
         }
         TelegramWebhookResult::Ignore => {
-            debug!("Telegram update ignored by provider");
+            debug!(update_id, "Telegram update ignored by provider");
+            Ok(TelegramUpdateOutcome::Ignored)
         }
     }
-
-    Ok(())
 }
 
 /// Strip bot mention from message text (e.g., "@mybot fix the bug" → "fix the bug").
@@ -759,38 +797,11 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn parse_duplicate_update_ignored() {
-        let provider = TelegramAdapter::new("fake_token");
-
-        let update = serde_json::json!({
-            "update_id": 99999,
-            "message": {
-                "message_id": 44,
-                "from": { "id": 999, "first_name": "Test" },
-                "chat": { "id": 111, "type": "private" },
-                "text": "hello"
-            }
-        });
-
-        let body = serde_json::to_vec(&update).unwrap();
-        let config = test_config();
-
-        // First call reaches DB and fails (expected) — but populates dedup cache
-        let _ = provider
-            .parse_update(&body, &config, false, &fake_db_pool())
-            .await;
-
-        // Second call should be deduplicated before reaching DB
-        let result = provider
-            .parse_update(&body, &config, false, &fake_db_pool())
-            .await;
-
-        match result {
-            Ok(TelegramWebhookResult::Ignore) => {}
-            _ => panic!("Expected Ignore for duplicate update"),
-        }
-    }
+    // Deduplication is no longer a parse-time concern, so there is no
+    // in-process duplicate case left to assert here. A re-delivered
+    // `update_id` is now recognised by the unique index behind
+    // `AdapterWorkStore::admit`; that case is covered by
+    // `telegram::work::db_tests::a_redelivered_update_admits_one_unit_of_work`.
 
     #[tokio::test]
     async fn parse_no_from_ignored() {

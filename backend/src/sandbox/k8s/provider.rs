@@ -129,10 +129,10 @@ impl K8sSandboxAdapter {
                     {
                         node_archive::record_current_pod_nodes(&self.k8s, task_id)
                             .await
-                            .map_err(|error| SandboxError::Internal(error.to_string()))?;
+                            .map_err(SandboxError::Runtime)?;
                         node_archive::retained_node(&self.k8s, task_id, true)
                             .await
-                            .map_err(|error| SandboxError::Internal(error.to_string()))?
+                            .map_err(SandboxError::Runtime)?
                     } else {
                         None
                     };
@@ -227,10 +227,10 @@ impl K8sSandboxAdapter {
         {
             node_archive::record_current_pod_nodes(&self.k8s, task_id)
                 .await
-                .map_err(|error| SandboxError::Internal(error.to_string()))?;
+                .map_err(SandboxError::Runtime)?;
             if let Some(node_name) = node_archive::retained_node(&self.k8s, task_id, false)
                 .await
-                .map_err(|error| SandboxError::Internal(error.to_string()))?
+                .map_err(SandboxError::Runtime)?
             {
                 pod.spec
                     .as_mut()
@@ -749,7 +749,7 @@ impl SandboxConnector for K8sSandboxAdapter {
             self.k8s.namespace(),
             self.config.sandbox.grpc_port,
         )
-        .map_err(|e| SandboxError::Internal(format!("Failed to create gRPC client: {e}")))
+        .map_err(SandboxError::GrpcClient)
     }
 }
 

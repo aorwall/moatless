@@ -688,7 +688,10 @@ async fn authorize_task_read_inner(
     tasks
         .find_by_id(task_id, &ctx)
         .await
-        .map_err(|e| SandboxError::Internal(format!("task lookup failed: {e}")))?
+        .map_err(|source| SandboxError::Database {
+            context: "looking up the task for authorization",
+            source,
+        })?
         .ok_or_else(|| SandboxError::NotFound(format!("task {task_id}")))
 }
 

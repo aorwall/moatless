@@ -52,7 +52,10 @@ pub async fn build_provision_request(
     let task = tasks
         .find_by_id(task_id, &sys)
         .await
-        .map_err(|e| SandboxError::Internal(format!("DB error reading task: {e}")))?
+        .map_err(|source| SandboxError::Database {
+            context: "reading the task row for provisioning",
+            source,
+        })?
         .ok_or_else(|| SandboxError::Internal(format!("Task '{task_id}' not found in database")))?;
 
     // Gate: never provision a pod for a Closed task. A webhook racing a close
@@ -90,7 +93,10 @@ pub async fn build_provision_request(
     let repo = repos
         .find_by_id(&repository_id, &repo_sys)
         .await
-        .map_err(|e| SandboxError::Internal(format!("DB error reading repository: {e}")))?
+        .map_err(|source| SandboxError::Database {
+            context: "reading the repository row for provisioning",
+            source,
+        })?
         .ok_or_else(|| {
             SandboxError::BadRequest(format!(
                 "Repository '{repository_id}' not found in database"
@@ -111,7 +117,10 @@ pub async fn build_provision_request(
         Some(ws_id) => workspaces
             .find_by_id(ws_id, &repo_sys)
             .await
-            .map_err(|e| SandboxError::Internal(format!("DB error reading workspace: {e}")))?,
+            .map_err(|source| SandboxError::Database {
+                context: "reading the workspace row for provisioning",
+                source,
+            })?,
         None => None,
     };
 

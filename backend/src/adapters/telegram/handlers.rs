@@ -7,6 +7,8 @@ use crate::adapters::error::AdapterError;
 use crate::adapters::metrics::record_webhook;
 use crate::state::AppState;
 
+use super::adapter::TelegramUpdateOutcome;
+
 #[utoipa::path(
     post,
     path = "/api/v1/adapters/telegram/webhook",
@@ -81,12 +83,19 @@ pub async fn telegram_webhook(
     match super::adapter::resolve_and_process_telegram_update(&state, telegram_provider, &body)
         .await
     {
-        Ok(()) => {
-            record_webhook("telegram", "success", "", "", "", "");
+        // Routing is durably owned now; its outcome is recorded by the work
+        // handler when it actually runs. Recording "success" here would count
+        // an outcome this path no longer knows.
+        Ok(TelegramUpdateOutcome::Admitted) => {}
+        Ok(TelegramUpdateOutcome::Ignored) => {
+            record_webhook("telegram", "ignored", "not_routable", "", "", "");
         }
         Err(e) => {
             record_webhook("telegram", "error", "delivery_failed", "", "", "");
             warn!(error = %e, "Telegram webhook processing error");
+            // Nothing durable was written, so this delivery is still Telegram's.
+            // Acknowledging it here is what used to lose the update outright.
+            return Err(e);
         }
     }
 

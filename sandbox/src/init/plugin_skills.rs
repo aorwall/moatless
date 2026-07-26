@@ -9,6 +9,10 @@
 //!
 //! Runs after `clone_plugin_repos()` during core init. Non-fatal: failures
 //! are logged and skipped.
+//!
+//! Synchronous and recursive (it copies whole skill trees and removes stale
+//! targets), so core init invokes it through [`super::run_init_blocking`]
+//! rather than on a Tokio worker.
 
 use std::path::{Path, PathBuf};
 
@@ -31,7 +35,9 @@ struct PluginManifest {
 ///
 /// Returns the number of skills copied. Non-fatal — any error is logged and
 /// the scan continues.
-pub async fn stage_plugin_skills_for_codex() -> usize {
+///
+/// Blocking and recursive — call it through [`super::run_init_blocking`].
+pub(super) fn stage_plugin_skills_for_codex() -> usize {
     stage_plugin_skills_with_roots(Path::new(PLUGINS_DIR), Path::new(CODEX_SKILLS_DIR))
 }
 

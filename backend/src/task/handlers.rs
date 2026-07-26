@@ -22,7 +22,7 @@ use moatless_backend_core::scope::{Scope, ScopeContext, ScopedResource};
 
 use crate::repository::models::{RepositoryKind, RepositoryProvider};
 
-use crate::bindings::dao::{get_bindings_for_tasks, PgTaskBindingRepository};
+use crate::bindings::dao::{get_bindings_for_tasks, TaskBindingRepository};
 use crate::bindings::schemas::TaskBindingSummary;
 
 use super::error::TaskError;
@@ -578,11 +578,8 @@ pub async fn update_task_metadata(
 /// sandbox and resurrect the task. Logs on failure but never blocks the
 /// close/delete; the runtime guards in `ensure_sandbox_and_notify` and
 /// `send_message_flow` are the backstop if this doesn't run.
-async fn deactivate_task_bindings(state: &AppState, task_id: &str) {
-    match PgTaskBindingRepository(state.db.clone())
-        .deactivate_by_task(task_id)
-        .await
-    {
+async fn deactivate_task_bindings(bindings: &dyn TaskBindingRepository, task_id: &str) {
+    match bindings.deactivate_by_task(task_id).await {
         Ok(0) => {}
         Ok(n) => tracing::info!(task_id, deactivated = n, "Deactivated task bindings"),
         Err(e) => {
@@ -622,7 +619,7 @@ pub async fn delete_task(
 
     // Stop external listeners. `task_bindings.task_id` is not an FK, so rows
     // don't cascade on delete — deactivate them so inbound routing stops.
-    deactivate_task_bindings(&state, &task_id).await;
+    deactivate_task_bindings(state.task_bindings.as_ref(), &task_id).await;
 
     let deleted = state.tasks.delete_task(&task_id, &scope_ctx).await?;
     if !deleted {
@@ -865,7 +862,7 @@ async fn close_single_task(state: &AppState, task_id: &str) -> Result<(), TaskEr
 
     // A closed task is terminal — stop its external listeners so inbound
     // comments don't resurrect it.
-    deactivate_task_bindings(state, task_id).await;
+    deactivate_task_bindings(state.task_bindings.as_ref(), task_id).await;
 
     if let Some(ref events) = state.events {
         events
@@ -1643,10 +1640,7 @@ async fn resolve_single_user_display_name(state: &AppState, user_id: &str) -> Op
 
 /// Resolve external bindings for a single task (used by enrich_task).
 async fn resolve_task_bindings(state: &AppState, task_id: &str) -> Vec<TaskBindingSummary> {
-    let bindings = match crate::bindings::dao::PgTaskBindingRepository(state.db.clone())
-        .find_by_task_id(task_id)
-        .await
-    {
+    let bindings = match state.task_bindings.find_by_task_id(task_id).await {
         Ok(bindings) => bindings,
         Err(e) => {
             tracing::warn!(error = %e, task_id = %task_id, "Failed to resolve task bindings");
@@ -1688,5 +1682,162 @@ async fn resolve_repo_names_batch(
             tracing::warn!(error = %e, "Failed to batch resolve repository names");
             std::collections::HashMap::new()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::adapters::models::TaskBinding;
+    use crate::bindings::dao::LoopRecentTaskRow;
+
+    /// `TaskBindingRepository` fake that only answers `deactivate_by_task`.
+    ///
+    /// It records the task ids it was asked to deactivate and replays a queued
+    /// outcome, which is everything [`deactivate_task_bindings`] can observe.
+    /// The remaining port methods are unreachable from this seam and panic
+    /// rather than pretending to have behaviour no test asserts.
+    struct FakeBindings {
+        outcome: Mutex<Option<Result<u64, sqlx::Error>>>,
+        deactivated: Mutex<Vec<String>>,
+    }
+
+    impl FakeBindings {
+        fn returning(outcome: Result<u64, sqlx::Error>) -> Self {
+            Self {
+                outcome: Mutex::new(Some(outcome)),
+                deactivated: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn calls(&self) -> Vec<String> {
+            self.deactivated.lock().expect("fake poisoned").clone()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl TaskBindingRepository for FakeBindings {
+        async fn deactivate_by_task(&self, task_id: &str) -> Result<u64, sqlx::Error> {
+            self.deactivated
+                .lock()
+                .expect("fake poisoned")
+                .push(task_id.to_string());
+            self.outcome
+                .lock()
+                .expect("fake poisoned")
+                .take()
+                .expect("deactivate_by_task called more times than the test queued outcomes")
+        }
+
+        async fn find_by_id(&self, _id: &str) -> Result<Option<TaskBinding>, sqlx::Error> {
+            unimplemented!("not reachable from deactivate_task_bindings")
+        }
+        async fn find_by_subject(
+            &self,
+            _provider: &str,
+            _subject_kind: &str,
+            _subject_key: &str,
+        ) -> Result<Vec<TaskBinding>, sqlx::Error> {
+            unimplemented!("not reachable from deactivate_task_bindings")
+        }
+        async fn find_all_by_subject_excluding_task(
+            &self,
+            _provider: &str,
+            _subject_kind: &str,
+            _subject_key: &str,
+            _exclude_task_id: &str,
+        ) -> Result<Vec<TaskBinding>, sqlx::Error> {
+            unimplemented!("not reachable from deactivate_task_bindings")
+        }
+        async fn find_by_task_id(&self, _task_id: &str) -> Result<Vec<TaskBinding>, sqlx::Error> {
+            unimplemented!("not reachable from deactivate_task_bindings")
+        }
+        async fn find_by_task_id_and_subject(
+            &self,
+            _task_id: &str,
+            _provider: &str,
+            _subject_kind: &str,
+            _subject_key: &str,
+        ) -> Result<Option<TaskBinding>, sqlx::Error> {
+            unimplemented!("not reachable from deactivate_task_bindings")
+        }
+        async fn find_provider_event_created_for_subject(
+            &self,
+            _provider: &str,
+            _subject_kind: &str,
+            _subject_key: &str,
+        ) -> Result<Option<TaskBinding>, sqlx::Error> {
+            unimplemented!("not reachable from deactivate_task_bindings")
+        }
+        async fn find_active_by_destination_field(
+            &self,
+            _provider: &str,
+            _subject_kind: &str,
+            _field_name: &str,
+            _field_value: &str,
+        ) -> Result<Vec<TaskBinding>, sqlx::Error> {
+            unimplemented!("not reachable from deactivate_task_bindings")
+        }
+        async fn upsert(&self, _row: &TaskBinding) -> Result<TaskBinding, sqlx::Error> {
+            unimplemented!("not reachable from deactivate_task_bindings")
+        }
+        async fn delete(&self, _id: &str) -> Result<u64, sqlx::Error> {
+            unimplemented!("not reachable from deactivate_task_bindings")
+        }
+        async fn touch_last_event(&self, _id: &str) -> Result<(), sqlx::Error> {
+            unimplemented!("not reachable from deactivate_task_bindings")
+        }
+        async fn touch_cursor(
+            &self,
+            _id: &str,
+            _last_external_event_id: &str,
+        ) -> Result<(), sqlx::Error> {
+            unimplemented!("not reachable from deactivate_task_bindings")
+        }
+        async fn update_external_status(
+            &self,
+            _id: &str,
+            _status: Option<&str>,
+            _state_kind: Option<&str>,
+            _raw: &serde_json::Value,
+        ) -> Result<(), sqlx::Error> {
+            unimplemented!("not reachable from deactivate_task_bindings")
+        }
+        async fn find_by_task_ids(
+            &self,
+            _task_ids: &[String],
+        ) -> Result<Vec<TaskBinding>, sqlx::Error> {
+            unimplemented!("not reachable from deactivate_task_bindings")
+        }
+        async fn find_recent_for_loop(
+            &self,
+            _trigger_id: &str,
+            _limit: i64,
+        ) -> Result<Vec<LoopRecentTaskRow>, sqlx::Error> {
+            unimplemented!("not reachable from deactivate_task_bindings")
+        }
+    }
+
+    /// The close/delete cleanup reaches `task_bindings` only through the
+    /// injected port — no pool, no concrete repository.
+    #[tokio::test]
+    async fn deactivate_task_bindings_goes_through_the_injected_port() {
+        let bindings = FakeBindings::returning(Ok(2));
+
+        deactivate_task_bindings(&bindings, "task-1").await;
+
+        assert_eq!(bindings.calls(), vec!["task-1".to_string()]);
+    }
+
+    /// Deactivation is best-effort: a repository failure is logged, not
+    /// propagated, so closing or deleting a task still completes.
+    #[tokio::test]
+    async fn deactivate_task_bindings_swallows_a_repository_error() {
+        let bindings = FakeBindings::returning(Err(sqlx::Error::PoolClosed));
+
+        deactivate_task_bindings(&bindings, "task-2").await;
+
+        assert_eq!(bindings.calls(), vec!["task-2".to_string()]);
     }
 }

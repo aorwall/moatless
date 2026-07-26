@@ -7,8 +7,10 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use axum::Router;
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
+use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -61,10 +63,16 @@ pub fn init_tracing() {
 // =========================================================================
 
 /// Spawn the Prometheus metrics server on a dedicated port.
-pub fn spawn_metrics_server(port: u16) {
+///
+/// Returned for the root supervisor to own: a bind failure or an early end to
+/// `serve` returns from the task, and the supervisor turns that into the
+/// process-level failure the old `expect` was reaching for.
+pub fn spawn_metrics_server(port: u16, cancel: CancellationToken) -> JoinHandle<()> {
     let handle = metrics::init_metrics();
     crate::events::describe_event_metrics();
+    crate::event_ingress::describe_ingress_metrics();
     crate::adapters::metrics::describe_adapter_metrics();
+    crate::adapters::work::describe_adapter_work_metrics();
     crate::loops::firing::metrics::describe_trigger_metrics();
     crate::bindings::metrics::describe_binding_metrics();
     crate::event_handler::metrics::describe_agent_metrics();
@@ -72,15 +80,25 @@ pub fn spawn_metrics_server(port: u16) {
     let router = metrics::metrics_router(handle);
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     tokio::spawn(async move {
-        #[allow(clippy::expect_used)] // fail-fast: if metrics port is unavailable, crash early
-        let listener = TcpListener::bind(addr)
-            .await
-            .expect("Failed to bind metrics server — is the port already in use?");
+        let listener = match TcpListener::bind(addr).await {
+            Ok(listener) => listener,
+            Err(e) => {
+                tracing::error!(
+                    error = %e,
+                    port,
+                    "Failed to bind metrics server — is the port already in use?"
+                );
+                return;
+            }
+        };
         info!(port, "Metrics server started");
-        if let Err(e) = axum::serve(listener, router).await {
+        if let Err(e) = axum::serve(listener, router)
+            .with_graceful_shutdown(async move { cancel.cancelled().await })
+            .await
+        {
             tracing::error!(error = %e, "Metrics server failed");
         }
-    });
+    })
 }
 
 // =========================================================================
@@ -174,11 +192,14 @@ pub async fn init_event_publisher(config: &Config) -> Option<Arc<dyn EventPublis
 /// replay is served from the `task_events` Postgres table by the AppState-based
 /// `task_events_router` (`GET /api/v1/tasks/{task_id}/events`), which authorizes
 /// the caller against the task — so it is wired separately from this firehose.
+///
+/// The consumer's join handle is returned for the root supervisor to own; it is
+/// `None` when Redis is not configured and no consumer was started.
 pub async fn init_sse(
     config: &Config,
     db_pool: Option<&DbPool>,
     cancel: CancellationToken,
-) -> Result<SseState, redis::RedisError> {
+) -> Result<(SseState, Option<JoinHandle<()>>), redis::RedisError> {
     let (tx, _) = broadcast::channel::<String>(config.sse.broadcast_capacity);
 
     // Per-tenant firehose filtering resolves each event's task against the
@@ -186,7 +207,7 @@ pub async fn init_sse(
     let tasks: Option<Arc<dyn TaskRepository>> =
         db_pool.map(|pool| Arc::new(PgTaskRepository(pool.clone())) as _);
 
-    if let Some(ref redis_url) = config.redis.url {
+    let consumer_handle = if let Some(ref redis_url) = config.redis.url {
         let client = redis::Client::open(redis_url.as_str())?;
         let conn = redis::aio::ConnectionManager::new_with_config(
             client,
@@ -199,17 +220,22 @@ pub async fn init_sse(
             tx.clone(),
             cancel.clone(),
         );
-        tokio::spawn(consumer.run());
+        let handle = tokio::spawn(consumer.run());
         info!(consumer_id = %config.sse.consumer_id, "SSE Redis consumer spawned");
+        Some(handle)
     } else {
         info!("REDIS_URL not set — SSE Redis consumer disabled");
-    }
+        None
+    };
 
-    Ok(SseState {
-        broadcast: tx,
-        cancel,
-        tasks,
-    })
+    Ok((
+        SseState {
+            broadcast: tx,
+            cancel,
+            tasks,
+        },
+        consumer_handle,
+    ))
 }
 
 // =========================================================================
@@ -236,13 +262,17 @@ pub async fn init_s3(config: &Config) -> Option<aws_sdk_s3::Client> {
 // =========================================================================
 
 /// Spawn the backend ↔ sandbox gRPC server.
+///
+/// Returned for the root supervisor to own — every sandbox reaches the backend
+/// through this server, so its termination must not be silent.
 pub fn spawn_grpc_server(
     config: &Config,
     db_pool: Option<&DbPool>,
     event_publisher: Option<Arc<dyn EventPublisher>>,
     s3: Option<Arc<aws_sdk_s3::Client>>,
     connector: Arc<dyn crate::sandbox::access::SandboxConnector>,
-) {
+    cancel: CancellationToken,
+) -> JoinHandle<()> {
     let messages: Option<Arc<dyn MessageRepository>> =
         db_pool.map(|pool| Arc::new(PgMessageRepository(pool.clone())) as _);
     let files: Option<Arc<dyn FileRepository>> =
@@ -255,6 +285,8 @@ pub fn spawn_grpc_server(
         .map(|pool| Arc::new(crate::task_turn::dao::PgTaskTurnRepository(pool.clone())) as _);
     let grpc_task_events: Option<Arc<dyn crate::task_event::dao::TaskEventRepository>> = db_pool
         .map(|pool| Arc::new(crate::task_event::dao::PgTaskEventRepository(pool.clone())) as _);
+    let ingress_outbox: Option<Arc<dyn crate::event_ingress::outbox::IngressOutbox>> = db_pool
+        .map(|pool| Arc::new(crate::event_ingress::outbox::PgIngressOutbox(pool.clone())) as _);
     let task_relations: Option<Arc<dyn crate::task::relations::TaskRelationRepository>> = db_pool
         .map(|pool| {
             Arc::new(crate::task::relations::PgTaskRelationRepository(
@@ -338,6 +370,7 @@ pub fn spawn_grpc_server(
             tasks,
             task_turns,
             task_events: grpc_task_events,
+            ingress_outbox,
             task_relations,
             task_token_secret: token_secret,
             authorizer,
@@ -366,25 +399,124 @@ pub fn spawn_grpc_server(
                     svc,
                 ),
             )
-            .serve(addr)
+            .serve_with_shutdown(addr, async move { cancel.cancelled().await })
             .await
         {
             tracing::error!(error = %e, "gRPC server failed");
         }
-    });
+    })
 }
 
 // =========================================================================
 // Shutdown
 // =========================================================================
 
-/// Spawn a task that cancels the token on Ctrl-C.
-pub fn install_shutdown_handler(cancel: CancellationToken) {
+/// Spawn a task that cancels the root token on a shutdown signal.
+///
+/// Cancelling the root token is what starts the supervised shutdown, so the
+/// handler listens for SIGTERM as well as Ctrl-C: SIGTERM is how Kubernetes
+/// terminates a pod, and without it the bounded join never runs in production.
+pub fn install_shutdown_handler(cancel: CancellationToken) -> JoinHandle<()> {
     tokio::spawn(async move {
-        let _ = tokio::signal::ctrl_c().await;
+        shutdown_signal().await;
         info!("Received shutdown signal, cancelling background tasks");
         cancel.cancel();
-    });
+    })
+}
+
+#[cfg(unix)]
+async fn shutdown_signal() {
+    use tokio::signal::unix::{signal, SignalKind};
+
+    let ctrl_c = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
+    match signal(SignalKind::terminate()) {
+        Ok(mut sigterm) => {
+            tokio::select! {
+                () = ctrl_c => {}
+                _ = sigterm.recv() => {}
+            }
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "SIGTERM handler unavailable; listening for Ctrl-C only");
+            ctrl_c.await;
+        }
+    }
+}
+
+#[cfg(not(unix))]
+async fn shutdown_signal() {
+    let _ = tokio::signal::ctrl_c().await;
+}
+
+// =========================================================================
+// Readiness
+// =========================================================================
+
+/// Build the `/ready` readiness probe.
+///
+/// Distinct from `/health`, which is a pure liveness probe (process up). The
+/// probe reports unavailable when a readiness-critical supervised task has
+/// terminated, or when Redis is unreachable — task creation degrades silently
+/// when event publishes time out. Either way Kubernetes sheds traffic to a
+/// replica that can still do the work.
+pub fn readiness_router(
+    events: Option<Arc<dyn EventPublisher>>,
+    supervisor: Arc<crate::supervisor::SupervisorHealth>,
+) -> Router {
+    Router::new().route(
+        "/ready",
+        axum::routing::get(move || {
+            let events = events.clone();
+            let supervisor = Arc::clone(&supervisor);
+            async move {
+                use axum::http::StatusCode;
+                use axum::response::IntoResponse;
+
+                let failed = supervisor.failed_tasks();
+                if !failed.is_empty() {
+                    tracing::warn!(tasks = ?failed, "Readiness probe: supervised tasks terminated");
+                    return (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        axum::Json(serde_json::json!({
+                            "status": "unavailable",
+                            "component": "supervisor",
+                            "tasks": failed
+                        })),
+                    )
+                        .into_response();
+                }
+
+                match events {
+                    Some(publisher) => match publisher.health_check().await {
+                        Ok(()) => (
+                            StatusCode::OK,
+                            axum::Json(serde_json::json!({"status": "ok"})),
+                        )
+                            .into_response(),
+                        Err(e) => {
+                            tracing::warn!(error = %e, "Readiness probe: event publisher unhealthy");
+                            (
+                                StatusCode::SERVICE_UNAVAILABLE,
+                                axum::Json(serde_json::json!({
+                                    "status": "unavailable",
+                                    "component": "events",
+                                    "error": e
+                                })),
+                            )
+                                .into_response()
+                        }
+                    },
+                    None => (
+                        StatusCode::OK,
+                        axum::Json(serde_json::json!({"status": "ok", "events": "disabled"})),
+                    )
+                        .into_response(),
+                }
+            }
+        }),
+    )
 }
 
 // =========================================================================

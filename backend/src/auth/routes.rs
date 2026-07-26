@@ -13,6 +13,7 @@ use urlencoding;
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
+use crate::adapters::dao::{AdapterConnectionRepository, PgAdapterConnectionRepository};
 use crate::config::{AuthProvider, Config};
 use crate::db::DbPool;
 use crate::error::ErrorBody;
@@ -136,6 +137,10 @@ pub struct AuthState {
     /// override, and the validated PAT itself.
     pub secrets: Arc<SecretService>,
     pub tasks: Option<Arc<dyn crate::task::dao::TaskRepository>>,
+    /// Adapter connections (`integration_connections`). The Linear OAuth
+    /// callback mirrors the authorized workspace into this table so inbound
+    /// Linear webhooks resolve a connection.
+    pub adapter_connections: Arc<dyn AdapterConnectionRepository>,
 }
 
 impl AuthState {
@@ -167,6 +172,7 @@ impl AuthState {
             login_throttle: LoginThrottle::new(),
             provider_tokens: Arc::new(PgProviderTokenAuthRepository(pool.clone())),
             provider_tokens_dao: Arc::new(PgProviderTokenRepository(pool.clone())),
+            adapter_connections: Arc::new(PgAdapterConnectionRepository(pool.clone())),
             github_app_service,
             github_apps,
             secrets,
@@ -351,7 +357,7 @@ async fn password_login_handler(
 
     let matches = hash::verify_password(req.password, credential.password_hash.clone())
         .await
-        .map_err(|e| AuthError::Internal(format!("password verification failed: {e}")))?;
+        .map_err(AuthError::PasswordVerification)?;
 
     if !matches {
         state.login_throttle.record_failure(&req.username).await;
@@ -465,14 +471,14 @@ async fn change_password_handler(
     // must not be enough to lock the owner out.
     let matches = hash::verify_password(req.current_password, credential.password_hash)
         .await
-        .map_err(|e| AuthError::Internal(format!("password verification failed: {e}")))?;
+        .map_err(AuthError::PasswordVerification)?;
     if !matches {
         return Err(AuthError::Unauthorized);
     }
 
     let new_hash = hash::hash_password(req.new_password)
         .await
-        .map_err(|e| AuthError::Internal(format!("password hashing failed: {e}")))?;
+        .map_err(AuthError::PasswordHashing)?;
     state
         .credentials
         .set_password_hash(&claims.sub, &new_hash)
@@ -530,7 +536,7 @@ async fn admin_reset_password_handler(
 
     let new_hash = hash::hash_password(req.new_password)
         .await
-        .map_err(|e| AuthError::Internal(format!("password hashing failed: {e}")))?;
+        .map_err(AuthError::PasswordHashing)?;
 
     // `upsert` carries `must_change`; `set_password_hash` always clears it.
     state
@@ -600,7 +606,7 @@ async fn create_local_user(
     // hold a Postgres connection open for it.
     let password_hash = hash::hash_password(password)
         .await
-        .map_err(|e| AuthError::Internal(format!("password hashing failed: {e}")))?;
+        .map_err(AuthError::PasswordHashing)?;
 
     let now = chrono::Utc::now();
     let mut tx = state.db.begin().await.map_err(AuthError::Database)?;
@@ -1796,7 +1802,7 @@ async fn create_user_handler(
     let bot_identity = app
         .get_bot_identity()
         .await
-        .map_err(|e| AuthError::Internal(format!("Failed to resolve bot identity: {e}")))?;
+        .map_err(|e| AuthError::BotIdentity(Box::new(e)))?;
 
     let now = chrono::Utc::now();
     // The App key is preserved as the bot's provider identity; the internal id
@@ -2298,9 +2304,8 @@ async fn linear_callback_handler(
         .await?;
 
     // Upsert the workspace-level integration_connections row.
-    use crate::adapters::dao::PgAdapterConnectionRepository;
     use crate::adapters::models::AdapterConnection;
-    let conn_repo = PgAdapterConnectionRepository(state.db.clone());
+    let conn_repo = &state.adapter_connections;
 
     let now = chrono::Utc::now();
     let transport_config = serde_json::json!({

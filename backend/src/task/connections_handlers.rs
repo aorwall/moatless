@@ -22,7 +22,6 @@ use moatless_api_schemas::task_connections::{
 
 use crate::adapters::models::{ExternalStatus, TaskBinding};
 use crate::adapters::Adapter;
-use crate::bindings::dao::PgTaskBindingRepository;
 use crate::bindings::status_service;
 use crate::extractors::AuthUser;
 use crate::message::dao::ConnectionMessageCount;
@@ -126,7 +125,8 @@ pub async fn list_task_connections(
         .collect();
 
     // Batch resolve bindings (full rows, incl. destination_config + status).
-    let mut bindings = PgTaskBindingRepository(state.db.clone())
+    let mut bindings = state
+        .task_bindings
         .find_by_task_ids(&task_ids)
         .await
         .unwrap_or_else(|e| {
@@ -230,7 +230,8 @@ pub async fn get_task_connections(
 
     let task_ids = [task_id.clone()];
 
-    let mut bindings = PgTaskBindingRepository(state.db.clone())
+    let mut bindings = state
+        .task_bindings
         .find_by_task_ids(&task_ids)
         .await
         .unwrap_or_else(|e| {

@@ -54,23 +54,26 @@ impl WatcherHandle {
 /// `auth_path` is typically `<codex_home_dir>/auth.json`. The directory is
 /// watched (not the file) because Codex rewrites the file via atomic rename,
 /// which would invalidate a file-level watch handle.
+///
+/// Returns the cache handle plus the spawned task's join handle, so the caller
+/// registers termination with the root supervisor instead of detaching it.
 pub fn spawn(
     task_id: String,
     auth_path: PathBuf,
     initial_value: String,
     backend_client: Arc<dyn BackendClient>,
     cancel: CancellationToken,
-) -> WatcherHandle {
+) -> (WatcherHandle, tokio::task::JoinHandle<()>) {
     let last_value: Arc<Mutex<String>> = Arc::new(Mutex::new(initial_value));
     let handle = WatcherHandle {
         last_value: Arc::clone(&last_value),
     };
-    tokio::spawn(async move {
+    let task = tokio::spawn(async move {
         if let Err(e) = run(task_id, auth_path, last_value, backend_client, cancel).await {
             warn!(error = %e, "Codex auth watcher exited with error");
         }
     });
-    handle
+    (handle, task)
 }
 
 async fn run(

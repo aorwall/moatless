@@ -127,6 +127,17 @@ impl GithubPrApi {
         }
     }
 
+    /// Point the client at a caller-supplied REST root so tests can drive the
+    /// real request path against a local address.
+    #[cfg(test)]
+    pub(crate) fn with_base_url(token: &str, base_url: impl Into<String>) -> Self {
+        Self {
+            client: Client::new(),
+            token: token.to_string(),
+            base_url: base_url.into(),
+        }
+    }
+
     fn request(&self, method: reqwest::Method, url: &str) -> reqwest::RequestBuilder {
         self.client
             .request(method, url)
@@ -161,7 +172,7 @@ impl GithubPrApi {
             .json(&serde_json::json!({ "body": body }))
             .send()
             .await
-            .map_err(|e| AdapterError::AdapterApi(format!("GitHub post_comment failed: {e}")))?;
+            .map_err(|e| AdapterError::provider_unreachable("GitHub post_comment", e))?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -172,9 +183,10 @@ impl GithubPrApi {
             )));
         }
 
-        let data: serde_json::Value = resp.json().await.map_err(|e| {
-            AdapterError::AdapterApi(format!("GitHub post_comment parse error: {e}"))
-        })?;
+        let data: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| AdapterError::provider_response_invalid("GitHub post_comment", e))?;
 
         let comment_id = data
             .get("id")
@@ -209,7 +221,7 @@ impl GithubPrApi {
             }))
             .send()
             .await
-            .map_err(|e| AdapterError::AdapterApi(format!("GitHub create_pr failed: {e}")))?;
+            .map_err(|e| AdapterError::provider_unreachable("GitHub create_pr", e))?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -222,7 +234,7 @@ impl GithubPrApi {
 
         resp.json()
             .await
-            .map_err(|e| AdapterError::AdapterApi(format!("GitHub create_pr parse error: {e}")))
+            .map_err(|e| AdapterError::provider_response_invalid("GitHub create_pr", e))
     }
 
     /// Fetch a repository's default branch name.
@@ -237,7 +249,7 @@ impl GithubPrApi {
             .request(reqwest::Method::GET, &url)
             .send()
             .await
-            .map_err(|e| AdapterError::AdapterApi(format!("GitHub get_repo failed: {e}")))?;
+            .map_err(|e| AdapterError::provider_unreachable("GitHub get_repo", e))?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -250,7 +262,7 @@ impl GithubPrApi {
         let data: serde_json::Value = resp
             .json()
             .await
-            .map_err(|e| AdapterError::AdapterApi(format!("GitHub get_repo parse error: {e}")))?;
+            .map_err(|e| AdapterError::provider_response_invalid("GitHub get_repo", e))?;
         data.get("default_branch")
             .and_then(serde_json::Value::as_str)
             .map(str::to_string)
@@ -277,9 +289,7 @@ impl GithubPrApi {
             .request(reqwest::Method::GET, &url)
             .send()
             .await
-            .map_err(|e| {
-                AdapterError::AdapterApi(format!("GitHub get_pulls_for_commit failed: {e}"))
-            })?;
+            .map_err(|e| AdapterError::provider_unreachable("GitHub get_pulls_for_commit", e))?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -289,9 +299,9 @@ impl GithubPrApi {
             )));
         }
 
-        resp.json::<Vec<CommitPr>>().await.map_err(|e| {
-            AdapterError::AdapterApi(format!("GitHub get_pulls_for_commit parse error: {e}"))
-        })
+        resp.json::<Vec<CommitPr>>()
+            .await
+            .map_err(|e| AdapterError::provider_response_invalid("GitHub get_pulls_for_commit", e))
     }
 
     /// Reply to a PR review comment (threaded review reply).
@@ -322,9 +332,7 @@ impl GithubPrApi {
             .json(&serde_json::json!({ "body": body }))
             .send()
             .await
-            .map_err(|e| {
-                AdapterError::AdapterApi(format!("GitHub reply_to_review_comment failed: {e}"))
-            })?;
+            .map_err(|e| AdapterError::provider_unreachable("GitHub reply_to_review_comment", e))?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -336,7 +344,7 @@ impl GithubPrApi {
         }
 
         let data: serde_json::Value = resp.json().await.map_err(|e| {
-            AdapterError::AdapterApi(format!("GitHub reply_to_review_comment parse error: {e}"))
+            AdapterError::provider_response_invalid("GitHub reply_to_review_comment", e)
         })?;
 
         data.get("id")
@@ -359,7 +367,7 @@ impl GithubPrApi {
             .request(reqwest::Method::GET, &url)
             .send()
             .await
-            .map_err(|e| AdapterError::AdapterApi(format!("GitHub get_pr failed: {e}")))?;
+            .map_err(|e| AdapterError::provider_unreachable("GitHub get_pr", e))?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -371,7 +379,7 @@ impl GithubPrApi {
 
         resp.json()
             .await
-            .map_err(|e| AdapterError::AdapterApi(format!("GitHub get_pr parse error: {e}")))
+            .map_err(|e| AdapterError::provider_response_invalid("GitHub get_pr", e))
     }
 
     /// Fetch PR metadata, polling until GitHub has computed the mergeable
@@ -451,7 +459,7 @@ impl GithubPrApi {
             .json(&serde_json::json!({ "content": content }))
             .send()
             .await
-            .map_err(|e| AdapterError::AdapterApi(format!("GitHub create_reaction failed: {e}")))?;
+            .map_err(|e| AdapterError::provider_unreachable("GitHub create_reaction", e))?;
 
         let status = resp.status();
         // GitHub returns 200 (existing) or 201 (created); both contain the reaction body.
@@ -463,9 +471,10 @@ impl GithubPrApi {
             )));
         }
 
-        let data: serde_json::Value = resp.json().await.map_err(|e| {
-            AdapterError::AdapterApi(format!("GitHub create_reaction parse error: {e}"))
-        })?;
+        let data: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| AdapterError::provider_response_invalid("GitHub create_reaction", e))?;
         let reaction_id = data
             .get("id")
             .and_then(serde_json::Value::as_u64)
@@ -507,7 +516,7 @@ impl GithubPrApi {
             .query(&[("per_page", "100")])
             .send()
             .await
-            .map_err(|e| AdapterError::AdapterApi(format!("GitHub list_reactions failed: {e}")))?;
+            .map_err(|e| AdapterError::provider_unreachable("GitHub list_reactions", e))?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -517,9 +526,9 @@ impl GithubPrApi {
             )));
         }
 
-        resp.json().await.map_err(|e| {
-            AdapterError::AdapterApi(format!("GitHub list_reactions parse error: {e}"))
-        })
+        resp.json()
+            .await
+            .map_err(|e| AdapterError::provider_response_invalid("GitHub list_reactions", e))
     }
 
     /// Delete a reaction from an issue comment by reaction id.
@@ -557,7 +566,7 @@ impl GithubPrApi {
             .request(reqwest::Method::DELETE, url)
             .send()
             .await
-            .map_err(|e| AdapterError::AdapterApi(format!("GitHub delete_reaction failed: {e}")))?;
+            .map_err(|e| AdapterError::provider_unreachable("GitHub delete_reaction", e))?;
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
@@ -575,7 +584,7 @@ impl GithubPrApi {
             .request(reqwest::Method::GET, &format!("{}/user", self.base_url))
             .send()
             .await
-            .map_err(|e| AdapterError::AdapterApi(format!("GitHub user failed: {e}")))?;
+            .map_err(|e| AdapterError::provider_unreachable("GitHub user", e))?;
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
@@ -586,7 +595,7 @@ impl GithubPrApi {
         let data: serde_json::Value = resp
             .json()
             .await
-            .map_err(|e| AdapterError::AdapterApi(format!("GitHub user parse error: {e}")))?;
+            .map_err(|e| AdapterError::provider_response_invalid("GitHub user", e))?;
         data.get("login")
             .and_then(serde_json::Value::as_str)
             .map(str::to_string)
@@ -608,7 +617,7 @@ impl GithubPrApi {
             .json(&serde_json::json!({ "body": body }))
             .send()
             .await
-            .map_err(|e| AdapterError::AdapterApi(format!("GitHub update_pr_body failed: {e}")))?;
+            .map_err(|e| AdapterError::provider_unreachable("GitHub update_pr_body", e))?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -620,5 +629,68 @@ impl GithubPrApi {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod error_source_tests {
+    use std::error::Error as _;
+
+    use axum::http::StatusCode;
+
+    use super::*;
+    use crate::adapters::test_support::{stub_provider, UNREACHABLE_BASE};
+
+    #[tokio::test]
+    async fn unreachable_github_keeps_transport_source() {
+        let api = GithubPrApi::with_base_url("ghp_test", UNREACHABLE_BASE);
+
+        let err = api
+            .post_comment("acme", "widgets", 7, "hi")
+            .await
+            .expect_err("dead loopback port must fail");
+
+        let AdapterError::ProviderUnreachable {
+            ref operation,
+            ref source,
+        } = err
+        else {
+            panic!("expected ProviderUnreachable, got {err:?}");
+        };
+        assert_eq!(operation, "GitHub post_comment");
+        assert!(source.is_connect() || source.is_request(), "{source}");
+        assert!(err.source().is_some(), "cause must stay reachable");
+    }
+
+    #[tokio::test]
+    async fn undecodable_github_body_keeps_decode_source() {
+        let base = stub_provider(StatusCode::CREATED, "<html>not json</html>").await;
+        let api = GithubPrApi::with_base_url("ghp_test", base);
+
+        let err = api
+            .post_comment("acme", "widgets", 7, "hi")
+            .await
+            .expect_err("html body must not decode");
+
+        let AdapterError::ProviderResponseInvalid { ref operation, .. } = err else {
+            panic!("expected ProviderResponseInvalid, got {err:?}");
+        };
+        assert_eq!(operation, "GitHub post_comment");
+        assert!(err.source().is_some(), "cause must stay reachable");
+    }
+
+    /// GitHub answering 403 is a rejection, not a wrapped failure.
+    #[tokio::test]
+    async fn github_rejection_stays_a_synthesized_message() {
+        let base = stub_provider(StatusCode::FORBIDDEN, r#"{"message":"Bad credentials"}"#).await;
+        let api = GithubPrApi::with_base_url("ghp_test", base);
+
+        let err = api
+            .post_comment("acme", "widgets", 7, "hi")
+            .await
+            .expect_err("403 must be an error");
+
+        assert!(matches!(err, AdapterError::AdapterApi(_)), "got {err:?}");
+        assert!(err.source().is_none());
     }
 }

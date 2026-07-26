@@ -13,7 +13,7 @@ use moatless_events::{
     TaskSubType, TaskTurnSubType,
 };
 
-use crate::events::EventPublisher;
+use crate::events::{EventPublisher, PublishError};
 
 /// A publish call captured by [`RecordingPublisher`].
 #[derive(Debug, Clone, PartialEq)]
@@ -27,16 +27,28 @@ pub(crate) enum RecordedEvent {
     Raw,
 }
 
+/// One `publish_raw_event_with_id` call, captured in full.
+#[derive(Debug, Clone)]
+pub(crate) struct RawPublish {
+    pub(crate) event_id: String,
+    pub(crate) payload: Value,
+    /// The flag deciding whether an oversized payload may be truncated.
+    pub(crate) payload_recoverable: bool,
+}
+
 /// [`EventPublisher`] double that records what it was asked to publish, so
 /// tests can assert the events a code path emitted without Redis.
 ///
 /// The optional `order_log` also appends `"publish"` on each raw publish; the
-/// gRPC transactional-outbox ordering tests share it with a recording turn repo
-/// to assert the DB commit is logged before the publish.
+/// ingress ordering tests share it with a recording repository to assert the DB
+/// commit is logged before the publish. `failing` simulates a transport outage
+/// for a fixed number of raw publishes, so fail-then-recover paths are testable.
 #[derive(Default)]
 pub(crate) struct RecordingPublisher {
     calls: Arc<Mutex<Vec<RecordedEvent>>>,
+    raw: Arc<Mutex<Vec<RawPublish>>>,
     order_log: Option<Arc<Mutex<Vec<&'static str>>>>,
+    fail_next: Arc<Mutex<usize>>,
 }
 
 impl RecordingPublisher {
@@ -48,9 +60,23 @@ impl RecordingPublisher {
     /// raw publish.
     pub(crate) fn with_order_log(order_log: Arc<Mutex<Vec<&'static str>>>) -> Self {
         Self {
-            calls: Arc::new(Mutex::new(Vec::new())),
             order_log: Some(order_log),
+            ..Self::default()
         }
+    }
+
+    /// A publisher whose next `fail_next` raw publishes fail as a transport
+    /// error, and which succeeds from then on.
+    pub(crate) fn failing(fail_next: usize) -> Self {
+        Self {
+            fail_next: Arc::new(Mutex::new(fail_next)),
+            ..Self::default()
+        }
+    }
+
+    /// Raw publishes, in order.
+    pub(crate) fn raw_publishes(&self) -> Vec<RawPublish> {
+        self.raw.lock().expect("recorder poisoned").clone()
     }
 
     pub(crate) fn events(&self) -> Vec<RecordedEvent> {
@@ -135,19 +161,41 @@ impl EventPublisher for RecordingPublisher {
     }
     async fn publish_raw_event_with_id(
         &self,
-        _: &str,
+        event_id: &str,
         _: &str,
         _: &str,
         _: &str,
         _: Option<&str>,
         _: Option<i32>,
-        _: Value,
-        _: bool,
-    ) {
+        payload: Value,
+        payload_recoverable: bool,
+    ) -> Result<(), PublishError> {
         self.push(RecordedEvent::Raw);
         if let Some(order_log) = &self.order_log {
             order_log.lock().expect("recorder poisoned").push("publish");
         }
+        {
+            let mut remaining = self.fail_next.lock().expect("recorder poisoned");
+            if *remaining > 0 {
+                *remaining -= 1;
+                return Err(PublishError::Transport {
+                    attempts: 3,
+                    source: redis::RedisError::from((
+                        redis::ErrorKind::Io,
+                        "injected transport failure",
+                    )),
+                });
+            }
+        }
+        self.raw
+            .lock()
+            .expect("recorder poisoned")
+            .push(RawPublish {
+                event_id: event_id.to_string(),
+                payload,
+                payload_recoverable,
+            });
+        Ok(())
     }
     async fn health_check(&self) -> Result<(), String> {
         Ok(())

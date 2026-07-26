@@ -17,7 +17,7 @@
 //! expressed as ports so the ordering and decision logic here is exercised
 //! against in-memory doubles; the Postgres implementations
 //! (`pg_try_advisory_lock` on a dedicated pool, the single-statement intent
-//! write, the transactional-outbox completion commit) satisfy the same ports.
+//! write, the commit-before-publication completion commit) satisfy the same ports.
 
 use std::sync::Arc;
 
@@ -153,7 +153,7 @@ pub trait AgentStopPort: Send + Sync {
     async fn stop_agent(&self, task_id: &str, reason: SandboxStopReason);
 }
 
-/// Publishes derived lifecycle events through the outbox path.
+/// Publishes derived lifecycle events through the event-publication path.
 #[async_trait]
 pub trait LifecycleEventSink: Send + Sync {
     async fn publish(&self, task_id: &str, event: &LifecycleEvent);

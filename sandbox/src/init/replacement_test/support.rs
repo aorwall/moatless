@@ -55,13 +55,15 @@ fn build_state(
         codex_watcher_handle: Arc::new(RwLock::new(None)),
         system_prompt_cache: Arc::new(RwLock::new(None)),
         dispatch_lock: Default::default(),
+        supervisor_health: Default::default(),
     }
 }
 
 /// A fire-and-forget event publisher over `backend` (its outbox lives for the
 /// test's scope via a fresh cancel token).
 fn publisher_for(config: &Config, backend: Arc<dyn BackendClient>) -> GrpcEventPublisher {
-    let outbox = EventOutbox::spawn(backend, config.task_id.clone(), CancellationToken::new());
+    let (outbox, _drainer) =
+        EventOutbox::spawn(backend, config.task_id.clone(), CancellationToken::new());
     GrpcEventPublisher::new(outbox)
 }
 

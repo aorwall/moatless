@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
+use tracing::warn;
 
 use crate::agent::agent_state::AgentState;
 use crate::agent::handle::AgentHandle;
@@ -17,6 +18,7 @@ use crate::credentials::Dispatcher;
 use crate::events::GrpcEventPublisher;
 use crate::init::codex_watcher::WatcherHandle;
 use crate::init::InitPhase;
+use crate::supervisor::SupervisorHealth;
 
 /// Shared state passed to all axum handlers via `State` extractor.
 ///
@@ -81,9 +83,52 @@ pub struct SandboxState {
     /// its acknowledge completes, so a concurrent one blocks and then fetches
     /// empty — the Message reaches the harness exactly once.
     pub dispatch_lock: Arc<Mutex<()>>,
+    /// Liveness view of the root supervisor's tasks, read by `/livez`.
+    ///
+    /// Non-empty means a task declared [`Criticality::Fatal`] or
+    /// [`Criticality::Liveness`] terminated before shutdown; see
+    /// [`SandboxState::is_live`].
+    ///
+    /// [`Criticality::Fatal`]: crate::supervisor::Criticality::Fatal
+    /// [`Criticality::Liveness`]: crate::supervisor::Criticality::Liveness
+    pub supervisor_health: Arc<SupervisorHealth>,
 }
 
 impl SandboxState {
+    /// The `/livez` decision: is this pod still able to make progress?
+    ///
+    /// Two independent ways to lose that, both of which want the same remedy —
+    /// replace the pod:
+    ///
+    /// 1. A supervised task the pod needs terminated early. The supervisor
+    ///    records it by name; nothing here is restartable in place.
+    /// 2. The agent actor wedged or exited — see
+    ///    [`crate::agent::heartbeat::actor_is_alive`].
+    ///
+    /// Deliberately still independent of backend reachability, credentials, and
+    /// disk: a supervised task's termination is *this process* being broken, not
+    /// a dependency being briefly unavailable, so a transient outage still
+    /// cannot trigger a restart that kills an in-flight turn.
+    pub async fn is_live(&self) -> bool {
+        use crate::agent::heartbeat::{actor_is_alive, now_millis, HEARTBEAT_STALE_THRESHOLD_MS};
+        use crate::agent::types::AgentStatus;
+
+        let failed = self.supervisor_health.failed_tasks();
+        if !failed.is_empty() {
+            warn!(?failed, "Liveness: supervised tasks terminated early");
+            return false;
+        }
+
+        let turn_running = matches!(self.agent.status().await, AgentStatus::Running);
+        actor_is_alive(
+            now_millis(),
+            self.heartbeat.last_beat_ms(),
+            turn_running,
+            !self.agent_handle.is_closed(),
+            HEARTBEAT_STALE_THRESHOLD_MS,
+        )
+    }
+
     /// Whether core init has finished (Session state restored, workspace cloned)
     /// and the pod has reached [`InitPhase::Ready`].
     ///

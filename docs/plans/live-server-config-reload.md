@@ -324,7 +324,7 @@ agent container.
 | `backend/src/sandbox/server_runner.rs` | supervisor wrapper, shared by both builders |
 | `backend/src/sandbox/k8s/pod_builder.rs` | use the wrapper; pass overrides in `REPO_CONFIG` |
 | `backend/src/sandbox/docker/container_builder.rs` | same |
-| `backend/migrations` | `0098_task_server_overrides.sql` — `tasks.server_overrides` JSONB |
+| `backend/migrations` | `0100_task_server_overrides.sql` — `tasks.server_overrides` JSONB |
 | `backend/src/sandbox` | 3 handlers, routes, DTOs, client method, override layering in `auto_provision.rs` |
 | `crates/api-schemas`, `crates/api-client` | DTO mirrors + 4 client methods |
 | `crates/cli` | `moat tasks servers` subcommand |

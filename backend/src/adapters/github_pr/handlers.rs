@@ -7,6 +7,8 @@ use crate::adapters::error::AdapterError;
 use crate::adapters::metrics::record_webhook;
 use crate::state::AppState;
 
+use super::adapter::GithubWebhookError;
+
 #[utoipa::path(
     post,
     path = "/api/v1/adapters/github/webhook",
@@ -42,18 +44,36 @@ pub async fn github_webhook(
         Ok(super::adapter::GithubWebhookOutcome::Ignored { event_type, reason }) => {
             record_webhook("github_pr", "ignored", reason, &event_type, "", "");
         }
-        Err(e) => {
-            // `event_type` may have been unset (e.g. missing header); fall back
-            // to whatever the request advertised so the metric still has a
-            // useful label.
-            let event_type = headers
-                .get("x-github-event")
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("");
+        // The one failure that must not be acknowledged. Nothing was written,
+        // so a 200 would tell GitHub the work is ours while no record of it
+        // exists anywhere. Surfaced as `503` at capacity and `500` on a failed
+        // write. GitHub does not retry a delivery on its own, so what this buys
+        // is a delivery recorded as failed — redeliverable by an operator for 30
+        // days, and alertable here via the `not_admitted` reason.
+        Err(GithubWebhookError::NotAdmitted(e)) => {
+            let event_type = advertised_event_type(&headers);
+            record_webhook("github_pr", "error", "not_admitted", event_type, "", "");
+            warn!(error = %e, "GitHub PR webhook work was not admitted; delivery left unacknowledged");
+            return Err(AdapterError::from(e));
+        }
+        // Every other failure keeps the long-standing behaviour: log it, meter
+        // it, and acknowledge. These are rejections of the delivery itself
+        // (bad header, bad JSON, bad signature), which a redelivery cannot fix.
+        Err(GithubWebhookError::Ingress(e)) => {
+            let event_type = advertised_event_type(&headers);
             record_webhook("github_pr", "error", "delivery_failed", event_type, "", "");
             warn!(error = %e, "GitHub PR webhook processing error");
         }
     }
 
     Ok(StatusCode::OK)
+}
+
+/// The event type the request advertised, for metric labelling when processing
+/// failed before one was resolved.
+fn advertised_event_type(headers: &HeaderMap) -> &str {
+    headers
+        .get("x-github-event")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
 }

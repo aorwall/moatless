@@ -111,7 +111,7 @@ fn recording_publisher() -> (
         received: Arc::clone(&received),
     });
     let cancel = CancellationToken::new();
-    let outbox = EventOutbox::spawn(backend, "task-1".to_string(), cancel.clone());
+    let (outbox, _drainer) = EventOutbox::spawn(backend, "task-1".to_string(), cancel.clone());
     (GrpcEventPublisher::new(outbox), received, cancel)
 }
 
@@ -724,7 +724,7 @@ fn recording_publisher_with_cancel(
     let backend = Arc::new(RecordingBackend {
         received: Arc::clone(&received),
     });
-    let outbox = EventOutbox::spawn(backend, "task-1".to_string(), cancel.clone());
+    let (outbox, _drainer) = EventOutbox::spawn(backend, "task-1".to_string(), cancel.clone());
     (GrpcEventPublisher::new(outbox), received, cancel)
 }
 

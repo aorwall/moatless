@@ -97,7 +97,10 @@ pub fn classify_grpc_error(e: tonic::Status, operation: &str) -> SandboxError {
         tonic::Code::FailedPrecondition | tonic::Code::InvalidArgument => {
             SandboxError::BadRequest(e.message().to_string())
         }
-        _ => SandboxError::Internal(format!("gRPC {operation} failed: {e}")),
+        _ => SandboxError::Grpc {
+            operation: operation.to_string(),
+            source: e,
+        },
     }
 }
 
@@ -408,10 +411,11 @@ mod tests {
             classify_grpc_error(tonic::Status::not_found("missing"), "read_file"),
             SandboxError::NotFound(_)
         ));
-        assert!(matches!(
-            classify_grpc_error(tonic::Status::internal("boom"), "read_file"),
-            SandboxError::Internal(_)
-        ));
+        // An unclassified status keeps the tonic error on the source chain.
+        let err = classify_grpc_error(tonic::Status::internal("boom"), "read_file");
+        assert!(matches!(err, SandboxError::Grpc { .. }), "got {err:?}");
+        let source = std::error::Error::source(&err).expect("tonic status is the source");
+        assert!(source.to_string().contains("boom"));
     }
 
     #[test]

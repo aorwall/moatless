@@ -15,16 +15,23 @@ use moatless_vibe_backend::agent;
 use moatless_vibe_backend::auth;
 use moatless_vibe_backend::config::{Config, SandboxProviderType};
 use moatless_vibe_backend::event_handler;
+use moatless_vibe_backend::event_ingress::relay::{IngressRelay, IngressRelayHandle};
 use moatless_vibe_backend::feature_flags;
 use moatless_vibe_backend::leader::{K8sLeaderGuard, LeaderGuard};
 use moatless_vibe_backend::sandbox;
 use moatless_vibe_backend::sse::routes::sse_router;
 use moatless_vibe_backend::startup;
 use moatless_vibe_backend::state::AppState;
+use moatless_vibe_backend::supervisor::{Criticality, Supervisor};
 use moatless_vibe_backend::{
     adapters, feedback, file_storage, loops, message, plugin_repo, provider_settings, repository,
     secret, skill, tag, task, task_event, team, workspace,
 };
+
+/// How long shutdown waits for supervised tasks to finish before giving up and
+/// naming the stragglers. Sits comfortably inside Kubernetes' default 30s
+/// termination grace period so the report is emitted before SIGKILL.
+const SHUTDOWN_JOIN_DEADLINE: std::time::Duration = std::time::Duration::from_secs(20);
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -74,8 +81,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from_env()?;
     info!(sandbox_namespace = %config.sandbox.namespace, "Starting Moatless Vibe Backend");
 
+    // Root cancellation + the one supervisor that owns every long-lived task's
+    // join handle. Each `supervise` call declares what this process does when
+    // that task stops (see `supervisor::Criticality`).
+    let cancel = CancellationToken::new();
+    let mut supervisor = Supervisor::new(cancel.clone());
+
     // Infrastructure services
-    startup::spawn_metrics_server(config.server.metrics_port);
+    supervisor.supervise(
+        "shutdown-signal",
+        // Optional: this listener's whole job is to cancel the root token, and
+        // by the time it returns it already has.
+        Criticality::Optional,
+        startup::install_shutdown_handler(cancel.clone()),
+    );
+    supervisor.supervise(
+        "metrics-server",
+        // Fatal: a metrics port that never binds leaves a pod that looks
+        // healthy but exports nothing.
+        Criticality::Fatal,
+        startup::spawn_metrics_server(config.server.metrics_port, cancel.clone()),
+    );
     let db_pool = startup::init_database(
         config.database_url.as_deref(),
         config.database.max_connections,
@@ -83,13 +109,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await;
     let event_publisher = startup::init_event_publisher(&config).await;
-    let cancel = CancellationToken::new();
-    let sse_state = startup::init_sse(&config, db_pool.as_ref(), cancel.clone()).await?;
+    let (sse_state, sse_consumer) =
+        startup::init_sse(&config, db_pool.as_ref(), cancel.clone()).await?;
+    if let Some(handle) = sse_consumer {
+        supervisor.supervise(
+            "sse-redis-consumer",
+            // Readiness: without it the live SSE tail silently stops, so this
+            // replica must stop receiving traffic.
+            Criticality::Readiness,
+            handle,
+        );
+    }
     let s3_client = startup::init_s3(&config).await;
     let provision_deps = db_pool
         .as_ref()
         .map(moatless_vibe_backend::sandbox::lifecycle::ProvisionDeps::from_pool);
-    startup::install_shutdown_handler(cancel.clone());
     // Build the configured runtime/observer/connector adapter once.
     let sandbox_runtime: Arc<dyn sandbox::lifecycle::SandboxRuntime>;
     let sandbox_observer: Arc<dyn sandbox::access::SandboxObserver>;
@@ -156,12 +190,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    startup::spawn_grpc_server(
-        &config,
-        db_pool.as_ref(),
-        event_publisher.clone(),
-        s3_client.clone().map(std::sync::Arc::new),
-        sandbox_connector.clone(),
+    supervisor.supervise(
+        "grpc-server",
+        // Fatal: every sandbox reaches the backend through this server.
+        Criticality::Fatal,
+        startup::spawn_grpc_server(
+            &config,
+            db_pool.as_ref(),
+            event_publisher.clone(),
+            s3_client.clone().map(std::sync::Arc::new),
+            sandbox_connector.clone(),
+            cancel.clone(),
+        ),
     );
 
     // ── Build router ────────────────────────────────────────────────────
@@ -227,12 +267,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if let Some(docker_client) = docker_watcher_client {
         if let Some(ref publisher) = event_publisher {
-            sandbox::docker::container_watcher::spawn_container_lifecycle_watcher(
-                docker_client,
-                publisher.clone(),
-                cancel.clone(),
-                config.sandbox.max_crash_restart_count,
-                lifecycle.clone(),
+            supervisor.supervise(
+                "docker-container-watcher",
+                // Readiness: sandbox lifecycle observation stops without it.
+                Criticality::Readiness,
+                sandbox::docker::container_watcher::spawn_container_lifecycle_watcher(
+                    docker_client,
+                    publisher.clone(),
+                    cancel.clone(),
+                    config.sandbox.max_crash_restart_count,
+                    lifecycle.clone(),
+                ),
             );
             info!(
                 max_crash_restart_count = config.sandbox.max_crash_restart_count,
@@ -249,16 +294,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // None under Docker) and when an event publisher (Redis) is available.
     match (reaper_k8s.as_ref(), event_publisher.as_ref()) {
         (Some(k8s), Some(publisher)) => {
-            sandbox::k8s::pod_watcher::spawn_pod_lifecycle_watcher(
-                k8s.clone(),
-                publisher.clone(),
-                cancel.clone(),
-                config.sandbox.max_crash_restart_count,
-                config.sandbox.node_archive_enabled,
-                lifecycle.clone(),
-                sandbox_tasks.clone(),
-                sandbox_workspaces.clone(),
-                sandbox_task_events.clone(),
+            supervisor.supervise(
+                "k8s-pod-watcher",
+                // Readiness: sandbox lifecycle observation stops without it.
+                Criticality::Readiness,
+                sandbox::k8s::pod_watcher::spawn_pod_lifecycle_watcher(
+                    k8s.clone(),
+                    publisher.clone(),
+                    cancel.clone(),
+                    config.sandbox.max_crash_restart_count,
+                    config.sandbox.node_archive_enabled,
+                    lifecycle.clone(),
+                    sandbox_tasks.clone(),
+                    sandbox_workspaces.clone(),
+                    sandbox_task_events.clone(),
+                ),
             );
             info!(
                 max_crash_restart_count = config.sandbox.max_crash_restart_count,
@@ -298,6 +348,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         info!("Auth routes disabled (no database)");
     }
+
+    // Owned handle to the ingress-outbox relay (see `spawn_ingress_relay`). Held
+    // here rather than detached because the relay is critical: it is the only
+    // path an admitted `agent.message` payload has back to the consumer after a
+    // failed publish.
+    let mut ingress_relay: Option<IngressRelayHandle> = None;
 
     // Domain routes (need DB)
     if let Some(pool) = db_pool {
@@ -358,47 +414,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ));
         info!("Domain routes registered");
 
-        // Readiness probe — checks Redis connectivity. Distinct from /health
-        // which is a pure liveness probe (process up). When Redis is dead,
-        // task creation degrades silently because event publishes time out;
-        // /ready surfaces that to Kubernetes so traffic is shed.
-        let readiness_events = app_state.events.clone();
-        router = router.route(
-            "/ready",
-            axum::routing::get(move || {
-                let events = readiness_events.clone();
-                async move {
-                    use axum::http::StatusCode;
-                    use axum::response::IntoResponse;
-                    match events {
-                        Some(publisher) => match publisher.health_check().await {
-                            Ok(()) => (
-                                StatusCode::OK,
-                                axum::Json(serde_json::json!({"status": "ok"})),
-                            )
-                                .into_response(),
-                            Err(e) => {
-                                tracing::warn!(error = %e, "Readiness probe: event publisher unhealthy");
-                                (
-                                    StatusCode::SERVICE_UNAVAILABLE,
-                                    axum::Json(serde_json::json!({
-                                        "status": "unavailable",
-                                        "component": "events",
-                                        "error": e
-                                    })),
-                                )
-                                    .into_response()
-                            }
-                        },
-                        None => (
-                            StatusCode::OK,
-                            axum::Json(serde_json::json!({"status": "ok", "events": "disabled"})),
-                        )
-                            .into_response(),
-                    }
-                }
-            }),
-        );
+        // Readiness probe — reports Redis connectivity and the root
+        // supervisor's view of readiness-critical background tasks.
+        router = router.merge(startup::readiness_router(
+            app_state.events.clone(),
+            supervisor.health(),
+        ));
 
         // Seed default repositories
         repository::seed::seed_default_repositories(&*app_state.repositories).await;
@@ -431,7 +452,52 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // Background workers
-        spawn_event_handler(&config, &app_state, cancel.clone()).await;
+        if let Some(handle) = spawn_event_handler(&config, &app_state, cancel.clone()).await {
+            supervisor.supervise(
+                "event-handler-consumer",
+                // Readiness: agent lifecycle events stop being processed, so
+                // tasks silently never complete on this replica.
+                Criticality::Readiness,
+                handle,
+            );
+        }
+
+        // Durable adapter work. Webhook handlers admit into
+        // `app_state.adapter_work` before acknowledging their provider; this
+        // worker is what makes that acknowledgment true. Handlers are
+        // registered per provider as each one migrates onto the seam — an empty
+        // registry simply means this build claims no kinds.
+        let mut adapter_work_handlers = adapters::work::AdapterWorkHandlers::new();
+        adapters::slack::work::register(&mut adapter_work_handlers, &app_state);
+        adapters::telegram::work::register(&mut adapter_work_handlers, &app_state);
+        adapters::github_pr::work::register(&mut adapter_work_handlers, &app_state);
+        adapters::linear::work::register(&mut adapter_work_handlers, &app_state);
+        let adapter_work_handlers = Arc::new(adapter_work_handlers);
+        supervisor.supervise(
+            "adapter-work-worker",
+            // Readiness: the work it owns is durable, so losing this worker
+            // delays admitted webhooks rather than dropping them — any replica
+            // can claim the same records. Shedding traffic from a replica that
+            // can no longer execute what it admits is the proportionate
+            // response; killing the process would take the API down with it.
+            // The consequence is deliberate: liveness stays on `/health`, so
+            // nothing restarts the pod, and on a single-replica deployment the
+            // backlog stalls until an operator acts. That is why the worker
+            // publishes `moatless_adapter_work_backlog` and
+            // `moatless_adapter_work_oldest_pending_seconds` — a stalled queue
+            // has to be visible, not merely survivable.
+            Criticality::Readiness,
+            adapters::work::spawn_adapter_work_worker(
+                app_state.adapter_work.clone(),
+                adapter_work_handlers,
+                cancel.clone(),
+            ),
+        );
+
+        // The ingress-outbox relay keeps its own handle rather than joining the
+        // supervisor: it is shut down explicitly after `supervisor.run` returns,
+        // on its own deadline (see `RELAY_SHUTDOWN_DEADLINE`).
+        ingress_relay = spawn_ingress_relay(&app_state, cancel.clone());
 
         // Build cron leader guard before reaper_k8s is moved
         let cron_leader: Option<Arc<dyn LeaderGuard>> = reaper_k8s.as_ref().map(|k8s| {
@@ -464,29 +530,62 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             sandbox_notify,
             sandbox::lifecycle::ReconcilerConfig::default(),
         );
-        spawn_sandbox_reconciler(reconciler, reconciler_leader, cancel.clone());
+        supervisor.supervise(
+            "sandbox-reconciler",
+            // Readiness: durable desired-state synchronization stops, so
+            // Sandbox intent and the real fleet drift apart unnoticed.
+            Criticality::Readiness,
+            spawn_sandbox_reconciler(reconciler, reconciler_leader, cancel.clone()),
+        );
 
         if let Some(k8s) = reaper_k8s {
-            spawn_task_reaper(&app_state, k8s.clone(), cancel.clone());
-            spawn_codex_refresher(&app_state, k8s, cancel.clone());
+            if let Some(handle) = spawn_task_reaper(&app_state, k8s.clone(), cancel.clone()) {
+                supervisor.supervise(
+                    "task-reaper",
+                    // Readiness: required cleanup — idle sandboxes and inactive
+                    // tasks accumulate for as long as it is gone.
+                    Criticality::Readiness,
+                    handle,
+                );
+            }
+            if let Some(handle) = spawn_codex_refresher(&app_state, k8s, cancel.clone()) {
+                supervisor.supervise(
+                    "codex-refresher",
+                    // Readiness: durable credential synchronization — agents
+                    // start failing once tokens expire unrefreshed.
+                    Criticality::Readiness,
+                    handle,
+                );
+            }
         } else {
             info!("Task reaper disabled (Docker mode — K8s leader election not available)");
         }
 
         // Schedule runner and long-polling adapters (when configured).
         if let Some(ref adapter_registry) = app_state.adapters {
-            loops::firing::schedule_runner::spawn_cron_scheduler(
-                app_state.clone(),
-                cron_leader,
-                cancel.clone(),
+            supervisor.supervise(
+                "cron-scheduler",
+                // Readiness: durable scheduled jobs stop firing entirely.
+                Criticality::Readiness,
+                loops::firing::schedule_runner::spawn_cron_scheduler(
+                    app_state.clone(),
+                    cron_leader,
+                    cancel.clone(),
+                ),
             );
 
             // Telegram long-polling (when webhook mode is not available)
             if config.telegram.bot_token.is_some() && config.telegram.mode == "polling" {
-                adapters::telegram::poller::spawn_telegram_poller(
-                    app_state.clone(),
-                    adapter_registry.clone(),
-                    cancel.clone(),
+                supervisor.supervise(
+                    "telegram-poller",
+                    // Optional: losing it degrades the Telegram channel alone,
+                    // and its own early-exit branches already log the reason.
+                    Criticality::Optional,
+                    adapters::telegram::poller::spawn_telegram_poller(
+                        app_state.clone(),
+                        adapter_registry.clone(),
+                        cancel.clone(),
+                    ),
                 );
             }
         }
@@ -526,12 +625,63 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let router = router.layer(axum::middleware::from_fn(request_trace_middleware));
 
     // ── Serve ───────────────────────────────────────────────────────────
+    // The API server is the last supervised task; binding still fails startup
+    // directly, but once it is serving its termination follows the same policy
+    // as every other owned task.
     let addr = SocketAddr::from(([0, 0, 0, 0], config.server.port));
     let listener = TcpListener::bind(addr).await?;
     info!(port = config.server.port, "API server started");
-    axum::serve(listener, router).await?;
+    let api_cancel = cancel.clone();
+    supervisor.supervise(
+        "api-server",
+        // Fatal: without it the process serves nothing.
+        Criticality::Fatal,
+        tokio::spawn(async move {
+            if let Err(e) = axum::serve(listener, router)
+                .with_graceful_shutdown(async move { api_cancel.cancelled().await })
+                .await
+            {
+                tracing::error!(error = %e, "API server failed");
+            }
+        }),
+    );
+
+    // Run until a critical task terminates or a shutdown signal arrives, then
+    // join the rest within a bounded deadline. A fatal exit becomes this
+    // process's error, and so its non-zero exit status.
+    supervisor.run(SHUTDOWN_JOIN_DEADLINE).await?;
+
+    // The API server returned, so the process is going down: cancel the owned
+    // background work and give it a bounded window to finish.
+    cancel.cancel();
+    if let Some(relay) = ingress_relay {
+        relay.shutdown(RELAY_SHUTDOWN_DEADLINE).await;
+    }
 
     Ok(())
+}
+
+/// How long shutdown waits for the ingress-outbox relay before reporting it as
+/// a straggler and exiting anyway.
+///
+/// Separate from `SHUTDOWN_JOIN_DEADLINE` because the two waits are sequential:
+/// the supervisor is joined first, then the relay. Keeping this at 5s holds the
+/// worst case to 25s, inside Kubernetes' default 30s termination grace period.
+const RELAY_SHUTDOWN_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Spawn the ingress-outbox relay, returning its owned handle.
+///
+/// Requires an event transport: with none configured the gRPC ingress refuses
+/// to admit `agent.message` payloads at all (they would have no delivery path),
+/// so there is nothing for a relay to re-publish.
+fn spawn_ingress_relay(
+    app_state: &AppState,
+    cancel: CancellationToken,
+) -> Option<IngressRelayHandle> {
+    let publisher = app_state.events.clone()?;
+    let handle = IngressRelay::new(app_state.ingress_outbox.clone(), publisher).spawn(cancel);
+    info!("Ingress outbox relay spawned");
+    Some(handle)
 }
 
 // =========================================================================
@@ -600,20 +750,25 @@ async fn request_trace_middleware(
 }
 
 /// Spawn the Redis event-handler consumer if Redis is configured.
-async fn spawn_event_handler(config: &Config, app_state: &AppState, cancel: CancellationToken) {
+///
+/// `None` means no consumer was started — the feature is switched off or Redis
+/// is not reachable at startup — so there is nothing for the supervisor to own.
+async fn spawn_event_handler(
+    config: &Config,
+    app_state: &AppState,
+    cancel: CancellationToken,
+) -> Option<tokio::task::JoinHandle<()>> {
     if !config.redis.event_handler_enabled {
         info!("Event handler consumer disabled (EVENT_HANDLER_ENABLED=false)");
-        return;
+        return None;
     }
-    let Some(ref redis_url) = config.redis.url else {
-        return;
-    };
+    let redis_url = config.redis.url.as_ref()?;
 
     let client = match redis::Client::open(redis_url.as_str()) {
         Ok(c) => c,
         Err(e) => {
             tracing::warn!(error = %e, "Failed to create Redis client for event handler");
-            return;
+            return None;
         }
     };
     let conn = match redis::aio::ConnectionManager::new_with_config(
@@ -625,13 +780,14 @@ async fn spawn_event_handler(config: &Config, app_state: &AppState, cancel: Canc
         Ok(c) => c,
         Err(e) => {
             tracing::warn!(error = %e, "Failed to connect Redis for event handler");
-            return;
+            return None;
         }
     };
 
     let state = app_state.clone();
-    tokio::spawn(event_handler::spawn_event_handler(conn, state, cancel));
+    let handle = tokio::spawn(event_handler::spawn_event_handler(conn, state, cancel));
     info!("Event handler consumer spawned");
+    Some(handle)
 }
 
 /// Spawn the desired-state reconciler loop. On Kubernetes `leader` gates each
@@ -641,8 +797,8 @@ fn spawn_sandbox_reconciler(
     reconciler: sandbox::lifecycle::Reconciler,
     leader: Option<Arc<dyn LeaderGuard>>,
     cancel: CancellationToken,
-) {
-    tokio::spawn(async move {
+) -> tokio::task::JoinHandle<()> {
+    let handle = tokio::spawn(async move {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(30));
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
@@ -666,19 +822,21 @@ fn spawn_sandbox_reconciler(
         info!("Sandbox reconciler stopped");
     });
     info!("Sandbox reconciler spawned");
+    handle
 }
 
-/// Spawn the unified task reaper (idle-sandbox stop + inactive-task close) if enabled.
+/// Spawn the unified task reaper (idle-sandbox stop + inactive-task close) if
+/// enabled. `None` when the reaper is switched off.
 fn spawn_task_reaper(
     app_state: &AppState,
     k8s: sandbox::k8s::client::K8sClient,
     cancel: CancellationToken,
-) {
+) -> Option<tokio::task::JoinHandle<()>> {
     if !app_state.config.sandbox.idle_reaper_enabled {
         info!("Task reaper disabled");
-        return;
+        return None;
     }
-    task::reaper::spawn_task_reaper(
+    let handle = task::reaper::spawn_task_reaper(
         app_state.clone(),
         k8s,
         app_state.messages.clone(),
@@ -693,21 +851,22 @@ fn spawn_task_reaper(
         inactive_task_timeout_days = app_state.config.sandbox.inactive_task_timeout_days,
         "Task reaper spawned"
     );
+    Some(handle)
 }
 
 /// Spawn the background Codex token refresher if enabled. Leader-elected via
-/// a dedicated K8s Lease (`moatless-codex-refresher`).
+/// a dedicated K8s Lease (`moatless-codex-refresher`). `None` when disabled.
 fn spawn_codex_refresher(
     app_state: &AppState,
     k8s: sandbox::k8s::client::K8sClient,
     cancel: CancellationToken,
-) {
+) -> Option<tokio::task::JoinHandle<()>> {
     let interval_secs = app_state.config.sandbox.codex_refresher_interval_secs;
     if interval_secs == 0 {
         info!("Codex refresher disabled (CODEX_REFRESHER_INTERVAL_SECS=0)");
-        return;
+        return None;
     }
-    moatless_vibe_backend::credentials::codex::refresher::spawn_codex_refresher(
+    let handle = moatless_vibe_backend::credentials::codex::refresher::spawn_codex_refresher(
         app_state.db.clone(),
         Arc::clone(&app_state.credentials_svc),
         k8s,
@@ -715,4 +874,5 @@ fn spawn_codex_refresher(
         cancel,
     );
     info!(interval_secs, "Codex refresher spawned");
+    Some(handle)
 }

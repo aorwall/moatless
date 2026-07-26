@@ -29,7 +29,6 @@ use crate::adapters::common::{ensure_task_access, resolve_connection};
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::AdapterConnection;
 use crate::adapters::AdapterKind;
-use crate::bindings::dao::PgTaskBindingRepository;
 use crate::bindings::runtime::upsert_binding;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
@@ -359,12 +358,10 @@ pub async fn create_comment(
         // A comment refreshes the binding when the issue is already a reply
         // target (the agent is continuing an established thread). A proactive
         // comment on an unbound issue only binds when the caller opts in.
-        let already_bound = PgTaskBindingRepository(state.db.clone())
+        let already_bound = state
+            .task_bindings
             .find_by_task_id_and_subject(task_id, LINEAR_PROVIDER, SUBJECT_KIND_ISSUE, &issue_uuid)
-            .await
-            .map_err(|e| {
-                AdapterError::AdapterApi(format!("Failed to look up existing binding: {e}"))
-            })?
+            .await?
             .is_some();
 
         if req.bind == Some(true) || already_bound {

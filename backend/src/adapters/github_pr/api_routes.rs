@@ -295,13 +295,13 @@ async fn resolve_github_api(
 ) -> Result<GithubPrApi, AdapterError> {
     if let Some(task_id) = task_id {
         // Access already verified by ensure_task_access in the calling handler.
-        #[allow(clippy::disallowed_methods)] // reason: access already verified by ensure_task_access in the handler; system ctx used for repository lookup only
+        #[allow(clippy::disallowed_methods)]
+        // reason: access already verified by ensure_task_access in the handler; system ctx used for repository lookup only
         let sys = ScopeContext::system();
         let task = state
             .tasks
             .find_by_id(task_id, &sys)
-            .await
-            .map_err(|error| AdapterError::Internal(error.to_string()))?
+            .await?
             .ok_or_else(|| AdapterError::NotFound(format!("Task {task_id}")))?;
         let repository = state
             .repositories
@@ -329,7 +329,7 @@ async fn resolve_github_api(
             remote_url,
         )
         .await
-        .map_err(|error| AdapterError::AdapterApi(error.to_string()))?
+        .map_err(|source| AdapterError::RepositoryCredential { source })?
         .ok_or_else(|| {
             AdapterError::AdapterApi(format!(
                 "No GitHub credential configured for repository scope {}",

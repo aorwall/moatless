@@ -228,7 +228,7 @@ mod tests {
     fn test_state(tmp: &tempfile::TempDir, backend: Arc<dyn BackendClient>) -> SandboxState {
         use crate::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
 
-        let outbox = crate::outbox::EventOutbox::spawn(
+        let (outbox, _drainer) = crate::outbox::EventOutbox::spawn(
             Arc::clone(&backend),
             "test-task".to_string(),
             tokio_util::sync::CancellationToken::new(),
@@ -276,6 +276,7 @@ mod tests {
             codex_watcher_handle: Arc::new(RwLock::new(None)),
             system_prompt_cache,
             dispatch_lock: Default::default(),
+            supervisor_health: Default::default(),
         }
     }
 

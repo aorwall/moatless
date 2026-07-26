@@ -1,5 +1,5 @@
 //! Postgres [`LifecycleStore`] — durable intent, generation allocation, and the
-//! transactional-outbox completion commit.
+//! commit-before-publication completion commit.
 //!
 //! The atomic intent write collapses desired state, stop reason, archive
 //! retention, and the correlation marker into **one** statement (a CTE captures

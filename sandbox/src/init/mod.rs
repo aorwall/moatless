@@ -30,16 +30,21 @@ mod replacement_test;
 mod workspace;
 pub(crate) mod workspace_sync;
 
+use std::path::PathBuf;
+use std::sync::Arc;
+
 use moatless_events::SandboxStatus;
 use sandbox_proto::PublishEventRequest;
 use tracing::{error, info, warn};
 
 use crate::server_control;
 use crate::state::SandboxState;
+use crate::supervisor::{Criticality, Registrar};
 
 /// Init error with permanence classification.
 /// Permanent errors use exit code 78 so the pod watcher stops immediately.
 /// Transient errors use exit code 1 and let K8s retry.
+#[derive(Debug)]
 pub(crate) enum InitError {
     /// Will never succeed on retry (repo not found, access denied).
     Permanent(String),
@@ -53,6 +58,34 @@ impl std::fmt::Display for InitError {
             Self::Permanent(msg) | Self::Transient(msg) => f.write_str(msg),
         }
     }
+}
+
+/// Run one synchronous initialization step on the blocking pool.
+///
+/// The filesystem helpers used by core init recurse over the plugin, skill and
+/// repo trees and delete directories; running them inline would park a Tokio
+/// worker for the whole traversal. They stay synchronous — and therefore
+/// directly unit-testable — and this is the single boundary that bridges them
+/// into async initialization.
+///
+/// A `JoinError` (the step panicked, or the runtime is shutting down) becomes an
+/// `InitError` naming the step instead of being logged and dropped. It is
+/// classified `Transient` — exit 1, so K8s retries — because nothing about a
+/// panicking filesystem step proves the pod configuration can never succeed;
+/// only a genuinely unrecoverable config error earns exit 78.
+///
+/// Steps are awaited one at a time, so initialization ordering is exactly the
+/// order the calls appear in [`run_core_init`].
+async fn run_init_blocking<T, F>(step: &'static str, work: F) -> Result<T, InitError>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    tokio::task::spawn_blocking(work).await.map_err(|e| {
+        InitError::Transient(format!(
+            "Initialization step '{step}' failed on the blocking pool: {e}"
+        ))
+    })
 }
 
 /// Tracks the current initialization phase.
@@ -95,11 +128,9 @@ async fn publish_sandbox_event(
         }
     };
 
-    let proto_event_type: sandbox_proto::EventType = moatless_events::EventType::Sandbox.into();
-
     let req = PublishEventRequest {
         task_id: state.config.task_id.clone(),
-        event_type: proto_event_type as i32,
+        event_type: sandbox_proto::EventType::Sandbox as i32,
         sub_type: SandboxStatus::Initializing.as_str().to_string(),
         payload_json,
         event_id: String::new(),
@@ -112,11 +143,16 @@ async fn publish_sandbox_event(
 
 /// Run the full initialization sequence (phase 1 + phase 2).
 ///
-/// Called from `main.rs` via `tokio::spawn`. Phase 1 runs first and sets
-/// `InitPhase::Ready` on success (or `Failed` on error). Phase 2 runs
-/// immediately after Ready, performing workspace setup that doesn't need
-/// to block the health endpoint.
-pub async fn run_init(state: SandboxState) {
+/// Called from `main.rs` via `tokio::spawn`, under the root supervisor as a
+/// finite task: a clean return is the normal end of startup, a panic fails the
+/// process. Phase 1 runs first and sets `InitPhase::Ready` on success (or exits
+/// on error). Phase 2 runs immediately after Ready, performing workspace setup
+/// that doesn't need to block the health endpoint.
+///
+/// `registrar` is the supervisor's registration handle: the periodic loops
+/// started at the end of phase 2 can only be spawned once the workspace exists,
+/// so they are registered from here rather than from the composition root.
+pub async fn run_init(state: SandboxState, registrar: Registrar) {
     info!(task_id = %state.config.task_id, "Starting sandbox initialization");
 
     // Phase 1: Core init — must complete before health returns 200.
@@ -171,14 +207,23 @@ pub async fn run_init(state: SandboxState) {
     // expire after 1h and user access tokens after 8h — long-running tasks
     // would otherwise fail mid-turn on `git push` / `gh pr comment`.
     // See `refresher.rs` for the full rationale.
+    //
+    // Liveness: the loop handles its own transient errors, so only a panic ends
+    // it — after which credentials silently go stale and git operations start
+    // failing an hour later with no connection to the cause. A restart re-fetches
+    // them; an immediate process exit would kill the turn that is still working.
     let refresher_state = state.clone();
     let refresher_cancel = state.lifecycle_cancel.clone();
     let refresher_interval = refresher::read_interval_from_env();
-    tokio::spawn(refresher::run_credential_refresher(
-        refresher_state,
-        refresher_cancel,
-        refresher_interval,
-    ));
+    registrar.supervise(
+        "credential-refresher",
+        Criticality::Liveness,
+        tokio::spawn(refresher::run_credential_refresher(
+            refresher_state,
+            refresher_cancel,
+            refresher_interval,
+        )),
+    );
 
     // Spawn the periodic CLI session-state uploader. Every interval it tars
     // Claude transcripts plus Codex rollout sessions and ships them to S3 via
@@ -186,14 +231,24 @@ pub async fn run_init(state: SandboxState) {
     // the only CLI-session durability for the ephemeral tier).
     // `TRANSCRIPT_SYNC_INTERVAL_SECS=0` disables the loop; sync-on-shutdown
     // still flushes the final delta.
+    //
+    // Liveness: a dead loop stops persisting resume state, so an ungraceful kill
+    // loses everything since the last successful sync — silently, because
+    // `flush_on_shutdown` is driven by the shutdown driver rather than by this
+    // task and keeps working either way. That final flush is unchanged;
+    // supervision only makes the loop's death visible.
     if let Some(interval) = transcript_sync::read_interval_from_env() {
         let transcript_state = state.clone();
         let transcript_cancel = state.lifecycle_cancel.clone();
-        tokio::spawn(transcript_sync::run_transcript_sync(
-            transcript_state,
-            transcript_cancel,
-            interval,
-        ));
+        registrar.supervise(
+            "transcript-sync",
+            Criticality::Liveness,
+            tokio::spawn(transcript_sync::run_transcript_sync(
+                transcript_state,
+                transcript_cancel,
+                interval,
+            )),
+        );
     }
 
     // Spawn the periodic workspace uploader for the `s3` storage backend. Every
@@ -201,15 +256,22 @@ pub async fn run_init(state: SandboxState) {
     // backend-minted presigned URL, so the working tree survives the node-local
     // emptyDir across stop/start. `WORKSPACE_SYNC_INTERVAL_SECS=0` disables the
     // loop; sync-on-shutdown still flushes the final delta.
+    //
+    // Liveness, same rationale as the transcript loop: for the `s3` backend this
+    // is the only thing keeping the working tree off a node-local emptyDir.
     if state.config.workspace_sync_enabled {
         if let Some(interval) = workspace_sync::read_interval_from_env() {
             let workspace_state = state.clone();
             let workspace_cancel = state.lifecycle_cancel.clone();
-            tokio::spawn(workspace_sync::run_workspace_sync(
-                workspace_state,
-                workspace_cancel,
-                interval,
-            ));
+            registrar.supervise(
+                "workspace-sync",
+                Criticality::Liveness,
+                tokio::spawn(workspace_sync::run_workspace_sync(
+                    workspace_state,
+                    workspace_cancel,
+                    interval,
+                )),
+            );
         }
     }
 
@@ -217,7 +279,7 @@ pub async fn run_init(state: SandboxState) {
     // time it refreshes its OAuth token; the watcher pushes the rotated blob
     // back to the backend so subsequent tasks (and pod restarts) see the new
     // refresh_token instead of the now-invalidated stored copy.
-    spawn_codex_auth_watcher(&state).await;
+    spawn_codex_auth_watcher(&state, &registrar).await;
 }
 
 /// Cross the boundary from "restored but private" to "open for work", in the one
@@ -413,7 +475,7 @@ async fn recover_interrupted_run(state: &SandboxState, origin: WorkspaceOrigin) 
     }
 }
 
-async fn spawn_codex_auth_watcher(state: &SandboxState) {
+async fn spawn_codex_auth_watcher(state: &SandboxState, registrar: &Registrar) {
     let auth_path = std::path::PathBuf::from(format!("{}/auth.json", state.config.codex_home_dir));
 
     // Capture the current on-disk value as the baseline so the first rotation
@@ -424,13 +486,20 @@ async fn spawn_codex_auth_watcher(state: &SandboxState) {
         .await
         .unwrap_or_default();
 
-    let handle = codex_watcher::spawn(
+    let (handle, watcher_task) = codex_watcher::spawn(
         state.config.task_id.clone(),
         auth_path,
         initial_value,
         std::sync::Arc::clone(&state.backend_client),
         state.lifecycle_cancel.clone(),
     );
+
+    // Optional: losing the watcher means a Codex token rotation is not pushed
+    // back to the backend, which costs the *next* task (or the next pod start) a
+    // stale refresh_token. It costs the running turn nothing, so it is not worth
+    // a restart — but it should be named rather than logged as an anonymous
+    // panic.
+    registrar.supervise("codex-auth-watcher", Criticality::Optional, watcher_task);
 
     // Stash the handle so the credential dispatcher can seed the watcher's
     // cache when a backend-driven push lands — keeps backend writes from
@@ -454,8 +523,13 @@ async fn spawn_codex_auth_watcher(state: &SandboxState) {
 /// an S3 snapshot restore loses only gitignored build artifacts, and a persisted
 /// volume loses nothing.
 async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitError> {
-    // 1. Ensure directories exist
-    dirs::ensure_directories(&state.config);
+    // 1. Ensure directories exist. Wipes `/tmp` and recursively copies the
+    //    image-staged skills, so it runs on the blocking pool.
+    let dirs_config = Arc::clone(&state.config);
+    run_init_blocking("ensure_directories", move || {
+        dirs::ensure_directories(&dirs_config);
+    })
+    .await?;
 
     // 2. Write the default Claude Code settings file. Static defaults; safe to
     //    overwrite on every start. Non-fatal — Claude CLI still runs without it.
@@ -610,7 +684,11 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
     // 7. Stage plugin-bundled skills so the Codex agent can discover them.
     // Runs unconditionally so we pick up skills from both `plugin_repos`
     // (cloned above) and `plugin_ids` (installed by sync_plugins.sh).
-    let staged = plugin_skills::stage_plugin_skills_for_codex().await;
+    let staged = run_init_blocking(
+        "stage_plugin_skills_for_codex",
+        plugin_skills::stage_plugin_skills_for_codex,
+    )
+    .await?;
     if staged > 0 {
         publish_sandbox_event(
             state,
@@ -627,9 +705,11 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
     // symlinks are cheap, idempotent, and harmless when Claude is the active
     // agent. Skills are installed into the home dirs below, not mirrored here.
     if !state.config.repo_dir.is_empty() {
-        let agents_md = codex_compat::mirror_claude_md_to_agents_md(std::path::Path::new(
-            &state.config.repo_dir,
-        ));
+        let repo_dir = PathBuf::from(&state.config.repo_dir);
+        let agents_md = run_init_blocking("mirror_claude_md_to_agents_md", move || {
+            codex_compat::mirror_claude_md_to_agents_md(&repo_dir)
+        })
+        .await?;
         if agents_md > 0 {
             publish_sandbox_event(
                 state,
@@ -649,11 +729,19 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
     // discoverable without polluting the workspace root or pulling the repo's
     // `CLAUDE.md`/`AGENTS.md` into the agent's project context.
     if !state.config.repo_dir.is_empty() {
-        let installed = home_skills::install_repo_skills_to_home(
-            std::path::Path::new(&state.config.repo_dir),
-            std::path::Path::new(&state.config.claude_config_dir),
-            std::path::Path::new(&state.config.codex_home_dir),
-        );
+        // `install_repo_skills_to_home` walks and copies directory trees, so it
+        // runs on the blocking pool like every other filesystem step here.
+        let repo_dir = PathBuf::from(&state.config.repo_dir);
+        let claude_config_dir = PathBuf::from(&state.config.claude_config_dir);
+        let codex_home_dir = PathBuf::from(&state.config.codex_home_dir);
+        let installed = run_init_blocking("install_repo_skills_to_home", move || {
+            home_skills::install_repo_skills_to_home(
+                &repo_dir,
+                &claude_config_dir,
+                &codex_home_dir,
+            )
+        })
+        .await?;
         if installed > 0 {
             info!(count = installed, "Installed repo skills into home skill dirs");
         }
@@ -752,6 +840,39 @@ mod tests {
         // Must NOT scare the agent about losing uncommitted work — the S3
         // snapshot preserves the non-gitignored working tree.
         assert!(!note.contains("never pushed may also be missing"));
+    }
+
+    /// A blocking step that panics must fail initialization, not vanish into the
+    /// detached init task. The message has to name the step so the termination
+    /// log says which part of setup died.
+    #[tokio::test]
+    async fn panicking_blocking_step_fails_initialization_with_context() {
+        let previous_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let result = run_init_blocking::<(), _>("ensure_directories", || {
+            panic!("injected filesystem failure")
+        })
+        .await;
+        std::panic::set_hook(previous_hook);
+
+        let err = result.expect_err("a panicking blocking step must fail init");
+        assert!(
+            matches!(err, InitError::Transient(_)),
+            "a panicking step is retryable, not a permanent config failure",
+        );
+        let msg = err.to_string();
+        assert!(msg.contains("ensure_directories"), "message was: {msg}");
+        assert!(msg.contains("blocking pool"), "message was: {msg}");
+    }
+
+    /// The happy path returns the step's value, so counts published as init
+    /// events (staged skills, mirrored AGENTS.md, bridged config) are unchanged.
+    #[tokio::test]
+    async fn successful_blocking_step_returns_its_value() {
+        let staged = run_init_blocking("stage_plugin_skills_for_codex", || 3usize)
+            .await
+            .expect("a successful blocking step must not fail init");
+        assert_eq!(staged, 3);
     }
 
     #[test]

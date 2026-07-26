@@ -281,7 +281,7 @@ fn spawn_test_agent_in(tmp: &TempDir, use_tmux: bool) -> (AgentHandle, Arc<Agent
         events: Arc::clone(&event_log),
     });
 
-    let outbox = moatless_sandbox::outbox::EventOutbox::spawn(
+    let (outbox, _drainer) = moatless_sandbox::outbox::EventOutbox::spawn(
         Arc::clone(&backend),
         "test-task".to_string(),
         tokio_util::sync::CancellationToken::new(),
