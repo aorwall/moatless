@@ -20,6 +20,7 @@ use crate::config::Config;
 use crate::sandbox::k8s::pod_reader::{parse_cpu_to_millicores, parse_memory_to_bytes};
 use crate::sandbox::lifecycle::runtime::{RuntimeOperationContext, OPERATION_GENERATION_LABEL};
 use crate::sandbox::models::{ProvisionPlan, ServerConfig};
+use crate::sandbox::server_runner::build_server_start_script;
 
 pub(crate) const CREATED_BY_LABEL: &str = "created-by";
 pub(crate) const CREATED_BY_VALUE: &str = "moatless";
@@ -263,6 +264,7 @@ fn build_repo_config_json(plan: &ProvisionPlan) -> Option<String> {
         && rc.servers.is_none()
         && rc.plugin_ids.is_none()
         && rc.plugin_repos.is_none()
+        && rc.server_overrides.is_none()
     {
         return None;
     }
@@ -298,6 +300,9 @@ fn build_repo_config_json(plan: &ProvisionPlan) -> Option<String> {
     }
     if let Some(ref pi) = rc.plugin_ids {
         map.insert("pluginIds".into(), serde_json::json!(pi));
+    }
+    if let Some(ref so) = rc.server_overrides {
+        map.insert("serverOverrides".into(), serde_json::json!(so));
     }
     if let Some(ref pr) = rc.plugin_repos {
         map.insert("pluginRepos".into(), serde_json::json!(pr));
@@ -372,8 +377,9 @@ pub fn build_server_container_config(
     }
 
     // ── Command ──────────────────────────────────────────────────
-    // Wait for workspace-ready sentinel, source the shared server.env
-    // file written by the sandbox init, then run start commands.
+    // The supervisor script waits for the workspace-ready sentinel, sources the
+    // shared env files, and restarts its child on a live config override — see
+    // `server_runner`.
     //
     // This must be set as the container *entrypoint*: Docker `Cmd` only
     // supplies arguments to the image ENTRYPOINT, and the sandbox image's
@@ -381,18 +387,11 @@ pub fn build_server_container_config(
     // binary (which crash-loops without BACKEND_GRPC_URL). K8s `command:`
     // overrides the entrypoint — mirror that here with `entrypoint`.
     let entrypoint = match &server.start_commands {
-        Some(cmds) if !cmds.is_empty() => {
-            let joined_cmd = cmds.join(" && ");
-            Some(vec![
-                "bash".to_string(),
-                "-c".to_string(),
-                format!(
-                    "until [ -f /opt/moatless/data/.workspace-ready ]; do sleep 2; done && \
-                     if [ -f /opt/moatless/data/server.env ]; then set -a && . /opt/moatless/data/server.env && set +a; fi && \
-                     cd \"${{WORKSPACE_PATH:-/opt/moatless/repo}}\" && {joined_cmd}"
-                ),
-            ])
-        }
+        Some(cmds) if !cmds.is_empty() => Some(vec![
+            "bash".to_string(),
+            "-c".to_string(),
+            build_server_start_script(&server.name, cmds),
+        ]),
         _ => None,
     };
 
@@ -658,6 +657,7 @@ mod tests {
                 docker_networks: None,
                 sandbox_service_account: None,
                 network_profile: None,
+                server_overrides: None,
             },
             git_clone_url: "https://github.com/test/repo.git".into(),
             git_branch: Some("main".into()),

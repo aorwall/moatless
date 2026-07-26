@@ -1,11 +1,15 @@
 //! Task commands: list, get, create, children, start, stop, close, status, restart, logs, files.
 
+use std::collections::BTreeMap;
 use std::fmt::Write;
 
 use clap::Subcommand;
 use futures_util::StreamExt;
 use moatless_api_schemas::enums::TaskStatus;
-use moatless_api_schemas::sandbox::SandboxStatusFullResponse;
+use moatless_api_schemas::sandbox::{
+    SandboxStatusFullResponse, ServerConfigResponse, ServerOverride, ServerStatusResponse,
+    UpdateServerConfigRequest,
+};
 use moatless_api_schemas::shared::AgentMode;
 use moatless_api_schemas::task::{
     CreateTaskRequest, ListTasksQuery, ListTasksResponse, TaskResponse, UpdateTaskMetadataRequest,
@@ -118,6 +122,45 @@ pub enum TaskAction {
         task_id: String,
         #[command(subcommand)]
         action: FileAction,
+    },
+    /// Inspect and live-update a task's preview servers
+    Servers {
+        task_id: String,
+        #[command(subcommand)]
+        action: ServerAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ServerAction {
+    /// List servers with their status and any live config override
+    List,
+    /// Set a server's start command and/or environment, then restart it
+    Set {
+        /// Server name (e.g. "dev", "preview")
+        server: String,
+        /// Start command; repeat to run several, joined with `&&`
+        #[arg(long)]
+        start_command: Vec<String>,
+        /// Environment variable as KEY=VALUE; repeatable
+        #[arg(long = "env", short = 'e')]
+        env: Vec<String>,
+        /// Environment variable to remove; repeatable
+        #[arg(long = "unset")]
+        unset: Vec<String>,
+        /// Apply without restarting (takes effect on the next restart)
+        #[arg(long)]
+        no_restart: bool,
+    },
+    /// Restart a server in place, keeping its current override
+    Restart {
+        /// Server name (e.g. "dev", "preview")
+        server: String,
+    },
+    /// Drop a server's override and restart it on the workspace config
+    Reset {
+        /// Server name (e.g. "dev", "preview")
+        server: String,
     },
 }
 
@@ -411,8 +454,122 @@ pub async fn run(
             let task_id = resolve_task_id(client, &task_id).await?;
             run_file_action(client, &task_id, action, json).await?;
         }
+        // Deliberately allowed from inside the sandbox, unlike `restart`/`redeploy`:
+        // these only restart a preview sidecar, never the agent container.
+        TaskAction::Servers { task_id, action } => {
+            let task_id = resolve_task_id(client, &task_id).await?;
+            run_server_action(client, &task_id, action, json).await?;
+        }
     }
     Ok(())
+}
+
+async fn run_server_action(
+    client: &MoatClient,
+    task_id: &str,
+    action: ServerAction,
+    json: bool,
+) -> Result<(), ClientError> {
+    match action {
+        ServerAction::List => {
+            let status = client.api().server_status(task_id).await?;
+            if json {
+                output::print_json_typed(&status);
+            } else {
+                format_server_list(&status);
+            }
+        }
+        ServerAction::Set {
+            server,
+            start_command,
+            env,
+            unset,
+            no_restart,
+        } => {
+            if start_command.is_empty() && env.is_empty() && unset.is_empty() {
+                return Err(ClientError::Api {
+                    status: 400,
+                    body: "Nothing to set. Pass --start-command, --env KEY=VALUE, or --unset KEY."
+                        .to_string(),
+                });
+            }
+            let mut parsed_env = BTreeMap::new();
+            for entry in &env {
+                let (key, value) = entry.split_once('=').ok_or_else(|| ClientError::Api {
+                    status: 400,
+                    body: format!("Invalid --env '{entry}'. Expected KEY=VALUE."),
+                })?;
+                parsed_env.insert(key.to_string(), value.to_string());
+            }
+            let req = UpdateServerConfigRequest {
+                start_commands: (!start_command.is_empty()).then_some(start_command),
+                env: (!parsed_env.is_empty()).then_some(parsed_env),
+                unset_env: (!unset.is_empty()).then_some(unset),
+                restart: !no_restart,
+                port: None,
+                docker_image: None,
+            };
+            let resp = client.api().update_server_config(task_id, &server, &req).await?;
+            print_server_config(&resp, json);
+        }
+        ServerAction::Restart { server } => {
+            let resp = client.api().restart_server(task_id, &server).await?;
+            print_server_config(&resp, json);
+        }
+        ServerAction::Reset { server } => {
+            let resp = client.api().reset_server_config(task_id, &server).await?;
+            print_server_config(&resp, json);
+        }
+    }
+    Ok(())
+}
+
+fn print_server_config(resp: &ServerConfigResponse, json: bool) {
+    if json {
+        output::print_json_typed(resp);
+        return;
+    }
+    println!("Server: {}", resp.server_name);
+    print_override(&resp.config_override, "  ");
+    println!("  generation: {}", resp.generation);
+    println!(
+        "  {}",
+        if resp.restarted {
+            "restarted"
+        } else {
+            "not restarted (applies on next restart)"
+        }
+    );
+}
+
+fn print_override(ov: &ServerOverride, indent: &str) {
+    match &ov.start_command {
+        Some(cmd) => println!("{indent}start command: {cmd}"),
+        None => println!("{indent}start command: (workspace default)"),
+    }
+    for (key, value) in &ov.env {
+        println!("{indent}env {key}={value}");
+    }
+    for key in &ov.unset_env {
+        println!("{indent}unset {key}");
+    }
+}
+
+fn format_server_list(status: &ServerStatusResponse) {
+    if status.servers.is_empty() {
+        println!("No servers configured.");
+        return;
+    }
+    for server in &status.servers {
+        println!("{} ({}) port {}", server.name, server.status, server.port);
+        if let Some(error) = &server.error {
+            println!("  error: {error}");
+        }
+        match &server.config_override {
+            Some(ov) => print_override(ov, "  override "),
+            None => println!("  override: none"),
+        }
+    }
 }
 
 fn parse_task_status(s: &str) -> Option<TaskStatus> {

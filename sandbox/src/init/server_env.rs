@@ -43,7 +43,7 @@ fn render_env_file(env: &HashMap<String, String>) -> String {
     out
 }
 
-fn shell_single_quote(v: &str) -> String {
+pub(crate) fn shell_single_quote(v: &str) -> String {
     format!("'{}'", v.replace('\'', "'\\''"))
 }
 

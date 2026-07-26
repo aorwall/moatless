@@ -303,6 +303,13 @@ service SandboxService {
   // dispatcher-only changes.
   rpc RefreshCredential(RefreshCredentialRequest) returns (RefreshCredentialResponse);
 
+  // Apply a start-command / env override to one preview server and optionally
+  // restart it in place. The sandbox writes the override into the shared data
+  // volume that every server sidecar reads on start; bumping the generation
+  // makes the sidecar's supervisor re-exec its child without recreating the
+  // container (so the agent container, and the pod, are untouched).
+  rpc ApplyServerConfig(ApplyServerConfigRequest) returns (ApplyServerConfigResponse);
+
   // File operations
   rpc GetFileTree(GetFileTreeRequest) returns (GetFileTreeResponse);
   rpc ReadFile(ReadFileRequest) returns (ReadFileResponse);
@@ -320,6 +327,27 @@ message RefreshCredentialRequest {
 }
 
 message RefreshCredentialResponse {}
+
+message ApplyServerConfigRequest {
+  string task_id = 1;
+  // Server name as it appears in the workspace config (not the container name).
+  string server_name = 2;
+  // The complete override state, not a delta — the backend owns the merge
+  // because it owns the persisted copy. Absent `start_command` means no
+  // override: the sidecar runs the command baked into its container spec.
+  optional string start_command = 3;
+  map<string, string> env = 4;
+  // Keys emitted as `unset K` so a variable injected by the container spec can
+  // be removed — sourcing alone can only add.
+  repeated string unset_env = 5;
+  // Bump the generation so the sidecar restarts its child immediately.
+  bool restart = 6;
+}
+
+message ApplyServerConfigResponse {
+  // Generation after the call — unchanged when `restart` was false.
+  uint64 generation = 1;
+}
 
 message ExecuteAgentRequest {
   repeated ContentBlock content = 1;

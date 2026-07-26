@@ -1,10 +1,14 @@
 //! Sandbox API request/response schemas.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::live_status::{AgentStatus, SandboxStatus};
-use super::models::{ResourceMetrics, ServerCapabilities, ServerSnapshot, ServerStatus};
+use super::models::{
+    ResourceMetrics, ServerCapabilities, ServerOverride, ServerSnapshot, ServerStatus,
+};
 use crate::task::models::SandboxDesiredState;
 
 /// Provision response
@@ -172,6 +176,53 @@ pub struct SandboxStatusFullResponse {
 #[serde(rename_all = "camelCase")]
 pub struct ServerStatusResponse {
     pub servers: Vec<ServerSnapshot>,
+}
+
+/// Update one preview server's live config.
+///
+/// Only fields that a sidecar can pick up on an in-place restart are accepted.
+/// `port` and `dockerImage` are declared so a caller that sends them gets an
+/// explicit "redeploy required" instead of a silent no-op.
+#[derive(Debug, Default, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateServerConfigRequest {
+    /// Replaces the workspace's start command. Joined with `&&`, as at
+    /// provision time.
+    #[serde(default)]
+    pub start_commands: Option<Vec<String>>,
+    /// Env entries to set, merged into any existing override.
+    #[serde(default)]
+    pub env: Option<BTreeMap<String, String>>,
+    /// Keys to remove from the server's environment. Also drops them from the
+    /// override's `env`, so setting and unsetting the same key is coherent.
+    #[serde(default)]
+    pub unset_env: Option<Vec<String>>,
+    /// Restart the server so the change takes effect (default `true`).
+    #[serde(default = "default_restart")]
+    pub restart: bool,
+    /// Not applicable live — the port is wired into the Service and
+    /// IngressRoute at provision time.
+    #[serde(default)]
+    pub port: Option<u16>,
+    /// Not applicable live — the image is the container's identity.
+    #[serde(default)]
+    pub docker_image: Option<String>,
+}
+
+fn default_restart() -> bool {
+    true
+}
+
+/// Result of a live server config change or restart.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerConfigResponse {
+    pub server_name: String,
+    /// The override after the call — empty when it was reset.
+    pub config_override: ServerOverride,
+    /// Sidecar restart generation after the call.
+    pub generation: u64,
+    pub restarted: bool,
 }
 
 // ── File operation DTOs ──────────────────────────────────────────

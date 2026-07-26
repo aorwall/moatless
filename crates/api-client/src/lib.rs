@@ -95,6 +95,12 @@ impl ApiClient {
         self.parse_response(resp).await
     }
 
+    async fn delete_json<T: DeserializeOwned>(&self, path: &str) -> Result<T, ApiError> {
+        let url = format!("{}{path}", self.base_url);
+        let resp = self.http.delete(&url).send().await?;
+        self.parse_response(resp).await
+    }
+
     async fn delete_request(&self, path: &str) -> Result<(), ApiError> {
         let url = format!("{}{path}", self.base_url);
         let resp = self.http.delete(&url).send().await?;
@@ -384,6 +390,53 @@ impl ApiClient {
     pub async fn cleanup_sandbox(&self, task_id: &str) -> Result<(), ApiError> {
         self.post_empty(&format!("/api/sandbox/v1/tasks/{task_id}/cleanup"))
             .await
+    }
+
+    /// GET /api/sandbox/v1/tasks/{task_id}/server/status
+    pub async fn server_status(
+        &self,
+        task_id: &str,
+    ) -> Result<moatless_api_schemas::sandbox::ServerStatusResponse, ApiError> {
+        self.get(&format!("/api/sandbox/v1/tasks/{task_id}/server/status"))
+            .await
+    }
+
+    /// PATCH /api/sandbox/v1/tasks/{task_id}/servers/{server_name}
+    pub async fn update_server_config(
+        &self,
+        task_id: &str,
+        server_name: &str,
+        req: &moatless_api_schemas::sandbox::UpdateServerConfigRequest,
+    ) -> Result<moatless_api_schemas::sandbox::ServerConfigResponse, ApiError> {
+        self.patch(
+            &format!("/api/sandbox/v1/tasks/{task_id}/servers/{server_name}"),
+            req,
+        )
+        .await
+    }
+
+    /// POST /api/sandbox/v1/tasks/{task_id}/servers/{server_name}/restart
+    pub async fn restart_server(
+        &self,
+        task_id: &str,
+        server_name: &str,
+    ) -> Result<moatless_api_schemas::sandbox::ServerConfigResponse, ApiError> {
+        self.post_no_body(&format!(
+            "/api/sandbox/v1/tasks/{task_id}/servers/{server_name}/restart"
+        ))
+        .await
+    }
+
+    /// DELETE /api/sandbox/v1/tasks/{task_id}/servers/{server_name}/override
+    pub async fn reset_server_config(
+        &self,
+        task_id: &str,
+        server_name: &str,
+    ) -> Result<moatless_api_schemas::sandbox::ServerConfigResponse, ApiError> {
+        self.delete_json(&format!(
+            "/api/sandbox/v1/tasks/{task_id}/servers/{server_name}/override"
+        ))
+        .await
     }
 
     /// GET /api/sandbox/v1/tasks/{task_id}/files/list

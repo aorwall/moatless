@@ -204,12 +204,12 @@ impl TaskRepository for PgTaskRepository {
                 created_by, visibility, scope, owner_user_id,
                 append_system_prompt, updated_at, headless, ttl_minutes,
                 inactive_ttl_days, trigger_id, disabled_servers,
-                workspace_id
+                workspace_id, server_overrides
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
                 $21, NOW(), $22, $23, $24, $25, $26,
-                $27
+                $27, $28
             )"#,
         )
         .bind(&row.task_id)
@@ -239,6 +239,7 @@ impl TaskRepository for PgTaskRepository {
         .bind(&row.trigger_id)
         .bind(&row.disabled_servers)
         .bind(&workspace_id)
+        .bind(&row.server_overrides)
         .execute(&self.0)
         .await?;
 
@@ -292,6 +293,7 @@ impl TaskRepository for PgTaskRepository {
             inactive_ttl_days: i32,
             trigger_id: Option<String>,
             disabled_servers: Option<serde_json::Value>,
+            server_overrides: Option<serde_json::Value>,
             total_count: i64,
         }
 
@@ -311,6 +313,7 @@ impl TaskRepository for PgTaskRepository {
                 t.created_at_db, t.updated_at, t.append_system_prompt,
                 t.headless, t.ttl_minutes,
                 t.inactive_ttl_days, t.trigger_id, t.disabled_servers,
+                t.server_overrides,
                 COUNT(*) OVER() AS total_count
             FROM tasks t
             LEFT JOIN task_tags tt ON t.task_id = tt.task_id
@@ -385,6 +388,7 @@ impl TaskRepository for PgTaskRepository {
                 inactive_ttl_days: r.inactive_ttl_days,
                 trigger_id: r.trigger_id,
                 disabled_servers: r.disabled_servers,
+                server_overrides: r.server_overrides,
             })
             .collect();
 
@@ -478,6 +482,10 @@ impl TaskRepository for PgTaskRepository {
             // Full replace — the column always holds the complete disabled set.
             let json = serde_json::json!(disabled_servers);
             run_field!("disabled_servers = $2", json);
+        }
+        if let Some(ref server_overrides) = patch.server_overrides {
+            // Full replace — the column always holds the complete override map.
+            run_field!("server_overrides = $2", server_overrides);
         }
         // Empty patch: caller read-checked the task first; return true.
         Ok(first_affected.is_none_or(|n| n > 0))
@@ -763,6 +771,9 @@ pub struct TaskPatch {
     pub inactive_ttl_days: Option<i32>,
     /// Full-replace the per-task auto-disabled server list.
     pub disabled_servers: Option<Vec<String>>,
+    /// Full-replace the per-task live server overrides (see
+    /// [`crate::task::models::Task::server_overrides`]).
+    pub server_overrides: Option<serde_json::Value>,
 }
 
 // =========================================================================

@@ -25,5 +25,6 @@ pub mod grpc_server;
 pub mod init;
 pub mod outbox;
 pub mod process_tree;
+pub mod server_control;
 pub mod shutdown;
 pub mod state;

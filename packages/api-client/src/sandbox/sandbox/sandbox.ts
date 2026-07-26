@@ -37,8 +37,10 @@ import type {
   SandboxStatusFullResponse,
   SearchByNameRequest,
   SearchByNameResponse,
+  ServerConfigResponse,
   ServerLogsHandlerParams,
   ServerStatusResponse,
+  UpdateServerConfigRequest,
   WriteFileRequestBody
 } from '.././model';
 
@@ -1368,6 +1370,113 @@ export const prefetchServerStatusHandlerQuery = async <TData = Awaited<ReturnTyp
 
 
 /**
+ * @summary Update one preview server's start command / env and (by default) restart it.
+ */
+export type updateServerConfigHandlerResponse200 = {
+  data: ServerConfigResponse
+  status: 200
+}
+
+export type updateServerConfigHandlerResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type updateServerConfigHandlerResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type updateServerConfigHandlerResponse409 = {
+  data: ErrorBody
+  status: 409
+}
+
+export type updateServerConfigHandlerResponse503 = {
+  data: ErrorBody
+  status: 503
+}
+    
+export type updateServerConfigHandlerResponseSuccess = (updateServerConfigHandlerResponse200) & {
+  headers: Headers;
+};
+export type updateServerConfigHandlerResponseError = (updateServerConfigHandlerResponse400 | updateServerConfigHandlerResponse404 | updateServerConfigHandlerResponse409 | updateServerConfigHandlerResponse503) & {
+  headers: Headers;
+};
+
+export type updateServerConfigHandlerResponse = (updateServerConfigHandlerResponseSuccess | updateServerConfigHandlerResponseError)
+
+export const getUpdateServerConfigHandlerUrl = (taskId: string,
+    serverName: string,) => {
+
+
+  
+
+  return `/api/sandbox/v1/tasks/${taskId}/servers/${serverName}`
+}
+
+export const updateServerConfigHandler = async (taskId: string,
+    serverName: string,
+    updateServerConfigRequest: UpdateServerConfigRequest, options?: RequestInit): Promise<updateServerConfigHandlerResponse> => {
+  
+  return customInstance<updateServerConfigHandlerResponse>(getUpdateServerConfigHandlerUrl(taskId,serverName),
+  {      
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      updateServerConfigRequest,)
+  }
+);}
+
+
+
+
+export const getUpdateServerConfigHandlerMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateServerConfigHandler>>, TError,{taskId: string;serverName: string;data: UpdateServerConfigRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateServerConfigHandler>>, TError,{taskId: string;serverName: string;data: UpdateServerConfigRequest}, TContext> => {
+
+const mutationKey = ['updateServerConfigHandler'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateServerConfigHandler>>, {taskId: string;serverName: string;data: UpdateServerConfigRequest}> = (props) => {
+          const {taskId,serverName,data} = props ?? {};
+
+          return  updateServerConfigHandler(taskId,serverName,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateServerConfigHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof updateServerConfigHandler>>>
+    export type UpdateServerConfigHandlerMutationBody = UpdateServerConfigRequest
+    export type UpdateServerConfigHandlerMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Update one preview server's start command / env and (by default) restart it.
+ */
+export const useUpdateServerConfigHandler = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateServerConfigHandler>>, TError,{taskId: string;serverName: string;data: UpdateServerConfigRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof updateServerConfigHandler>>,
+        TError,
+        {taskId: string;serverName: string;data: UpdateServerConfigRequest},
+        TContext
+      > => {
+      return useMutation(getUpdateServerConfigHandlerMutationOptions(options), queryClient);
+    }
+    /**
  * Returns a Server-Sent Events stream of log lines for the given server.
 Pass `?previous=true` to fetch logs from a crashed/restarted container.
 The response body cannot be represented in OpenAPI (SSE streaming).
@@ -1527,6 +1636,196 @@ export const prefetchServerLogsHandlerQuery = async <TData = Awaited<ReturnType<
 
 
 /**
+ * @summary Drop a server's override and restart it on the workspace's configuration.
+ */
+export type resetServerConfigHandlerResponse200 = {
+  data: ServerConfigResponse
+  status: 200
+}
+
+export type resetServerConfigHandlerResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type resetServerConfigHandlerResponse503 = {
+  data: ErrorBody
+  status: 503
+}
+    
+export type resetServerConfigHandlerResponseSuccess = (resetServerConfigHandlerResponse200) & {
+  headers: Headers;
+};
+export type resetServerConfigHandlerResponseError = (resetServerConfigHandlerResponse404 | resetServerConfigHandlerResponse503) & {
+  headers: Headers;
+};
+
+export type resetServerConfigHandlerResponse = (resetServerConfigHandlerResponseSuccess | resetServerConfigHandlerResponseError)
+
+export const getResetServerConfigHandlerUrl = (taskId: string,
+    serverName: string,) => {
+
+
+  
+
+  return `/api/sandbox/v1/tasks/${taskId}/servers/${serverName}/override`
+}
+
+export const resetServerConfigHandler = async (taskId: string,
+    serverName: string, options?: RequestInit): Promise<resetServerConfigHandlerResponse> => {
+  
+  return customInstance<resetServerConfigHandlerResponse>(getResetServerConfigHandlerUrl(taskId,serverName),
+  {      
+    ...options,
+    method: 'DELETE'
+    
+    
+  }
+);}
+
+
+
+
+export const getResetServerConfigHandlerMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resetServerConfigHandler>>, TError,{taskId: string;serverName: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof resetServerConfigHandler>>, TError,{taskId: string;serverName: string}, TContext> => {
+
+const mutationKey = ['resetServerConfigHandler'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof resetServerConfigHandler>>, {taskId: string;serverName: string}> = (props) => {
+          const {taskId,serverName} = props ?? {};
+
+          return  resetServerConfigHandler(taskId,serverName,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ResetServerConfigHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof resetServerConfigHandler>>>
+    
+    export type ResetServerConfigHandlerMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Drop a server's override and restart it on the workspace's configuration.
+ */
+export const useResetServerConfigHandler = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resetServerConfigHandler>>, TError,{taskId: string;serverName: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof resetServerConfigHandler>>,
+        TError,
+        {taskId: string;serverName: string},
+        TContext
+      > => {
+      return useMutation(getResetServerConfigHandlerMutationOptions(options), queryClient);
+    }
+    /**
+ * @summary Restart one preview server in place, leaving its override as-is.
+ */
+export type restartServerHandlerResponse200 = {
+  data: ServerConfigResponse
+  status: 200
+}
+
+export type restartServerHandlerResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type restartServerHandlerResponse503 = {
+  data: ErrorBody
+  status: 503
+}
+    
+export type restartServerHandlerResponseSuccess = (restartServerHandlerResponse200) & {
+  headers: Headers;
+};
+export type restartServerHandlerResponseError = (restartServerHandlerResponse404 | restartServerHandlerResponse503) & {
+  headers: Headers;
+};
+
+export type restartServerHandlerResponse = (restartServerHandlerResponseSuccess | restartServerHandlerResponseError)
+
+export const getRestartServerHandlerUrl = (taskId: string,
+    serverName: string,) => {
+
+
+  
+
+  return `/api/sandbox/v1/tasks/${taskId}/servers/${serverName}/restart`
+}
+
+export const restartServerHandler = async (taskId: string,
+    serverName: string, options?: RequestInit): Promise<restartServerHandlerResponse> => {
+  
+  return customInstance<restartServerHandlerResponse>(getRestartServerHandlerUrl(taskId,serverName),
+  {      
+    ...options,
+    method: 'POST'
+    
+    
+  }
+);}
+
+
+
+
+export const getRestartServerHandlerMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof restartServerHandler>>, TError,{taskId: string;serverName: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof restartServerHandler>>, TError,{taskId: string;serverName: string}, TContext> => {
+
+const mutationKey = ['restartServerHandler'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof restartServerHandler>>, {taskId: string;serverName: string}> = (props) => {
+          const {taskId,serverName} = props ?? {};
+
+          return  restartServerHandler(taskId,serverName,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RestartServerHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof restartServerHandler>>>
+    
+    export type RestartServerHandlerMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Restart one preview server in place, leaving its override as-is.
+ */
+export const useRestartServerHandler = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof restartServerHandler>>, TError,{taskId: string;serverName: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof restartServerHandler>>,
+        TError,
+        {taskId: string;serverName: string},
+        TContext
+      > => {
+      return useMutation(getRestartServerHandlerMutationOptions(options), queryClient);
+    }
+    /**
  * @summary Get full sandbox status including servers and Agent status.
  */
 export type sandboxStatusHandlerResponse200 = {

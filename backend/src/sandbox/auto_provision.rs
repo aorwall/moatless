@@ -24,7 +24,7 @@ use crate::workspace::dao::WorkspaceRepository;
 // are shared by lifecycle plan construction and pod-watcher parsing.
 pub use crate::sandbox::k8s::auto_provision::{
     build_repo_config_from_workspace, build_server_configs_from_workspace, filter_disabled_servers,
-    parse_disabled_servers, parse_env_vars_from_workspace,
+    parse_disabled_servers, parse_env_vars_from_workspace, parse_server_overrides,
 };
 
 /// Build a `ProvisionRequest` from database state.
@@ -182,6 +182,20 @@ pub async fn build_provision_request(
         filter_disabled_servers(&mut repo_config, &disabled);
     }
 
+    // Carry live server overrides into the plan so a rebuilt pod's sandbox can
+    // re-materialize them before the sidecars start. They stay task state — the
+    // workspace config is untouched — and only reach the sandbox through
+    // `REPO_CONFIG`, never the sidecar container spec.
+    let overrides = parse_server_overrides(&task);
+    if !overrides.is_empty() {
+        info!(
+            task_id = %task_id,
+            servers = ?overrides.keys().collect::<Vec<_>>(),
+            "Auto-provision: applying server overrides"
+        );
+        repo_config.server_overrides = Some(overrides);
+    }
+
     let plan = crate::sandbox::models::ProvisionPlan {
         repo_config,
         git_clone_url,
@@ -247,6 +261,7 @@ fn minimal_repo_config(name: &str) -> RepoConfig {
         docker_networks: None,
         sandbox_service_account: None,
         network_profile: None,
+        server_overrides: None,
     }
 }
 

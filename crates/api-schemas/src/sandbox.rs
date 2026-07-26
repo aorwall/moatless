@@ -1,6 +1,7 @@
 //! Sandbox API request/response schemas.
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 // =============================================================================
 // Sandbox model types (shared between schemas and backend)
@@ -135,6 +136,9 @@ pub struct ServerSnapshot {
     pub status: ServerStatus,
     pub error: Option<String>,
     pub pid: Option<u32>,
+    /// Live config override in effect for this server, when one is set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_override: Option<ServerOverride>,
 }
 
 /// Resource metrics from sandbox GET /status
@@ -268,6 +272,51 @@ pub struct FileSearchResult {
 #[serde(rename_all = "camelCase")]
 pub struct ServerStatusResponse {
     pub servers: Vec<ServerSnapshot>,
+}
+
+/// A live override of one preview server's start command and env.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ServerOverride {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_command: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub env: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unset_env: Vec<String>,
+}
+
+/// Update one preview server's live config.
+///
+/// `port` and `dockerImage` exist only so a caller that sends them gets an
+/// explicit "redeploy required" rather than a silent no-op.
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateServerConfigRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_commands: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub env: Option<BTreeMap<String, String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unset_env: Option<Vec<String>>,
+    pub restart: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub docker_image: Option<String>,
+}
+
+/// Result of a live server config change or restart.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ServerConfigResponse {
+    pub server_name: String,
+    pub config_override: ServerOverride,
+    pub generation: u64,
+    pub restarted: bool,
 }
 
 // ── File operation DTOs ──────────────────────────────────────────

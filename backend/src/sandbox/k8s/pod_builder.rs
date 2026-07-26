@@ -20,6 +20,7 @@ use crate::sandbox::error::SandboxError;
 use crate::sandbox::jwt::{self, MintedSandboxTokens};
 use crate::sandbox::lifecycle::runtime::{RuntimeOperationContext, OPERATION_GENERATION_LABEL};
 use crate::sandbox::models::ProvisionPlan;
+use crate::sandbox::server_runner::build_server_start_script;
 
 /// Auth tokens delivered to a sandbox pod.
 ///
@@ -1047,22 +1048,14 @@ fn build_server_containers(
         // Command: always set command to override the image ENTRYPOINT.
         // Server containers reuse the sandbox image (ENTRYPOINT: runs sandbox
         // binary), which we must override.
-        // The inline wait polls for the workspace-ready sentinel written by
-        // the sandbox container after setup commands complete, then sources
-        // the shared server.env file written by the sandbox init.
+        // The script waits for the workspace-ready sentinel, sources the shared
+        // env files, and supervises the child so a live config override can
+        // restart it without rebuilding the pod — see `server_runner`.
         let (command, args) = match &server.start_commands {
-            Some(cmds) if !cmds.is_empty() => {
-                let joined_cmd = cmds.join(" && ");
-                let full_cmd = format!(
-                    "until [ -f /opt/moatless/data/.workspace-ready ]; do sleep 2; done && \
-                     if [ -f /opt/moatless/data/server.env ]; then set -a && . /opt/moatless/data/server.env && set +a; fi && \
-                     cd \"${{WORKSPACE_PATH:-/opt/moatless/repo}}\" && {joined_cmd}"
-                );
-                (
-                    Some(vec!["bash".to_string(), "-c".to_string()]),
-                    Some(vec![full_cmd]),
-                )
-            }
+            Some(cmds) if !cmds.is_empty() => (
+                Some(vec!["bash".to_string(), "-c".to_string()]),
+                Some(vec![build_server_start_script(&server.name, cmds)]),
+            ),
             _ => (None, None),
         };
 
@@ -1183,6 +1176,7 @@ fn build_repo_config_json(plan: &ProvisionPlan) -> Option<String> {
         && rc.servers.is_none()
         && rc.plugin_ids.is_none()
         && rc.plugin_repos.is_none()
+        && rc.server_overrides.is_none()
     {
         return None;
     }
@@ -1222,6 +1216,9 @@ fn build_repo_config_json(plan: &ProvisionPlan) -> Option<String> {
     }
     if let Some(ref pr) = rc.plugin_repos {
         map.insert("pluginRepos".into(), serde_json::json!(pr));
+    }
+    if let Some(ref so) = rc.server_overrides {
+        map.insert("serverOverrides".into(), serde_json::json!(so));
     }
 
     Some(serde_json::Value::Object(map).to_string())
@@ -1574,6 +1571,7 @@ mod tests {
                 docker_networks: None,
                 sandbox_service_account: None,
                 network_profile: None,
+                server_overrides: None,
             },
             git_clone_url: "https://github.com/test/repo.git".into(),
             git_branch: None,

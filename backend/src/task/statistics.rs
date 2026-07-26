@@ -351,6 +351,7 @@ mod tests {
             trigger_id: None,
             workspace_id: None,
             disabled_servers: None,
+            server_overrides: None,
         }
     }
 

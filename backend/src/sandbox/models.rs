@@ -1,7 +1,7 @@
 //! Sandbox domain types — config, provisioning, and K8s status types.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use utoipa::ToSchema;
 
 // Re-export pod_status functions that were previously defined here
@@ -82,6 +82,41 @@ pub struct RepoConfig {
     /// policy only; grants nothing on its own. Ignored in Docker mode.
     #[serde(default)]
     pub network_profile: Option<String>,
+    // --- Live per-server overrides (task-scoped) ---
+    /// Start-command / env overrides keyed by server name, applied without
+    /// rebuilding the pod. Passed through in `REPO_CONFIG` so a rebuilt pod's
+    /// sandbox can re-materialize them before its sidecars start; live changes
+    /// travel over gRPC instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_overrides: Option<BTreeMap<String, ServerOverride>>,
+}
+
+/// A live override of one preview server's start command and env.
+///
+/// Whole-state, not a delta: the backend owns the persisted copy and always
+/// sends the complete set to the sandbox, so the two cannot drift.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerOverride {
+    /// Replaces the server's configured start command. `None` = use the
+    /// workspace's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_command: Option<String>,
+    /// Env entries exported after `server.env`, so they win over it.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub env: BTreeMap<String, String>,
+    /// Keys to remove — the only way to drop a variable the container spec
+    /// injected, since sourcing an env file can add but never remove.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unset_env: Vec<String>,
+}
+
+impl ServerOverride {
+    /// True when nothing is overridden, so the entry can be dropped from the
+    /// persisted map rather than stored empty.
+    pub fn is_empty(&self) -> bool {
+        self.start_command.is_none() && self.env.is_empty() && self.unset_env.is_empty()
+    }
 }
 
 /// Server config entry
@@ -225,6 +260,9 @@ pub struct ServerSnapshot {
     pub status: ServerStatus,
     pub error: Option<String>,
     pub pid: Option<u32>,
+    /// Live config override in effect for this server, when one is set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_override: Option<ServerOverride>,
 }
 
 impl ServerSnapshot {
@@ -240,6 +278,7 @@ impl ServerSnapshot {
             status,
             error: None,
             pid: None,
+            config_override: None,
         }
     }
 }
@@ -799,6 +838,7 @@ mod tests {
             status: ServerStatus::Started,
             error: None,
             pid: None,
+            config_override: None,
         };
         let caps = server_capabilities_from_snapshot(&snapshot);
         assert!(caps.inspector);

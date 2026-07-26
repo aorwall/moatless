@@ -2,13 +2,15 @@
 //!
 //! Replaces all HTTP calls to sandbox pods (health, status, execute-agent,
 //! stop-agent, notify-messages, search-files) with gRPC.
-//! Server management is handled by K8s (separate containers).
+//! Preview servers run as separate K8s/Docker containers, but their live
+//! start-command / env overrides are pushed through the sandbox
+//! (`apply_server_config`), which owns the control files the sidecars read.
 
 use std::time::Duration;
 
 use sandbox_proto::sandbox_service_client::SandboxServiceClient;
 use sandbox_proto::{
-    ExecuteAgentRequest, GetAgentStatusRequest, GetAgentStatusResponse, GetFileTreeRequest,
+    ApplyServerConfigRequest, ExecuteAgentRequest, GetAgentStatusRequest, GetAgentStatusResponse, GetFileTreeRequest,
     GetFileTreeResponse, ListFilesRequest, NotifyMessagesRequest, ReadFileRequest,
     ReadFileResponse, RefreshCredentialRequest, SearchFilesByNameRequest,
     SearchFilesByNameResponse, StopAgentRequest, WriteFileRequest,
@@ -17,6 +19,7 @@ use tonic::transport::Channel;
 use tracing::debug;
 
 use super::error::SandboxError;
+use super::models::ServerOverride;
 use super::schemas::{
     BackgroundProcess as SchemaBackgroundProcess,
     BackgroundWatchJobInfo as SchemaBackgroundWatchJobInfo,
@@ -314,6 +317,42 @@ impl SandboxClient {
             Ok(Err(e)) => Err(e),
             Err(_) => Err(tonic::Status::deadline_exceeded(
                 "RefreshCredential gRPC timed out",
+            )),
+        }
+    }
+
+    /// Push a preview server's override into the sandbox and optionally restart
+    /// it in place.
+    ///
+    /// The override is sent whole rather than as a delta — the backend holds the
+    /// persisted copy in `tasks.server_overrides`, so merging here keeps the two
+    /// from drifting. Returns the sidecar generation after the call.
+    pub async fn apply_server_config(
+        &self,
+        task_id: &str,
+        server_name: &str,
+        ov: &ServerOverride,
+        restart: bool,
+    ) -> Result<u64, tonic::Status> {
+        let mut client = self.client.clone();
+        let request = ApplyServerConfigRequest {
+            task_id: task_id.to_string(),
+            server_name: server_name.to_string(),
+            start_command: ov.start_command.clone(),
+            env: ov.env.clone().into_iter().collect(),
+            unset_env: ov.unset_env.clone(),
+            restart,
+        };
+        let result = tokio::time::timeout(Duration::from_secs(5), async {
+            client.apply_server_config(request).await
+        })
+        .await;
+
+        match result {
+            Ok(Ok(resp)) => Ok(resp.into_inner().generation),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(tonic::Status::deadline_exceeded(
+                "ApplyServerConfig gRPC timed out",
             )),
         }
     }

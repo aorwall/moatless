@@ -284,6 +284,7 @@ impl TaskCreationService {
             trigger_id: req.trigger_id.clone(),
             workspace_id: req.workspace_id.clone(),
             disabled_servers: None,
+            server_overrides: None,
         };
 
         // Repo is needed for preflight. Reuse a caller-supplied one if present

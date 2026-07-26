@@ -34,6 +34,7 @@ use moatless_events::SandboxStatus;
 use sandbox_proto::PublishEventRequest;
 use tracing::{error, info, warn};
 
+use crate::server_control;
 use crate::state::SandboxState;
 
 /// Init error with permanence classification.
@@ -143,6 +144,18 @@ pub async fn run_init(state: SandboxState) {
 
     // Phase 2: Workspace setup — runs after health is 200
     run_workspace_setup(&state).await;
+
+    // Re-materialize persisted server overrides before the ready sentinel, so a
+    // rebuilt pod's sidecars see them on their very first start rather than
+    // booting once on the workspace default and needing a restart.
+    let overrides = server_control::parse_overrides(state.config.repo_config_raw.as_deref());
+    let server_names: Vec<String> = state
+        .config
+        .servers
+        .iter()
+        .map(|s| s.name.clone())
+        .collect();
+    server_control::materialize(&state.config.data_dir, &overrides, &server_names).await;
 
     // Write workspace-ready sentinel AFTER setup commands complete (e.g. bun install).
     // Server containers poll for this file before starting, so they must wait

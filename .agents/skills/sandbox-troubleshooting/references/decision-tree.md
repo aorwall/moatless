@@ -53,11 +53,13 @@ symptom→cause→fix lookup table and all knobs are in
   `K8S_SANDBOX_STORAGE_SIZE`). Knob table in [failure-modes.md](failure-modes.md).
 
 ## Preview / server container failing
+Switch to the [preview-servers](../../preview-servers/SKILL.md) skill — it owns
+the observe → override → promote loop for server containers, including live
+start-command/env changes that need no redeploy. First moves:
 - `moat tasks status <task_id>` → per-server status/error/detail.
-- `moat tasks logs <task_id> --server preview --previous` (server names:
-  `sandbox`, `preview`, `files`, or the configured `*-server` suffix).
-- Config problems: `moat workspaces get <workspace_id>` → fix via
-  `moat workspaces override <workspace_id> --servers-json '...'` → restart.
+- `moat tasks logs <task_id> --server preview --previous` (pass the plain server
+  name — `sandbox`, `preview`, `files`, `dev` — not the `*-server` container name).
+- `moat tasks servers <task_id> list` → the config override in effect.
 
 ## Agent stuck / not responding / errored
 - `moat tasks status <task_id>` → agent state. `none` while the pod is Running
