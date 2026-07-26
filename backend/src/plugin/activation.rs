@@ -153,7 +153,8 @@ pub fn resolve_rows(
     resolve(&plugin_skills, &activations)
 }
 
-/// Read what one person gets, straight out of the database.
+/// Read what one person gets, straight out of the database. `None` is nobody in
+/// particular — the global defaults and nothing personal.
 ///
 /// The single place this read happens. The effective-plugins endpoint, the
 /// repository skill list and task provisioning all go through it, so what
@@ -165,7 +166,7 @@ pub fn resolve_rows(
 /// added since it was written.
 pub async fn resolve_for_user(
     plugins: &dyn crate::plugin::dao::PluginRepository,
-    user_id: &str,
+    user_id: Option<uuid::Uuid>,
 ) -> Result<Vec<(crate::plugin::models::Plugin, Vec<String>)>, sqlx::Error> {
     let registered = plugins.list_all().await?;
     if registered.is_empty() {

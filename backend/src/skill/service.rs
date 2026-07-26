@@ -116,11 +116,9 @@ impl SkillService {
 
         // ---- Plugin skills (whatever this caller's activation records give
         // them, in stable order from the DAO) ----
-        let resolved = crate::plugin::activation::resolve_for_user(
-            self.plugins.as_ref(),
-            &auth.user_id.to_string(),
-        )
-        .await?;
+        let resolved =
+            crate::plugin::activation::resolve_for_user(self.plugins.as_ref(), Some(auth.user_id))
+                .await?;
         for (plugin, picked) in resolved {
             for skill in self.plugin_skills(&plugin).await? {
                 if !picked.contains(&skill.name) {

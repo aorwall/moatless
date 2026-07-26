@@ -1,6 +1,7 @@
 //! Plugin domain types — DB row structs.
 
 use chrono::{DateTime, Utc};
+use uuid::Uuid;
 
 /// Row from the `plugins` table.
 #[derive(sqlx::FromRow, Debug, Clone)]
@@ -34,6 +35,6 @@ pub struct PluginSkill {
 pub struct ActivationRow {
     pub plugin_id: String,
     pub skill_name: Option<String>,
-    pub user_id: Option<String>,
+    pub user_id: Option<Uuid>,
     pub enabled: bool,
 }

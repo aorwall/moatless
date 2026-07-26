@@ -15,7 +15,7 @@
 CREATE TABLE IF NOT EXISTS "plugin_activations" (
     "plugin_id"  text NOT NULL REFERENCES "plugins"("id") ON DELETE CASCADE,
     "skill_name" text,
-    "user_id"    text REFERENCES "users"("id") ON DELETE CASCADE,
+    "user_id"    uuid REFERENCES "users"("id") ON DELETE CASCADE,
     "enabled"    boolean NOT NULL,
     "created_at" timestamptz NOT NULL DEFAULT now(),
     "updated_at" timestamptz NOT NULL DEFAULT now(),
