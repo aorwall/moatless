@@ -220,12 +220,13 @@ impl SandboxService for SandboxServiceImpl {
         }
     }
 
-    /// Write a preview server's override into the shared data volume and
+    /// Write a preview server's override into the workspace volume and
     /// optionally bump its generation so the sidecar re-execs in place.
     ///
-    /// The request carries the complete override state rather than a delta —
-    /// the backend owns the persisted copy, so merging there keeps the two from
-    /// drifting.
+    /// The request carries the complete override state rather than a delta, so
+    /// this never merges. The control files it writes are the only record of an
+    /// override; a caller that needs a partial update reads the current state
+    /// with `GetServerConfig` first.
     #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
     async fn apply_server_config(
         &self,
