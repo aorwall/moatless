@@ -7,6 +7,7 @@ pub mod config;
 pub mod external_id;
 pub mod handlers;
 pub mod runtime;
+pub mod shell_reconcile;
 pub mod signals;
 pub mod signature;
 pub mod status;
