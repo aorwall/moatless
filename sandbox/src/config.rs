@@ -7,6 +7,7 @@ use std::env;
 
 use claude_agent_sdk::PermissionMode;
 use moatless_api_schemas::plugin::PluginDelivery;
+use moatless_api_schemas::sandbox::{derive_mount_name, RepoCheckout, WORKSPACE_REPOS_ENV};
 use serde::Deserialize;
 
 /// Agent-specific configuration parsed from REPO_CONFIG.
@@ -116,11 +117,13 @@ pub struct Config {
     /// (the primary repo in [`Self::repo_dir`] *and* any sibling repos the agent
     /// cloned alongside it), keyed by workspace-relative path.
     pub workspace_dir: String,
-    /// Repository directory — where the primary repo is cloned, a subdirectory
-    /// of [`Self::workspace_dir`] named after the repo (e.g.
+    /// Repository directory — where the primary repo is cloned: the
+    /// [`Self::workspace_dir`] subdirectory named by its placement's mount name,
+    /// which defaults to the repo name (e.g.
     /// `/opt/moatless/workspace/<repo-name>`). All repo-scoped operations (git
-    /// status/diff, the file API, setup commands, dev servers) target this.
-    /// Falls back to `workspace_dir` when there is no clone URL.
+    /// status/diff, the file API, setup commands, dev servers) target this;
+    /// secondary repos in [`Self::repos`] sit beside it. Falls back to
+    /// `workspace_dir` when there is no repo to clone.
     pub repo_dir: String,
     /// Data directory for server artifacts
     pub data_dir: String,
@@ -182,12 +185,21 @@ pub struct Config {
     pub codex_home_dir: String,
     /// Claude config directory (default: "$HOME/.claude")
     pub claude_config_dir: String,
-    /// Git clone URL (from pod env)
+    /// Primary repo's clone URL (env `GIT_CLONE_URL`). Mirrors `repos[0]`.
     pub git_clone_url: Option<String>,
-    /// Git branch to clone
+    /// Primary repo's branch (env `GIT_BRANCH`)
     pub git_branch: Option<String>,
-    /// Git provider name (github, gitlab, gitness)
+    /// Primary repo's git provider (github, gitlab, gitness)
     pub git_provider: String,
+    /// Every repository the task's workspace places in this sandbox, primary
+    /// first (env `WORKSPACE_REPOS`). Each is cloned into
+    /// `{workspace_dir}/{mount_name}`; the primary's directory is
+    /// [`Self::repo_dir`].
+    ///
+    /// A pod provisioned before multi-repo support carries no `WORKSPACE_REPOS`,
+    /// so this holds the single checkout reconstructed from the `GIT_*` trio —
+    /// or nothing at all, for a sandbox with no repo to clone.
+    pub repos: Vec<RepoCheckout>,
     /// Raw REPO_CONFIG JSON (for entrypoint compat)
     pub repo_config_raw: Option<String>,
     /// Setup commands from REPO_CONFIG.codeExecution.setupCommands
@@ -197,23 +209,95 @@ pub struct Config {
     pub plugins: Vec<PluginDelivery>,
 }
 
-/// Derive the repo subdirectory name from a clone URL: the last path segment
-/// with any trailing `.git` and slashes stripped. Falls back to `"repo"` for
-/// URLs that don't yield a usable segment.
+/// Read the workspace's repository checkouts from `WORKSPACE_REPOS`.
 ///
-/// Handles `https://host/owner/repo(.git)` and `git@host:owner/repo(.git)`.
-pub(crate) fn derive_repo_name(url: &str) -> String {
-    let name = url
-        .trim_end_matches('/')
-        .rsplit(['/', ':'])
-        .next()
-        .unwrap_or("")
-        .trim_end_matches(".git");
-    if name.is_empty() {
-        "repo".to_string()
-    } else {
-        name.to_string()
+/// Falls back to the single checkout described by the legacy
+/// `GIT_CLONE_URL`/`GIT_BRANCH`/`GIT_PROVIDER` trio when the env is absent (a pod
+/// provisioned before multi-repo support) or unparseable — cloning the primary
+/// repo is strictly better than cloning nothing. Returns an empty list when
+/// there is no repo to clone at all.
+///
+/// A mount name that is not a single safe path segment is rejected rather than
+/// repaired: it is joined onto `workspace_dir`, and the backend already
+/// sanitizes, so anything else means a payload we should not act on.
+fn load_repo_checkouts(
+    git_clone_url: Option<&str>,
+    git_branch: Option<&str>,
+    git_provider: &str,
+) -> Vec<RepoCheckout> {
+    parse_repo_checkouts(
+        env::var(WORKSPACE_REPOS_ENV).ok().as_deref(),
+        git_clone_url,
+        git_branch,
+        git_provider,
+    )
+}
+
+/// The env-free half of [`load_repo_checkouts`].
+fn parse_repo_checkouts(
+    raw: Option<&str>,
+    git_clone_url: Option<&str>,
+    git_branch: Option<&str>,
+    git_provider: &str,
+) -> Vec<RepoCheckout> {
+    let legacy = || match git_clone_url {
+        Some(url) => vec![RepoCheckout {
+            clone_url: url.to_string(),
+            branch: git_branch.map(str::to_string),
+            provider: git_provider.to_string(),
+            mount_name: derive_mount_name(url),
+            is_primary: true,
+        }],
+        None => Vec::new(),
+    };
+
+    let raw = match raw {
+        Some(raw) if !raw.trim().is_empty() => raw,
+        _ => return legacy(),
+    };
+    let parsed: Vec<RepoCheckout> = match serde_json::from_str(raw) {
+        Ok(parsed) => parsed,
+        Err(e) => {
+            tracing::error!(
+                error = %e,
+                "Failed to parse WORKSPACE_REPOS; falling back to the primary repo only"
+            );
+            return legacy();
+        }
+    };
+
+    let (usable, rejected): (Vec<_>, Vec<_>) = parsed
+        .into_iter()
+        .partition(|repo| is_safe_mount_name(&repo.mount_name) && !repo.clone_url.is_empty());
+    for repo in &rejected {
+        tracing::error!(
+            mount_name = %repo.mount_name,
+            "Skipping workspace repo with an unusable mount name or clone URL"
+        );
     }
+    if usable.is_empty() {
+        return legacy();
+    }
+    usable
+}
+
+/// The primary checkout in a list, or `None` when there is nothing to clone.
+///
+/// Falls back to the first entry if nothing is flagged, so a malformed list
+/// still yields a `repo_dir` rather than collapsing onto the workspace root.
+pub(crate) fn primary_checkout(repos: &[RepoCheckout]) -> Option<&RepoCheckout> {
+    repos.iter().find(|repo| repo.is_primary).or(repos.first())
+}
+
+/// Whether a mount name is a single path segment safe to join onto the workspace
+/// directory.
+fn is_safe_mount_name(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name.contains('/')
+        && !name.contains('\\')
+        && !name.contains('\0')
 }
 
 /// Parse the `SANDBOX_PERMISSION_MODE` env value into a [`PermissionMode`].
@@ -277,20 +361,22 @@ impl Config {
         let codex_home_dir =
             env::var("CODEX_HOME").unwrap_or_else(|_| format!("{home_dir}/.codex"));
 
-        // The workspace is the persisted container dir; the primary repo is
-        // cloned into a named subdirectory of it. Derive `repo_dir` from the
-        // clone URL's last path segment, falling back to `workspace_dir` itself
-        // when there is no repo to clone.
+        // The workspace is the persisted container dir; every repository the
+        // task's workspace declares is cloned into a named subdirectory of it.
+        // `repo_dir` is the primary checkout's subdirectory — the target of all
+        // repo-scoped operations — falling back to `workspace_dir` itself when
+        // there is no repo to clone.
         let workspace_dir = env::var("WORKSPACE_DIR").unwrap_or_else(|_| "/workspace".to_string());
         let git_clone_url = env::var("GIT_CLONE_URL").ok().filter(|u| !u.is_empty());
-        let repo_dir = match git_clone_url {
-            Some(ref url) => format!(
-                "{}/{}",
-                workspace_dir.trim_end_matches('/'),
-                derive_repo_name(url)
-            ),
-            None => workspace_dir.clone(),
-        };
+        let git_branch = env::var("GIT_BRANCH").ok();
+        let git_provider = env::var("GIT_PROVIDER").unwrap_or_else(|_| "github".to_string());
+        let repos = load_repo_checkouts(
+            git_clone_url.as_deref(),
+            git_branch.as_deref(),
+            &git_provider,
+        );
+        let repo_dir = primary_checkout(&repos)
+            .map_or_else(|| workspace_dir.clone(), |repo| repo.dir(&workspace_dir));
 
         Self {
             port: env::var("PORT")
@@ -359,8 +445,9 @@ impl Config {
             codex_home_dir,
             claude_config_dir,
             git_clone_url,
-            git_branch: env::var("GIT_BRANCH").ok(),
-            git_provider: env::var("GIT_PROVIDER").unwrap_or_else(|_| "github".to_string()),
+            git_branch,
+            git_provider,
+            repos,
             repo_config_raw: env::var("REPO_CONFIG").ok(),
             setup_commands: parsed.setup_commands,
             plugins: parsed.plugins,
@@ -493,6 +580,7 @@ pub(crate) mod test_support {
             git_clone_url: None,
             git_branch: None,
             git_provider: "github".to_string(),
+            repos: Vec::new(),
             repo_config_raw: None,
             setup_commands: Vec::new(),
             plugins: Vec::new(),
@@ -555,7 +643,10 @@ fn parse_repo_config() -> ParsedRepoConfig {
 #[cfg(test)]
 mod tests {
     use super::test_support::minimal_config;
-    use super::{derive_repo_name, parse_permission_mode, InitialAuthTokenSource, PermissionMode};
+    use super::{
+        is_safe_mount_name, parse_permission_mode, parse_repo_checkouts, primary_checkout,
+        InitialAuthTokenSource, PermissionMode,
+    };
 
     /// Point both persisted-token dirs at empty temp dirs so resolution falls
     /// through to the env-supplied tokens deterministically.
@@ -678,25 +769,98 @@ mod tests {
         assert_eq!(parse_permission_mode("nonsense"), None);
     }
 
+    /// A pod provisioned before multi-repo support carries no `WORKSPACE_REPOS`;
+    /// it must still clone its primary repo into the same directory as before.
     #[test]
-    fn derive_repo_name_handles_common_url_shapes() {
-        assert_eq!(
-            derive_repo_name("https://github.com/owner/repo.git"),
-            "repo"
+    fn absent_workspace_repos_falls_back_to_the_legacy_single_checkout() {
+        let repos = parse_repo_checkouts(
+            None,
+            Some("https://github.com/owner/repo.git"),
+            Some("main"),
+            "github",
         );
-        assert_eq!(derive_repo_name("https://github.com/owner/repo"), "repo");
-        assert_eq!(derive_repo_name("git@github.com:owner/repo.git"), "repo");
-        assert_eq!(derive_repo_name("https://host/owner/repo/"), "repo");
+        assert_eq!(repos.len(), 1);
+        assert_eq!(repos[0].mount_name, "repo");
+        assert_eq!(repos[0].branch.as_deref(), Some("main"));
+        assert!(repos[0].is_primary);
         assert_eq!(
-            derive_repo_name("https://gitlab.com/group/sub/my-service.git"),
-            "my-service"
+            primary_checkout(&repos).unwrap().dir("/opt/moatless/workspace"),
+            "/opt/moatless/workspace/repo"
         );
     }
 
     #[test]
-    fn derive_repo_name_falls_back_for_unusable_urls() {
-        assert_eq!(derive_repo_name(""), "repo");
-        assert_eq!(derive_repo_name("/"), "repo");
-        assert_eq!(derive_repo_name(".git"), "repo");
+    fn no_clone_url_at_all_yields_no_checkouts() {
+        assert!(parse_repo_checkouts(None, None, None, "github").is_empty());
+    }
+
+    #[test]
+    fn workspace_repos_env_supplies_every_checkout() {
+        let raw = r#"[
+            {"cloneUrl":"https://github.com/acme/api.git","branch":"main","provider":"github","mountName":"api","isPrimary":true},
+            {"cloneUrl":"https://gitlab.com/acme/shared.git","provider":"gitlab","mountName":"lib"}
+        ]"#;
+        let repos = parse_repo_checkouts(
+            Some(raw),
+            Some("https://github.com/acme/api.git"),
+            Some("main"),
+            "github",
+        );
+        assert_eq!(repos.len(), 2);
+        assert_eq!(
+            primary_checkout(&repos).unwrap().dir("/opt/moatless/workspace"),
+            "/opt/moatless/workspace/api"
+        );
+        assert_eq!(repos[1].provider, "gitlab");
+        assert_eq!(repos[1].branch, None);
+        assert!(!repos[1].is_primary);
+    }
+
+    /// Mount names are joined onto the workspace dir, so an entry that escapes it
+    /// is dropped rather than repaired — the backend already sanitizes.
+    #[test]
+    fn checkouts_with_unusable_mount_names_are_dropped() {
+        let raw = r#"[
+            {"cloneUrl":"https://github.com/acme/api.git","provider":"github","mountName":"api","isPrimary":true},
+            {"cloneUrl":"https://github.com/acme/evil.git","provider":"github","mountName":"../escape"},
+            {"cloneUrl":"","provider":"github","mountName":"empty"}
+        ]"#;
+        let repos = parse_repo_checkouts(Some(raw), None, None, "github");
+        assert_eq!(repos.len(), 1);
+        assert_eq!(repos[0].mount_name, "api");
+    }
+
+    /// Unparseable JSON must not strand the sandbox with nothing checked out.
+    #[test]
+    fn malformed_workspace_repos_falls_back_to_the_primary() {
+        let repos = parse_repo_checkouts(
+            Some("not json"),
+            Some("https://github.com/owner/repo.git"),
+            None,
+            "github",
+        );
+        assert_eq!(repos.len(), 1);
+        assert_eq!(repos[0].mount_name, "repo");
+    }
+
+    #[test]
+    fn rejects_mount_names_that_are_not_a_single_segment() {
+        assert!(is_safe_mount_name("api"));
+        assert!(is_safe_mount_name("api-2"));
+        assert!(!is_safe_mount_name(""));
+        assert!(!is_safe_mount_name("."));
+        assert!(!is_safe_mount_name(".."));
+        assert!(!is_safe_mount_name("a/b"));
+        assert!(!is_safe_mount_name("a\\b"));
+    }
+
+    /// Nothing flagged primary still yields a `repo_dir` rather than collapsing
+    /// onto the workspace root.
+    #[test]
+    fn primary_checkout_falls_back_to_the_first_entry() {
+        let raw = r#"[{"cloneUrl":"https://github.com/acme/api.git","provider":"github","mountName":"api"}]"#;
+        let repos = parse_repo_checkouts(Some(raw), None, None, "github");
+        assert_eq!(primary_checkout(&repos).unwrap().mount_name, "api");
+        assert!(primary_checkout(&[]).is_none());
     }
 }

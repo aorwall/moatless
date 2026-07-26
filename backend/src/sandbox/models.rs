@@ -4,6 +4,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use utoipa::ToSchema;
 
+pub use moatless_api_schemas::sandbox::{
+    derive_mount_name, sanitize_mount_name, RepoCheckout, WORKSPACE_REPOS_ENV,
+};
+
 // Re-export pod_status functions that were previously defined here
 pub use crate::sandbox::k8s::pod_status::extract_container_observed_statuses;
 
@@ -20,13 +24,22 @@ pub struct ProvisionRequest {
 #[serde(rename_all = "camelCase")]
 pub struct ProvisionPlan {
     pub repo_config: RepoConfig,
+    /// The primary repository's clone URL. Mirrors `repos[0]`, which is always
+    /// the primary checkout; kept as its own field because the sandbox's legacy
+    /// `GIT_CLONE_URL` env is still how a pre-multi-repo sandbox image finds it.
     pub git_clone_url: String,
+    /// The primary repository's branch. Mirrors `repos[0].branch`.
     pub git_branch: Option<String>,
-    /// Git provider name (e.g. "github", "gitlab", "gitness")
+    /// The primary repository's git provider (e.g. "github", "gitlab", "gitness")
     #[serde(default = "default_git_provider")]
     pub git_provider: String,
     /// Custom environment variables
     pub env_vars: Option<HashMap<String, String>>,
+    /// Every repository the task's workspace places in the sandbox, primary
+    /// first. Empty only for a plan deserialized from a legacy payload, where
+    /// `git_clone_url` is the sole checkout.
+    #[serde(default)]
+    pub repos: Vec<RepoCheckout>,
 }
 
 fn default_git_provider() -> String {

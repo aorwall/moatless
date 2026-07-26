@@ -379,6 +379,31 @@ fn workspace_recloned_note(workspace_dir: &str) -> String {
     )
 }
 
+/// Human-readable summary of a clone pass, used as the `RepositoryCloned` event
+/// message. Names each mount so a multi-repo workspace reports what it got
+/// rather than a bare count.
+fn describe_clone(config: &crate::config::Config, summary: &git::CloneSummary) -> String {
+    let described: Vec<String> = summary
+        .cloned
+        .iter()
+        .map(|mount| {
+            let branch = config
+                .repos
+                .iter()
+                .find(|repo| &repo.mount_name == mount)
+                .and_then(|repo| repo.branch.as_deref())
+                .filter(|branch| !branch.is_empty())
+                .map(|branch| format!(" ({branch})"))
+                .unwrap_or_default();
+            format!("{mount}{branch}")
+        })
+        .collect();
+    match described.len() {
+        1 => format!("Cloned repository {}", described[0]),
+        n => format!("Cloned {n} repositories: {}", described.join(", ")),
+    }
+}
+
 /// Interrupted-run precedence gate: probe for pending user messages first, and
 /// replay the interrupted run **only** when none are waiting. A fresh user
 /// message supersedes the interrupted turn — `dispatch_pending_messages` resumes
@@ -593,51 +618,40 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
         false
     };
 
-    // 5. Clone repository (fatal on failure) — skipped when a full repo was
-    //    restored from S3 above.
+    // 5. Clone the workspace's repositories (fatal on failure). Runs even after
+    //    an S3 restore: `clone_repositories` skips any repo whose directory
+    //    already holds a `.git`, so this only fills in what the snapshot didn't
+    //    have — e.g. a repo added to the workspace since it was taken.
     //
     // `workspace_recloned` tracks whether a *fresh* clone actually replaced the
-    // workspace (as opposed to a full S3 restore, an EBS/PVC volume that already
-    // held the repo — `clone_repository` skips when `.git` exists — or a legacy
-    // overlay onto a fresh clone). When true, ephemeral pre-restart state
-    // (gitignored deps/build artifacts, out-of-repo files, unpushed commits /
-    // uncommitted changes) is gone, and we tell a resuming agent so below.
+    // primary repo (as opposed to a full S3 restore, an EBS/PVC volume that
+    // already held it, or a legacy overlay onto a fresh clone). When true,
+    // ephemeral pre-restart state (gitignored deps/build artifacts, out-of-repo
+    // files, unpushed commits / uncommitted changes) is gone, and we tell a
+    // resuming agent so below.
     let mut workspace_recloned = false;
-    if !restored_full_repo {
+    if !state.config.repos.is_empty() {
         {
             *state.init_phase.write().await = InitPhase::CloningRepository;
         }
 
-        if let Some(ref clone_url) = state.config.git_clone_url {
-            if !clone_url.is_empty() {
-                // A pre-existing `.git` means the repo persisted (EBS/PVC) and
-                // `clone_repository` will skip — so nothing was re-cloned/lost.
-                let repo_preexisted = std::path::Path::new(&state.config.repo_dir)
-                    .join(".git")
-                    .exists();
-                match git::clone_repository(&state.config).await {
-                    Ok(()) => {
-                        workspace_recloned = !repo_preexisted;
-                        let branch_info = state
-                            .config
-                            .git_branch
-                            .as_deref()
-                            .map(|b| format!(" ({b})"))
-                            .unwrap_or_default();
-                        publish_sandbox_event(
-                            state,
-                            "RepositoryCloned",
-                            &format!("Cloned repository{branch_info}"),
-                            false,
-                        )
-                        .await;
-                    }
-                    Err(e) => {
-                        let msg = format!("Failed to clone repository: {e}");
-                        publish_sandbox_event(state, "RepositoryCloneFailed", &msg, true).await;
-                        return Err(InitError::Permanent(msg));
-                    }
+        match git::clone_repositories(&state.config).await {
+            Ok(summary) => {
+                workspace_recloned = summary.primary_recloned && !restored_full_repo;
+                if !summary.cloned.is_empty() {
+                    publish_sandbox_event(
+                        state,
+                        "RepositoryCloned",
+                        &describe_clone(&state.config, &summary),
+                        false,
+                    )
+                    .await;
                 }
+            }
+            Err(e) => {
+                let msg = format!("Failed to clone repository: {e}");
+                publish_sandbox_event(state, "RepositoryCloneFailed", &msg, true).await;
+                return Err(InitError::Permanent(msg));
             }
         }
     }

@@ -236,6 +236,7 @@ fn test_config(tmp: &TempDir, use_tmux: bool) -> Config {
         git_clone_url: None,
         git_branch: None,
         git_provider: "github".to_string(),
+        repos: Vec::new(),
         repo_config_raw: None,
         setup_commands: vec![],
         plugins: vec![],

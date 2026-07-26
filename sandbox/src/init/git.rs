@@ -1,10 +1,12 @@
 //! Git configuration and repository cloning.
 //!
-//! Provider-agnostic: uses `GIT_TOKEN` (set by credentials.rs based on
-//! `GIT_PROVIDER`) and the full clone URL from `GIT_CLONE_URL`.
+//! Provider-agnostic: the git identity/credential-helper wiring follows the
+//! pod's own `GIT_PROVIDER`, while each of the workspace's checkouts
+//! ([`Config::repos`]) clones with the token for its own provider.
 
 use std::path::Path;
 
+use moatless_api_schemas::sandbox::RepoCheckout;
 use tokio::process::Command;
 use tracing::{info, warn};
 
@@ -113,34 +115,73 @@ pub async fn configure_git(config: &Config) -> Result<(), String> {
     Ok(())
 }
 
-/// Clone a repository using the clone URL directly.
+/// The outcome of cloning the workspace's repositories.
+pub struct CloneSummary {
+    /// Mount names freshly cloned in this pass; empty when every repo was
+    /// already on disk.
+    pub cloned: Vec<String>,
+    /// Whether the *primary* repo was freshly cloned rather than found in place.
+    /// When true the pre-restart working tree is gone, which a resuming agent is
+    /// told about.
+    pub primary_recloned: bool,
+}
+
+/// Clone every repository the task's workspace places in this sandbox.
+///
+/// Each checkout lands in its own `{workspace_dir}/{mount_name}` directory and
+/// authenticates with its own provider's token, so a workspace can mix providers.
+/// A repo whose directory already holds a `.git` is left alone, which makes this
+/// safe to run on a pod whose volume survived a restart and lets a repo added to
+/// the workspace afterwards be picked up on the next start.
+///
+/// Every declared repo is required: a workspace names the repos the task's work
+/// spans, so silently starting the agent without one produces work against the
+/// wrong tree. The first failure aborts.
+pub async fn clone_repositories(config: &Config) -> Result<CloneSummary, String> {
+    let mut summary = CloneSummary {
+        cloned: Vec::new(),
+        primary_recloned: false,
+    };
+    for repo in &config.repos {
+        let dest = repo.dir(&config.workspace_dir);
+        // Skip if already cloned. For the primary, the workspace-root check also
+        // covers sandboxes created before SSH clones moved to `repo_dir` — their
+        // checkout lives directly in `workspace_dir` on a persistent volume.
+        if Path::new(&dest).join(".git").exists()
+            || (repo.is_primary && Path::new(&config.workspace_dir).join(".git").exists())
+        {
+            info!(mount = %repo.mount_name, "Repository already cloned, skipping");
+            continue;
+        }
+        clone_checkout(repo, &dest, &config.git_provider)
+            .await
+            .map_err(|e| format!("{} ({}): {e}", repo.mount_name, repo.clone_url))?;
+        summary.cloned.push(repo.mount_name.clone());
+        summary.primary_recloned |= repo.is_primary;
+    }
+    Ok(summary)
+}
+
+/// Clone one repository into `dest`.
 ///
 /// For GitHub repos, tries `gh repo clone` first, then falls back to `git clone`.
 /// For other providers, uses `git clone` with token-authenticated HTTPS URL.
-pub async fn clone_repository(config: &Config) -> Result<(), String> {
-    let Some(ref clone_url) = config.git_clone_url else {
-        return Ok(());
-    };
-
-    // Skip if already cloned. The workspace-root check covers sandboxes created
-    // before SSH clones moved to `repo_dir` — their checkout lives directly in
-    // `workspace_dir` on a persistent volume.
-    if Path::new(&config.repo_dir).join(".git").exists()
-        || Path::new(&config.workspace_dir).join(".git").exists()
-    {
-        info!("Repository already cloned, skipping");
-        return Ok(());
-    }
-
+async fn clone_checkout(
+    repo: &RepoCheckout,
+    dest: &str,
+    pod_provider: &str,
+) -> Result<(), String> {
+    let clone_url = &repo.clone_url;
     let is_ssh = is_ssh_url(clone_url);
-    let is_github = config.git_provider == "github";
+    let is_github = repo.provider == "github";
 
     // Normalize empty branch to None
-    let branch = config.git_branch.as_deref().filter(|b| !b.is_empty());
+    let branch = repo.branch.as_deref().filter(|b| !b.is_empty());
 
     info!(
         url = %clone_url,
-        provider = %config.git_provider,
+        provider = %repo.provider,
+        mount = %repo.mount_name,
         ssh = is_ssh,
         branch = ?branch,
         "Cloning repository"
@@ -160,7 +201,7 @@ pub async fn clone_repository(config: &Config) -> Result<(), String> {
             git_args.push(b);
         }
         git_args.push(clone_url);
-        git_args.push(&config.repo_dir);
+        git_args.push(dest);
         return match run_command("git", &git_args).await {
             Ok(()) => {
                 info!("Repository cloned successfully over SSH");
@@ -173,7 +214,7 @@ pub async fn clone_repository(config: &Config) -> Result<(), String> {
     // GitHub: try `gh repo clone` first (handles auth automatically)
     if is_github {
         let repo_path = extract_github_repo_path(clone_url);
-        let mut args = vec!["repo", "clone", &repo_path, &config.repo_dir, "--"];
+        let mut args = vec!["repo", "clone", &repo_path, dest, "--"];
         args.push("--depth");
         args.push("1");
 
@@ -189,15 +230,15 @@ pub async fn clone_repository(config: &Config) -> Result<(), String> {
             }
             Err(e) => {
                 warn!(error = %e, "gh repo clone failed, falling back to git clone");
-                clean_workspace_dir(&config.repo_dir).await;
+                clean_workspace_dir(dest).await;
             }
         }
     }
 
-    // Try git clone with token auth (works for all providers)
-    let git_token = std::env::var("GIT_TOKEN").ok();
-
-    if let Some(token) = git_token {
+    // Try git clone with the token for *this* repo's provider (works for all
+    // providers), so a workspace mixing e.g. a GitHub and a GitLab repo
+    // authenticates each with the right credential.
+    if let Some(token) = provider_git_token(&repo.provider, pod_provider) {
         let auth_url = inject_token_into_url(clone_url, &token);
         let mut git_args = vec!["clone", "--depth", "1"];
         if let Some(b) = branch {
@@ -205,7 +246,7 @@ pub async fn clone_repository(config: &Config) -> Result<(), String> {
             git_args.push(b);
         }
         git_args.push(&auth_url);
-        git_args.push(&config.repo_dir);
+        git_args.push(dest);
         match run_command("git", &git_args).await {
             Ok(()) => {
                 info!("Repository cloned successfully with token auth");
@@ -213,7 +254,7 @@ pub async fn clone_repository(config: &Config) -> Result<(), String> {
             }
             Err(e) => {
                 warn!(error = %e, "git clone with token failed, trying without auth");
-                clean_workspace_dir(&config.repo_dir).await;
+                clean_workspace_dir(dest).await;
             }
         }
     }
@@ -225,7 +266,7 @@ pub async fn clone_repository(config: &Config) -> Result<(), String> {
         git_args.push(b);
     }
     git_args.push(clone_url);
-    git_args.push(&config.repo_dir);
+    git_args.push(dest);
     match run_command("git", &git_args).await {
         Ok(()) => {
             info!("Repository cloned successfully (plain git clone)");
@@ -233,6 +274,43 @@ pub async fn clone_repository(config: &Config) -> Result<(), String> {
         }
         Err(e) => Err(format!("All clone methods failed. Last error: {e}")),
     }
+}
+
+/// Resolve the clone token for one provider from the credentials the sandbox
+/// fetched at init.
+///
+/// `credentials.rs` sets each provider's token in the process env, except
+/// GitHub's — `GITHUB_TOKEN`/`GH_TOKEN` are deliberately kept out so `gh` reads
+/// the refresher-owned `hosts.yml` instead. `GIT_TOKEN` therefore backs GitHub
+/// up, but only when this checkout uses the *pod's* provider: `GIT_TOKEN` holds
+/// that provider's token, and injecting it into another host's clone URL would
+/// hand the credential to a third party. When it doesn't match, the `gh repo
+/// clone` attempt (GitHub) or an unauthenticated clone is the remaining path.
+fn provider_git_token(provider: &str, pod_provider: &str) -> Option<String> {
+    resolve_provider_git_token(provider, pod_provider, |key| {
+        std::env::var(key).ok().filter(|value| !value.is_empty())
+    })
+}
+
+/// The env-free half of [`provider_git_token`], so the "never lend the pod token
+/// to a foreign host" rule is testable without touching the process env.
+fn resolve_provider_git_token(
+    provider: &str,
+    pod_provider: &str,
+    lookup: impl Fn(&str) -> Option<String>,
+) -> Option<String> {
+    let key = match provider {
+        "gitlab" => "GITLAB_TOKEN",
+        "gitness" => "GITNESS_TOKEN",
+        _ => "GITHUB_TOKEN",
+    };
+    lookup(key).or_else(|| {
+        if provider == pod_provider {
+            lookup("GIT_TOKEN")
+        } else {
+            None
+        }
+    })
 }
 
 /// Remove contents of the workspace directory without removing the directory itself.
@@ -412,6 +490,59 @@ pub(crate) async fn run_command(program: &str, args: &[&str]) -> Result<(), Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use crate::config::test_support::minimal_config;
+
+    fn checkout(mount: &str, provider: &str, is_primary: bool) -> RepoCheckout {
+        RepoCheckout {
+            clone_url: format!("https://{provider}.example/acme/{mount}.git"),
+            branch: None,
+            provider: provider.to_string(),
+            mount_name: mount.to_string(),
+            is_primary,
+        }
+    }
+
+    /// A repo whose directory already holds a `.git` is left alone, so a restart
+    /// onto a persistent volume neither re-clones nor reports a reclone.
+    #[tokio::test]
+    async fn already_cloned_repos_are_skipped() {
+        let tmp = tempfile::tempdir().unwrap();
+        let workspace = tmp.path().display().to_string();
+        let mut config = minimal_config();
+        config.workspace_dir = workspace.clone();
+        config.repos = vec![checkout("api", "github", true)];
+        config.repo_dir = format!("{workspace}/api");
+        std::fs::create_dir_all(format!("{workspace}/api/.git")).unwrap();
+
+        let summary = clone_repositories(&config).await.unwrap();
+        assert!(summary.cloned.is_empty());
+        assert!(!summary.primary_recloned);
+    }
+
+    /// Each checkout authenticates with its own provider's token, and the pod's
+    /// `GIT_TOKEN` only backs up a checkout on the pod's own provider — injecting
+    /// it into another host's clone URL would hand the credential to a third
+    /// party.
+    #[test]
+    fn each_checkout_uses_its_own_providers_token() {
+        let env = |key: &str| match key {
+            "GITLAB_TOKEN" => Some("glpat".to_string()),
+            "GIT_TOKEN" => Some("pod-github-token".to_string()),
+            _ => None,
+        };
+        assert_eq!(
+            resolve_provider_git_token("gitlab", "github", env),
+            Some("glpat".to_string())
+        );
+        // GitHub has no env token (kept out for `gh`), so it uses the pod's.
+        assert_eq!(
+            resolve_provider_git_token("github", "github", env),
+            Some("pod-github-token".to_string())
+        );
+        // A foreign provider with no token of its own gets nothing.
+        assert_eq!(resolve_provider_git_token("gitness", "github", env), None);
+    }
 
     #[test]
     fn extract_github_repo_path_https() {

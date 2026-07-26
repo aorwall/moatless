@@ -124,6 +124,7 @@ mod tests {
             git_branch: None,
             git_provider: "github".to_string(),
             env_vars: None,
+            repos: Vec::new(),
         }
     }
 

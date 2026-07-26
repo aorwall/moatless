@@ -182,9 +182,11 @@ pub fn build_prompt_append(config: &Config, request: &AgentRunRequest) -> String
 /// about *what persists*: the task repository is snapshotted to durable storage
 /// (its committed history plus tracked/untracked-non-ignored working-tree
 /// changes), so repo work survives sandbox restarts. Files written outside the
-/// repository — loose files in the workspace dir, other cloned repos — are
-/// currently ephemeral. When there is no separate repo checkout
-/// (`repo_dir == workspace_dir`) the note collapses to a single paragraph.
+/// repository — loose files in the workspace dir — are currently ephemeral. A
+/// workspace that places several repositories lists the others too, so the agent
+/// knows they were checked out for it rather than assuming a stray clone. When
+/// there is no separate repo checkout (`repo_dir == workspace_dir`) the note
+/// collapses to a single paragraph.
 fn build_workspace_layout_note(config: &Config) -> String {
     let workspace_dir = &config.workspace_dir;
     if config.repo_dir == config.workspace_dir {
@@ -198,6 +200,25 @@ fn build_workspace_layout_note(config: &Config) -> String {
         )
     } else {
         let repo_dir = &config.repo_dir;
+        let secondary: Vec<String> = config
+            .repos
+            .iter()
+            .map(|repo| repo.dir(workspace_dir))
+            .filter(|dir| dir != repo_dir)
+            .map(|dir| format!("`{dir}`"))
+            .collect();
+        let (others, persisted) = if secondary.is_empty() {
+            (String::new(), "Only the repository is persisted")
+        } else {
+            (
+                format!(
+                    "- Also checked out beside it, as part of this workspace: {}. Work in \
+                     them the same way; they are part of the task, not stray clones.\n",
+                    secondary.join(", ")
+                ),
+                "Only the repositories are persisted",
+            )
+        };
         format!(
             "## Workspace layout\n\
              - Workspace dir: `{workspace_dir}` — your working directory (cwd). The \
@@ -206,7 +227,8 @@ fn build_workspace_layout_note(config: &Config) -> String {
              repository work here. Its committed history plus your uncommitted, \
              non-gitignored working-tree changes are snapshotted to durable storage \
              and survive sandbox restarts.\n\
-             Only the repository is persisted right now: loose files elsewhere under \
+             {others}\
+             {persisted} right now: loose files elsewhere under \
              the workspace dir (and gitignored build artifacts) are ephemeral and may \
              be lost when the sandbox is recycled."
         )
@@ -385,6 +407,8 @@ fn resolve_resume(request: &AgentRunRequest) -> (Option<String>, Option<bool>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use moatless_api_schemas::sandbox::RepoCheckout;
     use crate::config::{AgentConfig, ProxyConfig};
     use std::fs;
     use tempfile::tempdir;
@@ -421,6 +445,7 @@ mod tests {
             git_clone_url: None,
             git_branch: None,
             git_provider: "github".to_string(),
+            repos: Vec::new(),
             repo_config_raw: None,
             setup_commands: vec![],
             plugins: vec![],
@@ -659,6 +684,38 @@ mod tests {
         assert!(note.contains("Repo dir: `/opt/moatless/workspace/my-repo`"));
         // Phase 1 honesty: only the repo persists, loose workspace files are ephemeral.
         assert!(note.contains("Only the repository is persisted"));
+        // A single-repo workspace has nothing else to list.
+        assert!(!note.contains("Also checked out beside it"));
+    }
+
+    /// A multi-repo workspace must tell the agent the sibling checkouts are part
+    /// of the task, not stray clones it should ignore.
+    #[test]
+    fn layout_note_lists_the_workspaces_other_repos() {
+        let mut config = test_config(false);
+        config.workspace_dir = "/opt/moatless/workspace".to_string();
+        config.repo_dir = "/opt/moatless/workspace/api".to_string();
+        config.repos = vec![
+            RepoCheckout {
+                clone_url: "https://github.com/acme/api.git".into(),
+                branch: None,
+                provider: "github".into(),
+                mount_name: "api".into(),
+                is_primary: true,
+            },
+            RepoCheckout {
+                clone_url: "https://github.com/acme/web.git".into(),
+                branch: None,
+                provider: "github".into(),
+                mount_name: "web".into(),
+                is_primary: false,
+            },
+        ];
+        let note = build_workspace_layout_note(&config);
+        assert!(note.contains("Repo dir: `/opt/moatless/workspace/api`"));
+        assert!(note.contains("`/opt/moatless/workspace/web`"));
+        assert!(note.contains("Also checked out beside it"));
+        assert!(note.contains("Only the repositories are persisted"));
     }
 
     #[test]

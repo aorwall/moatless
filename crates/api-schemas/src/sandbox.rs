@@ -4,6 +4,100 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 // =============================================================================
+// Repository checkouts (backend → sandbox provisioning contract)
+// =============================================================================
+
+/// Env var carrying the JSON-encoded [`RepoCheckout`] list the sandbox clones.
+///
+/// The backend writes it into the sandbox container spec; the sandbox reads it
+/// at boot. Absent on a pod provisioned before multi-repo support, where the
+/// legacy single-repo `GIT_CLONE_URL`/`GIT_BRANCH`/`GIT_PROVIDER` trio is the
+/// only checkout.
+pub const WORKSPACE_REPOS_ENV: &str = "WORKSPACE_REPOS";
+
+/// One repository the sandbox checks out, as declared by the task's workspace.
+///
+/// A workspace holds 0..n repository placements, so a sandbox holds 0..n
+/// checkouts. Each is cloned into `{WORKSPACE_DIR}/{mount_name}`; exactly one is
+/// primary and its directory is the sandbox's `repo_dir` (git status/diff, the
+/// file API, setup commands, preview servers).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct RepoCheckout {
+    /// Remote URL to clone. Credential-free on K8s — the sandbox authenticates
+    /// via the credential channel using [`Self::provider`].
+    pub clone_url: String,
+    /// Branch to check out. `None`/empty clones the remote's default.
+    #[serde(default)]
+    pub branch: Option<String>,
+    /// Git provider name (`github`, `gitlab`, `gitness`) — selects which
+    /// provider token authenticates this clone.
+    pub provider: String,
+    /// Subdirectory under `WORKSPACE_DIR` this repo is cloned into. Always a
+    /// single safe path segment (see [`sanitize_mount_name`]).
+    pub mount_name: String,
+    /// The "main" repo: diff, PR, `CLAUDE.md`, setup commands, servers.
+    #[serde(default)]
+    pub is_primary: bool,
+}
+
+impl RepoCheckout {
+    /// Absolute checkout directory: `{workspace_dir}/{mount_name}`.
+    pub fn dir(&self, workspace_dir: &str) -> String {
+        format!(
+            "{}/{}",
+            workspace_dir.trim_end_matches('/'),
+            self.mount_name
+        )
+    }
+}
+
+/// Derive a mount name from a clone URL: the last path segment with any trailing
+/// `.git` and slashes stripped. Falls back to `"repo"` for URLs that don't yield
+/// a usable segment.
+///
+/// Handles `https://host/owner/repo(.git)` and `git@host:owner/repo(.git)`. This
+/// is the default when a placement has no explicit mount name, and must stay
+/// stable: an existing sandbox's primary checkout lives at this path on its
+/// persistent volume.
+pub fn derive_mount_name(clone_url: &str) -> String {
+    let name = clone_url
+        .trim_end_matches('/')
+        .rsplit(['/', ':'])
+        .next()
+        .unwrap_or("")
+        .trim_end_matches(".git");
+    sanitize_mount_name(name).unwrap_or_else(|| "repo".to_string())
+}
+
+/// Reduce a user-authored mount name to a single safe path segment, or `None`
+/// when nothing usable remains.
+///
+/// Mount names come from the UI and from repositories' committed
+/// `.moatless/workspaces.json`, and they are joined onto `WORKSPACE_DIR` — so
+/// separators and `..` must never survive. Characters outside
+/// `[A-Za-z0-9._-]` become `-`, and a name that is only dots is rejected.
+pub fn sanitize_mount_name(name: &str) -> Option<String> {
+    let cleaned: String = name
+        .trim()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let cleaned = cleaned.trim_matches('-').to_string();
+    if cleaned.is_empty() || cleaned.chars().all(|c| c == '.') {
+        return None;
+    }
+    Some(cleaned)
+}
+
+// =============================================================================
 // Sandbox model types (shared between schemas and backend)
 // =============================================================================
 
@@ -482,4 +576,59 @@ pub enum MoatlessToolName {
     FillPreviewForm,
     #[serde(rename = "takePreviewSnapshot")]
     TakePreviewSnapshot,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn derive_mount_name_handles_common_url_shapes() {
+        assert_eq!(derive_mount_name("https://github.com/owner/repo.git"), "repo");
+        assert_eq!(derive_mount_name("https://github.com/owner/repo"), "repo");
+        assert_eq!(derive_mount_name("git@github.com:owner/repo.git"), "repo");
+        assert_eq!(derive_mount_name("https://host/owner/repo/"), "repo");
+        assert_eq!(
+            derive_mount_name("https://gitlab.com/group/sub/my-service.git"),
+            "my-service"
+        );
+    }
+
+    #[test]
+    fn derive_mount_name_falls_back_for_unusable_urls() {
+        assert_eq!(derive_mount_name(""), "repo");
+        assert_eq!(derive_mount_name("/"), "repo");
+        assert_eq!(derive_mount_name("https://host/../"), "repo");
+    }
+
+    /// A mount name is joined onto `WORKSPACE_DIR`, so traversal and separators
+    /// must not survive sanitization.
+    #[test]
+    fn sanitize_mount_name_strips_path_traversal() {
+        assert_eq!(sanitize_mount_name("../../etc"), Some("..-..-etc".into()));
+        assert_eq!(sanitize_mount_name("a/b"), Some("a-b".into()));
+        assert_eq!(sanitize_mount_name(".."), None);
+        assert_eq!(sanitize_mount_name("."), None);
+        assert_eq!(sanitize_mount_name("   "), None);
+        assert_eq!(sanitize_mount_name("/"), None);
+    }
+
+    #[test]
+    fn sanitize_mount_name_keeps_ordinary_names() {
+        assert_eq!(sanitize_mount_name("my-service"), Some("my-service".into()));
+        assert_eq!(sanitize_mount_name("Api_2.0"), Some("Api_2.0".into()));
+    }
+
+    #[test]
+    fn checkout_dir_joins_workspace_dir() {
+        let checkout = RepoCheckout {
+            clone_url: "https://github.com/owner/repo.git".into(),
+            branch: None,
+            provider: "github".into(),
+            mount_name: "repo".into(),
+            is_primary: true,
+        };
+        assert_eq!(checkout.dir("/opt/moatless/workspace"), "/opt/moatless/workspace/repo");
+        assert_eq!(checkout.dir("/opt/moatless/workspace/"), "/opt/moatless/workspace/repo");
+    }
 }

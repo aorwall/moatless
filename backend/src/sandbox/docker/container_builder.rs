@@ -19,7 +19,7 @@ use super::naming::{
 use crate::config::Config;
 use crate::sandbox::k8s::pod_reader::{parse_cpu_to_millicores, parse_memory_to_bytes};
 use crate::sandbox::lifecycle::runtime::{RuntimeOperationContext, OPERATION_GENERATION_LABEL};
-use crate::sandbox::models::{ProvisionPlan, ServerConfig};
+use crate::sandbox::models::{ProvisionPlan, ServerConfig, WORKSPACE_REPOS_ENV};
 use crate::sandbox::server_runner::build_server_start_script;
 
 pub(crate) const CREATED_BY_LABEL: &str = "created-by";
@@ -76,6 +76,20 @@ pub fn build_container_config(
 
     if let Some(ref branch) = plan.git_branch {
         env.push(format!("GIT_BRANCH={branch}"));
+    }
+
+    // Every repository the workspace places in the sandbox, primary first. The
+    // GIT_* trio above still describes the primary, so a sandbox image predating
+    // multi-repo support keeps cloning it. URLs are passed verbatim like
+    // GIT_CLONE_URL — local Docker remotes may embed their own credentials.
+    if !plan.repos.is_empty() {
+        match serde_json::to_string(&plan.repos) {
+            Ok(json) => env.push(format!("{WORKSPACE_REPOS_ENV}={json}")),
+            Err(e) => tracing::warn!(
+                error = %e,
+                "Failed to serialize WORKSPACE_REPOS; sandbox will clone the primary repo only"
+            ),
+        }
     }
 
     if let Some(token) = user_auth_token {
@@ -653,6 +667,7 @@ mod tests {
             git_branch: Some("main".into()),
             git_provider: "github".into(),
             env_vars: None,
+            repos: Vec::new(),
         }
     }
 
@@ -695,6 +710,49 @@ mod tests {
         assert!(env.iter().any(|e| e == "USER_AUTH_TOKEN=jwt-token"));
         assert!(!env.iter().any(|e| e.starts_with("GIT_TOKEN=")));
         assert!(!env.iter().any(|e| e.starts_with("ANTHROPIC_API_KEY=")));
+    }
+
+    /// A multi-repo workspace reaches the container as the `WORKSPACE_REPOS`
+    /// list; a plan without checkouts omits the env entirely.
+    #[test]
+    fn container_config_carries_every_workspace_repo() {
+        let config = test_config();
+        let mut plan = test_plan();
+        plan.repos = vec![
+            crate::sandbox::models::RepoCheckout {
+                clone_url: "https://github.com/test/repo.git".into(),
+                branch: Some("main".into()),
+                provider: "github".into(),
+                mount_name: "repo".into(),
+                is_primary: true,
+            },
+            crate::sandbox::models::RepoCheckout {
+                clone_url: "https://github.com/test/shared.git".into(),
+                branch: None,
+                provider: "github".into(),
+                mount_name: "shared".into(),
+                is_primary: false,
+            },
+        ];
+
+        let cc = build_container_config(&config, "task-1", &plan, None);
+        let env = cc.env.unwrap();
+        let raw = env
+            .iter()
+            .find_map(|e| e.strip_prefix(&format!("{WORKSPACE_REPOS_ENV}=")))
+            .expect("WORKSPACE_REPOS present");
+        let parsed: Vec<crate::sandbox::models::RepoCheckout> =
+            serde_json::from_str(raw).unwrap();
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[1].mount_name, "shared");
+
+        plan.repos.clear();
+        let cc = build_container_config(&config, "task-1", &plan, None);
+        assert!(cc
+            .env
+            .unwrap()
+            .iter()
+            .all(|e| !e.starts_with(&format!("{WORKSPACE_REPOS_ENV}="))));
     }
 
     #[test]

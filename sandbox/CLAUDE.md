@@ -80,6 +80,7 @@ tests/
 | BACKEND_GRPC_URL | (optional) | Backend gRPC endpoint for events/messages |
 | USER_AUTH_TOKEN | (optional) | Auth token for backend calls |
 | REPO_CONFIG | (optional) | JSON repository configuration |
+| WORKSPACE_REPOS | (optional) | JSON array of the workspace's repository checkouts, primary first: `[{cloneUrl, branch, provider, mountName, isPrimary}]`. Each is cloned into `$WORKSPACE_DIR/{mountName}` with its own provider token; the primary one is `repo_dir`. Absent/unparseable → clone `GIT_CLONE_URL` alone |
 | SANDBOX_CLAUDE_EXECUTABLE_PATH | /opt/moatless/bin/claude | Claude CLI path |
 | FRONTEND_URL | (optional) | Frontend URL for constructing task URLs in agent system prompt |
 | SANDBOX_USE_TMUX | false | Use tmux-based Claude SDK transport instead of subprocess/NDJSON |
