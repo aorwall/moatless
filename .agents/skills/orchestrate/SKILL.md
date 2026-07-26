@@ -12,17 +12,19 @@ This skill spawns child Moatless tasks to implement work in parallel. Each child
 
 Three artifacts are produced along the way, each with a distinct audience:
 
-1. **Spec markdown** — `/opt/moatless/workspace/specs/<feature-slug>.md` — the source of truth; inlined into every child's spawn message.
+1. **Spec markdown** — `specs/<feature-slug>.md` in the repo — the source of truth; inlined into every child's spawn message.
 2. **Ticket markdown files** — `/opt/moatless/workspace/plans/<feature-slug>/<NN>-<slug>.md` — one per ticket; each becomes the body of its child's spawn message.
-3. **HTML report** — via `/html-report`, saved under `/opt/moatless/workspace/reports/` — how you communicate the spec and plan to the user for review and approval. Regenerate it whenever the spec or breakdown changes so the shared page always reflects the current plan.
+3. **HTML page** — one file at `/opt/moatless/workspace/scratchpad/<feature-slug>-board.html`, live from the first question to approval: a **board** that fills as the interview lands answers, then the **review page** the user approves. It renders the spec's lede and is a projection of the markdown — regenerate on every change; nothing may exist only here.
 
 ---
 
 ## Phase 1 — Alignment
 
-Run `/grill-with-docs` to sharpen the idea and resolve ambiguity before writing anything. Ask one question at a time; look up codebase facts rather than asking. Record load-bearing decisions as ADRs in `docs/adr/` as they land.
+Run the `/writing-specs` skill and follow its grill: questions bound to the lede's slots, batched by slot and one per turn, each carrying your recommended answer and 2–4 ranked alternatives, each restating position and settled state. Name each batch and its size as it opens, and offer the whole batch at once the first time — a feature-sized interview is long enough that the shape should be the user's choice, not the skill's. Look codebase facts up rather than asking. Record load-bearing decisions as ADRs in `docs/adr/` as they land, and sharpen terms into `CONTEXT.md` as they settle.
 
-Stop when you and the user share a precise shared picture of what to build.
+Write each answer into `specs/<feature-slug>.md` as it lands, and put the live **board** on screen — the lede rendered with its empty slots visible, re-rendered from the file after every answer. Give the user its URL once, at the first question. A feature-sized interview is long enough that the board is what keeps it navigable.
+
+Stop when every lede slot is filled or explicitly parked into Open questions.
 
 ---
 
@@ -32,64 +34,11 @@ Without re-interviewing, synthesize the conversation into a spec. First explore 
 
 Sketch the testing seams (fewest possible; prefer the highest seam). Confirm them with the user before writing.
 
-Write the spec to **`/opt/moatless/workspace/specs/<feature-slug>.md`**:
+Write the spec to **`specs/<feature-slug>.md`** in the repo, in the shape `/writing-specs` defines. Follow its sequence: **write the lede first and stop for review**, then fill the detail once the decision table is agreed. Draft the ticket breakdown before the lede is final — its Work graph is part of what the user approves.
 
-<spec-template>
-# <Feature Title>
+The board from Phase 1 now becomes the **review page** — same file, same URL: drop the auto-refresh and the pending outlines, add the four sections from `/writing-specs`'s HTML-REPORT reference. It renders the lede, not the spec: the full spec is the source of truth on disk, the page is what makes the decision reachable in two minutes.
 
-## Problem Statement
-
-The problem from the user's perspective.
-
-## Solution
-
-The solution from the user's perspective.
-
-## User Stories
-
-A long, numbered list:
-1. As a <actor>, I want <feature>, so that <benefit>
-
-Cover all aspects of the feature extensively.
-
-## Implementation Decisions
-
-- Modules to build or modify
-- Interface changes
-- Architectural decisions
-- Schema changes, API contracts
-- No file paths or code snippets (exception: prototype snippets that encode a decision more precisely than prose — inline trimmed to the decision-rich parts)
-
-## Testing Decisions
-
-- What makes a good test here (test external behaviour, not implementation)
-- Which modules, which seams
-- Prior art in the codebase
-
-## Out of Scope
-
-## Further Notes
-</spec-template>
-
-Then run `/html-report` to render a **review page** — not a dump of the spec, but what the user needs to say yes or no and give feedback. The full spec is the source of truth on disk; the HTML is what makes it easy to read and approve in two minutes.
-
-<html-review-content>
-
-The review page has four sections — keep each short:
-
-**1. What we're building** — one paragraph, plain language, no jargon. What will exist afterward that doesn't today? What problem does it solve for the user?
-
-**2. What's in / what's out** — two short bullet lists side by side. "In scope" is the committed surface; "out of scope" sets expectations on what won't be touched.
-
-**3. Key decisions** — 3–6 bullet points covering only the choices that would surprise the user or that they'd want to override. Skip anything routine or obvious. Each bullet is one sentence: the decision, not the reasoning.
-
-**4. Proposed work breakdown** — before writing this section, draft the ticket breakdown: vertical slices, each demoable on its own, with blocking edges. Show it as a Mermaid dependency graph (ticket names, arrows for blockers). This is the only technical detail in the page and gives the user a chance to reshape the plan before any work starts.
-
-The page should be scannable top-to-bottom in under two minutes. If a section needs more than 5–6 lines, it's too detailed — condense it. The user can always open the spec file for full details.
-
-</html-review-content>
-
-Tell the user the file path. **Wait for their approval before continuing.** If they want changes, update the spec file, revise the draft breakdown, and regenerate the review page. Iterate until they approve both the plan and the breakdown.
+Paste the lede into the message as markdown alongside the URL, so the decision is reachable without opening anything. Approval happens here, on the lede — the detail below the `---` is written for the child tasks that implement from it, so don't ask the user to read it back. **Wait for their approval before continuing.** If they want changes, update the spec file, revise the draft breakdown, and regenerate the review page. Iterate until they approve both the plan and the breakdown.
 
 ---
 
@@ -106,7 +55,7 @@ End-to-end behaviour this ticket makes work, from the user's perspective.
 
 ## Spec reference
 
-Feature: <feature-slug> — `/opt/moatless/workspace/specs/<feature-slug>.md`
+Feature: <feature-slug> — `specs/<feature-slug>.md`
 
 ## Blocked by
 
@@ -124,7 +73,7 @@ ready-for-agent
 
 In each ticket's Spec reference section, note that the full spec is included in the child's spawn message — children cannot read the orchestrator's files (see Phase 4).
 
-Present the breakdown as a numbered list (title / blocked-by / what it delivers). Ask whether granularity is right and whether edges are correct. Iterate until approved. Once approved, regenerate the HTML report as a combined spec + tickets page (overview, key decisions, dependency graph, per-ticket cards) so the user-facing page matches the final plan.
+Present the breakdown as a numbered list (title / blocked-by / what it delivers). Ask whether granularity is right and whether edges are correct. Iterate until approved. Once approved, update the spec's lede Work graph to match, then regenerate the review page with per-ticket cards added below the four standard sections, so the user-facing page matches the final plan.
 
 ---
 
@@ -168,7 +117,7 @@ doesn't list it), fall back to `--repo <repo-id>`.
 
 Identify which tickets have no blockers (or whose blockers are already complete). Spawn **all unblocked tickets in parallel** — one `moat tasks create` per ticket. Capture each child task ID.
 
-**The spawn message must be fully self-contained.** Each child runs in its own sandbox with a fresh checkout of the repository only — it CANNOT read the orchestrator's `/opt/moatless/workspace/specs/`, `plans/`, or `reports/` files. Inline everything the child needs: the full ticket AND the full spec.
+**The spawn message must be fully self-contained.** Each child runs in its own sandbox with a fresh checkout of the default branch — it cannot see the orchestrator's uncommitted `specs/<slug>.md`, nor its `/opt/moatless/workspace/plans/` or `scratchpad/` files. Inline everything the child needs: the full ticket AND the full spec. (Paths below are relative to the repo root.)
 
 For each unblocked ticket:
 
@@ -182,7 +131,7 @@ CHILD_ID=$(moat tasks create \
 ---
 # Feature spec (full text — included because you cannot read the orchestrator's files)
 
-$(cat /opt/moatless/workspace/specs/<slug>.md)
+$(cat specs/<slug>.md)
 
 ---
 ORCHESTRATOR_TASK_ID: $TASK_ID
@@ -215,7 +164,7 @@ moat tasks children --json
 
 1. Run `/code-review` on the PR branch vs main:
    - Pin the fixed point as `main` (or the base branch)
-   - Identify the spec at `/opt/moatless/workspace/specs/<slug>.md`
+   - Identify the spec at `specs/<slug>.md`
    - Run Standards + Spec review in parallel
 
 2. If review finds real issues, send feedback to the child:

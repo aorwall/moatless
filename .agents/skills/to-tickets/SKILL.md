@@ -67,6 +67,8 @@ Work the **frontier**: any ticket whose blockers are all done. For a purely line
 
 Do NOT close or modify any parent issue.
 
+If the source was a spec written with `/writing-specs`, paste the dependency graph into that spec's lede Work section, so the spec and the tracker never disagree about what is left.
+
 <local-ticket-template>
 
 # <NN> — <Ticket title>
