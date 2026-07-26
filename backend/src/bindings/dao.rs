@@ -60,6 +60,11 @@ pub trait TaskBindingRepository: Send + Sync {
 
     async fn delete(&self, id: &str) -> Result<u64, sqlx::Error>;
 
+    /// Soft-deactivate every still-active binding of a task and return how many
+    /// rows changed. Idempotent: a second call reports 0 because the
+    /// `active = TRUE` predicate no longer matches.
+    async fn deactivate_by_task(&self, task_id: &str) -> Result<u64, sqlx::Error>;
+
     async fn touch_last_event(&self, id: &str) -> Result<(), sqlx::Error>;
 
     async fn touch_cursor(&self, id: &str, last_external_event_id: &str)
@@ -81,6 +86,15 @@ pub trait TaskBindingRepository: Send + Sync {
     /// `external_status*` columns) for a set of tasks. Drives the
     /// task-connections admin view.
     async fn find_by_task_ids(&self, task_ids: &[String]) -> Result<Vec<TaskBinding>, sqlx::Error>;
+
+    /// The most recent tasks a loop spawned, each with its first binding (if
+    /// any). Drives the loop detail view. See
+    /// [`PgTaskBindingRepository::find_recent_for_loop`] for the join semantics.
+    async fn find_recent_for_loop(
+        &self,
+        trigger_id: &str,
+        limit: i64,
+    ) -> Result<Vec<LoopRecentTaskRow>, sqlx::Error>;
 }
 
 pub struct PgTaskBindingRepository(pub DbPool);
@@ -212,6 +226,10 @@ impl TaskBindingRepository for PgTaskBindingRepository {
         PgTaskBindingRepository::delete(self, id).await
     }
 
+    async fn deactivate_by_task(&self, task_id: &str) -> Result<u64, sqlx::Error> {
+        PgTaskBindingRepository::deactivate_by_task(self, task_id).await
+    }
+
     async fn touch_last_event(&self, id: &str) -> Result<(), sqlx::Error> {
         PgTaskBindingRepository::touch_last_event(self, id).await
     }
@@ -236,6 +254,14 @@ impl TaskBindingRepository for PgTaskBindingRepository {
 
     async fn find_by_task_ids(&self, task_ids: &[String]) -> Result<Vec<TaskBinding>, sqlx::Error> {
         PgTaskBindingRepository::find_by_task_ids(self, task_ids).await
+    }
+
+    async fn find_recent_for_loop(
+        &self,
+        trigger_id: &str,
+        limit: i64,
+    ) -> Result<Vec<LoopRecentTaskRow>, sqlx::Error> {
+        PgTaskBindingRepository::find_recent_for_loop(self, trigger_id, limit).await
     }
 }
 

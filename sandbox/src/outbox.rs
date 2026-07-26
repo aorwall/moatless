@@ -1,4 +1,4 @@
-//! At-least-once event outbox for the sandbox → backend event hop.
+//! At-least-once send buffer for the sandbox → backend event hop.
 //!
 //! `GrpcEventPublisher::publish_event` used to be fire-and-forget: a single
 //! gRPC attempt whose failures were logged at `warn` and dropped. During any
@@ -8,32 +8,115 @@
 //! at-least-once, but only for events that entered the pipeline — so a lost
 //! `taskTurn/active` made a stuck turn invisible to the reaper.
 //!
-//! This module makes the hop at-least-once. `enqueue` is non-blocking and never
-//! fails the caller; a single background drainer task sends events in order with
-//! exponential backoff (capped at [`MAX_BACKOFF`]), preserving per-task ordering
-//! and assigning a monotonically increasing `sequence` in transmission order so
-//! the backend can spot duplicates/restarts.
+//! This module makes the hop at-least-once **for every event the backend can
+//! accept**. `enqueue` is non-blocking and never fails the caller; a single
+//! background drainer task sends events in order with exponential backoff
+//! (capped at 30s), preserving per-task ordering and assigning a monotonically
+//! increasing `sequence` in transmission order so the backend can spot
+//! duplicates/restarts. An event the backend *permanently refuses* is the
+//! exception, and it is a deliberate one — see "What this does not promise".
 //!
-//! The queue is bounded ([`MAX_QUEUE_EVENTS`] / [`MAX_QUEUE_BYTES`]). On overflow
-//! the oldest *non-lifecycle* events are dropped first — `taskTurn.*` and
-//! terminal `agent.*` (`completed`, `error`, `stopped`) are always kept — and a synthetic
-//! [`EVENTS_DROPPED_SUB_TYPE`] marker event is emitted so the gap stays visible.
+//! This is a **local send buffer**: in-memory, ordered, and non-durable across
+//! process death. Losing it loses events. It is deliberately *not* a
+//! transactional outbox — that phrase names exactly one thing in this
+//! repository, the durable payload-and-relay path in the backend's
+//! `event_ingress` module.
+//!
+//! # Admission and overload
+//!
+//! Capacity is enforced **where the producer submits**, not where the drainer
+//! reads: [`EventOutbox::enqueue`] takes the buffer lock, applies the policy,
+//! and returns. A stalled drainer therefore cannot let the queue grow — there
+//! is no second, unbounded staging area behind the caps.
+//!
+//! | at capacity | policy |
+//! |---|---|
+//! | a non-lifecycle event can be evicted | evict the oldest one, count it under [`OutboxMetrics::dropped_overflow`] |
+//! | only lifecycle events remain | **refuse the incoming event** ([`OutboxMetrics::rejected_saturated`]) |
+//! | the buffer holds exactly one event | keep it, even if it alone exceeds the byte cap |
+//!
+//! Lifecycle events (`taskTurn.*`, terminal `agent.*`) are still preferred over
+//! everything else, but the class is *finite*: it is capped by the same
+//! [`MAX_QUEUE_EVENTS`] / [`MAX_QUEUE_BYTES`] budget as everything else. When
+//! that budget is exhausted by lifecycle events the **newest** one is refused,
+//! not the oldest: the drainer sends in FIFO order, so an older lifecycle event
+//! is the prefix that makes every later one interpretable, while the tail's loss
+//! leaves the backend with a consistent-but-stale view. That view is one the
+//! turn reaper can close — but only in K8s mode with the idle reaper enabled;
+//! in Docker mode no reaper runs, so the stale turn this policy deliberately
+//! creates stays open. Refusing the newest is still the better end to lose (the
+//! reaper keys off the unclosed `taskTurn/active` row, so dropping the *oldest*
+//! would leave a stuck turn it could never see), but it is not an unconditional
+//! backstop. Worst-case residency is `MAX_QUEUE_BYTES` plus one oversized event
+//! plus the one event in flight.
+//!
+//! # Drops are measured, never silent
+//!
+//! Four categorically different things can lose an event, and an operator has to
+//! be able to tell them apart: capacity eviction
+//! ([`OutboxMetrics::dropped_overflow`]) and a refusal at lifecycle saturation
+//! ([`OutboxMetrics::rejected_saturated`]) are load conditions, a terminal
+//! backend rejection ([`OutboxMetrics::dropped_terminal`]) is a wire-contract
+//! violation, and an unrepresentable event type
+//! ([`OutboxMetrics::dropped_unrepresentable`]) is a bug in this process. All
+//! four feed one accounting seam: they increment their own counter and the
+//! drainer announces the gap in stream order with a synthetic
+//! [`EVENTS_DROPPED_SUB_TYPE`] marker carrying the reason.
+//!
+//! A refusal is included deliberately, and it is the one that matters most: by
+//! the eviction policy's invariant it is *always* a lifecycle event, so leaving
+//! it counter-only would have made the most severe loss the least visible one.
+//! Markers are drainer-generated and never enter the buffer, so a saturated
+//! buffer cannot block announcing its own saturation.
+//!
+//! # What this does not promise
+//!
+//! Four things an earlier version of this module quietly provided, and no longer
+//! does. Each is a deliberate trade, not an oversight:
+//!
+//! - **A lifecycle event can now be refused.** It used to be undroppable — the
+//!   buffer grew past its caps rather than lose one. That is what made the caps
+//!   fiction and left the pod one long backend outage away from an OOM kill,
+//!   which loses *every* buffered event including all the lifecycle ones. A
+//!   refusal at saturation loses strictly less, and it is loud (an error log, a
+//!   counter, and its own marker on the stream) where an OOM kill is silent.
+//!   Callers still cannot fail on it: `enqueue` does not report it.
+//! - **An event the backend permanently refuses is dropped, not retried.** For
+//!   that one event the hop is at-most-once. Retrying is what would be wrong:
+//!   the head of a single in-order drainer never clears, so one refused event
+//!   would take the task's whole remaining stream with it. The gap is announced
+//!   like any other.
+//! - **Producer activity no longer cuts a retry backoff short.** The old drainer
+//!   woke from its sleep whenever a new event arrived and re-attempted at once,
+//!   so a busy producer defeated the backoff entirely and hammered an
+//!   unreachable backend. The cost of fixing that: after the backend recovers,
+//!   the next attempt can now be up to a full backoff (30s, reached only after
+//!   ~1 minute of continuous failure) away. Shutdown is unaffected —
+//!   [`EventOutbox::flush`] still nudges the drainer awake, which is the case
+//!   where latency actually matters.
+//! - **The drainer no longer stops when the last producer handle drops.**
+//!   Cancellation is its only termination condition, which is what makes
+//!   termination something [`OutboxDrainerHandle`] can supervise. Nothing
+//!   depended on the old exit: the handle lives in `SandboxState` for the whole
+//!   process lifetime.
 
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use sandbox_proto::PublishEventRequest;
-use tokio::sync::{mpsc, Notify};
+use tokio::sync::Notify;
+use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, warn};
+use tonic::{Code, Status};
+use tracing::{error, info, warn};
 
 use crate::backend_client::BackendClient;
 
-/// Max number of events buffered before overflow eviction begins.
+/// Max number of events buffered before the admission policy applies.
 pub const MAX_QUEUE_EVENTS: usize = 10_000;
-/// Max total payload bytes buffered before overflow eviction begins (~32 MiB).
+/// Max total payload bytes buffered before the admission policy applies (~32 MiB).
 pub const MAX_QUEUE_BYTES: usize = 32 * 1024 * 1024;
 
 /// Backoff applied before the first retry; doubles each attempt up to the cap.
@@ -41,8 +124,89 @@ const BASE_BACKOFF: Duration = Duration::from_millis(500);
 /// Ceiling on the exponential backoff between retries.
 const MAX_BACKOFF: Duration = Duration::from_secs(30);
 
-/// `sub_type` of the synthetic marker emitted after an overflow drop.
+/// `sub_type` of the synthetic marker emitted after a drop.
 pub const EVENTS_DROPPED_SUB_TYPE: &str = "events_dropped";
+
+/// Why an event never reached the backend.
+///
+/// These are not interchangeable: two are load conditions, one is a
+/// wire-contract violation, one is a bug in this process. Each has its own
+/// counter in [`OutboxMetrics`] and its own marker reason, so an operator
+/// reading either surface can tell which happened.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DropReason {
+    /// Capacity-driven: the buffer was full and this was the oldest evictable
+    /// event. Load, not error.
+    Overflow,
+    /// Capacity-driven, but nothing was evictable: the buffer was full of
+    /// lifecycle events and this submission was refused. Always a lifecycle
+    /// event, and therefore the most consequential of the four.
+    RefusedSaturated,
+    /// The backend refused the event permanently (`INVALID_ARGUMENT`). Retrying
+    /// is what would be wrong — see [`Drainer::deliver`].
+    TerminalRejection,
+    /// The producer could not put the event on the wire at all (an event type
+    /// the sandbox protocol cannot express). A bug in this process.
+    UnrepresentableType,
+}
+
+impl DropReason {
+    /// Fixed order, so marker emission is deterministic when more than one
+    /// reason has unannounced drops. Must stay in [`DropReason::index`] order.
+    const ALL: [Self; 4] = [
+        Self::Overflow,
+        Self::RefusedSaturated,
+        Self::TerminalRejection,
+        Self::UnrepresentableType,
+    ];
+
+    /// Position in [`DropReason::ALL`], used to index the per-reason ledgers.
+    const fn index(self) -> usize {
+        match self {
+            Self::Overflow => 0,
+            Self::RefusedSaturated => 1,
+            Self::TerminalRejection => 2,
+            Self::UnrepresentableType => 3,
+        }
+    }
+
+    /// The `reason` field of the synthetic marker's payload.
+    const fn marker_reason(self) -> &'static str {
+        match self {
+            Self::Overflow => "outbox_overflow",
+            Self::RefusedSaturated => "outbox_saturated",
+            Self::TerminalRejection => "backend_rejected",
+            Self::UnrepresentableType => "unrepresentable_event_type",
+        }
+    }
+}
+
+/// A point-in-time reading of the send buffer's counters.
+///
+/// The four things that have to stay distinguishable (and the ticket's
+/// measurement criterion) map onto these fields as: *dropped* —
+/// `dropped_overflow` + `dropped_terminal` + `dropped_unrepresentable`;
+/// *backpressured or failed* — `rejected_saturated` + `rejected_shutdown`;
+/// *retried* — `retried`; *undrained* — `undrained`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct OutboxMetrics {
+    /// Events evicted because the buffer was at capacity.
+    pub dropped_overflow: u64,
+    /// Events the backend refused permanently.
+    pub dropped_terminal: u64,
+    /// Events the producer could not represent on the wire.
+    pub dropped_unrepresentable: u64,
+    /// Admissions refused because capacity was exhausted by lifecycle events.
+    pub rejected_saturated: u64,
+    /// Admissions refused because the drainer had already terminated.
+    pub rejected_shutdown: u64,
+    /// Retryable delivery failures — one per re-attempt, not per event.
+    pub retried: u64,
+    /// Events acknowledged by the backend.
+    pub delivered: u64,
+    /// Events buffered or in flight, i.e. neither delivered nor dropped.
+    pub undrained: usize,
+}
 
 /// Compute the retry backoff for a given 1-based attempt number, capped at
 /// [`MAX_BACKOFF`]. `attempt == 1` yields [`BASE_BACKOFF`].
@@ -57,11 +221,12 @@ fn backoff_for(attempt: u32) -> Duration {
         .min(MAX_BACKOFF)
 }
 
-/// Whether an event must never be dropped on overflow.
+/// Whether an event is in the priority class that survives eviction.
 ///
 /// Lifecycle events drive downstream reconciliation (the reaper keys off the
-/// `taskTurn/active` row, terminal `agent` events close turns) so losing them
-/// silently corrupts task state — they are retained even past the byte cap.
+/// `taskTurn/active` row, terminal `agent` events close turns) so losing one
+/// silently corrupts task state. They are evicted last — but they are still
+/// capped; see the module docs for what happens when they alone fill the buffer.
 fn is_lifecycle(req: &PublishEventRequest) -> bool {
     use sandbox_proto::EventType;
     match EventType::try_from(req.event_type) {
@@ -83,6 +248,10 @@ struct QueuedEvent {
     req: PublishEventRequest,
     /// Cached [`request_size`] so eviction can adjust the byte budget in O(1).
     size: usize,
+    /// Cached [`is_lifecycle`]. The eviction scan tests every buffered event
+    /// under the producer's lock, so recomputing it would mean a protobuf enum
+    /// conversion plus a string match per element, per eviction.
+    lifecycle: bool,
     /// Sequence assigned on the first send attempt, reused across retries so a
     /// retried delivery carries the same `(event_id, sequence)` identity.
     sequence: Option<u64>,
@@ -91,19 +260,30 @@ struct QueuedEvent {
 impl QueuedEvent {
     fn new(req: PublishEventRequest) -> Self {
         let size = request_size(&req);
+        let lifecycle = is_lifecycle(&req);
         Self {
             req,
             size,
+            lifecycle,
             sequence: None,
         }
     }
 }
 
-/// Bounded FIFO buffer with the overflow-eviction policy.
+/// What the admission policy did with one submitted event.
+struct Admission {
+    /// Events evicted to make room, in eviction order (oldest non-lifecycle
+    /// first). Always [`DropReason::Overflow`].
+    evicted: Vec<QueuedEvent>,
+    /// Set when the submitted event itself was refused: capacity was exhausted
+    /// and nothing evictable was left. Always a lifecycle event.
+    rejected: Option<QueuedEvent>,
+}
+
+/// Bounded FIFO buffer with the admission policy.
 ///
-/// Kept free of the drainer's async/atomic machinery so the overflow policy is
-/// unit-testable in isolation. `push` returns the events evicted to stay within
-/// the caps (oldest non-lifecycle first); the caller accounts for them.
+/// Kept free of the drainer's async machinery so the policy is unit-testable in
+/// isolation; the caller accounts for whatever [`EventBuffer::push`] hands back.
 struct EventBuffer {
     buf: VecDeque<QueuedEvent>,
     bytes: usize,
@@ -121,31 +301,29 @@ impl EventBuffer {
         }
     }
 
-    #[cfg(test)]
     fn len(&self) -> usize {
         self.buf.len()
     }
 
-    fn is_empty(&self) -> bool {
-        self.buf.is_empty()
+    fn over_capacity(&self) -> bool {
+        self.buf.len() > self.max_events || self.bytes > self.max_bytes
     }
 
-    /// Append `ev`, then evict the oldest non-lifecycle events until back within
-    /// the length and byte caps. Returns the evicted events (in eviction order).
-    /// When only lifecycle events remain the caps are intentionally exceeded
-    /// rather than dropping a lifecycle event.
-    fn push(&mut self, ev: QueuedEvent) -> Vec<QueuedEvent> {
+    /// Append `ev` and re-establish the caps.
+    ///
+    /// Eviction takes the oldest non-lifecycle event first and repeats until the
+    /// buffer is back within budget. If nothing evictable is left the newest
+    /// event is refused instead, so no priority class grows without bound. A
+    /// buffer holding a single event is never emptied: a lone event larger than
+    /// the byte cap must still be deliverable rather than dropped into oblivion.
+    fn push(&mut self, ev: QueuedEvent) -> Admission {
         self.bytes += ev.size;
         self.buf.push_back(ev);
 
-        let mut dropped = Vec::new();
-        // Never evict the last remaining event: a lone event larger than the
-        // byte cap must still be deliverable rather than dropped into oblivion.
-        while (self.buf.len() > self.max_events || self.bytes > self.max_bytes)
-            && self.buf.len() > 1
-        {
-            let Some(idx) = self.buf.iter().position(|e| !is_lifecycle(&e.req)) else {
-                // Only lifecycle events left — keep them all.
+        let mut evicted = Vec::new();
+        while self.over_capacity() && self.buf.len() > 1 {
+            let Some(idx) = self.buf.iter().position(|e| !e.lifecycle) else {
+                // Only lifecycle events left; fall through to refusal.
                 break;
             };
             // `idx` came from `position()` on this same buffer, so `remove`
@@ -154,9 +332,22 @@ impl EventBuffer {
                 break;
             };
             self.bytes -= removed.size;
-            dropped.push(removed);
+            evicted.push(removed);
         }
-        dropped
+
+        let rejected = if self.over_capacity() && self.buf.len() > 1 {
+            match self.buf.pop_back() {
+                Some(refused) => {
+                    self.bytes -= refused.size;
+                    Some(refused)
+                }
+                None => None,
+            }
+        } else {
+            None
+        };
+
+        Admission { evicted, rejected }
     }
 
     fn pop_front(&mut self) -> Option<QueuedEvent> {
@@ -171,32 +362,163 @@ impl EventBuffer {
     }
 }
 
-/// Cloneable producer handle to the outbox.
+/// One [`DropReason`]'s ledger: what was lost, and how much of that loss the
+/// drainer has already announced on the stream.
+///
+/// `recorded` is written by whoever loses the event (producer or drainer);
+/// `announced` is written only by the drainer, so it needs no read-modify-write.
+/// The difference is the marker debt [`EventOutbox::flush`] has to wait out —
+/// without it, a graceful shutdown could return with a gap still unannounced.
+#[derive(Default)]
+struct DropLedger {
+    recorded: AtomicU64,
+    announced: AtomicU64,
+}
+
+impl DropLedger {
+    fn unannounced(&self) -> u64 {
+        self.recorded
+            .load(Ordering::SeqCst)
+            .saturating_sub(self.announced.load(Ordering::SeqCst))
+    }
+}
+
+/// Lifetime counters behind [`OutboxMetrics`].
+#[derive(Default)]
+struct Counters {
+    drops: [DropLedger; DropReason::ALL.len()],
+    rejected_shutdown: AtomicU64,
+    retried: AtomicU64,
+    delivered: AtomicU64,
+}
+
+impl Counters {
+    fn drops(&self, reason: DropReason) -> &DropLedger {
+        &self.drops[reason.index()]
+    }
+
+    /// Total drops the drainer still owes the stream a marker for.
+    fn unannounced_drops(&self) -> u64 {
+        self.drops.iter().map(DropLedger::unannounced).sum()
+    }
+}
+
+/// Everything admission has to decide against, behind one lock.
+///
+/// `drainer_stopped` lives here rather than in an atomic beside the buffer
+/// because the two have to be read and written *together*: a producer that
+/// tested a separate flag and then took the buffer lock could be descheduled in
+/// between, let the drainer terminate, and push an event nothing will ever send.
+struct AdmissionState {
+    buffer: EventBuffer,
+    /// The one event the drainer has popped but not yet resolved. Counted as
+    /// undrained; kept outside the buffer so delivery holds no lock.
+    in_flight: usize,
+    /// Set once the drainer has terminated. Admission closes with it, in the
+    /// same critical section, so there is no window in which an event can be
+    /// buffered with no consumer left to drain it.
+    drainer_stopped: bool,
+}
+
+impl AdmissionState {
+    fn undrained(&self) -> usize {
+        self.buffer.len() + self.in_flight
+    }
+}
+
+/// State shared by every producer handle and the single drainer.
+struct Shared {
+    state: Mutex<AdmissionState>,
+    counters: Counters,
+    /// Producer → drainer: there is work (or an unannounced drop) to pick up.
+    work: Notify,
+    /// `flush` → drainer: stop waiting out a retry backoff and try now.
+    flush_nudge: Notify,
+}
+
+impl Shared {
+    /// The admission guard. Poison recovery is deliberate: nothing inside the
+    /// critical section can panic short of allocation failure, and forfeiting
+    /// every queued event over a poisoned lock would be strictly worse than
+    /// continuing.
+    fn state(&self) -> MutexGuard<'_, AdmissionState> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn undrained(&self) -> usize {
+        self.state().undrained()
+    }
+
+    /// Pop the next event for delivery, marking it in flight under the same
+    /// lock so [`AdmissionState::undrained`] never transiently under-reports.
+    fn take_next(&self) -> Option<QueuedEvent> {
+        let mut state = self.state();
+        let ev = state.buffer.pop_front()?;
+        state.in_flight = 1;
+        Some(ev)
+    }
+
+    /// Put an undelivered in-flight event back at the head (shutdown path).
+    fn return_in_flight(&self, ev: QueuedEvent) {
+        let mut state = self.state();
+        state.buffer.push_front(ev);
+        state.in_flight = 0;
+    }
+
+    fn clear_in_flight(&self) {
+        self.state().in_flight = 0;
+    }
+
+    /// Close admission. Taken under the admission lock, so once this returns no
+    /// producer can add an event the drainer will never see: a submission is
+    /// either already buffered (and reported as undrained) or refused.
+    fn stop_admission(&self) {
+        self.state().drainer_stopped = true;
+    }
+
+    fn record_drop(&self, reason: DropReason) {
+        self.counters
+            .drops(reason)
+            .recorded
+            .fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn metrics(&self) -> OutboxMetrics {
+        let c = &self.counters;
+        let recorded = |reason: DropReason| c.drops(reason).recorded.load(Ordering::SeqCst);
+        OutboxMetrics {
+            dropped_overflow: recorded(DropReason::Overflow),
+            dropped_terminal: recorded(DropReason::TerminalRejection),
+            dropped_unrepresentable: recorded(DropReason::UnrepresentableType),
+            rejected_saturated: recorded(DropReason::RefusedSaturated),
+            rejected_shutdown: c.rejected_shutdown.load(Ordering::SeqCst),
+            retried: c.retried.load(Ordering::SeqCst),
+            delivered: c.delivered.load(Ordering::SeqCst),
+            undrained: self.undrained(),
+        }
+    }
+}
+
+/// Cloneable producer handle to the send buffer.
 ///
 /// Cheap to clone (all shared state is `Arc`-wrapped). Held by
 /// [`crate::events::GrpcEventPublisher`]; `enqueue` is the only hot-path method.
 #[derive(Clone)]
 pub struct EventOutbox {
-    tx: mpsc::UnboundedSender<QueuedEvent>,
-    /// Total events dropped due to overflow (drives the marker + observability).
-    dropped: Arc<AtomicU64>,
-    /// Events buffered but not yet delivered or dropped (mpsc + drainer deque).
-    /// Reaches 0 exactly when the outbox is fully drained.
-    pending: Arc<AtomicUsize>,
-    /// Wakes the drainer out of a backoff sleep so `flush` drains promptly.
-    wake: Arc<Notify>,
+    shared: Arc<Shared>,
 }
 
 impl EventOutbox {
-    /// Build the outbox and spawn its single drainer task.
+    /// Build the send buffer and spawn its single drainer task.
     ///
-    /// The drainer runs until `cancel` fires (sandbox lifecycle end) or all
-    /// producer handles drop. `task_id` labels the synthetic overflow marker.
+    /// Returns the producer handle and the owned [`OutboxDrainerHandle`]; the
+    /// drainer runs until `cancel` fires. `task_id` labels the synthetic drop
+    /// marker.
     pub fn spawn(
         client: Arc<dyn BackendClient>,
         task_id: String,
         cancel: CancellationToken,
-    ) -> Self {
+    ) -> (Self, OutboxDrainerHandle) {
         Self::spawn_with_caps(client, task_id, cancel, MAX_QUEUE_EVENTS, MAX_QUEUE_BYTES)
     }
 
@@ -206,78 +528,205 @@ impl EventOutbox {
         cancel: CancellationToken,
         max_events: usize,
         max_bytes: usize,
-    ) -> Self {
-        let (tx, rx) = mpsc::unbounded_channel();
-        let dropped = Arc::new(AtomicU64::new(0));
-        let pending = Arc::new(AtomicUsize::new(0));
-        let wake = Arc::new(Notify::new());
+    ) -> (Self, OutboxDrainerHandle) {
+        let shared = Arc::new(Shared {
+            state: Mutex::new(AdmissionState {
+                buffer: EventBuffer::new(max_events, max_bytes),
+                in_flight: 0,
+                drainer_stopped: false,
+            }),
+            counters: Counters::default(),
+            work: Notify::new(),
+            flush_nudge: Notify::new(),
+        });
 
         let drainer = Drainer {
             client,
-            rx,
-            buffer: EventBuffer::new(max_events, max_bytes),
+            shared: Arc::clone(&shared),
             seq: 0,
-            reported_drops: 0,
             task_id,
-            dropped: Arc::clone(&dropped),
-            pending: Arc::clone(&pending),
-            wake: Arc::clone(&wake),
             cancel,
         };
-        tokio::spawn(drainer.run());
+        let join = tokio::spawn(drainer.run());
 
-        Self {
-            tx,
-            dropped,
-            pending,
-            wake,
-        }
+        (Self { shared }, OutboxDrainerHandle { join })
     }
 
-    /// Enqueue an event for at-least-once delivery. Non-blocking; never fails
-    /// the caller. If the drainer has already stopped (final shutdown) the event
-    /// is dropped with a debug log.
+    /// Submit an event for at-least-once delivery. Non-blocking; never fails the
+    /// caller.
+    ///
+    /// Capacity is enforced here, synchronously, so a stalled drainer cannot let
+    /// the queue grow past its caps. Whether the drainer is still running is
+    /// decided in the *same* critical section, so a submission is never buffered
+    /// into a queue with no consumer. Whatever the policy loses is counted under
+    /// [`OutboxMetrics::dropped_overflow`], [`OutboxMetrics::rejected_saturated`]
+    /// or [`OutboxMetrics::rejected_shutdown`] and, for a drop, announced in
+    /// stream order.
     pub fn enqueue(&self, req: PublishEventRequest) {
-        self.pending.fetch_add(1, Ordering::SeqCst);
-        if self.tx.send(QueuedEvent::new(req)).is_err() {
-            self.pending.fetch_sub(1, Ordering::SeqCst);
-            debug!("event outbox drainer stopped; event dropped");
+        // Scoped so the guard is released before any logging. `Err` hands the
+        // request back out so the refusal can be logged outside the lock.
+        let admitted = {
+            let mut state = self.shared.state();
+            if state.drainer_stopped {
+                Err(req)
+            } else {
+                Ok(state.buffer.push(QueuedEvent::new(req)))
+            }
+        };
+
+        let admission = match admitted {
+            Ok(admission) => admission,
+            Err(refused) => {
+                self.shared
+                    .counters
+                    .rejected_shutdown
+                    .fetch_add(1, Ordering::SeqCst);
+                warn!(
+                    sub_type = %refused.sub_type,
+                    "event send buffer drainer stopped; event refused"
+                );
+                return;
+            }
+        };
+
+        for removed in &admission.evicted {
+            self.shared.record_drop(DropReason::Overflow);
+            warn!(
+                sub_type = %removed.req.sub_type,
+                "event send buffer at capacity: evicted oldest non-lifecycle event"
+            );
         }
+        if let Some(refused) = &admission.rejected {
+            // Refusal is the most consequential loss of the four — by the
+            // eviction policy's own invariant this is always a lifecycle event —
+            // so it goes through the same seam as an eviction and gets its own
+            // marker rather than being visible only in a local counter.
+            self.shared.record_drop(DropReason::RefusedSaturated);
+            error!(
+                sub_type = %refused.req.sub_type,
+                "event send buffer saturated by lifecycle events: refused the newest"
+            );
+        }
+
+        self.shared.work.notify_one();
     }
 
-    /// Number of events buffered but not yet delivered or dropped.
+    /// Account for an event the producer could not put on the wire at all.
+    ///
+    /// The event never entered the buffer, so this is the producer's only way to
+    /// reach the drop-accounting seam. It is a bug in this process, not a load
+    /// condition — it is counted under
+    /// [`OutboxMetrics::dropped_unrepresentable`] and announced like any other
+    /// gap.
+    pub fn record_unrepresentable(&self) {
+        self.shared.record_drop(DropReason::UnrepresentableType);
+        self.shared.work.notify_one();
+    }
+
+    /// Events buffered or in flight — neither delivered nor dropped.
     pub fn pending_count(&self) -> usize {
-        self.pending.load(Ordering::SeqCst)
+        self.shared.undrained()
     }
 
-    /// Total events dropped due to overflow across the outbox's lifetime.
-    pub fn dropped_count(&self) -> u64 {
-        self.dropped.load(Ordering::SeqCst)
+    /// A point-in-time reading of every counter.
+    pub fn metrics(&self) -> OutboxMetrics {
+        self.shared.metrics()
     }
 
-    /// Wait until the queue is fully drained or `timeout` elapses, whichever
+    /// Wait until the buffer is fully drained or `timeout` elapses, whichever
     /// comes first. Called on graceful shutdown before the transcript flush.
-    /// Best-effort: on timeout it logs and returns, leaving the drainer to keep
-    /// retrying in the background until the process exits.
+    ///
+    /// Bounded and best-effort by construction: on timeout it reports what is
+    /// still undrained and returns, leaving the drainer to keep retrying in the
+    /// background until the process exits. It also returns early once the
+    /// drainer has stopped, because nothing left will move then.
     pub async fn flush(&self, timeout: Duration) {
-        let drained = tokio::time::timeout(timeout, async {
+        let outcome = tokio::time::timeout(timeout, async {
             loop {
-                if self.pending.load(Ordering::SeqCst) == 0 {
+                let (undrained, stopped) = {
+                    let state = self.shared.state();
+                    (state.undrained(), state.drainer_stopped)
+                };
+                // A dead drainer will never move anything, so waiting is pure
+                // delay. This is separate from the work check below, not part
+                // of it: it is "nothing can happen", not "nothing is pending".
+                if stopped {
+                    return;
+                }
+                // Drops are carried by counter deltas, not by buffered events,
+                // so an empty buffer is not an empty queue: a terminal rejection
+                // or an unrepresentable type leaves a marker the drainer still
+                // owes the stream. Returning here would cancel the drainer with
+                // that gap unannounced.
+                if undrained == 0 && self.shared.counters.unannounced_drops() == 0 {
                     return;
                 }
                 // Nudge the drainer out of any backoff sleep, then re-poll. A
                 // short poll avoids the lost-wakeup race a bare Notify would have.
-                self.wake.notify_waiters();
+                self.shared.flush_nudge.notify_waiters();
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
         })
         .await;
 
-        if drained.is_err() {
+        let undrained = self.shared.undrained();
+        let unannounced_drops = self.shared.counters.unannounced_drops();
+        if undrained > 0 || unannounced_drops > 0 {
             warn!(
-                pending = self.pending.load(Ordering::SeqCst),
-                "event outbox flush timed out with events still queued"
+                undrained,
+                unannounced_drops,
+                timed_out = outcome.is_err(),
+                "event send buffer flush finished with work still queued"
             );
+        }
+    }
+}
+
+/// Owned handle to the spawned drainer task.
+///
+/// # Ownership and criticality
+///
+/// **Criticality: critical.** The drainer is the only thing that turns a
+/// buffered event into a delivered one. A process whose drainer has terminated
+/// keeps producing events that can never be sent — which is why
+/// [`EventOutbox::enqueue`] refuses admission once
+/// [`OutboxDrainerHandle::is_finished`] would report `true`, counting the
+/// refusals under [`OutboxMetrics::rejected_shutdown`] instead of silently
+/// buffering them.
+///
+/// The handle is returned to the composition root rather than discarded, and is
+/// `#[must_use]` so dropping it is a deliberate act. The drainer participates in
+/// cancellation through the token passed to [`EventOutbox::spawn`], and
+/// [`Self::shutdown`] joins it within a bounded deadline.
+/// [`Self::into_join_handle`] hands the raw handle to a supervisor that wants to
+/// own termination policy itself.
+#[must_use = "the drainer handle owns critical work; dropping it detaches the task"]
+pub struct OutboxDrainerHandle {
+    join: JoinHandle<()>,
+}
+
+impl OutboxDrainerHandle {
+    /// Whether the task has terminated — the signal for a supervisor that polls
+    /// rather than joins.
+    pub fn is_finished(&self) -> bool {
+        self.join.is_finished()
+    }
+
+    /// Surrender the raw join handle to a supervisor.
+    pub fn into_join_handle(self) -> JoinHandle<()> {
+        self.join
+    }
+
+    /// Wait up to `deadline` for the (already-cancelled) drainer to finish,
+    /// reporting a straggler rather than blocking shutdown indefinitely.
+    pub async fn shutdown(self, deadline: Duration) {
+        match tokio::time::timeout(deadline, self.join).await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => warn!(error = %e, "event send buffer drainer terminated abnormally"),
+            Err(_elapsed) => warn!(
+                deadline_ms = deadline.as_millis() as u64,
+                "event send buffer drainer did not stop within the shutdown deadline"
+            ),
         }
     }
 }
@@ -286,112 +735,183 @@ impl EventOutbox {
 enum Delivery {
     /// The event was acknowledged by the backend.
     Sent,
+    /// The backend refused the event permanently; resending cannot succeed.
+    Rejected(Status),
     /// The drainer was cancelled mid-delivery (shutdown).
     Cancelled,
 }
 
-/// The single background task that owns the buffer and drives delivery.
+/// The single background task that drains the buffer.
 struct Drainer {
     client: Arc<dyn BackendClient>,
-    rx: mpsc::UnboundedReceiver<QueuedEvent>,
-    buffer: EventBuffer,
+    shared: Arc<Shared>,
     /// Last sequence assigned; incremented in transmission order.
     seq: u64,
-    /// Overflow drops already announced via a marker event.
-    reported_drops: u64,
     task_id: String,
-    dropped: Arc<AtomicU64>,
-    pending: Arc<AtomicUsize>,
-    wake: Arc<Notify>,
     cancel: CancellationToken,
 }
 
 impl Drainer {
     async fn run(mut self) {
         loop {
-            self.absorb_ready();
+            if self.cancel.is_cancelled() {
+                break;
+            }
 
-            if self.buffer.is_empty() {
+            // Announce any drops before the next real event so each gap is
+            // visible at the point in the stream where it happened.
+            if !self.announce_drops().await {
+                break;
+            }
+
+            let Some(mut ev) = self.shared.take_next() else {
                 tokio::select! {
                     () = self.cancel.cancelled() => break,
-                    () = self.wake.notified() => continue,
-                    item = self.rx.recv() => match item {
-                        Some(ev) => self.accept(ev),
-                        None => break, // all producer handles dropped
-                    },
+                    () = self.shared.work.notified() => {}
                 }
-                continue;
-            }
-
-            // Announce any overflow drops before the next real event so the gap
-            // is visible in stream order. Coalesced: one marker per batch of drops.
-            let total_dropped = self.dropped.load(Ordering::SeqCst);
-            if total_dropped > self.reported_drops {
-                let count = total_dropped - self.reported_drops;
-                let marker = self.build_marker(count);
-                match self.deliver(marker).await {
-                    Delivery::Sent => self.reported_drops = total_dropped,
-                    Delivery::Cancelled => break,
-                }
-            }
-
-            let Some(mut ev) = self.buffer.pop_front() else {
                 continue;
             };
+
             if ev.sequence.is_none() {
                 self.seq += 1;
                 ev.sequence = Some(self.seq);
             }
             ev.req.sequence = ev.sequence.unwrap_or(0);
 
-            match self.deliver(ev.req.clone()).await {
+            match self.deliver(&ev.req).await {
                 Delivery::Sent => {
-                    self.pending.fetch_sub(1, Ordering::SeqCst);
+                    self.shared.clear_in_flight();
+                    self.shared
+                        .counters
+                        .delivered
+                        .fetch_add(1, Ordering::SeqCst);
+                }
+                Delivery::Rejected(status) => {
+                    self.shared.clear_in_flight();
+                    self.shared.record_drop(DropReason::TerminalRejection);
+                    error!(
+                        task_id = %ev.req.task_id,
+                        event_id = %ev.req.event_id,
+                        sub_type = %ev.req.sub_type,
+                        error = %status,
+                        "backend permanently rejected an event; dropping it and moving on"
+                    );
                 }
                 Delivery::Cancelled => {
                     // Preserve ordering for any in-flight flush already waiting.
-                    self.buffer.push_front(ev);
+                    self.shared.return_in_flight(ev);
                     break;
                 }
             }
         }
+
+        // Close admission before reporting, so the counts below cannot be
+        // invalidated by a producer that slipped in after the loop exited.
+        self.shared.stop_admission();
+
+        // The drainer's last act is the only unconditional report of what this
+        // buffer lost over the pod's lifetime, so it carries every counter
+        // rather than just the depth.
+        let m = self.shared.metrics();
+        info!(
+            task_id = %self.task_id,
+            delivered = m.delivered,
+            undrained = m.undrained,
+            retried = m.retried,
+            dropped_overflow = m.dropped_overflow,
+            dropped_terminal = m.dropped_terminal,
+            dropped_unrepresentable = m.dropped_unrepresentable,
+            rejected_saturated = m.rejected_saturated,
+            rejected_shutdown = m.rejected_shutdown,
+            "event send buffer drainer stopped"
+        );
     }
 
-    /// Move every currently-queued event from the mpsc into the buffer,
-    /// applying the overflow policy as we go.
-    fn absorb_ready(&mut self) {
-        while let Ok(ev) = self.rx.try_recv() {
-            self.accept(ev);
-        }
-    }
+    /// Emit one marker per [`DropReason`] with unannounced drops, in
+    /// [`DropReason::ALL`] order. Returns `false` if the drainer was cancelled.
+    async fn announce_drops(&mut self) -> bool {
+        // A local handle so the ledger borrow below does not tie up `self`,
+        // which `deliver` needs mutably.
+        let shared = Arc::clone(&self.shared);
 
-    /// Push one event into the buffer and account for any overflow eviction.
-    fn accept(&mut self, ev: QueuedEvent) {
-        for removed in self.buffer.push(ev) {
-            self.dropped.fetch_add(1, Ordering::SeqCst);
-            self.pending.fetch_sub(1, Ordering::SeqCst);
-            warn!(
-                sub_type = %removed.req.sub_type,
-                "event outbox overflow: dropped oldest non-lifecycle event"
-            );
+        for reason in DropReason::ALL {
+            let ledger = shared.counters.drops(reason);
+            // Read `recorded` once: anything recorded after this point stays
+            // unannounced and is picked up by the next pass, which is what keeps
+            // `flush`'s marker-debt check and this loop reading the same ledger.
+            let recorded = ledger.recorded.load(Ordering::SeqCst);
+            let announced = ledger.announced.load(Ordering::SeqCst);
+            let Some(count) = recorded.checked_sub(announced).filter(|c| *c > 0) else {
+                continue;
+            };
+
+            let mut marker = self.build_marker(reason, count);
+            // The marker rides the same ordered stream as real events, so it
+            // takes the next sequence rather than a placeholder the backend
+            // would read as a restart.
+            self.seq += 1;
+            marker.sequence = self.seq;
+
+            match self.deliver(&marker).await {
+                Delivery::Sent => ledger.announced.store(recorded, Ordering::SeqCst),
+                Delivery::Rejected(status) => {
+                    // The marker is backend-authored in all but name — a UUID, a
+                    // known event type, serialised JSON — so a terminal rejection
+                    // means version skew. Record it as announced anyway: counting
+                    // the marker's own loss as a drop would generate a new marker
+                    // that would be rejected in turn, forever.
+                    error!(
+                        task_id = %self.task_id,
+                        reason = reason.marker_reason(),
+                        error = %status,
+                        "backend permanently rejected a dropped-events marker; gap left unannounced"
+                    );
+                    ledger.announced.store(recorded, Ordering::SeqCst);
+                }
+                Delivery::Cancelled => return false,
+            }
         }
+        true
     }
 
     /// Send one request, retrying with exponential backoff until it is
-    /// acknowledged or the drainer is cancelled. Keeps absorbing newly enqueued
-    /// events between attempts so the mpsc doesn't grow unbounded during a stall.
-    async fn deliver(&mut self, req: PublishEventRequest) -> Delivery {
+    /// acknowledged, permanently refused, or the drainer is cancelled.
+    ///
+    /// Two codes are terminal, both for the same reason: the request cannot
+    /// succeed no matter how often it is resent, so retrying would wedge this
+    /// drainer's head forever and take the task's entire event stream with it.
+    /// Both are dropped and counted under [`DropReason::TerminalRejection`],
+    /// which announces the gap with a marker rather than losing it silently.
+    ///
+    /// - `INVALID_ARGUMENT` — the request violates the wire contract (unknown
+    ///   `event_type`, empty `event_id`, unparseable `payload_json`; see the
+    ///   backend's `AdmissionError`).
+    /// - `OUT_OF_RANGE` — the encoded message exceeds a gRPC size limit. tonic
+    ///   raises this from the codec on both sides, and neither end of this path
+    ///   configures a limit, so the backend's decode ceiling is tonic's 4 MiB
+    ///   default. An `agent.message` carrying a large tool result can cross it,
+    ///   and the payload is fixed by the time it reaches here — re-encoding the
+    ///   same bytes produces the identical rejection every time.
+    ///
+    /// `RESOURCE_EXHAUSTED` is deliberately *not* terminal: it is the standard
+    /// code for quota and rate limiting, which is exactly what backoff is for.
+    async fn deliver(&mut self, req: &PublishEventRequest) -> Delivery {
         let mut attempt: u32 = 0;
         loop {
             if self.cancel.is_cancelled() {
                 return Delivery::Cancelled;
             }
-            self.absorb_ready();
 
             match self.client.publish_event(req.clone()).await {
                 Ok(()) => return Delivery::Sent,
+                Err(status)
+                    if matches!(status.code(), Code::InvalidArgument | Code::OutOfRange) =>
+                {
+                    return Delivery::Rejected(status)
+                }
                 Err(status) => {
                     attempt += 1;
+                    self.shared.counters.retried.fetch_add(1, Ordering::SeqCst);
                     let backoff = backoff_for(attempt);
                     warn!(
                         task_id = %req.task_id,
@@ -403,31 +923,25 @@ impl Drainer {
                     );
                     tokio::select! {
                         () = self.cancel.cancelled() => return Delivery::Cancelled,
-                        () = self.wake.notified() => {}
+                        () = self.shared.flush_nudge.notified() => {}
                         () = tokio::time::sleep(backoff) => {}
-                        item = self.rx.recv() => {
-                            if let Some(ev) = item {
-                                self.accept(ev);
-                            }
-                        }
                     }
                 }
             }
         }
     }
 
-    /// Build the synthetic overflow marker. It rides the same ordered stream as
-    /// real events (its own `event_id` + sequence) so the backend records the
-    /// gap without special-casing.
-    fn build_marker(&self, count: u64) -> PublishEventRequest {
+    /// Build the synthetic drop marker. It rides the same ordered stream as real
+    /// events (its own `event_id` + sequence) so the backend records the gap
+    /// without special-casing.
+    fn build_marker(&self, reason: DropReason, count: u64) -> PublishEventRequest {
         let payload = serde_json::json!({
-            "reason": "outbox_overflow",
+            "reason": reason.marker_reason(),
             "dropped_count": count,
         });
-        let proto_event_type: sandbox_proto::EventType = moatless_events::EventType::Sandbox.into();
         PublishEventRequest {
             task_id: self.task_id.clone(),
-            event_type: proto_event_type as i32,
+            event_type: sandbox_proto::EventType::Sandbox as i32,
             sub_type: EVENTS_DROPPED_SUB_TYPE.to_string(),
             payload_json: payload.to_string(),
             event_id: uuid::Uuid::new_v4().to_string(),
@@ -438,327 +952,4 @@ impl Drainer {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    use std::sync::Mutex;
-
-    use async_trait::async_trait;
-    use sandbox_proto::{
-        GetCredentialsResponse, InterruptedTurn, PendingMessage, PublishEventRequest,
-    };
-    use tonic::Status;
-
-    fn agent_event(sub_type: &str) -> PublishEventRequest {
-        let et: sandbox_proto::EventType = moatless_events::EventType::Agent.into();
-        PublishEventRequest {
-            task_id: "task-1".to_string(),
-            event_type: et as i32,
-            sub_type: sub_type.to_string(),
-            payload_json: "{}".to_string(),
-            event_id: uuid::Uuid::new_v4().to_string(),
-            sequence: 0,
-            run_id: String::new(),
-        }
-    }
-
-    fn task_turn_event(sub_type: &str) -> PublishEventRequest {
-        let et: sandbox_proto::EventType = moatless_events::EventType::TaskTurn.into();
-        PublishEventRequest {
-            task_id: "task-1".to_string(),
-            event_type: et as i32,
-            sub_type: sub_type.to_string(),
-            payload_json: "{}".to_string(),
-            event_id: uuid::Uuid::new_v4().to_string(),
-            sequence: 0,
-            run_id: String::new(),
-        }
-    }
-
-    /// Mock backend client: fails the first `fail_first` publish attempts, then
-    /// records every subsequently accepted request in order.
-    struct MockBackend {
-        fail_first: Mutex<u32>,
-        received: Arc<Mutex<Vec<PublishEventRequest>>>,
-    }
-
-    impl MockBackend {
-        fn new(fail_first: u32) -> (Arc<Self>, Arc<Mutex<Vec<PublishEventRequest>>>) {
-            let received = Arc::new(Mutex::new(Vec::new()));
-            let me = Arc::new(Self {
-                fail_first: Mutex::new(fail_first),
-                received: Arc::clone(&received),
-            });
-            (me, received)
-        }
-    }
-
-    #[async_trait]
-    impl BackendClient for MockBackend {
-        async fn publish_event(&self, req: PublishEventRequest) -> Result<(), Status> {
-            {
-                let mut remaining = self.fail_first.lock().expect("lock");
-                if *remaining > 0 {
-                    *remaining -= 1;
-                    return Err(Status::unavailable("mock backend unavailable"));
-                }
-            }
-            self.received.lock().expect("lock").push(req);
-            Ok(())
-        }
-
-        async fn get_pending_messages(
-            &self,
-            _task_id: &str,
-        ) -> Result<Vec<PendingMessage>, Status> {
-            Ok(vec![])
-        }
-
-        async fn acknowledge_messages(
-            &self,
-            _task_id: &str,
-            _message_uuids: Vec<String>,
-            _session_id: &str,
-            _run_id: &str,
-        ) -> Result<(), Status> {
-            Ok(())
-        }
-
-        async fn get_credentials(&self, _task_id: &str) -> Result<GetCredentialsResponse, Status> {
-            Ok(GetCredentialsResponse::default())
-        }
-
-        async fn update_credential(
-            &self,
-            _task_id: &str,
-            _key: &str,
-            _value: &str,
-        ) -> Result<(), Status> {
-            Ok(())
-        }
-
-        async fn get_system_prompt(&self, _task_id: &str) -> Result<String, Status> {
-            Ok(String::new())
-        }
-
-        async fn download_upload(
-            &self,
-            _task_id: &str,
-            _file_id: &str,
-        ) -> Result<sandbox_proto::DownloadUploadResponse, Status> {
-            Ok(sandbox_proto::DownloadUploadResponse::default())
-        }
-
-        async fn recover_interrupted_run(
-            &self,
-            _task_id: &str,
-        ) -> Result<Option<InterruptedTurn>, Status> {
-            Ok(None)
-        }
-
-        async fn upload_transcript(
-            &self,
-            _task_id: &str,
-            _tar_data: Vec<u8>,
-        ) -> Result<(), Status> {
-            Ok(())
-        }
-
-        async fn download_transcript(&self, _task_id: &str) -> Result<Vec<u8>, Status> {
-            Ok(vec![])
-        }
-    }
-
-    async fn wait_until<F: Fn() -> bool>(cond: F) {
-        for _ in 0..1000 {
-            if cond() {
-                return;
-            }
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
-        panic!("condition not met within timeout");
-    }
-
-    #[test]
-    fn backoff_grows_then_caps() {
-        assert_eq!(backoff_for(1), BASE_BACKOFF);
-        assert_eq!(backoff_for(2), BASE_BACKOFF * 2);
-        assert_eq!(backoff_for(3), BASE_BACKOFF * 4);
-        // Large attempt counts saturate to the cap, never overflow.
-        assert_eq!(backoff_for(30), MAX_BACKOFF);
-        assert_eq!(backoff_for(u32::MAX), MAX_BACKOFF);
-    }
-
-    #[test]
-    fn overflow_drops_oldest_non_lifecycle_keeps_lifecycle() {
-        let mut buf = EventBuffer::new(3, usize::MAX);
-
-        // Fill: two non-lifecycle, one lifecycle.
-        assert!(buf
-            .push(QueuedEvent::new(agent_event("message")))
-            .is_empty());
-        assert!(buf
-            .push(QueuedEvent::new(task_turn_event("active")))
-            .is_empty());
-        assert!(buf
-            .push(QueuedEvent::new(agent_event("message")))
-            .is_empty());
-        assert_eq!(buf.len(), 3);
-
-        // Over cap: oldest non-lifecycle (index 0) is evicted, not the taskTurn.
-        let dropped = buf.push(QueuedEvent::new(agent_event("message")));
-        assert_eq!(dropped.len(), 1);
-        assert_eq!(dropped[0].req.sub_type, "message");
-        assert_eq!(buf.len(), 3);
-
-        // The surviving lifecycle event is still buffered.
-        let remaining: Vec<_> = std::iter::from_fn(|| buf.pop_front())
-            .map(|e| e.req.sub_type)
-            .collect();
-        assert!(remaining.contains(&"active".to_string()));
-    }
-
-    #[test]
-    fn overflow_keeps_lifecycle_even_past_cap() {
-        let mut buf = EventBuffer::new(2, usize::MAX);
-        // All lifecycle (incl. terminal `stopped`): nothing droppable, cap exceeded.
-        assert!(buf
-            .push(QueuedEvent::new(task_turn_event("active")))
-            .is_empty());
-        assert!(buf
-            .push(QueuedEvent::new(agent_event("completed")))
-            .is_empty());
-        assert!(buf.push(QueuedEvent::new(agent_event("error"))).is_empty());
-        let dropped = buf.push(QueuedEvent::new(agent_event("stopped")));
-        assert!(dropped.is_empty());
-        assert_eq!(buf.len(), 4);
-    }
-
-    #[test]
-    fn byte_cap_triggers_eviction() {
-        // Tiny byte cap, generous event cap: eviction driven purely by bytes.
-        let mut buf = EventBuffer::new(1000, 40);
-        // Each agent_event: payload "{}" (2) + sub_type "message" (7) + task "task-1" (6)
-        // + a uuid event_id (36) = 51 bytes, already over the 40-byte cap, but a
-        // single event is never dropped below itself — it's the only entry.
-        assert!(buf
-            .push(QueuedEvent::new(agent_event("message")))
-            .is_empty());
-        assert_eq!(buf.len(), 1);
-        // A second push must evict the first to try to get back under budget.
-        let dropped = buf.push(QueuedEvent::new(agent_event("message")));
-        assert_eq!(dropped.len(), 1);
-        assert_eq!(buf.len(), 1);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn drains_events_in_order_with_sequences() {
-        let (backend, received) = MockBackend::new(0);
-        let cancel = CancellationToken::new();
-        let outbox = EventOutbox::spawn(backend, "task-1".to_string(), cancel.clone());
-
-        for i in 0..5 {
-            outbox.enqueue(agent_event(&format!("message-{i}")));
-        }
-
-        wait_until(|| received.lock().expect("lock").len() == 5).await;
-
-        let got = received.lock().expect("lock");
-        let sub_types: Vec<_> = got.iter().map(|r| r.sub_type.clone()).collect();
-        assert_eq!(
-            sub_types,
-            vec![
-                "message-0",
-                "message-1",
-                "message-2",
-                "message-3",
-                "message-4"
-            ]
-        );
-        // Sequences are assigned in transmission order, contiguous from 1.
-        let seqs: Vec<_> = got.iter().map(|r| r.sequence).collect();
-        assert_eq!(seqs, vec![1, 2, 3, 4, 5]);
-        assert_eq!(outbox.pending_count(), 0);
-
-        cancel.cancel();
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn retries_until_backend_recovers() {
-        // Fail the first 3 attempts; the drainer must retry the same event and
-        // deliver it exactly once, preserving its identity.
-        let (backend, received) = MockBackend::new(3);
-        let cancel = CancellationToken::new();
-        let outbox = EventOutbox::spawn(backend, "task-1".to_string(), cancel.clone());
-
-        let ev = agent_event("completed");
-        let event_id = ev.event_id.clone();
-        outbox.enqueue(ev);
-
-        wait_until(|| received.lock().expect("lock").len() == 1).await;
-
-        let got = received.lock().expect("lock");
-        assert_eq!(got.len(), 1);
-        assert_eq!(got[0].event_id, event_id);
-        assert_eq!(got[0].sequence, 1);
-        assert_eq!(outbox.pending_count(), 0);
-
-        cancel.cancel();
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn overflow_emits_dropped_marker() {
-        let (backend, received) = MockBackend::new(0);
-        let cancel = CancellationToken::new();
-        // Cap of 2 events so a burst forces eviction. Keep the backend blocked
-        // until after the burst so events pile up in the buffer.
-        let outbox = EventOutbox::spawn_with_caps(
-            backend,
-            "task-1".to_string(),
-            cancel.clone(),
-            2,
-            usize::MAX,
-        );
-
-        // Fire a burst of non-lifecycle events; some must be evicted.
-        for i in 0..10 {
-            outbox.enqueue(agent_event(&format!("message-{i}")));
-        }
-
-        wait_until(|| outbox.dropped_count() > 0).await;
-        wait_until(|| {
-            received
-                .lock()
-                .expect("lock")
-                .iter()
-                .any(|r| r.sub_type == EVENTS_DROPPED_SUB_TYPE)
-        })
-        .await;
-
-        let got = received.lock().expect("lock");
-        let marker = got
-            .iter()
-            .find(|r| r.sub_type == EVENTS_DROPPED_SUB_TYPE)
-            .expect("marker present");
-        assert!(marker.payload_json.contains("outbox_overflow"));
-
-        cancel.cancel();
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn flush_returns_once_drained() {
-        let (backend, received) = MockBackend::new(0);
-        let cancel = CancellationToken::new();
-        let outbox = EventOutbox::spawn(backend, "task-1".to_string(), cancel.clone());
-
-        for i in 0..3 {
-            outbox.enqueue(agent_event(&format!("message-{i}")));
-        }
-        outbox.flush(Duration::from_secs(5)).await;
-
-        assert_eq!(outbox.pending_count(), 0);
-        assert_eq!(received.lock().expect("lock").len(), 3);
-
-        cancel.cancel();
-    }
-}
+mod tests;

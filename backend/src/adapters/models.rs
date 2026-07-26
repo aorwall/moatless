@@ -275,7 +275,15 @@ pub struct Schedule {
 pub use moatless_api_schemas::enums::RoutingMode;
 
 /// Inbound message produced by a provider-specific parser.
-#[derive(Debug, Clone)]
+///
+/// Serialized only into `adapter_work.payload`, never into an API response: a
+/// provider that routes inbound messages through durable adapter work
+/// (`crate::adapters::work`) stores the parsed message as the work payload, so
+/// the record carries everything needed to redo the routing after a restart.
+/// Re-deriving it would mean re-parsing a webhook body the process no longer
+/// has. Every field is owned data for the same reason — a message that
+/// referenced process memory would not be durable work.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct InboundMessage {
     /// Provider type.
     pub provider: crate::adapters::AdapterKind,

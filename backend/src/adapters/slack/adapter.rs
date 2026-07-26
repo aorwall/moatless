@@ -1,9 +1,7 @@
 //! Slack adapter — Adapter trait impl + webhook parsing.
 
 use axum::http::HeaderMap;
-use moka::future::Cache;
 use std::fmt::Write as _;
-use std::time::Duration;
 use tokio::sync::OnceCell;
 use tracing::{debug, info, warn};
 
@@ -152,8 +150,6 @@ pub struct SlackAdapter {
     api: SlackApi,
     signing_secret: String,
     bot_user_id: Option<String>,
-    /// Deduplication cache: event_id → () with 5-minute TTL.
-    dedup_cache: Cache<String, ()>,
     /// Workspace (team) id memoized after the first `auth.test` call so
     /// `post_to_destination` doesn't ping Slack on every send.
     workspace_id: OnceCell<String>,
@@ -165,10 +161,6 @@ impl SlackAdapter {
             api: SlackApi::new(bot_token),
             signing_secret: signing_secret.to_string(),
             bot_user_id,
-            dedup_cache: Cache::builder()
-                .time_to_live(Duration::from_mins(5))
-                .max_capacity(10_000)
-                .build(),
             workspace_id: OnceCell::new(),
         }
     }
@@ -246,7 +238,7 @@ impl SlackAdapter {
         .bind(slack_user_id)
         .fetch_optional(db)
         .await
-        .map_err(|e| AdapterError::Internal(format!("Slack provider ID lookup failed: {e}")))?;
+        .map_err(AdapterError::Db)?;
 
         if let Some((id,)) = row {
             tracing::debug!(
@@ -273,7 +265,7 @@ impl SlackAdapter {
                 .bind(email)
                 .fetch_optional(db)
                 .await
-                .map_err(|e| AdapterError::Internal(format!("User lookup failed: {e}")))?;
+                .map_err(AdapterError::Db)?;
 
         if let Some((id, login)) = row {
             tracing::info!(slack_user = %identity, email = %email, user_id = %id, login = %login, "Resolved Slack user to system user");
@@ -287,7 +279,9 @@ impl SlackAdapter {
     /// Parse a Slack Events API webhook into an InboundMessage.
     ///
     /// Handles: signature verification, url_verification challenge,
-    /// trigger filtering, event deduplication, and user identity extraction.
+    /// trigger filtering, and user identity extraction. Deduplication is not
+    /// done here — it happens durably when the caller admits the parsed
+    /// message, keyed on the same Slack `event_id`.
     ///
     /// When `is_tracked_thread` is true, the trigger filter is bypassed for
     /// `message` events — this allows thread replies to outbound-created threads
@@ -341,19 +335,19 @@ impl SlackAdapter {
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
-        // 5. Deduplication
-        if !event_id.is_empty() {
-            if self.dedup_cache.get(event_id).await.is_some() {
-                debug!(
-                    reason = "duplicate_event_id",
-                    event_id = %event_id,
-                    event_type = %event_type,
-                    "Slack event ignored"
-                );
-                return Ok(SlackWebhookResult::Ignore("duplicate"));
-            }
-            self.dedup_cache.insert(event_id.to_string(), ()).await;
-        }
+        // 5. Deduplication happens durably, at admission: the webhook handler
+        // keys `adapter_work` on this same `event_id`, so a re-delivery is
+        // recognised across restarts and replicas rather than for five minutes
+        // inside one process.
+        //
+        // Re-parsing a re-delivery is the price, and it is paid twice over: a
+        // repeat `users.info` call below, and a repeat "I couldn't find your
+        // account" reply if the sender is unmapped. Both were suppressed by the
+        // cache that used to sit here. It is still the right trade — the parse
+        // is what decides whether there is any work to admit, so declining to
+        // re-parse means acknowledging a delivery whose admission was never
+        // attempted, which is how a webhook gets lost outright rather than
+        // duplicated.
 
         // 6. Extract user + channel early (needed for bot filter, DM detection, and access policy)
         let user = event.get("user").and_then(|v| v.as_str()).unwrap_or("");

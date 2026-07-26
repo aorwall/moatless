@@ -12,10 +12,8 @@ use moatless_api_schemas::message::{
 use crate::adapters::common::{
     ensure_task_access, load_adapter_connection_for_auth, load_loop_for_auth, task_binding_response,
 };
-use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{OutboundReply, TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN};
-use crate::bindings::dao::PgTaskBindingRepository;
 use crate::bindings::outbound::resolve_files;
 use crate::bindings::reply::ReplyService;
 use crate::extractors::AuthUser;
@@ -38,9 +36,7 @@ pub async fn list_task_bindings(
 ) -> Result<Json<Vec<TaskBindingResponse>>, AdapterError> {
     let ctx = auth.scope_context();
     ensure_task_access(&state, &ctx, &task_id).await?;
-    let rows = PgTaskBindingRepository(state.db.clone())
-        .find_by_task_id(&task_id)
-        .await?;
+    let rows = state.task_bindings.find_by_task_id(&task_id).await?;
     Ok(Json(rows.iter().map(task_binding_response).collect()))
 }
 
@@ -113,9 +109,7 @@ pub async fn create_task_binding(
         active: true,
         deactivated_at: None,
     };
-    let saved = PgTaskBindingRepository(state.db.clone())
-        .upsert(&row)
-        .await?;
+    let saved = state.task_bindings.upsert(&row).await?;
     Ok(Json(task_binding_response(&saved)))
 }
 
@@ -276,7 +270,8 @@ pub async fn reply_to_message(
     // resolved with system context.
     #[allow(clippy::disallowed_methods)]
     let sys_ctx = ScopeContext::system();
-    let connection = PgAdapterConnectionRepository(state.db.clone())
+    let connection = state
+        .adapter_connections
         .find_by_id(&binding.connection_id, &sys_ctx)
         .await?
         .ok_or_else(|| {
@@ -335,11 +330,7 @@ async fn append_internal_assistant_reply(
 ) -> Result<(), AdapterError> {
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let uuid = uuid::Uuid::new_v4().to_string();
-    let turn_number = state
-        .task_turns
-        .latest_turn_number(task_id)
-        .await
-        .map_err(|e| AdapterError::Internal(format!("Failed to read turn number: {e}")))?;
+    let turn_number = state.task_turns.latest_turn_number(task_id).await?;
     let content = serde_json::json!([{ "type": "text", "text": text }]);
     let mut msg = TaskMessage::new_user_message(task_id.to_string(), uuid, content, now);
     msg.message_type = MessageType::Assistant;
@@ -362,11 +353,7 @@ async fn append_internal_assistant_reply(
         created_at: None,
     };
 
-    state
-        .messages
-        .append(&msg, &[], &[block])
-        .await
-        .map_err(|e| AdapterError::Internal(format!("Failed to append assistant reply: {e}")))?;
+    state.messages.append(&msg, &[], &[block]).await?;
     Ok(())
 }
 
@@ -429,9 +416,7 @@ async fn load_binding_for_message_and_adapter(
         }
     }
 
-    let rows = PgTaskBindingRepository(state.db.clone())
-        .find_by_task_id(task_id)
-        .await?;
+    let rows = state.task_bindings.find_by_task_id(task_id).await?;
 
     select_binding_for_reply(&rows, &candidates, subject_key)
         .cloned()

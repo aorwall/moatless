@@ -278,11 +278,7 @@ pub async fn route_inbound_message(
             }
             // Transient failure (Db / ShortId / RepoNotFound) — propagate so the
             // source retries, exactly as before this migration.
-            Err(e) => {
-                return Err(AdapterError::Internal(format!(
-                    "Failed to create task: {e}"
-                )))
-            }
+            Err(e) => return Err(AdapterError::TaskCreation(e)),
         }
     }
 
@@ -539,7 +535,7 @@ async fn deliver_to_binding(
         Some(msg.user_id.as_str()),
     )
     .await
-    .map_err(|e| AdapterError::Internal(format!("Failed to send message: {e}")))?;
+    .map_err(AdapterError::MessageDelivery)?;
 
     let repo = PgTaskBindingRepository(state.db.clone());
     if let Some(ref ext_id) = msg.external_event_id {
@@ -599,5 +595,66 @@ mod tests {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod error_source_tests {
+    use std::error::Error as _;
+
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse as _;
+
+    use crate::adapters::error::AdapterError;
+    use crate::adapters::test_support::{response_snapshot, source_chain};
+
+    /// These assert *reachability* of the causal error, not the depth of the
+    /// chain. Depth is a property of how the wrapped type declares its own
+    /// variants — `TaskCreationError::Db` is `#[error(transparent)]` and so
+    /// collapses into a single link, while `MessageError::Db` has its own
+    /// `Display` and adds one. Neither type belongs to this module, so pinning
+    /// a link count here would make these tests fail on an unrelated change to
+    /// a `#[error(...)]` attribute elsewhere. What the ticket requires is that
+    /// the cause survives `Error::source` while the HTTP body stays redacted.
+    #[tokio::test]
+    async fn task_creation_keeps_its_cause_and_redacts() {
+        let err = AdapterError::TaskCreation(crate::task::creation::TaskCreationError::Db(
+            sqlx::Error::PoolClosed,
+        ));
+
+        assert!(err
+            .source()
+            .and_then(|s| s.downcast_ref::<crate::task::creation::TaskCreationError>())
+            .is_some());
+        let chain = source_chain(&err);
+        assert!(
+            chain.iter().any(|link| link.contains("closed pool")),
+            "sqlx cause must stay reachable: {chain:?}"
+        );
+
+        let (status, body) = response_snapshot(err.into_response()).await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(body, r#"{"error":"Internal server error"}"#);
+    }
+
+    #[tokio::test]
+    async fn message_delivery_keeps_its_cause_and_redacts() {
+        let err = AdapterError::MessageDelivery(crate::message::error::MessageError::Db(
+            sqlx::Error::PoolClosed,
+        ));
+
+        assert!(err
+            .source()
+            .and_then(|s| s.downcast_ref::<crate::message::error::MessageError>())
+            .is_some());
+        let chain = source_chain(&err);
+        assert!(
+            chain.iter().any(|link| link.contains("closed pool")),
+            "sqlx cause must stay reachable: {chain:?}"
+        );
+
+        let (status, body) = response_snapshot(err.into_response()).await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(body, r#"{"error":"Internal server error"}"#);
     }
 }

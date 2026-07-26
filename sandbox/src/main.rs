@@ -32,14 +32,44 @@ use moatless_sandbox::grpc_server::SandboxServiceImpl;
 use moatless_sandbox::init::InitPhase;
 use moatless_sandbox::shutdown;
 use moatless_sandbox::state::SandboxState;
+use moatless_sandbox::supervisor::{Criticality, Supervisor, SHUTDOWN_JOIN_DEADLINE};
 
 /// Unix socket path for the in-pod credential broker.
 ///
 /// Must match the path baked into `docker/moatless-git-cred.sh`.
 const CREDENTIAL_BROKER_SOCKET: &str = "/run/moatless/credentials.sock";
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// Where the Claude CLI writes its debug logs — pointed at `/tmp` to work around
+/// an SDK lazy-init race. Child CLI processes inherit it from this process.
+///
+/// `docker/docker-entrypoint-sandbox.sh` exports the same value and remains the
+/// source for image-entrypoint launches, but the K8s pod spec overrides the
+/// entrypoint with `command: ["/usr/local/bin/sandbox"]` (see
+/// `backend/src/sandbox/k8s/pod_builder.rs`), so on that path the script never
+/// runs and the binary has to guarantee the variable itself.
+const CLAUDE_CODE_DEBUG_LOGS_DIR: &str = "/tmp/claude-debug.log";
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Set before the Tokio runtime exists: `set_var` is only sound while the
+    // process is single-threaded, and every consumer is a CLI child process
+    // spawned much later, so the pre-runtime prologue is the one safe place.
+    #[expect(
+        unsafe_code,
+        reason = "std::env::set_var is unsafe; sound here because the process is still single-threaded"
+    )]
+    // SAFETY: no runtime, no worker threads, and no other thread of any kind has
+    // been created yet, so nothing can concurrently read the environment.
+    unsafe {
+        std::env::set_var("CLAUDE_CODE_DEBUG_LOGS_DIR", CLAUDE_CODE_DEBUG_LOGS_DIR);
+    }
+
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(run())
+}
+
+async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Load configuration
     let config = Config::from_env();
 
@@ -85,13 +115,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // with the rest of the runtime and winds down on SIGTERM.
     let lifecycle_cancel = CancellationToken::new();
 
-    // Spawn the at-least-once event outbox and back the publisher with it. The
-    // drainer sends events in order with retry/backoff, so a backend rollout or
-    // network blip no longer silently drops agent/taskTurn events.
-    let outbox = moatless_sandbox::outbox::EventOutbox::spawn(
+    // Root supervisor: owns the join handle of every long-lived task below under
+    // a policy declared at registration. `registrar` is cloned into anything that
+    // spawns supervised work later (the init task's durability loops).
+    let supervisor = Supervisor::new(lifecycle_cancel.clone());
+    let registrar = supervisor.registrar();
+
+    // Spawn the at-least-once event send buffer and back the publisher with it.
+    // The drainer sends events in order with retry/backoff, so a backend rollout
+    // or network blip no longer silently drops agent/taskTurn events.
+    //
+    // Fatal: once the drainer stops, `EventOutbox::enqueue` refuses admission in
+    // the same critical section as the buffer push and the outbox stays stopped —
+    // restarting a drainer against a live outbox is not supported. A pod that
+    // can no longer publish an event is a pod whose task appears frozen, so the
+    // right remedy is to replace it. `into_join_handle` is the escape hatch the
+    // outbox provides for exactly this: the supervisor owns termination policy,
+    // so the outbox's own `shutdown(deadline)` is not used.
+    //
+    // The supervisor owns this task's JOIN, never the timing of its
+    // cancellation. `shutdown::perform_shutdown` flushes the outbox and only
+    // then cancels the lifecycle token; the supervisor is woken by that
+    // cancellation and joins afterwards. Do not "optimise" this into cancelling
+    // the drainer with the rest of the supervised set at the top of teardown:
+    // `flush` early-returns on a stopped drainer, so that inversion makes the
+    // flush an instant no-op and drops the pod's terminal lifecycle events with
+    // no error anywhere. See the comment on that flush in `shutdown.rs`.
+    let (outbox, outbox_drainer) = moatless_sandbox::outbox::EventOutbox::spawn(
         Arc::clone(&backend_client),
         config.task_id.clone(),
         lifecycle_cancel.clone(),
+    );
+    registrar.supervise(
+        "event-outbox-drainer",
+        Criticality::Fatal,
+        outbox_drainer.into_join_handle(),
     );
     let event_publisher = GrpcEventPublisher::new(outbox);
 
@@ -165,14 +223,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         codex_watcher_handle,
         system_prompt_cache,
         dispatch_lock: Default::default(),
+        supervisor_health: supervisor.health(),
     };
+
+    // The agent actor is deliberately NOT registered with the root supervisor.
+    // It is the one long-lived task whose termination already reaches a probe:
+    // when the actor loop exits or panics, `command_rx` drops and
+    // `agent_handle.is_closed()` makes `/livez` report 503 — the same outcome a
+    // `Criticality::Liveness` registration would produce. It also does not
+    // observe the lifecycle token (it exits when the last `AgentHandle` drops,
+    // i.e. at process teardown), so registering it would put a known-permanent
+    // entry in every shutdown's straggler report and make that report useless.
 
     // Start gRPC server for sandbox service (receives commands from backend)
     // Available even during init so backend can reach the pod. Drains via the
     // lifecycle token so a SIGTERM (see shutdown driver below) stops it cleanly.
+    //
+    // Fatal: this is the only channel the backend has to reach the pod. Before
+    // supervision an early `serve` return logged an error and left a process
+    // nothing could talk to, still passing its startup probe forever.
     let grpc_state = state.clone();
     let grpc_port = config.grpc_port;
-    tokio::spawn(async move {
+    let grpc_server = tokio::spawn(async move {
         let grpc_shutdown = grpc_state.lifecycle_cancel.clone();
         let svc = SandboxServiceImpl { state: grpc_state };
         let addr = SocketAddr::from(([0, 0, 0, 0], grpc_port));
@@ -191,6 +263,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         info!("Sandbox gRPC server stopped");
     });
+    registrar.supervise("grpc-server", Criticality::Fatal, grpc_server);
 
     // Spawn the credential broker on a unix socket. Git is configured to use
     // a helper script that hits this socket on every push/fetch, so tokens
@@ -204,19 +277,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         task_id: state.config.task_id.clone(),
         backend_client: Arc::clone(&state.backend_client),
     };
-    if let Err(e) = broker::spawn(broker_state, &broker_socket, state.lifecycle_cancel.clone()) {
-        tracing::warn!(
+    // Optional: losing the broker degrades git auth to whatever
+    // `~/.config/gh/hosts.yml` last held — the same fallback a failed spawn
+    // already accepts below.
+    match broker::spawn(broker_state, &broker_socket, state.lifecycle_cancel.clone()) {
+        Ok(broker_task) => {
+            registrar.supervise("credential-broker", Criticality::Optional, broker_task);
+        }
+        Err(e) => tracing::warn!(
             error = %e,
             socket = %broker_socket.display(),
             "Failed to spawn credential broker — git operations will fall back to hosts.yml"
-        );
+        ),
     }
 
     // Spawn init task — handles credential fetching, git clone, workspace setup.
     // After init completes, it triggers process_pending_messages() to pick up
     // any messages that arrived during initialization.
+    //
+    // Finite + Fatal: `run_init` returning is the normal end of startup, but a
+    // panic inside it leaves a pod that never reaches Ready and never says why —
+    // before supervision the `JoinError` was discarded with the handle. Core-init
+    // *errors* still fail fast through `run_init`'s own `process::exit`.
     let init_state = state.clone();
-    tokio::spawn(moatless_sandbox::init::run_init(init_state));
+    let init_task = tokio::spawn(moatless_sandbox::init::run_init(
+        init_state,
+        registrar.clone(),
+    ));
+    registrar.supervise_finite("init", Criticality::Fatal, init_task);
     info!("Init task spawned");
 
     // Build HTTP router with health probe that reflects init state
@@ -231,9 +319,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // teardown (idle-down, node drain, eviction, PR-close). On signal we stop the
     // agent and cancel the lifecycle token, which both servers and background
     // tasks observe to wind down.
-    shutdown::spawn_shutdown_driver(state.clone());
+    //
+    // Liveness, not Fatal: a driver that died before the signal means the *next*
+    // teardown rides the grace period to exit-137, which costs the final flushes.
+    // Exiting the process now to fix that would destroy the turn currently
+    // running, which is strictly worse — a restart under SIGTERM is the remedy.
+    // Its own normal return happens after it cancels the lifecycle token, so it
+    // classifies as shutdown rather than early termination.
+    registrar.supervise(
+        "shutdown-driver",
+        Criticality::Liveness,
+        shutdown::spawn_shutdown_driver(state.clone()),
+    );
 
-    // Start HTTP server (K8s health probes only)
+    // Start HTTP server (K8s health probes only). The bind still fails `main`
+    // directly — there is nothing to supervise if the socket never opened.
+    //
+    // Fatal: an early `serve` return leaves the probes unanswerable, which is
+    // how `main` already treated it (it was `main`'s terminal `await?`). The
+    // change is that axum's `with_graceful_shutdown` wait — previously the one
+    // *unbounded* step in teardown — now sits inside the supervisor's bounded
+    // join instead of ahead of it.
     let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
     let listener = TcpListener::bind(addr).await?;
     info!(
@@ -242,11 +348,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let http_shutdown = state.lifecycle_cancel.clone();
-    axum::serve(listener, router)
-        .with_graceful_shutdown(async move { http_shutdown.cancelled().await })
-        .await?;
+    let http_server = tokio::spawn(async move {
+        if let Err(e) = axum::serve(listener, router)
+            .with_graceful_shutdown(async move { http_shutdown.cancelled().await })
+            .await
+        {
+            tracing::error!(error = %e, "Sandbox HTTP server failed");
+        }
+        info!("Sandbox HTTP server stopped");
+    });
+    registrar.supervise("http-server", Criticality::Fatal, http_server);
 
-    info!("Sandbox HTTP server stopped — exiting cleanly");
+    // Hand control to the supervisor: it watches until a fatal exit or the
+    // lifecycle token fires, then cancels and joins everything within one
+    // bounded deadline (see `SHUTDOWN_JOIN_DEADLINE`).
+    //
+    // The second argument is the graceful teardown for the *fatal* path, where
+    // no SIGTERM arrived and so the shutdown driver never ran. It is the same
+    // `perform_shutdown` the signal path uses, run in the same position — before
+    // cancellation — so the outbox flush, the transcript flush and the workspace
+    // flush all happen on both exit paths. `Fatal` is a per-task policy, not a
+    // synonym for "the backend is unreachable": for every Fatal task except the
+    // gRPC server the connection is fine, and a fatal exit is exactly when a
+    // terminal lifecycle event most needs to land. The future is not polled
+    // unless a fatal exit actually happens.
+    let teardown = shutdown::perform_shutdown(&state.agent, &state.lifecycle_cancel, Some(&state));
+    let outcome = supervisor.run(SHUTDOWN_JOIN_DEADLINE, teardown).await;
+    match &outcome {
+        Ok(()) => info!("Sandbox exiting cleanly"),
+        Err(exit) => {
+            tracing::error!(error = %exit, "Sandbox exiting after a critical task failure");
+        }
+    }
+    outcome?;
     Ok(())
 }
 
@@ -262,33 +396,19 @@ async fn health(State(state): State<SandboxState>) -> impl IntoResponse {
     }
 }
 
-/// GET /livez — honest liveness signal for the agent actor.
+/// GET /livez — honest liveness signal for the pod's own machinery.
 ///
-/// Returns 200 while the actor loop is alive and 503 once it has wedged or
-/// exited, so K8s can restart a hung-but-running pod that `/health` would keep
-/// reporting healthy. Depends ONLY on the actor — never on backend
-/// reachability, credentials, or disk — so a transient dependency outage can't
+/// Returns 200 while the pod can still make progress and 503 once it cannot, so
+/// K8s can restart a hung-but-running pod that `/health` (a startup probe) would
+/// keep reporting healthy. Two ways to lose it: a supervised task terminated
+/// early, or the agent actor wedged or exited. Still depends on neither backend
+/// reachability, credentials, nor disk, so a transient dependency outage can't
 /// trigger a restart that kills an in-flight turn.
 ///
-/// Backed by the actor heartbeat: while a turn is `Running` the stamp must be
-/// fresh (the loop beats every iteration and on a periodic tick); when idle the
-/// loop legitimately parks on its command channel, so an open channel suffices.
+/// The decision itself is [`SandboxState::is_live`] — in the library, where it
+/// is testable.
 async fn livez(State(state): State<SandboxState>) -> impl IntoResponse {
-    use moatless_sandbox::agent::heartbeat::{
-        actor_is_alive, now_millis, HEARTBEAT_STALE_THRESHOLD_MS,
-    };
-    use moatless_sandbox::agent::types::AgentStatus;
-
-    let turn_running = matches!(state.agent.status().await, AgentStatus::Running);
-    let alive = actor_is_alive(
-        now_millis(),
-        state.heartbeat.last_beat_ms(),
-        turn_running,
-        !state.agent_handle.is_closed(),
-        HEARTBEAT_STALE_THRESHOLD_MS,
-    );
-
-    if alive {
+    if state.is_live().await {
         StatusCode::OK
     } else {
         StatusCode::SERVICE_UNAVAILABLE

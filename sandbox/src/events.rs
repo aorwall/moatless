@@ -123,14 +123,32 @@ impl GrpcEventPublisher {
             }
         };
 
+        // Narrowing onto the wire enum is partial: the domain enum carries
+        // backend-derived types the protocol cannot express. Every caller above
+        // passes a sandbox-originated type, so a rejection here is a bug in this
+        // module, not a runtime condition — drop the event rather than publish it
+        // under a different type. The drop goes through the outbox's accounting
+        // seam so it is measured and announced, not only logged.
+        let proto_event_type = match sandbox_proto::EventType::try_from(event_type) {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::error!(
+                    task_id = %task_id,
+                    sub_type = %sub_type,
+                    error = %e,
+                    "Refusing to publish event over the sandbox protocol"
+                );
+                self.outbox.record_unrepresentable();
+                return;
+            }
+        };
+
         debug!(
             task_id = %task_id,
             event_type = %event_type,
             sub_type = %sub_type,
             "Enqueueing event for delivery"
         );
-
-        let proto_event_type: sandbox_proto::EventType = event_type.into();
 
         self.outbox.enqueue(PublishEventRequest {
             task_id: task_id.to_string(),

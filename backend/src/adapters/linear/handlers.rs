@@ -11,15 +11,15 @@ use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use tracing::{debug, info, warn};
 
-use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::error::AdapterError;
 use crate::adapters::metrics::record_webhook;
 use crate::state::AppState;
 
 use super::adapter::LinearAdapter;
-use super::agent_api::{default_http_client, LinearAgentApi};
+use super::agent_api::LinearAgentApi;
 use super::agent_runtime;
 use super::webhook_payloads::LinearWebhookEnvelope;
+use super::work::LinearWebhookError;
 
 #[utoipa::path(
     post,
@@ -46,7 +46,17 @@ pub async fn linear_webhook(
         Ok(event_type) => {
             record_webhook("linear", "success", "", &event_type, "", "");
         }
-        Err(e) => {
+        // The one failure that must not be acknowledged. Nothing was written,
+        // so a 200 would tell Linear the session is ours while no record of it
+        // exists — and Linear does not redeliver an acknowledged event.
+        Err(LinearWebhookError::NotAdmitted(e)) => {
+            record_webhook("linear", "error", "not_admitted", "", "", "");
+            warn!(error = %e, "Linear webhook work was not admitted; asking Linear to redeliver");
+            return Err(AdapterError::from(e));
+        }
+        // Everything else keeps the long-standing behaviour: log it, meter it,
+        // and acknowledge.
+        Err(LinearWebhookError::Ingress(e)) => {
             warn!(error = %e, "Linear webhook processing error");
             record_webhook("linear", "error", "delivery_failed", "", "", "");
         }
@@ -65,7 +75,7 @@ async fn dispatch_webhook(
     provider: &LinearAdapter,
     headers: &HeaderMap,
     body: &[u8],
-) -> Result<String, AdapterError> {
+) -> Result<String, LinearWebhookError> {
     let signature = headers
         .get("linear-signature")
         .and_then(|v| v.to_str().ok())
@@ -102,9 +112,11 @@ async fn dispatch_webhook(
         return Ok(envelope.event_type.clone());
     };
 
-    let connection = PgAdapterConnectionRepository(state.db.clone())
+    let connection = state
+        .adapter_connections
         .find_by_external_account("linear", org_id)
-        .await?;
+        .await
+        .map_err(AdapterError::Db)?;
     let Some(connection) = connection else {
         info!(
             org_id,
@@ -122,7 +134,7 @@ async fn dispatch_webhook(
             org_id,
             "Linear webhook rejected: no webhook secret configured on connection or env"
         );
-        return Err(AdapterError::SignatureInvalid);
+        return Err(AdapterError::SignatureInvalid.into());
     };
 
     if let Err(e) = super::signature::verify_signature(secret, body, signature) {
@@ -134,7 +146,7 @@ async fn dispatch_webhook(
             signature_len = signature.len(),
             "Linear webhook rejected: signature verification failed"
         );
-        return Err(e);
+        return Err(e.into());
     }
 
     // Dedup on the specific resource/event identity, NOT Linear's `webhookId`
@@ -153,22 +165,28 @@ async fn dispatch_webhook(
     }
 
     let event_type = envelope.event_type.clone();
-    let result = match event_type.as_str() {
+    let result: Result<(), LinearWebhookError> = match event_type.as_str() {
         "AgentSessionEvent" => {
-            let api = build_agent_api(state, &connection.scope_value);
-            handle_agent_session_event(state, &api, &connection, &envelope).await
+            let api = agent_runtime::agent_api(state, &connection.scope_value);
+            handle_agent_session_event(state, &api, &connection, &envelope, &key).await
         }
         "Issue" => {
-            let api = build_agent_api(state, &connection.scope_value);
-            handle_issue_event(state, &api, &connection, &envelope).await
+            let api = agent_runtime::agent_api(state, &connection.scope_value);
+            handle_issue_event(state, &api, &connection, &envelope)
+                .await
+                .map_err(Into::into)
         }
         "Comment" => {
-            let api = build_agent_api(state, &connection.scope_value);
-            handle_comment_event(state, &api, &connection, &envelope).await
+            let api = agent_runtime::agent_api(state, &connection.scope_value);
+            handle_comment_event(state, &api, &connection, &envelope)
+                .await
+                .map_err(Into::into)
         }
         "AppUserNotification" => {
-            let api = build_agent_api(state, &connection.scope_value);
-            handle_app_user_notification(state, &api, &connection, &envelope).await
+            let api = agent_runtime::agent_api(state, &connection.scope_value);
+            handle_app_user_notification(state, &api, &connection, &envelope)
+                .await
+                .map_err(Into::into)
         }
         other => {
             let data_keys: Vec<&str> = envelope
@@ -191,6 +209,15 @@ async fn dispatch_webhook(
             Ok(())
         }
     };
+
+    // The dedup cache was marked above, before any work could be admitted. If
+    // admission then failed we are about to ask Linear to redeliver, so the
+    // mark has to go — otherwise this replica would dismiss that redelivery as
+    // a duplicate and the session would be lost for good.
+    if let Err(LinearWebhookError::NotAdmitted(_)) = &result {
+        provider.forget_for_dispatch(&key).await;
+    }
+
     result.map(|()| event_type)
 }
 
@@ -364,7 +391,8 @@ async fn handle_agent_session_event(
     api: &LinearAgentApi,
     connection: &crate::adapters::models::AdapterConnection,
     envelope: &LinearWebhookEnvelope,
-) -> Result<(), AdapterError> {
+    event_id: &str,
+) -> Result<(), LinearWebhookError> {
     let Some(session) = envelope.agent_session.as_ref() else {
         debug!("AgentSessionEvent missing agentSession payload — ignoring");
         return Ok(());
@@ -383,12 +411,14 @@ async fn handle_agent_session_event(
     let rules = agent_runtime::resolve_rules_for_team(state, connection, &team_id).await?;
 
     match envelope.action.as_str() {
+        // Unlike the other branches, an admission failure here is *not*
+        // swallowed: the whole point of admitting is that the session is not
+        // acknowledged until it is durably owned.
         "created" => {
-            if let Err(e) =
-                agent_runtime::handle_session_created(state, api, connection, &rules, session).await
-            {
-                warn!(session_id = %session.id, error = %e, "handle_session_created failed");
-            }
+            agent_runtime::handle_session_created(
+                state, api, connection, &rules, session, event_id,
+            )
+            .await?;
         }
         "prompted" => {
             let body = envelope
@@ -416,16 +446,6 @@ async fn handle_agent_session_event(
     }
 
     Ok(())
-}
-
-fn build_agent_api(state: &AppState, org_id: &str) -> LinearAgentApi {
-    LinearAgentApi::new(
-        default_http_client(),
-        state.db.clone(),
-        org_id.to_string(),
-        state.config.linear.oauth_client_id.clone(),
-        state.config.linear.oauth_client_secret.clone(),
-    )
 }
 
 #[cfg(test)]

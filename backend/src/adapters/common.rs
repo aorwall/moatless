@@ -144,8 +144,7 @@ pub(crate) async fn ensure_repository_exists(
     let repo = state
         .repositories
         .find_by_id(repository_id, ctx)
-        .await
-        .map_err(|e| AdapterError::Internal(format!("Failed to look up repository: {e}")))?
+        .await?
         .ok_or_else(|| AdapterError::BadRequest(format!("Repository {repository_id} not found")))?;
     ensure_can_use_repository(
         ctx,
@@ -208,8 +207,7 @@ pub(crate) async fn ensure_task_access(
     state
         .tasks
         .find_by_id(task_id, ctx)
-        .await
-        .map_err(|e| AdapterError::Internal(format!("Failed to look up task: {e}")))?
+        .await?
         .ok_or_else(|| AdapterError::NotFound(format!("Task {task_id} not found")))
 }
 
@@ -298,8 +296,6 @@ pub(crate) async fn ensure_can_run_as(
         Ok(_) => Err(AdapterError::AccessDenied(format!(
             "Cannot run as user {target}"
         ))),
-        Err(e) => Err(AdapterError::Internal(format!(
-            "Failed to look up run-as user {target}: {e}"
-        ))),
+        Err(e) => Err(AdapterError::Db(e)),
     }
 }

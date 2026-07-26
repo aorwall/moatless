@@ -12,6 +12,7 @@ pub mod handlers;
 pub mod signature;
 pub mod status;
 pub mod webhook_payloads;
+pub mod work;
 
 /// `task_bindings.subject_kind` for bindings that point to a Linear issue
 /// (CLI-created or operator-initiated). Distinct from the existing

@@ -22,6 +22,16 @@ impl TelegramApi {
         }
     }
 
+    /// Point the client at a caller-supplied Bot API base so tests can drive
+    /// the real request path against a local address.
+    #[cfg(test)]
+    pub(crate) fn with_base_url(base_url: impl Into<String>) -> Self {
+        Self {
+            client: Client::new(),
+            base_url: base_url.into(),
+        }
+    }
+
     /// Send a text message, chunking if it exceeds 4096 characters.
     ///
     /// `message_thread_id` is used for forum/topic groups — when set, the message
@@ -73,9 +83,7 @@ impl TelegramApi {
                 .json(&body)
                 .send()
                 .await
-                .map_err(|e| {
-                    AdapterError::AdapterApi(format!("Telegram sendMessage failed: {e}"))
-                })?;
+                .map_err(|e| AdapterError::provider_unreachable("Telegram sendMessage", e))?;
 
             if resp.status().as_u16() == 400 {
                 // Markdown parse error — retry without parse_mode
@@ -99,9 +107,7 @@ impl TelegramApi {
                         .send()
                         .await
                         .map_err(|e| {
-                            AdapterError::AdapterApi(format!(
-                                "Telegram sendMessage retry failed: {e}"
-                            ))
+                            AdapterError::provider_unreachable("Telegram sendMessage retry", e)
                         })?;
                     if !retry_resp.status().is_success() {
                         let status = retry_resp.status();
@@ -147,7 +153,7 @@ impl TelegramApi {
             .post(format!("{}/deleteWebhook", self.base_url))
             .send()
             .await
-            .map_err(|e| AdapterError::AdapterApi(format!("Telegram deleteWebhook failed: {e}")))?;
+            .map_err(|e| AdapterError::provider_unreachable("Telegram deleteWebhook", e))?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -188,7 +194,7 @@ impl TelegramApi {
             .timeout(std::time::Duration::from_secs(u64::from(timeout) + 10))
             .send()
             .await
-            .map_err(|e| AdapterError::AdapterApi(format!("Telegram getUpdates failed: {e}")))?;
+            .map_err(|e| AdapterError::provider_unreachable("Telegram getUpdates", e))?;
 
         let status = resp.status();
         if status.as_u16() == 409 {
@@ -203,9 +209,10 @@ impl TelegramApi {
             )));
         }
 
-        let json: serde_json::Value = resp.json().await.map_err(|e| {
-            AdapterError::AdapterApi(format!("Telegram getUpdates parse error: {e}"))
-        })?;
+        let json: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| AdapterError::provider_response_invalid("Telegram getUpdates", e))?;
 
         let updates = json
             .get("result")
@@ -229,9 +236,7 @@ impl TelegramApi {
             .json(&body)
             .send()
             .await
-            .map_err(|e| {
-                AdapterError::AdapterApi(format!("Telegram sendChatAction failed: {e}"))
-            })?;
+            .map_err(|e| AdapterError::provider_unreachable("Telegram sendChatAction", e))?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -268,9 +273,7 @@ impl TelegramApi {
             .json(&body)
             .send()
             .await
-            .map_err(|e| {
-                AdapterError::AdapterApi(format!("Telegram setMessageReaction failed: {e}"))
-            })?;
+            .map_err(|e| AdapterError::provider_unreachable("Telegram setMessageReaction", e))?;
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
@@ -290,7 +293,7 @@ impl TelegramApi {
             .query(&[("chat_id", chat_id)])
             .send()
             .await
-            .map_err(|e| AdapterError::AdapterApi(format!("Telegram getChat failed: {e}")))?;
+            .map_err(|e| AdapterError::provider_unreachable("Telegram getChat", e))?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -303,7 +306,7 @@ impl TelegramApi {
         let body: serde_json::Value = resp
             .json()
             .await
-            .map_err(|e| AdapterError::AdapterApi(format!("Telegram getChat parse error: {e}")))?;
+            .map_err(|e| AdapterError::provider_response_invalid("Telegram getChat", e))?;
 
         body.get("result")
             .cloned()
@@ -315,7 +318,7 @@ async fn parse_send_message_id(resp: reqwest::Response) -> Result<i64, AdapterEr
     let body: serde_json::Value = resp
         .json()
         .await
-        .map_err(|e| AdapterError::AdapterApi(format!("Telegram sendMessage parse error: {e}")))?;
+        .map_err(|e| AdapterError::provider_response_invalid("Telegram sendMessage", e))?;
     body.pointer("/result/message_id")
         .and_then(serde_json::Value::as_i64)
         .ok_or_else(|| AdapterError::AdapterApi("Telegram sendMessage: missing message_id".into()))
@@ -374,5 +377,68 @@ mod tests {
         assert_eq!(chunks.len(), 4); // 30 + 30 + 30 + 10
         assert_eq!(chunks[0].len(), 30);
         assert_eq!(chunks[3].len(), 10);
+    }
+}
+
+#[cfg(test)]
+mod error_source_tests {
+    use std::error::Error as _;
+
+    use axum::http::StatusCode;
+
+    use super::*;
+    use crate::adapters::test_support::{stub_provider, UNREACHABLE_BASE};
+
+    #[tokio::test]
+    async fn unreachable_telegram_keeps_transport_source() {
+        let api = TelegramApi::with_base_url(UNREACHABLE_BASE);
+
+        let err = api
+            .send_message_returning_id("42", "hello", None, None)
+            .await
+            .expect_err("dead loopback port must fail");
+
+        let AdapterError::ProviderUnreachable {
+            ref operation,
+            ref source,
+        } = err
+        else {
+            panic!("expected ProviderUnreachable, got {err:?}");
+        };
+        assert_eq!(operation, "Telegram sendMessage");
+        assert!(source.is_connect() || source.is_request(), "{source}");
+        assert!(err.source().is_some(), "cause must stay reachable");
+    }
+
+    #[tokio::test]
+    async fn undecodable_telegram_body_keeps_decode_source() {
+        let base = stub_provider(StatusCode::OK, "not json at all").await;
+        let api = TelegramApi::with_base_url(base);
+
+        let err = api
+            .send_message_returning_id("42", "hello", None, None)
+            .await
+            .expect_err("plain-text body must not decode");
+
+        let AdapterError::ProviderResponseInvalid { ref operation, .. } = err else {
+            panic!("expected ProviderResponseInvalid, got {err:?}");
+        };
+        assert_eq!(operation, "Telegram sendMessage");
+        assert!(err.source().is_some(), "cause must stay reachable");
+    }
+
+    /// Telegram answering a non-2xx is a rejection, not a wrapped failure.
+    #[tokio::test]
+    async fn telegram_rejection_stays_a_synthesized_message() {
+        let base = stub_provider(StatusCode::FORBIDDEN, r#"{"ok":false}"#).await;
+        let api = TelegramApi::with_base_url(base);
+
+        let err = api
+            .send_message_returning_id("42", "hello", None, None)
+            .await
+            .expect_err("403 must be an error");
+
+        assert!(matches!(err, AdapterError::AdapterApi(_)), "got {err:?}");
+        assert!(err.source().is_none());
     }
 }

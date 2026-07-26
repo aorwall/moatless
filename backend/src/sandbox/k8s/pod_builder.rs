@@ -71,7 +71,10 @@ pub fn mint_sandbox_tokens(
         config.sandbox.user_token_ttl_secs,
         config.sandbox.emit_legacy_user_token_env,
     )
-    .map_err(|e| SandboxError::JwtError(e.to_string()))
+    .map_err(|source| SandboxError::JwtSigning {
+        purpose: "the sandbox task token",
+        source,
+    })
 }
 
 /// Build a complete Pod spec from config + plan (no template).

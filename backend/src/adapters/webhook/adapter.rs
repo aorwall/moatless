@@ -185,10 +185,8 @@ impl Adapter for WebhookAdapter {
                 )))
             }
             Err(e) => {
-                warn!(trigger_id = %config.id, url = %callback_url, error = %e, "Webhook callback request failed");
-                Err(AdapterError::AdapterApi(format!(
-                    "Webhook callback failed: {e}"
-                )))
+                warn!(trigger_id = %config.id, url = %callback_url, "Webhook callback request failed");
+                Err(AdapterError::provider_unreachable("Webhook callback", e))
             }
         }
     }

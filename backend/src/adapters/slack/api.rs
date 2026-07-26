@@ -10,7 +10,13 @@ use crate::adapters::error::AdapterError;
 pub struct SlackApi {
     token: String,
     client: reqwest::Client,
+    /// Web API root. A field rather than a constant so tests can drive the
+    /// real request path against a local address.
+    base_url: String,
 }
+
+/// Slack Web API root.
+const SLACK_API_BASE: &str = "https://slack.com/api";
 
 /// Response from `chat.postMessage` — includes the posted message's `ts`.
 #[derive(Deserialize)]
@@ -125,6 +131,16 @@ impl SlackApi {
         Self {
             token: token.to_string(),
             client: reqwest::Client::new(),
+            base_url: SLACK_API_BASE.to_string(),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_base_url(token: &str, base_url: impl Into<String>) -> Self {
+        Self {
+            token: token.to_string(),
+            client: reqwest::Client::new(),
+            base_url: base_url.into(),
         }
     }
 
@@ -147,15 +163,15 @@ impl SlackApi {
 
         let resp: PostMessageResponse = self
             .client
-            .post("https://slack.com/api/chat.postMessage")
+            .post(format!("{}/chat.postMessage", self.base_url))
             .bearer_auth(&self.token)
             .json(&body)
             .send()
             .await
-            .map_err(|e| AdapterError::AdapterApi(format!("chat.postMessage failed: {e}")))?
+            .map_err(|e| AdapterError::provider_unreachable("chat.postMessage", e))?
             .json()
             .await
-            .map_err(|e| AdapterError::AdapterApi(format!("chat.postMessage parse failed: {e}")))?;
+            .map_err(|e| AdapterError::provider_response_invalid("chat.postMessage", e))?;
 
         if !resp.ok {
             let err = resp.error.unwrap_or_default();
@@ -170,14 +186,14 @@ impl SlackApi {
     pub async fn auth_test(&self) -> Result<AuthTestInfo, AdapterError> {
         let resp: AuthTestResponse = self
             .client
-            .post("https://slack.com/api/auth.test")
+            .post(format!("{}/auth.test", self.base_url))
             .bearer_auth(&self.token)
             .send()
             .await
-            .map_err(|e| AdapterError::AdapterApi(format!("auth.test failed: {e}")))?
+            .map_err(|e| AdapterError::provider_unreachable("auth.test", e))?
             .json()
             .await
-            .map_err(|e| AdapterError::AdapterApi(format!("auth.test parse: {e}")))?;
+            .map_err(|e| AdapterError::provider_response_invalid("auth.test", e))?;
 
         if !resp.ok {
             let err = resp.error.unwrap_or_default();
@@ -205,15 +221,15 @@ impl SlackApi {
     ) -> Result<Option<SlackUserInfo>, AdapterError> {
         let resp: UserInfoResponse = self
             .client
-            .get("https://slack.com/api/users.info")
+            .get(format!("{}/users.info", self.base_url))
             .bearer_auth(&self.token)
             .query(&[("user", user_id)])
             .send()
             .await
-            .map_err(|e| AdapterError::AdapterApi(format!("users.info failed: {e}")))?
+            .map_err(|e| AdapterError::provider_unreachable("users.info", e))?
             .json()
             .await
-            .map_err(|e| AdapterError::AdapterApi(format!("users.info parse: {e}")))?;
+            .map_err(|e| AdapterError::provider_response_invalid("users.info", e))?;
 
         if !resp.ok {
             let err = resp.error.unwrap_or_default();
@@ -248,15 +264,15 @@ impl SlackApi {
 
             let resp: ConversationsListResponse = self
                 .client
-                .get("https://slack.com/api/conversations.list")
+                .get(format!("{}/conversations.list", self.base_url))
                 .bearer_auth(&self.token)
                 .query(&query)
                 .send()
                 .await
-                .map_err(|e| AdapterError::AdapterApi(format!("conversations.list failed: {e}")))?
+                .map_err(|e| AdapterError::provider_unreachable("conversations.list", e))?
                 .json()
                 .await
-                .map_err(|e| AdapterError::AdapterApi(format!("conversations.list parse: {e}")))?;
+                .map_err(|e| AdapterError::provider_response_invalid("conversations.list", e))?;
 
             if !resp.ok {
                 let err = resp.error.unwrap_or_default();
@@ -313,15 +329,15 @@ impl SlackApi {
 
         let resp: ConversationsRepliesResponse = self
             .client
-            .get("https://slack.com/api/conversations.replies")
+            .get(format!("{}/conversations.replies", self.base_url))
             .bearer_auth(&self.token)
             .query(&query)
             .send()
             .await
-            .map_err(|e| AdapterError::AdapterApi(format!("conversations.replies failed: {e}")))?
+            .map_err(|e| AdapterError::provider_unreachable("conversations.replies", e))?
             .json()
             .await
-            .map_err(|e| AdapterError::AdapterApi(format!("conversations.replies parse: {e}")))?;
+            .map_err(|e| AdapterError::provider_response_invalid("conversations.replies", e))?;
 
         if !resp.ok {
             let err = resp.error.unwrap_or_default();
@@ -384,18 +400,16 @@ impl SlackApi {
         // Step 1: Get presigned upload URL
         let resp: GetUploadUrlResponse = self
             .client
-            .get("https://slack.com/api/files.getUploadURLExternal")
+            .get(format!("{}/files.getUploadURLExternal", self.base_url))
             .bearer_auth(&self.token)
             .query(&[("filename", filename), ("length", &length_str)])
             .send()
             .await
-            .map_err(|e| {
-                AdapterError::AdapterApi(format!("files.getUploadURLExternal failed: {e}"))
-            })?
+            .map_err(|e| AdapterError::provider_unreachable("files.getUploadURLExternal", e))?
             .json()
             .await
             .map_err(|e| {
-                AdapterError::AdapterApi(format!("files.getUploadURLExternal parse failed: {e}"))
+                AdapterError::provider_response_invalid("files.getUploadURLExternal", e)
             })?;
 
         if !resp.ok {
@@ -419,9 +433,7 @@ impl SlackApi {
             .body(content)
             .send()
             .await
-            .map_err(|e| {
-                AdapterError::AdapterApi(format!("File upload to presigned URL failed: {e}"))
-            })?
+            .map_err(|e| AdapterError::provider_unreachable("File upload to presigned URL", e))?
             .status();
 
         if !upload_status.is_success() {
@@ -441,18 +453,16 @@ impl SlackApi {
 
         let complete_resp: CompleteUploadResponse = self
             .client
-            .post("https://slack.com/api/files.completeUploadExternal")
+            .post(format!("{}/files.completeUploadExternal", self.base_url))
             .bearer_auth(&self.token)
             .json(&complete_body)
             .send()
             .await
-            .map_err(|e| {
-                AdapterError::AdapterApi(format!("files.completeUploadExternal failed: {e}"))
-            })?
+            .map_err(|e| AdapterError::provider_unreachable("files.completeUploadExternal", e))?
             .json()
             .await
             .map_err(|e| {
-                AdapterError::AdapterApi(format!("files.completeUploadExternal parse failed: {e}"))
+                AdapterError::provider_response_invalid("files.completeUploadExternal", e)
             })?;
 
         if !complete_resp.ok {
@@ -473,17 +483,15 @@ impl SlackApi {
 
         let resp: ConversationsOpenResponse = self
             .client
-            .post("https://slack.com/api/conversations.open")
+            .post(format!("{}/conversations.open", self.base_url))
             .bearer_auth(&self.token)
             .json(&body)
             .send()
             .await
-            .map_err(|e| AdapterError::AdapterApi(format!("conversations.open failed: {e}")))?
+            .map_err(|e| AdapterError::provider_unreachable("conversations.open", e))?
             .json()
             .await
-            .map_err(|e| {
-                AdapterError::AdapterApi(format!("conversations.open parse failed: {e}"))
-            })?;
+            .map_err(|e| AdapterError::provider_response_invalid("conversations.open", e))?;
 
         if !resp.ok {
             let err = resp.error.unwrap_or_default();
@@ -538,15 +546,15 @@ impl SlackApi {
 
         let resp: SimpleOkResponse = self
             .client
-            .post(format!("https://slack.com/api/{method}"))
+            .post(format!("{}/{method}", self.base_url))
             .bearer_auth(&self.token)
             .json(&body)
             .send()
             .await
-            .map_err(|e| AdapterError::AdapterApi(format!("{method} failed: {e}")))?
+            .map_err(|e| AdapterError::provider_unreachable(method, e))?
             .json()
             .await
-            .map_err(|e| AdapterError::AdapterApi(format!("{method} parse failed: {e}")))?;
+            .map_err(|e| AdapterError::provider_response_invalid(method, e))?;
 
         if !resp.ok {
             let err = resp.error.unwrap_or_default();
@@ -579,15 +587,15 @@ impl SlackApi {
     ) -> Result<Option<SlackChannelInfo>, AdapterError> {
         let resp: ConversationsInfoResponse = self
             .client
-            .get("https://slack.com/api/conversations.info")
+            .get(format!("{}/conversations.info", self.base_url))
             .bearer_auth(&self.token)
             .query(&[("channel", channel_id)])
             .send()
             .await
-            .map_err(|e| AdapterError::AdapterApi(format!("conversations.info failed: {e}")))?
+            .map_err(|e| AdapterError::provider_unreachable("conversations.info", e))?
             .json()
             .await
-            .map_err(|e| AdapterError::AdapterApi(format!("conversations.info parse: {e}")))?;
+            .map_err(|e| AdapterError::provider_response_invalid("conversations.info", e))?;
 
         if !resp.ok {
             let err = resp.error.unwrap_or_default();
@@ -721,5 +729,76 @@ mod tests {
         let user = resp.user.expect("user present");
         assert_eq!(user.is_bot, None);
         assert_eq!(user.is_app_user, None);
+    }
+}
+
+#[cfg(test)]
+mod error_source_tests {
+    use std::error::Error as _;
+
+    use axum::http::StatusCode;
+
+    use super::*;
+    use crate::adapters::test_support::{stub_provider, UNREACHABLE_BASE};
+
+    #[tokio::test]
+    async fn unreachable_slack_keeps_transport_source() {
+        let api = SlackApi::with_base_url("xoxb-test", UNREACHABLE_BASE);
+
+        let err = api
+            .post_message("C1", "hello", None)
+            .await
+            .expect_err("dead loopback port must fail");
+
+        let AdapterError::ProviderUnreachable {
+            ref operation,
+            ref source,
+        } = err
+        else {
+            panic!("expected ProviderUnreachable, got {err:?}");
+        };
+        assert_eq!(operation, "chat.postMessage");
+        assert!(source.is_connect() || source.is_request(), "{source}");
+        assert!(err.source().is_some(), "cause must stay reachable");
+    }
+
+    #[tokio::test]
+    async fn undecodable_slack_body_keeps_decode_source() {
+        let base = stub_provider(StatusCode::OK, "<html>not json</html>").await;
+        let api = SlackApi::with_base_url("xoxb-test", base);
+
+        let err = api
+            .post_message("C1", "hello", None)
+            .await
+            .expect_err("html body must not decode");
+
+        let AdapterError::ProviderResponseInvalid { ref operation, .. } = err else {
+            panic!("expected ProviderResponseInvalid, got {err:?}");
+        };
+        assert_eq!(operation, "chat.postMessage");
+        assert!(err.source().is_some(), "cause must stay reachable");
+    }
+
+    /// Slack answering `ok: false` is a rejection, not a wrapped failure — it
+    /// must stay classified apart from the transport variants.
+    #[tokio::test]
+    async fn slack_rejection_stays_a_synthesized_message() {
+        let base = stub_provider(
+            StatusCode::OK,
+            r#"{"ok":false,"error":"channel_not_found"}"#,
+        )
+        .await;
+        let api = SlackApi::with_base_url("xoxb-test", base);
+
+        let err = api
+            .post_message("C1", "hello", None)
+            .await
+            .expect_err("ok:false must be an error");
+
+        assert!(
+            matches!(err, AdapterError::AdapterApi(ref m) if m == "chat.postMessage: channel_not_found"),
+            "got {err:?}"
+        );
+        assert!(err.source().is_none());
     }
 }

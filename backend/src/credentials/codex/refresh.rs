@@ -360,11 +360,12 @@ pub(super) async fn codex_refresh_inner(
 
     let existing_blob: serde_json::Value = match serde_json::from_str(&existing_blob_str) {
         Ok(v) => v,
-        Err(e) => {
+        Err(source) => {
             tx.rollback().await?;
-            return Err(CredentialError::Internal(format!(
-                "Stored Codex auth.json for {scope} is not valid JSON: {e}"
-            )));
+            return Err(CredentialError::CodexBlobUnreadable {
+                scope: scope.to_string(),
+                source,
+            });
         }
     };
 

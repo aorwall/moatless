@@ -59,4 +59,5 @@ moatless_workspace_sync_{total,bytes,duration_seconds}                   # S3 st
 
 - `moat-cli` — full `moat` command reference.
 - `kubernetes-testing` — creating/monitoring vibe tasks in K8s, integration tests.
-- `.claude/rules/` — path-scoped Rust conventions for backend/sandbox code (`rust-general.md`, `sandbox-crate.md`, `backend-module-structure.md`).
+- `rust-dev-guidelines` — Rust conventions for backend, sandbox, and shared-crate
+  code.

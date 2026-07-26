@@ -11,7 +11,7 @@
 //!
 //! Reference: <https://linear.app/developers/agents>
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 // =============================================================================
 // Envelope
@@ -77,7 +77,7 @@ pub struct LinearWebhookEnvelope {
     pub notification: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct LinearActor {
     #[serde(default)]
     pub id: String,
@@ -92,7 +92,7 @@ pub struct LinearActor {
 // =============================================================================
 
 /// Linear `AgentSession` snapshot delivered with `AgentSessionEvent` payloads.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AgentSession {
     pub id: String,
 
@@ -116,7 +116,7 @@ pub struct AgentSession {
     pub prompt_context: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AgentSessionIssue {
     pub id: String,
     #[serde(default)]
@@ -135,7 +135,7 @@ pub struct AgentSessionIssue {
     pub state: Option<LinearWorkflowState>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct LinearTeamRef {
     pub id: String,
     #[serde(default)]
@@ -149,7 +149,7 @@ pub struct LinearProjectRef {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct LinearWorkflowState {
     #[serde(default)]
     pub id: String,
@@ -160,7 +160,7 @@ pub struct LinearWorkflowState {
     pub kind: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AgentSessionComment {
     pub id: String,
     #[serde(default)]

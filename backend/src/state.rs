@@ -5,17 +5,21 @@
 
 use std::sync::Arc;
 
+use crate::adapters::dao::{AdapterConnectionRepository, PgAdapterConnectionRepository};
 use crate::adapters::linear::active_turns::ActiveLinearTurns;
+use crate::adapters::work::AdapterWorkStore;
 use crate::adapters::Adapters;
 use crate::auth::github_app_registry::GitHubAppRegistry;
 use crate::auth::github_app_service::GitHubAppService;
 use crate::auth::provider_token_dao::{PgProviderTokenRepository, ProviderTokenRepository};
 use crate::auth::provider_tokens::{PgProviderTokenAuthRepository, ProviderTokenAuthRepository};
 use crate::auth::users::{PgUserRepository, UserRepository};
+use crate::bindings::dao::{PgTaskBindingRepository, TaskBindingRepository};
 use crate::bindings::recently_sent::RecentlySent;
 use crate::config::Config;
 use crate::credentials::{BroadcastContext, CredentialService};
 use crate::db::DbPool;
+use crate::event_ingress::outbox::{IngressOutbox, PgIngressOutbox};
 use crate::events::EventPublisher;
 use crate::feedback::dao::{FeedbackRepository, PgFeedbackRepository};
 use crate::file_storage::dao::{FileRepository, PgFileRepository};
@@ -109,6 +113,13 @@ pub struct AppState {
     /// insert, tags, relations, provision, first message, event).
     pub task_creation: Arc<TaskCreationService>,
     pub task_relations: Arc<dyn TaskRelationRepository>,
+    /// Task↔external-subject bindings (`task_bindings`) — the return channel a
+    /// task replies on. Handlers read and write bindings through this port.
+    pub task_bindings: Arc<dyn TaskBindingRepository>,
+    /// Adapter connections (`integration_connections`) — the per-provider
+    /// credential/webhook-secret rows inbound and outbound calls resolve
+    /// against. Handlers read and write connections through this port.
+    pub adapter_connections: Arc<dyn AdapterConnectionRepository>,
     /// Single owner of persistence for the four Loop tables (`triggers`,
     /// `trigger_rules`, `adapter_event_trigger_sources`,
     /// `schedule_trigger_sources`).
@@ -126,6 +137,10 @@ pub struct AppState {
     pub secrets: Arc<SecretService>,
     pub teams: Arc<dyn TeamRepository>,
     pub task_events: Arc<dyn TaskEventRepository>,
+    /// Transactional ingress outbox (ADR-0006). The event-handler consumer
+    /// deletes a record here once it has committed the message that record
+    /// carries — the only confirmation of delivery in the system.
+    pub ingress_outbox: Arc<dyn IngressOutbox>,
     /// Authoritative per-turn lifecycle state (`task_turns`). Written
     /// transactionally at the gRPC ingress; the reaper reads it as the backstop.
     pub task_turns: Arc<dyn TaskTurnRepository>,
@@ -136,6 +151,11 @@ pub struct AppState {
     /// Skill discovery service — reads `.claude/skills/` from workspace
     /// and plugin repositories, parses frontmatter, caches results.
     pub skills: Arc<SkillService>,
+    /// Durable admission for provider webhook work that cannot finish on the
+    /// HTTP response path. A webhook handler admits through this before it
+    /// acknowledges its provider; the supervised `adapter-work-worker` owns
+    /// what was admitted. See [`crate::adapters::work`].
+    pub adapter_work: Arc<AdapterWorkStore>,
 }
 
 /// Bounded per-Task lock-acquire attempts before a lifecycle call surfaces
@@ -325,6 +345,8 @@ impl AppState {
             tasks,
             task_creation,
             task_relations,
+            task_bindings: Arc::new(PgTaskBindingRepository(pool.clone())),
+            adapter_connections: Arc::new(PgAdapterConnectionRepository(pool.clone())),
             loops: Arc::new(LoopStore::new(pool.clone())),
             messages: Arc::new(PgMessageRepository(pool.clone())),
             feedback: Arc::new(PgFeedbackRepository(pool.clone())),
@@ -339,10 +361,12 @@ impl AppState {
             secrets,
             teams: Arc::new(PgTeamRepository(pool.clone())),
             task_events: Arc::new(PgTaskEventRepository(pool.clone())),
+            ingress_outbox: Arc::new(PgIngressOutbox(pool.clone())),
             task_turns: Arc::new(PgTaskTurnRepository(pool.clone())),
             plugin_repos,
             workspaces,
             skills,
+            adapter_work: Arc::new(AdapterWorkStore::new(pool.clone())),
             db: pool,
             config,
             sandbox: lifecycle,

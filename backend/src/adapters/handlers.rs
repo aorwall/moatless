@@ -11,7 +11,6 @@ use super::common::{
     adapter_connection_response, ensure_task_access, resolve_connection,
     resolve_scope_for_adapter_create, AdapterFilter,
 };
-use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, OutboundReply};
 use crate::adapters::AdapterKind;
@@ -61,7 +60,8 @@ pub async fn list_adapter_connections(
 ) -> Result<Json<Vec<AdapterConnectionResponse>>, AdapterError> {
     let ctx = auth.scope_context();
     let provider = query.adapter_kind.map(|p| p.as_str().to_string());
-    let rows = PgAdapterConnectionRepository(state.db.clone())
+    let rows = state
+        .adapter_connections
         .list(&ctx, provider.as_deref())
         .await?;
     Ok(Json(rows.iter().map(adapter_connection_response).collect()))
@@ -89,7 +89,7 @@ pub async fn create_adapter_connection(
     let now = Utc::now();
     let provider = req.adapter_kind.as_str().to_string();
     let resolved = resolve_scope_for_adapter_create(&ctx, req.scope)?;
-    let repo = PgAdapterConnectionRepository(state.db.clone());
+    let repo = &state.adapter_connections;
     let row = AdapterConnection {
         id: format!("pc_{}", uuid::Uuid::new_v4()),
         provider,
@@ -220,15 +220,13 @@ pub async fn send_user_dm(
     let target = state
         .users
         .get_user_by_login(&login)
-        .await
-        .map_err(|e| AdapterError::Internal(format!("Failed to look up user: {e}")))?
+        .await?
         .ok_or_else(|| AdapterError::NotFound(format!("User {login} not found")))?;
 
     let provider_user_id = state
         .users
         .get_provider_id(&target.id, &req.provider)
-        .await
-        .map_err(|e| AdapterError::Internal(format!("Failed to look up provider id: {e}")))?
+        .await?
         .ok_or_else(|| {
             AdapterError::NotFound(format!(
                 "User {login} has no {} provider id configured",

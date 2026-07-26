@@ -17,12 +17,29 @@ use tracing::{error, info};
 use crate::agent::agent_state::AgentState;
 use crate::state::SandboxState;
 
-/// Bounded time budget for draining the event outbox on graceful shutdown.
+/// Bounded time budget for draining the event send buffer on graceful shutdown.
 ///
-/// Kept small so the total teardown (this drain + the ~22s worst-case
-/// transcript/workspace flushes) stays well within the pod's 30s termination
-/// grace period. On timeout the drainer keeps retrying in the background until
-/// the process exits — best-effort, not a hard guarantee.
+/// Kept small so the total teardown stays within the pod's 30s termination grace
+/// period. The bounded steps run strictly in sequence, so they add up:
+///
+/// | step | budget |
+/// |---|---|
+/// | this drain | 5s |
+/// | `transcript_sync::flush_on_shutdown` | 12s |
+/// | `workspace_sync::flush_on_shutdown` | 10s |
+/// | the root supervisor's join ([`crate::supervisor::SHUTDOWN_JOIN_DEADLINE`]) | 2s |
+///
+/// That is 29s of ~30s, and it does not count `agent.stop()` at the front.
+/// **Anything added here has to come out of that margin** — check this table
+/// before introducing another bounded step, and update it if you do.
+///
+/// The supervisor join is the single owner of the arithmetic at the tail: it
+/// replaced a separate 1s join of the event outbox drainer, and it also absorbed
+/// axum's `with_graceful_shutdown` wait, which `main` used to await *unbounded*
+/// between the flushes and the drainer join.
+///
+/// On timeout the drainer keeps retrying in the background until the process
+/// exits — best-effort, not a hard guarantee.
 const OUTBOX_FLUSH_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Side effects to run when a shutdown signal arrives: stop the running agent
@@ -52,6 +69,16 @@ pub async fn perform_shutdown(
     // this flush is what makes graceful teardown lose no lifecycle events.
     // Bounded so it can't blow the pod's 30s grace period — the transcript and
     // workspace flushes below already budget ~22s worst case.
+    //
+    // **This step's position is load-bearing, not just its duration.**
+    // `EventOutbox::flush` early-returns the instant `drainer_stopped` is set —
+    // deliberately, since waiting on a dead drainer is pure delay. So a
+    // teardown that cancels the lifecycle token before (or concurrently with)
+    // this line turns the flush into a no-op that returns instantly and reports
+    // success: nothing fails, no test goes red, and the pod simply stops
+    // delivering its terminal lifecycle events on every graceful teardown —
+    // exactly what this flush exists to prevent. Pinned by
+    // `tests/supervisor_test.rs::shutdown_flushes_the_outbox_before_cancelling`.
     if let Some(state) = state {
         state.events.outbox().flush(OUTBOX_FLUSH_TIMEOUT).await;
     }
@@ -72,6 +99,21 @@ pub async fn perform_shutdown(
         }
     }
 
+    // Last, and only last. Every bounded step above depends on the task this
+    // cancels still running — most sharply the outbox flush, see above.
+    //
+    // **This line is the single production origin of lifecycle cancellation**,
+    // and that is what makes "cancel as an ordered step" safe rather than merely
+    // convenient. `git grep 'lifecycle_cancel.cancel()' -- sandbox/src` returns
+    // this site and nothing else in production code; the root supervisor does
+    // not originate cancellation, it is *woken* by this line and then owns only
+    // the bounded join that follows. On the fatal path the supervisor runs this
+    // whole function before its own cancel, so the order is identical there.
+    //
+    // If you add a second origin, that argument stops holding: two sites racing
+    // this one can cancel the drainer out from under the flush above and empty
+    // it silently. Either keep this the only origin, or make the drainer's
+    // cancellation explicitly ordered behind the flush.
     lifecycle_cancel.cancel();
 }
 
@@ -110,14 +152,21 @@ pub async fn await_shutdown_signal() {
 /// Takes a clone of the whole [`SandboxState`] so the transcript flush can reach
 /// the backend client and config. `main`'s `state` stays intact for the servers,
 /// which observe the same lifecycle token via graceful shutdown.
-pub fn spawn_shutdown_driver(state: SandboxState) {
+///
+/// Returns the task's join handle so the root supervisor owns its termination:
+/// this task performs required cleanup, and losing it before the signal arrives
+/// is what reintroduces the exit-137 kills this module exists to prevent. Its
+/// own normal return happens only after [`perform_shutdown`] has cancelled the
+/// lifecycle token, so the supervisor classifies it as shutdown, not failure.
+#[must_use = "the shutdown driver owns required cleanup; register it with the supervisor"]
+pub fn spawn_shutdown_driver(state: SandboxState) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         await_shutdown_signal().await;
         info!("Shutdown signal received — stopping agent and winding down");
         let agent = Arc::clone(&state.agent);
         let lifecycle_cancel = state.lifecycle_cancel.clone();
         perform_shutdown(&agent, &lifecycle_cancel, Some(&state)).await;
-    });
+    })
 }
 
 #[cfg(test)]

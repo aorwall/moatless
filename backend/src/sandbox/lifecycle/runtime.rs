@@ -64,6 +64,25 @@ pub(crate) fn map_sandbox_error(error: SandboxError) -> RuntimeError {
         | SandboxError::NotFound(message)
         | SandboxError::Internal(message) => RuntimeError::Infrastructure(message),
         SandboxError::KubeError(error) => RuntimeError::Infrastructure(error.to_string()),
+        // Only the file-tree read produces this today, so no runtime mutation
+        // can raise it; a malformed sandbox response is infrastructure-level.
+        SandboxError::InvalidResponse(error) => RuntimeError::Infrastructure(error.to_string()),
+        // Already a runtime failure that a provider helper raised — hand back
+        // the original classification rather than flattening it to a string.
+        SandboxError::Runtime(error) => error,
+        // `RuntimeError` carries a message, not a source, so the projection is
+        // lossy by construction: render the whole causal chain so nothing the
+        // typed variants captured is dropped on the way to lifecycle.
+        error @ (SandboxError::JwtSigning { .. }
+        | SandboxError::Docker { .. }
+        | SandboxError::DockerConfig(_)
+        | SandboxError::Grpc { .. }
+        | SandboxError::GrpcClient(_)
+        | SandboxError::Database { .. }
+        | SandboxError::Authorization(_)
+        | SandboxError::Lifecycle(_)) => {
+            RuntimeError::Infrastructure(crate::error::causal_chain(&error))
+        }
     }
 }
 

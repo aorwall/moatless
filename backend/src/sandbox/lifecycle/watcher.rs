@@ -61,7 +61,7 @@ pub(crate) async fn publish_sandbox_observation(
         if let Some(generation) = generation {
             match serde_json::to_value(payload) {
                 Ok(payload) => {
-                    event_publisher
+                    if let Err(e) = event_publisher
                         .publish_raw_event_with_id(
                             &events::event_id(task_id, generation, EventFact::Ready),
                             task_id,
@@ -72,7 +72,10 @@ pub(crate) async fn publish_sandbox_observation(
                             payload,
                             false,
                         )
-                        .await;
+                        .await
+                    {
+                        warn!(task_id, error = %e, "ready event did not reach the live transport");
+                    }
                     return;
                 }
                 Err(e) => {

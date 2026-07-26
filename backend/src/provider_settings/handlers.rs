@@ -5,7 +5,6 @@ use axum::Json;
 
 use moatless_backend_core::scope::{Scope, ScopeContext};
 
-use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::models::AdapterConnection;
 use crate::auth::credentials::{
     read_github_oauth_stash, stash_github_oauth_token, GITHUB_OAUTH_STASH_KEY,
@@ -163,7 +162,7 @@ async fn save_installation_binding(
     let installation = app
         .get_installation(req.installation_id)
         .await
-        .map_err(|error| ProviderSettingsError::ProviderError(error.to_string()))?;
+        .map_err(ProviderSettingsError::GitHubApp)?;
     let metadata = serde_json::json!({
         "installation_id": installation.id,
         "account_login": installation.account.login,
@@ -223,7 +222,7 @@ async fn upsert_github_org_connection(
         return Ok(());
     }
 
-    let repo = PgAdapterConnectionRepository(state.db.clone());
+    let repo = &state.adapter_connections;
     let existing = repo
         .find_by_external_account(GITHUB_ADAPTER_KIND, account_login)
         .await?;
@@ -287,11 +286,11 @@ pub async fn admin_list_github_apps(
         let (name, install_url) = app
             .app_listing()
             .await
-            .map_err(|error| ProviderSettingsError::ProviderError(error.to_string()))?;
+            .map_err(ProviderSettingsError::GitHubApp)?;
         let installations = app
             .list_installations()
             .await
-            .map_err(|error| ProviderSettingsError::ProviderError(error.to_string()))?
+            .map_err(ProviderSettingsError::GitHubApp)?
             .into_iter()
             .map(|installation| GitHubInstallationOption {
                 installation_id: installation.id,
@@ -403,7 +402,7 @@ pub async fn save_github_pat(
     // Validate the token by calling GitHub API
     let login = github_client::validate_github_token(&req.token)
         .await
-        .map_err(ProviderSettingsError::ProviderError)?;
+        .map_err(ProviderSettingsError::GitProvider)?;
 
     let mut metadata = serde_json::json!({ "login": login });
 
@@ -588,12 +587,12 @@ pub async fn exchange_github_token(
     let (access_token, token_type) =
         github_client::exchange_github_oauth_code(client_id, client_secret, &req.code)
             .await
-            .map_err(ProviderSettingsError::ProviderError)?;
+            .map_err(ProviderSettingsError::GitProvider)?;
 
     // Validate the token to get the login
     let login = github_client::validate_github_token(&access_token)
         .await
-        .map_err(ProviderSettingsError::ProviderError)?;
+        .map_err(ProviderSettingsError::GitProvider)?;
 
     let metadata = serde_json::json!({ "login": login });
 
@@ -843,7 +842,7 @@ pub async fn save_gitness_pat(
     // Validate the token by calling Gitness API
     let login = gitness_client::validate_gitness_token(&req.base_url, &req.token)
         .await
-        .map_err(ProviderSettingsError::ProviderError)?;
+        .map_err(ProviderSettingsError::GitProvider)?;
 
     let metadata = serde_json::json!({
         "login": login,
@@ -1101,7 +1100,7 @@ pub async fn start_codex_device_login(
         &state.config.codex_oauth.client_id,
     )
     .await
-    .map_err(|e| ProviderSettingsError::ProviderError(e.to_string()))?;
+    .map_err(ProviderSettingsError::CodexOAuth)?;
 
     Ok(Json(CodexDeviceCodeStartResponse {
         device_auth_id: started.device_auth_id,
@@ -1140,7 +1139,7 @@ pub async fn poll_codex_device_login(
         &req.user_code,
     )
     .await
-    .map_err(|e| ProviderSettingsError::ProviderError(e.to_string()))?;
+    .map_err(ProviderSettingsError::CodexOAuth)?;
 
     match outcome {
         PollStatus::Pending => Ok(Json(CodexDeviceCodePollResponse::Pending)),

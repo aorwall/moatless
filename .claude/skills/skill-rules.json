@@ -2,6 +2,42 @@
   "version": "1.0",
   "description": "Moatless Vibe skill activation rules",
   "skills": {
+    "rust-dev-guidelines": {
+      "type": "domain",
+      "enforcement": "suggest",
+      "priority": "high",
+      "description": "Moatless Rust conventions for async boundaries, supervision, persistence, errors, wire types, and lint suppressions",
+      "promptTriggers": {
+        "keywords": [
+          "rust",
+          "cargo",
+          "clippy",
+          "axum",
+          "tokio",
+          "sqlx",
+          "tonic",
+          "prost",
+          "backend handler",
+          "sandbox runtime",
+          "rust crate"
+        ],
+        "intentPatterns": [
+          "(implement|change|review|refactor|fix).*?(backend|sandbox|rust|crate)",
+          "(add|change).*?(handler|repository|rust service|grpc)",
+          "(debug|fix).*?(tokio|async rust|sqlx|clippy)"
+        ]
+      },
+      "fileTriggers": {
+        "pathPatterns": [
+          "backend/**/*.rs",
+          "sandbox/**/*.rs",
+          "crates/**/*.rs"
+        ]
+      },
+      "skipConditions": {
+        "sessionSkillUsed": true
+      }
+    },
     "frontend-dev-guidelines": {
       "type": "domain",
       "enforcement": "suggest",
