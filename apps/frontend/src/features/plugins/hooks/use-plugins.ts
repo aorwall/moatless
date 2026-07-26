@@ -23,19 +23,6 @@ export function usePlugins(
   })
 }
 
-/** Plugins linked to one repository. */
-export function useRepoPlugins(
-  repoId: string,
-  options?: Omit<UseQueryOptions<PluginResponse[]>, 'queryKey' | 'queryFn'>,
-) {
-  return useQuery({
-    queryKey: queryKeys.plugins.repoList(repoId),
-    queryFn: () => pluginsApi.listRepoPlugins(repoId),
-    enabled: !!repoId,
-    ...options,
-  })
-}
-
 /**
  * The skills inside one plugin. Reading this syncs the plugin from its source
  * first, so opening the page both shows what is there now and leaves it stored.
@@ -47,6 +34,19 @@ export function usePluginSkills(
   return useQuery({
     queryKey: queryKeys.plugins.skills(pluginId),
     queryFn: () => pluginsApi.listPluginSkills(pluginId),
+    enabled: !!pluginId,
+    ...options,
+  })
+}
+
+/** The activation records that apply to this user for one plugin. */
+export function usePluginActivations(
+  pluginId: string,
+  options?: Omit<UseQueryOptions<ActivationResponse[]>, 'queryKey' | 'queryFn'>,
+) {
+  return useQuery({
+    queryKey: queryKeys.plugins.activations(pluginId),
+    queryFn: () => pluginsApi.listPluginActivations(pluginId),
     enabled: !!pluginId,
     ...options,
   })

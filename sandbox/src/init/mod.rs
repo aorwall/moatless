@@ -637,7 +637,7 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
     }
 
     // 5. Clone the task's plugins (non-fatal)
-    if !state.config.plugin_git_urls.is_empty() {
+    if !state.config.plugins.is_empty() {
         let cloned = workspace::clone_plugins(&state.config).await;
         if !cloned.is_empty() {
             publish_sandbox_event(

@@ -218,9 +218,18 @@ and the admin page is Plugins.
 _Avoid_: plugin repo, plugin_repo, marketplace
 
 **Skill**:
-One capability inside a Plugin — a `SKILL.md` and the files beside it. Skills are
-addressed as `{plugin}/{skill}` and are the unit a user turns on or off; a Plugin
-is delivered whole, minus the skills nobody picked.
+One capability inside a Plugin — a `SKILL.md` and the files beside it. Identified
+by its directory name, which is what `plugin_skills` stores and what an
+Activation points at; the `name:` in its frontmatter is display metadata only. A
+Plugin is delivered whole, minus the skills nobody picked.
+
+**Activation**:
+One record in `plugin_activations` saying a Plugin, or one Skill inside it, is on
+or off — for everyone (`user_id IS NULL`, admins only) or for one person. A
+personal record beats a global one in both directions; clearing it hands the
+person back to the default, which is not the same as setting it off. Nothing is
+delivered without a record.
+_Avoid_: scope (means tenancy elsewhere in this codebase), link, enable flag
 
 **Marketplace**:
 Claude Code's own `marketplace.json` manifest format, which a Plugin repository

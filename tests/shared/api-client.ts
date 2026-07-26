@@ -78,6 +78,33 @@ export interface PluginResponse {
 	id: string;
 	name: string;
 	gitUrl: string;
+	syncedVersion?: string;
+}
+
+export interface PluginSkillResponse {
+	name: string;
+	description: string;
+}
+
+export type ActivationReach = "everyone" | "personal";
+
+export interface SetActivationRequest {
+	reach: ActivationReach;
+	skillName?: string | null;
+	enabled: boolean;
+}
+
+export interface ActivationResponse {
+	pluginId: string;
+	skillName?: string | null;
+	reach: ActivationReach;
+	enabled: boolean;
+}
+
+export interface EffectivePluginResponse {
+	pluginId: string;
+	pluginName: string;
+	skillNames: string[];
 }
 
 export interface CreatePluginRequest {
@@ -1165,22 +1192,49 @@ export class ApiClient {
 		});
 	}
 
-	async listRepoPlugins(repoId: string): Promise<PluginResponse[]> {
-		return this.fetchJson<PluginResponse[]>(
-			`${this.baseURL}/api/v1/repositories/${repoId}/plugins`,
+	/** Reading a plugin's skills syncs it from its source first. */
+	async listPluginSkills(pluginId: string): Promise<PluginSkillResponse[]> {
+		return this.fetchJson<PluginSkillResponse[]>(
+			`${this.baseURL}/api/v1/plugins/${pluginId}/skills`,
 		);
 	}
 
-	async linkPluginToRepo(repoId: string, pluginId: string): Promise<void> {
-		await this.fetchRaw(
-			`${this.baseURL}/api/v1/repositories/${repoId}/plugins/${pluginId}`,
-			{ method: "POST", throwOnError: true },
+	/** The records that bear on the caller: the global ones plus their own. */
+	async listPluginActivations(pluginId: string): Promise<ActivationResponse[]> {
+		return this.fetchJson<ActivationResponse[]>(
+			`${this.baseURL}/api/v1/plugins/${pluginId}/activations`,
 		);
 	}
 
-	async unlinkPluginFromRepo(repoId: string, pluginId: string): Promise<void> {
+	/** What the caller actually gets, once the two resolve against each other. */
+	async listEffectivePlugins(): Promise<EffectivePluginResponse[]> {
+		return this.fetchJson<EffectivePluginResponse[]>(
+			`${this.baseURL}/api/v1/plugins/effective`,
+		);
+	}
+
+	async setPluginActivation(
+		pluginId: string,
+		req: SetActivationRequest,
+	): Promise<ActivationResponse> {
+		return this.fetchJson<ActivationResponse>(
+			`${this.baseURL}/api/v1/plugins/${pluginId}/activation`,
+			{ method: "PUT", body: JSON.stringify(req) },
+		);
+	}
+
+	/** Not the same as turning it off — this hands the caller back to the default. */
+	async clearPluginActivation(
+		pluginId: string,
+		reach: ActivationReach,
+		skillName?: string,
+	): Promise<void> {
+		const params = new URLSearchParams({ reach });
+		if (skillName !== undefined) {
+			params.set("skillName", skillName);
+		}
 		await this.fetchRaw(
-			`${this.baseURL}/api/v1/repositories/${repoId}/plugins/${pluginId}`,
+			`${this.baseURL}/api/v1/plugins/${pluginId}/activation?${params.toString()}`,
 			{ method: "DELETE", throwOnError: true },
 		);
 	}

@@ -80,10 +80,16 @@ impl SkillService {
         }
     }
 
-    /// Return the merged, deduplicated skill list for a repository.
+    /// Return the merged, deduplicated skill list a caller gets in a
+    /// repository: the repository's own skills plus the plugin skills their
+    /// activation records resolve to.
     ///
     /// Workspace skills shadow plugin skills with the same name; among
     /// plugins, the first occurrence in DAO order wins.
+    ///
+    /// The plugin half is per-caller, not per-repository — two people looking
+    /// at the same repository can legitimately see different skills, because
+    /// that is what will arrive in their respective sandboxes.
     pub async fn list_for_repository(
         &self,
         repository_id: &str,
@@ -108,13 +114,18 @@ impl SkillService {
             }
         }
 
-        // ---- Plugin skills (stable order from DAO) ----
-        let plugins = self
-            .plugins
-            .find_by_repository_id(repository_id)
-            .await?;
-        for plugin in plugins {
+        // ---- Plugin skills (whatever this caller's activation records give
+        // them, in stable order from the DAO) ----
+        let resolved = crate::plugin::activation::resolve_for_user(
+            self.plugins.as_ref(),
+            &auth.user_id.to_string(),
+        )
+        .await?;
+        for (plugin, picked) in resolved {
             for skill in self.plugin_skills(&plugin).await? {
+                if !picked.contains(&skill.name) {
+                    continue;
+                }
                 if seen.insert(skill.name.clone()) {
                     merged.push(skill);
                 }

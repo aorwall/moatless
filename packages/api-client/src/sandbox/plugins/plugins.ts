@@ -713,6 +713,143 @@ export const useClearPluginActivation = <TError = ErrorType<ErrorBody>,
       return useMutation(getClearPluginActivationMutationOptions(options), queryClient);
     }
     /**
+ * This is the read half of the two write endpoints below. Without it a control
+can show what somebody *gets* but not which record put it there, so "turn
+off my personal override" and "the default is already off" look identical.
+ * @summary The activation records that bear on this caller for one plugin: every global
+record plus their own, and nobody else's.
+ */
+export type listPluginActivationsResponse200 = {
+  data: ActivationResponse[]
+  status: 200
+}
+
+export type listPluginActivationsResponse500 = {
+  data: ErrorBody
+  status: 500
+}
+    
+export type listPluginActivationsResponseSuccess = (listPluginActivationsResponse200) & {
+  headers: Headers;
+};
+export type listPluginActivationsResponseError = (listPluginActivationsResponse500) & {
+  headers: Headers;
+};
+
+export type listPluginActivationsResponse = (listPluginActivationsResponseSuccess | listPluginActivationsResponseError)
+
+export const getListPluginActivationsUrl = (id: string,) => {
+
+
+  
+
+  return `/api/v1/plugins/${id}/activations`
+}
+
+export const listPluginActivations = async (id: string, options?: RequestInit): Promise<listPluginActivationsResponse> => {
+  
+  return customInstance<listPluginActivationsResponse>(getListPluginActivationsUrl(id),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
+
+export const getListPluginActivationsQueryKey = (id: string,) => {
+    return [
+    `/api/v1/plugins/${id}/activations`
+    ] as const;
+    }
+
+    
+export const getListPluginActivationsQueryOptions = <TData = Awaited<ReturnType<typeof listPluginActivations>>, TError = ErrorType<ErrorBody>>(id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPluginActivations>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPluginActivationsQueryKey(id);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPluginActivations>>> = ({ signal }) => listPluginActivations(id, { signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPluginActivations>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type ListPluginActivationsQueryResult = NonNullable<Awaited<ReturnType<typeof listPluginActivations>>>
+export type ListPluginActivationsQueryError = ErrorType<ErrorBody>
+
+
+export function useListPluginActivations<TData = Awaited<ReturnType<typeof listPluginActivations>>, TError = ErrorType<ErrorBody>>(
+ id: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPluginActivations>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listPluginActivations>>,
+          TError,
+          Awaited<ReturnType<typeof listPluginActivations>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListPluginActivations<TData = Awaited<ReturnType<typeof listPluginActivations>>, TError = ErrorType<ErrorBody>>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPluginActivations>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listPluginActivations>>,
+          TError,
+          Awaited<ReturnType<typeof listPluginActivations>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListPluginActivations<TData = Awaited<ReturnType<typeof listPluginActivations>>, TError = ErrorType<ErrorBody>>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPluginActivations>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+/**
+ * @summary The activation records that bear on this caller for one plugin: every global
+record plus their own, and nobody else's.
+ */
+
+export function useListPluginActivations<TData = Awaited<ReturnType<typeof listPluginActivations>>, TError = ErrorType<ErrorBody>>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPluginActivations>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getListPluginActivationsQueryOptions(id,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary The activation records that bear on this caller for one plugin: every global
+record plus their own, and nobody else's.
+ */
+export const prefetchListPluginActivationsQuery = async <TData = Awaited<ReturnType<typeof listPluginActivations>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPluginActivations>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getListPluginActivationsQueryOptions(id,options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+/**
  * This is the admin view's read path, and it goes through the same sync as
 task provisioning — so opening the page both shows current skills and
 leaves them stored for the next task that needs them.
@@ -851,325 +988,3 @@ export const prefetchListPluginSkillsQuery = async <TData = Awaited<ReturnType<t
 
 
 
-/**
- * @summary List plugins linked to a repository.
- */
-export type listRepoPluginsResponse200 = {
-  data: PluginResponse[]
-  status: 200
-}
-
-export type listRepoPluginsResponse500 = {
-  data: ErrorBody
-  status: 500
-}
-    
-export type listRepoPluginsResponseSuccess = (listRepoPluginsResponse200) & {
-  headers: Headers;
-};
-export type listRepoPluginsResponseError = (listRepoPluginsResponse500) & {
-  headers: Headers;
-};
-
-export type listRepoPluginsResponse = (listRepoPluginsResponseSuccess | listRepoPluginsResponseError)
-
-export const getListRepoPluginsUrl = (repoId: string,) => {
-
-
-  
-
-  return `/api/v1/repositories/${repoId}/plugins`
-}
-
-export const listRepoPlugins = async (repoId: string, options?: RequestInit): Promise<listRepoPluginsResponse> => {
-  
-  return customInstance<listRepoPluginsResponse>(getListRepoPluginsUrl(repoId),
-  {      
-    ...options,
-    method: 'GET'
-    
-    
-  }
-);}
-
-
-
-
-
-export const getListRepoPluginsQueryKey = (repoId: string,) => {
-    return [
-    `/api/v1/repositories/${repoId}/plugins`
-    ] as const;
-    }
-
-    
-export const getListRepoPluginsQueryOptions = <TData = Awaited<ReturnType<typeof listRepoPlugins>>, TError = ErrorType<ErrorBody>>(repoId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listRepoPlugins>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
-) => {
-
-const {query: queryOptions, request: requestOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getListRepoPluginsQueryKey(repoId);
-
-  
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof listRepoPlugins>>> = ({ signal }) => listRepoPlugins(repoId, { signal, ...requestOptions });
-
-      
-
-      
-
-   return  { queryKey, queryFn, enabled: !!(repoId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listRepoPlugins>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
-}
-
-export type ListRepoPluginsQueryResult = NonNullable<Awaited<ReturnType<typeof listRepoPlugins>>>
-export type ListRepoPluginsQueryError = ErrorType<ErrorBody>
-
-
-export function useListRepoPlugins<TData = Awaited<ReturnType<typeof listRepoPlugins>>, TError = ErrorType<ErrorBody>>(
- repoId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listRepoPlugins>>, TError, TData>> & Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof listRepoPlugins>>,
-          TError,
-          Awaited<ReturnType<typeof listRepoPlugins>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
-  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
-export function useListRepoPlugins<TData = Awaited<ReturnType<typeof listRepoPlugins>>, TError = ErrorType<ErrorBody>>(
- repoId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listRepoPlugins>>, TError, TData>> & Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof listRepoPlugins>>,
-          TError,
-          Awaited<ReturnType<typeof listRepoPlugins>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
-export function useListRepoPlugins<TData = Awaited<ReturnType<typeof listRepoPlugins>>, TError = ErrorType<ErrorBody>>(
- repoId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listRepoPlugins>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
-/**
- * @summary List plugins linked to a repository.
- */
-
-export function useListRepoPlugins<TData = Awaited<ReturnType<typeof listRepoPlugins>>, TError = ErrorType<ErrorBody>>(
- repoId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listRepoPlugins>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient 
- ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
-
-  const queryOptions = getListRepoPluginsQueryOptions(repoId,options)
-
-  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
-
-  return { ...query, queryKey: queryOptions.queryKey };
-}
-
-/**
- * @summary List plugins linked to a repository.
- */
-export const prefetchListRepoPluginsQuery = async <TData = Awaited<ReturnType<typeof listRepoPlugins>>, TError = ErrorType<ErrorBody>>(
- queryClient: QueryClient, repoId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listRepoPlugins>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
-
-  ): Promise<QueryClient> => {
-
-  const queryOptions = getListRepoPluginsQueryOptions(repoId,options)
-
-  await queryClient.prefetchQuery(queryOptions);
-
-  return queryClient;
-}
-
-
-
-/**
- * @summary Link a plugin to a repository.
- */
-export type linkPluginResponse204 = {
-  data: void
-  status: 204
-}
-
-export type linkPluginResponse404 = {
-  data: ErrorBody
-  status: 404
-}
-
-export type linkPluginResponse500 = {
-  data: ErrorBody
-  status: 500
-}
-    
-export type linkPluginResponseSuccess = (linkPluginResponse204) & {
-  headers: Headers;
-};
-export type linkPluginResponseError = (linkPluginResponse404 | linkPluginResponse500) & {
-  headers: Headers;
-};
-
-export type linkPluginResponse = (linkPluginResponseSuccess | linkPluginResponseError)
-
-export const getLinkPluginUrl = (repoId: string,
-    pluginId: string,) => {
-
-
-  
-
-  return `/api/v1/repositories/${repoId}/plugins/${pluginId}`
-}
-
-export const linkPlugin = async (repoId: string,
-    pluginId: string, options?: RequestInit): Promise<linkPluginResponse> => {
-  
-  return customInstance<linkPluginResponse>(getLinkPluginUrl(repoId,pluginId),
-  {      
-    ...options,
-    method: 'POST'
-    
-    
-  }
-);}
-
-
-
-
-export const getLinkPluginMutationOptions = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof linkPlugin>>, TError,{repoId: string;pluginId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
-): UseMutationOptions<Awaited<ReturnType<typeof linkPlugin>>, TError,{repoId: string;pluginId: string}, TContext> => {
-
-const mutationKey = ['linkPlugin'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-      
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof linkPlugin>>, {repoId: string;pluginId: string}> = (props) => {
-          const {repoId,pluginId} = props ?? {};
-
-          return  linkPlugin(repoId,pluginId,requestOptions)
-        }
-
-
-
-        
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type LinkPluginMutationResult = NonNullable<Awaited<ReturnType<typeof linkPlugin>>>
-    
-    export type LinkPluginMutationError = ErrorType<ErrorBody>
-
-    /**
- * @summary Link a plugin to a repository.
- */
-export const useLinkPlugin = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof linkPlugin>>, TError,{repoId: string;pluginId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof linkPlugin>>,
-        TError,
-        {repoId: string;pluginId: string},
-        TContext
-      > => {
-      return useMutation(getLinkPluginMutationOptions(options), queryClient);
-    }
-    /**
- * @summary Unlink a plugin from a repository.
- */
-export type unlinkPluginResponse204 = {
-  data: void
-  status: 204
-}
-
-export type unlinkPluginResponse404 = {
-  data: ErrorBody
-  status: 404
-}
-
-export type unlinkPluginResponse500 = {
-  data: ErrorBody
-  status: 500
-}
-    
-export type unlinkPluginResponseSuccess = (unlinkPluginResponse204) & {
-  headers: Headers;
-};
-export type unlinkPluginResponseError = (unlinkPluginResponse404 | unlinkPluginResponse500) & {
-  headers: Headers;
-};
-
-export type unlinkPluginResponse = (unlinkPluginResponseSuccess | unlinkPluginResponseError)
-
-export const getUnlinkPluginUrl = (repoId: string,
-    pluginId: string,) => {
-
-
-  
-
-  return `/api/v1/repositories/${repoId}/plugins/${pluginId}`
-}
-
-export const unlinkPlugin = async (repoId: string,
-    pluginId: string, options?: RequestInit): Promise<unlinkPluginResponse> => {
-  
-  return customInstance<unlinkPluginResponse>(getUnlinkPluginUrl(repoId,pluginId),
-  {      
-    ...options,
-    method: 'DELETE'
-    
-    
-  }
-);}
-
-
-
-
-export const getUnlinkPluginMutationOptions = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof unlinkPlugin>>, TError,{repoId: string;pluginId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
-): UseMutationOptions<Awaited<ReturnType<typeof unlinkPlugin>>, TError,{repoId: string;pluginId: string}, TContext> => {
-
-const mutationKey = ['unlinkPlugin'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-      
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof unlinkPlugin>>, {repoId: string;pluginId: string}> = (props) => {
-          const {repoId,pluginId} = props ?? {};
-
-          return  unlinkPlugin(repoId,pluginId,requestOptions)
-        }
-
-
-
-        
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type UnlinkPluginMutationResult = NonNullable<Awaited<ReturnType<typeof unlinkPlugin>>>
-    
-    export type UnlinkPluginMutationError = ErrorType<ErrorBody>
-
-    /**
- * @summary Unlink a plugin from a repository.
- */
-export const useUnlinkPlugin = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof unlinkPlugin>>, TError,{repoId: string;pluginId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof unlinkPlugin>>,
-        TError,
-        {repoId: string;pluginId: string},
-        TContext
-      > => {
-      return useMutation(getUnlinkPluginMutationOptions(options), queryClient);
-    }
-    

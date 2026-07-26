@@ -13,9 +13,6 @@ pub trait PluginRepository: Send + Sync {
     async fn find_by_id(&self, id: &str) -> Result<Option<Plugin>, sqlx::Error>;
     async fn insert(&self, row: &Plugin) -> Result<(), sqlx::Error>;
     async fn delete(&self, id: &str) -> Result<bool, sqlx::Error>;
-    async fn find_by_repository_id(&self, repo_id: &str) -> Result<Vec<Plugin>, sqlx::Error>;
-    async fn link(&self, repository_id: &str, plugin_id: &str) -> Result<(), sqlx::Error>;
-    async fn unlink(&self, repository_id: &str, plugin_id: &str) -> Result<bool, sqlx::Error>;
 
     /// The skills stored for a plugin, by name.
     async fn list_skills(&self, plugin_id: &str) -> Result<Vec<PluginSkill>, sqlx::Error>;
@@ -90,41 +87,6 @@ impl PluginRepository for PgPluginRepository {
             .bind(id)
             .execute(&self.0)
             .await?;
-        Ok(result.rows_affected() > 0)
-    }
-
-    async fn find_by_repository_id(&self, repo_id: &str) -> Result<Vec<Plugin>, sqlx::Error> {
-        sqlx::query_as::<_, Plugin>(
-            r#"SELECT p.*
-               FROM plugins p
-               JOIN repository_plugins rp ON p.id = rp.plugin_id
-               WHERE rp.repository_id = $1
-               ORDER BY p.name ASC"#,
-        )
-        .bind(repo_id)
-        .fetch_all(&self.0)
-        .await
-    }
-
-    async fn link(&self, repository_id: &str, plugin_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "INSERT INTO repository_plugins (repository_id, plugin_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-        )
-        .bind(repository_id)
-        .bind(plugin_id)
-        .execute(&self.0)
-        .await?;
-        Ok(())
-    }
-
-    async fn unlink(&self, repository_id: &str, plugin_id: &str) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query(
-            "DELETE FROM repository_plugins WHERE repository_id = $1 AND plugin_id = $2",
-        )
-        .bind(repository_id)
-        .bind(plugin_id)
-        .execute(&self.0)
-        .await?;
         Ok(result.rows_affected() > 0)
     }
 

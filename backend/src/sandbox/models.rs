@@ -54,9 +54,10 @@ pub struct RepoConfig {
     // --- K8s resource configuration (opt-in per-repo) ---
     /// Per-repo K8s resource requests/limits override for server containers.
     pub resources: Option<crate::repository::models::ResourceConfig>,
-    // --- Plugin sources (auto-provisioned from the repository link) ---
-    /// Git URLs of the plugins to clone into the sandbox.
-    pub plugin_git_urls: Option<Vec<String>>,
+    // --- Plugins (resolved from the task owner's activation records) ---
+    /// The plugins this task's owner has turned on, each with the skills they
+    /// picked. The sandbox clones each one and removes the skills not named.
+    pub plugins: Option<Vec<moatless_api_schemas::plugin::PluginDelivery>>,
     // --- Docker access (opt-in) ---
     /// Mount Docker socket inside sandbox container (default: false).
     /// Overrides global DOCKER_ENABLE_SOCKET_MOUNT when set.

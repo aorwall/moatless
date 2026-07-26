@@ -2,17 +2,24 @@
 //!
 //! Mirrors: tests/api/chains/plugins-e2e.spec.ts
 //!
-//! Creates a plugin, links it to a repository, creates a task,
-//! and verifies the sandbox provisions with the plugin cloned.
+//! Registers a plugin, syncs its skills, turns it on for everyone, checks the
+//! effective set, escapes it with a personal record, turns that back on, then
+//! creates a task and verifies the sandbox provisions with the plugin present.
+//!
+//! Uses <https://github.com/amekala/adspirer-mcp-plugin.git>, which contains the
+//! skill `ad-campaign-best-practices`. A plugin with no skills is never
+//! delivered, so the test needs one that has some.
 //!
 //! Env gate: `CLAUDE_SDK_E2E` must be set to run.
 
 use std::time::Duration;
 
 use integration_tests::{ensure_template_repo, sandbox_helpers, test_client};
-use moatless_api_schemas::plugin::CreatePluginRequest;
+use moatless_api_schemas::plugin::{ActivationReach, CreatePluginRequest, SetActivationRequest};
 use moatless_api_schemas::task::CreateTaskRequest;
 use moatless_cli::events::EventCollector;
+
+const PLUGIN_GIT_URL: &str = "https://github.com/amekala/adspirer-mcp-plugin.git";
 
 #[tokio::test]
 #[ignore] // Requires CLAUDE_SDK_E2E=1
@@ -30,10 +37,10 @@ async fn plugins_e2e_chain() {
         .await
         .expect("Failed to start event collector");
 
-    // PLUGIN-01: Create plugin
+    // PLUGIN-01: Register plugin
     let plugin_req = CreatePluginRequest {
         name: "E2E Test Plugin".into(),
-        git_url: "https://github.com/aorwall/hello-world-ui.git".into(),
+        git_url: PLUGIN_GIT_URL.into(),
     };
     let plugin = client
         .api()
@@ -41,7 +48,7 @@ async fn plugins_e2e_chain() {
         .await
         .expect("Failed to create plugin");
     let plugin_id = &plugin.id;
-    println!("PLUGIN-01: Created plugin id={plugin_id}");
+    println!("PLUGIN-01: Registered plugin id={plugin_id}");
 
     // PLUGIN-01.1: List plugins, verify new one appears
     let plugins = client
@@ -58,28 +65,106 @@ async fn plugins_e2e_chain() {
         plugins.len()
     );
 
-    // PLUGIN-02: Link plugin to repository
-    client
+    // PLUGIN-02: Reading the skills syncs the plugin from its source.
+    let skills = client
         .api()
-        .link_plugin_to_repo(&repo_id, plugin_id)
+        .list_plugin_skills(plugin_id)
         .await
-        .expect("Failed to link plugin to repo");
-    println!("PLUGIN-02: Linked plugin {plugin_id} to repo {repo_id}");
-
-    // PLUGIN-02.1: Verify link appears in repo plugins
-    let repo_plugins = client
-        .api()
-        .list_repo_plugins(&repo_id)
-        .await
-        .expect("Failed to list repo plugins");
+        .expect("Failed to list plugin skills");
     assert!(
-        repo_plugins.iter().any(|p| p.id == *plugin_id),
-        "Plugin should appear in repo plugins"
+        !skills.is_empty(),
+        "Syncing the plugin should have stored its skills"
     );
     println!(
-        "PLUGIN-02.1: Plugin linked ({} plugins)",
-        repo_plugins.len()
+        "PLUGIN-02: Synced {} skill(s): {:?}",
+        skills.len(),
+        skills.iter().map(|s| &s.name).collect::<Vec<_>>()
     );
+
+    // PLUGIN-02.1: Nothing is delivered until somebody turns it on.
+    let effective = client
+        .api()
+        .list_effective_plugins()
+        .await
+        .expect("Failed to list effective plugins");
+    assert!(
+        !effective.iter().any(|p| p.plugin_id == *plugin_id),
+        "A registered plugin nobody turned on must reach nobody"
+    );
+    println!("PLUGIN-02.1: Registered but not yet turned on — not delivered");
+
+    // PLUGIN-03: Turn it on for everyone.
+    client
+        .api()
+        .set_plugin_activation(
+            plugin_id,
+            &SetActivationRequest {
+                reach: ActivationReach::Everyone,
+                skill_name: None,
+                enabled: true,
+            },
+        )
+        .await
+        .expect("Failed to turn the plugin on for everyone");
+
+    let effective = client
+        .api()
+        .list_effective_plugins()
+        .await
+        .expect("Failed to list effective plugins");
+    let entry = effective
+        .iter()
+        .find(|p| p.plugin_id == *plugin_id)
+        .expect("A plugin turned on for everyone should be in the effective set");
+    assert_eq!(
+        entry.skill_names.len(),
+        skills.len(),
+        "Turning on the whole plugin should deliver all of its skills"
+    );
+    println!("PLUGIN-03: Turned on for everyone — {} skill(s)", entry.skill_names.len());
+
+    // PLUGIN-04: A personal record escapes it.
+    client
+        .api()
+        .set_plugin_activation(
+            plugin_id,
+            &SetActivationRequest {
+                reach: ActivationReach::Personal,
+                skill_name: None,
+                enabled: false,
+            },
+        )
+        .await
+        .expect("Failed to turn the plugin off for myself");
+
+    let effective = client
+        .api()
+        .list_effective_plugins()
+        .await
+        .expect("Failed to list effective plugins");
+    assert!(
+        !effective.iter().any(|p| p.plugin_id == *plugin_id),
+        "A personal record must override the global default"
+    );
+    println!("PLUGIN-04: Personal record overrides the global default");
+
+    // PLUGIN-04.1: Clearing it hands me back to the default.
+    client
+        .api()
+        .clear_plugin_activation(plugin_id, ActivationReach::Personal, None)
+        .await
+        .expect("Failed to clear the personal record");
+
+    let effective = client
+        .api()
+        .list_effective_plugins()
+        .await
+        .expect("Failed to list effective plugins");
+    assert!(
+        effective.iter().any(|p| p.plugin_id == *plugin_id),
+        "Clearing a personal record hands the person back to the default"
+    );
+    println!("PLUGIN-04.1: Cleared personal record — back to the default");
 
     // TASK-01: Create task with message
     let task_req = CreateTaskRequest {
@@ -145,13 +230,7 @@ async fn plugins_e2e_chain() {
     sandbox_helpers::wait_for_sandbox_status(&client, task_id, "stopped", Duration::from_secs(60))
         .await;
 
-    // Unlink plugin
-    let _ = client
-        .api()
-        .unlink_plugin_from_repo(&repo_id, plugin_id)
-        .await;
-
-    // Delete plugin
+    // Deleting the plugin cascades its skills and activation records away.
     let _ = client.api().delete_plugin(plugin_id).await;
 
     // Delete task

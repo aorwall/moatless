@@ -20,12 +20,10 @@ use crate::state::AppState;
         handlers::create_plugin,
         handlers::delete_plugin,
         handlers::list_plugin_skills,
+        handlers::list_plugin_activations,
         handlers::set_plugin_activation,
         handlers::clear_plugin_activation,
         handlers::list_effective_plugins,
-        handlers::list_repo_plugins,
-        handlers::link_plugin,
-        handlers::unlink_plugin,
     ),
     components(
         schemas(
@@ -48,11 +46,9 @@ pub fn plugin_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenApi
         .routes(routes!(handlers::create_plugin))
         .routes(routes!(handlers::delete_plugin))
         .routes(routes!(handlers::list_plugin_skills))
+        .routes(routes!(handlers::list_plugin_activations))
         .routes(routes!(handlers::set_plugin_activation, handlers::clear_plugin_activation))
         .routes(routes!(handlers::list_effective_plugins))
-        .routes(routes!(handlers::list_repo_plugins))
-        .routes(routes!(handlers::link_plugin))
-        .routes(routes!(handlers::unlink_plugin))
         .with_state(state)
         .split_for_parts();
 

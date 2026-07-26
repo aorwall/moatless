@@ -1,6 +1,6 @@
 # Turn a plugin on for everyone, or just for yourself
 
-> **Status:** in progress (3/4 tickets)
+> **Status:** done (4/4 tickets)
 > **Updated:** 2026-07-26
 > **Vocabulary:** CONTEXT.md · **Decisions:** ADR-NNNN
 
@@ -39,14 +39,14 @@
 flowchart LR
   T1["01 · one name, one table"]:::done --> T2["02 · sync and store skills"]:::done
   T2 --> T3["03 · activate and assemble"]:::done
-  T3 --> T4["04 · deliver and manage"]:::wip
+  T3 --> T4["04 · deliver and manage"]:::done
   classDef done fill:#d1fae5,stroke:#059669,color:#065f46
   classDef wip fill:#fef3c7,stroke:#d97706,color:#92400e
   classDef todo fill:#ffffff,stroke:#94a3b8,color:#475569
   classDef blocked fill:#f1f5f9,stroke:#cbd5e1,color:#94a3b8
 ```
 
-**Next action:** run ticket 04 — deliver the resolved set to sandboxes and drop the repository link.
+**Next action:** none — all four tickets are in. The DB-backed tests (`backend/tests/plugin_skills_dao_test.rs`) and both E2E tiers still need a run against a live Postgres and a rebuilt sandbox image; neither is available where this was written.
 
 ---
 
@@ -377,12 +377,32 @@ switching a global one off, and a global record arriving after a personal one ch
 
 **Blocked by:** 03.
 
-Task provisioning resolves the owner's effective set, syncs each plugin, assembles each bundle and
-hands them to the sandbox, which loads them instead of cloning. The repository-level link is removed
-here — its replacement is now live — along with every endpoint and command-line verb reaching it. The
-admin plugin pages list registered plugins and their skills, and turn them on and off at either
-reach, against the real endpoints. Integration and browser coverage returns for registration, global
-activation, personal override and delivery.
+Task provisioning resolves the owner's effective set and hands the sandbox each plugin's git URL
+with the skills to keep; the sandbox clones and then removes the rest. The repository-level link is
+removed here — its replacement is now live — along with every endpoint and command-line verb
+reaching it. The admin plugin pages list registered plugins and their skills, and turn them on and
+off at either reach, against the real endpoints. Integration and browser coverage returns for
+registration, global activation, personal override and delivery.
 
 *Done when:* a plugin turned on globally arrives in a new task's sandbox, a personal override keeps
 it out of that person's next task, and a picked skill arrives without its siblings.
+
+**Two departures from the plan above, both deliberate:**
+
+*The sandbox still clones; the backend does not serve content.* Decision 2 is applied in the
+sandbox — clone, then delete the unpicked skill directories — rather than by the backend shipping an
+assembled bundle. This keeps the delivery path unchanged and the diff small, and it is why the
+`assemble` function ticket 03 built is gone: it had no production caller and its rule now lives once,
+in `sandbox/src/init/plugin_skills.rs::keep_only`. The cost is that decision 1's private-global-plugin
+case is only half solved: *syncing* a private plugin uses the platform credential, so its skills are
+listed and can be turned on, but the sandbox's *clone* still uses the task's own git token. A plugin
+in a repository the task owner cannot read will list, activate and then fail to clone.
+
+*Provisioning does not sync over the network.* `resolve_for_user` reads stored skills. The sandbox
+clones at the source's current state, so the content that arrives is never stale; only the skill
+*name list* used to decide could be, and a plugin-level record already covers skills added since it
+was written. A skill added upstream and never yet synced is therefore not deliverable until somebody
+opens the plugin's page — which is what makes the admin read path load-bearing rather than cosmetic.
+
+*One consequence worth stating:* a plugin whose skills have never synced resolves to nothing and is
+never delivered, however it was activated. Registering a plugin is no longer enough on its own.

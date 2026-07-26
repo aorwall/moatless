@@ -1,12 +1,12 @@
 //! What a person actually gets: activation records in, picked skills out.
 //!
-//! Both functions here are pure. Resolution takes the records and the stored
-//! skills and returns the effective set; assembly takes that set and a plugin's
-//! file listing and returns the listing to deliver. Neither touches the
-//! database, the network or the filesystem, which is what makes the rules that
-//! matter cheap to pin down in tests.
+//! Resolution is pure — it takes the records and the stored skills and returns
+//! the effective set, touching neither the database, the network nor the
+//! filesystem. That is what makes the rules that matter cheap to pin down in
+//! tests. Applying the result to a plugin's files is the sandbox's job, in
+//! `init::plugin_skills`.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 /// Who an activation record applies to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -116,43 +116,6 @@ pub fn resolve(plugins: &[PluginSkills], activations: &[Activation]) -> Vec<Reso
     resolved
 }
 
-/// Decide which of a plugin's files to deliver.
-///
-/// `paths` is the plugin's listing, repo-relative. `skills_prefix` is where its
-/// skills live (`skills` for the default layout). Everything that is not a
-/// skill — the manifest, commands, hooks, agents — is kept whatever happens;
-/// only skill directories nobody picked are dropped.
-pub fn assemble<'a>(
-    paths: &[&'a str],
-    skills_prefix: &str,
-    picked: &BTreeSet<String>,
-) -> Vec<&'a str> {
-    let prefix = format!("{}/", skills_prefix.trim_end_matches('/'));
-
-    paths
-        .iter()
-        .copied()
-        .filter(|path| match skill_of(path, &prefix) {
-            Some(skill) => picked.contains(skill),
-            // Not under the skills root at all — not ours to drop.
-            None => true,
-        })
-        .collect()
-}
-
-/// The skill directory a path belongs to, if it is under the skills root.
-///
-/// A file sitting directly in the skills root (`skills/README.md`) belongs to
-/// no skill and is kept.
-fn skill_of<'a>(path: &'a str, prefix: &str) -> Option<&'a str> {
-    let rest = path.strip_prefix(prefix)?;
-    let (dir, tail) = rest.split_once('/')?;
-    if tail.is_empty() || dir.is_empty() {
-        return None;
-    }
-    Some(dir)
-}
-
 /// Group stored skills and records into the shape [`resolve`] wants, then
 /// resolve. Kept next to the rules it feeds so the grouping cannot drift from
 /// them.
@@ -188,6 +151,39 @@ pub fn resolve_rows(
         .collect();
 
     resolve(&plugin_skills, &activations)
+}
+
+/// Read what one person gets, straight out of the database.
+///
+/// The single place this read happens. The effective-plugins endpoint, the
+/// repository skill list and task provisioning all go through it, so what
+/// somebody is shown and what arrives in their sandbox cannot drift apart.
+///
+/// Deliberately does not sync: the sandbox clones each plugin at its source's
+/// current state, so what arrives is never stale. Only the stored skill *names*
+/// used to decide could be, and a plugin-level record already covers skills
+/// added since it was written.
+pub async fn resolve_for_user(
+    plugins: &dyn crate::plugin::dao::PluginRepository,
+    user_id: &str,
+) -> Result<Vec<(crate::plugin::models::Plugin, Vec<String>)>, sqlx::Error> {
+    let registered = plugins.list_all().await?;
+    if registered.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let skills = plugins.list_all_skills().await?;
+    let rows = plugins.list_activations_for(user_id).await?;
+
+    Ok(resolve_rows(&registered, &skills, &rows)
+        .into_iter()
+        .filter_map(|r| {
+            registered
+                .iter()
+                .find(|p| p.id == r.plugin_id)
+                .map(|p| (p.clone(), r.skill_names))
+        })
+        .collect())
 }
 
 #[cfg(test)]
@@ -370,87 +366,6 @@ mod tests {
             vec!["a", "b", "c"],
             "\"turn this plugin on\" means the plugin, not the skills it had \
              on the day somebody said so"
-        );
-    }
-
-    // ---- Assembly ----
-
-    fn picked(names: &[&str]) -> BTreeSet<String> {
-        names.iter().copied().map(String::from).collect()
-    }
-
-    #[test]
-    fn assembly_drops_the_skills_nobody_picked() {
-        let paths = vec![
-            "skills/alpha/SKILL.md",
-            "skills/beta/SKILL.md",
-            "skills/beta/reference.md",
-        ];
-        assert_eq!(
-            assemble(&paths, "skills", &picked(&["alpha"])),
-            vec!["skills/alpha/SKILL.md"],
-            "every file of an unpicked skill goes, not just its SKILL.md"
-        );
-    }
-
-    #[test]
-    fn assembly_keeps_everything_that_is_not_a_skill() {
-        let paths = vec![
-            ".claude-plugin/plugin.json",
-            "commands/deploy.md",
-            "hooks/pre-commit.sh",
-            "agents/reviewer.md",
-            "README.md",
-            "skills/alpha/SKILL.md",
-            "skills/beta/SKILL.md",
-        ];
-        assert_eq!(
-            assemble(&paths, "skills", &picked(&["alpha"])),
-            vec![
-                ".claude-plugin/plugin.json",
-                "commands/deploy.md",
-                "hooks/pre-commit.sh",
-                "agents/reviewer.md",
-                "README.md",
-                "skills/alpha/SKILL.md",
-            ],
-            "a plugin still has to work — only its unpicked skills are removed"
-        );
-    }
-
-    #[test]
-    fn assembly_keeps_files_sitting_directly_in_the_skills_root() {
-        let paths = vec!["skills/README.md", "skills/alpha/SKILL.md"];
-        assert_eq!(
-            assemble(&paths, "skills", &picked(&[])),
-            vec!["skills/README.md"],
-            "a file in the skills root belongs to no skill, so nobody can have \
-             unpicked it"
-        );
-    }
-
-    #[test]
-    fn assembly_honours_a_non_default_skills_prefix() {
-        let paths = vec![
-            "plugins/moatless-skills/skills/alpha/SKILL.md",
-            "plugins/moatless-skills/skills/beta/SKILL.md",
-        ];
-        assert_eq!(
-            assemble(
-                &paths,
-                "plugins/moatless-skills/skills",
-                &picked(&["beta"])
-            ),
-            vec!["plugins/moatless-skills/skills/beta/SKILL.md"]
-        );
-    }
-
-    #[test]
-    fn assembly_with_nothing_picked_still_leaves_a_working_plugin() {
-        let paths = vec![".claude-plugin/plugin.json", "skills/alpha/SKILL.md"];
-        assert_eq!(
-            assemble(&paths, "skills", &picked(&[])),
-            vec![".claude-plugin/plugin.json"]
         );
     }
 }

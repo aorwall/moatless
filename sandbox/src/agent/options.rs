@@ -423,7 +423,7 @@ mod tests {
             git_provider: "github".to_string(),
             repo_config_raw: None,
             setup_commands: vec![],
-            plugin_git_urls: vec![],
+            plugins: vec![],
         }
     }
 

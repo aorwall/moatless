@@ -142,13 +142,18 @@ impl PluginSyncService {
             .fetch_skill_files(&current.git_url, SkillLayout::Plugin, token.as_deref())
             .await?;
 
+        // A stored skill is keyed on its directory name, not the `name:` in its
+        // frontmatter. That is the identity everything downstream already uses
+        // — the sandbox removes directories, Codex staging names them — and it
+        // is the one upstream cannot change without the activation records
+        // pointing at it plainly going stale.
         let mut skills: Vec<PluginSkill> = files
             .into_iter()
             .filter_map(|f| {
                 scanner::parse_skill(&f.content, &f.dir_name, SkillSource::Plugin, None, None).map(
                     |s| PluginSkill {
                         plugin_id: current.id.clone(),
-                        name: s.name,
+                        name: f.dir_name,
                         description: s.description,
                     },
                 )
@@ -256,22 +261,6 @@ mod tests {
         }
 
         async fn delete(&self, _id: &str) -> Result<bool, sqlx::Error> {
-            unimplemented!()
-        }
-
-        async fn find_by_repository_id(&self, _repo_id: &str) -> Result<Vec<Plugin>, sqlx::Error> {
-            unimplemented!()
-        }
-
-        async fn link(&self, _repository_id: &str, _plugin_id: &str) -> Result<(), sqlx::Error> {
-            unimplemented!()
-        }
-
-        async fn unlink(
-            &self,
-            _repository_id: &str,
-            _plugin_id: &str,
-        ) -> Result<bool, sqlx::Error> {
             unimplemented!()
         }
 

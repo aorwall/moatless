@@ -18,7 +18,8 @@ const POSTGRES_DB = process.env.POSTGRES_DB || "moatless";
 const APP_TABLES = [
 	"messages",
 	"tasks",
-	"repository_plugins",
+	"plugin_activations",
+	"plugin_skills",
 	"plugins",
 	"repositories",
 	"trigger_receipts",

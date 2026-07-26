@@ -1,8 +1,10 @@
 /**
- * Chain: Plugin Repos E2E
+ * Chain: Plugins E2E
  *
- * Verifies the full plugin repos flow: create plugin repo, link to repo,
- * provision sandbox with plugin, and verify agent has access to the plugin's skill.
+ * Verifies the full plugin flow: register a plugin, sync its skills, turn it on
+ * for everyone, escape it with a personal record, put it back, then provision a
+ * sandbox and verify the agent has access to the plugin's skill — and only to
+ * the skills that were picked.
  *
  * Uses: https://github.com/amekala/adspirer-mcp-plugin.git
  * Which contains skill: ad-campaign-best-practices
@@ -10,7 +12,7 @@
  * Requires Claude authentication (CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY).
  *
  * Chain:
- *   PLUGIN-01 -> PLUGIN-01.1 -> PLUGIN-02 -> PLUGIN-02.1 ->
+ *   PLUGIN-01 -> PLUGIN-01.1 -> PLUGIN-02 -> PLUGIN-03 -> PLUGIN-04 -> PLUGIN-04.1 ->
  *   TASK-01 -> SANDBOX-01 -> SANDBOX-01.1 -> AGENT-01 -> AGENT-01.1 -> CLEANUP
  */
 
@@ -30,8 +32,9 @@ const hasClaudeAuth =
 
 const PLUGIN_GIT_URL = "https://github.com/amekala/adspirer-mcp-plugin.git";
 const PLUGIN_NAME = "adspirer-mcp-plugin";
+const PLUGIN_SKILL = "ad-campaign-best-practices";
 
-test.describe("Chain: Plugin Repos E2E", () => {
+test.describe("Chain: Plugins E2E", () => {
 	test.describe.configure({ mode: "serial" });
 
 	test.skip(!hasClaudeAuth, "Skipping — no Claude authentication");
@@ -52,11 +55,7 @@ test.describe("Chain: Plugin Repos E2E", () => {
 	test.afterAll(async ({ api }) => {
 		chainSse?.stop();
 
-		// Unlink plugin from repo (ignore errors)
-		if (pluginId && ctx.repositoryId) {
-			await api.unlinkPluginFromRepo(ctx.repositoryId, pluginId).catch(() => {});
-		}
-		// Delete plugin repo
+		// Deleting the plugin cascades its skills and activation records away.
 		if (pluginId) {
 			await api.deletePlugin(pluginId).catch(() => {});
 		}
@@ -68,9 +67,9 @@ test.describe("Chain: Plugin Repos E2E", () => {
 		}
 	});
 
-	// --- PLUGIN-01: Create plugin repo ----------------------------------------
+	// --- PLUGIN-01: Register plugin -------------------------------------------
 
-	test("PLUGIN-01: Create plugin repo", async ({ api }) => {
+	test("PLUGIN-01: Register plugin", async ({ api }) => {
 		const plugin = await api.createPlugin({
 			name: PLUGIN_NAME,
 			gitUrl: PLUGIN_GIT_URL,
@@ -81,12 +80,12 @@ test.describe("Chain: Plugin Repos E2E", () => {
 		expect(plugin.gitUrl).toBe(PLUGIN_GIT_URL);
 
 		pluginId = plugin.id;
-		console.log(`[Plugin] Created plugin repo: ${plugin.id}`);
+		console.log(`[Plugin] Registered plugin: ${plugin.id}`);
 	});
 
 	// --- PLUGIN-01.1: List shows new plugin -----------------------------------
 
-	test("PLUGIN-01.1: List plugin repos includes new plugin", async ({ api }) => {
+	test("PLUGIN-01.1: List plugins includes new plugin", async ({ api }) => {
 		const plugins = await api.listPlugins();
 		const found = plugins.find((p) => p.id === pluginId);
 
@@ -94,21 +93,76 @@ test.describe("Chain: Plugin Repos E2E", () => {
 		expect(found!.name).toBe(PLUGIN_NAME);
 	});
 
-	// --- PLUGIN-02: Link plugin to repository ---------------------------------
+	// --- PLUGIN-02: Reading skills syncs the plugin ---------------------------
 
-	test("PLUGIN-02: Link plugin to repository", async ({ api }) => {
-		await api.linkPluginToRepo(ctx.repositoryId!, pluginId);
-		console.log(`[Plugin] Linked ${pluginId} to repo ${ctx.repositoryId}`);
+	test("PLUGIN-02: Reading skills syncs the plugin from its source", async ({
+		api,
+	}) => {
+		const skills = await api.listPluginSkills(pluginId);
+		expect(skills.map((s) => s.name)).toContain(PLUGIN_SKILL);
+
+		// The sync stored a version, so the next read costs no fetch.
+		const plugins = await api.listPlugins();
+		const found = plugins.find((p) => p.id === pluginId);
+		expect(found!.syncedVersion).toBeTruthy();
+
+		console.log(`[Plugin] Synced ${skills.length} skill(s)`);
 	});
 
-	// --- PLUGIN-02.1: Verify link appears in repo plugins ---------------------
+	// --- PLUGIN-02.1: Nothing is delivered until somebody turns it on ---------
 
-	test("PLUGIN-02.1: Repository plugins list shows linked plugin", async ({ api }) => {
-		const plugins = await api.listRepoPlugins(ctx.repositoryId!);
-		const found = plugins.find((p) => p.id === pluginId);
+	test("PLUGIN-02.1: A plugin nobody turned on reaches nobody", async ({
+		api,
+	}) => {
+		const effective = await api.listEffectivePlugins();
+		expect(effective.find((p) => p.pluginId === pluginId)).toBeUndefined();
+	});
 
+	// --- PLUGIN-03: Turn it on for everyone -----------------------------------
+
+	test("PLUGIN-03: Turning it on for everyone delivers it", async ({ api }) => {
+		await api.setPluginActivation(pluginId, {
+			reach: "everyone",
+			enabled: true,
+		});
+
+		const records = await api.listPluginActivations(pluginId);
+		expect(records).toHaveLength(1);
+		expect(records[0]!.reach).toBe("everyone");
+		expect(records[0]!.enabled).toBe(true);
+
+		const effective = await api.listEffectivePlugins();
+		const found = effective.find((p) => p.pluginId === pluginId);
 		expect(found).toBeDefined();
-		expect(found!.gitUrl).toBe(PLUGIN_GIT_URL);
+		expect(found!.skillNames).toContain(PLUGIN_SKILL);
+	});
+
+	// --- PLUGIN-04: A personal record overrides the global default -----------
+
+	test("PLUGIN-04: A personal record switches the global default off", async ({
+		api,
+	}) => {
+		await api.setPluginActivation(pluginId, {
+			reach: "personal",
+			enabled: false,
+		});
+
+		const effective = await api.listEffectivePlugins();
+		expect(effective.find((p) => p.pluginId === pluginId)).toBeUndefined();
+	});
+
+	// --- PLUGIN-04.1: Clearing it hands you back to the default ---------------
+
+	test("PLUGIN-04.1: Clearing a personal record restores the default", async ({
+		api,
+	}) => {
+		await api.clearPluginActivation(pluginId, "personal");
+
+		const records = await api.listPluginActivations(pluginId);
+		expect(records.every((r) => r.reach === "everyone")).toBe(true);
+
+		const effective = await api.listEffectivePlugins();
+		expect(effective.find((p) => p.pluginId === pluginId)).toBeDefined();
 	});
 
 	// --- TASK-01: Create task asking agent about the skill ---------------------
@@ -117,7 +171,7 @@ test.describe("Chain: Plugin Repos E2E", () => {
 		const { taskId, task } = await createTaskWithMessage(
 			api,
 			ctx.repositoryId!,
-			`Do you have access to a skill called "ad-campaign-best-practices"? ` +
+			`Do you have access to a skill called "${PLUGIN_SKILL}"? ` +
 				`Reply with EXACTLY this format on separate lines:\n` +
 				`SKILL_CHECK: YES or NO\n` +
 				`SKILL_NAME: the exact skill name if found, or NONE`,
@@ -137,7 +191,7 @@ test.describe("Chain: Plugin Repos E2E", () => {
 
 		expect(ready).toBe(true);
 		expect(status!.environmentStatus).toBe("ready");
-		console.log("[Plugin] Sandbox ready (plugin repo should be cloned)");
+		console.log("[Plugin] Sandbox ready (plugin should be cloned)");
 	});
 
 	// --- SANDBOX-01.1: Check for plugin clone event (diagnostic) --------------
@@ -159,7 +213,7 @@ test.describe("Chain: Plugin Repos E2E", () => {
 			console.log("[Plugin] PluginsCloned event found — clone succeeded");
 		} else {
 			console.warn(
-				"[Plugin] WARNING: No PluginsCloned event — sandbox image may not support plugin repo cloning. " +
+				"[Plugin] WARNING: No PluginsCloned event — sandbox image may not support plugin cloning. " +
 					"Rebuild sandbox image with latest code: docker/build-sandbox.sh --local",
 			);
 		}
@@ -233,6 +287,6 @@ test.describe("Chain: Plugin Repos E2E", () => {
 			"Agent should confirm skill access (SKILL_CHECK: YES). " +
 				"If sandbox image is stale, rebuild it to include clone_plugins support.",
 		).toContain("SKILL_CHECK: YES");
-		expect(fullResponse.toLowerCase()).toContain("ad-campaign-best-practices");
+		expect(fullResponse.toLowerCase()).toContain(PLUGIN_SKILL);
 	});
 });

@@ -1027,37 +1027,50 @@ impl ApiClient {
             .await
     }
 
-    /// GET /api/v1/repositories/{repo_id}/plugins
-    pub async fn list_repo_plugins(
+    /// GET /api/v1/plugins/{id}/skills
+    pub async fn list_plugin_skills(
         &self,
-        repo_id: &str,
-    ) -> Result<Vec<moatless_api_schemas::plugin::PluginResponse>, ApiError> {
-        self.get(&format!("/api/v1/repositories/{repo_id}/plugins"))
+        plugin_id: &str,
+    ) -> Result<Vec<moatless_api_schemas::plugin::PluginSkillResponse>, ApiError> {
+        self.get(&format!("/api/v1/plugins/{plugin_id}/skills"))
             .await
     }
 
-    /// POST /api/v1/repositories/{repo_id}/plugins/{plugin_id}
-    pub async fn link_plugin_to_repo(
+    /// GET /api/v1/plugins/effective
+    pub async fn list_effective_plugins(
         &self,
-        repo_id: &str,
-        plugin_id: &str,
-    ) -> Result<(), ApiError> {
-        self.post_empty(&format!(
-            "/api/v1/repositories/{repo_id}/plugins/{plugin_id}"
-        ))
-        .await
+    ) -> Result<Vec<moatless_api_schemas::plugin::EffectivePluginResponse>, ApiError> {
+        self.get("/api/v1/plugins/effective").await
     }
 
-    /// DELETE /api/v1/repositories/{repo_id}/plugins/{plugin_id}
-    pub async fn unlink_plugin_from_repo(
+    /// PUT /api/v1/plugins/{id}/activation
+    pub async fn set_plugin_activation(
         &self,
-        repo_id: &str,
         plugin_id: &str,
+        req: &moatless_api_schemas::plugin::SetActivationRequest,
+    ) -> Result<moatless_api_schemas::plugin::ActivationResponse, ApiError> {
+        self.put(&format!("/api/v1/plugins/{plugin_id}/activation"), req)
+            .await
+    }
+
+    /// DELETE /api/v1/plugins/{id}/activation
+    pub async fn clear_plugin_activation(
+        &self,
+        plugin_id: &str,
+        reach: moatless_api_schemas::plugin::ActivationReach,
+        skill_name: Option<&str>,
     ) -> Result<(), ApiError> {
-        self.delete_request(&format!(
-            "/api/v1/repositories/{repo_id}/plugins/{plugin_id}"
-        ))
-        .await
+        let reach = match reach {
+            moatless_api_schemas::plugin::ActivationReach::Everyone => "everyone",
+            moatless_api_schemas::plugin::ActivationReach::Personal => "personal",
+        };
+        let path = match skill_name {
+            Some(skill) => {
+                format!("/api/v1/plugins/{plugin_id}/activation?reach={reach}&skillName={skill}")
+            }
+            None => format!("/api/v1/plugins/{plugin_id}/activation?reach={reach}"),
+        };
+        self.delete_request(&path).await
     }
 
     // ========================================================================

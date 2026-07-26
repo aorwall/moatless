@@ -3486,6 +3486,52 @@
         }
       }
     },
+    "/api/v1/plugins/{id}/activations": {
+      "get": {
+        "tags": [
+          "plugins"
+        ],
+        "summary": "The activation records that bear on this caller for one plugin: every global\nrecord plus their own, and nobody else's.",
+        "description": "This is the read half of the two write endpoints below. Without it a control\ncan show what somebody *gets* but not which record put it there, so \"turn\noff my personal override\" and \"the default is already off\" look identical.",
+        "operationId": "list_plugin_activations",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Plugin ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The records that apply to this caller",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ActivationResponse"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/plugins/{id}/skills": {
       "get": {
         "tags": [
@@ -3594,157 +3640,6 @@
           },
           "409": {
             "description": "Repository already exists",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/repositories/{repo_id}/plugins": {
-      "get": {
-        "tags": [
-          "plugins"
-        ],
-        "summary": "List plugins linked to a repository.",
-        "operationId": "list_repo_plugins",
-        "parameters": [
-          {
-            "name": "repo_id",
-            "in": "path",
-            "description": "Repository ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Linked plugins",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/PluginResponse"
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/repositories/{repo_id}/plugins/{plugin_id}": {
-      "post": {
-        "tags": [
-          "plugins"
-        ],
-        "summary": "Link a plugin to a repository.",
-        "operationId": "link_plugin",
-        "parameters": [
-          {
-            "name": "repo_id",
-            "in": "path",
-            "description": "Repository ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "plugin_id",
-            "in": "path",
-            "description": "Plugin ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Linked"
-          },
-          "404": {
-            "description": "Plugin not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "plugins"
-        ],
-        "summary": "Unlink a plugin from a repository.",
-        "operationId": "unlink_plugin",
-        "parameters": [
-          {
-            "name": "repo_id",
-            "in": "path",
-            "description": "Repository ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "plugin_id",
-            "in": "path",
-            "description": "Plugin ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Unlinked"
-          },
-          "404": {
-            "description": "Link not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal error",
             "content": {
               "application/json": {
                 "schema": {

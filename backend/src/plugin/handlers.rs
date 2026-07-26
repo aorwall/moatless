@@ -3,8 +3,6 @@
 use axum::extract::{Path, Query, State};
 use axum::Json;
 
-use moatless_backend_core::scope::ScopedResource;
-
 use crate::extractors::AuthUser;
 use crate::state::AppState;
 
@@ -17,9 +15,9 @@ use super::schemas::{
 };
 
 /// A plugin is loadable code (hooks/commands run inside sandboxes), so
-/// registering or removing one is a platform-wide trust decision restricted to
-/// admins. Linking an already-registered plugin to a repository is gated
-/// separately by repository write access (see `ensure_repo_control`).
+/// registering or removing one — and setting the default everybody gets — is a
+/// platform-wide trust decision restricted to admins. Anybody may set their own
+/// activation records; see [`activation_user_id`].
 fn ensure_admin(auth: &AuthUser) -> Result<(), PluginError> {
     if auth.scope_context().is_admin {
         Ok(())
@@ -28,32 +26,6 @@ fn ensure_admin(auth: &AuthUser) -> Result<(), PluginError> {
             "Admin role required to manage the plugin registry".to_string(),
         ))
     }
-}
-
-/// Ensure the caller may write/control the target repository before allowing a
-/// plugin link/unlink — otherwise any user could attach loadable plugin code to
-/// a repository (and its sandboxes) they don't own.
-async fn ensure_repo_control(
-    state: &AppState,
-    auth: &AuthUser,
-    repo_id: &str,
-) -> Result<(), PluginError> {
-    let ctx = auth.scope_context();
-    let repo = state
-        .repositories
-        .find_by_id(repo_id, &ctx)
-        .await?
-        .ok_or_else(|| PluginError::NotFound(format!("Repository '{repo_id}' not found")))?;
-    let resource = ScopedResource::borrowed(
-        repo.scope,
-        repo.owner_user_id.as_deref().or(repo.created_by.as_deref()),
-    );
-    if !ctx.can_control(&resource) {
-        return Err(PluginError::Forbidden(format!(
-            "No control access to repository '{repo_id}'"
-        )));
-    }
-    Ok(())
 }
 
 /// List all plugins.
@@ -146,96 +118,6 @@ pub async fn delete_plugin(
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
-/// List plugins linked to a repository.
-#[utoipa::path(
-    get,
-    path = "/api/v1/repositories/{repo_id}/plugins",
-    tag = "plugins",
-    params(("repo_id" = String, Path, description = "Repository ID")),
-    responses(
-        (status = 200, description = "Linked plugins", body = Vec<PluginResponse>),
-        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
-    )
-)]
-pub async fn list_repo_plugins(
-    State(state): State<AppState>,
-    auth: AuthUser,
-    Path(repo_id): Path<String>,
-) -> Result<Json<Vec<PluginResponse>>, PluginError> {
-    // Only expose a repository's linked plugins to callers who can access it.
-    state
-        .repositories
-        .find_by_id(&repo_id, &auth.scope_context())
-        .await?
-        .ok_or_else(|| PluginError::NotFound(format!("Repository '{repo_id}' not found")))?;
-    let rows = state.plugins.find_by_repository_id(&repo_id).await?;
-    let items = rows.into_iter().map(to_response).collect();
-    Ok(Json(items))
-}
-
-/// Link a plugin to a repository.
-#[utoipa::path(
-    post,
-    path = "/api/v1/repositories/{repo_id}/plugins/{plugin_id}",
-    tag = "plugins",
-    params(
-        ("repo_id" = String, Path, description = "Repository ID"),
-        ("plugin_id" = String, Path, description = "Plugin ID"),
-    ),
-    responses(
-        (status = 204, description = "Linked"),
-        (status = 404, description = "Plugin not found", body = crate::error::ErrorBody),
-        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
-    )
-)]
-pub async fn link_plugin(
-    State(state): State<AppState>,
-    auth: AuthUser,
-    Path((repo_id, plugin_id)): Path<(String, String)>,
-) -> Result<axum::http::StatusCode, PluginError> {
-    // Linking loadable plugin code to a repository requires control of that
-    // repository (its sandboxes will clone and execute the plugin's hooks).
-    ensure_repo_control(&state, &auth, &repo_id).await?;
-
-    // Verify plugin exists
-    state
-        .plugins
-        .find_by_id(&plugin_id)
-        .await?
-        .ok_or_else(|| PluginError::NotFound(format!("Plugin '{plugin_id}' not found")))?;
-
-    state.plugins.link(&repo_id, &plugin_id).await?;
-    Ok(axum::http::StatusCode::NO_CONTENT)
-}
-
-/// Unlink a plugin from a repository.
-#[utoipa::path(
-    delete,
-    path = "/api/v1/repositories/{repo_id}/plugins/{plugin_id}",
-    tag = "plugins",
-    params(
-        ("repo_id" = String, Path, description = "Repository ID"),
-        ("plugin_id" = String, Path, description = "Plugin ID"),
-    ),
-    responses(
-        (status = 204, description = "Unlinked"),
-        (status = 404, description = "Link not found", body = crate::error::ErrorBody),
-        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
-    )
-)]
-pub async fn unlink_plugin(
-    State(state): State<AppState>,
-    auth: AuthUser,
-    Path((repo_id, plugin_id)): Path<(String, String)>,
-) -> Result<axum::http::StatusCode, PluginError> {
-    ensure_repo_control(&state, &auth, &repo_id).await?;
-    let removed = state.plugins.unlink(&repo_id, &plugin_id).await?;
-    if !removed {
-        return Err(PluginError::NotFound("Link not found".to_string()));
-    }
-    Ok(axum::http::StatusCode::NO_CONTENT)
-}
-
 /// List a plugin's skills, syncing from its source first.
 ///
 /// This is the admin view's read path, and it goes through the same sync as
@@ -270,6 +152,49 @@ pub async fn list_plugin_skills(
             .map(|s| PluginSkillResponse {
                 name: s.name,
                 description: s.description,
+            })
+            .collect(),
+    ))
+}
+
+/// The activation records that bear on this caller for one plugin: every global
+/// record plus their own, and nobody else's.
+///
+/// This is the read half of the two write endpoints below. Without it a control
+/// can show what somebody *gets* but not which record put it there, so "turn
+/// off my personal override" and "the default is already off" look identical.
+#[utoipa::path(
+    get,
+    path = "/api/v1/plugins/{id}/activations",
+    tag = "plugins",
+    params(("id" = String, Path, description = "Plugin ID")),
+    responses(
+        (status = 200, description = "The records that apply to this caller", body = Vec<ActivationResponse>),
+        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn list_plugin_activations(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<ActivationResponse>>, PluginError> {
+    let rows = state
+        .plugins
+        .list_activations_for(&auth.user_id.to_string())
+        .await?;
+
+    Ok(Json(
+        rows.into_iter()
+            .filter(|r| r.plugin_id == id)
+            .map(|r| ActivationResponse {
+                reach: if r.user_id.is_some() {
+                    ActivationReach::Personal
+                } else {
+                    ActivationReach::Everyone
+                },
+                plugin_id: r.plugin_id,
+                skill_name: r.skill_name,
+                enabled: r.enabled,
             })
             .collect(),
     ))
@@ -387,36 +312,19 @@ pub async fn list_effective_plugins(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<Vec<EffectivePluginResponse>>, PluginError> {
-    let plugins = state.plugins.list_all().await?;
-    let resolved = resolve_for_user(&state, &plugins, &auth.user_id.to_string()).await?;
+    let resolved =
+        activation::resolve_for_user(state.plugins.as_ref(), &auth.user_id.to_string()).await?;
 
     Ok(Json(
         resolved
             .into_iter()
-            .filter_map(|r| {
-                plugins
-                    .iter()
-                    .find(|p| p.id == r.plugin_id)
-                    .map(|p| EffectivePluginResponse {
-                        plugin_id: r.plugin_id,
-                        plugin_name: p.name.clone(),
-                        skill_names: r.skill_names,
-                    })
+            .map(|(plugin, skill_names)| EffectivePluginResponse {
+                plugin_id: plugin.id,
+                plugin_name: plugin.name,
+                skill_names,
             })
             .collect(),
     ))
-}
-
-/// Resolve one user's effective plugins. Shared by the endpoint above and, in
-/// the next ticket, by task provisioning — they must not drift.
-pub async fn resolve_for_user(
-    state: &AppState,
-    plugins: &[Plugin],
-    user_id: &str,
-) -> Result<Vec<activation::ResolvedPlugin>, PluginError> {
-    let skills = state.plugins.list_all_skills().await?;
-    let rows = state.plugins.list_activations_for(user_id).await?;
-    Ok(activation::resolve_rows(plugins, &skills, &rows))
 }
 
 /// The `user_id` an activation record carries: `None` for the global default,

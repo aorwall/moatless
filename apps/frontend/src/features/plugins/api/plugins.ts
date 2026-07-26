@@ -13,9 +13,9 @@ import {
   createPlugin as createPluginHandler,
   deletePlugin as deletePluginHandler,
   listEffectivePlugins as listEffectivePluginsHandler,
+  listPluginActivations as listPluginActivationsHandler,
   listPluginSkills as listPluginSkillsHandler,
   listPlugins as listPluginsHandler,
-  listRepoPlugins as listRepoPluginsHandler,
   setPluginActivation as setPluginActivationHandler,
 } from '@moatless/api-client/sandbox/plugins/plugins'
 
@@ -24,12 +24,13 @@ export const pluginsApi = {
     return await unwrapResponse(listPluginsHandler())
   },
 
-  async listRepoPlugins(repoId: string): Promise<PluginResponse[]> {
-    return await unwrapResponse(listRepoPluginsHandler(repoId))
-  },
-
   async listPluginSkills(pluginId: string): Promise<PluginSkillResponse[]> {
     return await unwrapResponse(listPluginSkillsHandler(pluginId))
+  },
+
+  /** The records that bear on this user: the global ones plus their own. */
+  async listPluginActivations(pluginId: string): Promise<ActivationResponse[]> {
+    return await unwrapResponse(listPluginActivationsHandler(pluginId))
   },
 
   async createPlugin(request: CreatePluginRequest): Promise<PluginResponse> {

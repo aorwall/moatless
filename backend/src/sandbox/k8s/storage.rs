@@ -110,7 +110,7 @@ mod tests {
                     docker_storage_mode: None,
                     ..Default::default()
                 }),
-                plugin_git_urls: None,
+                plugins: None,
                 docker_access: None,
                 docker_networks: None,
                 sandbox_service_account: None,

@@ -104,7 +104,7 @@ mod tests {
             git_provider: "github".to_string(),
             repo_config_raw: None,
             setup_commands: Vec::new(),
-            plugin_git_urls: Vec::new(),
+            plugins: Vec::new(),
         }
     }
 

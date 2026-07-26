@@ -6,6 +6,7 @@
 use std::env;
 
 use claude_agent_sdk::PermissionMode;
+use moatless_api_schemas::plugin::PluginDelivery;
 use serde::Deserialize;
 
 /// Agent-specific configuration parsed from REPO_CONFIG.
@@ -68,7 +69,7 @@ struct RepoConfigFile {
     #[serde(default)]
     code_execution: Option<CodeExecutionConfig>,
     #[serde(default)]
-    plugin_git_urls: Option<Vec<String>>,
+    plugins: Option<Vec<PluginDelivery>>,
     #[serde(default)]
     servers: Option<Vec<ServerInfo>>,
 }
@@ -88,7 +89,7 @@ struct RepoAgentConfig {
 struct ParsedRepoConfig {
     agent_config: AgentConfig,
     setup_commands: Vec<String>,
-    plugin_git_urls: Vec<String>,
+    plugins: Vec<PluginDelivery>,
     servers: Vec<ServerInfo>,
 }
 
@@ -191,8 +192,9 @@ pub struct Config {
     pub repo_config_raw: Option<String>,
     /// Setup commands from REPO_CONFIG.codeExecution.setupCommands
     pub setup_commands: Vec<String>,
-    /// Git URLs of the plugins to clone, from REPO_CONFIG.pluginGitUrls
-    pub plugin_git_urls: Vec<String>,
+    /// The plugins to clone, each with the skills to keep, from
+    /// REPO_CONFIG.plugins
+    pub plugins: Vec<PluginDelivery>,
 }
 
 /// Derive the repo subdirectory name from a clone URL: the last path segment
@@ -361,7 +363,7 @@ impl Config {
             git_provider: env::var("GIT_PROVIDER").unwrap_or_else(|_| "github".to_string()),
             repo_config_raw: env::var("REPO_CONFIG").ok(),
             setup_commands: parsed.setup_commands,
-            plugin_git_urls: parsed.plugin_git_urls,
+            plugins: parsed.plugins,
         }
     }
 
@@ -493,7 +495,7 @@ pub(crate) mod test_support {
             git_provider: "github".to_string(),
             repo_config_raw: None,
             setup_commands: Vec::new(),
-            plugin_git_urls: Vec::new(),
+            plugins: Vec::new(),
         }
     }
 }
@@ -506,7 +508,7 @@ fn parse_repo_config() -> ParsedRepoConfig {
             return ParsedRepoConfig {
                 agent_config: AgentConfig::default(),
                 setup_commands: Vec::new(),
-                plugin_git_urls: Vec::new(),
+                plugins: Vec::new(),
                 servers: Vec::new(),
             };
         }
@@ -519,7 +521,7 @@ fn parse_repo_config() -> ParsedRepoConfig {
             return ParsedRepoConfig {
                 agent_config: AgentConfig::default(),
                 setup_commands: Vec::new(),
-                plugin_git_urls: Vec::new(),
+                plugins: Vec::new(),
                 servers: Vec::new(),
             };
         }
@@ -539,13 +541,13 @@ fn parse_repo_config() -> ParsedRepoConfig {
         .map(|ce| ce.setup_commands)
         .unwrap_or_default();
 
-    let plugin_git_urls = repo_config.plugin_git_urls.unwrap_or_default();
+    let plugins = repo_config.plugins.unwrap_or_default();
     let servers = repo_config.servers.unwrap_or_default();
 
     ParsedRepoConfig {
         agent_config,
         setup_commands,
-        plugin_git_urls,
+        plugins,
         servers,
     }
 }
