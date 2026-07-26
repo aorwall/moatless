@@ -14,7 +14,7 @@ Three artifacts are produced along the way, each with a distinct audience:
 
 1. **Spec markdown** — `specs/<feature-slug>.md` in the repo — the source of truth; inlined into every child's spawn message.
 2. **Ticket markdown files** — `/opt/moatless/workspace/plans/<feature-slug>/<NN>-<slug>.md` — one per ticket; each becomes the body of its child's spawn message.
-3. **HTML review page** — `/opt/moatless/workspace/scratchpad/<feature-slug>-review.html`, rendered once at approval. It renders the spec's lede and is a projection of the markdown — nothing may exist only here. Nothing is rendered during the interview; the questions are the chat's job.
+3. **HTML review page** — `/opt/moatless/workspace/scratchpad/<feature-slug>-review.html`. One file at one URL, first rendered at approval and re-rendered whenever what it shows changes: a revision during approval, and again when the ticket breakdown is agreed. It renders the spec's lede, plus per-ticket cards once the breakdown exists, and is a projection of the markdown — nothing may exist only here. Nothing is rendered during the interview; the questions are the chat's job.
 
 ---
 
