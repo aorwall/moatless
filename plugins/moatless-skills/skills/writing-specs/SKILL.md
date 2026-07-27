@@ -11,10 +11,11 @@ description: Take a change from research to an agreed spec — research and deci
 2. **Render the page.** Its first content is that shared understanding, as `## Current solution`. Give the URL once.
 3. **Research and grill toward what to build**, growing `## Planned solution` as you go. This phase mixes reading code, asking the user, and writing the page — the seams are one of the questions. Update the lede and the decision table at the top whenever an answer changes them.
 4. **Get the plan approved, on the page.** Paste the decision table into the message so the choice is reachable without opening anything.
-5. **Run `/to-tickets`.** The breakdown lands on the same page and gets its own approval.
-6. **Write `specs/<slug>.md`, once** — complete, uncapped, work graph included. It is for the agent that implements.
+5. **Write `specs/<slug>.md`, once** — complete and uncapped. It is for the agent that implements.
 
-Nothing goes into `specs/` before step 6. A half-written spec is a second place for an answer to live, and two places disagree within about three questions.
+Nothing goes into `specs/` before step 5. A half-written spec is a second place for an answer to live, and two places disagree within about three questions.
+
+**There is no ticket step.** A breakdown is worth its own approval round only when something spawns work per ticket — which is `/orchestrate`, and it runs `/to-tickets` itself after the spec exists. A change that fits one context window doesn't get split, and being told to draw a graph for it produces horizontal slices that `/to-tickets`' own rules forbid.
 
 **Recording and redrawing are different, and only one is a judgement call.** Recording is not optional: an answer lands, it goes on the page before the next question goes out — one `Edit` adding a row, because the page is the only record and an answer left in chat survives exactly as long as the session. Redrawing rewrites a section an answer made *wrong*, and the test is "wrong", not "out of date": a section the page already shows as open is incomplete, and incomplete costs nothing.
 
@@ -23,14 +24,15 @@ Everything else in this skill is *how* to do one of those steps:
 | For | Read |
 |---|---|
 | Asking the questions in steps 1 and 3 | `/grilling` |
+| Shaping the turns those questions are sent in | `/writing-messages` |
 | Rendering and updating the page | [HTML-REPORT.md](HTML-REPORT.md), on top of `/html-report` |
 | The elements that go in either surface | [DESIGN.md](DESIGN.md) |
-| The shape of the file written in step 6 | Below |
+| The shape of the file written in step 5 | Below |
 
 ## The two surfaces
 
-- **The page** — `scratchpad/<slug>.html`. The only document the user ever works against, from step 2 to step 5. It carries the lede, the research, and every answer as it arrives.
-- **The markdown** — `specs/<slug>.md`. Written at step 6, for the agent that implements, for `/code-review`'s spec axis, and for whoever asks "why is it like this" in six months.
+- **The page** — `scratchpad/<slug>.html`. The only document the user ever works against, from step 2 to step 4. It carries the lede, the research, and every answer as it arrives.
+- **The markdown** — `specs/<slug>.md`. Written at step 5, for the agent that implements, for `/code-review`'s spec axis, and for whoever asks "why is it like this" in six months.
 
 **The page is capped by attention; the markdown is capped by nothing.** One screen is what gets approved. The implementing agent gets everything — flat, complete, anchored — because nothing is skimming it.
 
@@ -68,7 +70,7 @@ Three things keep it from going thin:
 
 ## The spec markdown
 
-Written at step 6, in one pass, with no interview left to run. Every heading, in this order, so a reader who has read one spec can navigate every spec. Sections may be empty; they may not be reordered or renamed.
+Written at step 5, in one pass, with no interview left to run. Every heading, in this order, so a reader who has read one spec can navigate every spec. Sections may be empty; they may not be reordered or renamed.
 
 ```md
 # <The change, not the component>
@@ -85,12 +87,12 @@ Written at step 6, in one pass, with no interview left to run. Every heading, in
 ## Seams and testing
 ## Out of scope
 ## Open questions
-## Ticket breakdown   — from /to-tickets, with the work graph
+## Ticket breakdown   — only when /to-tickets has run; "None." otherwise
 ```
 
 ### Rules for the spec
 
-1. **It is written once, at step 6.** There is no draft state and no ideation state — those happened on the page. `approved` is the first status the file can carry.
+1. **It is written once, at step 5.** There is no draft state and no ideation state — those happened on the page. `approved` is the first status the file can carry.
 2. **Nothing is capped.** No line budget, no five-item lists, no `<details>`. Every one of those bounds a human's reading, and no human is reading this. An agent reads the file whole or greps it; a collapsed section and a truncated list both cost it.
 3. **It is self-contained.** The page is not in the repo and does not outlive the sandbox. Anything agreed there and not written here is gone — the research, the rejected alternatives, and the reasoning behind each one.
 4. **Every decision carries what it cost.** The rejected alternatives are the most valuable content in the file: they are what stops the decision being re-litigated in six months. Never drop one for space.

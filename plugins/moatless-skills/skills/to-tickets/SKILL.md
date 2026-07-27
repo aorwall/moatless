@@ -47,15 +47,13 @@ Present the proposed breakdown as a numbered list. For each ticket, show:
 - **Blocked by**: which other tickets (if any) must complete first
 - **What it delivers**: the end-to-end behaviour this ticket makes work
 
-Ask the user:
+**Ask it as one selection question, not three.** The breakdown is a numbered list of real things, so "which of these are wrong" is the whole question — see `/grilling`'s second question shape. Asking granularity, edges and merge-or-split separately makes the user answer the same question three times, and `/writing-messages` caps a turn at one ask.
 
-- Does the granularity feel right? (too coarse / too fine)
-- Are the blocking edges correct — does each ticket only depend on tickets that genuinely gate it?
-- Should any tickets be merged or split further?
+> Which of these need changing — merged, split, or a wrong blocking edge? "All fine" if none.
 
 Iterate until the user approves the breakdown.
 
-**Coming from `/writing-specs`, draw the graph on its page first.** That page is the document the user is working against, and its Work section is empty until you fill it — put the dependency graph there before asking, so they can see the shape while they answer. The spec markdown does not exist yet; it gets written after this approval, and the graph goes into it then.
+**If a page exists for this work, draw the graph on it first.** Its Work section is empty until you fill it — put the dependency graph there before asking, so the user can see the shape while they answer. When the spec markdown already exists, the graph lands in its `## Ticket breakdown` after this approval.
 
 ### 5. Publish the tickets to the configured tracker
 
@@ -68,7 +66,7 @@ Work the **frontier**: any ticket whose blockers are all done. For a purely line
 
 Do NOT close or modify any parent issue.
 
-If the source was `/writing-specs`, the graph is already on its page from step 4. It lands in the spec's `## Ticket breakdown` when that file is written — after this approval, not before — so the spec and the tracker never disagree about what is left.
+If a spec exists for this work, write the graph into its `## Ticket breakdown` after this approval — not before — so the spec and the tracker never disagree about what is left. `/writing-specs` no longer runs this skill itself; `/orchestrate` does, once the spec is written.
 
 <local-ticket-template>
 

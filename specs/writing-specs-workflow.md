@@ -1,8 +1,13 @@
 # The workflow is described once, at the top
 
-> **Status:** approved
+> **Status:** shipped — step 5 superseded by [writing-messages.md](writing-messages.md)
 > **Updated:** 2026-07-27
 > **Vocabulary:** CONTEXT.md
+
+> **Superseded in part.** The six-step workflow below shipped as written. Step 5 — "Run `/to-tickets`" — was
+> later removed: a breakdown earns its own approval round only when something spawns work per ticket, which is
+> `/orchestrate`. Steps are now numbered 1–5, with "Write `specs/<slug>.md`, once" as step 5. The rest of this
+> record stands.
 
 ## Current solution
 

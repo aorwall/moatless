@@ -14,30 +14,16 @@ Four rules, always:
 - **Look facts up; only ask decisions.** If it can be found in the filesystem or with a tool, find it. Nothing burns attention faster than being asked something you could have read.
 - **Don't act until the user confirms** you have reached shared understanding.
 
-## One question, one screen
+**`/writing-messages` owns the shape of the turn** — where the ask sits, how the options are formatted so they render, what earns a place in the message and what goes on the page instead. This skill owns *which question to ask*. Read both; neither restates the other.
 
-```
-**Decisions 2 of 4** (Q3 of ~6) · settled so far: in-process seam, no new crate
+Two things here that the shape rules assume and don't supply:
 
-Where does the retry policy live — inside the harness, or in the coordinator?
-
-1. **Coordinator** — one policy for every harness; harness only classifies errors   ← recommended
-2. Harness — each CLI retries its own way; risks two divergent policies
-3. Both — harness retries transport, coordinator retries semantics; more moving parts
-
-Answer with a number, your own answer, or "you decide".
-```
-
-Four things are doing work there, and each maps to a fact about how this gets read:
-
-1. **The progress line.** The user cannot hold "we're on question 3 and we already settled the seam" between turns. Restate it every time — position within the batch, position overall, and what is already decided. Never ask them to remember an earlier answer.
-2. **A recommended default.** The gap between knowing and doing is where a session stalls. Lead with your recommendation; never ask a bare open question.
-3. **Ranked alternatives, not one path.** The alternatives *are* the thing the user has to hold — collapsing to a single option doesn't reduce load, it hides the choice. 2–4 options, one line of trade-off each, recommendation first.
-4. **The "you decide" escape.** A decision the user can't make is where the session dies. Let them hand it back, then record what you chose so it stays visible and reversible instead of silently becoming fact.
+- **A "you decide" escape on every question.** A decision the user can't make is where the session dies. Let them hand it back, then record what you chose so it stays visible and reversible instead of silently becoming fact.
+- **The progress line names what is already settled**, not just the position. The user cannot hold "we're on question 3 and we already agreed the seam" between turns, and being asked to re-derive it is how a session stalls.
 
 ## Two question shapes, and the second one is easy to miss
 
-**A ranked pick** — the block above. Right when the answer is genuinely one option out of a few: which language, where the seam sits, build it now or later.
+**A ranked pick** — 2–4 options, recommendation first, laid out as `/writing-messages` describes. Right when the answer is genuinely one option out of a few: which language, where the seam sits, build it now or later.
 
 **A selection from a set** — right when the answer is "which of these real things survive, and where does each go". Show the set: every item, one line each, with what you'd do with it. Then ask which survive.
 
@@ -83,7 +69,7 @@ A question that surfaces mid-interview is the work happening, not clutter — bu
 - **It needs the user but isn't blocking** → park it as an open question and move on. It gets surfaced once, where they will see it before agreeing.
 - **It blocks the current question** → it *becomes* the current question. Ask it instead, not as well.
 
-Never stack two questions in one turn unless the user asked for the whole batch — a batch they opted into is different, because the choosing already happened.
+The parked list is what makes the first two safe. Cutting a question from this turn means later, not gone — and an interviewer who doesn't believe that starts stacking questions to avoid losing them.
 
 ## If the outcome is a spec or a plan
 

@@ -22,7 +22,7 @@ Three artifacts, each with a distinct audience. `/writing-specs` owns when the f
 
 ## Phase 1 — Plan and break down
 
-Run **`/writing-specs`** and follow its workflow, then **`/to-tickets`** at its step 5. Both skills own their own approval gate; don't add a third.
+Run **`/writing-specs`** and follow its workflow to the written spec, then **`/to-tickets`**. `/writing-specs` has no ticket step — this skill is why one exists at all, because it is what spawns work per ticket. Both skills own their own approval gate; don't add a third.
 
 Three things differ at feature size:
 
