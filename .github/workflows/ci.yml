@@ -280,6 +280,17 @@ jobs:
         with:
           bun-version: latest
 
+      # `bun run` honours a bin's `#!/usr/bin/env node` shebang and only falls
+      # back to the Bun runtime when no `node` is on PATH. ubuntu-latest ships
+      # one; the arc-runner image does not (the runner's bundled
+      # externals/node* is private to the runner, not on PATH). Without this,
+      # test:scripts runs vitest under Bun and its tinypool worker dies on
+      # `TypeError: port.addListener is not a function`.
+      - name: Setup Node (vitest runtime for test:scripts)
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 20
+
       - name: Install dependencies
         run: bun install
 
