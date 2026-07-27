@@ -55,6 +55,8 @@ Ask the user:
 
 Iterate until the user approves the breakdown.
 
+**Coming from `/writing-specs`, draw the graph on its page first.** That page is the document the user is working against, and its Work section is empty until you fill it — put the dependency graph there before asking, so they can see the shape while they answer. The spec markdown does not exist yet; it gets written after this approval, and the graph goes into it then.
+
 ### 5. Publish the tickets to the configured tracker
 
 Publish the approved tickets. **How** depends on the tracker configured in `docs/agents/issue-tracker.md` — the tickets are the same either way, only the shape of the blocking edges changes:
@@ -66,7 +68,7 @@ Work the **frontier**: any ticket whose blockers are all done. For a purely line
 
 Do NOT close or modify any parent issue.
 
-If the source was a spec written with `/writing-specs`, paste the dependency graph into that spec's `## Ticket breakdown`, so the spec and the tracker never disagree about what is left.
+If the source was `/writing-specs`, the graph is already on its page from step 4. It lands in the spec's `## Ticket breakdown` when that file is written — after this approval, not before — so the spec and the tracker never disagree about what is left.
 
 <local-ticket-template>
 

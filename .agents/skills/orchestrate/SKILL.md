@@ -10,80 +10,29 @@ Drive a feature from idea to merged PRs: clarify → spec → review → tickets
 
 This skill spawns child Moatless tasks to implement work in parallel. Each child creates a PR and reports back; you run code review on each and advance blocked tickets as their dependencies land.
 
-Three artifacts are produced along the way, each with a distinct audience, and they do not all exist at once:
+Three artifacts, each with a distinct audience. `/writing-specs` owns when the first two appear; this skill owns the third.
 
-1. **HTML page** — `/opt/moatless/workspace/scratchpad/<feature-slug>.html`. One file at one URL, first rendered when the research lands and live until the breakdown is agreed. While that is happening it is **the only document**: the only thing the user is pointed at, and the only record of what has been settled. Every answer is recorded on it before the next question goes out; it is redrawn only when an answer made something already on it wrong. It never carries the question being asked — that is the chat's job.
-2. **Spec markdown** — `specs/<feature-slug>.md` in the repo. Written **once, after the plan and the breakdown are both agreed**, complete and uncapped, for the child agents. Inlined into every child's spawn message.
-3. **Ticket markdown files** — `/opt/moatless/workspace/plans/<feature-slug>/<NN>-<slug>.md` — one per ticket; each becomes the body of its child's spawn message.
-
-Nothing is drafted in `specs/` while the user is still deciding. A half-written spec is a second place for an answer to live, and the two disagree within a few questions.
-
----
-
-## Phase 1 — Alignment
-
-Run the `/writing-specs` skill and follow its sequence. **Research first:** read the affected code, work out how it behaves today, and render the page from it before asking anything — at feature size this is what stops the interview turning into an explanation session, because every later question can point at the page instead of carrying its own background. Give the URL once.
-
-Then follow its grill: open with the understanding batch (does the research match their model, and do the terms agree with `CONTEXT.md`), then scope, then decisions. One question per turn, each carrying your recommended answer and 2–4 ranked alternatives, each restating position and settled state. Name each batch and its size as it opens, and offer the whole batch at once the first time — a feature-sized interview is long enough that the shape should be the user's choice, not the skill's. Look codebase facts up rather than asking. Record load-bearing decisions as ADRs in `docs/adr/` as they land, and sharpen terms into `CONTEXT.md` as they settle.
-
-Record each answer on the page as it lands — one `Edit`, before the next question — and redraw only when an answer made something already on it wrong. Nothing goes into `specs/` yet. The question stays in chat.
-
-Stop when every section of the page is filled or explicitly parked into Open questions.
+| Artifact | Path | Read by |
+|---|---|---|
+| The page | `/opt/moatless/workspace/scratchpad/<feature-slug>.html` | The user, until the breakdown is agreed |
+| The spec | `specs/<feature-slug>.md` | The child agents — inlined into every spawn message |
+| Ticket files | `/opt/moatless/workspace/plans/<feature-slug>/<NN>-<slug>.md` | One per child, as its spawn message body |
 
 ---
 
-## Phase 2 — Agreement
+## Phase 1 — Plan and break down
 
-Still no spec file. Everything the user is agreeing to lives on the page.
+Run **`/writing-specs`** and follow its workflow, then **`/to-tickets`** at its step 5. Both skills own their own approval gate; don't add a third.
 
-Sketch the testing seams (fewest possible; prefer the highest seam). Confirm them with the user, and record the answer on the page.
+Three things differ at feature size:
 
-Draft the ticket breakdown now, before asking for approval — the work graph is part of what the user approves, and a plan agreed without it gets re-opened as soon as the shape of the work becomes visible.
-
-Paste the decision table into the message alongside the URL, so the choice is reachable without opening anything. **Wait for approval before continuing.** If they want changes, update the page and revise the draft breakdown. Iterate until they approve both the plan and the breakdown.
-
----
-
-## Phase 3 — Spec and tickets
-
-The user has approved the plan and the proposed breakdown. Now the markdown gets written, in this order.
-
-**First, the spec.** Write **`specs/<feature-slug>.md`** in one pass, in the shape `/writing-specs` defines — fixed heading order, nothing capped, every decision carrying the alternatives it beat. Use the domain glossary (`CONTEXT.md`) and existing ADRs throughout. This file is the child tasks' only view of the feature: the page is not in the repo, they cannot read it, and anything agreed there and not written here is lost.
-
-**Then the tickets.** One file per ticket to **`/opt/moatless/workspace/plans/<feature-slug>/<NN>-<slug>.md`**, numbered from `01` in dependency order.
-
-<ticket-template>
-# <NN> — <Ticket title>
-
-## What to build
-
-End-to-end behaviour this ticket makes work, from the user's perspective.
-
-## Spec reference
-
-Feature: <feature-slug> — `specs/<feature-slug>.md`
-
-## Blocked by
-
-Ticket numbers/titles that must complete before this one can start, or "None — can start immediately".
-
-## Acceptance criteria
-
-- [ ] Criterion 1
-- [ ] Criterion 2
-
-## Status
-
-ready-for-agent
-</ticket-template>
-
-In each ticket's Spec reference section, note that the full spec is included in the child's spawn message — children cannot read the orchestrator's files (see Phase 4).
-
-Present the breakdown as a numbered list (title / blocked-by / what it delivers). Ask whether granularity is right and whether edges are correct. Iterate until approved. Once approved, update the spec's `## Ticket breakdown` graph to match, then redraw the page with per-ticket cards below its existing sections, so the page the user has open matches the final plan.
+1. **The spec is the child tasks' only view.** They run in fresh sandboxes and cannot read the page, the ticket files, or anything else you have. Whatever is agreed on the page and not written into `specs/<feature-slug>.md` is lost — so completeness there is load-bearing, not stylistic.
+2. **Write ticket files to `/opt/moatless/workspace/plans/<feature-slug>/<NN>-<slug>.md`**, numbered from `01` in dependency order — that is this skill's tracker. Each ticket's Spec reference notes that the full spec is inlined into its spawn message, because children cannot read the orchestrator's files (see Phase 2).
+3. **Once the breakdown is approved, redraw the page with per-ticket cards** below its existing sections, so the page the user has open matches what is about to be spawned.
 
 ---
 
-## Phase 4 — Spawn
+## Phase 2 — Spawn
 
 Pick where each child runs — **workspace first, bare repo as fallback**:
 
@@ -156,7 +105,7 @@ Record a mapping of ticket number → child task ID for monitoring.
 
 ---
 
-## Phase 5 — Monitor and Review
+## Phase 3 — Monitor and Review
 
 Messages from child tasks arrive automatically as system reminders in your conversation — no polling needed. When a child runs `moat send --task $TASK_ID`, it appears inline and you are re-invoked to handle it.
 
@@ -192,7 +141,7 @@ Repeat until all tickets are complete and all PRs have passed review.
 
 ---
 
-## Phase 6 — Summary
+## Phase 4 — Summary
 
 Report to the user:
 

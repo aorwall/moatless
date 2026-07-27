@@ -39,17 +39,16 @@ Use plan mode for non-trivial changes. Identify which codebase area is affected:
 ### Sandbox Environment Prerequisites
 
 Moatless task sandboxes may not have the Rust toolchain preinstalled. Check
-first (`which cargo protoc`); if missing, bootstrap before running any cargo
-command:
+first (`which cargo`); if missing, bootstrap before running any cargo command:
 
 ```bash
 # Rust — rust-toolchain.toml is the version source of truth
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 . "$HOME/.cargo/env"
-
-# protoc — required to build crates/sandbox-proto (tonic/prost codegen)
-sudo apt-get update && sudo apt-get install -y protobuf-compiler
 ```
+
+No system `protoc` is needed: `crates/sandbox-proto` supplies one to
+tonic/prost codegen via the `protoc-bin-vendored` build-dependency.
 
 Docker is NOT available inside task sandboxes unless the repository config
 sets `dockerAccess: true` (which adds a dind sidecar). Without it, skip

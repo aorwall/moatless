@@ -1,60 +1,33 @@
-# The spec page
+# The spec page — layout
 
-One page at one URL, live from the end of research to approval. While the interview runs it is **the only document** — the only thing the user is pointed at, and the only record of what has been settled. `specs/<slug>.md` does not exist yet; it is written in one pass after the user says yes.
+What goes on the page and in what order. `/html-report` owns the rest: where the file goes, the preview URL, the Write-tool rule, the scaffold and the style baseline. **Read it first.**
 
-**Read [`/html-report`](../html-report/SKILL.md) first** — it owns where the file goes, the preview URL, the Write-tool rule, the scaffold and the style baseline. This file adds only what is specific to a spec.
+The page is `scratchpad/<slug>.html`, one file at one URL. `/writing-specs` says when it appears and when it changes.
 
-Naming: `scratchpad/<slug>.html`, using the **stable** rule from that skill, so an update keeps the same tab alive. Give the URL once, when the research lands.
+## The sections, in this order
 
-```
-<origin>/tasks/<task-id>?file=scratchpad%2F<slug>.html&fileView=preview
-```
+**1. Lede** — the top block, and the only part the user is guaranteed to read.
 
-## Recording versus redrawing
+- **After this ships** — one sentence naming what someone can do that they cannot today.
+- **In scope / out of scope** — two short lists side by side. "In" is the committed surface; "out" sets expectations about what won't be touched.
+- **Decisions** — one row per settled answer, added as each lands. Four columns, and **keep the rejected one**: the alternatives are what the user is being asked to approve, so dropping them to save space removes the point of the section. A decision still open gets its ranked options, marked visibly unresolved.
 
-Two operations, and they carry neither the same cost nor the same rule.
+**2. Current solution** — the state slice, the trace, the comparison tables. The page's first real content and the reason it exists this early: diagrams are exactly what a markdown preview cannot draw. It sits before the decisions because the reader needs the shape before the choices, and at approval it is what they check the decisions against.
 
-**Record — always, immediately.** An answer lands, it goes on the page before the next question is asked. The page is the only record there is, so an answer left in the chat survives exactly as long as the session does. This is one `Edit` adding a row or a bullet to a section that already exists, not a re-render.
+**3. Planned solution** — what gets built, growing through the interview. Not a restatement of the decision table: the table says what was chosen, this says what the thing does.
 
-**Redraw — only when the page is wrong.** Not on a cadence.
+**4. Open questions** — parked, nobody being asked. State the user needs to see before approving.
 
-| An answer… | Redraw? |
-|---|---|
-| Contradicts something already drawn | **Yes** — the page now asserts something false |
-| Changes scope, so part of the research no longer applies | **Yes** — wrong by omission |
-| Fills a section the page already shows as open | No — recording it is enough |
-| Adds detail under a heading already rendered | No |
+**5. Work** — the Mermaid dependency graph from `/to-tickets`, node colours by state, the `classDef` set from [DESIGN.md](DESIGN.md). Empty until the breakdown exists.
 
-The distinction is *wrong* versus *incomplete*. A visibly unfinished page costs nothing; a page asserting something since overturned costs a decision.
+Footer: the status line. Nothing else — no path to a spec file, because there isn't one until the page is approved.
 
-This replaced a board that re-rendered wholesale after **every answer**, which put three or four tool calls between the user answering and the next question. That cost came from rendering the *question* — a question one turn stale is a page that is wrong by definition, so it forced a full redraw every turn. Keeping questions in chat is what makes the rule above affordable.
+Sections 3 and 5 are empty for most of the interview and that is fine. **Leave them visible, with a "not settled yet" placeholder** — what is still open is information, and a section that silently isn't there reads as one nobody thought of.
 
-**First render:** as soon as the research is done, before the first question. Research is the part with shape in it — state diagrams, traces, comparison tables — and it is written once, so it costs exactly one render.
-
-## What the page renders
-
-Everything the user needs while planning, and nothing they are being asked right now.
-
-**1. What we're building** — one paragraph, plain language, no jargon. What will exist afterward that doesn't today?
-
-**2. In scope / out of scope** — two short lists side by side. "In" is the committed surface; "out" sets expectations about what won't be touched.
-
-**3. The research** — the state slice, the trace, the comparison tables. This is the page's first content and the reason it exists this early: diagrams are exactly what a markdown preview cannot draw. It sits before the decisions because the reader needs the shape before the choices, and by approval it is what they check the decisions against.
-
-**4. Decisions** — one row per settled answer, added as each lands. Render as a table and **keep the rejected column**: the alternatives are what the user is being asked to approve, so dropping them to save space removes the point of the section. Any decision still open gets its ranked options, marked as visibly unresolved.
-
-**5. Open questions** — parked, nobody being asked. These are state, and the user needs to see them before approving.
-
-**6. Work breakdown** — the Mermaid dependency graph, node colours by state, the `classDef` set from [DESIGN.md](DESIGN.md). The only technical detail on the page, and the user's chance to reshape the plan before work starts.
-
-Order on the page: what we're building → scope → **the research** → decisions → open questions → work. The first two are empty for most of the interview and that is fine; empty is incomplete, and incomplete is not misleading.
-
-Footer: the status line and the one next action. No path to a spec file — there isn't one until the page is approved.
-
-## Style notes on top of `/html-report`
+## Style, on top of `/html-report`
 
 - **The decision table is the centrepiece**, not a diagram. This is the one report type where a table carries more than the graphics — a spec review is a set of choices, and choices read better as rows than as boxes. Give it the weight the architecture report gives its before/after diagrams.
-- **Leave the unfilled sections visible**, with a "not settled yet" placeholder. What is still open is information; a section that silently isn't there reads as one nobody thought of.
 - **Status as a chip** in the header: amber while the interview runs, emerald once approved.
 - **Open questions get amber and sit above the fold.** An unresolved question the user scrolls past is the failure this page exists to prevent.
 - Keep `/html-report`'s restraint: one accent colour, red for problems, amber for warnings, generous whitespace.
+- **The question being asked never appears here.** It is asked in chat. A question one turn stale is a page that is wrong, which would force a redraw every turn.
