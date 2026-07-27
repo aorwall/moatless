@@ -22,7 +22,7 @@
 //!   same node.
 //!
 //! `Ephemeral`, `S3`, and `Node` skip the PVC ([`StorageBackend::uses_pvc`] is
-//! `false`). `S3` additionally runs the workspace-sync loop in the sandbox
+//! `false`). `S3` additionally enables after-turn workspace sync in the sandbox
 //! ([`StorageBackend::syncs_sandbox`]).
 
 use crate::sandbox::models::ProvisionPlan;
@@ -75,8 +75,8 @@ impl StorageBackend {
         matches!(self, Self::Ebs)
     }
 
-    /// True only for [`StorageBackend::S3`] — the sandbox runs the workspace-sync
-    /// loop and is handed `WORKSPACE_SYNC_ENABLED=true`.
+    /// True only for [`StorageBackend::S3`] — the sandbox syncs workspaces after
+    /// terminal agent turns and is handed `WORKSPACE_SYNC_ENABLED=true`.
     pub fn syncs_sandbox(self) -> bool {
         matches!(self, Self::S3)
     }
