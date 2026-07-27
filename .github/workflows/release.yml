@@ -23,7 +23,7 @@ env:
 jobs:
   # ── Shared setup: determine version + commit SHA ─────────────
   version:
-    runs-on: staging-runners-large
+    runs-on: staging-runners
     outputs:
       version: ${{ steps.version.outputs.version }}
       sha_tag: ${{ steps.version.outputs.sha_tag }}
@@ -50,7 +50,7 @@ jobs:
     # fp-v* tags, not Docker Hub. Gate keeps this job upstream-only.
     if: github.repository_owner == 'aorwall'
     # Stays GitHub-hosted: the gate above means this only ever runs under
-    # aorwall, where the soaplabs staging-runners-large pool doesn't exist —
+    # aorwall, where the soaplabs ARC runner pools don't exist —
     # a job targeting it there would queue forever.
     runs-on: ubuntu-latest
     steps:

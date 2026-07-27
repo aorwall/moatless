@@ -43,7 +43,7 @@ jobs:
   # ── Detect which areas of code changed (push only) ──
   detect-changes:
     name: Detect changes
-    runs-on: staging-runners-large
+    runs-on: staging-runners
     # Runs on any repo's push. Images publish to the REGISTRY_ORG Docker Hub
     # namespace (defaults to aorwall), so pushing requires the DOCKERHUB_*
     # secrets to be present with access to that org.
@@ -99,8 +99,8 @@ jobs:
         github.event_name == 'pull_request' ||
         github.event_name == 'workflow_dispatch'
       )
-    # Stays GitHub-hosted: `container:` jobs can't run on staging-runners-large.
-    # The ARC scale set has no dind-externals volume, so the JS-action runtime
+    # Stays GitHub-hosted: `container:` jobs can't run on either ARC pool.
+    # The scale sets have no dind-externals volume, so the JS-action runtime
     # bind-mounted into the job container is empty and every `uses:` step dies
     # on /__e/node20/bin/node.
     runs-on: ubuntu-latest

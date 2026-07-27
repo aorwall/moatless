@@ -10,8 +10,8 @@ name: E2E (manual)
 #   OPENAI_API_KEY                               — codex-sdk
 #   E2E_GITHUB_PAT                               — repo-clone / Playwright api suite
 #
-# Runner: these jobs stay on ubuntu-latest rather than the self-hosted
-# staging-runners-large pool. Every job here provisions a host toolchain
+# Runner: these jobs stay on ubuntu-latest rather than the self-hosted ARC
+# pools. Every job here provisions a host toolchain
 # (`sudo apt-get install protobuf-compiler`, `rustup target add`,
 # `cargo install cargo-zigbuild`, `pipx install ziglang`), and the arc-runner
 # image ships none of those — it runs as the unprivileged `runner` user with
