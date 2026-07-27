@@ -10,14 +10,15 @@ name: E2E (manual)
 #   OPENAI_API_KEY                               — codex-sdk
 #   E2E_GITHUB_PAT                               — repo-clone / Playwright api suite
 #
-# Runner: these jobs stay on ubuntu-latest rather than the self-hosted ARC
-# pools. Every job here provisions a host toolchain
-# (`sudo apt-get install protobuf-compiler`, `rustup target add`,
-# `cargo install cargo-zigbuild`, `pipx install ziglang`), and the arc-runner
-# image ships none of those — it runs as the unprivileged `runner` user with
-# no sudo and no Rust toolchain. Moving them needs either those tools baked
-# into the runner image (soap-platform-ci/docker/arc-runner) or the E2E work
-# moved onto the dedicated `e2e-runners` scale set.
+# Runner: the playwright suite runs on staging-runners-large (its
+# playwright-runner.sh needs only `docker`, which the DinD sidecar provides).
+# The other five jobs are the last ubuntu-latest holdouts in this repo: each
+# shells out to a host Rust toolchain — test-runner.sh requires `cargo`,
+# test-docker.sh requires `cargo-zigbuild` — plus `sudo apt-get` for protoc.
+# The arc-runner image ships none of that and runs as the unprivileged
+# `runner` user with no sudo, so a `runs-on` change alone would break them.
+# Fixing that means baking rust + cargo-zigbuild + ziglang + protoc into
+# soap-platform-ci/docker/arc-runner (or the e2e-runner image).
 
 on:
   workflow_dispatch:
@@ -73,7 +74,7 @@ jobs:
   playwright:
     name: Playwright (${{ inputs.playwright_suite }})
     if: inputs.playwright_suite != 'none'
-    runs-on: ubuntu-latest
+    runs-on: staging-runners-large
     steps:
       - uses: actions/checkout@v6
       - name: Run Playwright suite in Docker

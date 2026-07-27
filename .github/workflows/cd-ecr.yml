@@ -381,11 +381,7 @@ jobs:
       github.event_name == 'pull_request' ||
       needs.setup.outputs.build-backend == 'true' ||
       needs.setup.outputs.build-sandbox == 'true'
-    # 16-core: GitHub-hosted larger runner configured at the soaplabs org
-    # level. Hosted (not ARC) so JS actions inside the rust:1.94-bookworm
-    # container Just Work, unlike staging-runners-large which hit the
-    # /__e/node20/bin/node problem.
-    runs-on: 16-core
+    runs-on: staging-runners-large
     container:
       image: rust:1.97-bookworm
     steps:

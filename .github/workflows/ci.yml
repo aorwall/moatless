@@ -111,12 +111,7 @@ jobs:
         github.event_name == 'pull_request' ||
         github.event_name == 'workflow_dispatch'
       )
-    # Stays GitHub-hosted: `container:` jobs can't run on either ARC pool.
-    # The scale sets have no dind-externals volume, so the JS-action runtime
-    # the runner bind-mounts into the job container is empty and every
-    # `uses:` step dies on /__e/node20/bin/node (same reason cd-ecr.yml's
-    # build-binaries sits on 16-core).
-    runs-on: ubuntu-latest
+    runs-on: staging-runners-large
     container:
       image: rust:1.97-bookworm
     env:
@@ -164,9 +159,7 @@ jobs:
         github.event_name == 'pull_request' ||
         github.event_name == 'workflow_dispatch'
       )
-    # Stays GitHub-hosted for the same `container:`/dind-externals reason as
-    # rust-checks above.
-    runs-on: ubuntu-latest
+    runs-on: staging-runners-large
     # Build inside Debian 12 (bookworm) container so the binary links against
     # GLIBC 2.36, matching the distroless/cc-debian12 runtime image.
     container:
@@ -201,10 +194,12 @@ jobs:
     if: >-
       always() &&
       needs.build-backend.result == 'success'
-    # Stays GitHub-hosted: this job *executes* the backend binary, which
-    # build-backend links against GLIBC 2.36 (bookworm). The arc-runner image
-    # is Ubuntu 22.04 (GLIBC 2.35), so --dump-openapi would fail there.
-    runs-on: ubuntu-latest
+    runs-on: staging-runners
+    # Runs inside bookworm because it *executes* the backend binary, which
+    # build-backend links against GLIBC 2.36. The arc-runner image is Ubuntu
+    # 22.04 (GLIBC 2.35), so --dump-openapi would fail on the bare runner.
+    container:
+      image: debian:bookworm-slim
     steps:
       - name: Download backend binary
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8

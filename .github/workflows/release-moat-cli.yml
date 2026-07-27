@@ -12,11 +12,7 @@ on:
 
 jobs:
   build:
-    # Stays GitHub-hosted: `container:` jobs can't run on either ARC pool.
-    # The scale sets have no dind-externals volume, so the JS-action runtime
-    # bind-mounted into the job container is empty and every `uses:` step dies
-    # on /__e/node20/bin/node.
-    runs-on: ubuntu-latest
+    runs-on: staging-runners-large
     container:
       image: rust:1.97-bookworm
     permissions:
